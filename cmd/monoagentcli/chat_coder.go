@@ -26,12 +26,13 @@ type coderTurn struct {
 }
 
 // coderSystemPrompt is appended to the runtime's own system prompt (not a
-// replacement: monomind keeps the CLI's preset with --settings).
-func coderSystemPrompt(cwd string) string {
+// replacement: monomind keeps the CLI's preset with --settings). cli is the
+// monoagentInvocation its mono-agent section tells the agent to run.
+func coderSystemPrompt(cwd, cli string) string {
 	return "You are running as mono-agent's coder chat: a full coding-agent session with unrestricted " +
 		"access to this computer, working in " + cwd + ". The user sees every tool call you make " +
 		"(commands, edits, file writes) live in the chat. Work inside that folder unless the user " +
-		"asks for something elsewhere, and say plainly what you changed."
+		"asks for something elsewhere, and say plainly what you changed.\n\n" + monoagentPrompt(cli)
 }
 
 // runCoderTurn runs t through monomind with full access. journal is nil for
@@ -54,6 +55,7 @@ func runCoderTurn(cmd *cobra.Command, cfg *globalConfig, journal *turnJournal, t
 	if err != nil {
 		return err
 	}
+	self, _ := os.Executable() // "" when unknown; see monoagentInvocation
 	opts := monomind.ExecOptions{
 		Bin:          bin,
 		Runtime:      rt.ID,
@@ -68,7 +70,7 @@ func runCoderTurn(cmd *cobra.Command, cfg *globalConfig, journal *turnJournal, t
 		MaxTurns:     settings.MaxTurns,
 		Timeout:      settings.timeout(),
 		BudgetUSD:    settings.BudgetUSD,
-		SystemPrompt: coderSystemPrompt(t.cwd),
+		SystemPrompt: coderSystemPrompt(t.cwd, monoagentInvocation(self, cfg)),
 	}
 	onEvent := func(ev monomind.Event) {
 		b, _ := json.Marshal(ev)
