@@ -69,7 +69,8 @@ func coderSystemPrompt(cwd string) string {
 // context (who the chat works for, what that profile holds; secrets never)
 // when appAccess (coder.appAccess) is on, and the publication rules.
 func coderLeadSystemPrompt(ctx context.Context, db *sql.DB, cfg *Deps, cwd string, appAccess bool) string {
-	parts := []string{coderSystemPrompt(cwd), coderBrowserPrompt(cfg.ProfileID())}
+	self, _ := os.Executable() // "" when unknown; see monoagentInvocation
+	parts := []string{coderSystemPrompt(cwd), monoagentPrompt(monoagentInvocation(self, cfg.ProfileID(), cfg.DBPath())), coderBrowserPrompt(cfg.ProfileID())}
 	// Off, the profile summary (task titles, document and people names,
 	// workflows, accounts, vault item names) is not given to the model.
 	if appAccess {

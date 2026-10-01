@@ -2477,6 +2477,30 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
 - Coder turns get **none** of mono-agent's own tools, and in particular no
   message or people tools: synced messages are untrusted input and must never
   reach a turn with a shell. `--tools` is rejected for a coder conversation.
+- Instead of tools, every coder turn (a resumed one too) gets a section of its
+  system prompt that points the agent at mono-agent's automation surface: find
+  out what already exists (`workflow search`, `ref nodes`, `node schema`, the
+  bundled templates) before writing standalone code, build the result as a
+  workflow (`workflow templates use`, or a file written with `"is_active":
+  false` and stored with `workflow import` after `workflow validate`, tested
+  with `workflow run --dry-run`), and call any custom code from a `core.code`
+  or `system.execute_command` node. The section names this binary by absolute
+  path and pins the turn's `--profile` (and `--db-path` when it isn't the
+  default): the app may not have the CLI on the agent's PATH, and the CLI
+  ignores `MONOAGENT_PROFILE`. It teaches only commands that find, check,
+  store and dry-run (`workflow search`, `templates use`, `validate`, `import`,
+  `run --dry-run`, `node schema`, `ref`), never a real run or an activation:
+  the manual's example is active, and an active workflow's triggers fire on
+  their own once the daemon runs. It tells the agent to ask in the chat
+  before a real run, activating a workflow, or anything that acts on a real
+  account (`node run` executes a node for real, so that covers a node that
+  sends, posts or changes something; a plain lookup needs no ask), and never
+  to read or send the user's messages or people records or print a secret,
+  directly or through a workflow's output. That is guidance, not
+  enforcement: coder has no run gate like chat's `--tools monoagent,runs`, and
+  the agent's shell can run any command. Confined task and worker turns don't get it (the
+  lead can give mono-agent work to an `automation` worker, which has
+  `monoagentcli` hints of its own).
 - Every tool call is journaled (`tool.started` with `native: true` /
   `tool.completed`); startup progress and background processes left running
   arrive as `coder.status` / `coder.background` notices.
