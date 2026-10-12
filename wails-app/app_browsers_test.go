@@ -15,8 +15,9 @@ func fakeBrowsersCLI(t *testing.T) string {
 	script := `#!/bin/sh
 echo "$*" >> '` + argsLog + `'
 case "$*" in
-  *" extension browsers"*) echo '{"running":true,"browsers":[{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"p-work","profile_name":"Work","legacy":false,"conflict":false,"version":"1.5.0","connected_at":"2026-09-27T14:02:00Z"}]}';;
+  *" extension browsers"*) echo '{"running":true,"browsers":[{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"p-work","profile_name":"Work","profile_ids":["p-work"],"profile_names":["Work"],"legacy":false,"conflict":false,"version":"1.5.0","connected_at":"2026-09-27T14:02:00Z"}]}';;
   *" extension bind "*) echo '{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"p-home","profile_name":"Personal"}';;
+  *" extension assign "*) echo '{"profile_id":"p-home","instance":"3f2a91c0-0000-4000-8000-000000000001","changed":[{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"p-work","profile_ids":["p-work","p-home"],"profile_names":["Work","Personal"]}]}';;
   *" extension unbind "*) echo '{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"","profile_name":""}';;
   *) echo 'unexpected' >&2; exit 2;;
 esac
@@ -36,7 +37,7 @@ func TestBrowserBindingsShellOutToCLI(t *testing.T) {
 	a.setActiveProfileID("p-work")
 
 	rep, err := a.GetBrowsers()
-	if err != nil || !rep.Running || len(rep.Browsers) != 1 || rep.Browsers[0].ProfileName != "Work" {
+	if err != nil || !rep.Running || len(rep.Browsers) != 1 || rep.Browsers[0].ProfileName != "Work" || len(rep.Browsers[0].ProfileIDs) != 1 {
 		t.Fatalf("GetBrowsers = %+v, %v", rep, err)
 	}
 	row, err := a.BindBrowser("3f2a91c0-0000-4000-8000-000000000001", "p-home")
@@ -47,12 +48,22 @@ func TestBrowserBindingsShellOutToCLI(t *testing.T) {
 	if err != nil || row.ProfileID != "" {
 		t.Fatalf("unbind = %+v, %v", row, err)
 	}
+	rep2, err := a.AssignBrowser("p-home", "3f2a91c0-0000-4000-8000-000000000001")
+	if err != nil || len(rep2.Changed) != 1 || len(rep2.Changed[0].ProfileIDs) != 2 || rep2.Changed[0].ProfileNames[1] != "Personal" {
+		t.Fatalf("AssignBrowser = %+v, %v", rep2, err)
+	}
+	if _, err := a.AssignBrowser("p-home", ""); err != nil {
+		t.Fatalf("assign to no browser: %v", err)
+	}
+	if _, err := a.AssignBrowser("", "x"); err == nil {
+		t.Fatal("an empty profile must be refused before shelling out")
+	}
 	if _, err := a.BindBrowser("", "p-home"); err == nil {
 		t.Fatal("an empty browser id must be refused before shelling out")
 	}
 
 	log, _ := os.ReadFile(argsLog)
-	for _, want := range []string{"extension browsers", "extension bind 3f2a91c0-0000-4000-8000-000000000001 p-home", "extension unbind 3f2a91c0-0000-4000-8000-000000000001"} {
+	for _, want := range []string{"extension browsers", "extension bind 3f2a91c0-0000-4000-8000-000000000001 p-home", "extension unbind 3f2a91c0-0000-4000-8000-000000000001", "extension assign p-home 3f2a91c0-0000-4000-8000-000000000001"} {
 		if !strings.Contains(string(log), want) {
 			t.Errorf("argv log missing %q:\n%s", want, log)
 		}

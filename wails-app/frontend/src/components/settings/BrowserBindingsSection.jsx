@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { GetBrowsers, BindBrowser, GetProfiles } from '../../wailsjs/go/main/App'
+import { GetBrowsers, AssignBrowser, GetProfiles } from '../../wailsjs/go/main/App'
 
-// Which browser each profile's automations run in. Everything goes through
-// `monoagentcli extension browsers|bind|unbind` (app_browsers.go). The
+// Which browser each MonoAgent profile's automations run in. One row per
+// profile; any number of profiles may pick the same browser. Everything goes
+// through `monoagentcli extension browsers|assign` (app_browsers.go). The
 // binding lives in each browser's extension; this only asks it to change.
 
 const mono = 'var(--font-mono)'
@@ -21,6 +22,10 @@ const name = { fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--tex
 const selectStyle = { minWidth: 180 }
 
 export const BROWSERS_POLL_MS = 10000
+
+// The profiles a browser runs. An older CLI reports only the first one.
+const profileIdsOf = (b) => b.profile_ids || (b.profile_id ? [b.profile_id] : [])
+const browserTitle = (b) => `${b.label || 'Browser'} · ${b.instance.slice(0, 8)}`
 
 const errMsg = (e) => String(e?.message || e || 'unknown error')
 
@@ -54,10 +59,10 @@ export default function BrowserBindingsSection() {
     return () => { window.removeEventListener('focus', onFocus); clearInterval(id) }
   }, [load])
 
-  const bind = async (instance, profileId) => {
-    setBusy(instance)
+  const assign = async (profileId, instance) => {
+    setBusy(profileId)
     try {
-      await BindBrowser(instance, profileId)
+      await AssignBrowser(profileId, instance)
       await load()
     } catch (e) {
       setError(errMsg(e))
@@ -67,12 +72,14 @@ export default function BrowserBindingsSection() {
   }
 
   const browsers = report?.browsers || []
+  // The browser a profile shows as: the first (newest) that runs it.
+  const runners = (profileId) => browsers.filter((b) => profileIdsOf(b).includes(profileId))
   return (
     <div ref={cardRef} style={card} data-testid="browser-bindings">
       <div style={label}>Browsers</div>
       <div style={hint}>
-        Each browser profile with the MonoAgent Bridge extension can run one profile's automations,
-        signed in as that browser's accounts. Profiles bound to different browsers run side by side.
+        Profiles can share a browser; they then share that browser's logged-in accounts. Profiles on
+        different browsers run side by side.
       </div>
       {error && <div style={errText} role="alert">{error}</div>}
       {report && !report.running && <div style={hint}>{report.hint || 'No bridge is running.'}</div>}
@@ -80,32 +87,51 @@ export default function BrowserBindingsSection() {
       {report?.running && !report.hint && browsers.length === 0 && (
         <div style={hint}>No browser is attached. Open a browser that has the MonoAgent Bridge extension.</div>
       )}
-      {browsers.map((b) => {
-        const title = b.label || b.instance.slice(0, 8)
+      {profiles.map((p) => {
+        const using = runners(p.id)
         return (
-          <div key={b.instance} data-browser={b.instance} style={row}>
+          <div key={p.id} data-profile={p.id} style={row}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={name}>{title}</div>
-              <div style={hint}>{b.instance.slice(0, 8)}{b.version ? ` · extension ${b.version}` : ''}</div>
-              {b.conflict && <div style={warnText}>Another browser is bound to the same profile — only the most recently connected one is used.</div>}
-              {b.legacy && <div style={warnText}>This browser's extension is too old to bind. Reload it from the browser's extensions page.</div>}
+              <div style={name}>{p.name}{p.is_active ? ' (active)' : ''}</div>
+              {using.length > 1 && (
+                <div style={warnText}>More than one browser runs this profile — only the most recently connected one is used.</div>
+              )}
             </div>
             <select
-              aria-label={`Profile for ${b.label || b.instance}`}
-              value={b.profile_id || ''}
-              disabled={b.legacy || busy === b.instance}
-              onChange={(e) => bind(b.instance, e.target.value)}
+              aria-label={`Browser for ${p.name}`}
+              value={using[0]?.instance || ''}
+              disabled={busy === p.id || browsers.length === 0}
+              onChange={(e) => assign(p.id, e.target.value)}
               style={selectStyle}
             >
-              <option value="">Any profile (default browser)</option>
-              {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              {b.profile_id && !profiles.some((p) => p.id === b.profile_id) && (
-                <option value={b.profile_id}>{b.profile_id} (unknown)</option>
-              )}
+              <option value="">Any browser (default)</option>
+              {browsers.map((b) => (
+                <option key={b.instance} value={b.instance} disabled={b.legacy}>
+                  {browserTitle(b)}{b.legacy ? ' (too old to bind)' : ''}
+                </option>
+              ))}
             </select>
           </div>
         )
       })}
+      {browsers.length > 0 && (
+        <div style={{ ...row, flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+          {browsers.map((b) => {
+            const n = profileIdsOf(b).length
+            return (
+              <div key={b.instance} data-browser={b.instance} style={hint}>
+                {browserTitle(b)}{b.version ? ` · extension ${b.version}` : ''}
+                {': '}
+                {b.legacy
+                  ? "this browser's extension is too old to bind. Reload it from the browser's extensions page."
+                  : n === 0
+                    ? 'no profiles of its own (the default browser)'
+                    : `${n} ${n === 1 ? 'profile uses' : 'profiles use'} this browser`}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -174,6 +174,10 @@ export function ApprovePendingPerson(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApprovePendingPerson'](arg1, arg2, arg3);
 }
 
+export function AssignBrowser(arg1, arg2) {
+  return window['go']['main']['App']['AssignBrowser'](arg1, arg2);
+}
+
 export function AssignOrgRole(arg1, arg2, arg3) {
   return window['go']['main']['App']['AssignOrgRole'](arg1, arg2, arg3);
 }
