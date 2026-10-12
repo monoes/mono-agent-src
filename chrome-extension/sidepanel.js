@@ -412,7 +412,7 @@ function drawProfiles(state) {
   if (!captureBtn.dataset.busy && !captureBtn.dataset.done) captureLabel.textContent = profiles.saveLabel;
   batchDest.textContent = current.id ? current.name : "the shared inbox";
 
-  // The binding select offers the same list; redraw it when the list changes.
+  // The binding checklist offers the same list; redraw it when the list changes.
   if (typeof panelBinding !== "undefined") panelBinding.redraw();
   // The task box names the profile too (sidepanel_tasks.js).
   document.dispatchEvent(new CustomEvent("panel:profiles"));
@@ -1099,7 +1099,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // The binding can change while this panel is open (`extension bind`, the
   // app's Settings → Browsers). Redraw it, or the next Save would write the
   // stale choice back and silently undo that bind.
-  if ((changes[MonoBrowserBinding.PROFILE_KEY] || changes[MonoBrowserBinding.LABEL_KEY]) && typeof panelBinding !== "undefined") {
+  if ((changes[MonoBrowserBinding.PROFILE_KEY] || changes[MonoBrowserBinding.PROFILE_IDS_KEY] || changes[MonoBrowserBinding.LABEL_KEY]) && typeof panelBinding !== "undefined") {
     panelBinding.refresh().catch(() => {});
   }
   if (changes.captureProfile && lastFormState) {
@@ -1142,7 +1142,7 @@ window.addEventListener("focus", drawShortcut);
 // --- connection settings ---------------------------------------------------
 
 // Which profile this browser runs automations for (sidepanel_binding.js).
-// Its select reuses the capture picker's profile list.
+// Its checklist reuses the capture picker's profile list.
 const panelBinding = MonoPanelBinding.install({
   doc: document,
   storage: chrome.storage.local,

@@ -392,11 +392,12 @@
         <summary><span>Connection settings</span></summary>
         <div class="panel-body">
           <div class="field" id="binding-field">
-            <label for="binding-profile">Automations in this browser</label>
-            <select id="binding-profile"></select>
+            <label id="binding-profile-label">Automations in this browser</label>
+            <div id="binding-profile" class="checklist" role="group" aria-labelledby="binding-profile-label"></div>
             <p class="note-line">
-              Workflows for the chosen profile open their tabs here, signed in as this browser's accounts.
-              "Any profile" makes this the default browser for profiles that have none of their own.
+              Workflows for the ticked profiles open their tabs here, signed in as this browser's accounts.
+              Tick as many as you like; they share this browser's logins. Tick none to make this the
+              default browser for profiles that have none of their own.
             </p>
             <label for="binding-label">Name for this browser</label>
             <input type="text" id="binding-label" maxlength="60" placeholder="e.g. Edge — Work" />

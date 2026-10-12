@@ -96,7 +96,7 @@ test("other shortcuts are not the task menu's", () => {
 
 test("the manifest declares the shortcut, a minor version up, and no new permission", () => {
   const manifest = JSON.parse(readFileSync(join(HERE, "manifest.json"), "utf8"));
-  assert.equal(manifest.version, "1.7.1");
+  assert.equal(manifest.version, "1.8.0");
   assert.deepEqual(manifest.permissions, [
     "tabs", "scripting", "activeTab", "storage", "alarms", "debugger",
     "cookies", "contextMenus", "tabGroups", "sidePanel", "webNavigation",
