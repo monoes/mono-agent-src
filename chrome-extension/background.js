@@ -82,7 +82,7 @@ let ws = null;
 let connectionStatus = "disconnected"; // "connected" | "disconnected" | "connecting" | "unpaired"
 // This browser's identity and binding (browser_binding.js), loaded before
 // every dial and kept current by the storage listener below.
-let binding = { instance: "", profile: "", label: "" };
+let binding = { instance: "", profile: "", profiles: [], label: "" };
 
 function loadBinding() {
   return MonoBrowserBinding.load(chrome.storage.local, {
@@ -786,7 +786,7 @@ function statusPayload() {
     code: connectionReason === AUTOPAIR_WAITING ? pairCode : "",
     claimId: connectionReason === AUTOPAIR_WAITING ? pairClaimId : "",
     since: connectionSince,
-    binding: { instance: binding.instance, profile: binding.profile, label: binding.label },
+    binding: { instance: binding.instance, profile: binding.profile, profiles: binding.profiles, label: binding.label },
     // The gate (account_state.js): false shows the sign-in screen and nothing else.
     signedIn: gate.signedIn(),
     // What the bridge said about the monoes.me account; the side panel words it.

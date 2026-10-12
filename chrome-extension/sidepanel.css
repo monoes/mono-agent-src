@@ -644,6 +644,21 @@ input[type="text"],
   cursor: pointer;
 }
 
+.checklist {
+  max-height: 160px;
+  overflow-y: auto;
+  cursor: default;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
 input[type="text"].mono {
   font-family: var(--mono);
 }

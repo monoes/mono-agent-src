@@ -10,12 +10,17 @@
  *   which is per browser profile. It is how the bridge recognises the same
  *   browser across worker restarts.
  *
- *   BINDING. The monoagent profile whose browser actions run here, or "" for
- *   a default browser (runs profiles that have no browser of their own). Set
- *   in the side panel, or remotely with `monoagentcli extension bind`
+ *   BINDING. The SET of monoagent profiles whose browser actions run here
+ *   (any number of profiles may share one browser), or empty for a default
+ *   browser (runs profiles that have no browser of their own). Set in the
+ *   side panel, or remotely with `monoagentcli extension bind/unbind/assign`
  *   (a set_binding command). Either way it lands in storage, and the worker
  *   tells the bridge with a kind:"binding" frame. The socket is never
  *   reconnected for it, because that would drop a run's in-flight commands.
+ *
+ *   Storage keeps two fields: boundProfiles (the array) and the legacy
+ *   boundProfile (the first id, for bridges that only know one). An install
+ *   that only has the legacy field is read as a one-element set.
  *
  * isValidProfileId is kept identical to profiledir.ValidProfileID (Go) and
  * MonoCaptureProfile.isValidProfileId: the id becomes a directory name on
@@ -26,10 +31,12 @@
   "use strict";
 
   const INSTANCE_KEY = "bridgeInstanceId";
-  const PROFILE_KEY = "boundProfile";
+  const PROFILE_KEY = "boundProfile"; // legacy: the first id of the set
+  const PROFILE_IDS_KEY = "boundProfiles";
   const LABEL_KEY = "browserLabel";
-  const KEYS = [INSTANCE_KEY, PROFILE_KEY, LABEL_KEY];
+  const KEYS = [INSTANCE_KEY, PROFILE_KEY, PROFILE_IDS_KEY, LABEL_KEY];
   const MAX_LABEL = 60;
+  const MAX_PROFILES = 64; // keep identical to maxProfilesPerBrowser (Go)
   const INSTANCE_RE = /^[A-Za-z0-9-]{8,64}$/;
 
   function isValidProfileId(id) {
@@ -38,6 +45,24 @@
     if (value.includes("/") || value.includes("\\")) return false;
     if (value.includes("..")) return false;
     return true;
+  }
+
+  /** cleanIds trims, drops invalid ids and duplicates, keeps order. */
+  function cleanIds(list) {
+    const out = [];
+    for (const v of Array.isArray(list) ? list : []) {
+      if (!isValidProfileId(v)) continue;
+      const id = v.trim();
+      if (!out.includes(id)) out.push(id);
+      if (out.length >= MAX_PROFILES) break;
+    }
+    return out;
+  }
+
+  /** storedIds reads the set: the array if present, else the legacy field. */
+  function storedIds(stored) {
+    if (Array.isArray(stored[PROFILE_IDS_KEY])) return cleanIds(stored[PROFILE_IDS_KEY]);
+    return cleanIds([stored[PROFILE_KEY]]);
   }
 
   function browserName(ua) {
@@ -82,54 +107,87 @@
         }
       }
     }
-    const profile = isValidProfileId(stored[PROFILE_KEY]) ? stored[PROFILE_KEY].trim() : "";
+    const profiles = storedIds(stored);
     const label = cleanLabel(stored[LABEL_KEY]) || defaultLabel(o.userAgent, instance);
-    return { instance, profile, label };
+    return { instance, profile: profiles[0] || "", profiles, label };
+  }
+
+  function profileList(state) {
+    if (Array.isArray(state.profiles)) return cleanIds(state.profiles);
+    return cleanIds([state.profile]);
   }
 
   /** authFields is what the worker adds to its auth frame. */
   function authFields(state, version) {
     const out = { instance: state.instance, label: state.label, version: String(version || "") };
-    if (state.profile) out.profile = state.profile;
+    const profiles = profileList(state);
+    // profiles for this bridge; profile (the first) for bridges that only
+    // know one binding per browser.
+    if (profiles.length) {
+      out.profiles = profiles;
+      out.profile = profiles[0];
+    }
     return out;
   }
 
-  /** setBinding stores {profile, label?}. "" profile unbinds. */
+  /**
+   * setBinding stores {profiles?, profile?, label?}. profiles (an array)
+   * replaces the whole set; the legacy profile (a string) replaces it with
+   * that one id. An empty set unbinds. With neither, the set is untouched.
+   */
   async function setBinding(storage, params) {
     const p = params || {};
-    const raw = typeof p.profile === "string" ? p.profile : "";
-    if (raw.trim() && !isValidProfileId(raw)) throw new Error("invalid profile id");
-    const update = { [PROFILE_KEY]: raw.trim() };
+    let ids = null;
+    if (Array.isArray(p.profiles)) {
+      if (p.profiles.length > MAX_PROFILES) throw new Error("too many profiles");
+      for (const v of p.profiles) {
+        if (typeof v !== "string" || !isValidProfileId(v)) throw new Error("invalid profile id");
+      }
+      ids = cleanIds(p.profiles);
+    } else if (typeof p.profile === "string") {
+      if (p.profile.trim() && !isValidProfileId(p.profile)) throw new Error("invalid profile id");
+      ids = cleanIds([p.profile]);
+    }
+    const update = {};
+    if (ids) {
+      update[PROFILE_IDS_KEY] = ids;
+      update[PROFILE_KEY] = ids[0] || "";
+    }
     if (typeof p.label === "string") update[LABEL_KEY] = cleanLabel(p.label);
     await storage.set(update);
-    return { profile: update[PROFILE_KEY], label: update[LABEL_KEY] };
+    return { profile: update[PROFILE_KEY], profiles: update[PROFILE_IDS_KEY], label: update[LABEL_KEY] };
   }
 
   function bindingFrame(state) {
-    return { kind: "binding", profile: state.profile || "", label: state.label || "" };
+    const profiles = profileList(state);
+    return { kind: "binding", profile: profiles[0] || "", profiles, label: state.label || "" };
   }
 
   function isBindingChange(changes, area) {
-    return area === "local" && !!changes && (PROFILE_KEY in changes || LABEL_KEY in changes);
+    return area === "local" && !!changes && (PROFILE_KEY in changes || PROFILE_IDS_KEY in changes || LABEL_KEY in changes);
   }
 
-  /** options is what the side panel's select offers. */
-  function options(profiles, bound) {
-    const list = [{ id: "", name: "Any profile (default browser)", selected: !bound }];
-    let found = false;
+  /** choices is what the side panel's checklist offers: every profile, ticked
+   *  when bound here. A bound id the list no longer has stays, so it can be
+   *  unticked. */
+  function choices(profiles, bound) {
+    const ids = cleanIds(bound);
+    const list = [];
+    const seen = new Set();
     for (const p of Array.isArray(profiles) ? profiles : []) {
-      if (!p || !isValidProfileId(p.id)) continue;
-      const selected = p.id === bound;
-      found = found || selected;
-      list.push({ id: p.id, name: p.name || p.id, selected });
+      if (!p || !isValidProfileId(p.id) || seen.has(p.id)) continue;
+      seen.add(p.id);
+      list.push({ id: p.id, name: p.name || p.id, checked: ids.includes(p.id) });
     }
-    if (bound && !found) list.push({ id: bound, name: `${bound} (no longer exists)`, selected: true });
+    for (const id of ids) {
+      if (!seen.has(id)) list.push({ id, name: `${id} (no longer exists)`, checked: true });
+    }
     return list;
   }
 
   root.MonoBrowserBinding = {
-    INSTANCE_KEY, PROFILE_KEY, LABEL_KEY, MAX_LABEL,
+    INSTANCE_KEY, PROFILE_KEY, PROFILE_IDS_KEY, LABEL_KEY, MAX_LABEL, MAX_PROFILES,
     isValidProfileId, browserName, cleanLabel, defaultLabel,
-    load, authFields, setBinding, bindingFrame, isBindingChange, options,
+    cleanIds, load, authFields, setBinding, bindingFrame, isBindingChange, choices,
   };
 })(globalThis);

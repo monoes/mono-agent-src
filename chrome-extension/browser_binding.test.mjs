@@ -51,47 +51,109 @@ test("default label names the browser", async () => {
   assert.match(state.label, /^Edge /);
 });
 
-test("auth fields leave out an empty profile", () => {
-  const f = B.authFields({ instance: "abcdefgh-1", profile: "", label: "Edge" }, "1.5.0");
-  assert.deepEqual(f, { instance: "abcdefgh-1", label: "Edge", version: "1.5.0" });
-  const g = B.authFields({ instance: "abcdefgh-1", profile: "p-work", label: "Edge" }, "1.5.0");
-  assert.equal(g.profile, "p-work");
+test("auth fields leave out an empty set", () => {
+  const f = B.authFields({ instance: "abcdefgh-1", profile: "", profiles: [], label: "Edge" }, "1.12.0");
+  assert.deepEqual(f, { instance: "abcdefgh-1", label: "Edge", version: "1.12.0" });
 });
 
-test("setBinding stores a valid profile and a trimmed label", async () => {
+test("auth fields send the set and, for old bridges, the first id as profile", () => {
+  const g = B.authFields({ instance: "abcdefgh-1", profiles: ["p-work", "p-home"], label: "Edge" }, "1.12.0");
+  assert.deepEqual(g.profiles, ["p-work", "p-home"]);
+  assert.equal(g.profile, "p-work");
+  const legacy = B.authFields({ instance: "abcdefgh-1", profile: "p-work", label: "Edge" }, "1.12.0");
+  assert.deepEqual(legacy.profiles, ["p-work"]);
+});
+
+test("a legacy single binding reads as a one-element set", async () => {
+  const state = await B.load(fakeStorage({ [B.PROFILE_KEY]: "p-old" }), { userAgent: EDGE_UA });
+  assert.deepEqual(state.profiles, ["p-old"]);
+  assert.equal(state.profile, "p-old");
+});
+
+test("the array wins over a stale legacy field; invalid ids and duplicates are dropped", async () => {
+  const state = await B.load(
+    fakeStorage({ [B.PROFILE_KEY]: "p-old", [B.PROFILE_IDS_KEY]: ["p-a", "../x", "p-b", " p-a "] }),
+    { userAgent: EDGE_UA },
+  );
+  assert.deepEqual(state.profiles, ["p-a", "p-b"]);
+  assert.equal(state.profile, "p-a");
+});
+
+test("an empty array means unbound even if the legacy field is stale", async () => {
+  const state = await B.load(fakeStorage({ [B.PROFILE_KEY]: "p-old", [B.PROFILE_IDS_KEY]: [] }), { userAgent: EDGE_UA });
+  assert.deepEqual(state.profiles, []);
+  assert.equal(state.profile, "");
+});
+
+test("setBinding stores the set, the first id in the legacy field, and a trimmed label", async () => {
   const storage = fakeStorage();
-  const out = await B.setBinding(storage, { profile: " p-work ", label: "  Edge   Work " });
-  assert.deepEqual(out, { profile: "p-work", label: "Edge Work" });
+  const out = await B.setBinding(storage, { profiles: [" p-work ", "p-home", "p-work"], label: "  Edge   Work " });
+  assert.deepEqual(out, { profile: "p-work", profiles: ["p-work", "p-home"], label: "Edge Work" });
+  assert.deepEqual(storage.data[B.PROFILE_IDS_KEY], ["p-work", "p-home"]);
   assert.equal(storage.data[B.PROFILE_KEY], "p-work");
 });
 
-test("setBinding refuses a path-like profile and keeps the old one", async () => {
-  const storage = fakeStorage({ [B.PROFILE_KEY]: "p-home" });
-  await assert.rejects(() => B.setBinding(storage, { profile: "../etc" }), /invalid profile/);
-  assert.equal(storage.data[B.PROFILE_KEY], "p-home");
+test("setBinding with the legacy profile replaces the set with that one id", async () => {
+  const storage = fakeStorage({ [B.PROFILE_IDS_KEY]: ["p-a", "p-b"], [B.PROFILE_KEY]: "p-a" });
+  await B.setBinding(storage, { profile: "p-work" });
+  assert.deepEqual(storage.data[B.PROFILE_IDS_KEY], ["p-work"]);
+  assert.equal(storage.data[B.PROFILE_KEY], "p-work");
 });
 
-test("unbinding stores an empty profile and leaves the label alone", async () => {
-  const storage = fakeStorage({ [B.PROFILE_KEY]: "p-home", [B.LABEL_KEY]: "Mine" });
-  await B.setBinding(storage, { profile: "" });
-  assert.equal(storage.data[B.PROFILE_KEY], "");
+test("setBinding with only a label leaves the set alone", async () => {
+  const storage = fakeStorage({ [B.PROFILE_IDS_KEY]: ["p-a", "p-b"], [B.PROFILE_KEY]: "p-a" });
+  await B.setBinding(storage, { label: "Mine" });
+  assert.deepEqual(storage.data[B.PROFILE_IDS_KEY], ["p-a", "p-b"]);
   assert.equal(storage.data[B.LABEL_KEY], "Mine");
 });
 
-test("options: 'Any profile' first, the bound one selected, an unknown bound id kept", () => {
+test("setBinding refuses a path-like profile anywhere in the set and keeps the old set", async () => {
+  const storage = fakeStorage({ [B.PROFILE_KEY]: "p-home", [B.PROFILE_IDS_KEY]: ["p-home"] });
+  await assert.rejects(() => B.setBinding(storage, { profile: "../etc" }), /invalid profile/);
+  await assert.rejects(() => B.setBinding(storage, { profiles: ["p-ok", "a/b"] }), /invalid profile/);
+  await assert.rejects(() => B.setBinding(storage, { profiles: [42] }), /invalid profile/);
+  assert.equal(storage.data[B.PROFILE_KEY], "p-home");
+  assert.deepEqual(storage.data[B.PROFILE_IDS_KEY], ["p-home"]);
+});
+
+test("unbinding stores an empty set and leaves the label alone", async () => {
+  const storage = fakeStorage({ [B.PROFILE_KEY]: "p-home", [B.PROFILE_IDS_KEY]: ["p-home"], [B.LABEL_KEY]: "Mine" });
+  await B.setBinding(storage, { profiles: [] });
+  assert.deepEqual(storage.data[B.PROFILE_IDS_KEY], []);
+  assert.equal(storage.data[B.PROFILE_KEY], "");
+  assert.equal(storage.data[B.LABEL_KEY], "Mine");
+  await B.setBinding(storage, { profile: "" });
+  assert.equal(storage.data[B.PROFILE_KEY], "");
+});
+
+test("choices: every profile listed, bound ones checked, an unknown bound id kept", () => {
   const profiles = [{ id: "p-home", name: "Personal" }, { id: "p-work", name: "Work" }];
-  const opts = B.options(profiles, "p-work");
-  assert.equal(opts[0].id, "");
-  assert.equal(opts.find((o) => o.selected).id, "p-work");
-  const stale = B.options(profiles, "p-gone");
-  assert.equal(stale.find((o) => o.selected).id, "p-gone");
+  const c = B.choices(profiles, ["p-work", "p-home"]);
+  assert.deepEqual(c.map((x) => x.checked), [true, true]);
+  assert.deepEqual(B.choices(profiles, []).map((x) => x.checked), [false, false]);
+  const stale = B.choices(profiles, ["p-gone"]);
+  assert.equal(stale.find((o) => o.checked).id, "p-gone");
   assert.match(stale.find((o) => o.id === "p-gone").name, /no longer exists/);
 });
 
-test("binding frame and change detection", () => {
-  assert.deepEqual(B.bindingFrame({ profile: "p-work", label: "Edge" }), { kind: "binding", profile: "p-work", label: "Edge" });
+test("binding frame carries the set and the first id; change detection sees the new key", () => {
+  assert.deepEqual(
+    B.bindingFrame({ profiles: ["p-work", "p-home"], label: "Edge" }),
+    { kind: "binding", profile: "p-work", profiles: ["p-work", "p-home"], label: "Edge" },
+  );
+  assert.deepEqual(B.bindingFrame({ profile: "", label: "" }), { kind: "binding", profile: "", profiles: [], label: "" });
   assert.equal(B.isBindingChange({ [B.PROFILE_KEY]: {} }, "local"), true);
+  assert.equal(B.isBindingChange({ [B.PROFILE_IDS_KEY]: {} }, "local"), true);
   assert.equal(B.isBindingChange({ [B.LABEL_KEY]: {} }, "local"), true);
   assert.equal(B.isBindingChange({ captureProfile: {} }, "local"), false);
-  assert.equal(B.isBindingChange({ [B.PROFILE_KEY]: {} }, "session"), false);
+  assert.equal(B.isBindingChange({ [B.PROFILE_IDS_KEY]: {} }, "session"), false);
+});
+
+test("the set is capped: reading drops the excess, setBinding refuses it and keeps the old set", async () => {
+  const many = Array.from({ length: B.MAX_PROFILES + 5 }, (_, i) => `p-${i}`);
+  const st = fakeStorage({ bridgeInstanceId: "abcdefgh-1", boundProfiles: many });
+  assert.equal((await B.load(st, {})).profiles.length, B.MAX_PROFILES);
+  const ok = fakeStorage({ boundProfiles: ["p-a"] });
+  await assert.rejects(B.setBinding(ok, { profiles: many }), /too many/);
+  assert.deepEqual(ok.data.boundProfiles, ["p-a"]);
 });
