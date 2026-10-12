@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
-	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
 // One bridge, several browsers.
@@ -54,14 +52,17 @@ type Target struct {
 
 // ConnInfo describes one connected browser.
 type ConnInfo struct {
-	Instance    string    `json:"instance"`
-	Profile     string    `json:"profile,omitempty"`
+	Instance string `json:"instance"`
+	// Profile is the first profile of ProfileIDs, kept for older CLIs.
+	Profile string `json:"profile,omitempty"`
+	// ProfileIDs is every profile this browser runs; empty = unbound.
+	ProfileIDs  []string  `json:"profile_ids,omitempty"`
 	Label       string    `json:"label,omitempty"`
 	Version     string    `json:"version,omitempty"`
 	Legacy      bool      `json:"legacy,omitempty"`
 	ConnectedAt time.Time `json:"connectedAt"`
-	// Conflict: another connected browser is bound to the same profile.
-	// Only the newest of them is used.
+	// Conflict: another connected browser runs one of the same profiles.
+	// Only the newest of them is used for that profile.
 	Conflict bool `json:"conflict,omitempty"`
 }
 
@@ -74,8 +75,8 @@ var ErrNoExtension = errors.New("no extension connected")
 var ErrBrowserGone = errors.New("that browser is not connected")
 
 // NoBrowserError means browsers are connected, but none may run this
-// profile: each one is bound to some other profile, and there is no
-// unbound (default) browser to fall back to.
+// profile: each one runs only other profiles, and there is no unbound
+// (default) browser to fall back to.
 type NoBrowserError struct {
 	Profile string
 	BoundTo []string // the profiles the connected browsers ARE bound to
@@ -83,7 +84,7 @@ type NoBrowserError struct {
 
 func (e *NoBrowserError) Error() string {
 	return fmt.Sprintf("no browser is set up for profile %q (the connected browsers run profiles %s) — "+
-		"open the MonoAgent Bridge side panel in the browser this profile should use and choose it under "+
+		"open the MonoAgent Bridge side panel in the browser this profile should use and tick it under "+
 		"\"Automations in this browser\", or run `monoagentcli extension bind <browser> %s`",
 		e.Profile, strings.Join(e.BoundTo, ", "), e.Profile)
 }
@@ -98,9 +99,9 @@ type extConn struct {
 	ws      *websocket.Conn
 	writeMu sync.Mutex // gorilla/websocket forbids concurrent writers, per socket
 
-	mu      sync.Mutex // guards profile and label, which change while connected
-	profile string
-	label   string
+	mu       sync.Mutex // guards profiles and label, which change while connected
+	profiles []string
+	label    string
 }
 
 func newExtConn(ws *websocket.Conn, auth authFrame, now time.Time) *extConn {
@@ -109,20 +110,16 @@ func newExtConn(ws *websocket.Conn, auth authFrame, now time.Time) *extConn {
 		c.id, c.legacy = auth.Instance, false
 	}
 	c.version = cleanLabel(auth.Version)
-	c.setBinding(auth.Profile, auth.Label)
+	c.setBinding(profilesFromWire(auth.Profiles, auth.Profile), auth.Label)
 	return c
 }
 
-// setBinding records which profile the browser says it runs. An id that
-// profiledir would refuse is dropped rather than trusted, because the id is
-// used as a directory name further down.
-func (c *extConn) setBinding(profile, label string) {
-	profile = strings.TrimSpace(profile)
-	if profile != "" && !profiledir.ValidProfileID(profile) {
-		profile = ""
-	}
+// setBinding records which profiles the browser says it runs. Ids that
+// profiledir would refuse are dropped rather than trusted.
+func (c *extConn) setBinding(profiles []string, label string) {
+	profiles = cleanProfiles(profiles)
 	c.mu.Lock()
-	c.profile = profile
+	c.profiles = profiles
 	c.label = cleanLabel(label)
 	c.mu.Unlock()
 }
@@ -135,10 +132,11 @@ func cleanLabel(s string) string {
 	return s
 }
 
-func (c *extConn) boundProfile() string {
+// boundProfiles is a copy of the profiles this browser runs.
+func (c *extConn) boundProfiles() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.profile
+	return slices.Clone(c.profiles)
 }
 
 func (c *extConn) write(data []byte) error {
@@ -156,10 +154,15 @@ func (c *extConn) ping() error {
 func (c *extConn) info() ConnInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return ConnInfo{
-		Instance: c.id, Profile: c.profile, Label: c.label, Version: c.version,
+	info := ConnInfo{
+		Instance: c.id, Label: c.label, Version: c.version,
 		Legacy: c.legacy, ConnectedAt: c.connectedAt,
 	}
+	if len(c.profiles) > 0 {
+		info.Profile = c.profiles[0]
+		info.ProfileIDs = slices.Clone(c.profiles)
+	}
+	return info
 }
 
 // installConn makes c the socket for its browser and closes the one it
@@ -204,10 +207,11 @@ func (s *Server) connList() []*extConn {
 // resolve picks the browser a command for t goes to:
 //
 //   - an Instance: that browser, or ErrBrowserGone;
-//   - a Profile: the newest browser bound to it; failing that, the newest
-//     unbound browser (the "default browser" everyone had before binding
-//     existed); never a browser bound to a DIFFERENT profile, because that
-//     browser is logged into the other profile's accounts;
+//   - a Profile: the newest browser whose set contains it (browsers may
+//     share profiles; the newest wins); failing that, the newest unbound
+//     browser (the "default browser" everyone had before binding existed);
+//     never a browser that runs only OTHER profiles, because that browser
+//     is logged into their accounts;
 //   - neither: the newest unbound browser, else the newest browser, which
 //     is what an older client that sends no target always got.
 func (s *Server) resolve(t Target) (*extConn, error) {
@@ -226,16 +230,16 @@ func (s *Server) resolve(t Target) (*extConn, error) {
 	var unbound *extConn
 	var boundTo []string
 	for _, c := range conns {
-		p := c.boundProfile()
-		if t.Profile != "" && p == t.Profile {
+		set := c.boundProfiles()
+		if t.Profile != "" && slices.Contains(set, t.Profile) {
 			return c, nil
 		}
-		if p == "" {
+		if len(set) == 0 {
 			if unbound == nil {
 				unbound = c
 			}
 		} else {
-			boundTo = append(boundTo, p)
+			boundTo = append(boundTo, set...)
 		}
 	}
 	if unbound != nil {
@@ -257,21 +261,23 @@ func (s *Server) ResolveTarget(t Target) (ConnInfo, error) {
 	return c.info(), nil
 }
 
-// Browsers lists the connected browsers, newest first. Two browsers bound
-// to the same profile are both flagged Conflict.
+// Browsers lists the connected browsers, newest first. Two browsers that
+// run the same profile are both flagged Conflict.
 func (s *Server) Browsers() []ConnInfo {
 	conns := s.connList()
 	infos := make([]ConnInfo, len(conns))
 	perProfile := map[string]int{}
 	for i, c := range conns {
 		infos[i] = c.info()
-		if p := infos[i].Profile; p != "" {
+		for _, p := range infos[i].ProfileIDs {
 			perProfile[p]++
 		}
 	}
 	for i := range infos {
-		if p := infos[i].Profile; p != "" && perProfile[p] > 1 {
-			infos[i].Conflict = true
+		for _, p := range infos[i].ProfileIDs {
+			if perProfile[p] > 1 {
+				infos[i].Conflict = true
+			}
 		}
 	}
 	return infos

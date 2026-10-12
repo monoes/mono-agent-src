@@ -429,8 +429,10 @@ type authFrame struct {
 	Token    string `json:"token"`
 	Instance string `json:"instance,omitempty"`
 	Profile  string `json:"profile,omitempty"`
-	Label    string `json:"label,omitempty"`
-	Version  string `json:"version,omitempty"`
+	// Profiles is the whole set (extension >= 1.8.0); Profile is its first.
+	Profiles []string `json:"profiles,omitempty"`
+	Label    string   `json:"label,omitempty"`
+	Version  string   `json:"version,omitempty"`
 }
 
 // handleWS upgrades an incoming HTTP request to a WebSocket connection and
@@ -466,7 +468,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	s.connOnce.Do(func() { close(s.connected) })
 	s.logger.Info().Str("remote", conn.RemoteAddr().String()).Str("instance", c.id).
-		Str("profile", c.boundProfile()).Msg("extension connected")
+		Strs("profiles", c.boundProfiles()).Msg("extension connected")
 
 	done := make(chan struct{})
 	go s.pingLoop(c, done)

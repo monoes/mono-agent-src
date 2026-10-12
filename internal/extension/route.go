@@ -3,6 +3,7 @@ package extension
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -108,9 +109,10 @@ func parseTabID(resp *Response) (int, error) {
 
 // bindingFrame is the extension's kind:"binding" push.
 type bindingFrame struct {
-	Kind    string `json:"kind"`
-	Profile string `json:"profile"`
-	Label   string `json:"label"`
+	Kind     string   `json:"kind"`
+	Profile  string   `json:"profile"`  // first id; all an older extension sends
+	Profiles []string `json:"profiles"` // the whole set, extension >= 1.8.0
+	Label    string   `json:"label"`
 }
 
 // serveBinding applies a binding the user changed in the side panel.
@@ -120,19 +122,42 @@ func (s *Server) serveBinding(c *extConn, msg []byte) {
 		s.logger.Warn().Err(err).Msg("invalid binding frame")
 		return
 	}
-	c.setBinding(f.Profile, f.Label)
-	s.logger.Info().Str("instance", c.id).Str("profile", c.boundProfile()).Msg("browser binding changed")
+	c.setBinding(profilesFromWire(f.Profiles, f.Profile), f.Label)
+	s.logger.Info().Str("instance", c.id).Strs("profiles", c.boundProfiles()).Msg("browser binding changed")
 }
 
 // applyBindingParams mirrors a set_binding the extension accepted. A
-// missing label keeps the current one.
+// missing label keeps the current one; so does a command naming neither
+// profiles nor profile keep the current set.
 func (c *extConn) applyBindingParams(p map[string]interface{}) {
 	c.mu.Lock()
-	label := c.label
+	label, profiles := c.label, slices.Clone(c.profiles)
 	c.mu.Unlock()
 	if l, ok := p["label"].(string); ok {
 		label = l
 	}
-	profile, _ := p["profile"].(string)
-	c.setBinding(profile, label)
+	if list, ok := wireStrings(p["profiles"]); ok {
+		profiles = list
+	} else if one, ok := p["profile"].(string); ok {
+		profiles = cleanProfiles([]string{one})
+	}
+	c.setBinding(profiles, label)
+}
+
+// wireStrings reads a JSON array of strings out of a command's params,
+// which hold either []string (built in Go) or []interface{} (decoded).
+func wireStrings(v any) ([]string, bool) {
+	switch list := v.(type) {
+	case []string:
+		return list, true
+	case []interface{}:
+		out := make([]string, 0, len(list))
+		for _, e := range list {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out, true
+	}
+	return nil, false
 }
