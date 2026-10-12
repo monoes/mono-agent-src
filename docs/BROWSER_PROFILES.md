@@ -1,42 +1,62 @@
-# One browser per profile
+# Browsers and profiles
 
 Every browser profile with the MonoAgent Bridge extension installed (a Chrome
 profile, an Edge profile, a separate browser) connects to the bridge on its
-own. Bind each one to a monoagent profile and that profile's browser actions
-(workflow browser nodes, `capture page`, `login`, `node run`, `application
-apply`) run there, signed in as that browser's accounts.
+own. Choose which monoagent profiles run in it and those profiles' browser
+actions (workflow browser nodes, `capture page`, `login`, `node run`,
+`application apply`) run there, signed in as that browser's accounts.
 
-Two profiles bound to two browsers run at the same time, including two
-accounts on the same site.
+There is no limit on how many monoagent profiles share a browser. Profiles
+that share one share its logged-in accounts. Profiles on different browsers
+run at the same time, including two accounts on the same site.
 
 ## Set it up
 
 1. Install the extension in each browser profile (`chrome://extensions` →
    Load unpacked → `chrome-extension/`) and pair it: paste the output of
    `monoagentcli extension pair` into the side panel's Connection settings.
-2. In each browser's side panel, open **Connection settings → Automations in
-   this browser** and choose the profile. Give the browser a name you'll
-   recognise.
-3. Check: `monoagentcli extension browsers`.
+2. Choose the profiles, in whichever place suits you:
+   - **Desktop app → Settings → Browsers.** One row per monoagent profile;
+     pick the browser it runs in (or "Any browser (default)"). Several
+     profiles can pick the same browser.
+   - **The browser's side panel → Connection settings → Automations in this
+     browser.** Tick every profile this browser should run. Give the browser
+     a name you'll recognise.
+   - **A terminal:**
+     - `monoagentcli extension assign <profile> "<browser name or id>"` makes
+       that browser the only one for the profile (other profiles in the
+       browser are untouched). `extension assign <profile>` with no browser
+       removes the profile from every browser, so it uses the default browser.
+     - `monoagentcli extension bind "<browser>" <profile>` also runs the
+       profile in that browser, keeping any other browser it already had.
+     - `monoagentcli extension unbind "<browser>" <profile>` stops running
+       that profile in the browser; without a profile it clears the browser's
+       whole list and it becomes a default browser again.
+3. Check: `monoagentcli extension browsers` (add `--json` for `profile_ids`).
 
-Or from a terminal: `monoagentcli extension bind "<browser name or id>" <profile>`
-(`extension unbind <browser>` makes it a default browser again). Or in the
-desktop app: **Settings → Browsers**.
+The choice is stored in the browser's own extension, so it survives restarts
+but can only be changed while that browser is attached; `assign` tells you
+when the browser you name is not.
 
 ## Which browser runs what
 
 For a profile P, the bridge picks:
 
-1. the most recently connected browser bound to P;
-2. otherwise a browser bound to no profile (a *default browser*);
-3. never a browser bound to a different profile. If that's all there is, the
+1. the most recently connected browser whose profiles include P;
+2. otherwise the most recently connected browser with no profiles (a *default
+   browser*);
+3. never a browser that runs only other profiles. If that's all there is, the
    run fails with "no browser is set up for profile P" and the fix.
 
-A run stays in the browser it started in, even if you rebind that browser
-mid-run. Changing a binding never reconnects the browser, so it can't drop a
-running workflow's commands.
+If P is listed in two or more browsers the newest wins and `extension
+browsers` flags them; use `assign` to settle on one. Commands with no profile
+go to the newest default browser, else the newest browser.
 
-Binding a browser also makes its profile the default for captures saved from
+A run stays in the browser it started in, even if you change that browser's
+profiles mid-run. Changing them never reconnects the browser, so it can't
+drop a running workflow's commands.
+
+The first profile a browser lists is also the default for captures saved from
 that browser.
 
 ## Seeing every profile at once
@@ -52,7 +72,21 @@ The CLI side is `--all-profiles` on `summary`, `workflow list`,
 
 ## Upgrading
 
-Old extensions (before 1.5.0) keep working as a single default browser. Old
-bridges ignore bindings until restarted. After updating, restart the daemon
-or `monoagentcli extension serve`, and reload the extension in every browser
-profile.
+Sharing a browser between profiles needs extension 1.8.0: reload the
+extension from the browser's extensions page (`chrome://extensions` or
+`edge://extensions`) in every browser profile, and restart the daemon or
+`monoagentcli extension serve`.
+
+Everything older keeps working:
+
+- An extension before 1.8.0 (but 1.5.0 or later) runs one profile. Its choice
+  is read as a list of one. `bind` and `assign` refuse to give it a second
+  profile and tell you to reload it.
+- A bridge from before this change still routes by the first profile each
+  browser reports. `bind`, `unbind` and `assign` stop with "restart the
+  bridge" when the bridge cannot say which profiles a 1.8.0 browser runs,
+  rather than overwrite them.
+- An older `monoagentcli` against a new bridge sees each browser's first
+  profile as `profile_id`.
+- Extensions before 1.5.0 keep working as a single default browser, and old
+  bridges ignore bindings until restarted.
