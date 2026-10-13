@@ -1,6 +1,6 @@
 {
   "name": "Telegram RSS Notify",
-  "description": "Every morning: read an RSS feed and send each item as a Telegram message from a bot. Set the bot token (from @BotFather) and chat ID before activating.",
+  "description": "Every morning: read an RSS feed and send its items as one Telegram message from a bot. Set the bot token (from @BotFather) and chat ID before activating.",
   "version": 1,
   "is_active": false,
   "nodes": [
@@ -27,31 +27,48 @@
       }
     },
     {
+      "id": "digest",
+      "type": "core.code",
+      "name": "Build Digest",
+      "position": { "x": 600, "y": 0 },
+      "disabled": false,
+      "config": {
+        "code": "(function () {\n  const lines = $input.all().map(function (item, i) {\n    return (i + 1) + '. ' + item.title + '\\n   ' + item.link;\n  });\n  return [{ text: 'Top stories:\\n' + lines.join('\\n') }];\n})()"
+      }
+    },
+    {
       "id": "notify",
       "type": "comm.telegram",
       "name": "Send Telegram Message",
-      "position": { "x": 640, "y": 0 },
+      "position": { "x": 900, "y": 0 },
       "disabled": false,
       "config": {
         "bot_token": "REPLACE_WITH_BOT_TOKEN",
         "operation": "send_message",
         "chat_id": "REPLACE_WITH_CHAT_ID",
-        "message": "{{ $json.title }}\n{{ $json.link }}",
+        "message": "{{ $json.text }}",
         "parse_mode": "plain"
       }
     }
   ],
   "connections": [
     {
-      "id": "trigger-to-rss",
+      "id": "trigger-to-read_feed",
       "source": "trigger",
       "source_handle": "main",
       "target": "read_feed",
       "target_handle": "main"
     },
     {
-      "id": "rss-to-telegram",
+      "id": "read_feed-to-digest",
       "source": "read_feed",
+      "source_handle": "main",
+      "target": "digest",
+      "target_handle": "main"
+    },
+    {
+      "id": "digest-to-notify",
+      "source": "digest",
       "source_handle": "main",
       "target": "notify",
       "target_handle": "main"

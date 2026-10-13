@@ -1,0 +1,60 @@
+{
+  "name": "Form Submission to HubSpot Contact",
+  "summary": "Adds everyone who fills in your website form to HubSpot as a new contact.",
+  "description": "Webhook-triggered: a web form POSTs JSON (email, first_name, last_name, company) to /webhook/lead-form with the X-Webhook-Secret header; submissions without an email are dropped and the rest become HubSpot contacts. Set the auth token and the HubSpot credential (credential_id) before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.webhook",
+      "name": "Form Webhook",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "path": "lead-form",
+        "method": "POST",
+        "auth_header": "X-Webhook-Secret",
+        "auth_token": "REPLACE_WITH_SECRET"
+      }
+    },
+    {
+      "id": "has_email",
+      "type": "core.filter",
+      "name": "Has Email",
+      "position": { "x": 300, "y": 0 },
+      "disabled": false,
+      "config": {
+        "condition": "{{ if $json.email }}true{{ else }}false{{ end }}"
+      }
+    },
+    {
+      "id": "create_contact",
+      "type": "service.hubspot",
+      "name": "Create Contact",
+      "position": { "x": 600, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "create_contact",
+        "properties": "{\"email\": {{ json $json.email }}, \"firstname\": {{ json (toString $json.first_name) }}, \"lastname\": {{ json (toString $json.last_name) }}, \"company\": {{ json (toString $json.company) }}}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-has_email",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "has_email",
+      "target_handle": "main"
+    },
+    {
+      "id": "has_email-to-create_contact",
+      "source": "has_email",
+      "source_handle": "main",
+      "target": "create_contact",
+      "target_handle": "main"
+    }
+  ]
+}

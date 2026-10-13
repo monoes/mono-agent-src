@@ -1,0 +1,916 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "action_network",
+  "node_type": "app.action_network",
+  "title": "Action Network",
+  "description": "People, events, petitions, signatures, attendances and tags in Action Network",
+  "category": "app",
+  "docs_url": "https://actionnetwork.org/docs/v2/",
+  "n8n_types": [
+    "n8n-nodes-base.actionNetwork"
+  ],
+  "base_url": "https://actionnetwork.org/api/v2",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "action_network",
+      "name": "Action Network",
+      "n8n_credential": "actionNetworkApi",
+      "n8n_field_map": {
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "Action Network group → Details → API & Sync"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "OSDI-API-Token": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "attendance",
+      "label": "Attendance"
+    },
+    {
+      "value": "event",
+      "label": "Event"
+    },
+    {
+      "value": "person",
+      "label": "Person"
+    },
+    {
+      "value": "personTag",
+      "label": "Person Tag"
+    },
+    {
+      "value": "petition",
+      "label": "Petition"
+    },
+    {
+      "value": "signature",
+      "label": "Signature"
+    },
+    {
+      "value": "tag",
+      "label": "Tag"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "attendance",
+      "operation": "create",
+      "title": "Create an attendance",
+      "method": "POST",
+      "path": "/events/{{ p.eventId }}/attendances",
+      "body": {
+        "_links": {
+          "osdi:person": {
+            "href": "https://actionnetwork.org/api/v2/people/{{ p.personId }}"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "eventId",
+          "label": "Event ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "attendance",
+      "operation": "get",
+      "title": "Get an attendance",
+      "method": "GET",
+      "path": "/events/{{ p.eventId }}/attendances/{{ p.attendanceId }}",
+      "fields": [
+        {
+          "key": "eventId",
+          "label": "Event ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "attendanceId",
+          "label": "Attendance ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "attendance",
+      "operation": "getAll",
+      "title": "Get many attendances",
+      "method": "GET",
+      "path": "/events/{{ p.eventId }}/attendances",
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "per_page",
+        "page_size": 25,
+        "results_path": "_embedded.osdi:attendances"
+      },
+      "fields": [
+        {
+          "key": "eventId",
+          "label": "Event ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "event",
+      "operation": "create",
+      "title": "Create an event",
+      "method": "POST",
+      "path": "/events",
+      "body": {
+        "origin_system": "{{ p.originSystem }}",
+        "title": "{{ p.title }}",
+        "$merge": "{{ p.additionalFields | omit:'location' }}",
+        "location": "{{ p.additionalFields.location.postal_addresses_fields | omit:'address_lines,location' }}"
+      },
+      "fields": [
+        {
+          "key": "originSystem",
+          "label": "Origin system",
+          "type": "text",
+          "required": true,
+          "help": "Name of the system the event comes from."
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "browser_url",
+            "description",
+            "end_date",
+            "featured_image_url",
+            "instructions",
+            "location",
+            "name",
+            "start_date"
+          ],
+          "help": "location takes {postal_addresses_fields: {...}}"
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "event",
+      "operation": "get",
+      "title": "Get an event",
+      "method": "GET",
+      "path": "/events/{{ p.eventId }}",
+      "fields": [
+        {
+          "key": "eventId",
+          "label": "Event ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "event",
+      "operation": "getAll",
+      "title": "Get many events",
+      "method": "GET",
+      "path": "/events",
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "per_page",
+        "page_size": 25,
+        "results_path": "_embedded.osdi:events"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "create",
+      "title": "Create a person",
+      "method": "POST",
+      "path": "/people",
+      "body": {
+        "person": {
+          "email_addresses": [
+            "{{ p.email_addresses.email_addresses_fields }}"
+          ],
+          "family_name": "{{ p.additionalFields.family_name }}",
+          "given_name": "{{ p.additionalFields.given_name }}",
+          "languages_spoken": [
+            "{{ p.additionalFields.languages_spoken }}"
+          ],
+          "phone_numbers": [
+            "{{ p.additionalFields.phone_numbers.phone_numbers_fields }}"
+          ],
+          "postal_addresses": "{{ p.additionalFields.postal_addresses.postal_addresses_fields }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "email_addresses",
+          "label": "Email address",
+          "type": "collection",
+          "required": true,
+          "default": {},
+          "options": [
+            "email_addresses_fields"
+          ],
+          "help": "{\"email_addresses_fields\": {\"address\": \"a@b.org\", \"primary\": true, \"status\": \"subscribed\"}}"
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "family_name",
+            "given_name",
+            "languages_spoken",
+            "phone_numbers",
+            "postal_addresses"
+          ]
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "get",
+      "title": "Get a person",
+      "method": "GET",
+      "path": "/people/{{ p.personId }}",
+      "fields": [
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "getAll",
+      "title": "Get many people",
+      "method": "GET",
+      "path": "/people",
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "per_page",
+        "page_size": 25,
+        "results_path": "_embedded.osdi:people"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 25,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "update",
+      "title": "Update a person",
+      "method": "PUT",
+      "path": "/people/{{ p.personId }}",
+      "body": {
+        "family_name": "{{ p.updateFields.family_name }}",
+        "given_name": "{{ p.updateFields.given_name }}",
+        "languages_spoken": [
+          "{{ p.updateFields.languages_spoken }}"
+        ],
+        "phone_numbers": [
+          "{{ p.updateFields.phone_numbers.phone_numbers_fields }}"
+        ],
+        "postal_addresses": "{{ p.updateFields.postal_addresses.postal_addresses_fields }}"
+      },
+      "fields": [
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "family_name",
+            "given_name",
+            "languages_spoken",
+            "phone_numbers",
+            "postal_addresses"
+          ]
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "personTag",
+      "operation": "add",
+      "title": "Add a tag to a person",
+      "method": "POST",
+      "path": "/tags/{{ p.tagId }}/taggings",
+      "body": {
+        "_links": {
+          "osdi:person": {
+            "href": "https://actionnetwork.org/api/v2/people/{{ p.personId }}"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "tagId",
+          "label": "Tag ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "personTag",
+      "operation": "remove",
+      "title": "Remove a tag from a person",
+      "method": "DELETE",
+      "path": "/tags/{{ p.tagId }}/taggings/{{ p.taggingId }}",
+      "fields": [
+        {
+          "key": "tagId",
+          "label": "Tag ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "taggingId",
+          "label": "Tagging ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "petition",
+      "operation": "create",
+      "title": "Create a petition",
+      "method": "POST",
+      "path": "/petitions",
+      "body": {
+        "origin_system": "{{ p.originSystem }}",
+        "title": "{{ p.title }}",
+        "$merge": "{{ p.additionalFields | omit:'target' }}",
+        "target": [
+          {
+            "name": "{{ p.additionalFields.target }}"
+          }
+        ]
+      },
+      "fields": [
+        {
+          "key": "originSystem",
+          "label": "Origin system",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "browser_url",
+            "featured_image_url",
+            "name",
+            "petition_text",
+            "target"
+          ],
+          "help": "target: comma-separated target names"
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "petition",
+      "operation": "get",
+      "title": "Get a petition",
+      "method": "GET",
+      "path": "/petitions/{{ p.petitionId }}",
+      "fields": [
+        {
+          "key": "petitionId",
+          "label": "Petition ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "petition",
+      "operation": "getAll",
+      "title": "Get many petitions",
+      "method": "GET",
+      "path": "/petitions",
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "per_page",
+        "page_size": 25,
+        "results_path": "_embedded.osdi:petitions"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "petition",
+      "operation": "update",
+      "title": "Update a petition",
+      "method": "PUT",
+      "path": "/petitions/{{ p.petitionId }}",
+      "body": {
+        "$merge": "{{ p.updateFields | omit:'target' }}",
+        "target": [
+          {
+            "name": "{{ p.updateFields.target }}"
+          }
+        ]
+      },
+      "fields": [
+        {
+          "key": "petitionId",
+          "label": "Petition ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "browser_url",
+            "featured_image_url",
+            "name",
+            "petition_text",
+            "target"
+          ]
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "signature",
+      "operation": "create",
+      "title": "Create a signature",
+      "method": "POST",
+      "path": "/petitions/{{ p.petitionId }}/signatures",
+      "body": {
+        "_links": {
+          "osdi:person": {
+            "href": "https://actionnetwork.org/api/v2/people/{{ p.personId }}"
+          }
+        },
+        "$merge": "{{ p.additionalFields }}"
+      },
+      "fields": [
+        {
+          "key": "petitionId",
+          "label": "Petition ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "comments"
+          ]
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "signature",
+      "operation": "get",
+      "title": "Get a signature",
+      "method": "GET",
+      "path": "/petitions/{{ p.petitionId }}/signatures/{{ p.signatureId }}",
+      "fields": [
+        {
+          "key": "petitionId",
+          "label": "Petition ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "signatureId",
+          "label": "Signature ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "signature",
+      "operation": "getAll",
+      "title": "Get many signatures",
+      "method": "GET",
+      "path": "/petitions/{{ p.petitionId }}/signatures",
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "per_page",
+        "page_size": 25,
+        "results_path": "_embedded.osdi:signatures"
+      },
+      "fields": [
+        {
+          "key": "petitionId",
+          "label": "Petition ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "signature",
+      "operation": "update",
+      "title": "Update a signature",
+      "method": "PUT",
+      "path": "/petitions/{{ p.petitionId }}/signatures/{{ p.signatureId }}",
+      "body": {
+        "$merge": "{{ p.updateFields }}"
+      },
+      "fields": [
+        {
+          "key": "petitionId",
+          "label": "Petition ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "signatureId",
+          "label": "Signature ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "comments"
+          ]
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "create",
+      "title": "Create a tag",
+      "method": "POST",
+      "path": "/tags",
+      "body": {
+        "name": "{{ p.name }}"
+      },
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "get",
+      "title": "Get a tag",
+      "method": "GET",
+      "path": "/tags/{{ p.tagId }}",
+      "fields": [
+        {
+          "key": "tagId",
+          "label": "Tag ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "getAll",
+      "title": "Get many tags",
+      "method": "GET",
+      "path": "/tags",
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "per_page",
+        "page_size": 25,
+        "results_path": "_embedded.osdi:tags"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Kept for n8n compatibility; the full OSDI record is returned."
+        }
+      ]
+    }
+  ]
+}

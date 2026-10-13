@@ -1,0 +1,246 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "adalo",
+  "node_type": "app.adalo",
+  "title": "Adalo",
+  "description": "Rows in Adalo app collections",
+  "category": "app",
+  "docs_url": "https://help.adalo.com/integrations/the-adalo-api",
+  "n8n_types": [
+    "n8n-nodes-base.adalo"
+  ],
+  "base_url": "https://api.adalo.com/v0/apps/{{ cred.app_id }}",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "adalo",
+      "name": "Adalo",
+      "n8n_credential": "adaloApi",
+      "n8n_field_map": {
+        "apiKey": "access_token",
+        "appId": "app_id"
+      },
+      "methods": [
+        "bearer"
+      ],
+      "fields": [
+        {
+          "key": "app_id",
+          "label": "App ID",
+          "required": true,
+          "help": "The number in your app's editor URL."
+        },
+        {
+          "key": "access_token",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "App settings → App access (paid plans)."
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "collection",
+      "label": "Collection"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "collection",
+      "operation": "getAll",
+      "title": "Get many rows",
+      "method": "GET",
+      "path": "/collections/{{ p.collectionId }}",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "records"
+      },
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true,
+          "help": "From the collection's API documentation in the Adalo editor."
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "collection",
+      "operation": "create",
+      "title": "Create a row",
+      "method": "POST",
+      "path": "/collections/{{ p.collectionId }}",
+      "body": {
+        "$merge": [
+          "{{ p.dataToSend | eq:'autoMapInputData' | then:item | omit:p.inputsToIgnore }}",
+          "{{ p.dataToSend | ne:'autoMapInputData' | then:p.fieldsUi | kv:'fieldId,fieldValue' }}"
+        ]
+      },
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true,
+          "help": "From the collection's API documentation in the Adalo editor."
+        },
+        {
+          "key": "dataToSend",
+          "label": "Data to send",
+          "type": "select",
+          "default": "defineBelow",
+          "options": [
+            "defineBelow",
+            "autoMapInputData"
+          ],
+          "help": "defineBelow: use Fields; autoMapInputData: send the input item's fields."
+        },
+        {
+          "key": "inputsToIgnore",
+          "label": "Input fields to ignore",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated input fields left out with autoMapInputData."
+        },
+        {
+          "key": "fieldsUi",
+          "label": "Fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fieldValues"
+          ],
+          "help": "{\"fieldValues\": [{\"fieldId\": \"Name\", \"fieldValue\": \"x\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "collection",
+      "operation": "delete",
+      "title": "Delete a row",
+      "method": "DELETE",
+      "path": "/collections/{{ p.collectionId }}/{{ p.rowId }}",
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true,
+          "help": "From the collection's API documentation in the Adalo editor."
+        },
+        {
+          "key": "rowId",
+          "label": "Row ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "collection",
+      "operation": "get",
+      "title": "Get a row",
+      "method": "GET",
+      "path": "/collections/{{ p.collectionId }}/{{ p.rowId }}",
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true,
+          "help": "From the collection's API documentation in the Adalo editor."
+        },
+        {
+          "key": "rowId",
+          "label": "Row ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "collection",
+      "operation": "update",
+      "title": "Update a row",
+      "method": "PUT",
+      "path": "/collections/{{ p.collectionId }}/{{ p.rowId }}",
+      "body": {
+        "$merge": [
+          "{{ p.dataToSend | eq:'autoMapInputData' | then:item | omit:p.inputsToIgnore }}",
+          "{{ p.dataToSend | ne:'autoMapInputData' | then:p.fieldsUi | kv:'fieldId,fieldValue' }}"
+        ]
+      },
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true,
+          "help": "From the collection's API documentation in the Adalo editor."
+        },
+        {
+          "key": "rowId",
+          "label": "Row ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dataToSend",
+          "label": "Data to send",
+          "type": "select",
+          "default": "defineBelow",
+          "options": [
+            "defineBelow",
+            "autoMapInputData"
+          ],
+          "help": "defineBelow: use Fields; autoMapInputData: send the input item's fields."
+        },
+        {
+          "key": "inputsToIgnore",
+          "label": "Input fields to ignore",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated input fields left out with autoMapInputData."
+        },
+        {
+          "key": "fieldsUi",
+          "label": "Fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fieldValues"
+          ],
+          "help": "{\"fieldValues\": [{\"fieldId\": \"Name\", \"fieldValue\": \"x\"}]}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "name": "HTTP to Slack",
+  "summary": "Turns an alert sent to a private web address into a message in a Slack channel.",
+  "description": "Webhook-triggered: accept a JSON POST, normalize it into a message, and post it to a Slack channel. Set the Slack credential and the auth header/token before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.webhook",
+      "name": "Alert Webhook",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "path": "alerts",
+        "method": "POST",
+        "auth_header": "X-Webhook-Secret",
+        "auth_token": "REPLACE_WITH_SECRET"
+      }
+    },
+    {
+      "id": "format",
+      "type": "core.set",
+      "name": "Build Message",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "assignments": [
+          {
+            "field": "text",
+            "value": "Alert: {{ $json.event }} — severity {{ $json.severity }} at {{ $json.source }}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "id": "post_slack",
+      "type": "comm.slack",
+      "name": "Post to Slack",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "post_message",
+        "channel": "#alerts",
+        "text": "{{ $json.text }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-set",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "format",
+      "target_handle": "main"
+    },
+    {
+      "id": "set-to-slack",
+      "source": "format",
+      "source_handle": "main",
+      "target": "post_slack",
+      "target_handle": "main"
+    }
+  ]
+}

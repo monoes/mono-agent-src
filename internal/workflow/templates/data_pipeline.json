@@ -1,0 +1,92 @@
+{
+  "name": "Data Pipeline",
+  "summary": "Fetches records from a web API, reshapes them, saves them to a CSV file and totals an amount column.",
+  "description": "Manual run: fetch JSON from an API, reshape each record in a code step, write the result to a CSV file, and aggregate a sum. Pure-local data transformation — no credentials needed.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Run Manually",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "fetch",
+      "type": "http.request",
+      "name": "Fetch Data",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "url": "https://api.example.com/v1/orders",
+        "method": "GET",
+        "timeout": 30
+      }
+    },
+    {
+      "id": "reshape",
+      "type": "core.code",
+      "name": "Reshape Records",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "code": "(function () {\n  const out = [];\n  for (const item of $input.all()) {\n    const orders = (item.body && item.body.orders) || [];\n    for (const order of orders) {\n      out.push({ orderId: order.id, amount: Number(order.total || 0), currency: order.currency || 'USD' });\n    }\n  }\n  return out;\n})()"
+      }
+    },
+    {
+      "id": "write_csv",
+      "type": "data.spreadsheet",
+      "name": "Write CSV",
+      "position": { "x": 960, "y": 0 },
+      "disabled": false,
+      "config": {
+        "operation": "write_csv",
+        "file_path": "/tmp/orders.csv"
+      }
+    },
+    {
+      "id": "total",
+      "type": "core.aggregate",
+      "name": "Sum Amounts",
+      "position": { "x": 1280, "y": 0 },
+      "disabled": false,
+      "config": {
+        "operation": "sum",
+        "field": "amount",
+        "output_field": "total_amount"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-fetch",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "fetch",
+      "target_handle": "main"
+    },
+    {
+      "id": "fetch-to-code",
+      "source": "fetch",
+      "source_handle": "main",
+      "target": "reshape",
+      "target_handle": "main"
+    },
+    {
+      "id": "code-to-csv",
+      "source": "reshape",
+      "source_handle": "main",
+      "target": "write_csv",
+      "target_handle": "main"
+    },
+    {
+      "id": "reshape-to-aggregate",
+      "source": "reshape",
+      "source_handle": "main",
+      "target": "total",
+      "target_handle": "main"
+    }
+  ]
+}

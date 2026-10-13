@@ -1,0 +1,99 @@
+{
+  "name": "Lead Scoring to Airtable and Slack",
+  "summary": "Scores each new sales lead, saves it to Airtable, and tells your team in Slack about the most promising ones.",
+  "description": "Webhook-triggered: a lead POSTed as JSON (name, email, company, title, employees) to /webhook/leads with the X-Webhook-Secret header gets a 0-100 score from simple rules (company email, company name, senior title, team size — edit them in the Score Lead code node). Every lead is saved to an Airtable table with its score and tier; hot leads (60+) are also posted to Slack. Set the auth token, Airtable credential, base_id and table, and the Slack credential and channel before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.webhook",
+      "name": "Lead Webhook",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "path": "leads",
+        "method": "POST",
+        "auth_header": "X-Webhook-Secret",
+        "auth_token": "REPLACE_WITH_SECRET"
+      }
+    },
+    {
+      "id": "score",
+      "type": "core.code",
+      "name": "Score Lead",
+      "position": { "x": 300, "y": 0 },
+      "disabled": false,
+      "config": {
+        "code": "(function () {\n  const lead = Object.assign({}, $json);\n  const email = String(lead.email || '').toLowerCase();\n  const title = String(lead.title || '').toLowerCase();\n  const freeMail = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com'];\n  let score = 0;\n  if (email.indexOf('@') > 0 && freeMail.indexOf(email.split('@')[1]) < 0) score += 30;\n  if (lead.company) score += 20;\n  if (/(founder|ceo|cto|vp|head|director)/.test(title)) score += 30;\n  if (Number(lead.employees || 0) >= 50) score += 20;\n  lead.score = score;\n  lead.tier = score >= 60 ? 'hot' : (score >= 30 ? 'warm' : 'cold');\n  lead.hot = score >= 60;\n  return [lead];\n})()"
+      }
+    },
+    {
+      "id": "save",
+      "type": "service.airtable",
+      "name": "Save to Airtable",
+      "position": { "x": 600, "y": -120 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "base_id": "REPLACE_WITH_BASE_ID",
+        "table": "Leads",
+        "operation": "create_record",
+        "fields": "{\"Name\": {{ json (toString $json.name) }}, \"Email\": {{ json (toString $json.email) }}, \"Company\": {{ json (toString $json.company) }}, \"Score\": {{ json $json.score }}, \"Tier\": {{ json $json.tier }}}"
+      }
+    },
+    {
+      "id": "is_hot",
+      "type": "core.if",
+      "name": "Is Hot Lead?",
+      "position": { "x": 600, "y": 120 },
+      "disabled": false,
+      "config": {
+        "condition": "{{ $json.hot }}"
+      }
+    },
+    {
+      "id": "notify_sales",
+      "type": "comm.slack",
+      "name": "Tell Sales",
+      "position": { "x": 900, "y": 120 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "post_message",
+        "channel": "#sales",
+        "text": "Hot lead ({{ $json.score }}/100): {{ $json.name }} <{{ $json.email }}> — {{ $json.title }} at {{ $json.company }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-score",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "score",
+      "target_handle": "main"
+    },
+    {
+      "id": "score-to-save",
+      "source": "score",
+      "source_handle": "main",
+      "target": "save",
+      "target_handle": "main"
+    },
+    {
+      "id": "score-to-is_hot",
+      "source": "score",
+      "source_handle": "main",
+      "target": "is_hot",
+      "target_handle": "main"
+    },
+    {
+      "id": "is_hot-to-notify_sales",
+      "source": "is_hot",
+      "source_handle": "true",
+      "target": "notify_sales",
+      "target_handle": "main"
+    }
+  ]
+}

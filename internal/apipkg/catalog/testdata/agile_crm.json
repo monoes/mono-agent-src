@@ -1,0 +1,311 @@
+{
+  "contact.get": {
+    "params": {
+      "contactId": "1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/dev/api/contacts/1"
+    }
+  },
+  "contact.create": {
+    "params": {
+      "additionalFields": {
+        "firstName": "Ann",
+        "starValue": "3",
+        "tags": [
+          "vip"
+        ],
+        "emailOptions": {
+          "emailProperties": [
+            {
+              "subtype": "work",
+              "email": "a@b.co"
+            }
+          ]
+        },
+        "customProperties": {
+          "customProperty": [
+            {
+              "name": "Role",
+              "subtype": "",
+              "value": "CEO"
+            }
+          ]
+        }
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/dev/api/contacts",
+      "body": {
+        "star_value": "3",
+        "tags": [
+          "vip"
+        ],
+        "properties": [
+          {
+            "type": "SYSTEM",
+            "name": "first_name",
+            "value": "Ann"
+          },
+          {
+            "type": "SYSTEM",
+            "subtype": "work",
+            "name": "email",
+            "value": "a@b.co"
+          },
+          {
+            "type": "CUSTOM",
+            "name": "Role",
+            "value": "CEO"
+          }
+        ]
+      }
+    }
+  },
+  "contact.delete": {
+    "params": {
+      "contactId": "1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/dev/api/contacts/1"
+    }
+  },
+  "contact.getAll": {
+    "params": {
+      "limit": 5,
+      "filterType": "manual",
+      "matchType": "allFilters",
+      "filters": {
+        "conditions": [
+          {
+            "field": "tags",
+            "condition_type": "EQUALS",
+            "value": "vip"
+          }
+        ]
+      },
+      "options": {
+        "sort": {
+          "sort": {
+            "direction": "DESC",
+            "field": "created_time"
+          }
+        }
+      }
+    },
+    "response": [
+      {
+        "id": 1
+      },
+      {
+        "id": 2,
+        "cursor": "c"
+      }
+    ],
+    "expect": {
+      "method": "POST",
+      "path": "/dev/api/filters/filter/dynamic-filter",
+      "body": {
+        "filterJson": "{\"contact_type\":\"PERSON\",\"rules\":[{\"CONDITION\":\"EQUALS\",\"LHS\":\"tags\",\"RHS\":\"vip\"}]}",
+        "global_sort_key": "-created_time",
+        "page_size": "5"
+      },
+      "items": 2
+    }
+  },
+  "contact.update": {
+    "params": {
+      "contactId": "1",
+      "additionalFields": {
+        "lastName": "Lee",
+        "tags": [
+          "a"
+        ]
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/dev/api/contacts/edit-properties",
+      "body": {
+        "id": "1",
+        "properties": [
+          {
+            "type": "SYSTEM",
+            "name": "last_name",
+            "value": "Lee"
+          }
+        ]
+      }
+    }
+  },
+  "company.get": {
+    "params": {
+      "companyId": "2"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/dev/api/contacts/2"
+    }
+  },
+  "company.create": {
+    "params": {
+      "additionalFields": {
+        "name": "Acme",
+        "websiteOptions": {
+          "websiteProperties": [
+            {
+              "subtype": "url",
+              "url": "https://acme.io"
+            }
+          ]
+        }
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/dev/api/contacts",
+      "body": {
+        "type": "COMPANY",
+        "properties": [
+          {
+            "type": "SYSTEM",
+            "name": "name",
+            "value": "Acme"
+          },
+          {
+            "type": "SYSTEM",
+            "subtype": "url",
+            "name": "website",
+            "value": "https://acme.io"
+          }
+        ]
+      }
+    }
+  },
+  "company.delete": {
+    "params": {
+      "companyId": "2"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/dev/api/contacts/2"
+    }
+  },
+  "company.getAll": {
+    "params": {
+      "returnAll": true
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/dev/api/filters/filter/dynamic-filter",
+      "body": {
+        "filterJson": "{\"contact_type\":\"COMPANY\"}",
+        "page_size": "100"
+      }
+    }
+  },
+  "company.update": {
+    "params": {
+      "companyId": "2",
+      "jsonParameters": true,
+      "additionalFieldsJson": "{\"properties\": [{\"type\": \"SYSTEM\", \"name\": \"phone\", \"value\": \"1\"}]}"
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/dev/api/contacts/edit-properties",
+      "body": {
+        "id": "2",
+        "properties": [
+          {
+            "type": "SYSTEM",
+            "name": "phone",
+            "value": "1"
+          }
+        ]
+      }
+    }
+  },
+  "deal.get": {
+    "params": {
+      "dealId": "3"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/dev/api/opportunity/3"
+    }
+  },
+  "deal.create": {
+    "params": {
+      "closeDate": "2024-01-02T00:00:00Z",
+      "expectedValue": 500,
+      "milestone": "Won",
+      "name": "Big",
+      "probability": 80,
+      "additionalFields": {
+        "contactIds": [
+          "1"
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/dev/api/opportunity",
+      "body": {
+        "close_date": 1704153600000,
+        "expected_value": 500,
+        "milestone": "Won",
+        "probability": 80,
+        "name": "Big",
+        "contactIds": [
+          "1"
+        ]
+      }
+    }
+  },
+  "deal.delete": {
+    "params": {
+      "dealId": "3"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/dev/api/opportunity/3"
+    }
+  },
+  "deal.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "response": [
+      {
+        "id": 1
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/dev/api/opportunity",
+      "query": {
+        "page_size": "5"
+      },
+      "items": 1
+    }
+  },
+  "deal.update": {
+    "params": {
+      "dealId": "3",
+      "additionalFields": {
+        "name": "Bigger"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/dev/api/opportunity/partial-update",
+      "body": {
+        "id": "3",
+        "name": "Bigger"
+      }
+    }
+  }
+}

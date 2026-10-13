@@ -203,13 +203,18 @@ func TestClaudeSkillsStateAndMCPRegistration(t *testing.T) {
 		t.Fatalf("missing %v stale %v", missing, stale)
 	}
 
-	if _, reg, _ := claudeMCPRegistration(); reg {
-		t.Fatal("no ~/.claude.json: not registered")
+	if st := claudeMCPState(home); !st.Installed || st.Registered {
+		t.Fatalf("no ~/.claude.json: want installed, not registered: %+v", st)
 	}
 	os.WriteFile(filepath.Join(home, ".claude.json"),
 		[]byte(`{"mcpServers":{"ma":{"command":"/usr/local/bin/monoagentcli","args":["mcp"]}}}`), 0o644)
-	if found, reg, _ := claudeMCPRegistration(); !found || !reg {
-		t.Fatalf("registered entry not detected: %v %v", found, reg)
+	if st := claudeMCPState(home); !st.Registered || st.Current || st.Entry != "ma" {
+		t.Fatalf("read-only entry should be registered but outdated: %+v", st)
+	}
+	os.WriteFile(filepath.Join(home, ".claude.json"),
+		[]byte(`{"mcpServers":{"ma":{"command":"/usr/local/bin/monoagentcli","args":["mcp","--allow-mutations"]}}}`), 0o644)
+	if st := claudeMCPState(home); !st.Registered || !st.Current {
+		t.Fatalf("current entry not detected: %+v", st)
 	}
 }
 

@@ -1,0 +1,999 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "agile_crm",
+  "node_type": "app.agile_crm",
+  "title": "Agile CRM",
+  "description": "Contacts, companies and deals in Agile CRM",
+  "category": "app",
+  "docs_url": "https://github.com/agilecrm/rest-api",
+  "n8n_types": [
+    "n8n-nodes-base.agileCrm"
+  ],
+  "base_url": "https://{{ cred.subdomain }}.agilecrm.com/dev",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "agile_crm",
+      "name": "Agile CRM",
+      "n8n_credential": "agileCrmApi",
+      "n8n_field_map": {
+        "email": "email",
+        "apiKey": "api_key",
+        "subdomain": "subdomain"
+      },
+      "methods": [
+        "basic"
+      ],
+      "fields": [
+        {
+          "key": "subdomain",
+          "label": "Subdomain",
+          "required": true,
+          "help": "The part before .agilecrm.com"
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "required": true
+        },
+        {
+          "key": "api_key",
+          "label": "REST API key",
+          "secret": true,
+          "required": true,
+          "help": "Admin Settings → Developers & API"
+        }
+      ],
+      "inject": {
+        "basic": {
+          "username": "{{ cred.email }}",
+          "password": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "contact",
+      "label": "Contact"
+    },
+    {
+      "value": "company",
+      "label": "Company"
+    },
+    {
+      "value": "deal",
+      "label": "Deal"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "contact",
+      "operation": "get",
+      "title": "Get a contact",
+      "method": "GET",
+      "path": "/api/contacts/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "create",
+      "title": "Create a contact",
+      "method": "POST",
+      "path": "/api/contacts",
+      "body": {
+        "$merge": "{{ p.jsonParameters | eq:'true' | then:p.additionalFieldsJson | fromjson }}",
+        "star_value": "{{ p.additionalFields.starValue }}",
+        "tags": "{{ p.additionalFields.tags }}",
+        "properties": {
+          "$concat": [
+            {
+              "type": "{{ p.additionalFields.firstName | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.firstName | then:'first_name' }}",
+              "value": "{{ p.additionalFields.firstName }}"
+            },
+            {
+              "type": "{{ p.additionalFields.lastName | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.lastName | then:'last_name' }}",
+              "value": "{{ p.additionalFields.lastName }}"
+            },
+            {
+              "type": "{{ p.additionalFields.company | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.company | then:'company' }}",
+              "value": "{{ p.additionalFields.company }}"
+            },
+            {
+              "type": "{{ p.additionalFields.title | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.title | then:'title' }}",
+              "value": "{{ p.additionalFields.title }}"
+            },
+            {
+              "$map": "{{ p.additionalFields.emailOptions.emailProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "email",
+                "value": "{{ el.email }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.addressOptions.addressProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "address",
+                "value": "{{ el.address }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.phoneOptions.phoneProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "phone",
+                "value": "{{ el.number }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.websiteOptions.websiteProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "website",
+                "value": "{{ el.url }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.customProperties.customProperty }}",
+              "$to": {
+                "type": "CUSTOM",
+                "subtype": "{{ el.subtype }}",
+                "name": "{{ el.name }}",
+                "value": "{{ el.value }}"
+              }
+            }
+          ]
+        }
+      },
+      "fields": [
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFieldsJson",
+          "label": "Additional fields (JSON)",
+          "type": "json",
+          "default": "",
+          "help": "Used when JSON parameters is on: the raw Agile CRM payload."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "addressOptions",
+            "company",
+            "emailOptions",
+            "firstName",
+            "lastName",
+            "leadScore",
+            "starValue",
+            "phoneOptions",
+            "tags",
+            "title",
+            "websiteOptions",
+            "customProperties"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "delete",
+      "title": "Delete a contact",
+      "method": "DELETE",
+      "path": "/api/contacts/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "getAll",
+      "title": "Get many contacts",
+      "method": "POST",
+      "path": "/api/filters/filter/dynamic-filter",
+      "body_type": "form",
+      "body": {
+        "filterJson": {
+          "contact_type": "PERSON",
+          "$merge": "{{ p.filterType | eq:'json' | then:p.filterJson | fromjson }}",
+          "rules": {
+            "$map": "{{ p.filterType | eq:'manual' | then:p.matchType | eq:'allFilters' | then:p.filters.conditions }}",
+            "$to": {
+              "LHS": "{{ el.field }}",
+              "CONDITION": "{{ el.condition_type }}",
+              "RHS": "{{ el.value }}",
+              "RHS_NEW": "{{ el.value2 }}"
+            }
+          },
+          "or_rules": {
+            "$map": "{{ p.filterType | eq:'manual' | then:p.matchType | eq:'anyFilter' | then:p.filters.conditions }}",
+            "$to": {
+              "LHS": "{{ el.field }}",
+              "CONDITION": "{{ el.condition_type }}",
+              "RHS": "{{ el.value }}",
+              "RHS_NEW": "{{ el.value2 }}"
+            }
+          }
+        },
+        "global_sort_key": "{{ p.options.sort.sort.direction | eq:'DESC' | then:'-' }}{{ p.options.sort.sort.field }}",
+        "page_size": "{{ p.returnAll | eq:'true' | then:100 | default:p.limit }}"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 20,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "filterType",
+          "label": "Filter",
+          "type": "select",
+          "default": "none",
+          "options": [
+            "none",
+            "manual",
+            "json"
+          ]
+        },
+        {
+          "key": "matchType",
+          "label": "Must match",
+          "type": "select",
+          "default": "anyFilter",
+          "options": [
+            "anyFilter",
+            "allFilters"
+          ]
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; records are returned in full."
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "conditions"
+          ],
+          "help": "{\"conditions\": [{\"field\": \"tags\", \"condition_type\": \"EQUALS\", \"value\": \"vip\", \"value2\": \"\"}]}"
+        },
+        {
+          "key": "filterJson",
+          "label": "Filter (JSON)",
+          "type": "json",
+          "default": ""
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "sort"
+          ],
+          "help": "sort: {\"sort\": {\"direction\": \"ASC\", \"field\": \"created_time\"}}"
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "update",
+      "title": "Update a contact",
+      "method": "PUT",
+      "path": "/api/contacts/edit-properties",
+      "body": {
+        "$merge": "{{ p.jsonParameters | eq:'true' | then:p.additionalFieldsJson | fromjson }}",
+        "id": "{{ p.contactId }}",
+        "properties": {
+          "$concat": [
+            {
+              "type": "{{ p.additionalFields.firstName | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.firstName | then:'first_name' }}",
+              "value": "{{ p.additionalFields.firstName }}"
+            },
+            {
+              "type": "{{ p.additionalFields.lastName | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.lastName | then:'last_name' }}",
+              "value": "{{ p.additionalFields.lastName }}"
+            },
+            {
+              "type": "{{ p.additionalFields.company | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.company | then:'company' }}",
+              "value": "{{ p.additionalFields.company }}"
+            },
+            {
+              "type": "{{ p.additionalFields.title | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.title | then:'title' }}",
+              "value": "{{ p.additionalFields.title }}"
+            },
+            {
+              "$map": "{{ p.additionalFields.emailOptions.emailProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "email",
+                "value": "{{ el.email }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.addressOptions.addressProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "address",
+                "value": "{{ el.address }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.phoneOptions.phoneProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "phone",
+                "value": "{{ el.number }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.websiteOptions.websiteProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "website",
+                "value": "{{ el.url }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.customProperties.customProperty }}",
+              "$to": {
+                "type": "CUSTOM",
+                "subtype": "{{ el.subtype }}",
+                "name": "{{ el.name }}",
+                "value": "{{ el.value }}"
+              }
+            }
+          ]
+        }
+      },
+      "also": [
+        {
+          "when": "{{ p.additionalFields.leadScore }}",
+          "method": "PUT",
+          "path": "/api/contacts/edit/lead-score",
+          "body": {
+            "id": "{{ p.contactId }}",
+            "lead_score": "{{ p.additionalFields.leadScore }}"
+          }
+        },
+        {
+          "when": "{{ p.additionalFields.tags }}",
+          "method": "PUT",
+          "path": "/api/contacts/edit/tags",
+          "body": {
+            "id": "{{ p.contactId }}",
+            "tags": "{{ p.additionalFields.tags }}"
+          }
+        },
+        {
+          "when": "{{ p.additionalFields.starValue }}",
+          "method": "PUT",
+          "path": "/api/contacts/edit/add-star",
+          "body": {
+            "id": "{{ p.contactId }}",
+            "star_value": "{{ p.additionalFields.starValue }}"
+          }
+        }
+      ],
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFieldsJson",
+          "label": "Additional fields (JSON)",
+          "type": "json",
+          "default": "",
+          "help": "Used when JSON parameters is on: the raw Agile CRM payload."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "addressOptions",
+            "company",
+            "emailOptions",
+            "firstName",
+            "lastName",
+            "leadScore",
+            "starValue",
+            "phoneOptions",
+            "tags",
+            "title",
+            "websiteOptions",
+            "customProperties"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "company",
+      "operation": "get",
+      "title": "Get a company",
+      "method": "GET",
+      "path": "/api/contacts/{{ p.companyId }}",
+      "fields": [
+        {
+          "key": "companyId",
+          "label": "Company ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "company",
+      "operation": "create",
+      "title": "Create a company",
+      "method": "POST",
+      "path": "/api/contacts",
+      "body": {
+        "$merge": "{{ p.jsonParameters | eq:'true' | then:p.additionalFieldsJson | fromjson }}",
+        "star_value": "{{ p.additionalFields.starValue }}",
+        "tags": "{{ p.additionalFields.tags }}",
+        "properties": {
+          "$concat": [
+            {
+              "type": "{{ p.additionalFields.email | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.email | then:'email' }}",
+              "value": "{{ p.additionalFields.email }}"
+            },
+            {
+              "$map": "{{ p.additionalFields.addressOptions.addressProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "address",
+                "value": "{{ el.address }}"
+              }
+            },
+            {
+              "type": "{{ p.additionalFields.phone | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.phone | then:'phone' }}",
+              "value": "{{ p.additionalFields.phone }}"
+            },
+            {
+              "type": "{{ p.additionalFields.name | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.name | then:'name' }}",
+              "value": "{{ p.additionalFields.name }}"
+            },
+            {
+              "$map": "{{ p.additionalFields.websiteOptions.websiteProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "website",
+                "value": "{{ el.url }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.customProperties.customProperty }}",
+              "$to": {
+                "type": "CUSTOM",
+                "subtype": "{{ el.subtype }}",
+                "name": "{{ el.name }}",
+                "value": "{{ el.value }}"
+              }
+            }
+          ]
+        },
+        "type": "{{ p.jsonParameters | ne:'true' | then:'COMPANY' }}"
+      },
+      "fields": [
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFieldsJson",
+          "label": "Additional fields (JSON)",
+          "type": "json",
+          "default": "",
+          "help": "Used when JSON parameters is on: the raw Agile CRM payload."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "addressOptions",
+            "email",
+            "name",
+            "phone",
+            "starValue",
+            "tags",
+            "websiteOptions",
+            "customProperties"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "company",
+      "operation": "delete",
+      "title": "Delete a company",
+      "method": "DELETE",
+      "path": "/api/contacts/{{ p.companyId }}",
+      "fields": [
+        {
+          "key": "companyId",
+          "label": "Company ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "company",
+      "operation": "getAll",
+      "title": "Get many companies",
+      "method": "POST",
+      "path": "/api/filters/filter/dynamic-filter",
+      "body_type": "form",
+      "body": {
+        "filterJson": {
+          "contact_type": "COMPANY",
+          "$merge": "{{ p.filterType | eq:'json' | then:p.filterJson | fromjson }}",
+          "rules": {
+            "$map": "{{ p.filterType | eq:'manual' | then:p.matchType | eq:'allFilters' | then:p.filters.conditions }}",
+            "$to": {
+              "LHS": "{{ el.field }}",
+              "CONDITION": "{{ el.condition_type }}",
+              "RHS": "{{ el.value }}",
+              "RHS_NEW": "{{ el.value2 }}"
+            }
+          },
+          "or_rules": {
+            "$map": "{{ p.filterType | eq:'manual' | then:p.matchType | eq:'anyFilter' | then:p.filters.conditions }}",
+            "$to": {
+              "LHS": "{{ el.field }}",
+              "CONDITION": "{{ el.condition_type }}",
+              "RHS": "{{ el.value }}",
+              "RHS_NEW": "{{ el.value2 }}"
+            }
+          }
+        },
+        "global_sort_key": "{{ p.options.sort.sort.direction | eq:'DESC' | then:'-' }}{{ p.options.sort.sort.field }}",
+        "page_size": "{{ p.returnAll | eq:'true' | then:100 | default:p.limit }}"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 20,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "filterType",
+          "label": "Filter",
+          "type": "select",
+          "default": "none",
+          "options": [
+            "none",
+            "manual",
+            "json"
+          ]
+        },
+        {
+          "key": "matchType",
+          "label": "Must match",
+          "type": "select",
+          "default": "anyFilter",
+          "options": [
+            "anyFilter",
+            "allFilters"
+          ]
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; records are returned in full."
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "conditions"
+          ],
+          "help": "{\"conditions\": [{\"field\": \"tags\", \"condition_type\": \"EQUALS\", \"value\": \"vip\", \"value2\": \"\"}]}"
+        },
+        {
+          "key": "filterJson",
+          "label": "Filter (JSON)",
+          "type": "json",
+          "default": ""
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "sort"
+          ],
+          "help": "sort: {\"sort\": {\"direction\": \"ASC\", \"field\": \"created_time\"}}"
+        }
+      ]
+    },
+    {
+      "resource": "company",
+      "operation": "update",
+      "title": "Update a company",
+      "method": "PUT",
+      "path": "/api/contacts/edit-properties",
+      "body": {
+        "$merge": "{{ p.jsonParameters | eq:'true' | then:p.additionalFieldsJson | fromjson }}",
+        "id": "{{ p.companyId }}",
+        "properties": {
+          "$concat": [
+            {
+              "type": "{{ p.additionalFields.email | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.email | then:'email' }}",
+              "value": "{{ p.additionalFields.email }}"
+            },
+            {
+              "$map": "{{ p.additionalFields.addressOptions.addressProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "address",
+                "value": "{{ el.address }}"
+              }
+            },
+            {
+              "type": "{{ p.additionalFields.phone | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.phone | then:'phone' }}",
+              "value": "{{ p.additionalFields.phone }}"
+            },
+            {
+              "type": "{{ p.additionalFields.name | then:'SYSTEM' }}",
+              "name": "{{ p.additionalFields.name | then:'name' }}",
+              "value": "{{ p.additionalFields.name }}"
+            },
+            {
+              "$map": "{{ p.additionalFields.websiteOptions.websiteProperties }}",
+              "$to": {
+                "type": "SYSTEM",
+                "subtype": "{{ el.subtype }}",
+                "name": "website",
+                "value": "{{ el.url }}"
+              }
+            },
+            {
+              "$map": "{{ p.additionalFields.customProperties.customProperty }}",
+              "$to": {
+                "type": "CUSTOM",
+                "subtype": "{{ el.subtype }}",
+                "name": "{{ el.name }}",
+                "value": "{{ el.value }}"
+              }
+            }
+          ]
+        }
+      },
+      "also": [
+        {
+          "when": "{{ p.additionalFields.tags }}",
+          "method": "PUT",
+          "path": "/api/contacts/edit/tags",
+          "body": {
+            "id": "{{ p.companyId }}",
+            "tags": "{{ p.additionalFields.tags }}"
+          }
+        },
+        {
+          "when": "{{ p.additionalFields.starValue }}",
+          "method": "PUT",
+          "path": "/api/contacts/edit/add-star",
+          "body": {
+            "id": "{{ p.companyId }}",
+            "star_value": "{{ p.additionalFields.starValue }}"
+          }
+        }
+      ],
+      "fields": [
+        {
+          "key": "companyId",
+          "label": "Company ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFieldsJson",
+          "label": "Additional fields (JSON)",
+          "type": "json",
+          "default": "",
+          "help": "Used when JSON parameters is on: the raw Agile CRM payload."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "addressOptions",
+            "email",
+            "name",
+            "phone",
+            "starValue",
+            "tags",
+            "websiteOptions",
+            "customProperties"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "get",
+      "title": "Get a deal",
+      "method": "GET",
+      "path": "/api/opportunity/{{ p.dealId }}",
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "create",
+      "title": "Create a deal",
+      "method": "POST",
+      "path": "/api/opportunity",
+      "body": {
+        "$merge": "{{ p.jsonParameters | eq:'true' | then:p.additionalFieldsJson | fromjson }}",
+        "close_date": "{{ p.jsonParameters | ne:'true' | then:p.closeDate | epoch_ms }}",
+        "expected_value": "{{ p.jsonParameters | ne:'true' | then:p.expectedValue }}",
+        "milestone": "{{ p.jsonParameters | ne:'true' | then:p.milestone }}",
+        "probability": "{{ p.jsonParameters | ne:'true' | then:p.probability }}",
+        "name": "{{ p.jsonParameters | ne:'true' | then:p.name }}",
+        "contactIds": "{{ p.additionalFields.contactIds }}",
+        "customData": "{{ p.additionalFields.customData.customProperty }}"
+      },
+      "fields": [
+        {
+          "key": "closeDate",
+          "label": "Close date",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "expectedValue",
+          "label": "Expected value",
+          "type": "number",
+          "required": true,
+          "default": 1
+        },
+        {
+          "key": "milestone",
+          "label": "Milestone",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "probability",
+          "label": "Probability (%)",
+          "type": "number",
+          "required": true,
+          "default": 50
+        },
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFieldsJson",
+          "label": "Additional fields (JSON)",
+          "type": "json",
+          "default": "",
+          "help": "Used when JSON parameters is on: the raw Agile CRM payload."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "contactIds",
+            "customData"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "delete",
+      "title": "Delete a deal",
+      "method": "DELETE",
+      "path": "/api/opportunity/{{ p.dealId }}",
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "getAll",
+      "title": "Get many deals",
+      "method": "GET",
+      "path": "/api/opportunity",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "cursor",
+        "cursor_path": "-1.cursor",
+        "limit_param": "page_size",
+        "page_size": 100,
+        "results_path": ""
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 20,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "update",
+      "title": "Update a deal",
+      "method": "PUT",
+      "path": "/api/opportunity/partial-update",
+      "body": {
+        "$merge": "{{ p.jsonParameters | eq:'true' | then:p.additionalFieldsJson | fromjson }}",
+        "id": "{{ p.jsonParameters | ne:'true' | then:p.dealId }}",
+        "expected_value": "{{ p.additionalFields.expectedValue }}",
+        "name": "{{ p.additionalFields.name }}",
+        "probability": "{{ p.additionalFields.probability }}",
+        "contactIds": "{{ p.additionalFields.contactIds }}",
+        "customData": "{{ p.additionalFields.customData.customProperty }}"
+      },
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFieldsJson",
+          "label": "Additional fields (JSON)",
+          "type": "json",
+          "default": "",
+          "help": "Used when JSON parameters is on: the raw Agile CRM payload."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "expectedValue",
+            "name",
+            "probability",
+            "contactIds",
+            "customData"
+          ]
+        }
+      ]
+    }
+  ]
+}

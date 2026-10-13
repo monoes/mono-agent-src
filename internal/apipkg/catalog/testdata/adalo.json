@@ -1,0 +1,96 @@
+{
+  "collection.getAll": {
+    "params": {
+      "collectionId": "t1",
+      "limit": 5
+    },
+    "response": {
+      "records": [
+        {
+          "id": 1
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v0/apps/test-app_id/collections/t1",
+      "query": {
+        "limit": "5",
+        "offset": "0"
+      },
+      "items": 1
+    }
+  },
+  "collection.create": {
+    "params": {
+      "collectionId": "t1",
+      "fieldsUi": {
+        "fieldValues": [
+          {
+            "fieldId": "Name",
+            "fieldValue": "Ann"
+          },
+          {
+            "fieldId": "Age",
+            "fieldValue": "3"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v0/apps/test-app_id/collections/t1",
+      "body": {
+        "Name": "Ann",
+        "Age": "3"
+      }
+    }
+  },
+  "collection.delete": {
+    "params": {
+      "collectionId": "t1",
+      "rowId": "9"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v0/apps/test-app_id/collections/t1/9"
+    }
+  },
+  "collection.get": {
+    "params": {
+      "collectionId": "t1",
+      "rowId": "9"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v0/apps/test-app_id/collections/t1/9"
+    }
+  },
+  "collection.update": {
+    "params": {
+      "collectionId": "t1",
+      "rowId": "9",
+      "dataToSend": "autoMapInputData",
+      "inputsToIgnore": "secret",
+      "fieldsUi": {
+        "fieldValues": [
+          {
+            "fieldId": "X",
+            "fieldValue": "no"
+          }
+        ]
+      }
+    },
+    "input": {
+      "Name": "Bo",
+      "secret": "s"
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/v0/apps/test-app_id/collections/t1/9",
+      "body": {
+        "Name": "Bo"
+      }
+    }
+  }
+}

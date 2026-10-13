@@ -1,0 +1,252 @@
+{
+  "organization.create": {
+    "params": {
+      "name": "Acme",
+      "domain": "acme.io",
+      "additionalFields": {
+        "persons": [
+          1,
+          2
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/organizations",
+      "body": {
+        "name": "Acme",
+        "domain": "acme.io",
+        "person_ids": [
+          1,
+          2
+        ]
+      }
+    }
+  },
+  "organization.delete": {
+    "params": {
+      "organizationId": "5"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/organizations/5"
+    }
+  },
+  "organization.get": {
+    "params": {
+      "organizationId": "5",
+      "options": {
+        "withInteractionDates": true
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/organizations/5",
+      "query": {
+        "with_interaction_dates": "true"
+      }
+    }
+  },
+  "organization.getAll": {
+    "params": {
+      "limit": 5,
+      "options": {
+        "term": "ac"
+      }
+    },
+    "response": {
+      "organizations": [
+        {
+          "id": 1
+        }
+      ],
+      "page_token": null
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/organizations",
+      "query": {
+        "term": "ac",
+        "page_size": "5"
+      },
+      "items": 1
+    }
+  },
+  "organization.update": {
+    "params": {
+      "organizationId": "5",
+      "updateFields": {
+        "name": "B"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/organizations/5",
+      "body": {
+        "name": "B"
+      }
+    }
+  },
+  "list.get": {
+    "params": {
+      "listId": "3"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/lists/3"
+    }
+  },
+  "list.getAll": {
+    "params": {
+      "limit": 1
+    },
+    "response": [
+      {
+        "id": 1
+      },
+      {
+        "id": 2
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/lists",
+      "query": {},
+      "items": 1
+    }
+  },
+  "listEntry.create": {
+    "params": {
+      "listId": "3",
+      "entityId": "42",
+      "additionalFields": {
+        "creator_id": "9"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/lists/3/list-entries",
+      "body": {
+        "entity_id": 42,
+        "creator_id": "9"
+      }
+    }
+  },
+  "listEntry.delete": {
+    "params": {
+      "listId": "3",
+      "listEntryId": "7"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/lists/3/list-entries/7"
+    }
+  },
+  "listEntry.get": {
+    "params": {
+      "listId": "3",
+      "listEntryId": "7"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/lists/3/list-entries/7"
+    }
+  },
+  "listEntry.getAll": {
+    "params": {
+      "listId": "3",
+      "returnAll": true
+    },
+    "response": {
+      "list_entries": [
+        {
+          "id": 1
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/lists/3/list-entries",
+      "query": {
+        "page_size": "500"
+      },
+      "items": 1
+    }
+  },
+  "person.create": {
+    "params": {
+      "firstName": "Ann",
+      "lastName": "Lee",
+      "emails": [
+        "a@b.co"
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/persons",
+      "body": {
+        "first_name": "Ann",
+        "last_name": "Lee",
+        "emails": [
+          "a@b.co"
+        ]
+      }
+    }
+  },
+  "person.delete": {
+    "params": {
+      "personId": "8"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/persons/8"
+    }
+  },
+  "person.get": {
+    "params": {
+      "personId": "8"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/persons/8",
+      "query": {}
+    }
+  },
+  "person.getAll": {
+    "params": {
+      "limit": 5,
+      "options": {
+        "withInteractionDates": true
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/persons",
+      "query": {
+        "with_interaction_dates": "true",
+        "page_size": "5"
+      }
+    }
+  },
+  "person.update": {
+    "params": {
+      "personId": "8",
+      "emails": [
+        "x@y.co"
+      ],
+      "updateFields": {
+        "lastName": "Li"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/persons/8",
+      "body": {
+        "emails": [
+          "x@y.co"
+        ],
+        "last_name": "Li"
+      }
+    }
+  }
+}

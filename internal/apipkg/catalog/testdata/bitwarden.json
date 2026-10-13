@@ -1,0 +1,359 @@
+{
+  "collection.get": {
+    "params": {
+      "collectionId": "c1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/public/collections/c1"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "collection.delete": {
+    "params": {
+      "collectionId": "c1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/public/collections/c1"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "collection.getAll": {
+    "params": {
+      "limit": 1
+    },
+    "response": {
+      "data": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b"
+        }
+      ],
+      "continuationToken": null
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/public/collections",
+      "query": {},
+      "items": 1
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "collection.update": {
+    "params": {
+      "collectionId": "c1",
+      "updateFields": {
+        "groups": [
+          "g1"
+        ],
+        "externalId": "x"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/public/collections/c1",
+      "body": {
+        "groups": [
+          {
+            "id": "g1",
+            "ReadOnly": false
+          }
+        ],
+        "externalId": "x"
+      }
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "event.getAll": {
+    "params": {
+      "returnAll": true,
+      "filters": {
+        "start": "2024-01-01"
+      }
+    },
+    "response": {
+      "data": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b"
+        }
+      ],
+      "continuationToken": null
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/public/events",
+      "query": {
+        "start": "2024-01-01"
+      },
+      "items": 2
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "group.get": {
+    "params": {
+      "groupId": "g1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/public/groups/g1"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "group.create": {
+    "params": {
+      "name": "Eng",
+      "additionalFields": {
+        "collections": [
+          "c1"
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/public/groups",
+      "body": {
+        "name": "Eng",
+        "AccessAll": false,
+        "collections": [
+          {
+            "id": "c1",
+            "ReadOnly": false
+          }
+        ]
+      }
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "group.delete": {
+    "params": {
+      "groupId": "g1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/public/groups/g1"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "group.getAll": {
+    "params": {},
+    "expect": {
+      "method": "GET",
+      "path": "/public/groups",
+      "query": {}
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "group.getMembers": {
+    "params": {
+      "groupId": "g1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/public/groups/g1/member-ids"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "group.update": {
+    "params": {
+      "groupId": "g1",
+      "updateFields": {
+        "name": "Ops"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/public/groups/g1",
+      "body": {
+        "name": "Ops",
+        "AccessAll": false
+      }
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "group.updateMembers": {
+    "params": {
+      "groupId": "g1",
+      "memberIds": "m1,m2"
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/public/groups/g1/member-ids",
+      "body": {
+        "memberIds": [
+          "m1",
+          "m2"
+        ]
+      }
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "member.get": {
+    "params": {
+      "memberId": "m1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/public/members/m1"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "member.create": {
+    "params": {
+      "email": "a@b.co",
+      "type": 2
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/public/members/",
+      "body": {
+        "email": "a@b.co",
+        "type": 2,
+        "AccessAll": false
+      }
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "member.delete": {
+    "params": {
+      "memberId": "m1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/public/members/m1"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "member.getGroups": {
+    "params": {
+      "memberId": "m1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/public/members/m1/group-ids"
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "member.getAll": {
+    "params": {},
+    "expect": {
+      "method": "GET",
+      "path": "/public/members",
+      "query": {}
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "member.update": {
+    "params": {
+      "memberId": "m1",
+      "updateFields": {
+        "type": 1
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/public/members/m1",
+      "body": {
+        "Type": 1
+      }
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  },
+  "member.updateGroups": {
+    "params": {
+      "memberId": "m1",
+      "groupIds": "g1"
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/public/members/m1/group-ids",
+      "body": {
+        "groupIds": [
+          "g1"
+        ]
+      }
+    },
+    "credential": {
+      "client_id": "id",
+      "client_secret": "s",
+      "access_token": "tok"
+    }
+  }
+}

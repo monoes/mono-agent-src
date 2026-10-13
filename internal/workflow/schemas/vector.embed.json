@@ -1,0 +1,152 @@
+{
+  "credential_platform": null,
+  "fields": [
+    {
+      "key": "provider",
+      "label": "Provider",
+      "type": "select",
+      "required": true,
+      "options": [
+        "openai_compatible",
+        "ollama",
+        "cohere",
+        "gemini",
+        "mistral",
+        "huggingface",
+        "bedrock",
+        "azure_openai"
+      ],
+      "default": "openai_compatible",
+      "help": "openai_compatible also covers OpenRouter-compatible and local servers (vLLM, LM Studio, llama.cpp) through Base URL."
+    },
+    {
+      "key": "credential_id",
+      "label": "Connection",
+      "type": "credential_picker",
+      "required": false,
+      "help": "openai_compatible → openai, ollama → ollama, cohere, gemini → gemini_api, mistral, huggingface, bedrock → aws, azure_openai. Optional for local servers."
+    },
+    {
+      "key": "model",
+      "label": "Model",
+      "type": "text",
+      "required": false,
+      "placeholder": "text-embedding-3-small",
+      "help": "Empty = the provider's default model. For azure_openai: the deployment name."
+    },
+    {
+      "key": "base_url",
+      "label": "Base URL",
+      "type": "text",
+      "required": false,
+      "placeholder": "http://localhost:11434",
+      "help": "Overrides the provider's endpoint (or the connection's)."
+    },
+    {
+      "key": "input_field",
+      "label": "Input Field",
+      "type": "text",
+      "required": false,
+      "placeholder": "pageContent",
+      "help": "Dotted path of the text to embed. Empty = pageContent, text or content, else the whole item as JSON."
+    },
+    {
+      "key": "input_fields",
+      "label": "More Input Fields",
+      "type": "text",
+      "required": false,
+      "placeholder": "title,summary",
+      "help": "Comma-separated extra fields; all are joined with a blank line."
+    },
+    {
+      "key": "output_key",
+      "label": "Output Key",
+      "type": "text",
+      "required": false,
+      "default": "embedding"
+    },
+    {
+      "key": "batch_size",
+      "label": "Batch Size",
+      "type": "number",
+      "required": false,
+      "default": 100,
+      "min": 1,
+      "help": "Texts per API request."
+    },
+    {
+      "key": "dimensions",
+      "label": "Dimensions",
+      "type": "number",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "help": "Shorter vectors where the model supports it (OpenAI v3, Gemini, Cohere v4, Titan v2). 0 = model default."
+    },
+    {
+      "key": "purpose",
+      "label": "Purpose",
+      "type": "select",
+      "required": false,
+      "options": [
+        "document",
+        "query"
+      ],
+      "default": "document",
+      "help": "Cohere and Gemini embed queries differently from stored documents."
+    },
+    {
+      "key": "input_type",
+      "label": "Cohere Input Type",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "cohere",
+          "bedrock"
+        ]
+      },
+      "placeholder": "search_document",
+      "help": "Overrides the input type Purpose implies."
+    },
+    {
+      "key": "resource_name",
+      "label": "Azure Resource Name",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "azure_openai"
+        ]
+      }
+    },
+    {
+      "key": "api_version",
+      "label": "Azure API Version",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "azure_openai"
+        ]
+      },
+      "placeholder": "2024-10-21"
+    },
+    {
+      "key": "region",
+      "label": "AWS Region",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "bedrock"
+        ]
+      },
+      "placeholder": "us-east-1"
+    }
+  ]
+}

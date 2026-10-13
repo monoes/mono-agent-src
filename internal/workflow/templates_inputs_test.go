@@ -7,6 +7,11 @@ func TestTemplateInputs_FromBundledTemplates(t *testing.T) {
 		"gemimg":     {"prompt"},
 		"gemimgmany": {"prompts"},
 		"find_jobs":  {"keywords", "location"},
+		// Downstream $json is the previous node's output, not trigger data.
+		"hello":                {},
+		"gmail_ai_triage":      {},
+		"ai_social_post_draft": {"topic"},
+		"http_to_slack":        {"event", "severity", "source"},
 	}
 	for id, want := range cases {
 		wf, ok := GetTemplate(id)

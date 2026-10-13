@@ -1,0 +1,77 @@
+{
+  "image.create": {
+    "params": {
+      "templateId": "t1",
+      "additionalFields": {
+        "metadata": "m"
+      },
+      "modificationsUi": {
+        "modificationsValues": [
+          {
+            "name": "title",
+            "text": "Hi",
+            "color": "",
+            "background": "",
+            "imageUrl": ""
+          },
+          {
+            "name": "photo",
+            "imageUrl": "https://x/y.png"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v2/images",
+      "body": {
+        "template": "t1",
+        "metadata": "m",
+        "modifications": [
+          {
+            "name": "title",
+            "text": "Hi"
+          },
+          {
+            "name": "photo",
+            "image_url": "https://x/y.png"
+          }
+        ]
+      }
+    }
+  },
+  "image.get": {
+    "params": {
+      "imageId": "i1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v2/images/i1"
+    }
+  },
+  "template.get": {
+    "params": {
+      "templateId": "t1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v2/templates/t1"
+    }
+  },
+  "template.getAll": {
+    "params": {},
+    "response": [
+      {
+        "uid": "a"
+      },
+      {
+        "uid": "b"
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/v2/templates",
+      "items": 2
+    }
+  }
+}

@@ -1,0 +1,348 @@
+{
+  "task.create": {
+    "params": {
+      "workspace": "w1",
+      "name": "Do",
+      "otherProperties": {
+        "notes": "n",
+        "projects": [
+          "p1"
+        ]
+      }
+    },
+    "response": {
+      "data": {
+        "gid": "1"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/tasks",
+      "body": {
+        "data": {
+          "name": "Do",
+          "workspace": "w1",
+          "notes": "n",
+          "projects": [
+            "p1"
+          ]
+        }
+      },
+      "items": 1
+    }
+  },
+  "task.delete": {
+    "params": {
+      "id": "1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/1.0/tasks/1"
+    }
+  },
+  "task.get": {
+    "params": {
+      "id": "1"
+    },
+    "response": {
+      "data": {
+        "gid": "1"
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/tasks/1",
+      "items": 1
+    }
+  },
+  "task.getAll": {
+    "params": {
+      "limit": 5,
+      "filters": {
+        "project": "p1",
+        "opt_fields": [
+          "gid",
+          "name"
+        ]
+      }
+    },
+    "response": {
+      "data": [
+        {
+          "gid": "1"
+        }
+      ],
+      "next_page": null
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/tasks",
+      "query": {
+        "project": "p1",
+        "opt_fields": "gid,name",
+        "limit": "5"
+      },
+      "items": 1
+    }
+  },
+  "task.move": {
+    "params": {
+      "id": "1",
+      "projectId": "p1",
+      "section": "s1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/sections/s1/addTask",
+      "body": {
+        "data": {
+          "task": "1"
+        }
+      }
+    }
+  },
+  "task.search": {
+    "params": {
+      "workspace": "w1",
+      "searchTaskProperties": {
+        "text": "bug",
+        "completed": false
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/workspaces/w1/tasks/search",
+      "query": {
+        "text": "bug",
+        "completed": "false"
+      }
+    }
+  },
+  "task.update": {
+    "params": {
+      "id": "1",
+      "otherProperties": {
+        "completed": true
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/1.0/tasks/1",
+      "body": {
+        "data": {
+          "completed": true
+        }
+      }
+    }
+  },
+  "subtask.create": {
+    "params": {
+      "taskId": "1",
+      "name": "Sub"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/tasks/1/subtasks",
+      "body": {
+        "data": {
+          "name": "Sub"
+        }
+      }
+    }
+  },
+  "subtask.getAll": {
+    "params": {
+      "taskId": "1",
+      "returnAll": true
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/tasks/1/subtasks",
+      "query": {
+        "limit": "100"
+      }
+    }
+  },
+  "taskComment.add": {
+    "params": {
+      "id": "1",
+      "isTextHtml": true,
+      "text": "<body>hi</body>"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/tasks/1/stories",
+      "body": {
+        "data": {
+          "html_text": "<body>hi</body>"
+        }
+      }
+    }
+  },
+  "taskComment.remove": {
+    "params": {
+      "id": "9"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/1.0/stories/9"
+    }
+  },
+  "taskProject.add": {
+    "params": {
+      "id": "1",
+      "project": "p1",
+      "additionalFields": {
+        "section": "s1"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/tasks/1/addProject",
+      "body": {
+        "data": {
+          "project": "p1",
+          "section": "s1"
+        }
+      }
+    }
+  },
+  "taskProject.remove": {
+    "params": {
+      "id": "1",
+      "project": "p1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/tasks/1/removeProject",
+      "body": {
+        "data": {
+          "project": "p1"
+        }
+      }
+    }
+  },
+  "taskTag.add": {
+    "params": {
+      "id": "1",
+      "tag": "t1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/tasks/1/addTag",
+      "body": {
+        "data": {
+          "tag": "t1"
+        }
+      }
+    }
+  },
+  "taskTag.remove": {
+    "params": {
+      "id": "1",
+      "tag": "t1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/tasks/1/removeTag",
+      "body": {
+        "data": {
+          "tag": "t1"
+        }
+      }
+    }
+  },
+  "user.get": {
+    "params": {
+      "userId": "me"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/users/me"
+    }
+  },
+  "user.getAll": {
+    "params": {
+      "workspace": "w1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/workspaces/w1/users"
+    }
+  },
+  "project.get": {
+    "params": {
+      "id": "p1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/projects/p1"
+    }
+  },
+  "project.create": {
+    "params": {
+      "name": "P",
+      "workspace": "w1",
+      "team": "t1",
+      "additionalFields": {
+        "color": "dark-red"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/1.0/teams/t1/projects",
+      "body": {
+        "data": {
+          "name": "P",
+          "workspace": "w1",
+          "color": "dark-red"
+        }
+      }
+    }
+  },
+  "project.delete": {
+    "params": {
+      "id": "p1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/1.0/projects/p1"
+    }
+  },
+  "project.getAll": {
+    "params": {
+      "workspace": "w1",
+      "limit": 5,
+      "additionalFields": {
+        "archived": true
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/projects",
+      "query": {
+        "workspace": "w1",
+        "archived": "true",
+        "limit": "5"
+      }
+    }
+  },
+  "project.update": {
+    "params": {
+      "workspace": "w1",
+      "id": "p1",
+      "updateFields": {
+        "name": "Q"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/1.0/projects/p1",
+      "body": {
+        "data": {
+          "name": "Q"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,673 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "box",
+  "node_type": "app.box",
+  "title": "Box",
+  "description": "Files, folders, search and sharing in Box",
+  "category": "app",
+  "docs_url": "https://developer.box.com/reference/",
+  "n8n_types": [
+    "n8n-nodes-base.box"
+  ],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.boxTrigger"
+  ],
+  "base_url": "https://api.box.com/2.0",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "box",
+      "name": "Box",
+      "n8n_credential": "boxOAuth2Api",
+      "methods": [
+        "oauth",
+        "bearer"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "Developer token",
+          "secret": true,
+          "required": true,
+          "help": "Developer Console → your app → Configuration (expires after 60 minutes)"
+        }
+      ],
+      "oauth": {
+        "auth_url": "https://account.box.com/api/oauth2/authorize",
+        "token_url": "https://api.box.com/oauth2/token"
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "file",
+      "label": "File"
+    },
+    {
+      "value": "folder",
+      "label": "Folder"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "file",
+      "operation": "upload",
+      "title": "Upload a file",
+      "method": "POST",
+      "path": "https://upload.box.com/api/2.0/files/content",
+      "body_type": "multipart",
+      "body": {
+        "attributes": {
+          "name": "{{ p.fileName | default:item.file_name }}",
+          "parent": {
+            "id": "{{ p.parentId | default:'0' }}"
+          }
+        }
+      },
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "multipart_field": "file",
+        "file_name": "{{ p.fileName }}"
+      },
+      "output": {
+        "path": "entries"
+      },
+      "fields": [
+        {
+          "key": "fileName",
+          "label": "File name",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "binaryData",
+          "label": "Binary file",
+          "type": "boolean",
+          "default": false,
+          "help": "Only binary uploads are supported; turn this on."
+        },
+        {
+          "key": "fileContent",
+          "label": "File content",
+          "type": "textarea",
+          "default": "",
+          "help": "Not supported; send the content as a binary property."
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary field",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "parentId",
+          "label": "Parent folder ID",
+          "type": "text",
+          "default": "",
+          "help": "Empty = root folder"
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "copy",
+      "title": "Copy a file",
+      "method": "POST",
+      "path": "/files/{{ p.fileId }}/copy",
+      "query": {
+        "fields": "{{ p.additionalFields.fields }}"
+      },
+      "body": {
+        "name": "{{ p.additionalFields.name }}",
+        "parent": {
+          "id": "{{ p.parentId | default:'0' }}"
+        },
+        "version": "{{ p.additionalFields.version }}"
+      },
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "parentId",
+          "label": "Parent folder ID",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fields",
+            "name",
+            "version"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "delete",
+      "title": "Delete a file",
+      "method": "DELETE",
+      "path": "/files/{{ p.fileId }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "download",
+      "title": "Download a file",
+      "method": "GET",
+      "path": "/files/{{ p.fileId }}/content",
+      "binary": {
+        "download": true,
+        "property_field": "binaryPropertyName"
+      },
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Put output file in field",
+          "type": "text",
+          "default": "data"
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "get",
+      "title": "Get a file",
+      "method": "GET",
+      "path": "/files/{{ p.fileId }}",
+      "query": {
+        "fields": "{{ p.additionalFields.fields }}"
+      },
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fields"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "search",
+      "title": "Search files",
+      "method": "GET",
+      "path": "/search",
+      "query": {
+        "type": "file",
+        "query": "{{ p.query }}",
+        "$merge": "{{ p.additionalFields | omit:'contet_types,createdRangeUi,updatedRangeUi' }}",
+        "content_types": "{{ p.additionalFields.contet_types }}",
+        "created_at_range": "{{ p.additionalFields.createdRangeUi.createdRangeValuesUi.from }}{{ p.additionalFields.createdRangeUi.createdRangeValuesUi.to | then:',' }}{{ p.additionalFields.createdRangeUi.createdRangeValuesUi.to }}",
+        "updated_at_range": "{{ p.additionalFields.updatedRangeUi.updatedRangeValuesUi.from }}{{ p.additionalFields.updatedRangeUi.updatedRangeValuesUi.to | then:',' }}{{ p.additionalFields.updatedRangeUi.updatedRangeValuesUi.to }}"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "entries"
+      },
+      "fields": [
+        {
+          "key": "query",
+          "label": "Query",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "contet_types",
+            "createdRangeUi",
+            "direction",
+            "fields",
+            "file_extensions",
+            "ancestor_folder_ids",
+            "scope",
+            "size_range",
+            "sort",
+            "trash_content",
+            "updatedRangeUi",
+            "owner_user_ids"
+          ],
+          "help": "createdRangeUi: {\"createdRangeValuesUi\": {\"from\": \"...\", \"to\": \"...\"}}; contet_types: comma-separated"
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "share",
+      "title": "Share a file",
+      "method": "POST",
+      "path": "/collaborations",
+      "query": {
+        "fields": "{{ p.options.fields }}",
+        "notify": "{{ p.options.notify }}"
+      },
+      "body": {
+        "item": {
+          "id": "{{ p.fileId }}",
+          "type": "file"
+        },
+        "role": "{{ p.role | eq:'coOwner' | then:'co-owner' }}{{ p.role | eq:'editor' | then:'editor' }}{{ p.role | eq:'previewer' | then:'previewer' }}{{ p.role | eq:'previewerUploader' | then:'previewer uploader' }}{{ p.role | eq:'uploader' | then:'uploader' }}{{ p.role | eq:'viewer' | then:'viewer' }}{{ p.role | eq:'viewerUploader' | then:'viewer uploader' }}",
+        "accessible_by": {
+          "type": "{{ p.accessibleBy | eq:'group' | then:'group' | default:'user' }}",
+          "login": "{{ p.accessibleBy | ne:'group' | then:p.useEmail | ne:'false' | then:p.email }}",
+          "id": "{{ p.accessibleBy | eq:'group' | then:p.groupId }}{{ p.accessibleBy | ne:'group' | then:p.useEmail | eq:'false' | then:p.userId }}"
+        },
+        "can_view_path": "{{ p.options.can_view_path }}",
+        "expires_at": "{{ p.options.expires_at }}"
+      },
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "accessibleBy",
+          "label": "Share with",
+          "type": "select",
+          "default": "",
+          "options": [
+            "group",
+            "user"
+          ]
+        },
+        {
+          "key": "useEmail",
+          "label": "Use email",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "userId",
+          "label": "User ID",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "groupId",
+          "label": "Group ID",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "role",
+          "label": "Role",
+          "type": "select",
+          "default": "editor",
+          "options": [
+            "coOwner",
+            "editor",
+            "previewer",
+            "previewerUploader",
+            "uploader",
+            "viewer",
+            "viewerUploader"
+          ]
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "can_view_path",
+            "expires_at",
+            "fields",
+            "notify"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "folder",
+      "operation": "create",
+      "title": "Create a folder",
+      "method": "POST",
+      "path": "/folders",
+      "query": {
+        "fields": "{{ p.options.fields }}"
+      },
+      "body": {
+        "name": "{{ p.name }}",
+        "parent": {
+          "id": "{{ p.parentId | default:'0' }}"
+        },
+        "folder_upload_email": {
+          "access": "{{ p.options.access }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "parentId",
+          "label": "Parent folder ID",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "access",
+            "fields"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "folder",
+      "operation": "delete",
+      "title": "Delete a folder",
+      "method": "DELETE",
+      "path": "/folders/{{ p.folderId }}",
+      "query": {
+        "recursive": "{{ p.recursive }}"
+      },
+      "fields": [
+        {
+          "key": "folderId",
+          "label": "Folder ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "recursive",
+          "label": "Recursive",
+          "type": "boolean",
+          "default": false
+        }
+      ]
+    },
+    {
+      "resource": "folder",
+      "operation": "get",
+      "title": "Get a folder",
+      "method": "GET",
+      "path": "/folders/{{ p.folderId }}",
+      "fields": [
+        {
+          "key": "folderId",
+          "label": "Folder ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "folder",
+      "operation": "search",
+      "title": "Search folders",
+      "method": "GET",
+      "path": "/search",
+      "query": {
+        "type": "folder",
+        "query": "{{ p.query }}",
+        "$merge": "{{ p.additionalFields | omit:'contet_types,createdRangeUi,updatedRangeUi' }}",
+        "content_types": "{{ p.additionalFields.contet_types }}",
+        "created_at_range": "{{ p.additionalFields.createdRangeUi.createdRangeValuesUi.from }}{{ p.additionalFields.createdRangeUi.createdRangeValuesUi.to | then:',' }}{{ p.additionalFields.createdRangeUi.createdRangeValuesUi.to }}",
+        "updated_at_range": "{{ p.additionalFields.updatedRangeUi.updatedRangeValuesUi.from }}{{ p.additionalFields.updatedRangeUi.updatedRangeValuesUi.to | then:',' }}{{ p.additionalFields.updatedRangeUi.updatedRangeValuesUi.to }}"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "entries"
+      },
+      "fields": [
+        {
+          "key": "query",
+          "label": "Query",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "contet_types",
+            "createdRangeUi",
+            "direction",
+            "fields",
+            "file_extensions",
+            "ancestor_folder_ids",
+            "scope",
+            "size_range",
+            "sort",
+            "trash_content",
+            "updatedRangeUi",
+            "owner_user_ids"
+          ],
+          "help": "createdRangeUi: {\"createdRangeValuesUi\": {\"from\": \"...\", \"to\": \"...\"}}; contet_types: comma-separated"
+        }
+      ]
+    },
+    {
+      "resource": "folder",
+      "operation": "share",
+      "title": "Share a folder",
+      "method": "POST",
+      "path": "/collaborations",
+      "query": {
+        "fields": "{{ p.options.fields }}",
+        "notify": "{{ p.options.notify }}"
+      },
+      "body": {
+        "item": {
+          "id": "{{ p.folderId }}",
+          "type": "folder"
+        },
+        "role": "{{ p.role | eq:'coOwner' | then:'co-owner' }}{{ p.role | eq:'editor' | then:'editor' }}{{ p.role | eq:'previewer' | then:'previewer' }}{{ p.role | eq:'previewerUploader' | then:'previewer uploader' }}{{ p.role | eq:'uploader' | then:'uploader' }}{{ p.role | eq:'viewer' | then:'viewer' }}{{ p.role | eq:'viewerUploader' | then:'viewer uploader' }}",
+        "accessible_by": {
+          "type": "{{ p.accessibleBy | eq:'group' | then:'group' | default:'user' }}",
+          "login": "{{ p.accessibleBy | ne:'group' | then:p.useEmail | ne:'false' | then:p.email }}",
+          "id": "{{ p.accessibleBy | eq:'group' | then:p.groupId }}{{ p.accessibleBy | ne:'group' | then:p.useEmail | eq:'false' | then:p.userId }}"
+        },
+        "can_view_path": "{{ p.options.can_view_path }}",
+        "expires_at": "{{ p.options.expires_at }}"
+      },
+      "fields": [
+        {
+          "key": "folderId",
+          "label": "Folder ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "accessibleBy",
+          "label": "Share with",
+          "type": "select",
+          "default": "user",
+          "options": [
+            "group",
+            "user"
+          ]
+        },
+        {
+          "key": "useEmail",
+          "label": "Use email",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "userId",
+          "label": "User ID",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "groupId",
+          "label": "Group ID",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "role",
+          "label": "Role",
+          "type": "select",
+          "default": "editor",
+          "options": [
+            "coOwner",
+            "editor",
+            "previewer",
+            "previewerUploader",
+            "uploader",
+            "viewer",
+            "viewerUploader"
+          ]
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "can_view_path",
+            "expires_at",
+            "fields",
+            "notify"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "folder",
+      "operation": "update",
+      "title": "Update a folder",
+      "method": "PUT",
+      "path": "/folders/{{ p.folderId }}",
+      "query": {
+        "fields": "{{ p.updateFields.fields }}"
+      },
+      "body": {
+        "$merge": "{{ p.updateFields | omit:'fields,parentId,tags' }}",
+        "parent": {
+          "id": "{{ p.updateFields.parentId }}"
+        },
+        "tags": "{{ p.updateFields.tags | split }}"
+      },
+      "fields": [
+        {
+          "key": "folderId",
+          "label": "Folder ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "can_non_owners_invite",
+            "can_non_owners_view_collaborators",
+            "description",
+            "fields",
+            "is_collaboration_restricted_to_enterprise",
+            "name",
+            "parentId",
+            "shared_link",
+            "tags"
+          ],
+          "help": "tags: comma-separated"
+        }
+      ]
+    }
+  ]
+}

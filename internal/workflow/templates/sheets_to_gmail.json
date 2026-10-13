@@ -1,0 +1,99 @@
+{
+  "name": "Sheets to Gmail",
+  "summary": "Emails a follow-up to the next contact marked pending in a Google Sheet.",
+  "description": "Manual run: read rows from a Google Sheet, keep rows with status 'pending', and email a follow-up to the first of them (one email per run — mark the row done in the sheet, then run again for the next). Set the Google credential, spreadsheet ID, and SMTP values before running.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Run Manually",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "read_sheet",
+      "type": "service.google_sheets",
+      "name": "Read Prospects Sheet",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "spreadsheet_id": "REPLACE_WITH_SPREADSHEET_ID",
+        "sheet_name": "Sheet1",
+        "operation": "read_rows",
+        "range": "A1:F100"
+      }
+    },
+    {
+      "id": "filter_pending",
+      "type": "core.filter",
+      "name": "Keep Pending",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "condition": "{{ eq (toString $json.status) \"pending\" }}"
+      }
+    },
+    {
+      "id": "first_pending",
+      "type": "core.limit",
+      "name": "First Pending Row",
+      "position": { "x": 900, "y": 0 },
+      "disabled": false,
+      "config": {
+        "max_items": 1
+      }
+    },
+    {
+      "id": "send_email",
+      "type": "comm.email_send",
+      "name": "Send Follow-up Email",
+      "position": { "x": 1200, "y": 0 },
+      "disabled": false,
+      "config": {
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 587,
+        "username": "you@example.com",
+        "password": "REPLACE_WITH_APP_PASSWORD",
+        "from": "you@example.com",
+        "to": "{{ $json.email }}",
+        "subject": "Following up",
+        "body": "Hi {{ $json.name }},\n\nJust following up on our last conversation.",
+        "body_type": "text"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-read_sheet",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "read_sheet",
+      "target_handle": "main"
+    },
+    {
+      "id": "read_sheet-to-filter_pending",
+      "source": "read_sheet",
+      "source_handle": "main",
+      "target": "filter_pending",
+      "target_handle": "main"
+    },
+    {
+      "id": "filter_pending-to-first_pending",
+      "source": "filter_pending",
+      "source_handle": "main",
+      "target": "first_pending",
+      "target_handle": "main"
+    },
+    {
+      "id": "first_pending-to-send_email",
+      "source": "first_pending",
+      "source_handle": "main",
+      "target": "send_email",
+      "target_handle": "main"
+    }
+  ]
+}

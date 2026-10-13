@@ -1,0 +1,393 @@
+{
+  "attendance.create": {
+    "params": {
+      "personId": "p1",
+      "eventId": "e1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v2/events/e1/attendances",
+      "body": {
+        "_links": {
+          "osdi:person": {
+            "href": "https://actionnetwork.org/api/v2/people/p1"
+          }
+        }
+      }
+    }
+  },
+  "attendance.get": {
+    "params": {
+      "eventId": "e1",
+      "attendanceId": "a1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/events/e1/attendances/a1"
+    }
+  },
+  "attendance.getAll": {
+    "params": {
+      "eventId": "e1",
+      "limit": 5
+    },
+    "response": {
+      "_embedded": {
+        "osdi:attendances": [
+          {
+            "id": 1
+          },
+          {
+            "id": 2
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/events/e1/attendances",
+      "query": {
+        "page": "1",
+        "per_page": "5"
+      },
+      "items": 2
+    }
+  },
+  "event.create": {
+    "params": {
+      "originSystem": "n8n",
+      "title": "Rally",
+      "additionalFields": {
+        "description": "Big",
+        "location": {
+          "postal_addresses_fields": {
+            "locality": "Austin",
+            "address_lines": "1 Main"
+          }
+        }
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v2/events",
+      "body": {
+        "origin_system": "n8n",
+        "title": "Rally",
+        "description": "Big",
+        "location": {
+          "locality": "Austin"
+        }
+      }
+    }
+  },
+  "event.get": {
+    "params": {
+      "eventId": "e1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/events/e1"
+    }
+  },
+  "event.getAll": {
+    "params": {
+      "returnAll": true
+    },
+    "response": {
+      "_embedded": {
+        "osdi:events": [
+          {
+            "id": 1
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/events",
+      "query": {
+        "page": "1",
+        "per_page": "25"
+      },
+      "items": 1
+    }
+  },
+  "person.create": {
+    "params": {
+      "email_addresses": {
+        "email_addresses_fields": {
+          "address": "a@b.org",
+          "primary": true,
+          "status": "subscribed"
+        }
+      },
+      "additionalFields": {
+        "given_name": "Ann",
+        "languages_spoken": "en",
+        "phone_numbers": {
+          "phone_numbers_fields": {
+            "number": "123",
+            "primary": true,
+            "status": "subscribed"
+          }
+        }
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v2/people",
+      "body": {
+        "person": {
+          "email_addresses": [
+            {
+              "address": "a@b.org",
+              "primary": true,
+              "status": "subscribed"
+            }
+          ],
+          "given_name": "Ann",
+          "languages_spoken": [
+            "en"
+          ],
+          "phone_numbers": [
+            {
+              "number": "123",
+              "primary": true,
+              "status": "subscribed"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "person.get": {
+    "params": {
+      "personId": "p1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/people/p1"
+    }
+  },
+  "person.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "response": {
+      "_embedded": {
+        "osdi:people": [
+          {
+            "id": 1
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/people",
+      "query": {
+        "page": "1",
+        "per_page": "5"
+      },
+      "items": 1
+    }
+  },
+  "person.update": {
+    "params": {
+      "personId": "p1",
+      "updateFields": {
+        "family_name": "Lee"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v2/people/p1",
+      "body": {
+        "family_name": "Lee"
+      }
+    }
+  },
+  "personTag.add": {
+    "params": {
+      "tagId": "t1",
+      "personId": "p1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v2/tags/t1/taggings",
+      "body": {
+        "_links": {
+          "osdi:person": {
+            "href": "https://actionnetwork.org/api/v2/people/p1"
+          }
+        }
+      }
+    }
+  },
+  "personTag.remove": {
+    "params": {
+      "tagId": "t1",
+      "taggingId": "g1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/v2/tags/t1/taggings/g1"
+    }
+  },
+  "petition.create": {
+    "params": {
+      "originSystem": "n8n",
+      "title": "Save it",
+      "additionalFields": {
+        "petition_text": "Please",
+        "target": "Mayor"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v2/petitions",
+      "body": {
+        "origin_system": "n8n",
+        "title": "Save it",
+        "petition_text": "Please",
+        "target": [
+          {
+            "name": "Mayor"
+          }
+        ]
+      }
+    }
+  },
+  "petition.get": {
+    "params": {
+      "petitionId": "x1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/petitions/x1"
+    }
+  },
+  "petition.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/petitions",
+      "query": {
+        "page": "1",
+        "per_page": "5"
+      }
+    }
+  },
+  "petition.update": {
+    "params": {
+      "petitionId": "x1",
+      "updateFields": {
+        "name": "Internal"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v2/petitions/x1",
+      "body": {
+        "name": "Internal"
+      }
+    }
+  },
+  "signature.create": {
+    "params": {
+      "petitionId": "x1",
+      "personId": "p1",
+      "additionalFields": {
+        "comments": "Yes"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v2/petitions/x1/signatures",
+      "body": {
+        "_links": {
+          "osdi:person": {
+            "href": "https://actionnetwork.org/api/v2/people/p1"
+          }
+        },
+        "comments": "Yes"
+      }
+    }
+  },
+  "signature.get": {
+    "params": {
+      "petitionId": "x1",
+      "signatureId": "s1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/petitions/x1/signatures/s1"
+    }
+  },
+  "signature.getAll": {
+    "params": {
+      "petitionId": "x1",
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/petitions/x1/signatures",
+      "query": {
+        "page": "1",
+        "per_page": "5"
+      }
+    }
+  },
+  "signature.update": {
+    "params": {
+      "petitionId": "x1",
+      "signatureId": "s1",
+      "updateFields": {
+        "comments": "No"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v2/petitions/x1/signatures/s1",
+      "body": {
+        "comments": "No"
+      }
+    }
+  },
+  "tag.create": {
+    "params": {
+      "name": "vip"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v2/tags",
+      "body": {
+        "name": "vip"
+      }
+    }
+  },
+  "tag.get": {
+    "params": {
+      "tagId": "t1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/tags/t1"
+    }
+  },
+  "tag.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/tags",
+      "query": {
+        "page": "1",
+        "per_page": "5"
+      }
+    }
+  }
+}

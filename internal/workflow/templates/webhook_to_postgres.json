@@ -1,0 +1,75 @@
+{
+  "name": "Webhook to Postgres",
+  "summary": "Saves each event sent to a private web address as a new row in your Postgres database.",
+  "description": "Webhook-triggered: accept a JSON event, project it onto explicit columns, and insert a row into Postgres. Replace the connection string and table name before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.webhook",
+      "name": "Event Webhook",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "path": "events",
+        "method": "POST"
+      }
+    },
+    {
+      "id": "normalize",
+      "type": "core.set",
+      "name": "Normalize Columns",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "assignments": [
+          {
+            "field": "event_name",
+            "value": "{{ $json.event }}",
+            "type": "string"
+          },
+          {
+            "field": "user_id",
+            "value": "{{ $json.userId }}",
+            "type": "string"
+          },
+          {
+            "field": "payload",
+            "value": "{{ json $json.data }}",
+            "type": "json"
+          }
+        ]
+      }
+    },
+    {
+      "id": "insert",
+      "type": "db.postgres",
+      "name": "Insert Event",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "connection_string": "postgres://user:pass@host:5432/dbname",
+        "operation": "insert",
+        "query": "INSERT INTO events (name, user_id, payload) VALUES ($1, $2, $3)",
+        "params": "[{{ json $json.event_name }}, {{ json $json.user_id }}, {{ json (json $json.payload) }}]"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-set",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "normalize",
+      "target_handle": "main"
+    },
+    {
+      "id": "set-to-postgres",
+      "source": "normalize",
+      "source_handle": "main",
+      "target": "insert",
+      "target_handle": "main"
+    }
+  ]
+}

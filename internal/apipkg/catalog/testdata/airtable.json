@@ -1,0 +1,257 @@
+{
+  "record.get": {
+    "params": {
+      "base": {
+        "__rl": true,
+        "mode": "id",
+        "value": "appX"
+      },
+      "table": "tblY",
+      "id": "rec1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v0/appX/tblY/rec1"
+    }
+  },
+  "record.create": {
+    "params": {
+      "base": {
+        "__rl": true,
+        "mode": "id",
+        "value": "appX"
+      },
+      "table": "tblY",
+      "columns": {
+        "mappingMode": "defineBelow",
+        "value": {
+          "Name": "Ann",
+          "Age": 3
+        }
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v0/appX/tblY",
+      "body": {
+        "typecast": false,
+        "fields": {
+          "Name": "Ann",
+          "Age": 3
+        }
+      }
+    }
+  },
+  "record.upsert": {
+    "params": {
+      "base": {
+        "__rl": true,
+        "mode": "id",
+        "value": "appX"
+      },
+      "table": "tblY",
+      "columns": {
+        "mappingMode": "autoMapInputData",
+        "value": null,
+        "matchingColumns": [
+          "Email"
+        ]
+      },
+      "options": {
+        "typecast": true,
+        "ignoreFields": "tmp"
+      }
+    },
+    "response": {
+      "records": [
+        {
+          "id": "rec1"
+        }
+      ]
+    },
+    "input": {
+      "Email": "a@b.co",
+      "Name": "Ann",
+      "tmp": 1
+    },
+    "expect": {
+      "method": "PATCH",
+      "path": "/v0/appX/tblY",
+      "body": {
+        "typecast": true,
+        "performUpsert": {
+          "fieldsToMergeOn": [
+            "Email"
+          ]
+        },
+        "records": [
+          {
+            "fields": {
+              "Email": "a@b.co",
+              "Name": "Ann"
+            }
+          }
+        ]
+      },
+      "items": 1
+    }
+  },
+  "record.deleteRecord": {
+    "params": {
+      "base": {
+        "__rl": true,
+        "mode": "id",
+        "value": "appX"
+      },
+      "table": "tblY",
+      "id": "rec1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v0/appX/tblY/rec1"
+    }
+  },
+  "record.search": {
+    "params": {
+      "base": {
+        "__rl": true,
+        "mode": "id",
+        "value": "appX"
+      },
+      "table": "tblY",
+      "filterByFormula": "{Done}",
+      "returnAll": false,
+      "limit": 10,
+      "options": {
+        "fields": [
+          "Name"
+        ],
+        "view": {
+          "__rl": true,
+          "mode": "id",
+          "value": "viwZ"
+        }
+      },
+      "sort": {
+        "property": [
+          {
+            "field": "Name",
+            "direction": "desc"
+          }
+        ]
+      }
+    },
+    "response": {
+      "records": [
+        {
+          "id": "rec1"
+        },
+        {
+          "id": "rec2"
+        }
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v0/appX/tblY/listRecords",
+      "body": {
+        "filterByFormula": "{Done}",
+        "fields": [
+          "Name"
+        ],
+        "view": "viwZ",
+        "sort": [
+          {
+            "field": "Name",
+            "direction": "desc"
+          }
+        ],
+        "pageSize": 10
+      },
+      "items": 2
+    }
+  },
+  "record.update": {
+    "params": {
+      "base": {
+        "__rl": true,
+        "mode": "id",
+        "value": "appX"
+      },
+      "table": "tblY",
+      "columns": {
+        "mappingMode": "defineBelow",
+        "value": {
+          "id": "rec1",
+          "Name": "Bo"
+        },
+        "matchingColumns": [
+          "id"
+        ]
+      }
+    },
+    "response": {
+      "records": [
+        {
+          "id": "rec1"
+        }
+      ]
+    },
+    "expect": {
+      "method": "PATCH",
+      "path": "/v0/appX/tblY",
+      "body": {
+        "typecast": false,
+        "records": [
+          {
+            "id": "rec1",
+            "fields": {
+              "Name": "Bo"
+            }
+          }
+        ]
+      },
+      "items": 1
+    }
+  },
+  "base.getMany": {
+    "params": {},
+    "response": {
+      "bases": [
+        {
+          "id": "app1"
+        },
+        {
+          "id": "app2"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v0/meta/bases",
+      "query": {},
+      "items": 2
+    }
+  },
+  "base.getSchema": {
+    "params": {
+      "base": {
+        "__rl": true,
+        "mode": "id",
+        "value": "appX"
+      }
+    },
+    "response": {
+      "tables": [
+        {
+          "id": "tbl1"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v0/meta/bases/appX/tables",
+      "items": 1
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "Stripe Events to Sheets",
+  "summary": "Records each Stripe payment event as a new row in a Google Sheet.",
+  "description": "Webhook-triggered: receive Stripe-style event JSON and append it as a row to a Google Sheet ledger. Set the auth token, Google credential, and spreadsheet ID before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.webhook",
+      "name": "Stripe Webhook",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "path": "stripe",
+        "method": "POST",
+        "auth_header": "X-Webhook-Secret",
+        "auth_token": "REPLACE_WITH_SECRET"
+      }
+    },
+    {
+      "id": "append_row",
+      "type": "service.google_sheets",
+      "name": "Append to Ledger",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "spreadsheet_id": "REPLACE_WITH_SPREADSHEET_ID",
+        "sheet_name": "Events",
+        "operation": "append_rows"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-sheets",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "append_row",
+      "target_handle": "main"
+    }
+  ]
+}

@@ -1,0 +1,263 @@
+{
+  "datapoint.create": {
+    "params": {
+      "goalName": "g1",
+      "value": 2,
+      "additionalFields": {
+        "comment": "ok",
+        "timestamp": "2024-01-02T00:00:00Z"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/users/me/goals/g1/datapoints.json",
+      "body": {
+        "value": 2,
+        "comment": "ok",
+        "timestamp": 1704153600
+      }
+    }
+  },
+  "datapoint.createAll": {
+    "params": {
+      "goalName": "g1",
+      "datapoints": "[{\"value\": 1}]"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/users/me/goals/g1/datapoints/create_all.json",
+      "body": {
+        "datapoints": [
+          {
+            "value": 1
+          }
+        ]
+      }
+    }
+  },
+  "datapoint.delete": {
+    "params": {
+      "goalName": "g1",
+      "datapointId": "d1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/v1/users/me/goals/g1/datapoints/d1.json"
+    }
+  },
+  "datapoint.get": {
+    "params": {
+      "goalName": "g1",
+      "datapointId": "d1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/users/me/goals/g1/datapoints/d1.json"
+    }
+  },
+  "datapoint.getAll": {
+    "params": {
+      "goalName": "g1",
+      "limit": 2
+    },
+    "response": [
+      {
+        "id": "d1"
+      },
+      {
+        "id": "d2"
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/users/me/goals/g1/datapoints.json",
+      "query": {
+        "count": "2",
+        "page": "1"
+      },
+      "items": 2
+    }
+  },
+  "datapoint.update": {
+    "params": {
+      "goalName": "g1",
+      "datapointId": "d1",
+      "updateFields": {
+        "value": 3
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v1/users/me/goals/g1/datapoints/d1.json",
+      "body": {
+        "value": 3
+      }
+    }
+  },
+  "charge.create": {
+    "params": {
+      "amount": 5,
+      "additionalFields": {
+        "note": "oops",
+        "dryrun": true
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/charges.json",
+      "body": {
+        "user_id": "me",
+        "amount": 5,
+        "note": "oops",
+        "dryrun": true
+      }
+    }
+  },
+  "goal.get": {
+    "params": {
+      "goalName": "g1",
+      "additionalFields": {
+        "datapoints": true
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/users/me/goals/g1.json",
+      "query": {
+        "datapoints": "true"
+      }
+    }
+  },
+  "goal.create": {
+    "params": {
+      "slug": "run",
+      "title": "Run",
+      "goal_type": "hustler",
+      "gunits": "km",
+      "additionalFields": {
+        "goalval": 100,
+        "tags": "[\"fit\"]",
+        "goaldate": "2024-01-02T00:00:00Z"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/users/me/goals.json",
+      "body": {
+        "slug": "run",
+        "title": "Run",
+        "goal_type": "hustler",
+        "gunits": "km",
+        "goalval": 100,
+        "tags": [
+          "fit"
+        ],
+        "goaldate": 1704153600
+      }
+    }
+  },
+  "goal.getAll": {
+    "params": {},
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/users/me/goals.json",
+      "query": {}
+    }
+  },
+  "goal.getArchived": {
+    "params": {
+      "additionalFields": {
+        "emaciated": true
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/users/me/goals/archived.json",
+      "query": {
+        "emaciated": "true"
+      }
+    }
+  },
+  "goal.update": {
+    "params": {
+      "goalName": "g1",
+      "updateFields": {
+        "title": "New",
+        "roadall": "[[1700000000, 0, null]]"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v1/users/me/goals/g1.json",
+      "body": {
+        "title": "New",
+        "roadall": [
+          [
+            1700000000,
+            0,
+            null
+          ]
+        ]
+      }
+    }
+  },
+  "goal.refresh": {
+    "params": {
+      "goalName": "g1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/users/me/goals/g1/refresh_graph.json"
+    }
+  },
+  "goal.shortCircuit": {
+    "params": {
+      "goalName": "g1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/users/me/goals/g1/shortcircuit.json"
+    }
+  },
+  "goal.stepDown": {
+    "params": {
+      "goalName": "g1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/users/me/goals/g1/stepdown.json"
+    }
+  },
+  "goal.cancelStepDown": {
+    "params": {
+      "goalName": "g1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/users/me/goals/g1/cancel_stepdown.json"
+    }
+  },
+  "goal.uncle": {
+    "params": {
+      "goalName": "g1"
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v1/users/me/goals/g1/uncleme.json"
+    }
+  },
+  "user.get": {
+    "params": {
+      "additionalFields": {
+        "associations": true
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/users/me.json",
+      "query": {
+        "associations": "true"
+      }
+    }
+  }
+}

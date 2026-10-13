@@ -1,0 +1,235 @@
+{
+  "row.getAll": {
+    "params": {
+      "tableId": "7",
+      "limit": 5,
+      "additionalOptions": {
+        "search": "x",
+        "filterType": "OR",
+        "filters": {
+          "fields": [
+            {
+              "field": 12,
+              "operator": "equal",
+              "value": "a"
+            }
+          ]
+        },
+        "order": {
+          "fields": [
+            {
+              "field": "Name",
+              "direction": "-"
+            }
+          ]
+        }
+      }
+    },
+    "response": {
+      "results": [
+        {
+          "id": 1
+        }
+      ],
+      "next": null
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/database/rows/table/7/",
+      "query": {
+        "user_field_names": "true",
+        "search": "x",
+        "filters": "{\"filter_type\":\"OR\",\"filters\":[{\"field\":12,\"type\":\"equal\",\"value\":\"a\"}]}",
+        "order_by": "-Name",
+        "page": "1",
+        "size": "5"
+      },
+      "items": 1
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  },
+  "row.batchCreate": {
+    "params": {
+      "tableId": "7",
+      "rowsUi": {
+        "rowValues": [
+          {
+            "fieldsUi": {
+              "fieldValues": [
+                {
+                  "fieldId": 12,
+                  "fieldValue": "a"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "response": {
+      "items": [
+        {
+          "id": 1
+        }
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/database/rows/table/7/batch/",
+      "query": {},
+      "body": {
+        "items": [
+          {
+            "field_12": "a"
+          }
+        ]
+      },
+      "items": 1
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  },
+  "row.batchDelete": {
+    "params": {
+      "tableId": "7",
+      "dataToSend": "autoMapInputData"
+    },
+    "input": {
+      "id": 5
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/database/rows/table/7/batch-delete/",
+      "body": {
+        "items": [
+          5
+        ]
+      }
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  },
+  "row.batchUpdate": {
+    "params": {
+      "tableId": "7",
+      "dataToSend": "autoMapInputData",
+      "inputsToIgnore": "tmp"
+    },
+    "input": {
+      "id": 5,
+      "Name": "b",
+      "tmp": 1
+    },
+    "expect": {
+      "method": "PATCH",
+      "path": "/api/database/rows/table/7/batch/",
+      "query": {
+        "user_field_names": "true"
+      },
+      "body": {
+        "items": [
+          {
+            "id": 5,
+            "Name": "b"
+          }
+        ]
+      }
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  },
+  "row.create": {
+    "params": {
+      "tableId": "7",
+      "fieldsUi": {
+        "fieldValues": [
+          {
+            "fieldId": 12,
+            "fieldValue": "a"
+          },
+          {
+            "fieldId": 13,
+            "fieldValue": "b"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/database/rows/table/7/",
+      "query": {},
+      "body": {
+        "field_12": "a",
+        "field_13": "b"
+      }
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  },
+  "row.delete": {
+    "params": {
+      "tableId": "7",
+      "rowId": "3"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/database/rows/table/7/3/"
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  },
+  "row.get": {
+    "params": {
+      "tableId": "7",
+      "rowId": "3"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/database/rows/table/7/3/",
+      "query": {
+        "user_field_names": "true"
+      }
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  },
+  "row.update": {
+    "params": {
+      "tableId": "7",
+      "rowId": "3",
+      "dataToSend": "autoMapInputData"
+    },
+    "input": {
+      "Name": "z"
+    },
+    "expect": {
+      "method": "PATCH",
+      "path": "/api/database/rows/table/7/3/",
+      "query": {
+        "user_field_names": "true"
+      },
+      "body": {
+        "Name": "z"
+      }
+    },
+    "credential": {
+      "host": "https://api.baserow.io",
+      "token": "t"
+    }
+  }
+}

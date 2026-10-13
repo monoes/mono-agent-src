@@ -1,6 +1,6 @@
 {
   "name": "Sheets to Gmail",
-  "description": "Manual run: read rows from a Google Sheet, keep only rows with status 'pending', and email each as a follow-up. Set the Google credential, spreadsheet ID, and SMTP values before running.",
+  "description": "Manual run: read rows from a Google Sheet, keep rows with status 'pending', and email a follow-up to the first of them (one email per run — mark the row done in the sheet, then run again for the next). Set the Google credential, spreadsheet ID, and SMTP values before running.",
   "version": 1,
   "is_active": false,
   "nodes": [
@@ -33,14 +33,24 @@
       "position": { "x": 640, "y": 0 },
       "disabled": false,
       "config": {
-        "condition": "{{ $json.status == \"pending\" }}"
+        "condition": "{{ eq (toString $json.status) \"pending\" }}"
+      }
+    },
+    {
+      "id": "first_pending",
+      "type": "core.limit",
+      "name": "First Pending Row",
+      "position": { "x": 900, "y": 0 },
+      "disabled": false,
+      "config": {
+        "max_items": 1
       }
     },
     {
       "id": "send_email",
       "type": "comm.email_send",
       "name": "Send Follow-up Email",
-      "position": { "x": 960, "y": 0 },
+      "position": { "x": 1200, "y": 0 },
       "disabled": false,
       "config": {
         "smtp_host": "smtp.gmail.com",
@@ -57,22 +67,29 @@
   ],
   "connections": [
     {
-      "id": "trigger-to-sheet",
+      "id": "trigger-to-read_sheet",
       "source": "trigger",
       "source_handle": "main",
       "target": "read_sheet",
       "target_handle": "main"
     },
     {
-      "id": "sheet-to-filter",
+      "id": "read_sheet-to-filter_pending",
       "source": "read_sheet",
       "source_handle": "main",
       "target": "filter_pending",
       "target_handle": "main"
     },
     {
-      "id": "filter-to-email",
+      "id": "filter_pending-to-first_pending",
       "source": "filter_pending",
+      "source_handle": "main",
+      "target": "first_pending",
+      "target_handle": "main"
+    },
+    {
+      "id": "first_pending-to-send_email",
+      "source": "first_pending",
       "source_handle": "main",
       "target": "send_email",
       "target_handle": "main"

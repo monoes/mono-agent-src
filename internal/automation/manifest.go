@@ -40,6 +40,7 @@ var reservedIDs = map[string]bool{
 	"discovery": true, "documents": true, "http": true, "image": true,
 	"matching": true, "mcp": true, "org": true, "people": true, "service": true,
 	"system": true, "trigger": true, "vault": true, "publication": true,
+	"vector": true,
 }
 
 // ReservedID reports whether id is a built-in node type namespace, which

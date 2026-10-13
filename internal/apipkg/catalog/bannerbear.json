@@ -1,0 +1,146 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "bannerbear",
+  "node_type": "app.bannerbear",
+  "title": "Bannerbear",
+  "description": "Generate images from Bannerbear templates",
+  "category": "app",
+  "docs_url": "https://developers.bannerbear.com/",
+  "n8n_types": [
+    "n8n-nodes-base.bannerbear"
+  ],
+  "base_url": "https://api.bannerbear.com/v2",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "bannerbear",
+      "name": "Bannerbear",
+      "n8n_credential": "bannerbearApi",
+      "n8n_field_map": {
+        "apiKey": "access_token"
+      },
+      "methods": [
+        "bearer"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "Project API key",
+          "secret": true,
+          "required": true,
+          "help": "Project → Settings → API Key"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "image",
+      "label": "Image"
+    },
+    {
+      "value": "template",
+      "label": "Template"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "image",
+      "operation": "create",
+      "title": "Create an image",
+      "method": "POST",
+      "path": "{{ p.additionalFields.waitForImage | eq:'true' | then:'https://sync.api.bannerbear.com/v2/images' | default:'/images' }}",
+      "body": {
+        "template": "{{ p.templateId }}",
+        "webhook_url": "{{ p.additionalFields.webhookUrl }}",
+        "metadata": "{{ p.additionalFields.metadata }}",
+        "modifications": {
+          "$map": "{{ p.modificationsUi.modificationsValues }}",
+          "$to": {
+            "name": "{{ el.name }}",
+            "text": "{{ el.text }}",
+            "color": "{{ el.color }}",
+            "background": "{{ el.background }}",
+            "image_url": "{{ el.imageUrl }}"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "templateId",
+          "label": "Template ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "metadata",
+            "waitForImage",
+            "waitForImageMaxTries",
+            "webhookUrl"
+          ],
+          "help": "waitForImage uses Bannerbear's synchronous endpoint."
+        },
+        {
+          "key": "modificationsUi",
+          "label": "Modifications",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "modificationsValues"
+          ],
+          "help": "{\"modificationsValues\": [{\"name\": \"title\", \"text\": \"Hello\", \"color\": \"\", \"background\": \"\", \"imageUrl\": \"\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "image",
+      "operation": "get",
+      "title": "Get an image",
+      "method": "GET",
+      "path": "/images/{{ p.imageId }}",
+      "fields": [
+        {
+          "key": "imageId",
+          "label": "Image ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "template",
+      "operation": "get",
+      "title": "Get a template",
+      "method": "GET",
+      "path": "/templates/{{ p.templateId }}",
+      "fields": [
+        {
+          "key": "templateId",
+          "label": "Template ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "template",
+      "operation": "getAll",
+      "title": "Get many templates",
+      "method": "GET",
+      "path": "/templates",
+      "fields": []
+    }
+  ]
+}

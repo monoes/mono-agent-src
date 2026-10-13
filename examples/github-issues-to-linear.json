@@ -1,31 +1,29 @@
 {
   "name": "GitHub Issues to Linear",
-  "description": "Every 6 hours: list open issues from a GitHub repo and mirror each one as a Linear issue. Set the GitHub and Linear credentials, repo, and Linear team before activating.",
+  "description": "Webhook-triggered: each time an issue is opened in a GitHub repo, create a matching Linear issue. In the repo's Settings → Webhooks, point a webhook at http(s)://<host>:9321/webhook/github-issues with content type application/json, the \"Issues\" event and the same secret as the trigger's hmac_secret (GitHub's X-Hub-Signature-256 is checked). Set the Linear credential (credential_id) and team_id before activating.",
   "version": 1,
   "is_active": false,
   "nodes": [
     {
       "id": "trigger",
-      "type": "trigger.schedule",
-      "name": "Every 6 Hours",
+      "type": "trigger.webhook",
+      "name": "GitHub Webhook",
       "position": { "x": 0, "y": 0 },
       "disabled": false,
       "config": {
-        "cron": "0 0 */6 * * *",
-        "timezone": "UTC"
+        "path": "github-issues",
+        "method": "POST",
+        "hmac_secret": "REPLACE_WITH_SECRET"
       }
     },
     {
-      "id": "list_issues",
-      "type": "service.github",
-      "name": "List GitHub Issues",
+      "id": "only_opened",
+      "type": "core.filter",
+      "name": "Only Opened Issues",
       "position": { "x": 320, "y": 0 },
       "disabled": false,
       "config": {
-        "credential_id": "",
-        "operation": "list_issues",
-        "owner": "REPLACE_WITH_REPO_OWNER",
-        "repo": "REPLACE_WITH_REPO_NAME"
+        "condition": "{{ eq (toString $json.action) \"opened\" }}"
       }
     },
     {
@@ -38,23 +36,23 @@
         "credential_id": "",
         "team_id": "REPLACE_WITH_TEAM_ID",
         "operation": "create_issue",
-        "title": "[gh] {{ $json.title }}",
-        "description": "Mirrored from GitHub issue #{{ $json.number }}: {{ $json.url }}",
+        "title": "[gh] {{ $json.issue.title }}",
+        "description": "Mirrored from GitHub issue #{{ $json.issue.number }}: {{ $json.issue.html_url }}",
         "priority": "2"
       }
     }
   ],
   "connections": [
     {
-      "id": "trigger-to-github",
+      "id": "trigger-to-only_opened",
       "source": "trigger",
       "source_handle": "main",
-      "target": "list_issues",
+      "target": "only_opened",
       "target_handle": "main"
     },
     {
-      "id": "github-to-linear",
-      "source": "list_issues",
+      "id": "only_opened-to-create_linear",
+      "source": "only_opened",
       "source_handle": "main",
       "target": "create_linear",
       "target_handle": "main"

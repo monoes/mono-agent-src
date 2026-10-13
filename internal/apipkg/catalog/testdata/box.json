@@ -1,0 +1,253 @@
+{
+  "file.upload": {
+    "params": {
+      "fileName": "a.txt",
+      "binaryData": true,
+      "parentId": "12"
+    },
+    "response": {
+      "entries": [
+        {
+          "id": "f1"
+        }
+      ]
+    },
+    "input": {
+      "data": "aGk="
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/2.0/files/content",
+      "body": {
+        "attributes": "{\"name\":\"a.txt\",\"parent\":{\"id\":\"12\"}}",
+        "file": "file:a.txt:hi"
+      },
+      "items": 1
+    }
+  },
+  "file.copy": {
+    "params": {
+      "fileId": "f1",
+      "additionalFields": {
+        "name": "b.txt",
+        "fields": "name"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/2.0/files/f1/copy",
+      "query": {
+        "fields": "name"
+      },
+      "body": {
+        "name": "b.txt",
+        "parent": {
+          "id": "0"
+        }
+      }
+    }
+  },
+  "file.delete": {
+    "params": {
+      "fileId": "f1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/2.0/files/f1"
+    }
+  },
+  "file.download": {
+    "params": {
+      "fileId": "f1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/2.0/files/f1/content"
+    }
+  },
+  "file.get": {
+    "params": {
+      "fileId": "f1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/2.0/files/f1",
+      "query": {}
+    }
+  },
+  "file.search": {
+    "params": {
+      "query": "report",
+      "limit": 5,
+      "additionalFields": {
+        "contet_types": "name,description",
+        "sort": "modified_at",
+        "createdRangeUi": {
+          "createdRangeValuesUi": {
+            "from": "2024-01-01T00:00:00Z",
+            "to": "2024-02-01T00:00:00Z"
+          }
+        }
+      }
+    },
+    "response": {
+      "entries": [
+        {
+          "id": 1
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/2.0/search",
+      "query": {
+        "type": "file",
+        "query": "report",
+        "sort": "modified_at",
+        "content_types": "name,description",
+        "created_at_range": "2024-01-01T00:00:00Z,2024-02-01T00:00:00Z",
+        "offset": "0",
+        "limit": "5"
+      },
+      "items": 1
+    }
+  },
+  "file.share": {
+    "params": {
+      "fileId": "f1",
+      "accessibleBy": "user",
+      "email": "a@b.co",
+      "role": "previewerUploader",
+      "options": {
+        "notify": true
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/2.0/collaborations",
+      "query": {
+        "notify": "true"
+      },
+      "body": {
+        "item": {
+          "id": "f1",
+          "type": "file"
+        },
+        "role": "previewer uploader",
+        "accessible_by": {
+          "type": "user",
+          "login": "a@b.co"
+        }
+      }
+    }
+  },
+  "folder.create": {
+    "params": {
+      "name": "Docs",
+      "options": {
+        "access": "open"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/2.0/folders",
+      "query": {},
+      "body": {
+        "name": "Docs",
+        "parent": {
+          "id": "0"
+        },
+        "folder_upload_email": {
+          "access": "open"
+        }
+      }
+    }
+  },
+  "folder.delete": {
+    "params": {
+      "folderId": "d1",
+      "recursive": true
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/2.0/folders/d1",
+      "query": {
+        "recursive": "true"
+      }
+    }
+  },
+  "folder.get": {
+    "params": {
+      "folderId": "d1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/2.0/folders/d1"
+    }
+  },
+  "folder.search": {
+    "params": {
+      "query": "x",
+      "returnAll": true
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/2.0/search",
+      "query": {
+        "type": "folder",
+        "query": "x",
+        "offset": "0",
+        "limit": "100"
+      }
+    }
+  },
+  "folder.share": {
+    "params": {
+      "folderId": "d1",
+      "accessibleBy": "group",
+      "groupId": "g1",
+      "role": "coOwner"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/2.0/collaborations",
+      "query": {},
+      "body": {
+        "item": {
+          "id": "d1",
+          "type": "folder"
+        },
+        "role": "co-owner",
+        "accessible_by": {
+          "type": "group",
+          "id": "g1"
+        }
+      }
+    }
+  },
+  "folder.update": {
+    "params": {
+      "folderId": "d1",
+      "updateFields": {
+        "name": "New",
+        "parentId": "5",
+        "tags": "a, b"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/2.0/folders/d1",
+      "query": {},
+      "body": {
+        "name": "New",
+        "parent": {
+          "id": "5"
+        },
+        "tags": [
+          "a",
+          "b"
+        ]
+      }
+    }
+  }
+}

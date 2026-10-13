@@ -34,8 +34,8 @@ func integrationFixes() []Fix {
 			progress("writing skills to ~/.claude/skills")
 			return env.InstallClaudeSkills()
 		}},
-		{FixInfo: FixInfo{ID: FixMCPRegister, Label: "Register monoagent's MCP server with Claude Code", Safety: SafetyConfirm,
-			Command: "claude mcp add --scope user monoagent -- monoagentcli mcp", Optional: true},
+		{FixInfo: FixInfo{ID: FixMCPRegister, Label: "Register monoagent's MCP server with the installed coding agents", Safety: SafetyConfirm,
+			Command: "claude mcp add --scope user monoagent -- monoagentcli mcp --allow-mutations (and the same for Codex, Gemini CLI, opencode)", Optional: true},
 			Apply: func(ctx context.Context, env *Env, progress func(string)) error {
 				if env.RegisterMCP == nil {
 					return fmt.Errorf("not available here")

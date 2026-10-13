@@ -16,7 +16,9 @@ desktop GUI (`wails-app/`).
 - All state lives in `~/.monoagent/` (SQLite + JSON workflow files). Every
   command works from any directory — there is no per-project setup. One
   exception: `monoagentcli init` also copies skill files into
-  `~/.claude/skills/` when `~/.claude` exists (a local file copy; no
+  `~/.claude/skills/` when `~/.claude` exists, and into `~/.codex/skills/`,
+  `~/.gemini/skills/` and `~/.config/opencode/skills/` (opencode only
+  without `~/.claude`) when those folders exist (a local file copy; no
   network).
 - A monoes.me sign-in is required since 2026-10-11 UTC (see
   [monoes.me account](#monoesme-account)). Your data stays on your machine, and there are no analytics or usage
@@ -490,7 +492,14 @@ monoagentcli --profile work mcp --tasks-only --allow-mutations   # the user's ta
 ```
 
 Register it with any MCP client (stdio transport). Prefer MCP when the
-host supports it; the CLI covers the same surface. Tools carry
+host supports it; the CLI covers the same surface. `doctor fix
+integrations.mcp_monoagent.register` (or `setup --mcp`) registers it as
+`monoagent` running `monoagentcli mcp --allow-mutations` with every installed
+runtime: Claude Code (`claude mcp add --scope user`), Codex (`codex mcp add`),
+Gemini CLI (`mcpServers` in `~/.gemini/settings.json`) and opencode (`mcp` in
+`~/.config/opencode/opencode.json`; both JSON edits keep a `.bak`). A
+registration without `--allow-mutations` is reported as outdated and the fix
+replaces it. Tools carry
 `readOnly`/`destructive` annotations where applicable, so hosts can gate
 dangerous calls.
 

@@ -1,0 +1,154 @@
+{
+  "contact.upsert": {
+    "params": {
+      "email": "a@b.co",
+      "additionalFields": {
+        "FirstName": "Ann",
+        "autopilotList": "l1",
+        "notify": true,
+        "customFieldsUi": {
+          "customFieldsValues": [
+            {
+              "key": "string--Colour",
+              "value": "blue"
+            }
+          ]
+        }
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/contact",
+      "body": {
+        "contact": {
+          "Email": "a@b.co",
+          "FirstName": "Ann",
+          "notify": true,
+          "custom": {
+            "string--Colour": "blue"
+          },
+          "_autopilot_list": "l1"
+        }
+      }
+    }
+  },
+  "contact.delete": {
+    "params": {
+      "contactId": "c1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v1/contact/c1"
+    }
+  },
+  "contact.get": {
+    "params": {
+      "contactId": "c1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/contact/c1"
+    }
+  },
+  "contact.getAll": {
+    "params": {
+      "limit": 1
+    },
+    "response": {
+      "contacts": [
+        {
+          "id": 1
+        },
+        {
+          "id": 2
+        }
+      ],
+      "bookmark": "x"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/contacts",
+      "query": {},
+      "items": 1
+    }
+  },
+  "contactJourney.add": {
+    "params": {
+      "triggerId": "0001",
+      "contactId": "c1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/trigger/0001/contact/c1"
+    }
+  },
+  "contactList.add": {
+    "params": {
+      "listId": "l1",
+      "contactId": "c1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/list/l1/contact/c1"
+    }
+  },
+  "contactList.exist": {
+    "params": {
+      "listId": "l1",
+      "contactId": "c1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/list/l1/contact/c1"
+    }
+  },
+  "contactList.getAll": {
+    "params": {
+      "listId": "l1",
+      "returnAll": true
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/list/l1/contacts",
+      "query": {}
+    }
+  },
+  "contactList.remove": {
+    "params": {
+      "listId": "l1",
+      "contactId": "c1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v1/list/l1/contact/c1"
+    }
+  },
+  "list.create": {
+    "params": {
+      "name": "VIP"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/list",
+      "body": {
+        "name": "VIP"
+      }
+    }
+  },
+  "list.getAll": {
+    "params": {},
+    "response": {
+      "lists": [
+        {
+          "list_id": "l1"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/lists",
+      "query": {},
+      "items": 1
+    }
+  }
+}

@@ -1,0 +1,1685 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "active_campaign",
+  "node_type": "app.active_campaign",
+  "title": "ActiveCampaign",
+  "description": "Contacts, accounts, deals, lists, tags, connections and e-commerce data in ActiveCampaign",
+  "category": "app",
+  "docs_url": "https://developers.activecampaign.com/reference/overview",
+  "n8n_types": [
+    "n8n-nodes-base.activeCampaign"
+  ],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.activeCampaignTrigger"
+  ],
+  "base_url": "{{ cred.api_url }}",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "active_campaign",
+      "name": "ActiveCampaign",
+      "n8n_credential": "activeCampaignApi",
+      "n8n_field_map": {
+        "apiUrl": "api_url",
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_url",
+          "label": "API URL",
+          "required": true,
+          "help": "e.g. https://youraccount.api-us1.com (Settings → Developer)"
+        },
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "Settings → Developer"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Api-Token": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "contact",
+      "label": "Contact"
+    },
+    {
+      "value": "account",
+      "label": "Account"
+    },
+    {
+      "value": "accountContact",
+      "label": "Account Contact"
+    },
+    {
+      "value": "connection",
+      "label": "Connection"
+    },
+    {
+      "value": "contactList",
+      "label": "Contact List"
+    },
+    {
+      "value": "contactTag",
+      "label": "Contact Tag"
+    },
+    {
+      "value": "deal",
+      "label": "Deal"
+    },
+    {
+      "value": "ecommerceCustomer",
+      "label": "E-commerce Customer"
+    },
+    {
+      "value": "ecommerceOrder",
+      "label": "E-commerce Order"
+    },
+    {
+      "value": "ecommerceOrderProducts",
+      "label": "E-commerce Order Products"
+    },
+    {
+      "value": "list",
+      "label": "List"
+    },
+    {
+      "value": "tag",
+      "label": "Tag"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "contact",
+      "operation": "create",
+      "title": "Create a contact",
+      "method": "POST",
+      "path": "/api/3/contact{{ p.updateIfExists | eq:'true' | then:'/sync' | default:'s' }}",
+      "body": {
+        "contact": {
+          "email": "{{ p.email }}",
+          "$merge": [
+            "{{ p.additionalFields | omit:'fieldValues,fields,customProperties' }}",
+            "{{ p.additionalFields.customProperties.property | kv:'name,value' }}"
+          ],
+          "fieldValues": "{{ p.additionalFields.fieldValues.property }}",
+          "fields": "{{ p.additionalFields.fields.property }}"
+        }
+      },
+      "output": {
+        "path": "contact"
+      },
+      "fields": [
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateIfExists",
+          "label": "Update if exists",
+          "type": "boolean",
+          "default": false,
+          "help": "Update the contact when one with this email already exists."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fieldValues",
+            "firstName",
+            "lastName",
+            "phone"
+          ],
+          "help": "fieldValues: {\"property\": [{\"field\": \"1\", \"value\": \"x\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "delete",
+      "title": "Delete a contact",
+      "method": "DELETE",
+      "path": "/api/3/contacts/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "get",
+      "title": "Get a contact",
+      "method": "GET",
+      "path": "/api/3/contacts/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "getAll",
+      "title": "Get many contacts",
+      "method": "GET",
+      "path": "/api/3/contacts",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "contacts"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "datetime",
+            "email",
+            "email_like",
+            "exclude",
+            "formid",
+            "listid",
+            "search",
+            "segmentid",
+            "seriesid",
+            "status",
+            "tagid",
+            "filters[created_before]",
+            "filters[created_after]",
+            "filters[updated_before]",
+            "filters[updated_after]",
+            "waitid",
+            "orderBy"
+          ]
+        }
+      ],
+      "query": {
+        "$merge": "{{ p.additionalFields | omit:'orderBy' }}",
+        "orders[cdate]": "{{ p.additionalFields.orderBy | eq:'orders[cdate]' }}",
+        "orders[email]": "{{ p.additionalFields.orderBy | eq:'orders[email]' }}",
+        "orders[first_name]": "{{ p.additionalFields.orderBy | eq:'orders[first_name]' }}",
+        "orders[last_name]": "{{ p.additionalFields.orderBy | eq:'orders[last_name]' }}",
+        "orders[name]": "{{ p.additionalFields.orderBy | eq:'orders[name]' }}",
+        "orders[score]": "{{ p.additionalFields.orderBy | eq:'orders[score]' }}"
+      }
+    },
+    {
+      "resource": "contact",
+      "operation": "update",
+      "title": "Update a contact",
+      "method": "PUT",
+      "path": "/api/3/contacts/{{ p.contactId }}",
+      "body": {
+        "contact": {
+          "$merge": [
+            "{{ p.updateFields | omit:'fieldValues,fields,customProperties' }}",
+            "{{ p.updateFields.customProperties.property | kv:'name,value' }}"
+          ],
+          "fieldValues": "{{ p.updateFields.fieldValues.property }}",
+          "fields": "{{ p.updateFields.fields.property }}"
+        }
+      },
+      "output": {
+        "path": "contact"
+      },
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "email",
+            "fieldValues",
+            "firstName",
+            "lastName",
+            "phone"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "account",
+      "operation": "create",
+      "title": "Create an account",
+      "method": "POST",
+      "path": "/api/3/accounts",
+      "body": {
+        "account": {
+          "name": "{{ p.name }}",
+          "$merge": "{{ p.additionalFields | omit:'fieldValues,fields,customProperties' }}",
+          "fieldValues": "{{ p.additionalFields.fieldValues.property }}",
+          "fields": "{{ p.additionalFields.fields.property }}"
+        }
+      },
+      "output": {
+        "path": "account"
+      },
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "accountUrl",
+            "fields"
+          ],
+          "help": "fields: {\"property\": [{\"customFieldId\": 1, \"fieldValue\": \"x\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "account",
+      "operation": "delete",
+      "title": "Delete an account",
+      "method": "DELETE",
+      "path": "/api/3/accounts/{{ p.accountId }}",
+      "fields": [
+        {
+          "key": "accountId",
+          "label": "Account ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "account",
+      "operation": "get",
+      "title": "Get an account",
+      "method": "GET",
+      "path": "/api/3/accounts/{{ p.accountId }}",
+      "fields": [
+        {
+          "key": "accountId",
+          "label": "Account ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "account",
+      "operation": "getAll",
+      "title": "Get many accounts",
+      "method": "GET",
+      "path": "/api/3/accounts",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "accounts"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "search"
+          ]
+        }
+      ],
+      "query": {
+        "$merge": "{{ p.filters }}"
+      }
+    },
+    {
+      "resource": "account",
+      "operation": "update",
+      "title": "Update an account",
+      "method": "PUT",
+      "path": "/api/3/accounts/{{ p.accountId }}",
+      "body": {
+        "account": {
+          "$merge": "{{ p.updateFields | omit:'fieldValues,fields,customProperties' }}",
+          "fieldValues": "{{ p.updateFields.fieldValues.property }}",
+          "fields": "{{ p.updateFields.fields.property }}"
+        }
+      },
+      "output": {
+        "path": "account"
+      },
+      "fields": [
+        {
+          "key": "accountId",
+          "label": "Account ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "name",
+            "accountUrl",
+            "fields"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "accountContact",
+      "operation": "create",
+      "title": "Associate a contact with an account",
+      "method": "POST",
+      "path": "/api/3/accountContacts",
+      "body": {
+        "accountContact": {
+          "contact": "{{ p.contact }}",
+          "account": "{{ p.account }}",
+          "$merge": "{{ p.additionalFields }}"
+        }
+      },
+      "output": {
+        "path": "accountContact"
+      },
+      "fields": [
+        {
+          "key": "account",
+          "label": "Account ID",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "contact",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "jobTitle"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "accountContact",
+      "operation": "delete",
+      "title": "Remove an account association",
+      "method": "DELETE",
+      "path": "/api/3/accountContacts/{{ p.accountContactId }}",
+      "fields": [
+        {
+          "key": "accountContactId",
+          "label": "Account contact ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "accountContact",
+      "operation": "update",
+      "title": "Update an account association",
+      "method": "PUT",
+      "path": "/api/3/accountContacts/{{ p.accountContactId }}",
+      "body": {
+        "accountContact": {
+          "$merge": "{{ p.updateFields }}"
+        }
+      },
+      "output": {
+        "path": "accountContact"
+      },
+      "fields": [
+        {
+          "key": "accountContactId",
+          "label": "Account contact ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "jobTitle"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "connection",
+      "operation": "create",
+      "title": "Create a connection",
+      "method": "POST",
+      "path": "/api/3/connections",
+      "body": {
+        "connection": {
+          "service": "{{ p.service }}",
+          "externalid": "{{ p.externalid }}",
+          "name": "{{ p.name }}",
+          "logoUrl": "{{ p.logoUrl }}",
+          "linkUrl": "{{ p.linkUrl }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "service",
+          "label": "Service",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "externalid",
+          "label": "External ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "logoUrl",
+          "label": "Logo URL",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "linkUrl",
+          "label": "Link URL",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "connection",
+      "operation": "delete",
+      "title": "Delete a connection",
+      "method": "DELETE",
+      "path": "/api/3/connections/{{ p.connectionId }}",
+      "fields": [
+        {
+          "key": "connectionId",
+          "label": "Connection ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "connection",
+      "operation": "get",
+      "title": "Get a connection",
+      "method": "GET",
+      "path": "/api/3/connections/{{ p.connectionId }}",
+      "fields": [
+        {
+          "key": "connectionId",
+          "label": "Connection ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "connection",
+      "operation": "getAll",
+      "title": "Get many connections",
+      "method": "GET",
+      "path": "/api/3/connections",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "connections"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        }
+      ]
+    },
+    {
+      "resource": "connection",
+      "operation": "update",
+      "title": "Update a connection",
+      "method": "PUT",
+      "path": "/api/3/connections/{{ p.connectionId }}",
+      "body": {
+        "connection": {
+          "$merge": "{{ p.updateFields }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "connectionId",
+          "label": "Connection ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "service",
+            "externalid",
+            "name",
+            "logoUrl",
+            "linkUrl",
+            "status",
+            "syncStatus"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "contactList",
+      "operation": "add",
+      "title": "Add a contact to a list",
+      "method": "POST",
+      "path": "/api/3/contactLists",
+      "body": {
+        "contactList": {
+          "list": "{{ p.listId }}",
+          "contact": "{{ p.contactId }}",
+          "status": 1
+        }
+      },
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "contactList",
+      "operation": "remove",
+      "title": "Remove a contact from a list",
+      "method": "POST",
+      "path": "/api/3/contactLists",
+      "body": {
+        "contactList": {
+          "list": "{{ p.listId }}",
+          "contact": "{{ p.contactId }}",
+          "status": 2
+        }
+      },
+      "output": {
+        "path": "contacts"
+      },
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "contactTag",
+      "operation": "add",
+      "title": "Add a tag to a contact",
+      "method": "POST",
+      "path": "/api/3/contactTags",
+      "body": {
+        "contactTag": {
+          "contact": "{{ p.contactId }}",
+          "tag": "{{ p.tagId }}"
+        }
+      },
+      "output": {
+        "path": "contactTag"
+      },
+      "fields": [
+        {
+          "key": "tagId",
+          "label": "Tag ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "contactTag",
+      "operation": "remove",
+      "title": "Remove a tag from a contact",
+      "method": "DELETE",
+      "path": "/api/3/contactTags/{{ p.contactTagId }}",
+      "fields": [
+        {
+          "key": "contactTagId",
+          "label": "Contact tag ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "create",
+      "title": "Create a deal",
+      "method": "POST",
+      "path": "/api/3/deals",
+      "body": {
+        "deal": {
+          "title": "{{ p.title }}",
+          "contact": "{{ p.contact }}",
+          "value": "{{ p.value }}",
+          "currency": "{{ p.currency }}",
+          "group": "{{ p.group }}",
+          "stage": "{{ p.stage }}",
+          "owner": "{{ p.owner }}",
+          "$merge": "{{ p.additionalFields }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "contact",
+          "label": "Contact ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "value",
+          "label": "Value",
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "help": "Deal value in cents."
+        },
+        {
+          "key": "currency",
+          "label": "Currency",
+          "type": "text",
+          "required": true,
+          "default": "eur",
+          "help": "Three-letter currency code, e.g. eur or usd."
+        },
+        {
+          "key": "group",
+          "label": "Pipeline ID",
+          "type": "text"
+        },
+        {
+          "key": "stage",
+          "label": "Stage ID",
+          "type": "text"
+        },
+        {
+          "key": "owner",
+          "label": "Owner ID",
+          "type": "text"
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "description",
+            "percent",
+            "status"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "createNote",
+      "title": "Add a note to a deal",
+      "method": "POST",
+      "path": "/api/3/deals/{{ p.dealId }}/notes",
+      "body": {
+        "note": {
+          "note": "{{ p.dealNote }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "dealNote",
+          "label": "Note",
+          "type": "textarea",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "delete",
+      "title": "Delete a deal",
+      "method": "DELETE",
+      "path": "/api/3/deals/{{ p.dealId }}",
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "get",
+      "title": "Get a deal",
+      "method": "GET",
+      "path": "/api/3/deals/{{ p.dealId }}",
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "getAll",
+      "title": "Get many deals",
+      "method": "GET",
+      "path": "/api/3/deals",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "deals"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "update",
+      "title": "Update a deal",
+      "method": "PUT",
+      "path": "/api/3/deals/{{ p.dealId }}",
+      "body": {
+        "deal": {
+          "$merge": "{{ p.updateFields }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "title",
+            "contact",
+            "value",
+            "currency",
+            "description",
+            "group",
+            "stage",
+            "owner",
+            "percent",
+            "status"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "deal",
+      "operation": "updateNote",
+      "title": "Update a deal note",
+      "method": "PUT",
+      "path": "/api/3/deals/{{ p.dealId }}/notes/{{ p.dealNoteId }}",
+      "body": {
+        "note": {
+          "note": "{{ p.dealNote }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "dealId",
+          "label": "Deal ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "dealNoteId",
+          "label": "Note ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "dealNote",
+          "label": "Note",
+          "type": "textarea",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceCustomer",
+      "operation": "create",
+      "title": "Create an e-commerce customer",
+      "method": "POST",
+      "path": "/api/3/ecomCustomers",
+      "body": {
+        "ecomCustomer": {
+          "connectionid": "{{ p.connectionid }}",
+          "externalid": "{{ p.externalid }}",
+          "email": "{{ p.email }}",
+          "$merge": "{{ p.additionalFields | omit:'acceptsMarketing' }}",
+          "acceptsMarketing": "{{ p.additionalFields.acceptsMarketing | eq:'true' | then:'1' }}{{ p.additionalFields.acceptsMarketing | eq:'false' | then:'0' }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "connectionid",
+          "label": "Connection ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "externalid",
+          "label": "External ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "acceptsMarketing"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceCustomer",
+      "operation": "delete",
+      "title": "Delete an e-commerce customer",
+      "method": "DELETE",
+      "path": "/api/3/ecomCustomers/{{ p.ecommerceCustomerId }}",
+      "fields": [
+        {
+          "key": "ecommerceCustomerId",
+          "label": "Customer ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceCustomer",
+      "operation": "get",
+      "title": "Get an e-commerce customer",
+      "method": "GET",
+      "path": "/api/3/ecomCustomers/{{ p.ecommerceCustomerId }}",
+      "fields": [
+        {
+          "key": "ecommerceCustomerId",
+          "label": "Customer ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceCustomer",
+      "operation": "getAll",
+      "title": "Get many e-commerce customers",
+      "method": "GET",
+      "path": "/api/3/ecomCustomers",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "ecomCustomers"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceCustomer",
+      "operation": "update",
+      "title": "Update an e-commerce customer",
+      "method": "PUT",
+      "path": "/api/3/ecomCustomers/{{ p.ecommerceCustomerId }}",
+      "body": {
+        "ecomCustomer": {
+          "$merge": "{{ p.updateFields | omit:'acceptsMarketing' }}",
+          "acceptsMarketing": "{{ p.updateFields.acceptsMarketing | eq:'true' | then:'1' }}{{ p.updateFields.acceptsMarketing | eq:'false' | then:'0' }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "ecommerceCustomerId",
+          "label": "Customer ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "connectionid",
+            "externalid",
+            "email",
+            "acceptsMarketing"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrder",
+      "operation": "create",
+      "title": "Create an order",
+      "method": "POST",
+      "path": "/api/3/ecomOrders",
+      "body": {
+        "ecomOrder": {
+          "source": "{{ p.source }}",
+          "email": "{{ p.email }}",
+          "totalPrice": "{{ p.totalPrice }}",
+          "currency": "{{ p.currency | upper }}",
+          "externalCreatedDate": "{{ p.externalCreatedDate }}",
+          "connectionid": "{{ p.connectionid }}",
+          "customerid": "{{ p.customerid }}",
+          "externalid": "{{ p.externalid }}",
+          "externalcheckoutid": "{{ p.externalcheckoutid }}",
+          "abandonedDate": "{{ p.abandonedDate }}",
+          "orderProducts": "{{ p.orderProducts }}",
+          "$merge": "{{ p.additionalFields }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "externalid",
+          "label": "External ID",
+          "type": "text"
+        },
+        {
+          "key": "externalcheckoutid",
+          "label": "External checkout ID",
+          "type": "text"
+        },
+        {
+          "key": "source",
+          "label": "Source",
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "help": "0 = sync, 1 = real time"
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "totalPrice",
+          "label": "Total price",
+          "type": "number",
+          "required": true,
+          "default": 0,
+          "help": "In cents."
+        },
+        {
+          "key": "currency",
+          "label": "Currency",
+          "type": "text",
+          "required": true,
+          "default": "eur",
+          "help": "Three-letter currency code, e.g. eur or usd."
+        },
+        {
+          "key": "connectionid",
+          "label": "Connection ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "customerid",
+          "label": "Customer ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "externalCreatedDate",
+          "label": "Created at (external)",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "abandonedDate",
+          "label": "Abandoned at",
+          "type": "datetime"
+        },
+        {
+          "key": "orderProducts",
+          "label": "Products",
+          "type": "json",
+          "default": [],
+          "help": "List of products: [{\"name\": \"x\", \"price\": 100, \"quantity\": 1, \"externalid\": \"p1\"}]"
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "shippingAmount",
+            "taxAmount",
+            "discountAmount",
+            "orderUrl",
+            "externalUpdatedDate",
+            "shippingMethod",
+            "orderNumber"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrder",
+      "operation": "delete",
+      "title": "Delete an order",
+      "method": "DELETE",
+      "path": "/api/3/ecomOrders/{{ p.orderId }}",
+      "fields": [
+        {
+          "key": "orderId",
+          "label": "Order ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrder",
+      "operation": "get",
+      "title": "Get an order",
+      "method": "GET",
+      "path": "/api/3/ecomOrders/{{ p.orderId }}",
+      "fields": [
+        {
+          "key": "orderId",
+          "label": "Order ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrder",
+      "operation": "getAll",
+      "title": "Get many orders",
+      "method": "GET",
+      "path": "/api/3/ecomOrders",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "ecomOrders"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrder",
+      "operation": "update",
+      "title": "Update an order",
+      "method": "PUT",
+      "path": "/api/3/ecomOrders/{{ p.orderId }}",
+      "body": {
+        "ecomOrder": {
+          "$merge": "{{ p.updateFields }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "orderId",
+          "label": "Order ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "externalid",
+            "externalcheckoutid",
+            "source",
+            "email",
+            "totalPrice",
+            "currency",
+            "connectionid",
+            "customerid",
+            "externalupdatedDate",
+            "abandonedDate",
+            "shippingAmount",
+            "taxAmount",
+            "discountAmount",
+            "orderUrl",
+            "externalUpdatedDate",
+            "shippingMethod",
+            "orderNumber",
+            "orderProducts"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrderProducts",
+      "operation": "getAll",
+      "title": "Get many order products",
+      "method": "GET",
+      "path": "/api/3/ecomOrderProducts",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "ecomOrderProducts"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrderProducts",
+      "operation": "getByProductId",
+      "title": "Get an order product",
+      "method": "GET",
+      "path": "/api/3/ecomOrderProducts/{{ p.procuctId }}",
+      "fields": [
+        {
+          "key": "procuctId",
+          "label": "Product ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "ecommerceOrderProducts",
+      "operation": "getByOrderId",
+      "title": "Get the products of an order",
+      "method": "GET",
+      "path": "/api/3/ecomOrders/{{ p.orderId }}/orderProducts",
+      "fields": [
+        {
+          "key": "orderId",
+          "label": "Order ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "list",
+      "operation": "getAll",
+      "title": "Get many lists",
+      "method": "GET",
+      "path": "/api/3/lists",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "lists"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "create",
+      "title": "Create a tag",
+      "method": "POST",
+      "path": "/api/3/tags",
+      "body": {
+        "tag": {
+          "tag": "{{ p.name }}",
+          "tagType": "{{ p.tagType }}",
+          "$merge": "{{ p.additionalFields }}"
+        }
+      },
+      "output": {
+        "path": "tag"
+      },
+      "fields": [
+        {
+          "key": "tagType",
+          "label": "Tag type",
+          "type": "select",
+          "required": true,
+          "default": "contact",
+          "options": [
+            "contact",
+            "template"
+          ]
+        },
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "description"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "delete",
+      "title": "Delete a tag",
+      "method": "DELETE",
+      "path": "/api/3/tags/{{ p.tagId }}",
+      "fields": [
+        {
+          "key": "tagId",
+          "label": "Tag ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "get",
+      "title": "Get a tag",
+      "method": "GET",
+      "path": "/api/3/tags/{{ p.tagId }}",
+      "fields": [
+        {
+          "key": "tagId",
+          "label": "Tag ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "getAll",
+      "title": "Get many tags",
+      "method": "GET",
+      "path": "/api/3/tags",
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "tags"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simple",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Return only the records (kept for n8n compatibility)."
+        }
+      ]
+    },
+    {
+      "resource": "tag",
+      "operation": "update",
+      "title": "Update a tag",
+      "method": "PUT",
+      "path": "/api/3/tags/{{ p.tagId }}",
+      "body": {
+        "tag": {
+          "$merge": "{{ p.updateFields }}"
+        }
+      },
+      "output": {
+        "path": "tag"
+      },
+      "fields": [
+        {
+          "key": "tagId",
+          "label": "Tag ID",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "tag",
+            "description"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,553 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "affinity",
+  "node_type": "app.affinity",
+  "title": "Affinity",
+  "description": "Organizations, people, lists and list entries in Affinity CRM",
+  "category": "app",
+  "docs_url": "https://api-docs.affinity.co/",
+  "n8n_types": [
+    "n8n-nodes-base.affinity"
+  ],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.affinityTrigger"
+  ],
+  "base_url": "https://api.affinity.co",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "affinity",
+      "name": "Affinity",
+      "n8n_credential": "affinityApi",
+      "n8n_field_map": {
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "Settings → API in Affinity."
+        }
+      ],
+      "inject": {
+        "basic": {
+          "username": "",
+          "password": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "organization",
+      "label": "Organization"
+    },
+    {
+      "value": "list",
+      "label": "List"
+    },
+    {
+      "value": "listEntry",
+      "label": "List Entry"
+    },
+    {
+      "value": "person",
+      "label": "Person"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "organization",
+      "operation": "create",
+      "title": "Create an organization",
+      "method": "POST",
+      "path": "/organizations",
+      "body": {
+        "name": "{{ p.name }}",
+        "domain": "{{ p.domain }}",
+        "person_ids": "{{ p.additionalFields.persons }}"
+      },
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "domain",
+          "label": "Domain",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "persons"
+          ],
+          "help": "persons: list of person IDs"
+        }
+      ]
+    },
+    {
+      "resource": "organization",
+      "operation": "delete",
+      "title": "Delete an organization",
+      "method": "DELETE",
+      "path": "/organizations/{{ p.organizationId }}",
+      "fields": [
+        {
+          "key": "organizationId",
+          "label": "Organization ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "organization",
+      "operation": "get",
+      "title": "Get an organization",
+      "method": "GET",
+      "path": "/organizations/{{ p.organizationId }}",
+      "query": {
+        "with_interaction_dates": "{{ p.options.withInteractionDates | eq:'true' }}"
+      },
+      "fields": [
+        {
+          "key": "organizationId",
+          "label": "Organization ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "withInteractionDates"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "organization",
+      "operation": "getAll",
+      "title": "Get many organizations",
+      "method": "GET",
+      "path": "/organizations",
+      "query": {
+        "term": "{{ p.options.term }}",
+        "with_interaction_dates": "{{ p.options.withInteractionDates | eq:'true' }}"
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page_token",
+        "cursor_path": "page_token",
+        "limit_param": "page_size",
+        "page_size": 500,
+        "results_path": "organizations"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 5,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "term",
+            "withInteractionDates"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "organization",
+      "operation": "update",
+      "title": "Update an organization",
+      "method": "PUT",
+      "path": "/organizations/{{ p.organizationId }}",
+      "body": {
+        "name": "{{ p.updateFields.name }}",
+        "domain": "{{ p.updateFields.domain }}",
+        "person_ids": "{{ p.updateFields.persons }}"
+      },
+      "fields": [
+        {
+          "key": "organizationId",
+          "label": "Organization ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "domain",
+            "name",
+            "persons"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "list",
+      "operation": "get",
+      "title": "Get a list",
+      "method": "GET",
+      "path": "/lists/{{ p.listId }}",
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "list",
+      "operation": "getAll",
+      "title": "Get many lists",
+      "method": "GET",
+      "path": "/lists",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page_token",
+        "cursor_path": "page_token",
+        "results_path": ""
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 5,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "listEntry",
+      "operation": "create",
+      "title": "Add an entity to a list",
+      "method": "POST",
+      "path": "/lists/{{ p.listId }}/list-entries",
+      "body": {
+        "entity_id": "{{ p.entityId | int }}",
+        "$merge": "{{ p.additionalFields }}"
+      },
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "entityId",
+          "label": "Entity ID",
+          "type": "text",
+          "required": true,
+          "help": "ID of the person, organization or opportunity."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "creator_id"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "listEntry",
+      "operation": "delete",
+      "title": "Delete a list entry",
+      "method": "DELETE",
+      "path": "/lists/{{ p.listId }}/list-entries/{{ p.listEntryId }}",
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "listEntryId",
+          "label": "List entry ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "listEntry",
+      "operation": "get",
+      "title": "Get a list entry",
+      "method": "GET",
+      "path": "/lists/{{ p.listId }}/list-entries/{{ p.listEntryId }}",
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "listEntryId",
+          "label": "List entry ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "listEntry",
+      "operation": "getAll",
+      "title": "Get many list entries",
+      "method": "GET",
+      "path": "/lists/{{ p.listId }}/list-entries",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page_token",
+        "cursor_path": "page_token",
+        "limit_param": "page_size",
+        "page_size": 500,
+        "results_path": "list_entries"
+      },
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 5,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "create",
+      "title": "Create a person",
+      "method": "POST",
+      "path": "/persons",
+      "body": {
+        "first_name": "{{ p.firstName }}",
+        "last_name": "{{ p.lastName }}",
+        "!emails": "{{ p.emails }}",
+        "organization_ids": "{{ p.additionalFields.organizations }}"
+      },
+      "fields": [
+        {
+          "key": "firstName",
+          "label": "First name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "lastName",
+          "label": "Last name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "emails",
+          "label": "Emails",
+          "type": "array",
+          "default": [],
+          "item_type": "text"
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "organizations"
+          ],
+          "help": "organizations: list of organization IDs"
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "delete",
+      "title": "Delete a person",
+      "method": "DELETE",
+      "path": "/persons/{{ p.personId }}",
+      "fields": [
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "get",
+      "title": "Get a person",
+      "method": "GET",
+      "path": "/persons/{{ p.personId }}",
+      "query": {
+        "with_interaction_dates": "{{ p.options.withInteractionDates | eq:'true' }}"
+      },
+      "fields": [
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "withInteractionDates"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "getAll",
+      "title": "Get many people",
+      "method": "GET",
+      "path": "/persons",
+      "query": {
+        "term": "{{ p.options.term }}",
+        "with_interaction_dates": "{{ p.options.withInteractionDates | eq:'true' }}"
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page_token",
+        "cursor_path": "page_token",
+        "limit_param": "page_size",
+        "page_size": 500,
+        "results_path": "persons"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 5,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "term",
+            "withInteractionDates"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "person",
+      "operation": "update",
+      "title": "Update a person",
+      "method": "PUT",
+      "path": "/persons/{{ p.personId }}",
+      "body": {
+        "!emails": "{{ p.emails }}",
+        "first_name": "{{ p.updateFields.firstName }}",
+        "last_name": "{{ p.updateFields.lastName }}",
+        "organization_ids": "{{ p.updateFields.organizations }}"
+      },
+      "fields": [
+        {
+          "key": "personId",
+          "label": "Person ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "emails",
+          "label": "Emails",
+          "type": "array",
+          "default": [],
+          "item_type": "text"
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "firstName",
+            "lastName",
+            "organizations"
+          ]
+        }
+      ]
+    }
+  ]
+}

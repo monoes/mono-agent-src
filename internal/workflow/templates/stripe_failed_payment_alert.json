@@ -1,0 +1,84 @@
+{
+  "name": "Stripe Failed Payment Alert",
+  "summary": "Alerts your team in Slack whenever a customer's Stripe payment fails.",
+  "description": "Webhook-triggered: point a Stripe webhook (events invoice.payment_failed and payment_intent.payment_failed) at /webhook/stripe-failed with the X-Webhook-Secret header; other event types are ignored, and each failure posts the customer, amount and event id to a Slack channel. Set the auth token, Slack credential (credential_id) and channel before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.webhook",
+      "name": "Stripe Webhook",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "path": "stripe-failed",
+        "method": "POST",
+        "auth_header": "X-Webhook-Secret",
+        "auth_token": "REPLACE_WITH_SECRET"
+      }
+    },
+    {
+      "id": "only_failures",
+      "type": "core.filter",
+      "name": "Only Failed Payments",
+      "position": { "x": 300, "y": 0 },
+      "disabled": false,
+      "config": {
+        "condition": "{{ or (eq (toString $json.type) \"invoice.payment_failed\") (eq (toString $json.type) \"payment_intent.payment_failed\") }}"
+      }
+    },
+    {
+      "id": "format",
+      "type": "core.set",
+      "name": "Format Alert",
+      "position": { "x": 600, "y": 0 },
+      "disabled": false,
+      "config": {
+        "assignments": [
+          {
+            "field": "text",
+            "value": "Payment failed: {{ $json.data.object.customer_email }} — {{ or $json.data.object.amount_due $json.data.object.amount }} {{ $json.data.object.currency }} ({{ $json.type }}, {{ $json.id }})",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "id": "alert",
+      "type": "comm.slack",
+      "name": "Alert Slack",
+      "position": { "x": 900, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "post_message",
+        "channel": "#billing",
+        "text": "{{ $json.text }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-only_failures",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "only_failures",
+      "target_handle": "main"
+    },
+    {
+      "id": "only_failures-to-format",
+      "source": "only_failures",
+      "source_handle": "main",
+      "target": "format",
+      "target_handle": "main"
+    },
+    {
+      "id": "format-to-alert",
+      "source": "format",
+      "source_handle": "main",
+      "target": "alert",
+      "target_handle": "main"
+    }
+  ]
+}

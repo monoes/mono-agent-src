@@ -1,0 +1,122 @@
+{
+  "name": "Gmail — AI Reply Draft with Approval",
+  "summary": "AI drafts a reply to your newest unread Gmail message and sends it only after you approve or edit it.",
+  "description": "Manual run: take your newest unread Gmail message, have a local AI agent draft a reply (agent.ask, runtime claude — change it to any runtime `monoagentcli agent scan --installed` lists), and hold the draft for your approval (edit it, approve or reject in `monoagentcli hil list` / the app). Only an approved reply is sent, in the same thread. Set the Gmail credential (credential_id) on all three Gmail nodes before running.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Start",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "newest_unread",
+      "type": "service.gmail",
+      "name": "Newest Unread",
+      "position": { "x": 300, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "list_messages",
+        "query": "is:unread in:inbox",
+        "max_results": 1
+      }
+    },
+    {
+      "id": "read_message",
+      "type": "service.gmail",
+      "name": "Read Message",
+      "position": { "x": 600, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "get_message",
+        "message_id": "{{ $json.id }}"
+      }
+    },
+    {
+      "id": "draft_reply",
+      "type": "agent.ask",
+      "name": "Draft Reply",
+      "position": { "x": 900, "y": 0 },
+      "disabled": false,
+      "config": {
+        "runtime": "claude",
+        "prompt": "You help triage email. Here is an email I received:\n\n{{ $json.snippet }}\n\nWrite a short, polite reply in plain text (no subject line, no signature). If the email needs no reply, answer exactly: NO REPLY NEEDED",
+        "output_key": "reply",
+        "timeout": 180
+      }
+    },
+    {
+      "id": "review",
+      "type": "core.human_in_loop",
+      "name": "Approve Reply",
+      "position": { "x": 1200, "y": 0 },
+      "disabled": false,
+      "config": {
+        "readonly_fields": [
+          "snippet"
+        ],
+        "editable_fields": [
+          "reply"
+        ],
+        "timeout_minutes": 1440
+      }
+    },
+    {
+      "id": "send_reply",
+      "type": "service.gmail",
+      "name": "Send Reply",
+      "position": { "x": 1500, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "reply",
+        "message_id": "{{ $json.id }}",
+        "body": "{{ $json.reply }}",
+        "body_type": "text"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-newest_unread",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "newest_unread",
+      "target_handle": "main"
+    },
+    {
+      "id": "newest_unread-to-read_message",
+      "source": "newest_unread",
+      "source_handle": "main",
+      "target": "read_message",
+      "target_handle": "main"
+    },
+    {
+      "id": "read_message-to-draft_reply",
+      "source": "read_message",
+      "source_handle": "main",
+      "target": "draft_reply",
+      "target_handle": "main"
+    },
+    {
+      "id": "draft_reply-to-review",
+      "source": "draft_reply",
+      "source_handle": "main",
+      "target": "review",
+      "target_handle": "main"
+    },
+    {
+      "id": "review-to-send_reply",
+      "source": "review",
+      "source_handle": "main",
+      "target": "send_reply",
+      "target_handle": "main"
+    }
+  ]
+}

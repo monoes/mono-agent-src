@@ -1,0 +1,608 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "bitwarden",
+  "node_type": "app.bitwarden",
+  "title": "Bitwarden",
+  "description": "Collections, groups, members and events of a Bitwarden organization",
+  "category": "app",
+  "docs_url": "https://bitwarden.com/help/public-api/",
+  "n8n_types": [
+    "n8n-nodes-base.bitwarden"
+  ],
+  "base_url": "{{ cred.environment | eq:'selfHosted' | then:cred.domain | default:'https://api.bitwarden.com' }}{{ cred.environment | eq:'selfHosted' | then:'/api' }}",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "bitwarden",
+      "name": "Bitwarden",
+      "n8n_credential": "bitwardenApi",
+      "n8n_field_map": {
+        "clientId": "client_id",
+        "clientSecret": "client_secret",
+        "environment": "environment",
+        "domain": "domain"
+      },
+      "methods": [
+        "client_credentials"
+      ],
+      "fields": [
+        {
+          "key": "client_id",
+          "label": "Client ID",
+          "required": true,
+          "help": "Organization → Settings → Organization info → API key"
+        },
+        {
+          "key": "client_secret",
+          "label": "Client secret",
+          "secret": true,
+          "required": true
+        },
+        {
+          "key": "environment",
+          "label": "Environment",
+          "help": "cloudHosted (default) or selfHosted"
+        },
+        {
+          "key": "domain",
+          "label": "Self-hosted URL",
+          "help": "e.g. https://bitwarden.example.com (selfHosted only)"
+        }
+      ],
+      "oauth": {
+        "token_url": "{{ cred.environment | eq:'selfHosted' | then:cred.domain | default:'https://identity.bitwarden.com' }}{{ cred.environment | eq:'selfHosted' | then:'/identity' }}/connect/token",
+        "scopes": [
+          "api.organization"
+        ],
+        "extra_params": {
+          "deviceName": "mono-agent",
+          "deviceType": "2",
+          "deviceIdentifier": "mono-agent"
+        }
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "collection",
+      "label": "Collection"
+    },
+    {
+      "value": "event",
+      "label": "Event"
+    },
+    {
+      "value": "group",
+      "label": "Group"
+    },
+    {
+      "value": "member",
+      "label": "Member"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "collection",
+      "operation": "get",
+      "title": "Get a collection",
+      "method": "GET",
+      "path": "/public/collections/{{ p.collectionId }}",
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "collection",
+      "operation": "delete",
+      "title": "Delete a collection",
+      "method": "DELETE",
+      "path": "/public/collections/{{ p.collectionId }}",
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "collection",
+      "operation": "getAll",
+      "title": "Get many collections",
+      "method": "GET",
+      "path": "/public/collections",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "continuationToken",
+        "cursor_path": "continuationToken",
+        "results_path": "data"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "collection",
+      "operation": "update",
+      "title": "Update a collection",
+      "method": "PUT",
+      "path": "/public/collections/{{ p.collectionId }}",
+      "body": {
+        "groups": {
+          "$map": "{{ p.updateFields.groups }}",
+          "$to": {
+            "id": "{{ el }}",
+            "ReadOnly": false
+          }
+        },
+        "externalId": "{{ p.updateFields.externalId }}"
+      },
+      "fields": [
+        {
+          "key": "collectionId",
+          "label": "Collection ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "groups",
+            "externalId"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "event",
+      "operation": "getAll",
+      "title": "Get many events",
+      "method": "GET",
+      "path": "/public/events",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "continuationToken",
+        "cursor_path": "continuationToken",
+        "results_path": "data"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "actingUserId",
+            "end",
+            "itemID",
+            "start"
+          ]
+        }
+      ],
+      "query": {
+        "$merge": "{{ p.filters }}"
+      }
+    },
+    {
+      "resource": "group",
+      "operation": "get",
+      "title": "Get a group",
+      "method": "GET",
+      "path": "/public/groups/{{ p.groupId }}",
+      "fields": [
+        {
+          "key": "groupId",
+          "label": "Group ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "group",
+      "operation": "create",
+      "title": "Create a group",
+      "method": "POST",
+      "path": "/public/groups",
+      "body": {
+        "name": "{{ p.name }}",
+        "AccessAll": "{{ p.accessAll }}",
+        "collections": {
+          "$map": "{{ p.additionalFields.collections }}",
+          "$to": {
+            "id": "{{ el }}",
+            "ReadOnly": false
+          }
+        },
+        "externalId": "{{ p.additionalFields.externalId }}"
+      },
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "accessAll",
+          "label": "Access all collections",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "collections",
+            "externalId"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "group",
+      "operation": "delete",
+      "title": "Delete a group",
+      "method": "DELETE",
+      "path": "/public/groups/{{ p.groupId }}",
+      "fields": [
+        {
+          "key": "groupId",
+          "label": "Group ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "group",
+      "operation": "getAll",
+      "title": "Get many groups",
+      "method": "GET",
+      "path": "/public/groups",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "continuationToken",
+        "cursor_path": "continuationToken",
+        "results_path": "data"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "group",
+      "operation": "getMembers",
+      "title": "Get a group's member IDs",
+      "method": "GET",
+      "path": "/public/groups/{{ p.groupId }}/member-ids",
+      "fields": [
+        {
+          "key": "groupId",
+          "label": "Group ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "group",
+      "operation": "update",
+      "title": "Update a group",
+      "method": "PUT",
+      "path": "/public/groups/{{ p.groupId }}",
+      "body": {
+        "name": "{{ p.updateFields.name }}",
+        "AccessAll": "{{ p.updateFields.accessAll | default:false }}",
+        "collections": {
+          "$map": "{{ p.updateFields.collections }}",
+          "$to": {
+            "id": "{{ el }}",
+            "ReadOnly": false
+          }
+        },
+        "externalId": "{{ p.updateFields.externalId }}"
+      },
+      "fields": [
+        {
+          "key": "groupId",
+          "label": "Group ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "accessAll",
+            "collections",
+            "externalId",
+            "name"
+          ],
+          "help": "name is required by Bitwarden on update"
+        }
+      ]
+    },
+    {
+      "resource": "group",
+      "operation": "updateMembers",
+      "title": "Set a group's members",
+      "method": "PUT",
+      "path": "/public/groups/{{ p.groupId }}/member-ids",
+      "body": {
+        "memberIds": "{{ p.memberIds | split }}"
+      },
+      "fields": [
+        {
+          "key": "groupId",
+          "label": "Group ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "memberIds",
+          "label": "Member IDs",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated"
+        }
+      ]
+    },
+    {
+      "resource": "member",
+      "operation": "get",
+      "title": "Get a member",
+      "method": "GET",
+      "path": "/public/members/{{ p.memberId }}",
+      "fields": [
+        {
+          "key": "memberId",
+          "label": "Member ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "member",
+      "operation": "create",
+      "title": "Invite a member",
+      "method": "POST",
+      "path": "/public/members/",
+      "body": {
+        "email": "{{ p.email }}",
+        "type": "{{ p.type }}",
+        "AccessAll": "{{ p.accessAll }}",
+        "collections": {
+          "$map": "{{ p.additionalFields.collections }}",
+          "$to": {
+            "id": "{{ el }}",
+            "ReadOnly": false
+          }
+        },
+        "externalId": "{{ p.additionalFields.externalId }}"
+      },
+      "fields": [
+        {
+          "key": "type",
+          "label": "Type",
+          "type": "number",
+          "required": true,
+          "default": 2,
+          "help": "0 Owner, 1 Admin, 2 User, 3 Manager",
+          "min": 0,
+          "max": 3
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "accessAll",
+          "label": "Access all collections",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "collections",
+            "externalId"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "member",
+      "operation": "delete",
+      "title": "Remove a member",
+      "method": "DELETE",
+      "path": "/public/members/{{ p.memberId }}",
+      "fields": [
+        {
+          "key": "memberId",
+          "label": "Member ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "member",
+      "operation": "getGroups",
+      "title": "Get a member's group IDs",
+      "method": "GET",
+      "path": "/public/members/{{ p.memberId }}/group-ids",
+      "fields": [
+        {
+          "key": "memberId",
+          "label": "Member ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "member",
+      "operation": "getAll",
+      "title": "Get many members",
+      "method": "GET",
+      "path": "/public/members",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "continuationToken",
+        "cursor_path": "continuationToken",
+        "results_path": "data"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "member",
+      "operation": "update",
+      "title": "Update a member",
+      "method": "PUT",
+      "path": "/public/members/{{ p.memberId }}",
+      "body": {
+        "AccessAll": "{{ p.updateFields.accessAll }}",
+        "collections": {
+          "$map": "{{ p.updateFields.collections }}",
+          "$to": {
+            "id": "{{ el }}",
+            "ReadOnly": false
+          }
+        },
+        "externalId": "{{ p.updateFields.externalId }}",
+        "Type": "{{ p.updateFields.type }}"
+      },
+      "fields": [
+        {
+          "key": "memberId",
+          "label": "Member ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "type",
+            "collections",
+            "externalId",
+            "accessAll"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "member",
+      "operation": "updateGroups",
+      "title": "Set a member's groups",
+      "method": "PUT",
+      "path": "/public/members/{{ p.memberId }}/group-ids",
+      "body": {
+        "groupIds": "{{ p.groupIds | split }}"
+      },
+      "fields": [
+        {
+          "key": "memberId",
+          "label": "Member ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "groupIds",
+          "label": "Group IDs",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated"
+        }
+      ]
+    }
+  ]
+}

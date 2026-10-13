@@ -1,0 +1,78 @@
+{
+  "name": "Hello — Check That Mono Agent Works",
+  "summary": "Your first run: fetches a sample profile from a free public test service and shows a few of its details, so you can see a workflow work from start to finish.",
+  "order": 1,
+  "description": "First-run check: no input, no credentials, nothing to set up beyond your monoes.me sign-in. Fetches a sample user from the public JSONPlaceholder test API (https://jsonplaceholder.typicode.com/users/1) and shapes it into four fields (name, email, company, city). Run with: workflow templates run hello. A SUCCESS here means workflows, the HTTP node and expressions all work on this machine.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Start",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "fetch",
+      "type": "http.request",
+      "name": "Fetch Sample User",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "url": "https://jsonplaceholder.typicode.com/users/1",
+        "method": "GET",
+        "timeout": 30
+      }
+    },
+    {
+      "id": "shape",
+      "type": "core.set",
+      "name": "Pick Fields",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "assignments": [
+          {
+            "field": "name",
+            "value": "{{ $json.body.name }}",
+            "type": "string"
+          },
+          {
+            "field": "email",
+            "value": "{{ $json.body.email }}",
+            "type": "string"
+          },
+          {
+            "field": "company",
+            "value": "{{ $json.body.company.name }}",
+            "type": "string"
+          },
+          {
+            "field": "city",
+            "value": "{{ $json.body.address.city }}",
+            "type": "string"
+          }
+        ],
+        "include_input": false
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-fetch",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "fetch",
+      "target_handle": "main"
+    },
+    {
+      "id": "fetch-to-shape",
+      "source": "fetch",
+      "source_handle": "main",
+      "target": "shape",
+      "target_handle": "main"
+    }
+  ]
+}

@@ -1,0 +1,261 @@
+{
+  "employee.create": {
+    "params": {
+      "firstName": "Ann",
+      "lastName": "Lee",
+      "additionalFields": {
+        "workEmail": "a@b.co",
+        "gender": "female",
+        "maritalStatus": "domesticPartnership",
+        "payRate": {
+          "value": {
+            "value": "100",
+            "currency": "USD"
+          }
+        }
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/gateway.php/test-subdomain/v1/employees",
+      "body": {
+        "firstName": "Ann",
+        "lastName": "Lee",
+        "workEmail": "a@b.co",
+        "gender": "Female",
+        "maritalStatus": "Domestic Partnership",
+        "payRate": {
+          "value": "100",
+          "currency": "USD"
+        }
+      }
+    }
+  },
+  "employee.get": {
+    "params": {
+      "employeeId": "5",
+      "options": {
+        "fields": [
+          "firstName",
+          "jobTitle"
+        ]
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/5",
+      "query": {
+        "fields": "firstName,jobTitle"
+      }
+    }
+  },
+  "employee.getAll": {
+    "params": {
+      "limit": 1
+    },
+    "response": {
+      "employees": [
+        {
+          "id": 1
+        },
+        {
+          "id": 2
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/directory",
+      "query": {},
+      "items": 1
+    }
+  },
+  "employee.update": {
+    "params": {
+      "employeeId": "5",
+      "synced": true,
+      "department": "Ops",
+      "exempt": "non-exempt",
+      "hireDate": "2024-03-05T10:00:00Z",
+      "updateFields": {
+        "workPhone": "1"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/5",
+      "body": {
+        "workPhone": "1",
+        "department": "Ops",
+        "hireDate": "2024-03-05",
+        "exempt": "Non Exempt"
+      }
+    }
+  },
+  "employeeDocument.delete": {
+    "params": {
+      "employeeId": "5",
+      "fileId": "9"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/5/files/9"
+    }
+  },
+  "employeeDocument.download": {
+    "params": {
+      "employeeId": "5",
+      "fileId": "9"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/5/files/9/"
+    }
+  },
+  "employeeDocument.getAll": {
+    "params": {
+      "employeeId": "5",
+      "returnAll": true
+    },
+    "response": {
+      "categories": [
+        {
+          "id": 1
+        },
+        {
+          "id": 2
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/5/files/view/",
+      "query": {},
+      "items": 2
+    }
+  },
+  "employeeDocument.update": {
+    "params": {
+      "employeeId": "5",
+      "fileId": "9",
+      "updateFields": {
+        "name": "cv.pdf",
+        "shareWithEmployee": false
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/5/files/9",
+      "body": {
+        "name": "cv.pdf",
+        "shareWithEmployee": "no"
+      }
+    }
+  },
+  "employeeDocument.upload": {
+    "params": {
+      "employeeId": "5",
+      "categoryId": "12"
+    },
+    "input": {
+      "file_name": "cv.pdf",
+      "data": "aGVsbG8="
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/gateway.php/test-subdomain/v1/employees/5/files",
+      "body": {
+        "fileName": "cv.pdf",
+        "category": "12",
+        "share": "yes",
+        "file": "file:cv.pdf:hello"
+      }
+    }
+  },
+  "file.delete": {
+    "params": {
+      "fileId": "9"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/gateway.php/test-subdomain/v1/files/9"
+    }
+  },
+  "file.download": {
+    "params": {
+      "fileId": "9"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/gateway.php/test-subdomain/v1/files/9/"
+    }
+  },
+  "file.getAll": {
+    "params": {},
+    "response": {
+      "categories": [
+        {
+          "id": 1
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/gateway.php/test-subdomain/v1/files/view",
+      "query": {},
+      "items": 1
+    }
+  },
+  "file.update": {
+    "params": {
+      "fileId": "9",
+      "updateFields": {
+        "categoryId": "3"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/gateway.php/test-subdomain/v1/files/9",
+      "body": {
+        "category": "3",
+        "shareWithEmployee": "yes"
+      }
+    }
+  },
+  "file.upload": {
+    "params": {
+      "categoryId": "12",
+      "options": {
+        "share": false
+      }
+    },
+    "input": {
+      "file_name": "a.txt",
+      "data": "aGk="
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/gateway.php/test-subdomain/v1/files",
+      "body": {
+        "fileName": "a.txt",
+        "category": "12",
+        "share": "no",
+        "file": "file:a.txt:hi"
+      }
+    }
+  },
+  "companyReport.get": {
+    "params": {
+      "reportId": "7"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/gateway.php/test-subdomain/v1/reports/7/",
+      "query": {
+        "format": "JSON",
+        "fd": "true",
+        "onlyCurrent": "true"
+      }
+    }
+  }
+}

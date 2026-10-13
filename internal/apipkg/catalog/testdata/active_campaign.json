@@ -1,0 +1,948 @@
+{
+  "account.create": {
+    "params": {
+      "name": "Acme",
+      "additionalFields": {
+        "accountUrl": "https://acme.io",
+        "fields": {
+          "property": [
+            {
+              "customFieldId": 1,
+              "fieldValue": "x"
+            }
+          ]
+        }
+      }
+    },
+    "response": {
+      "account": {
+        "id": "1"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/accounts",
+      "body": {
+        "account": {
+          "name": "Acme",
+          "accountUrl": "https://acme.io",
+          "fields": [
+            {
+              "customFieldId": 1,
+              "fieldValue": "x"
+            }
+          ]
+        }
+      },
+      "items": 1
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "account.delete": {
+    "params": {
+      "accountId": 1
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/accounts/1"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "account.get": {
+    "params": {
+      "accountId": 1
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/accounts/1"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "account.getAll": {
+    "params": {
+      "limit": 5,
+      "filters": {
+        "search": "ac"
+      }
+    },
+    "response": {
+      "accounts": [
+        {
+          "id": 1
+        },
+        {
+          "id": 2
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/accounts",
+      "query": {
+        "limit": "5",
+        "offset": "0",
+        "search": "ac"
+      },
+      "items": 2
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "account.update": {
+    "params": {
+      "accountId": 1,
+      "updateFields": {
+        "name": "B"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/accounts/1",
+      "body": {
+        "account": {
+          "name": "B"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "accountContact.create": {
+    "params": {
+      "account": 1,
+      "contact": 2,
+      "additionalFields": {
+        "jobTitle": "CEO"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/accountContacts",
+      "body": {
+        "accountContact": {
+          "account": 1,
+          "contact": 2,
+          "jobTitle": "CEO"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "accountContact.delete": {
+    "params": {
+      "accountContactId": 3
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/accountContacts/3"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "accountContact.update": {
+    "params": {
+      "accountContactId": 3,
+      "updateFields": {
+        "jobTitle": "CTO"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/accountContacts/3",
+      "body": {
+        "accountContact": {
+          "jobTitle": "CTO"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "connection.create": {
+    "params": {
+      "service": "shop",
+      "externalid": "s1",
+      "name": "Shop",
+      "logoUrl": "https://l",
+      "linkUrl": "https://k"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/connections",
+      "body": {
+        "connection": {
+          "service": "shop",
+          "externalid": "s1",
+          "name": "Shop",
+          "logoUrl": "https://l",
+          "linkUrl": "https://k"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "connection.delete": {
+    "params": {
+      "connectionId": 4
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/connections/4"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "connection.get": {
+    "params": {
+      "connectionId": 4
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/connections/4"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "connection.getAll": {
+    "params": {
+      "returnAll": true
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/connections",
+      "query": {
+        "limit": "100",
+        "offset": "0"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "connection.update": {
+    "params": {
+      "connectionId": 4,
+      "updateFields": {
+        "status": 0
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/connections/4",
+      "body": {
+        "connection": {
+          "status": 0
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contact.create": {
+    "params": {
+      "email": "a@b.co",
+      "updateIfExists": true,
+      "additionalFields": {
+        "firstName": "Ann",
+        "fieldValues": {
+          "property": [
+            {
+              "field": "1",
+              "value": "x"
+            }
+          ]
+        }
+      }
+    },
+    "response": {
+      "contact": {
+        "id": "1"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/contact/sync",
+      "body": {
+        "contact": {
+          "email": "a@b.co",
+          "firstName": "Ann",
+          "fieldValues": [
+            {
+              "field": "1",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "items": 1
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contact.delete": {
+    "params": {
+      "contactId": 1
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/contacts/1"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contact.get": {
+    "params": {
+      "contactId": 1
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/contacts/1"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contact.getAll": {
+    "params": {
+      "limit": 5,
+      "additionalFields": {
+        "email_like": "@b.co",
+        "filters[created_after]": "2024-01-01",
+        "orderBy": "orders[email]"
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/contacts",
+      "query": {
+        "limit": "5",
+        "offset": "0",
+        "email_like": "@b.co",
+        "filters[created_after]": "2024-01-01",
+        "orders[email]": "true"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contact.update": {
+    "params": {
+      "contactId": 1,
+      "updateFields": {
+        "phone": "123"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/contacts/1",
+      "body": {
+        "contact": {
+          "phone": "123"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contactList.add": {
+    "params": {
+      "listId": 2,
+      "contactId": 1
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/contactLists",
+      "body": {
+        "contactList": {
+          "list": 2,
+          "contact": 1,
+          "status": 1
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contactList.remove": {
+    "params": {
+      "listId": 2,
+      "contactId": 1
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/contactLists",
+      "body": {
+        "contactList": {
+          "list": 2,
+          "contact": 1,
+          "status": 2
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contactTag.add": {
+    "params": {
+      "tagId": "7",
+      "contactId": 1
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/contactTags",
+      "body": {
+        "contactTag": {
+          "contact": 1,
+          "tag": "7"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "contactTag.remove": {
+    "params": {
+      "contactTagId": 9
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/contactTags/9"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "deal.create": {
+    "params": {
+      "title": "Big",
+      "contact": 1,
+      "value": 5000,
+      "currency": "usd",
+      "stage": "2",
+      "additionalFields": {
+        "percent": 50
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/deals",
+      "body": {
+        "deal": {
+          "title": "Big",
+          "contact": 1,
+          "value": 5000,
+          "currency": "usd",
+          "stage": "2",
+          "percent": 50
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "deal.createNote": {
+    "params": {
+      "dealId": 5,
+      "dealNote": "hi"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/deals/5/notes",
+      "body": {
+        "note": {
+          "note": "hi"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "deal.delete": {
+    "params": {
+      "dealId": 5
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/deals/5"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "deal.get": {
+    "params": {
+      "dealId": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/deals/5"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "deal.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/deals",
+      "query": {
+        "limit": "5",
+        "offset": "0"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "deal.update": {
+    "params": {
+      "dealId": 5,
+      "updateFields": {
+        "status": 1
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/deals/5",
+      "body": {
+        "deal": {
+          "status": 1
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "deal.updateNote": {
+    "params": {
+      "dealId": 5,
+      "dealNoteId": 6,
+      "dealNote": "x"
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/deals/5/notes/6",
+      "body": {
+        "note": {
+          "note": "x"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceCustomer.create": {
+    "params": {
+      "connectionid": "1",
+      "externalid": "c1",
+      "email": "a@b.co",
+      "additionalFields": {
+        "acceptsMarketing": true
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/ecomCustomers",
+      "body": {
+        "ecomCustomer": {
+          "connectionid": "1",
+          "externalid": "c1",
+          "email": "a@b.co",
+          "acceptsMarketing": "1"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceCustomer.delete": {
+    "params": {
+      "ecommerceCustomerId": 8
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/ecomCustomers/8"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceCustomer.get": {
+    "params": {
+      "ecommerceCustomerId": 8
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/ecomCustomers/8"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceCustomer.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/ecomCustomers",
+      "query": {
+        "limit": "5",
+        "offset": "0"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceCustomer.update": {
+    "params": {
+      "ecommerceCustomerId": 8,
+      "updateFields": {
+        "acceptsMarketing": false,
+        "email": "c@d.co"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/ecomCustomers/8",
+      "body": {
+        "ecomCustomer": {
+          "acceptsMarketing": "0",
+          "email": "c@d.co"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrder.create": {
+    "params": {
+      "source": 1,
+      "email": "a@b.co",
+      "totalPrice": 999,
+      "currency": "eur",
+      "connectionid": 1,
+      "customerid": 2,
+      "externalCreatedDate": "2024-01-01T00:00:00Z",
+      "externalid": "o1",
+      "orderProducts": [
+        {
+          "name": "Hat",
+          "price": 999,
+          "quantity": 1
+        }
+      ],
+      "additionalFields": {
+        "orderNumber": "42"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/ecomOrders",
+      "body": {
+        "ecomOrder": {
+          "source": 1,
+          "email": "a@b.co",
+          "totalPrice": 999,
+          "currency": "EUR",
+          "connectionid": 1,
+          "customerid": 2,
+          "externalCreatedDate": "2024-01-01T00:00:00Z",
+          "externalid": "o1",
+          "orderProducts": [
+            {
+              "name": "Hat",
+              "price": 999,
+              "quantity": 1
+            }
+          ],
+          "orderNumber": "42"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrder.delete": {
+    "params": {
+      "orderId": 3
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/ecomOrders/3"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrder.get": {
+    "params": {
+      "orderId": 3
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/ecomOrders/3"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrder.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/ecomOrders",
+      "query": {
+        "limit": "5",
+        "offset": "0"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrder.update": {
+    "params": {
+      "orderId": 3,
+      "updateFields": {
+        "totalPrice": 100
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/ecomOrders/3",
+      "body": {
+        "ecomOrder": {
+          "totalPrice": 100
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrderProducts.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/ecomOrderProducts",
+      "query": {
+        "limit": "5",
+        "offset": "0"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrderProducts.getByProductId": {
+    "params": {
+      "procuctId": 4
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/ecomOrderProducts/4"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "ecommerceOrderProducts.getByOrderId": {
+    "params": {
+      "orderId": 3
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/ecomOrders/3/orderProducts"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "list.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/lists",
+      "query": {
+        "limit": "5",
+        "offset": "0"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "tag.create": {
+    "params": {
+      "name": "vip",
+      "tagType": "contact",
+      "additionalFields": {
+        "description": "d"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/3/tags",
+      "body": {
+        "tag": {
+          "tag": "vip",
+          "tagType": "contact",
+          "description": "d"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "tag.delete": {
+    "params": {
+      "tagId": 7
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/3/tags/7"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "tag.get": {
+    "params": {
+      "tagId": 7
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/tags/7"
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "tag.getAll": {
+    "params": {
+      "limit": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/tags",
+      "query": {
+        "limit": "5",
+        "offset": "0"
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  },
+  "tag.update": {
+    "params": {
+      "tagId": 7,
+      "updateFields": {
+        "tag": "vip2"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/3/tags/7",
+      "body": {
+        "tag": {
+          "tag": "vip2"
+        }
+      }
+    },
+    "credential": {
+      "api_url": "https://acme.api-us1.com",
+      "api_key": "k"
+    }
+  }
+}

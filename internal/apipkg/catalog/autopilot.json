@@ -1,0 +1,362 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "autopilot",
+  "node_type": "app.autopilot",
+  "title": "Autopilot",
+  "description": "Contacts, lists and journeys in Autopilot",
+  "category": "app",
+  "docs_url": "https://autopilot.docs.apiary.io/",
+  "n8n_types": [
+    "n8n-nodes-base.autopilot"
+  ],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.autopilotTrigger"
+  ],
+  "base_url": "https://api2.autopilothq.com/v1",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "autopilot",
+      "name": "Autopilot",
+      "n8n_credential": "autopilotApi",
+      "n8n_field_map": {
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "Settings → App Connections → Autopilot API"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "autopilotapikey": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "contact",
+      "label": "Contact"
+    },
+    {
+      "value": "contactJourney",
+      "label": "Contact Journey"
+    },
+    {
+      "value": "contactList",
+      "label": "Contact List"
+    },
+    {
+      "value": "list",
+      "label": "List"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "contact",
+      "operation": "upsert",
+      "title": "Create or update a contact",
+      "method": "POST",
+      "path": "/contact",
+      "body": {
+        "contact": {
+          "Email": "{{ p.email }}",
+          "$merge": "{{ p.additionalFields | omit:'customFieldsUi,autopilotList,autopilotSessionId,newEmail' }}",
+          "custom": "{{ p.additionalFields.customFieldsUi | kv:'key,value' }}",
+          "_autopilot_list": "{{ p.additionalFields.autopilotList }}",
+          "_autopilot_session_id": "{{ p.additionalFields.autopilotSessionId }}",
+          "_NewEmail": "{{ p.additionalFields.newEmail }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "Company",
+            "customFieldsUi",
+            "Fax",
+            "FirstName",
+            "Industry",
+            "LastName",
+            "LeadSource",
+            "LinkedIn",
+            "autopilotList",
+            "MailingCountry",
+            "MailingPostalCode",
+            "MailingState",
+            "MailingStreet",
+            "MailingCity",
+            "MobilePhone",
+            "newEmail",
+            "notify",
+            "NumberOfEmployees",
+            "owner_name",
+            "Phone",
+            "Salutation",
+            "autopilotSessionId",
+            "Status",
+            "Title",
+            "unsubscribed",
+            "Website"
+          ],
+          "help": "customFieldsUi: {\"customFieldsValues\": [{\"key\": \"string--Favourite--Colour\", \"value\": \"blue\"}]} (Autopilot custom field keys)"
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "delete",
+      "title": "Delete a contact",
+      "method": "DELETE",
+      "path": "/contact/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true,
+          "help": "Contact ID or email."
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "get",
+      "title": "Get a contact",
+      "method": "GET",
+      "path": "/contact/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true,
+          "help": "Contact ID or email."
+        }
+      ]
+    },
+    {
+      "resource": "contact",
+      "operation": "getAll",
+      "title": "Get many contacts",
+      "method": "GET",
+      "path": "/contacts",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "bookmark",
+        "cursor_path": "next_page_not_supported",
+        "results_path": "contacts"
+      },
+      "description": "Returns the first page (up to 100 contacts); Autopilot's path-based bookmark paging is not followed.",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "contactJourney",
+      "operation": "add",
+      "title": "Add a contact to a journey",
+      "method": "POST",
+      "path": "/trigger/{{ p.triggerId }}/contact/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "triggerId",
+          "label": "Trigger ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true,
+          "help": "Contact ID or email."
+        }
+      ]
+    },
+    {
+      "resource": "contactList",
+      "operation": "add",
+      "title": "Add a contact to a list",
+      "method": "POST",
+      "path": "/list/{{ p.listId }}/contact/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true,
+          "help": "Contact ID or email."
+        }
+      ]
+    },
+    {
+      "resource": "contactList",
+      "operation": "exist",
+      "title": "Check whether a contact is on a list",
+      "method": "GET",
+      "path": "/list/{{ p.listId }}/contact/{{ p.contactId }}",
+      "description": "Succeeds when the contact is on the list; a missing contact is an HTTP error (use on_error to branch).",
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true,
+          "help": "Contact ID or email."
+        }
+      ]
+    },
+    {
+      "resource": "contactList",
+      "operation": "getAll",
+      "title": "Get many contacts of a list",
+      "method": "GET",
+      "path": "/list/{{ p.listId }}/contacts",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "bookmark",
+        "cursor_path": "next_page_not_supported",
+        "results_path": "contacts"
+      },
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "contactList",
+      "operation": "remove",
+      "title": "Remove a contact from a list",
+      "method": "DELETE",
+      "path": "/list/{{ p.listId }}/contact/{{ p.contactId }}",
+      "fields": [
+        {
+          "key": "listId",
+          "label": "List ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "contactId",
+          "label": "Contact ID",
+          "type": "text",
+          "required": true,
+          "help": "Contact ID or email."
+        }
+      ]
+    },
+    {
+      "resource": "list",
+      "operation": "create",
+      "title": "Create a list",
+      "method": "POST",
+      "path": "/list",
+      "body": {
+        "name": "{{ p.name }}"
+      },
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "list",
+      "operation": "getAll",
+      "title": "Get many lists",
+      "method": "GET",
+      "path": "/lists",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "bookmark",
+        "cursor_path": "next_page_not_supported",
+        "results_path": "lists"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    }
+  ]
+}

@@ -60,7 +60,9 @@ func newSetupCmd(cfg *globalConfig) *cobra.Command {
      monomind setup, then starts the workflow daemon — asking before
      anything that installs software or starts the daemon (--yes accepts)
   3. offers the optional extras: an AI agent runtime, starting the daemon at
-     login, registering monoagent's MCP server with Claude Code (or pass
+     login, registering monoagent's MCP server (mcp --allow-mutations)
+     with every installed coding agent: Claude Code, Codex, Gemini CLI,
+     opencode (or pass
      --runtime/--autostart/--mcp); --deps also downloads the Claude Agent SDK
      ahead of its first use; an extra that can't be done is reported
      as skipped, with why
@@ -158,7 +160,7 @@ Safe to run again at any time; it only does what is still missing.`,
 	cmd.Flags().StringSliceVar(&groups, "group", nil, "Only check and fix these groups (e.g. core)")
 	cmd.Flags().StringSliceVar(&wants.runtimes, "runtime", nil, "Also install these AI agent runtimes (e.g. claude, codex)")
 	cmd.Flags().BoolVar(&wants.autostart, "autostart", false, "Also start the daemon at login")
-	cmd.Flags().BoolVar(&wants.mcp, "mcp", false, "Also register monoagent's MCP server with Claude Code")
+	cmd.Flags().BoolVar(&wants.mcp, "mcp", false, "Also register monoagent's MCP server (with --allow-mutations) with every installed coding agent (Claude Code, Codex, Gemini CLI, opencode)")
 	cmd.Flags().BoolVar(&wants.deps, "deps", false, "Also download the Claude Agent SDK (about 300 MB) now instead of on the first Claude turn")
 	return cmd
 }
@@ -375,7 +377,7 @@ func optionalFixIDs(rep *health.Report, w setupWants, ask func(question string) 
 		}
 	}
 	extra(health.FixAutostart, health.CheckAutostart, w.autostart, "Start the workflow daemon automatically at login?", "already set up")
-	extra(health.FixMCPRegister, health.CheckMCP, w.mcp, "Register monoagent's tools (MCP) with Claude Code?", "already registered")
+	extra(health.FixMCPRegister, health.CheckMCP, w.mcp, "Register monoagent's tools (MCP, with --allow-mutations) with your coding agents?", "already registered")
 	if w.deps { // flag only: a codex-only user would be asked on every run
 		extra(health.FixMonomindDeps, health.CheckMonomindDeps, true, "", "already installed")
 	}

@@ -23,9 +23,21 @@
       "disabled": false,
       "config": {
         "assignments": [
-          { "field": "event_name", "value": "{{ $json.event }}", "type": "string" },
-          { "field": "user_id", "value": "{{ $json.userId }}", "type": "string" },
-          { "field": "payload", "value": "{{ json $json.data }}", "type": "json" }
+          {
+            "field": "event_name",
+            "value": "{{ $json.event }}",
+            "type": "string"
+          },
+          {
+            "field": "user_id",
+            "value": "{{ $json.userId }}",
+            "type": "string"
+          },
+          {
+            "field": "payload",
+            "value": "{{ json $json.data }}",
+            "type": "json"
+          }
         ]
       }
     },
@@ -37,8 +49,9 @@
       "disabled": false,
       "config": {
         "connection_string": "postgres://user:pass@host:5432/dbname",
+        "operation": "insert",
         "query": "INSERT INTO events (name, user_id, payload) VALUES ($1, $2, $3)",
-        "params": "[\"{{ $json.event_name }}\", \"{{ $json.user_id }}\", \"{{ $json.payload }}\"]"
+        "params": "[{{ json $json.event_name }}, {{ json $json.user_id }}, {{ json (json $json.payload) }}]"
       }
     }
   ],

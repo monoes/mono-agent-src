@@ -1,5 +1,6 @@
 {
   "name": "Gemini — Generate One Image",
+  "summary": "Creates one image from your description with Gemini and saves it to your image library.",
   "description": "Manually trigger with a prompt; generates a single image via Gemini and saves it to the image vault automatically. Run with: workflow run <id> --input '{\"prompt\":\"a red bicycle\"}'. Requires `monoagentcli login gemini` once beforehand.",
   "version": 1,
   "is_active": false,

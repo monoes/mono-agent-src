@@ -1,0 +1,308 @@
+{
+  "session.create": {
+    "params": {
+      "profileName": "p1",
+      "proxy": "integrated",
+      "additionalFields": {
+        "solveCaptcha": true,
+        "extensionIds": "abc, def"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions",
+      "body": {
+        "configuration": {
+          "profileName": "p1",
+          "timeoutMinutes": 10,
+          "proxy": {
+            "country": "US",
+            "sticky": true
+          },
+          "solveCaptcha": true,
+          "record": false,
+          "extensionIds": [
+            "abc",
+            "def"
+          ]
+        }
+      }
+    }
+  },
+  "session.save": {
+    "params": {
+      "profileName": "p1"
+    },
+    "input": {
+      "sessionId": "s1"
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v1/sessions/s1/save-profile-on-termination/p1"
+    }
+  },
+  "session.terminate": {
+    "params": {
+      "sessionId": "s1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/v1/sessions/s1"
+    }
+  },
+  "window.create": {
+    "params": {
+      "sessionId": "s1",
+      "url": "https://example.com",
+      "additionalFields": {
+        "waitUntil": "load"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows",
+      "body": {
+        "url": "https://example.com",
+        "waitUntil": "load"
+      }
+    }
+  },
+  "window.close": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/v1/sessions/s1/windows/w1"
+    }
+  },
+  "window.getLiveView": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "additionalFields": {
+        "includeNavigationBar": true,
+        "screenResolution": "1280X720"
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s1/windows/w1",
+      "query": {
+        "includeNavigationBar": "true",
+        "screenResolution": "1280x720"
+      }
+    }
+  },
+  "window.list": {
+    "params": {
+      "sessionId": "s1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s1/windows"
+    }
+  },
+  "window.load": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "url": "https://example.com"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1",
+      "body": {
+        "url": "https://example.com"
+      }
+    }
+  },
+  "window.takeScreenshot": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/screenshot"
+    }
+  },
+  "extraction.getPaginated": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "prompt": "List products",
+      "additionalFields": {
+        "paginationMode": "paginated"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/paginated-extraction",
+      "body": {
+        "prompt": "List products",
+        "configuration": {
+          "paginationMode": "paginated"
+        }
+      }
+    }
+  },
+  "extraction.query": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "prompt": "What is the title?"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/page-query",
+      "body": {
+        "prompt": "What is the title?",
+        "configuration": {
+          "experimental": {
+            "includeVisualAnalysis": "disabled"
+          }
+        }
+      }
+    }
+  },
+  "extraction.scrape": {
+    "params": {},
+    "input": {
+      "sessionId": "s1",
+      "windowId": "w1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/scrape-content"
+    }
+  },
+  "interaction.click": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "elementDescription": "Login button",
+      "additionalFields": {
+        "waitForNavigation": "load"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/click",
+      "body": {
+        "elementDescription": "Login button",
+        "configuration": {
+          "clickType": "click",
+          "waitForNavigationConfig": {
+            "waitUntil": "load"
+          }
+        },
+        "waitForNavigation": true
+      }
+    }
+  },
+  "interaction.hover": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "elementDescription": "Menu",
+      "additionalFields": {
+        "visualScope": "viewport"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/hover",
+      "body": {
+        "elementDescription": "Menu",
+        "configuration": {
+          "visualAnalysis": {
+            "scope": "viewport"
+          }
+        }
+      }
+    }
+  },
+  "interaction.scroll": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "scrollingMode": "manual",
+      "scrollBy": {
+        "scrollValues": {
+          "yAxis": "200px"
+        }
+      },
+      "scrollToElement": "ignored"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/scroll",
+      "body": {
+        "scrollBy": {
+          "yAxis": "200px"
+        }
+      }
+    }
+  },
+  "interaction.type": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "text": "hello",
+      "pressEnterKey": true
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/sessions/s1/windows/w1/type",
+      "body": {
+        "text": "hello",
+        "pressEnterKey": true
+      }
+    }
+  },
+  "file.getMany": {
+    "params": {
+      "limit": 5,
+      "sessionIds": "s1"
+    },
+    "response": {
+      "data": {
+        "files": [
+          {
+            "id": "f1"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/files",
+      "query": {
+        "sessionIds": "s1",
+        "offset": "0",
+        "limit": "5"
+      },
+      "items": 1
+    }
+  },
+  "file.deleteFile": {
+    "params": {
+      "fileId": "f1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/v1/files/f1"
+    }
+  },
+  "file.get": {
+    "params": {
+      "fileId": "f1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/files/f1"
+    }
+  }
+}

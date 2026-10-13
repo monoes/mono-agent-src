@@ -1,0 +1,913 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "airtop",
+  "node_type": "app.airtop",
+  "title": "Airtop",
+  "description": "Cloud browser sessions, windows, page extraction and interactions in Airtop",
+  "category": "app",
+  "docs_url": "https://docs.airtop.ai/api-reference/airtop-api",
+  "n8n_types": [
+    "n8n-nodes-base.airtop"
+  ],
+  "base_url": "https://api.airtop.ai/api/v1",
+  "headers": {
+    "Accept": "application/json",
+    "x-airtop-sdk-environment": "monoagent"
+  },
+  "credentials": [
+    {
+      "platform": "airtop",
+      "name": "Airtop",
+      "n8n_credential": "airtopApi",
+      "n8n_field_map": {
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "portal.airtop.ai → API keys"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.api_key }}",
+          "api-key": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "session",
+      "label": "Session"
+    },
+    {
+      "value": "window",
+      "label": "Window"
+    },
+    {
+      "value": "extraction",
+      "label": "Extraction"
+    },
+    {
+      "value": "interaction",
+      "label": "Interaction"
+    },
+    {
+      "value": "file",
+      "label": "File"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "session",
+      "operation": "create",
+      "title": "Create a session",
+      "method": "POST",
+      "path": "/sessions",
+      "body": {
+        "configuration": {
+          "profileName": "{{ p.profileName }}",
+          "timeoutMinutes": "{{ p.timeoutMinutes }}",
+          "proxy": "{{ p.proxy | eq:'integrated' | then:p.proxyConfig | default:p.proxyUrl | default:false }}",
+          "solveCaptcha": "{{ p.additionalFields.solveCaptcha | bool | default:false }}",
+          "record": "{{ p.record }}",
+          "extensionIds": "{{ p.additionalFields.extensionIds | split }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "profileName",
+          "label": "Profile ID",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "saveProfileOnTermination",
+          "label": "Save profile on termination",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; use the save operation to save the profile."
+        },
+        {
+          "key": "record",
+          "label": "Record session",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "timeoutMinutes",
+          "label": "Idle timeout (minutes)",
+          "type": "number",
+          "default": 10
+        },
+        {
+          "key": "proxy",
+          "label": "Proxy",
+          "type": "select",
+          "default": "none",
+          "options": [
+            "none",
+            "integrated",
+            "proxyUrl"
+          ]
+        },
+        {
+          "key": "proxyConfig",
+          "label": "Proxy configuration",
+          "type": "collection",
+          "default": {
+            "country": "US",
+            "sticky": true
+          },
+          "options": [
+            "country",
+            "sticky"
+          ]
+        },
+        {
+          "key": "proxyUrl",
+          "label": "Proxy URL",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "solveCaptcha",
+            "extensionIds"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "session",
+      "operation": "save",
+      "title": "Save the profile when the session ends",
+      "method": "PUT",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/save-profile-on-termination/{{ p.profileName }}",
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "profileName",
+          "label": "Profile ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "session",
+      "operation": "terminate",
+      "title": "Terminate a session",
+      "method": "DELETE",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}",
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        }
+      ]
+    },
+    {
+      "resource": "window",
+      "operation": "create",
+      "title": "Open a window",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows",
+      "body": {
+        "url": "{{ p.url }}",
+        "$merge": "{{ p.additionalFields }}"
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "url",
+          "label": "URL",
+          "type": "text",
+          "default": "https://www.google.com"
+        },
+        {
+          "key": "getLiveView",
+          "label": "Get live view",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; use Get live view."
+        },
+        {
+          "key": "includeNavigationBar",
+          "label": "Include navigation bar",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "screenResolution",
+          "label": "Screen resolution",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "disableResize",
+          "label": "Disable resize",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "waitUntil"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "window",
+      "operation": "close",
+      "title": "Close a window",
+      "method": "DELETE",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}",
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        }
+      ]
+    },
+    {
+      "resource": "window",
+      "operation": "getLiveView",
+      "title": "Get a window's live view URL",
+      "method": "GET",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}",
+      "query": {
+        "includeNavigationBar": "{{ p.additionalFields.includeNavigationBar | eq:'true' }}",
+        "screenResolution": "{{ p.additionalFields.screenResolution | lower }}",
+        "disableResize": "{{ p.additionalFields.disableResize | eq:'true' }}"
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "includeNavigationBar",
+            "screenResolution",
+            "disableResize"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "window",
+      "operation": "list",
+      "title": "List a session's windows",
+      "method": "GET",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows",
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        }
+      ]
+    },
+    {
+      "resource": "window",
+      "operation": "load",
+      "title": "Load a URL in a window",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}",
+      "body": {
+        "url": "{{ p.url }}",
+        "waitUntil": "{{ p.additionalFields.waitUntil }}"
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "url",
+          "label": "URL",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "waitUntil"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "window",
+      "operation": "takeScreenshot",
+      "title": "Take a screenshot",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/screenshot",
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "outputImageAsBinary",
+          "label": "Output binary image",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; the screenshot is returned as a data URL in meta.screenshots."
+        }
+      ]
+    },
+    {
+      "resource": "extraction",
+      "operation": "getPaginated",
+      "title": "Extract data across pages",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/paginated-extraction",
+      "body": {
+        "prompt": "{{ p.prompt }}",
+        "configuration": {
+          "paginationMode": "{{ p.additionalFields.paginationMode }}",
+          "interactionMode": "{{ p.additionalFields.interactionMode }}",
+          "outputSchema": "{{ p.additionalFields.outputSchema }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "sessionMode",
+          "label": "Session mode",
+          "type": "select",
+          "default": "existing",
+          "options": [
+            "existing"
+          ],
+          "help": "Only an existing session is supported."
+        },
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "prompt",
+          "label": "Prompt",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "outputSchema",
+            "parseJsonOutput",
+            "interactionMode",
+            "paginationMode"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "extraction",
+      "operation": "query",
+      "title": "Ask a question about the page",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/page-query",
+      "body": {
+        "prompt": "{{ p.prompt }}",
+        "configuration": {
+          "experimental": {
+            "includeVisualAnalysis": "{{ p.additionalFields.includeVisualAnalysis | eq:'true' | then:'enabled' | default:'disabled' }}"
+          },
+          "outputSchema": "{{ p.additionalFields.outputSchema }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "sessionMode",
+          "label": "Session mode",
+          "type": "select",
+          "default": "existing",
+          "options": [
+            "existing"
+          ],
+          "help": "Only an existing session is supported."
+        },
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "prompt",
+          "label": "Prompt",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "outputSchema",
+            "parseJsonOutput",
+            "includeVisualAnalysis"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "extraction",
+      "operation": "scrape",
+      "title": "Scrape the page content",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/scrape-content",
+      "fields": [
+        {
+          "key": "sessionMode",
+          "label": "Session mode",
+          "type": "select",
+          "default": "existing",
+          "options": [
+            "existing"
+          ],
+          "help": "Only an existing session is supported."
+        },
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        }
+      ]
+    },
+    {
+      "resource": "interaction",
+      "operation": "click",
+      "title": "Click an element",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/click",
+      "body": {
+        "elementDescription": "{{ p.elementDescription }}",
+        "configuration": {
+          "visualAnalysis": {
+            "scope": "{{ p.additionalFields.visualScope }}"
+          },
+          "waitForNavigationConfig": {
+            "waitUntil": "{{ p.additionalFields.waitForNavigation }}"
+          },
+          "clickType": "{{ p.clickType }}"
+        },
+        "waitForNavigation": "{{ p.additionalFields.waitForNavigation | then:true }}"
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "elementDescription",
+          "label": "Element description",
+          "type": "text",
+          "required": true,
+          "help": "Describe the element in plain words, e.g. the Login button."
+        },
+        {
+          "key": "clickType",
+          "label": "Click type",
+          "type": "select",
+          "default": "click",
+          "options": [
+            "click",
+            "doubleClick",
+            "rightClick"
+          ]
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "visualScope",
+            "waitForNavigation"
+          ],
+          "help": "visualScope: auto|viewport|page|scan; waitForNavigation: load|domcontentloaded|networkidle0|networkidle2"
+        }
+      ]
+    },
+    {
+      "resource": "interaction",
+      "operation": "hover",
+      "title": "Hover over an element",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/hover",
+      "body": {
+        "elementDescription": "{{ p.elementDescription }}",
+        "configuration": {
+          "visualAnalysis": {
+            "scope": "{{ p.additionalFields.visualScope }}"
+          },
+          "waitForNavigationConfig": {
+            "waitUntil": "{{ p.additionalFields.waitForNavigation }}"
+          }
+        },
+        "waitForNavigation": "{{ p.additionalFields.waitForNavigation | then:true }}"
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "elementDescription",
+          "label": "Element description",
+          "type": "text",
+          "required": true,
+          "help": "Describe the element in plain words, e.g. the Login button."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "visualScope",
+            "waitForNavigation"
+          ],
+          "help": "visualScope: auto|viewport|page|scan; waitForNavigation: load|domcontentloaded|networkidle0|networkidle2"
+        }
+      ]
+    },
+    {
+      "resource": "interaction",
+      "operation": "scroll",
+      "title": "Scroll the page",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/scroll",
+      "body": {
+        "scrollToElement": "{{ p.scrollingMode | eq:'automatic' | then:p.scrollToElement }}",
+        "scrollToEdge": "{{ p.scrollingMode | eq:'manual' | then:p.scrollToEdge.edgeValues }}",
+        "scrollBy": "{{ p.scrollingMode | eq:'manual' | then:p.scrollBy.scrollValues }}",
+        "scrollWithin": "{{ p.scrollWithin }}",
+        "configuration": {
+          "visualAnalysis": {
+            "scope": "{{ p.additionalFields.visualScope }}"
+          },
+          "waitForNavigationConfig": {
+            "waitUntil": "{{ p.additionalFields.waitForNavigation }}"
+          }
+        },
+        "waitForNavigation": "{{ p.additionalFields.waitForNavigation | then:true }}"
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "scrollingMode",
+          "label": "Scrolling mode",
+          "type": "select",
+          "default": "automatic",
+          "options": [
+            "automatic",
+            "manual"
+          ]
+        },
+        {
+          "key": "scrollToElement",
+          "label": "Scroll to element",
+          "type": "text",
+          "default": "",
+          "help": "Element description (automatic mode)."
+        },
+        {
+          "key": "scrollToEdge",
+          "label": "Scroll to edge",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "edgeValues"
+          ],
+          "help": "{\"edgeValues\": {\"yAxis\": \"bottom\", \"xAxis\": \"\"}} (manual mode)"
+        },
+        {
+          "key": "scrollBy",
+          "label": "Scroll by",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "scrollValues"
+          ],
+          "help": "{\"scrollValues\": {\"yAxis\": \"200px\", \"xAxis\": \"0px\"}} (manual mode)"
+        },
+        {
+          "key": "scrollWithin",
+          "label": "Scroll within",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "visualScope",
+            "waitForNavigation"
+          ],
+          "help": "visualScope: auto|viewport|page|scan; waitForNavigation: load|domcontentloaded|networkidle0|networkidle2"
+        }
+      ]
+    },
+    {
+      "resource": "interaction",
+      "operation": "type",
+      "title": "Type text",
+      "method": "POST",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/type",
+      "body": {
+        "text": "{{ p.text }}",
+        "pressEnterKey": "{{ p.pressEnterKey }}",
+        "elementDescription": "{{ p.elementDescription }}",
+        "configuration": {
+          "visualAnalysis": {
+            "scope": "{{ p.additionalFields.visualScope }}"
+          },
+          "waitForNavigationConfig": {
+            "waitUntil": "{{ p.additionalFields.waitForNavigation }}"
+          }
+        },
+        "waitForNavigation": "{{ p.additionalFields.waitForNavigation | then:true }}"
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "text",
+          "label": "Text",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "pressEnterKey",
+          "label": "Press Enter",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "elementDescription",
+          "label": "Element description",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "visualScope",
+            "waitForNavigation"
+          ],
+          "help": "visualScope: auto|viewport|page|scan; waitForNavigation: load|domcontentloaded|networkidle0|networkidle2"
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "getMany",
+      "title": "Get many files",
+      "method": "GET",
+      "path": "/files",
+      "query": {
+        "sessionIds": "{{ p.sessionIds }}"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "data.files"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 10,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "sessionIds",
+          "label": "Session IDs",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated session IDs to filter by."
+        },
+        {
+          "key": "outputSingleItem",
+          "label": "Output single item",
+          "type": "boolean",
+          "default": true,
+          "help": "Accepted for n8n compatibility; files are returned one item each."
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "deleteFile",
+      "title": "Delete a file",
+      "method": "DELETE",
+      "path": "/files/{{ p.fileId }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "get",
+      "title": "Get a file",
+      "method": "GET",
+      "path": "/files/{{ p.fileId }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "outputBinaryFile",
+          "label": "Output binary file",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; use data.downloadUrl."
+        }
+      ]
+    }
+  ]
+}

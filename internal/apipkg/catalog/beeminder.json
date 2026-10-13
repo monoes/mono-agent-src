@@ -1,0 +1,570 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "beeminder",
+  "node_type": "app.beeminder",
+  "title": "Beeminder",
+  "description": "Goals, datapoints and charges in Beeminder",
+  "category": "app",
+  "docs_url": "https://api.beeminder.com/",
+  "n8n_types": [
+    "n8n-nodes-base.beeminder"
+  ],
+  "base_url": "https://www.beeminder.com/api/v1",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "beeminder",
+      "name": "Beeminder",
+      "n8n_credential": "beeminderApi",
+      "n8n_field_map": {
+        "authToken": "auth_token"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "auth_token",
+          "label": "Auth token",
+          "secret": true,
+          "required": true,
+          "help": "beeminder.com/api/v1/auth_token.json while signed in"
+        }
+      ],
+      "inject": {
+        "query": {
+          "auth_token": "{{ cred.auth_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "datapoint",
+      "label": "Datapoint"
+    },
+    {
+      "value": "charge",
+      "label": "Charge"
+    },
+    {
+      "value": "goal",
+      "label": "Goal"
+    },
+    {
+      "value": "user",
+      "label": "User"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "datapoint",
+      "operation": "create",
+      "title": "Create a datapoint",
+      "method": "POST",
+      "path": "/users/me/goals/{{ p.goalName }}/datapoints.json",
+      "body": {
+        "value": "{{ p.value }}",
+        "comment": "{{ p.additionalFields.comment }}",
+        "timestamp": "{{ p.additionalFields.timestamp | epoch }}",
+        "requestid": "{{ p.additionalFields.requestid }}"
+      },
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "value",
+          "label": "Value",
+          "type": "number",
+          "required": true,
+          "default": 1
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "comment",
+            "timestamp",
+            "requestid"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "datapoint",
+      "operation": "createAll",
+      "title": "Create several datapoints",
+      "method": "POST",
+      "path": "/users/me/goals/{{ p.goalName }}/datapoints/create_all.json",
+      "body": {
+        "datapoints": "{{ p.datapoints | fromjson }}"
+      },
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "datapoints",
+          "label": "Datapoints",
+          "type": "json",
+          "required": true,
+          "default": "[]",
+          "help": "[{\"value\": 1, \"comment\": \"x\", \"timestamp\": 1700000000}]"
+        }
+      ]
+    },
+    {
+      "resource": "datapoint",
+      "operation": "delete",
+      "title": "Delete a datapoint",
+      "method": "DELETE",
+      "path": "/users/me/goals/{{ p.goalName }}/datapoints/{{ p.datapointId }}.json",
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "datapointId",
+          "label": "Datapoint ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "datapoint",
+      "operation": "get",
+      "title": "Get a datapoint",
+      "method": "GET",
+      "path": "/users/me/goals/{{ p.goalName }}/datapoints/{{ p.datapointId }}.json",
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "datapointId",
+          "label": "Datapoint ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "datapoint",
+      "operation": "getAll",
+      "title": "Get many datapoints",
+      "method": "GET",
+      "path": "/users/me/goals/{{ p.goalName }}/datapoints.json",
+      "query": {
+        "sort": "{{ p.options.sort }}",
+        "count": "{{ p.returnAll | ne:'true' | then:p.limit }}",
+        "per": "{{ p.options.per }}"
+      },
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "results_path": ""
+      },
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 30,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "sort",
+            "page",
+            "per"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "datapoint",
+      "operation": "update",
+      "title": "Update a datapoint",
+      "method": "PUT",
+      "path": "/users/me/goals/{{ p.goalName }}/datapoints/{{ p.datapointId }}.json",
+      "body": {
+        "value": "{{ p.updateFields.value }}",
+        "comment": "{{ p.updateFields.comment }}",
+        "timestamp": "{{ p.updateFields.timestamp | epoch }}"
+      },
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "datapointId",
+          "label": "Datapoint ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "value",
+            "comment",
+            "timestamp"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "charge",
+      "operation": "create",
+      "title": "Charge yourself",
+      "method": "POST",
+      "path": "/charges.json",
+      "body": {
+        "user_id": "me",
+        "amount": "{{ p.amount }}",
+        "note": "{{ p.additionalFields.note }}",
+        "dryrun": "{{ p.additionalFields.dryrun | eq:'true' }}"
+      },
+      "fields": [
+        {
+          "key": "amount",
+          "label": "Amount (USD)",
+          "type": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "note",
+            "dryrun"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "get",
+      "title": "Get a goal",
+      "method": "GET",
+      "path": "/users/me/goals/{{ p.goalName }}.json",
+      "query": {
+        "$merge": "{{ p.additionalFields }}"
+      },
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "datapoints",
+            "emaciated"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "create",
+      "title": "Create a goal",
+      "method": "POST",
+      "path": "/users/me/goals.json",
+      "body": {
+        "slug": "{{ p.slug }}",
+        "title": "{{ p.title }}",
+        "goal_type": "{{ p.goal_type }}",
+        "gunits": "{{ p.gunits }}",
+        "$merge": "{{ p.additionalFields | omit:'goaldate,tags' }}",
+        "goaldate": "{{ p.additionalFields.goaldate | epoch }}",
+        "tags": "{{ p.additionalFields.tags | fromjson }}"
+      },
+      "fields": [
+        {
+          "key": "slug",
+          "label": "Slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "goal_type",
+          "label": "Goal type",
+          "type": "select",
+          "required": true,
+          "default": "hustler",
+          "options": [
+            "hustler",
+            "biker",
+            "fatloser",
+            "gainer",
+            "inboxer",
+            "drinker",
+            "custom"
+          ]
+        },
+        {
+          "key": "gunits",
+          "label": "Goal units",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "goaldate",
+            "goalval",
+            "rate",
+            "initval",
+            "secret",
+            "datapublic",
+            "datasource",
+            "dryrun",
+            "tags"
+          ],
+          "help": "tags: JSON list of strings"
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "getAll",
+      "title": "Get all goals",
+      "method": "GET",
+      "path": "/users/me/goals.json",
+      "query": {
+        "$merge": "{{ p.additionalFields }}"
+      },
+      "fields": [
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "emaciated"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "getArchived",
+      "title": "Get archived goals",
+      "method": "GET",
+      "path": "/users/me/goals/archived.json",
+      "query": {
+        "$merge": "{{ p.additionalFields }}"
+      },
+      "fields": [
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "emaciated"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "update",
+      "title": "Update a goal",
+      "method": "PUT",
+      "path": "/users/me/goals/{{ p.goalName }}.json",
+      "body": {
+        "$merge": "{{ p.updateFields | omit:'goaldate,tags,roadall' }}",
+        "goaldate": "{{ p.updateFields.goaldate | epoch }}",
+        "tags": "{{ p.updateFields.tags | fromjson }}",
+        "roadall": "{{ p.updateFields.roadall | fromjson }}"
+      },
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "title",
+            "yaxis",
+            "tmin",
+            "tmax",
+            "goaldate",
+            "secret",
+            "datapublic",
+            "roadall",
+            "datasource",
+            "tags"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "refresh",
+      "title": "Refresh a goal's graph",
+      "method": "GET",
+      "path": "/users/me/goals/{{ p.goalName }}/refresh_graph.json",
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "shortCircuit",
+      "title": "Short-circuit a goal",
+      "method": "POST",
+      "path": "/users/me/goals/{{ p.goalName }}/shortcircuit.json",
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "stepDown",
+      "title": "Step down a goal",
+      "method": "POST",
+      "path": "/users/me/goals/{{ p.goalName }}/stepdown.json",
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "cancelStepDown",
+      "title": "Cancel a goal's step-down",
+      "method": "POST",
+      "path": "/users/me/goals/{{ p.goalName }}/cancel_stepdown.json",
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "goal",
+      "operation": "uncle",
+      "title": "Derail a goal (uncle)",
+      "method": "PUT",
+      "path": "/users/me/goals/{{ p.goalName }}/uncleme.json",
+      "fields": [
+        {
+          "key": "goalName",
+          "label": "Goal slug",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "user",
+      "operation": "get",
+      "title": "Get the user",
+      "method": "GET",
+      "path": "/users/me.json",
+      "query": {
+        "$merge": "{{ p.additionalFields | omit:'diff_since' }}",
+        "diff_since": "{{ p.additionalFields.diff_since | epoch }}"
+      },
+      "fields": [
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "associations",
+            "diff_since",
+            "skinny",
+            "emaciated",
+            "datapoints_count"
+          ]
+        }
+      ]
+    }
+  ]
+}

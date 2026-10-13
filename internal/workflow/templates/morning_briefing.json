@@ -1,0 +1,142 @@
+{
+  "name": "Morning Briefing",
+  "summary": "Every weekday morning, an AI writes a short news briefing from a feed, you approve it, and it is emailed to you.",
+  "description": "Every weekday at 7am: read an RSS feed, drop items without a title, collect them into one list, have a local AI agent write a short briefing from it (agent.ask, runtime claude — change it to any runtime `monoagentcli agent scan --installed` lists), queue the briefing for your review/edit, then email the approved text. Set the SMTP values before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.schedule",
+      "name": "Weekdays 7am",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "cron": "0 0 7 * * 1-5",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "id": "read_feed",
+      "type": "system.rss_read",
+      "name": "Read Feed",
+      "position": { "x": 300, "y": 0 },
+      "disabled": false,
+      "config": {
+        "url": "https://hnrss.org/frontpage",
+        "limit": 10
+      }
+    },
+    {
+      "id": "filter_titled",
+      "type": "core.filter",
+      "name": "Keep Titled Items",
+      "position": { "x": 600, "y": 0 },
+      "disabled": false,
+      "config": {
+        "condition": "{{ ne $json.title \"\" }}"
+      }
+    },
+    {
+      "id": "collect",
+      "type": "core.code",
+      "name": "Collect Articles",
+      "position": { "x": 900, "y": 0 },
+      "disabled": false,
+      "config": {
+        "code": "(function () {\n  const lines = $input.all().map(function (item) {\n    return '- ' + item.title + ' (' + item.link + ')';\n  });\n  return [{ articles: lines.join('\\n') }];\n})()"
+      }
+    },
+    {
+      "id": "summarize",
+      "type": "agent.ask",
+      "name": "Summarize",
+      "position": { "x": 1200, "y": 0 },
+      "disabled": false,
+      "config": {
+        "runtime": "claude",
+        "prompt": "Write a morning briefing from these articles: one or two sentences each, plain text, keep the links.\n\n{{ $json.articles }}",
+        "output_key": "text",
+        "timeout": 180
+      }
+    },
+    {
+      "id": "review",
+      "type": "core.human_in_loop",
+      "name": "Review Briefing",
+      "position": { "x": 1500, "y": 0 },
+      "disabled": false,
+      "config": {
+        "readonly_fields": [
+          "articles"
+        ],
+        "editable_fields": [
+          "text"
+        ],
+        "timeout_minutes": 60
+      }
+    },
+    {
+      "id": "send_email",
+      "type": "comm.email_send",
+      "name": "Send Briefing",
+      "position": { "x": 1800, "y": 0 },
+      "disabled": false,
+      "config": {
+        "smtp_host": "smtp.example.com",
+        "smtp_port": 587,
+        "username": "you@example.com",
+        "password": "REPLACE_WITH_APP_PASSWORD",
+        "from": "you@example.com",
+        "to": "you@example.com",
+        "subject": "Morning briefing",
+        "body": "{{ $json.text }}",
+        "body_type": "text"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-read_feed",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "read_feed",
+      "target_handle": "main"
+    },
+    {
+      "id": "read_feed-to-filter_titled",
+      "source": "read_feed",
+      "source_handle": "main",
+      "target": "filter_titled",
+      "target_handle": "main"
+    },
+    {
+      "id": "filter_titled-to-collect",
+      "source": "filter_titled",
+      "source_handle": "main",
+      "target": "collect",
+      "target_handle": "main"
+    },
+    {
+      "id": "collect-to-summarize",
+      "source": "collect",
+      "source_handle": "main",
+      "target": "summarize",
+      "target_handle": "main"
+    },
+    {
+      "id": "summarize-to-review",
+      "source": "summarize",
+      "source_handle": "main",
+      "target": "review",
+      "target_handle": "main"
+    },
+    {
+      "id": "review-to-send_email",
+      "source": "review",
+      "source_handle": "main",
+      "target": "send_email",
+      "target_handle": "main"
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "brandfetch",
+  "node_type": "app.brandfetch",
+  "title": "Brandfetch",
+  "description": "Brand logos, colors, fonts and company data from Brandfetch",
+  "category": "app",
+  "docs_url": "https://docs.brandfetch.com/",
+  "n8n_types": [
+    "n8n-nodes-base.Brandfetch"
+  ],
+  "base_url": "https://api.brandfetch.io/v2",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "brandfetch",
+      "name": "Brandfetch",
+      "n8n_credential": "brandfetchApi",
+      "n8n_field_map": {
+        "apiKey": "access_token"
+      },
+      "methods": [
+        "bearer"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "developers.brandfetch.com → Dashboard"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [
+    {
+      "resource": "",
+      "operation": "data",
+      "title": "Get all brand data",
+      "method": "GET",
+      "path": "/brands/{{ p.type }}/{{ p.identifier }}",
+      "fields": [
+        {
+          "key": "type",
+          "label": "Identifier type",
+          "type": "select",
+          "required": true,
+          "default": "domain",
+          "options": [
+            "domain",
+            "ticker",
+            "crypto",
+            "isin"
+          ]
+        },
+        {
+          "key": "identifier",
+          "label": "Identifier",
+          "type": "text",
+          "required": true,
+          "help": "e.g. nike.com, NKE, BTC or an ISIN"
+        }
+      ]
+    },
+    {
+      "resource": "",
+      "operation": "logo",
+      "title": "Get a brand's logos",
+      "method": "GET",
+      "path": "/brands/{{ p.type }}/{{ p.identifier }}",
+      "output": {
+        "path": "logos"
+      },
+      "fields": [
+        {
+          "key": "type",
+          "label": "Identifier type",
+          "type": "select",
+          "required": true,
+          "default": "domain",
+          "options": [
+            "domain",
+            "ticker",
+            "crypto",
+            "isin"
+          ]
+        },
+        {
+          "key": "identifier",
+          "label": "Identifier",
+          "type": "text",
+          "required": true,
+          "help": "e.g. nike.com, NKE, BTC or an ISIN"
+        },
+        {
+          "key": "download",
+          "label": "Download",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; logo URLs are returned, not downloaded."
+        }
+      ]
+    },
+    {
+      "resource": "",
+      "operation": "colors",
+      "title": "Get a brand's colors",
+      "method": "GET",
+      "path": "/brands/{{ p.type }}/{{ p.identifier }}",
+      "output": {
+        "path": "colors"
+      },
+      "fields": [
+        {
+          "key": "type",
+          "label": "Identifier type",
+          "type": "select",
+          "required": true,
+          "default": "domain",
+          "options": [
+            "domain",
+            "ticker",
+            "crypto",
+            "isin"
+          ]
+        },
+        {
+          "key": "identifier",
+          "label": "Identifier",
+          "type": "text",
+          "required": true,
+          "help": "e.g. nike.com, NKE, BTC or an ISIN"
+        }
+      ]
+    },
+    {
+      "resource": "",
+      "operation": "context",
+      "title": "Get brand context",
+      "method": "GET",
+      "path": "/context/{{ p.domain }}",
+      "query": {
+        "cachedOnly": "{{ p.cachedOnly | eq:'true' }}"
+      },
+      "headers": {
+        "Accept": "{{ p.outputFormat | eq:'markdown' | then:'text/markdown' | default:'application/json' }}"
+      },
+      "fields": [
+        {
+          "key": "domain",
+          "label": "Domain",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "outputFormat",
+          "label": "Output format",
+          "type": "select",
+          "default": "json",
+          "options": [
+            "json",
+            "markdown"
+          ]
+        },
+        {
+          "key": "cachedOnly",
+          "label": "Cached only",
+          "type": "boolean",
+          "default": false
+        }
+      ]
+    }
+  ]
+}

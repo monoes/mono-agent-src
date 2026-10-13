@@ -1,5 +1,6 @@
 {
   "name": "Outlook Email Sync",
+  "summary": "Every hour, brings new Outlook emails you send and receive into People, keeping each contact's message history up to date.",
   "description": "Every hour: fetch new Outlook emails (received AND sent) and sync senders/recipients into People with message history. Set the Outlook Account credential on both \"Read Outlook\" nodes before activating.",
   "version": 1,
   "is_active": false,

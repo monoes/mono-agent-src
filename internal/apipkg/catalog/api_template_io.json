@@ -1,0 +1,209 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "api_template_io",
+  "node_type": "app.api_template_io",
+  "title": "APITemplate.io",
+  "description": "Generate images and PDFs from APITemplate.io templates",
+  "category": "app",
+  "docs_url": "https://apitemplate.io/apiv2/",
+  "n8n_types": [
+    "n8n-nodes-base.apiTemplateIo"
+  ],
+  "base_url": "https://api.apitemplate.io/v1",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "api_template_io",
+      "name": "APITemplate.io",
+      "n8n_credential": "apiTemplateIoApi",
+      "n8n_field_map": {
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "APITemplate.io → API Integration"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "X-API-KEY": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "image",
+      "label": "Image"
+    },
+    {
+      "value": "account",
+      "label": "Account"
+    },
+    {
+      "value": "pdf",
+      "label": "PDF"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "image",
+      "operation": "create",
+      "title": "Create an image",
+      "method": "POST",
+      "path": "/create",
+      "query": {
+        "template_id": "{{ p.imageTemplateId }}"
+      },
+      "body": {
+        "!overrides": {
+          "$concat": [
+            "{{ p.jsonParameters | eq:'true' | then:p.overridesJson | fromjson }}",
+            {
+              "$map": "{{ p.jsonParameters | ne:'true' | then:p.overridesUi.overrideValues }}",
+              "$to": "{{ el.propertiesUi | kv:'key,value' }}"
+            }
+          ]
+        }
+      },
+      "fields": [
+        {
+          "key": "imageTemplateId",
+          "label": "Template ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "download",
+          "label": "Download",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; the file is not downloaded, use download_url."
+        },
+        {
+          "key": "binaryProperty",
+          "label": "Binary property",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fileName"
+          ]
+        },
+        {
+          "key": "overridesJson",
+          "label": "Overrides (JSON)",
+          "type": "json",
+          "default": "",
+          "help": "Used when JSON parameters is on: a list of override objects."
+        },
+        {
+          "key": "overridesUi",
+          "label": "Overrides",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "overrideValues"
+          ],
+          "help": "{\"overrideValues\": [{\"propertiesUi\": {\"propertyValues\": [{\"key\": \"text_1.text\", \"value\": \"Hi\"}]}}]}"
+        }
+      ]
+    },
+    {
+      "resource": "pdf",
+      "operation": "create",
+      "title": "Create a PDF",
+      "method": "POST",
+      "path": "/create",
+      "query": {
+        "template_id": "{{ p.pdfTemplateId }}"
+      },
+      "body": {
+        "$merge": [
+          "{{ p.jsonParameters | eq:'true' | then:p.propertiesJson | fromjson }}",
+          "{{ p.jsonParameters | ne:'true' | then:p.propertiesUi | kv:'key,value' }}"
+        ]
+      },
+      "fields": [
+        {
+          "key": "pdfTemplateId",
+          "label": "Template ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "jsonParameters",
+          "label": "JSON parameters",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "download",
+          "label": "Download",
+          "type": "boolean",
+          "default": false,
+          "help": "Accepted for n8n compatibility; the file is not downloaded, use download_url."
+        },
+        {
+          "key": "binaryProperty",
+          "label": "Binary property",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fileName"
+          ]
+        },
+        {
+          "key": "propertiesJson",
+          "label": "Properties (JSON)",
+          "type": "json",
+          "default": ""
+        },
+        {
+          "key": "propertiesUi",
+          "label": "Properties",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "propertyValues"
+          ],
+          "help": "{\"propertyValues\": [{\"key\": \"name\", \"value\": \"Ann\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "account",
+      "operation": "get",
+      "title": "Get account information",
+      "method": "GET",
+      "path": "/account-information",
+      "fields": []
+    }
+  ]
+}

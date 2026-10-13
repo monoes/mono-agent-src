@@ -1,0 +1,169 @@
+{
+  "credential_platform": null,
+  "fields": [
+    {
+      "key": "source",
+      "label": "Source",
+      "type": "select",
+      "required": true,
+      "options": [
+        "json",
+        "binary",
+        "file"
+      ],
+      "default": "json"
+    },
+    {
+      "key": "loader",
+      "label": "Loader",
+      "type": "select",
+      "required": false,
+      "options": [
+        "auto",
+        "text",
+        "markdown",
+        "html",
+        "csv",
+        "json",
+        "docx",
+        "pdf"
+      ],
+      "default": "auto"
+    },
+    {
+      "key": "text",
+      "label": "Text",
+      "type": "textarea",
+      "required": false,
+      "rows": 3,
+      "depends_on": {
+        "key": "source",
+        "values": [
+          "json"
+        ]
+      },
+      "placeholder": "{{ $json.body }}",
+      "help": "Evaluated per item. Empty = Input Field."
+    },
+    {
+      "key": "input_field",
+      "label": "Input Field",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "source",
+        "values": [
+          "json"
+        ]
+      },
+      "placeholder": "body",
+      "help": "Empty = pageContent, text or content, else the item as JSON."
+    },
+    {
+      "key": "binary_key",
+      "label": "Binary Key",
+      "type": "text",
+      "required": false,
+      "default": "data",
+      "depends_on": {
+        "key": "source",
+        "values": [
+          "binary"
+        ]
+      }
+    },
+    {
+      "key": "file_path",
+      "label": "File Path",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "source",
+        "values": [
+          "file"
+        ]
+      },
+      "placeholder": "/home/me/docs/handbook.pdf",
+      "help": "Empty = each item's File Path Field."
+    },
+    {
+      "key": "file_path_field",
+      "label": "File Path Field",
+      "type": "text",
+      "required": false,
+      "default": "file_path",
+      "depends_on": {
+        "key": "source",
+        "values": [
+          "file"
+        ]
+      }
+    },
+    {
+      "key": "split_pages",
+      "label": "One Document per PDF Page",
+      "type": "boolean",
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "csv_separator",
+      "label": "CSV Separator",
+      "type": "text",
+      "required": false,
+      "default": ","
+    },
+    {
+      "key": "csv_column",
+      "label": "CSV Column",
+      "type": "text",
+      "required": false,
+      "help": "Load only this column (one document per row)."
+    },
+    {
+      "key": "metadata_fields",
+      "label": "Metadata Fields",
+      "type": "text",
+      "required": false,
+      "placeholder": "id,url"
+    },
+    {
+      "key": "split",
+      "label": "Split into Chunks",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "splitter",
+      "label": "Splitter",
+      "type": "select",
+      "required": false,
+      "options": [
+        "character",
+        "recursive",
+        "token"
+      ],
+      "default": "recursive",
+      "help": "Used when Split into Chunks is on."
+    },
+    {
+      "key": "chunk_size",
+      "label": "Chunk Size",
+      "type": "number",
+      "required": false,
+      "default": 1000,
+      "min": 1,
+      "help": "Used when Split into Chunks is on."
+    },
+    {
+      "key": "chunk_overlap",
+      "label": "Chunk Overlap",
+      "type": "number",
+      "required": false,
+      "default": 200,
+      "min": 0,
+      "help": "Used when Split into Chunks is on."
+    }
+  ]
+}

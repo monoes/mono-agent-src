@@ -1,0 +1,806 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "asana",
+  "extends": "service.asana",
+  "title": "Asana",
+  "description": "Tasks, subtasks, comments, projects, tags and users in Asana (n8n operations)",
+  "category": "app",
+  "docs_url": "https://developers.asana.com/reference/rest-api-reference",
+  "n8n_types": [
+    "n8n-nodes-base.asana"
+  ],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.asanaTrigger"
+  ],
+  "base_url": "https://app.asana.com/api/1.0",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "asana",
+      "reuse_platform": "asana",
+      "name": "Asana",
+      "n8n_credential": "asanaApi",
+      "n8n_credential_alt": [
+        "asanaOAuth2Api"
+      ],
+      "n8n_field_map": {
+        "accessToken": "access_token"
+      },
+      "methods": [
+        "bearer",
+        "oauth"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "Personal access token",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "task",
+      "label": "Task"
+    },
+    {
+      "value": "project",
+      "label": "Project"
+    },
+    {
+      "value": "subtask",
+      "label": "Subtask"
+    },
+    {
+      "value": "taskComment",
+      "label": "Task Comment"
+    },
+    {
+      "value": "taskProject",
+      "label": "Task Project"
+    },
+    {
+      "value": "taskTag",
+      "label": "Task Tag"
+    },
+    {
+      "value": "user",
+      "label": "User"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "task",
+      "operation": "create",
+      "title": "Create a task",
+      "method": "POST",
+      "path": "/tasks",
+      "body": {
+        "data": {
+          "name": "{{ p.name }}",
+          "workspace": "{{ p.workspace }}",
+          "$merge": "{{ p.otherProperties }}"
+        }
+      },
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "workspace",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "otherProperties",
+          "label": "Other properties",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "assignee",
+            "assignee_status",
+            "completed",
+            "due_on",
+            "name",
+            "liked",
+            "notes",
+            "projects"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "task",
+      "operation": "delete",
+      "title": "Delete a task",
+      "method": "DELETE",
+      "path": "/tasks/{{ p.id }}",
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "task",
+      "operation": "get",
+      "title": "Get a task",
+      "method": "GET",
+      "path": "/tasks/{{ p.id }}",
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "task",
+      "operation": "getAll",
+      "title": "Get many tasks",
+      "method": "GET",
+      "path": "/tasks",
+      "query": {
+        "$merge": "{{ p.filters | omit:'opt_fields' }}",
+        "opt_fields": "{{ p.filters.opt_fields | csv }}"
+      },
+      "pagination": {
+        "type": "next_url",
+        "next_url_path": "next_page.uri",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "data"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "assignee",
+            "opt_fields",
+            "opt_pretty",
+            "project",
+            "section",
+            "workspace",
+            "completed_since",
+            "modified_since"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "task",
+      "operation": "move",
+      "title": "Move a task to a section",
+      "method": "POST",
+      "path": "/sections/{{ p.section }}/addTask",
+      "body": {
+        "data": {
+          "task": "{{ p.id }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "projectId",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "section",
+          "label": "Section ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "task",
+      "operation": "search",
+      "title": "Search tasks",
+      "method": "GET",
+      "path": "/workspaces/{{ p.workspace }}/tasks/search",
+      "query": {
+        "$merge": "{{ p.searchTaskProperties }}"
+      },
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "workspace",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "searchTaskProperties",
+          "label": "Search properties",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "completed",
+            "text"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "task",
+      "operation": "update",
+      "title": "Update a task",
+      "method": "PUT",
+      "path": "/tasks/{{ p.id }}",
+      "body": {
+        "data": {
+          "$merge": "{{ p.otherProperties }}"
+        }
+      },
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "otherProperties",
+          "label": "Other properties",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "assignee",
+            "assignee_status",
+            "completed",
+            "due_on",
+            "name",
+            "liked",
+            "notes",
+            "projects"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "subtask",
+      "operation": "create",
+      "title": "Create a subtask",
+      "method": "POST",
+      "path": "/tasks/{{ p.taskId }}/subtasks",
+      "body": {
+        "data": {
+          "name": "{{ p.name }}",
+          "$merge": "{{ p.otherProperties }}"
+        }
+      },
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "taskId",
+          "label": "Parent task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "otherProperties",
+          "label": "Other properties",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "assignee",
+            "assignee_status",
+            "completed",
+            "due_on",
+            "liked",
+            "notes",
+            "workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "subtask",
+      "operation": "getAll",
+      "title": "Get many subtasks",
+      "method": "GET",
+      "path": "/tasks/{{ p.taskId }}/subtasks",
+      "query": {
+        "$merge": "{{ p.options | omit:'opt_fields' }}",
+        "opt_fields": "{{ p.options.opt_fields | csv }}"
+      },
+      "pagination": {
+        "type": "next_url",
+        "next_url_path": "next_page.uri",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "data"
+      },
+      "fields": [
+        {
+          "key": "taskId",
+          "label": "Parent task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "opt_fields",
+            "opt_pretty"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "taskComment",
+      "operation": "add",
+      "title": "Add a comment to a task",
+      "method": "POST",
+      "path": "/tasks/{{ p.id }}/stories",
+      "body": {
+        "data": {
+          "text": "{{ p.isTextHtml | ne:'true' | then:p.text }}",
+          "html_text": "{{ p.isTextHtml | eq:'true' | then:p.text }}",
+          "$merge": "{{ p.additionalFields }}"
+        }
+      },
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "isTextHtml",
+          "label": "Text is HTML",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "text",
+          "label": "Text",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "is_pinned"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "taskComment",
+      "operation": "remove",
+      "title": "Remove a comment",
+      "method": "DELETE",
+      "path": "/stories/{{ p.id }}",
+      "fields": [
+        {
+          "key": "id",
+          "label": "Comment ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "taskProject",
+      "operation": "add",
+      "title": "Add a task to a project",
+      "method": "POST",
+      "path": "/tasks/{{ p.id }}/addProject",
+      "body": {
+        "data": {
+          "project": "{{ p.project }}",
+          "$merge": "{{ p.additionalFields }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "project",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "insert_after",
+            "insert_before",
+            "section"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "taskProject",
+      "operation": "remove",
+      "title": "Remove a task from a project",
+      "method": "POST",
+      "path": "/tasks/{{ p.id }}/removeProject",
+      "body": {
+        "data": {
+          "project": "{{ p.project }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "project",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "taskTag",
+      "operation": "add",
+      "title": "Add a tag to a task",
+      "method": "POST",
+      "path": "/tasks/{{ p.id }}/addTag",
+      "body": {
+        "data": {
+          "tag": "{{ p.tag }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "tag",
+          "label": "Tag ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "taskTag",
+      "operation": "remove",
+      "title": "Remove a tag from a task",
+      "method": "POST",
+      "path": "/tasks/{{ p.id }}/removeTag",
+      "body": {
+        "data": {
+          "tag": "{{ p.tag }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Task ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "tag",
+          "label": "Tag ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "user",
+      "operation": "get",
+      "title": "Get a user",
+      "method": "GET",
+      "path": "/users/{{ p.userId }}",
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "userId",
+          "label": "User ID",
+          "type": "text",
+          "required": true,
+          "help": "A user ID, email, or me."
+        }
+      ]
+    },
+    {
+      "resource": "user",
+      "operation": "getAll",
+      "title": "Get a workspace's users",
+      "method": "GET",
+      "path": "/workspaces/{{ p.workspace }}/users",
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "workspace",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "get",
+      "title": "Get a project",
+      "method": "GET",
+      "path": "/projects/{{ p.id }}",
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "create",
+      "title": "Create a project",
+      "method": "POST",
+      "path": "/teams/{{ p.team }}/projects",
+      "body": {
+        "data": {
+          "name": "{{ p.name }}",
+          "workspace": "{{ p.workspace }}",
+          "$merge": "{{ p.additionalFields }}"
+        }
+      },
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "workspace",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "team",
+          "label": "Team ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "color",
+            "due_on",
+            "notes",
+            "privacy_setting"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "delete",
+      "title": "Delete a project",
+      "method": "DELETE",
+      "path": "/projects/{{ p.id }}",
+      "fields": [
+        {
+          "key": "id",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "getAll",
+      "title": "Get many projects",
+      "method": "GET",
+      "path": "/projects",
+      "query": {
+        "team": "{{ p.additionalFields.team }}",
+        "workspace": "{{ p.additionalFields.team | default:p.workspace | eq:p.workspace | then:p.workspace }}",
+        "archived": "{{ p.additionalFields.archived | eq:'true' }}"
+      },
+      "pagination": {
+        "type": "next_url",
+        "next_url_path": "next_page.uri",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "data"
+      },
+      "fields": [
+        {
+          "key": "workspace",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "archived",
+            "team"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "update",
+      "title": "Update a project",
+      "method": "PUT",
+      "path": "/projects/{{ p.id }}",
+      "body": {
+        "data": {
+          "$merge": "{{ p.updateFields }}"
+        }
+      },
+      "output": {
+        "path": "data"
+      },
+      "fields": [
+        {
+          "key": "workspace",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "id",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "color",
+            "due_on",
+            "name",
+            "notes",
+            "owner",
+            "privacy_setting",
+            "team"
+          ]
+        }
+      ]
+    }
+  ]
+}

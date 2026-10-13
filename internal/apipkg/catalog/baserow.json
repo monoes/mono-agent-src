@@ -1,0 +1,522 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "baserow",
+  "node_type": "app.baserow",
+  "title": "Baserow",
+  "description": "Rows in Baserow tables",
+  "category": "app",
+  "docs_url": "https://baserow.io/api-docs",
+  "n8n_types": [
+    "n8n-nodes-base.baserow"
+  ],
+  "base_url": "{{ cred.host }}",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "baserow",
+      "name": "Baserow",
+      "n8n_credential": "baserowTokenApi",
+      "n8n_field_map": {
+        "host": "host",
+        "token": "token"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "host",
+          "label": "Host",
+          "required": true,
+          "help": "https://api.baserow.io or your self-hosted URL, without a trailing slash"
+        },
+        {
+          "key": "token",
+          "label": "Database token",
+          "secret": true,
+          "required": true,
+          "help": "Settings → Database tokens"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Token {{ cred.token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "row",
+      "label": "Row"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "row",
+      "operation": "getAll",
+      "title": "Get many rows",
+      "method": "GET",
+      "path": "/api/database/rows/table/{{ p.tableId }}/",
+      "query": {
+        "user_field_names": true,
+        "search": "{{ p.additionalOptions.search }}",
+        "filters": {
+          "filter_type": "{{ p.additionalOptions.filterType | default:'AND' }}",
+          "filters": {
+            "$map": "{{ p.additionalOptions.filters.fields }}",
+            "$to": {
+              "type": "{{ el.operator }}",
+              "field": "{{ el.field }}",
+              "value": "{{ el.value }}"
+            }
+          }
+        },
+        "order_by": {
+          "$map": "{{ p.additionalOptions.order.fields }}",
+          "$to": "{{ el.direction }}{{ el.field }}"
+        }
+      },
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "size",
+        "page_size": 100,
+        "results_path": "results"
+      },
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "additionalOptions",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "filters",
+            "filterType",
+            "search",
+            "order"
+          ],
+          "help": "filters: {\"fields\": [{\"field\": 12, \"operator\": \"equal\", \"value\": \"x\"}]}; order: {\"fields\": [{\"field\": \"Name\", \"direction\": \"-\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "row",
+      "operation": "batchCreate",
+      "title": "Create rows in one request",
+      "method": "POST",
+      "path": "/api/database/rows/table/{{ p.tableId }}/batch/",
+      "query": {
+        "user_field_names": "{{ p.dataToSend | eq:'autoMapInputData' }}"
+      },
+      "body": {
+        "items": {
+          "$concat": [
+            {
+              "$map": "{{ p.dataToSend | eq:'autoMapInputData' | then:items }}",
+              "$to": "{{ el | omit:p.inputsToIgnore }}"
+            },
+            {
+              "$map": "{{ p.dataToSend | ne:'autoMapInputData' | then:p.rowsUi.rowValues }}",
+              "$to": {
+                "$merge": "{{ el.fieldsUi | kv:'fieldId,fieldValue,field_' }}"
+              }
+            }
+          ]
+        }
+      },
+      "batch": true,
+      "output": {
+        "path": "items"
+      },
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dataToSend",
+          "label": "Data to send",
+          "type": "select",
+          "default": "defineBelow",
+          "options": [
+            "defineBelow",
+            "autoMapInputData"
+          ],
+          "help": "autoMapInputData sends the input item's fields by column name."
+        },
+        {
+          "key": "inputsToIgnore",
+          "label": "Input fields to ignore",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated, with autoMapInputData."
+        },
+        {
+          "key": "rowsUi",
+          "label": "Rows",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "rowValues"
+          ],
+          "help": "{\"rowValues\": [{\"id\": \"1\", \"fieldsUi\": {\"fieldValues\": [{\"fieldId\": 12, \"fieldValue\": \"x\"}]}}]}"
+        }
+      ]
+    },
+    {
+      "resource": "row",
+      "operation": "batchDelete",
+      "title": "Delete rows in one request",
+      "method": "POST",
+      "path": "/api/database/rows/table/{{ p.tableId }}/batch-delete/",
+      "body": {
+        "items": {
+          "$concat": [
+            {
+              "$map": "{{ p.dataToSend | eq:'autoMapInputData' | then:items }}",
+              "$to": "{{ el.id }}"
+            },
+            "{{ p.dataToSend | ne:'autoMapInputData' | then:p.rowIds | split }}"
+          ]
+        }
+      },
+      "batch": true,
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dataToSend",
+          "label": "Row IDs from",
+          "type": "select",
+          "default": "defineBelow",
+          "options": [
+            "defineBelow",
+            "autoMapInputData"
+          ]
+        },
+        {
+          "key": "rowIds",
+          "label": "Row IDs",
+          "type": "array",
+          "default": [],
+          "item_type": "text"
+        },
+        {
+          "key": "rowIdProperty",
+          "label": "Row ID field",
+          "type": "text",
+          "default": "id",
+          "help": "Only id is supported with autoMapInputData."
+        }
+      ]
+    },
+    {
+      "resource": "row",
+      "operation": "batchUpdate",
+      "title": "Update rows in one request",
+      "method": "PATCH",
+      "path": "/api/database/rows/table/{{ p.tableId }}/batch/",
+      "query": {
+        "user_field_names": "{{ p.dataToSend | eq:'autoMapInputData' }}"
+      },
+      "body": {
+        "items": {
+          "$concat": [
+            {
+              "$map": "{{ p.dataToSend | eq:'autoMapInputData' | then:items }}",
+              "$to": "{{ el | omit:p.inputsToIgnore }}"
+            },
+            {
+              "$map": "{{ p.dataToSend | ne:'autoMapInputData' | then:p.rowsUi.rowValues }}",
+              "$to": {
+                "id": "{{ el.id }}",
+                "$merge": "{{ el.fieldsUi | kv:'fieldId,fieldValue,field_' }}"
+              }
+            }
+          ]
+        }
+      },
+      "batch": true,
+      "output": {
+        "path": "items"
+      },
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dataToSend",
+          "label": "Data to send",
+          "type": "select",
+          "default": "defineBelow",
+          "options": [
+            "defineBelow",
+            "autoMapInputData"
+          ],
+          "help": "autoMapInputData sends the input item's fields by column name."
+        },
+        {
+          "key": "inputsToIgnore",
+          "label": "Input fields to ignore",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated, with autoMapInputData."
+        },
+        {
+          "key": "rowsUi",
+          "label": "Rows",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "rowValues"
+          ],
+          "help": "{\"rowValues\": [{\"id\": \"1\", \"fieldsUi\": {\"fieldValues\": [{\"fieldId\": 12, \"fieldValue\": \"x\"}]}}]}"
+        }
+      ]
+    },
+    {
+      "resource": "row",
+      "operation": "create",
+      "title": "Create a row",
+      "method": "POST",
+      "path": "/api/database/rows/table/{{ p.tableId }}/",
+      "query": {
+        "user_field_names": "{{ p.dataToSend | eq:'autoMapInputData' }}"
+      },
+      "body": {
+        "$merge": [
+          "{{ p.dataToSend | eq:'autoMapInputData' | then:item | omit:p.inputsToIgnore }}",
+          "{{ p.dataToSend | ne:'autoMapInputData' | then:p.fieldsUi | kv:'fieldId,fieldValue,field_' }}"
+        ]
+      },
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dataToSend",
+          "label": "Data to send",
+          "type": "select",
+          "default": "defineBelow",
+          "options": [
+            "defineBelow",
+            "autoMapInputData"
+          ],
+          "help": "autoMapInputData sends the input item's fields by column name."
+        },
+        {
+          "key": "inputsToIgnore",
+          "label": "Input fields to ignore",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated, with autoMapInputData."
+        },
+        {
+          "key": "fieldsUi",
+          "label": "Fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fieldValues"
+          ],
+          "help": "{\"fieldValues\": [{\"fieldId\": 12, \"fieldValue\": \"x\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "row",
+      "operation": "delete",
+      "title": "Delete a row",
+      "method": "DELETE",
+      "path": "/api/database/rows/table/{{ p.tableId }}/{{ p.rowId }}/",
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "rowId",
+          "label": "Row ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "row",
+      "operation": "get",
+      "title": "Get a row",
+      "method": "GET",
+      "path": "/api/database/rows/table/{{ p.tableId }}/{{ p.rowId }}/",
+      "query": {
+        "user_field_names": true
+      },
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "rowId",
+          "label": "Row ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "row",
+      "operation": "update",
+      "title": "Update a row",
+      "method": "PATCH",
+      "path": "/api/database/rows/table/{{ p.tableId }}/{{ p.rowId }}/",
+      "query": {
+        "user_field_names": "{{ p.dataToSend | eq:'autoMapInputData' }}"
+      },
+      "body": {
+        "$merge": [
+          "{{ p.dataToSend | eq:'autoMapInputData' | then:item | omit:p.inputsToIgnore }}",
+          "{{ p.dataToSend | ne:'autoMapInputData' | then:p.fieldsUi | kv:'fieldId,fieldValue,field_' }}"
+        ]
+      },
+      "fields": [
+        {
+          "key": "databaseId",
+          "label": "Database ID",
+          "type": "text",
+          "default": "0",
+          "help": "Kept for n8n compatibility; only the table ID is used."
+        },
+        {
+          "key": "tableId",
+          "label": "Table ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "rowId",
+          "label": "Row ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dataToSend",
+          "label": "Data to send",
+          "type": "select",
+          "default": "defineBelow",
+          "options": [
+            "defineBelow",
+            "autoMapInputData"
+          ],
+          "help": "autoMapInputData sends the input item's fields by column name."
+        },
+        {
+          "key": "inputsToIgnore",
+          "label": "Input fields to ignore",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated, with autoMapInputData."
+        },
+        {
+          "key": "fieldsUi",
+          "label": "Fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fieldValues"
+          ],
+          "help": "{\"fieldValues\": [{\"fieldId\": 12, \"fieldValue\": \"x\"}]}"
+        }
+      ]
+    }
+  ]
+}

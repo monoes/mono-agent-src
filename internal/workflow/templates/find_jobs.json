@@ -1,5 +1,6 @@
 {
   "name": "Find Jobs (All Sources)",
+  "summary": "Searches several job sites for openings that match your keywords and saves each new match to your job applications.",
   "description": "Manually trigger with keywords (and optionally a location) to search LinkedIn, Arbeitnow, and Jobicy in parallel; every non-duplicate match is saved directly as a new pending job Application. Run with: workflow run <id> --input '{\"keywords\":\"backend engineer\",\"location\":\"Berlin\"}'. Duplicate detection runs on every search, so it's safe to re-run this on the same keywords repeatedly. Each source has on_error=continue, so one source failing (e.g. a site tightening robots.txt) doesn't block results from the others.",
   "version": 1,
   "is_active": false,

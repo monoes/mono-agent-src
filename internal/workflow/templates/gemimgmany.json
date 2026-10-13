@@ -1,5 +1,6 @@
 {
   "name": "Gemini — Multi-Image Consistent Session",
+  "summary": "Creates a set of images with Gemini that share the same characters and style, saving each to your image library.",
   "description": "Manually trigger with an array of prompts; generates one image per prompt in a SINGLE continued Gemini chat session so characters/style/look stay consistent, saving each to the image vault (sequential img-NNN ids). Any number of prompts — the run length follows the array. Run with: workflow templates run gemimgmany --input '{\"prompts\":[\"a wizard in a blue robe casting a fire spell\",\"the same wizard riding a red dragon\"]}'. Requires `monoagentcli login gemini` once beforehand.",
   "version": 1,
   "is_active": false,

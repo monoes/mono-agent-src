@@ -1,0 +1,72 @@
+{
+  "image.create": {
+    "params": {
+      "imageTemplateId": "t1",
+      "overridesUi": {
+        "overrideValues": [
+          {
+            "propertiesUi": {
+              "propertyValues": [
+                {
+                  "key": "text_1.text",
+                  "value": "Hi"
+                }
+              ]
+            }
+          },
+          {
+            "propertiesUi": {
+              "propertyValues": [
+                {
+                  "key": "img",
+                  "value": "u"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/create",
+      "query": {
+        "template_id": "t1"
+      },
+      "body": {
+        "overrides": [
+          {
+            "text_1.text": "Hi"
+          },
+          {
+            "img": "u"
+          }
+        ]
+      }
+    }
+  },
+  "pdf.create": {
+    "params": {
+      "pdfTemplateId": "t2",
+      "jsonParameters": true,
+      "propertiesJson": "{\"name\": \"Ann\"}"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/create",
+      "query": {
+        "template_id": "t2"
+      },
+      "body": {
+        "name": "Ann"
+      }
+    }
+  },
+  "account.get": {
+    "params": {},
+    "expect": {
+      "method": "GET",
+      "path": "/v1/account-information"
+    }
+  }
+}

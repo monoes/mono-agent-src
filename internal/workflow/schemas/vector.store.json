@@ -1,0 +1,450 @@
+{
+  "credential_platform": null,
+  "fields": [
+    {
+      "key": "provider",
+      "label": "Provider",
+      "type": "select",
+      "required": true,
+      "options": [
+        "qdrant",
+        "pinecone",
+        "pgvector",
+        "supabase",
+        "weaviate",
+        "milvus",
+        "mongodb_atlas",
+        "redis",
+        "chroma",
+        "memory"
+      ],
+      "default": "qdrant"
+    },
+    {
+      "key": "credential_id",
+      "label": "Connection",
+      "type": "credential_picker",
+      "required": false,
+      "help": "qdrant, pinecone, pgvector → postgresql, supabase, weaviate, milvus, mongodb_atlas → mongodb, redis, chroma. Not needed for memory."
+    },
+    {
+      "key": "mode",
+      "label": "Mode",
+      "type": "select",
+      "required": true,
+      "options": [
+        "insert",
+        "search",
+        "update",
+        "delete"
+      ],
+      "default": "search"
+    },
+    {
+      "key": "collection",
+      "label": "Collection / Index / Table",
+      "type": "text",
+      "required": false,
+      "help": "Qdrant/Milvus/Chroma collection, Pinecone index, pgvector/Supabase table, Weaviate class, MongoDB collection, Redis index. Not used by memory."
+    },
+    {
+      "key": "memory_key",
+      "label": "Memory Key",
+      "type": "text",
+      "required": false,
+      "default": "vector_store_key",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "memory"
+        ]
+      },
+      "help": "Lives in this process only: lost on restart, empty in one-shot CLI runs."
+    },
+    {
+      "key": "namespace",
+      "label": "Namespace / Database",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "pinecone",
+          "chroma",
+          "mongodb_atlas"
+        ]
+      },
+      "help": "Pinecone namespace, Chroma database, MongoDB database."
+    },
+    {
+      "key": "query",
+      "label": "Query",
+      "type": "textarea",
+      "required": false,
+      "rows": 2,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "search"
+        ]
+      },
+      "placeholder": "{{ $json.chatInput }}",
+      "help": "Evaluated per item. Empty = the item's vector, or Query Field."
+    },
+    {
+      "key": "query_field",
+      "label": "Query Field",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "search"
+        ]
+      },
+      "placeholder": "chatInput",
+      "help": "Empty = query, chatInput, pageContent or text."
+    },
+    {
+      "key": "query_vector",
+      "label": "Query Vector",
+      "type": "code",
+      "required": false,
+      "language": "json",
+      "rows": 2,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "search"
+        ]
+      },
+      "help": "A precomputed vector; skips embedding."
+    },
+    {
+      "key": "top_k",
+      "label": "Results per Query",
+      "type": "number",
+      "required": false,
+      "default": 4,
+      "min": 1,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "search"
+        ]
+      }
+    },
+    {
+      "key": "filter",
+      "label": "Filter",
+      "type": "code",
+      "required": false,
+      "language": "json",
+      "rows": 3,
+      "help": "Provider-native: Qdrant/Pinecone/Chroma filter object; pgvector/Supabase/memory metadata object; MongoDB pre-filter; Milvus expression; Redis query; Weaviate GraphQL where text (search) or where object (delete)."
+    },
+    {
+      "key": "embedding",
+      "label": "Embedding",
+      "type": "code",
+      "required": false,
+      "language": "json",
+      "rows": 4,
+      "placeholder": "{\"provider\": \"ollama\", \"model\": \"nomic-embed-text\"}",
+      "help": "Embeds texts inline — same fields as vector.embed, with its own credential_id. Leave empty when items already carry vectors."
+    },
+    {
+      "key": "content_field",
+      "label": "Content Field",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "insert",
+          "update"
+        ]
+      },
+      "help": "Empty = pageContent, text or content."
+    },
+    {
+      "key": "metadata_fields",
+      "label": "Metadata Fields",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "insert",
+          "update"
+        ]
+      },
+      "help": "Item fields added to the item's metadata object."
+    },
+    {
+      "key": "id_field",
+      "label": "ID Field",
+      "type": "text",
+      "required": false,
+      "default": "id",
+      "help": "Where document ids are read from (insert/update/delete). Insert generates UUIDs when absent."
+    },
+    {
+      "key": "vector_field",
+      "label": "Vector Field",
+      "type": "text",
+      "required": false,
+      "default": "embedding",
+      "help": "Precomputed vectors (from vector.embed)."
+    },
+    {
+      "key": "ids",
+      "label": "IDs",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "delete"
+        ]
+      },
+      "placeholder": "id1,id2"
+    },
+    {
+      "key": "delete_all",
+      "label": "Delete Everything",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "delete"
+        ]
+      }
+    },
+    {
+      "key": "clear",
+      "label": "Clear Before Insert",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "insert"
+        ]
+      }
+    },
+    {
+      "key": "upsert_batch_size",
+      "label": "Write Batch Size",
+      "type": "number",
+      "required": false,
+      "default": 100,
+      "min": 1,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "insert",
+          "update"
+        ]
+      }
+    },
+    {
+      "key": "include_vectors",
+      "label": "Include Vectors in Results",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "depends_on": {
+        "key": "mode",
+        "values": [
+          "search"
+        ]
+      }
+    },
+    {
+      "key": "url",
+      "label": "URL",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "qdrant",
+          "weaviate",
+          "milvus",
+          "chroma",
+          "supabase"
+        ]
+      },
+      "help": "Usually from the connection."
+    },
+    {
+      "key": "connection_string",
+      "label": "Connection String",
+      "type": "password",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "pgvector",
+          "mongodb_atlas",
+          "redis"
+        ]
+      },
+      "help": "Usually from the connection."
+    },
+    {
+      "key": "index_host",
+      "label": "Pinecone Index Host",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "pinecone"
+        ]
+      },
+      "help": "Empty = looked up from the index name."
+    },
+    {
+      "key": "distance",
+      "label": "Distance",
+      "type": "select",
+      "required": false,
+      "options": [
+        "cosine",
+        "euclidean",
+        "inner_product"
+      ],
+      "default": "cosine",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "pgvector"
+        ]
+      }
+    },
+    {
+      "key": "query_name",
+      "label": "Match Function",
+      "type": "text",
+      "required": false,
+      "default": "match_documents",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "supabase"
+        ]
+      }
+    },
+    {
+      "key": "text_key",
+      "label": "Text Property",
+      "type": "text",
+      "required": false,
+      "default": "text",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "weaviate",
+          "pinecone"
+        ]
+      }
+    },
+    {
+      "key": "metadata_keys",
+      "label": "Metadata Properties",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "weaviate"
+        ]
+      },
+      "placeholder": "source,page",
+      "help": "Properties returned as metadata on search."
+    },
+    {
+      "key": "vector_index",
+      "label": "Atlas Vector Index",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "mongodb_atlas"
+        ]
+      }
+    },
+    {
+      "key": "embedding_field",
+      "label": "Embedding Field",
+      "type": "text",
+      "required": false,
+      "default": "embedding",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "mongodb_atlas"
+        ]
+      }
+    },
+    {
+      "key": "text_field",
+      "label": "Text Field",
+      "type": "text",
+      "required": false,
+      "default": "text",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "mongodb_atlas",
+          "milvus"
+        ]
+      }
+    },
+    {
+      "key": "post_filter_pipeline",
+      "label": "Post-filter Pipeline",
+      "type": "code",
+      "required": false,
+      "language": "json",
+      "rows": 3,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "mongodb_atlas"
+        ]
+      }
+    },
+    {
+      "key": "key_prefix",
+      "label": "Key Prefix",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "redis"
+        ]
+      },
+      "help": "Default doc:<index>:"
+    },
+    {
+      "key": "tenant",
+      "label": "Tenant",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "chroma"
+        ]
+      }
+    }
+  ]
+}

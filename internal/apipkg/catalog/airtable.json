@@ -1,0 +1,454 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "airtable",
+  "extends": "service.airtable",
+  "title": "Airtable",
+  "description": "Records, bases and schemas in Airtable (n8n operations)",
+  "category": "app",
+  "docs_url": "https://airtable.com/developers/web/api/introduction",
+  "n8n_types": [
+    "n8n-nodes-base.airtable"
+  ],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.airtableTrigger"
+  ],
+  "base_url": "https://api.airtable.com/v0",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "airtable",
+      "reuse_platform": "airtable",
+      "name": "Airtable",
+      "n8n_credential": "airtableTokenApi",
+      "n8n_credential_alt": [
+        "airtableOAuth2Api",
+        "airtableApi"
+      ],
+      "n8n_field_map": {
+        "accessToken": "api_key",
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key",
+        "oauth"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "Personal access token",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.api_key | default:cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "record",
+      "label": "Record"
+    },
+    {
+      "value": "base",
+      "label": "Base"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "record",
+      "operation": "get",
+      "title": "Get a record",
+      "method": "GET",
+      "path": "/{{ p.base | rl }}/{{ p.table | rl }}/{{ p.id }}",
+      "fields": [
+        {
+          "key": "base",
+          "label": "Base ID",
+          "type": "text",
+          "required": true,
+          "help": "The base ID (app…); an n8n resource locator is accepted."
+        },
+        {
+          "key": "table",
+          "label": "Table",
+          "type": "text",
+          "required": true,
+          "help": "Table ID (tbl…) or name; an n8n resource locator is accepted."
+        },
+        {
+          "key": "id",
+          "label": "Record ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "downloadFields"
+          ],
+          "help": "downloadFields is accepted but attachments are not downloaded."
+        }
+      ]
+    },
+    {
+      "resource": "record",
+      "operation": "create",
+      "title": "Create a record",
+      "method": "POST",
+      "path": "/{{ p.base | rl }}/{{ p.table | rl }}",
+      "body": {
+        "typecast": "{{ p.options.typecast | bool | default:false }}",
+        "fields": {
+          "$merge": [
+            "{{ p.columns.mappingMode | eq:'autoMapInputData' | then:item | omit:p.options.ignoreFields }}",
+            "{{ p.columns.value }}"
+          ]
+        }
+      },
+      "fields": [
+        {
+          "key": "base",
+          "label": "Base ID",
+          "type": "text",
+          "required": true,
+          "help": "The base ID (app…); an n8n resource locator is accepted."
+        },
+        {
+          "key": "table",
+          "label": "Table",
+          "type": "text",
+          "required": true,
+          "help": "Table ID (tbl…) or name; an n8n resource locator is accepted."
+        },
+        {
+          "key": "columns",
+          "label": "Columns",
+          "type": "json",
+          "default": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "help": "n8n column mapping: {\"mappingMode\": \"defineBelow\"|\"autoMapInputData\", \"value\": {\"Name\": \"x\"}, \"matchingColumns\": [\"id\"]}"
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "typecast",
+            "ignoreFields"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "record",
+      "operation": "upsert",
+      "title": "Create or update a record",
+      "method": "PATCH",
+      "path": "/{{ p.base | rl }}/{{ p.table | rl }}",
+      "body": {
+        "typecast": "{{ p.options.typecast | bool | default:false }}",
+        "performUpsert": {
+          "fieldsToMergeOn": "{{ p.columns.matchingColumns }}"
+        },
+        "records": [
+          {
+            "fields": {
+              "$merge": [
+                "{{ p.columns.mappingMode | eq:'autoMapInputData' | then:item | omit:p.options.ignoreFields }}",
+                "{{ p.columns.value }}"
+              ]
+            }
+          }
+        ]
+      },
+      "output": {
+        "path": "records"
+      },
+      "fields": [
+        {
+          "key": "base",
+          "label": "Base ID",
+          "type": "text",
+          "required": true,
+          "help": "The base ID (app…); an n8n resource locator is accepted."
+        },
+        {
+          "key": "table",
+          "label": "Table",
+          "type": "text",
+          "required": true,
+          "help": "Table ID (tbl…) or name; an n8n resource locator is accepted."
+        },
+        {
+          "key": "columns",
+          "label": "Columns",
+          "type": "json",
+          "default": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "help": "n8n column mapping: {\"mappingMode\": \"defineBelow\"|\"autoMapInputData\", \"value\": {\"Name\": \"x\"}, \"matchingColumns\": [\"id\"]}",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "typecast",
+            "ignoreFields",
+            "updateAllMatches"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "record",
+      "operation": "deleteRecord",
+      "title": "Delete a record",
+      "method": "DELETE",
+      "path": "/{{ p.base | rl }}/{{ p.table | rl }}/{{ p.id }}",
+      "fields": [
+        {
+          "key": "base",
+          "label": "Base ID",
+          "type": "text",
+          "required": true,
+          "help": "The base ID (app…); an n8n resource locator is accepted."
+        },
+        {
+          "key": "table",
+          "label": "Table",
+          "type": "text",
+          "required": true,
+          "help": "Table ID (tbl…) or name; an n8n resource locator is accepted."
+        },
+        {
+          "key": "id",
+          "label": "Record ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "record",
+      "operation": "search",
+      "title": "Search records",
+      "method": "POST",
+      "path": "/{{ p.base | rl }}/{{ p.table | rl }}/listRecords",
+      "body": {
+        "filterByFormula": "{{ p.filterByFormula }}",
+        "fields": "{{ p.options.fields }}",
+        "view": "{{ p.options.view | rl }}",
+        "sort": "{{ p.sort.property }}"
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "offset",
+        "cursor_path": "offset",
+        "limit_param": "pageSize",
+        "page_size": 100,
+        "results_path": "records",
+        "param_in": "body"
+      },
+      "fields": [
+        {
+          "key": "base",
+          "label": "Base ID",
+          "type": "text",
+          "required": true,
+          "help": "The base ID (app…); an n8n resource locator is accepted."
+        },
+        {
+          "key": "table",
+          "label": "Table",
+          "type": "text",
+          "required": true,
+          "help": "Table ID (tbl…) or name; an n8n resource locator is accepted."
+        },
+        {
+          "key": "filterByFormula",
+          "label": "Filter by formula",
+          "type": "text",
+          "default": "",
+          "help": "An Airtable formula, e.g. NOT({Name} = '')"
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": true,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "downloadFields",
+            "fields",
+            "view"
+          ],
+          "help": "fields: list or comma-separated names; view: name/ID or resource locator"
+        },
+        {
+          "key": "sort",
+          "label": "Sort",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "property"
+          ],
+          "help": "{\"property\": [{\"field\": \"Name\", \"direction\": \"asc\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "record",
+      "operation": "update",
+      "title": "Update a record",
+      "method": "PATCH",
+      "path": "/{{ p.base | rl }}/{{ p.table | rl }}",
+      "body": {
+        "typecast": "{{ p.options.typecast | bool | default:false }}",
+        "performUpsert": {
+          "fieldsToMergeOn": "{{ p.columns.matchingColumns.0 | ne:'id' | then:p.columns.matchingColumns }}"
+        },
+        "records": [
+          {
+            "id": "{{ p.columns.matchingColumns.0 | eq:'id' | then:p.columns.value.id }}{{ p.columns.matchingColumns.0 | eq:'id' | then:p.columns.mappingMode | eq:'autoMapInputData' | then:item.id }}",
+            "fields": {
+              "$merge": [
+                "{{ p.columns.mappingMode | eq:'autoMapInputData' | then:item | omit:'id' | omit:p.options.ignoreFields }}",
+                "{{ p.columns.value | omit:'id' }}"
+              ]
+            }
+          }
+        ]
+      },
+      "output": {
+        "path": "records"
+      },
+      "fields": [
+        {
+          "key": "base",
+          "label": "Base ID",
+          "type": "text",
+          "required": true,
+          "help": "The base ID (app…); an n8n resource locator is accepted."
+        },
+        {
+          "key": "table",
+          "label": "Table",
+          "type": "text",
+          "required": true,
+          "help": "Table ID (tbl…) or name; an n8n resource locator is accepted."
+        },
+        {
+          "key": "columns",
+          "label": "Columns",
+          "type": "json",
+          "default": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "help": "n8n column mapping: {\"mappingMode\": \"defineBelow\"|\"autoMapInputData\", \"value\": {\"Name\": \"x\"}, \"matchingColumns\": [\"id\"]}",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "typecast",
+            "ignoreFields",
+            "updateAllMatches"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "base",
+      "operation": "getMany",
+      "title": "Get many bases",
+      "method": "GET",
+      "path": "/meta/bases",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "offset",
+        "cursor_path": "offset",
+        "results_path": "bases"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": true,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "permissionLevel"
+          ],
+          "help": "permissionLevel is accepted; results are not filtered by it."
+        }
+      ]
+    },
+    {
+      "resource": "base",
+      "operation": "getSchema",
+      "title": "Get a base's schema",
+      "method": "GET",
+      "path": "/meta/bases/{{ p.base | rl }}/tables",
+      "output": {
+        "path": "tables"
+      },
+      "fields": [
+        {
+          "key": "base",
+          "label": "Base ID",
+          "type": "text",
+          "required": true,
+          "help": "The base ID (app…); an n8n resource locator is accepted."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "credential_platform": null,
+  "fields": [
+    {
+      "key": "splitter",
+      "label": "Splitter",
+      "type": "select",
+      "required": true,
+      "options": [
+        "character",
+        "recursive",
+        "token"
+      ],
+      "default": "recursive",
+      "help": "token counts approximate tokens (no tokenizer bundled; about ±20% of OpenAI's counts on English)."
+    },
+    {
+      "key": "chunk_size",
+      "label": "Chunk Size",
+      "type": "number",
+      "required": true,
+      "default": 1000,
+      "min": 1,
+      "help": "Characters (or approximate tokens for token)."
+    },
+    {
+      "key": "chunk_overlap",
+      "label": "Chunk Overlap",
+      "type": "number",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "help": "Must be smaller than Chunk Size."
+    },
+    {
+      "key": "separator",
+      "label": "Separator",
+      "type": "text",
+      "required": false,
+      "default": "\\n\\n",
+      "depends_on": {
+        "key": "splitter",
+        "values": [
+          "character"
+        ]
+      },
+      "help": "Type \\n for a newline."
+    },
+    {
+      "key": "separators",
+      "label": "Separators",
+      "type": "textarea",
+      "required": false,
+      "rows": 4,
+      "depends_on": {
+        "key": "splitter",
+        "values": [
+          "recursive"
+        ]
+      },
+      "placeholder": "\\n\\n\n\\n\n ",
+      "help": "One per line, tried in order. Empty = paragraph, line, word, character."
+    },
+    {
+      "key": "input_field",
+      "label": "Input Field",
+      "type": "text",
+      "required": false,
+      "placeholder": "pageContent",
+      "help": "Empty = pageContent, text or content."
+    },
+    {
+      "key": "metadata_fields",
+      "label": "Metadata Fields",
+      "type": "text",
+      "required": false,
+      "placeholder": "url,title",
+      "help": "Comma-separated item fields copied into each chunk's metadata."
+    }
+  ]
+}

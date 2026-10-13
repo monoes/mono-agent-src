@@ -35,6 +35,7 @@ import (
 	"github.com/monoes/mono-agent/internal/nodes/service"
 	"github.com/monoes/mono-agent/internal/nodes/system"
 	vaultnodes "github.com/monoes/mono-agent/internal/nodes/vault"
+	vectornodes "github.com/monoes/mono-agent/internal/nodes/vector"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -79,6 +80,7 @@ func Build(db *sql.DB) *workflow.NodeTypeRegistry {
 
 	// Credential vault nodes (vault.secret_save / vault.secret_get)
 	vaultnodes.RegisterAll(registry)
+	vectornodes.RegisterAll(registry) // RAG: vector.embed / split_text / load_document / store
 	publicationnodes.RegisterAll(registry)
 	apipkg.Register(registry) // declarative API packages: app.* node types
 

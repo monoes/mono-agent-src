@@ -1,0 +1,66 @@
+{
+  "data": {
+    "params": {
+      "identifier": "nike.com"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v2/brands/domain/nike.com"
+    }
+  },
+  "logo": {
+    "params": {
+      "identifier": "nike.com"
+    },
+    "response": {
+      "logos": [
+        {
+          "type": "icon"
+        },
+        {
+          "type": "logo"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v2/brands/domain/nike.com",
+      "items": 2
+    }
+  },
+  "colors": {
+    "params": {
+      "type": "ticker",
+      "identifier": "NKE"
+    },
+    "response": {
+      "colors": [
+        {
+          "hex": "#000"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v2/brands/ticker/NKE",
+      "items": 1
+    }
+  },
+  "context": {
+    "params": {
+      "domain": "nike.com",
+      "outputFormat": "markdown",
+      "cachedOnly": true
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v2/context/nike.com",
+      "query": {
+        "cachedOnly": "true"
+      },
+      "headers": {
+        "Accept": "text/markdown"
+      }
+    }
+  }
+}

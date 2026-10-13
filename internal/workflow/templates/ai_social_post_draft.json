@@ -1,0 +1,81 @@
+{
+  "name": "AI Social Post Draft with Approval",
+  "summary": "AI drafts a social media post on a topic you choose; you edit and approve it before it is posted to Bluesky.",
+  "description": "Manual run with a topic: a local AI agent drafts a short social post (agent.ask, runtime claude — change it to any runtime `monoagentcli agent scan --installed` lists), you edit and approve it (`monoagentcli hil list` / the app), and only the approved text is posted to Bluesky. Run with: workflow templates run ai_social_post_draft --input '{\"topic\":\"our new release\"}'. Set the Bluesky credential (credential_id) first.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Start",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "draft",
+      "type": "agent.ask",
+      "name": "Draft Post",
+      "position": { "x": 300, "y": 0 },
+      "disabled": false,
+      "config": {
+        "runtime": "claude",
+        "prompt": "Write one short social media post (under 280 characters, at most two hashtags) about: {{ $json.topic }}\n\nReply with the post text only.",
+        "output_key": "post",
+        "timeout": 120
+      }
+    },
+    {
+      "id": "review",
+      "type": "core.human_in_loop",
+      "name": "Approve Post",
+      "position": { "x": 600, "y": 0 },
+      "disabled": false,
+      "config": {
+        "readonly_fields": [
+          "topic"
+        ],
+        "editable_fields": [
+          "post"
+        ],
+        "timeout_minutes": 1440
+      }
+    },
+    {
+      "id": "publish",
+      "type": "service.bluesky",
+      "name": "Post to Bluesky",
+      "position": { "x": 900, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "create_post",
+        "text": "{{ $json.post }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-draft",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "draft",
+      "target_handle": "main"
+    },
+    {
+      "id": "draft-to-review",
+      "source": "draft",
+      "source_handle": "main",
+      "target": "review",
+      "target_handle": "main"
+    },
+    {
+      "id": "review-to-publish",
+      "source": "review",
+      "source_handle": "main",
+      "target": "publish",
+      "target_handle": "main"
+    }
+  ]
+}

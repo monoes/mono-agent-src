@@ -1,0 +1,871 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "bamboo_hr",
+  "node_type": "app.bamboo_hr",
+  "title": "BambooHR",
+  "description": "Employees, employee documents, company files and reports in BambooHR",
+  "category": "app",
+  "docs_url": "https://documentation.bamboohr.com/reference",
+  "n8n_types": [
+    "n8n-nodes-base.bambooHr"
+  ],
+  "base_url": "https://api.bamboohr.com/api/gateway.php/{{ cred.subdomain }}/v1",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "bamboo_hr",
+      "name": "BambooHR",
+      "n8n_credential": "bambooHrApi",
+      "n8n_field_map": {
+        "subdomain": "subdomain",
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "basic"
+      ],
+      "fields": [
+        {
+          "key": "subdomain",
+          "label": "Subdomain",
+          "required": true,
+          "help": "The part before .bamboohr.com"
+        },
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "Your avatar → API Keys"
+        }
+      ],
+      "inject": {
+        "basic": {
+          "username": "{{ cred.api_key }}",
+          "password": "x"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "employee",
+      "label": "Employee"
+    },
+    {
+      "value": "employeeDocument",
+      "label": "Employee Document"
+    },
+    {
+      "value": "file",
+      "label": "File"
+    },
+    {
+      "value": "companyReport",
+      "label": "Company Report"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "employee",
+      "operation": "create",
+      "title": "Create an employee",
+      "method": "POST",
+      "path": "/employees",
+      "body": {
+        "firstName": "{{ p.firstName }}",
+        "lastName": "{{ p.lastName }}",
+        "$merge": "{{ p.additionalFields | omit:'address,payRate,exempt,gender,maritalStatus,paidPer,payType' }}",
+        "department": "{{ p.department | default:p.additionalFields.department }}",
+        "dateOfBirth": "{{ p.dateOfBirth | default:p.additionalFields.dateOfBirth | date:'YYYY-MM-DD' }}",
+        "division": "{{ p.division | default:p.additionalFields.division }}",
+        "employeeNumber": "{{ p.employeeNumber | default:p.additionalFields.employeeNumber }}",
+        "hireDate": "{{ p.hireDate | default:p.additionalFields.hireDate | date:'YYYY-MM-DD' }}",
+        "location": "{{ p.location | default:p.additionalFields.location }}",
+        "mobilePhone": "{{ p.mobilePhone | default:p.additionalFields.mobilePhone }}",
+        "preferredName": "{{ p.preferredName | default:p.additionalFields.preferredName }}",
+        "ssn": "{{ p.ssn | default:p.additionalFields.ssn }}",
+        "address": "{{ p.address.value | default:p.additionalFields.address.value }}",
+        "payRate": "{{ p.payRate.value | default:p.additionalFields.payRate.value }}",
+        "exempt": "{{ p.exempt | default:p.additionalFields.exempt | eq:'exempt' | then:'Exempt' }}{{ p.exempt | default:p.additionalFields.exempt | eq:'non-exempt' | then:'Non Exempt' }}",
+        "gender": "{{ p.gender | default:p.additionalFields.gender | eq:'female' | then:'Female' }}{{ p.gender | default:p.additionalFields.gender | eq:'male' | then:'Male' }}",
+        "maritalStatus": "{{ p.maritalStatus | default:p.additionalFields.maritalStatus | eq:'single' | then:'Single' }}{{ p.maritalStatus | default:p.additionalFields.maritalStatus | eq:'married' | then:'Married' }}{{ p.maritalStatus | default:p.additionalFields.maritalStatus | eq:'domesticPartnership' | then:'Domestic Partnership' }}",
+        "paidPer": "{{ p.paidPer | default:p.additionalFields.paidPer | eq:'hour' | then:'Hour' }}{{ p.paidPer | default:p.additionalFields.paidPer | eq:'day' | then:'Day' }}{{ p.paidPer | default:p.additionalFields.paidPer | eq:'week' | then:'Week' }}{{ p.paidPer | default:p.additionalFields.paidPer | eq:'month' | then:'Month' }}{{ p.paidPer | default:p.additionalFields.paidPer | eq:'quater' | then:'Quater' }}{{ p.paidPer | default:p.additionalFields.paidPer | eq:'year' | then:'Year' }}",
+        "payType": "{{ p.payType | default:p.additionalFields.payType | eq:'commission' | then:'Commission' }}{{ p.payType | default:p.additionalFields.payType | eq:'contract' | then:'Contract' }}{{ p.payType | default:p.additionalFields.payType | eq:'daily' | then:'Daily' }}{{ p.payType | default:p.additionalFields.payType | eq:'exceptionHourly' | then:'Exception Hourly' }}{{ p.payType | default:p.additionalFields.payType | eq:'hourly' | then:'Hourly' }}{{ p.payType | default:p.additionalFields.payType | eq:'monthly' | then:'Monthly' }}{{ p.payType | default:p.additionalFields.payType | eq:'pieceRate' | then:'Piece Rate' }}{{ p.payType | default:p.additionalFields.payType | eq:'proRata' | then:'Pro Rata' }}{{ p.payType | default:p.additionalFields.payType | eq:'salary' | then:'Salary' }}{{ p.payType | default:p.additionalFields.payType | eq:'weekly' | then:'Weekly' }}"
+      },
+      "fields": [
+        {
+          "key": "synced",
+          "label": "Synced with Trax Payroll",
+          "type": "boolean",
+          "default": false,
+          "help": "When on, the payroll fields below are used."
+        },
+        {
+          "key": "firstName",
+          "label": "First name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "lastName",
+          "label": "Last name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "address",
+          "label": "Address (synced)",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "value"
+          ],
+          "help": "{\"value\": {\"address1\": \"\", \"city\": \"\", \"state\": \"\", \"country\": \"\"}}"
+        },
+        {
+          "key": "payRate",
+          "label": "Pay rate (synced)",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "value"
+          ],
+          "help": "{\"value\": {\"value\": \"50000\", \"currency\": \"USD\"}}"
+        },
+        {
+          "key": "department",
+          "label": "Department (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "dateOfBirth",
+          "label": "DateOfBirth (synced)",
+          "type": "datetime",
+          "default": ""
+        },
+        {
+          "key": "division",
+          "label": "Division (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "employeeNumber",
+          "label": "EmployeeNumber (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "exempt",
+          "label": "Exempt (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "gender",
+          "label": "Gender (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "hireDate",
+          "label": "HireDate (synced)",
+          "type": "datetime",
+          "default": ""
+        },
+        {
+          "key": "location",
+          "label": "Location (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "maritalStatus",
+          "label": "MaritalStatus (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "mobilePhone",
+          "label": "MobilePhone (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "paidPer",
+          "label": "PaidPer (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "payType",
+          "label": "PayType (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "preferredName",
+          "label": "PreferredName (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "ssn",
+          "label": "Ssn (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "workEmail",
+            "workPhone",
+            "address",
+            "dateOfBirth",
+            "department",
+            "division",
+            "employeeNumber",
+            "exempt",
+            "gender",
+            "hireDate",
+            "location",
+            "maritalStatus",
+            "mobilePhone",
+            "paidPer",
+            "payRate",
+            "payType",
+            "preferredName",
+            "ssn"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "employee",
+      "operation": "get",
+      "title": "Get an employee",
+      "method": "GET",
+      "path": "/employees/{{ p.employeeId }}",
+      "query": {
+        "fields": "{{ p.options.fields | csv | ne:'all' | then:p.options.fields | csv | default:'firstName,lastName,displayName,preferredName,jobTitle,department,division,location,workEmail,workPhone,mobilePhone,hireDate,status,supervisor' }}"
+      },
+      "fields": [
+        {
+          "key": "employeeId",
+          "label": "Employee ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fields"
+          ],
+          "help": "fields: list of BambooHR field names (default: a common set; 'all' is not expanded)"
+        }
+      ]
+    },
+    {
+      "resource": "employee",
+      "operation": "getAll",
+      "title": "Get many employees",
+      "method": "GET",
+      "path": "/employees/directory",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page",
+        "cursor_path": "no_next_page",
+        "results_path": "employees"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 5,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "employee",
+      "operation": "update",
+      "title": "Update an employee",
+      "method": "POST",
+      "path": "/employees/{{ p.employeeId }}",
+      "body": {
+        "$merge": "{{ p.updateFields | omit:'address,payRate,exempt,gender,maritalStatus,paidPer,payType' }}",
+        "department": "{{ p.department | default:p.updateFields.department }}",
+        "dateOfBirth": "{{ p.dateOfBirth | default:p.updateFields.dateOfBirth | date:'YYYY-MM-DD' }}",
+        "division": "{{ p.division | default:p.updateFields.division }}",
+        "employeeNumber": "{{ p.employeeNumber | default:p.updateFields.employeeNumber }}",
+        "hireDate": "{{ p.hireDate | default:p.updateFields.hireDate | date:'YYYY-MM-DD' }}",
+        "location": "{{ p.location | default:p.updateFields.location }}",
+        "mobilePhone": "{{ p.mobilePhone | default:p.updateFields.mobilePhone }}",
+        "preferredName": "{{ p.preferredName | default:p.updateFields.preferredName }}",
+        "ssn": "{{ p.ssn | default:p.updateFields.ssn }}",
+        "firstName": "{{ p.firstName | default:p.updateFields.firstName }}",
+        "lastName": "{{ p.lastName | default:p.updateFields.lastName }}",
+        "address": "{{ p.address.value | default:p.updateFields.address.value }}",
+        "payRate": "{{ p.payRate.value | default:p.updateFields.payRate.value }}",
+        "exempt": "{{ p.exempt | default:p.updateFields.exempt | eq:'exempt' | then:'Exempt' }}{{ p.exempt | default:p.updateFields.exempt | eq:'non-exempt' | then:'Non Exempt' }}",
+        "gender": "{{ p.gender | default:p.updateFields.gender | eq:'female' | then:'Female' }}{{ p.gender | default:p.updateFields.gender | eq:'male' | then:'Male' }}",
+        "maritalStatus": "{{ p.maritalStatus | default:p.updateFields.maritalStatus | eq:'single' | then:'Single' }}{{ p.maritalStatus | default:p.updateFields.maritalStatus | eq:'married' | then:'Married' }}{{ p.maritalStatus | default:p.updateFields.maritalStatus | eq:'domesticPartnership' | then:'Domestic Partnership' }}",
+        "paidPer": "{{ p.paidPer | default:p.updateFields.paidPer | eq:'hour' | then:'Hour' }}{{ p.paidPer | default:p.updateFields.paidPer | eq:'day' | then:'Day' }}{{ p.paidPer | default:p.updateFields.paidPer | eq:'week' | then:'Week' }}{{ p.paidPer | default:p.updateFields.paidPer | eq:'month' | then:'Month' }}{{ p.paidPer | default:p.updateFields.paidPer | eq:'quater' | then:'Quater' }}{{ p.paidPer | default:p.updateFields.paidPer | eq:'year' | then:'Year' }}",
+        "payType": "{{ p.payType | default:p.updateFields.payType | eq:'commission' | then:'Commission' }}{{ p.payType | default:p.updateFields.payType | eq:'contract' | then:'Contract' }}{{ p.payType | default:p.updateFields.payType | eq:'daily' | then:'Daily' }}{{ p.payType | default:p.updateFields.payType | eq:'exceptionHourly' | then:'Exception Hourly' }}{{ p.payType | default:p.updateFields.payType | eq:'hourly' | then:'Hourly' }}{{ p.payType | default:p.updateFields.payType | eq:'monthly' | then:'Monthly' }}{{ p.payType | default:p.updateFields.payType | eq:'pieceRate' | then:'Piece Rate' }}{{ p.payType | default:p.updateFields.payType | eq:'proRata' | then:'Pro Rata' }}{{ p.payType | default:p.updateFields.payType | eq:'salary' | then:'Salary' }}{{ p.payType | default:p.updateFields.payType | eq:'weekly' | then:'Weekly' }}"
+      },
+      "fields": [
+        {
+          "key": "employeeId",
+          "label": "Employee ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "synced",
+          "label": "Synced with Trax Payroll",
+          "type": "boolean",
+          "default": false,
+          "help": "When on, the payroll fields below are used."
+        },
+        {
+          "key": "address",
+          "label": "Address (synced)",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "value"
+          ],
+          "help": "{\"value\": {\"address1\": \"\", \"city\": \"\", \"state\": \"\", \"country\": \"\"}}"
+        },
+        {
+          "key": "payRate",
+          "label": "Pay rate (synced)",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "value"
+          ],
+          "help": "{\"value\": {\"value\": \"50000\", \"currency\": \"USD\"}}"
+        },
+        {
+          "key": "department",
+          "label": "Department (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "dateOfBirth",
+          "label": "DateOfBirth (synced)",
+          "type": "datetime",
+          "default": ""
+        },
+        {
+          "key": "division",
+          "label": "Division (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "employeeNumber",
+          "label": "EmployeeNumber (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "exempt",
+          "label": "Exempt (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "gender",
+          "label": "Gender (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "hireDate",
+          "label": "HireDate (synced)",
+          "type": "datetime",
+          "default": ""
+        },
+        {
+          "key": "location",
+          "label": "Location (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "maritalStatus",
+          "label": "MaritalStatus (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "mobilePhone",
+          "label": "MobilePhone (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "paidPer",
+          "label": "PaidPer (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "payType",
+          "label": "PayType (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "preferredName",
+          "label": "PreferredName (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "ssn",
+          "label": "Ssn (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "firstName",
+          "label": "First name (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "lastName",
+          "label": "Last name (synced)",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "workEmail",
+            "workPhone",
+            "address",
+            "dateOfBirth",
+            "department",
+            "division",
+            "employeeNumber",
+            "exempt",
+            "gender",
+            "hireDate",
+            "location",
+            "maritalStatus",
+            "mobilePhone",
+            "paidPer",
+            "payRate",
+            "payType",
+            "preferredName",
+            "ssn",
+            "firstName",
+            "lastName"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "employeeDocument",
+      "operation": "delete",
+      "title": "Delete an employee document",
+      "method": "DELETE",
+      "path": "/employees/{{ p.employeeId }}/files/{{ p.fileId }}",
+      "fields": [
+        {
+          "key": "employeeId",
+          "label": "Employee ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "employeeDocument",
+      "operation": "download",
+      "title": "Download an employee document",
+      "method": "GET",
+      "path": "/employees/{{ p.employeeId }}/files/{{ p.fileId }}/",
+      "binary": {
+        "download": true,
+        "property_field": "output"
+      },
+      "fields": [
+        {
+          "key": "employeeId",
+          "label": "Employee ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "output",
+          "label": "Put output file in field",
+          "type": "text",
+          "default": "data"
+        }
+      ]
+    },
+    {
+      "resource": "employeeDocument",
+      "operation": "getAll",
+      "title": "Get an employee's document categories",
+      "method": "GET",
+      "path": "/employees/{{ p.employeeId }}/files/view/",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page",
+        "cursor_path": "no_next_page",
+        "results_path": "categories"
+      },
+      "fields": [
+        {
+          "key": "employeeId",
+          "label": "Employee ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 5,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simplifyOutput",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Accepted for n8n compatibility; categories (with their files) are returned."
+        }
+      ]
+    },
+    {
+      "resource": "employeeDocument",
+      "operation": "update",
+      "title": "Update an employee document",
+      "method": "POST",
+      "path": "/employees/{{ p.employeeId }}/files/{{ p.fileId }}",
+      "body": {
+        "category": "{{ p.updateFields.categoryId }}",
+        "name": "{{ p.updateFields.name }}",
+        "shareWithEmployee": "{{ p.updateFields.shareWithEmployee | eq:'false' | then:'no' | default:'yes' }}"
+      },
+      "fields": [
+        {
+          "key": "employeeId",
+          "label": "Employee ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "categoryId",
+            "name",
+            "shareWithEmployee"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "employeeDocument",
+      "operation": "upload",
+      "title": "Upload an employee document",
+      "method": "POST",
+      "path": "/employees/{{ p.employeeId }}/files",
+      "body_type": "multipart",
+      "body": {
+        "fileName": "{{ item.file_name | default:p.binaryPropertyName }}",
+        "category": "{{ p.categoryId }}",
+        "share": "{{ p.options.share | eq:'false' | then:'no' | default:'yes' }}"
+      },
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "multipart_field": "file"
+      },
+      "fields": [
+        {
+          "key": "employeeId",
+          "label": "Employee ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "categoryId",
+          "label": "Category ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary field",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "share"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "delete",
+      "title": "Delete a company file",
+      "method": "DELETE",
+      "path": "/files/{{ p.fileId }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "download",
+      "title": "Download a company file",
+      "method": "GET",
+      "path": "/files/{{ p.fileId }}/",
+      "binary": {
+        "download": true,
+        "property_field": "output"
+      },
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "output",
+          "label": "Put output file in field",
+          "type": "text",
+          "default": "data"
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "getAll",
+      "title": "Get company file categories",
+      "method": "GET",
+      "path": "/files/view",
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page",
+        "cursor_path": "no_next_page",
+        "results_path": "categories"
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 5,
+          "help": "Maximum number of results when Return all is off.",
+          "min": 1
+        },
+        {
+          "key": "simplifyOutput",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Accepted for n8n compatibility; categories (with their files) are returned."
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "update",
+      "title": "Update a company file",
+      "method": "POST",
+      "path": "/files/{{ p.fileId }}",
+      "body": {
+        "category": "{{ p.updateFields.categoryId }}",
+        "name": "{{ p.updateFields.name }}",
+        "shareWithEmployee": "{{ p.updateFields.shareWithEmployee | eq:'false' | then:'no' | default:'yes' }}"
+      },
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "categoryId",
+            "name",
+            "shareWithEmployee"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "upload",
+      "title": "Upload a company file",
+      "method": "POST",
+      "path": "/files",
+      "body_type": "multipart",
+      "body": {
+        "fileName": "{{ item.file_name | default:p.binaryPropertyName }}",
+        "category": "{{ p.categoryId }}",
+        "share": "{{ p.options.share | eq:'false' | then:'no' | default:'yes' }}"
+      },
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "multipart_field": "file"
+      },
+      "fields": [
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary field",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "categoryId",
+          "label": "Category ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "share"
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "companyReport",
+      "operation": "get",
+      "title": "Get a company report",
+      "method": "GET",
+      "path": "/reports/{{ p.reportId }}/",
+      "query": {
+        "format": "{{ p.format }}",
+        "fd": "{{ p.options.fd | default:true }}",
+        "onlyCurrent": "{{ p.options.onlyCurrent | default:true }}"
+      },
+      "fields": [
+        {
+          "key": "reportId",
+          "label": "Report ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "format",
+          "label": "Format",
+          "type": "select",
+          "default": "JSON",
+          "options": [
+            "CSV",
+            "JSON",
+            "PDF",
+            "XLS",
+            "XML"
+          ],
+          "help": "JSON is returned as data; other formats come back as text."
+        },
+        {
+          "key": "output",
+          "label": "Put output file in field",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fd",
+            "onlyCurrent"
+          ]
+        }
+      ]
+    }
+  ]
+}

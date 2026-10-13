@@ -1,0 +1,77 @@
+{
+  "name": "RSS to Slack Digest",
+  "summary": "Posts a daily digest of the latest stories from a news feed to a Slack channel.",
+  "description": "Every weekday at 9am: read an RSS feed (Hacker News front page by default — change the url) and post the items as one numbered digest message to a Slack channel. Set the Slack credential (credential_id) and channel before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.schedule",
+      "name": "Weekdays 9am",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "cron": "0 0 9 * * 1-5",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "id": "read_feed",
+      "type": "system.rss_read",
+      "name": "Read Feed",
+      "position": { "x": 300, "y": 0 },
+      "disabled": false,
+      "config": {
+        "url": "https://hnrss.org/frontpage",
+        "limit": 10
+      }
+    },
+    {
+      "id": "digest",
+      "type": "core.code",
+      "name": "Build Digest",
+      "position": { "x": 600, "y": 0 },
+      "disabled": false,
+      "config": {
+        "code": "(function () {\n  const lines = $input.all().map(function (item, i) {\n    return (i + 1) + '. ' + item.title + ' - ' + item.link;\n  });\n  return [{ text: 'Today\\'s top stories:\\n' + lines.join('\\n') }];\n})()"
+      }
+    },
+    {
+      "id": "post_slack",
+      "type": "comm.slack",
+      "name": "Post to Slack",
+      "position": { "x": 900, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "operation": "post_message",
+        "channel": "#news",
+        "text": "{{ $json.text }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-read_feed",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "read_feed",
+      "target_handle": "main"
+    },
+    {
+      "id": "read_feed-to-digest",
+      "source": "read_feed",
+      "source_handle": "main",
+      "target": "digest",
+      "target_handle": "main"
+    },
+    {
+      "id": "digest-to-post_slack",
+      "source": "digest",
+      "source_handle": "main",
+      "target": "post_slack",
+      "target_handle": "main"
+    }
+  ]
+}

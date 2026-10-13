@@ -1,0 +1,182 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "bitly",
+  "node_type": "app.bitly",
+  "title": "Bitly",
+  "description": "Shorten, read and update links with Bitly",
+  "category": "app",
+  "docs_url": "https://dev.bitly.com/api-reference",
+  "n8n_types": [
+    "n8n-nodes-base.bitly"
+  ],
+  "base_url": "https://api-ssl.bitly.com/v4",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "bitly",
+      "name": "Bitly",
+      "n8n_credential": "bitlyApi",
+      "n8n_credential_alt": [
+        "bitlyOAuth2Api"
+      ],
+      "n8n_field_map": {
+        "accessToken": "access_token"
+      },
+      "methods": [
+        "bearer",
+        "oauth"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "Access token",
+          "secret": true,
+          "required": true,
+          "help": "Settings → Developer settings → API"
+        }
+      ],
+      "oauth": {
+        "auth_url": "https://bitly.com/oauth/authorize",
+        "token_url": "https://api-ssl.bitly.com/oauth/access_token"
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "link",
+      "label": "Link"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "link",
+      "operation": "create",
+      "title": "Shorten a link",
+      "method": "POST",
+      "path": "/bitlinks",
+      "body": {
+        "long_url": "{{ p.longUrl }}",
+        "title": "{{ p.additionalFields.title }}",
+        "domain": "{{ p.additionalFields.domain }}",
+        "group_guid": "{{ p.additionalFields.group }}",
+        "tags": "{{ p.additionalFields.tags }}",
+        "deeplinks": {
+          "$map": "{{ p.deeplink.deeplinkUi }}",
+          "$to": {
+            "app_uri_path": "{{ el.appUriPath }}",
+            "install_type": "{{ el.installType }}",
+            "install_url": "{{ el.installUrl }}",
+            "app_id": "{{ el.appId }}"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "longUrl",
+          "label": "Long URL",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "domain",
+            "group",
+            "tags",
+            "title"
+          ]
+        },
+        {
+          "key": "deeplink",
+          "label": "Deep links",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "deeplinkUi"
+          ],
+          "help": "{\"deeplinkUi\": [{\"appId\": \"\", \"appUriPath\": \"\", \"installType\": \"\", \"installUrl\": \"\"}]}"
+        }
+      ]
+    },
+    {
+      "resource": "link",
+      "operation": "get",
+      "title": "Get a link",
+      "method": "GET",
+      "path": "/bitlinks/{{ p.id }}",
+      "fields": [
+        {
+          "key": "id",
+          "label": "Bitlink",
+          "type": "text",
+          "required": true,
+          "help": "e.g. bit.ly/2Xyz"
+        }
+      ]
+    },
+    {
+      "resource": "link",
+      "operation": "update",
+      "title": "Update a link",
+      "method": "PATCH",
+      "path": "/bitlinks/{{ p.id }}",
+      "body": {
+        "long_url": "{{ p.updateFields.longUrl }}",
+        "title": "{{ p.updateFields.title }}",
+        "archived": "{{ p.updateFields.archived }}",
+        "group_guid": "{{ p.updateFields.group }}",
+        "tags": "{{ p.updateFields.tags }}",
+        "deeplinks": {
+          "$map": "{{ p.deeplink.deeplinkUi }}",
+          "$to": {
+            "app_uri_path": "{{ el.appUriPath }}",
+            "install_type": "{{ el.installType }}",
+            "install_url": "{{ el.installUrl }}",
+            "app_id": "{{ el.appId }}"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "id",
+          "label": "Bitlink",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "archived",
+            "group",
+            "longUrl",
+            "tags",
+            "title"
+          ]
+        },
+        {
+          "key": "deeplink",
+          "label": "Deep links",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "deeplinkUi"
+          ],
+          "help": "{\"deeplinkUi\": [{\"appId\": \"\", \"appUriPath\": \"\", \"installType\": \"\", \"installUrl\": \"\"}]}"
+        }
+      ]
+    }
+  ]
+}

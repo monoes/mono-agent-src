@@ -1,0 +1,66 @@
+{
+  "link.create": {
+    "params": {
+      "longUrl": "https://example.com",
+      "additionalFields": {
+        "title": "Ex",
+        "tags": [
+          "a"
+        ]
+      },
+      "deeplink": {
+        "deeplinkUi": [
+          {
+            "appId": "com.x",
+            "appUriPath": "/p",
+            "installType": "promote_install",
+            "installUrl": "https://i"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v4/bitlinks",
+      "body": {
+        "long_url": "https://example.com",
+        "title": "Ex",
+        "tags": [
+          "a"
+        ],
+        "deeplinks": [
+          {
+            "app_uri_path": "/p",
+            "install_type": "promote_install",
+            "install_url": "https://i",
+            "app_id": "com.x"
+          }
+        ]
+      }
+    }
+  },
+  "link.get": {
+    "params": {
+      "id": "bit.ly/abc"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v4/bitlinks/bit.ly%2Fabc"
+    }
+  },
+  "link.update": {
+    "params": {
+      "id": "bit.ly/abc",
+      "updateFields": {
+        "archived": true
+      }
+    },
+    "expect": {
+      "method": "PATCH",
+      "path": "/v4/bitlinks/bit.ly%2Fabc",
+      "body": {
+        "archived": true
+      }
+    }
+  }
+}
