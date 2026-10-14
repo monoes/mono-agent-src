@@ -9,6 +9,8 @@
     "n8n-nodes-base.nextCloud"
   ],
   "base_url": "{{ cred.web_dav_url }}",
+  "error_when": "{{ res.ocs.meta.status | default:'ok' | ne:'ok' }}",
+  "error_message": "{{ res.ocs.meta.message | default:res.ocs.meta.status }}",
   "credentials": [
     {
       "platform": "nextcloud",
@@ -478,7 +480,8 @@
           "contentType": "{{ el.propstat.prop.getcontenttype }}",
           "type": "{{ el.propstat.prop.resourcetype | then:'folder' | default:'file' }}",
           "eTag": "{{ el.propstat.prop.getetag | replace:'\"','' }}"
-        }
+        },
+        "skip": 1
       }
     },
     {

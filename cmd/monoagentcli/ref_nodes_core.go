@@ -15,7 +15,7 @@ var nodeDocsTrigger = []nodeDoc{
   "cron": "0 0 9 * * *"   // every day at 09:00:00
 }`,
 		Inputs:  "none",
-		Outputs: "one empty item that triggers downstream nodes",
+		Outputs: "one item: trigger_type (\"schedule\"), timestamp (RFC 3339 UTC), catch_up (true on a catch-up run)",
 		Notes:   `6-field cron: sec min hour day month weekday. The workflow must be "activate"d and "monoagentcli daemon" must be running for this trigger to actually fire over time.`,
 	},
 }

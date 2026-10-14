@@ -172,6 +172,118 @@ else
   echo "SKIP app (desktop app tarball test is linux/amd64 only)"
 fi
 
+# 9. macOS --app, run on any host: a stub uname says Darwin/arm64, and PATH
+# holds only the tools install.sh uses, without sha256sum (so the shasum
+# branch runs, as on a Mac) and without sudo. xattr and ditto are stubs that
+# log any call: install.sh needs neither (curl sets no quarantine flag, and
+# the release zip is a plain `zip -r` of MonoAgent.app).
+mac_ok=1
+for t in zip unzip shasum perl; do command -v "$t" >/dev/null 2>&1 || mac_ok=0; done
+if [ "$mac_ok" -eq 1 ]; then
+  mac="$work/mac"; mkdir -p "$mac/bin" "$mac/libressl"
+  for t in bash sh env curl openssl awk sed grep head tr cut od wc mkdir mv chmod find tar unzip mktemp rm date id dirname cat ln shasum perl; do
+    ln -s "$(command -v "$t")" "$mac/bin/$t"
+  done
+  printf '#!/bin/sh\ncase "$1" in -m) echo arm64 ;; *) echo Darwin ;; esac\n' > "$mac/bin/uname"
+  for t in xattr ditto; do printf '#!/bin/sh\necho "%s $*" >> "%s"\n' "$t" "$mac/calls.log" > "$mac/bin/$t"; done
+  # An openssl that reads Ed25519 keys but has no pkeyutl -rawin (LibreSSL).
+  printf '#!/bin/sh\nif [ "$1" = pkeyutl ]; then echo "usage: pkeyutl [-in file] [-sigfile file]"; exit 1; fi\nexec "%s" "$@"\n' "$(command -v openssl)" > "$mac/libressl/openssl"
+  chmod +x "$mac/bin/uname" "$mac/bin/xattr" "$mac/bin/ditto" "$mac/libressl/openssl"
+
+  # Fixture release: the darwin CLI and MonoAgent-darwin-arm64.zip laid out
+  # like release.yml's (the app binary, the bundled CLI, Info.plist, NOTICE).
+  printf '#!/bin/sh\necho fake-monoagentcli-darwin\n' > "$web/monoagentcli-darwin-arm64"
+  b="$mac/pkg/MonoAgent.app/Contents"; mkdir -p "$b/MacOS" "$b/Resources"
+  printf '#!/bin/sh\necho fake-app\n' > "$b/MacOS/MonoAgent"
+  cp "$web/monoagentcli-darwin-arm64" "$b/MacOS/monoagentcli"
+  chmod +x "$b/MacOS/MonoAgent" "$b/MacOS/monoagentcli"
+  printf '<plist/>\n' > "$b/Info.plist"; printf 'notice\n' > "$b/Resources/NOTICE"
+  (cd "$mac/pkg" && zip -qr "$web/MonoAgent-darwin-arm64.zip" MonoAgent.app)
+  printf 'extension\n' > "$web/monoagent-chrome-extension.zip"
+  # The extension entry (kind "extension", no os/arch) must be ignored.
+  write_mac_manifest() { # <app-sha>
+    cat > "$web/manifest.json" <<EOF
+{"schema":1,"version":"v9.9.9","released_at":"2026-10-08T00:00:00Z","notes_url":"$base/notes",
+ "assets":[
+  {"name":"monoagent-chrome-extension.zip","url":"$base/monoagent-chrome-extension.zip","sha256":"$(sha "$web/monoagent-chrome-extension.zip")","size":10,"kind":"extension"},
+  {"os":"linux","arch":"amd64","name":"MonoAgent-linux-amd64.tar.gz","url":"$base/MonoAgent-linux-amd64.tar.gz","sha256":"00","size":1,"kind":"app"},
+  {"os":"darwin","arch":"arm64","name":"MonoAgent-darwin-arm64.zip","url":"$base/MonoAgent-darwin-arm64.zip","sha256":"$1","size":1,"kind":"app"},
+  {"os":"darwin","arch":"arm64","name":"monoagentcli-darwin-arm64","url":"$base/monoagentcli-darwin-arm64","sha256":"$(sha "$web/monoagentcli-darwin-arm64")","size":10,"kind":"cli"}
+ ]}
+EOF
+    sign
+  }
+  app_sha="$(sha "$web/MonoAgent-darwin-arm64.zip")"
+  write_mac_manifest "$app_sha"
+  mac_app_ok() { # <run-name> <apps-dir>: the bundle and its bundled CLI are in place
+    [ -x "$2/MonoAgent.app/Contents/MacOS/MonoAgent" ] && [ -x "$2/MonoAgent.app/Contents/MacOS/monoagentcli" ] \
+      && [ -f "$2/MonoAgent.app/Contents/Info.plist" ] && [ -f "$2/MonoAgent.app/Contents/Resources/NOTICE" ] \
+      && "$work/prefix-$1/monoagentcli" | grep -q fake-monoagentcli-darwin
+  }
+  check() { # <name> <status>
+    if [ "$2" -eq 0 ]; then echo "PASS $1"; else echo "FAIL $1"; fails=$((fails+1)); fi
+  }
+
+  # 9a. /Applications writable: the app goes there, ~/Applications is untouched.
+  sysapps="$work/Applications-rw"; mkdir -p "$sysapps"
+  run mac-app-system ok "Installed the desktop app: $sysapps/MonoAgent.app" \
+    PATH="$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
+  st=0
+  { printf '%s\n' "$out" | grep -q "Manifest signature verified" \
+    && printf '%s\n' "$out" | grep -q "Checksum verified: MonoAgent-darwin-arm64.zip SHA256 $app_sha" \
+    && printf '%s\n' "$out" | grep -q "(v9.9.9, darwin/arm64)" \
+    && mac_app_ok mac-app-system "$sysapps" && [ ! -e "$work/home-mac-app-system/Applications" ]; } || st=1
+  check mac-app-system-layout "$st"
+
+  # 9b. /Applications not writable: ~/Applications. (Root can write anything,
+  # so this needs a non-root run.)
+  if [ "$(id -u)" != 0 ]; then
+    roapps="$work/Applications-ro"; mkdir -p "$roapps"; chmod 555 "$roapps"
+    run mac-app-user ok "Installed the desktop app: $work/home-mac-app-user/Applications/MonoAgent.app" \
+      PATH="$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$roapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
+    st=0
+    { mac_app_ok mac-app-user "$work/home-mac-app-user/Applications" && [ -z "$(ls -A "$roapps")" ]; } || st=1
+    check mac-app-user-layout "$st"
+    chmod 755 "$roapps"
+  else
+    echo "SKIP mac-app-user (running as root)"
+  fi
+
+  # 9c. a second install replaces the bundle; nothing of the old one is left.
+  mkdir -p "$sysapps/MonoAgent.app/Contents/MacOS" && echo old > "$sysapps/MonoAgent.app/Contents/MacOS/stale"
+  run mac-app-replace ok "Installed the desktop app: $sysapps/MonoAgent.app" \
+    PATH="$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
+  st=0
+  { mac_app_ok mac-app-replace "$sysapps" && [ ! -e "$sysapps/MonoAgent.app/Contents/MacOS/stale" ]; } || st=1
+  check mac-app-replace-layout "$st"
+
+  # 9d. a zip that does not match the signed manifest installs nothing.
+  cp "$web/MonoAgent-darwin-arm64.zip" "$work/good.zip"
+  printf 'tampered' >> "$web/MonoAgent-darwin-arm64.zip"
+  tapps="$work/Applications-tamper"; mkdir -p "$tapps"
+  run mac-app-tampered fail "checksum mismatch for MonoAgent-darwin-arm64.zip" \
+    PATH="$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$tapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
+  st=0
+  { [ -z "$(ls -A "$tapps")" ] && [ ! -e "$work/home-mac-app-tampered/Applications" ]; } || st=1
+  check mac-app-tampered-nothing-installed "$st"
+  cp "$work/good.zip" "$web/MonoAgent-darwin-arm64.zip"
+
+  # 9e. an openssl without pkeyutl -rawin (LibreSSL) is checksum-only and
+  # says so, rather than failing every signature.
+  run mac-libressl ok "cannot verify raw Ed25519 signatures" \
+    PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
+  st=0
+  { printf '%s\n' "$out" | grep -q "Checksum verified: MonoAgent-darwin-arm64.zip" \
+    && ! printf '%s\n' "$out" | grep -q "signature verified"; } || st=1
+  check mac-libressl-checksum-only "$st"
+
+  # 9f. no run called xattr or ditto.
+  st=0; [ ! -s "$mac/calls.log" ] || st=1
+  check mac-no-xattr-ditto "$st"
+else
+  echo "SKIP mac-app (needs zip, unzip, shasum and perl)"
+fi
+
 # 8. no asset for this platform.
 printf '{"schema":1,"version":"v9.9.9","assets":[]}' > "$web/manifest.json"; sign
 run no-asset fail "no CLI asset" MONOAGENT_RELEASE_PUBKEY="$pub"

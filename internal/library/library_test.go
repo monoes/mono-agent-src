@@ -364,3 +364,36 @@ func TestProvenanceIsProfileScoped(t *testing.T) {
 		t.Fatalf("file: %v", err)
 	}
 }
+
+func TestKindAPI(t *testing.T) {
+	for in, want := range map[string]string{"api": "api", "APIs": "api", " apis ": "api", "orgs": "org"} {
+		if got := library.NormalizeKind(in); got != want || !library.ValidKind(got) {
+			t.Errorf("NormalizeKind(%q) = %q (valid %v), want %q", in, got, library.ValidKind(got), want)
+		}
+	}
+	fake := libraryfake.New()
+	defer fake.Close()
+	c := login(t, fake, &memStore{})
+	ctx := context.Background()
+	pkg := []byte(`{"$schema":"apipkg.v1","id":"acme","title":"Acme","base_url":"https://acme.test","operations":[]}`)
+	it, err := c.Create(ctx, library.Upload{Kind: library.KindAPI, Visibility: "private", Name: "Acme", Version: "1.0.0",
+		Filename: "acme.json", ContentType: "application/json", Data: pkg})
+	if err != nil || it.Kind != library.KindAPI {
+		t.Fatalf("Create api = %+v, %v", it, err)
+	}
+	got, err := c.Get(ctx, "api/"+it.Slug)
+	if err != nil || got.ID != it.ID {
+		t.Fatalf("Get api/%s = %+v, %v", it.Slug, got, err)
+	}
+	data, _, err := c.Download(ctx, got)
+	if err != nil || string(data) != string(pkg) {
+		t.Fatalf("Download = %s, %v", data, err)
+	}
+	if res, err := c.List(ctx, library.ListQuery{Kind: library.KindAPI, Scope: "mine"}); err != nil || res.Total != 1 {
+		t.Fatalf("List kind api = %+v, %v", res, err)
+	}
+	if _, err := c.Create(ctx, library.Upload{Kind: library.KindAPI, Visibility: "private", Name: "Bad",
+		Filename: "bad.json", ContentType: "application/json", Data: []byte(`not json`)}); err == nil {
+		t.Fatal("the fake accepted an api item that is not JSON")
+	}
+}

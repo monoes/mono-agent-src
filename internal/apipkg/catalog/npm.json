@@ -92,7 +92,9 @@
         }
       ],
       "output": {
-        "from": "{{ res.time | omit:'created,modified' | entries:'version,published_at' }}"
+        "from": "{{ res.time | omit:'created,modified' | entries:'version,published_at' }}",
+        "sort": "published_at",
+        "sort_desc": true
       }
     },
     {

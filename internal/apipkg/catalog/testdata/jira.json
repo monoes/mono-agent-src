@@ -313,26 +313,39 @@
   },
   "issueAttachment.get": {
     "params": {
-      "attachmentId": "9"
+      "attachmentId": "9",
+      "download": true,
+      "binaryProperty": "file"
     },
     "response": {
-      "id": "9"
-    },
-    "expect": {
-      "method": "GET",
-      "path": "/rest/api/3/attachment/9",
-      "items": 1
+      "id": "9",
+      "filename": "a.pdf",
+      "mimeType": "application/pdf"
     },
     "credential": {
       "email": "a@x.io",
       "api_token": "t",
       "domain": "team.atlassian.net"
+    },
+    "expect_requests": [
+      {
+        "method": "GET",
+        "path": "/rest/api/3/attachment/9"
+      },
+      {
+        "method": "GET",
+        "path": "/rest/api/3/attachment/content/9"
+      }
+    ],
+    "expect": {
+      "items": 1
     }
   },
   "issueAttachment.getAll": {
     "params": {
       "issueKey": "P-1",
-      "limit": 1
+      "limit": 1,
+      "download": true
     },
     "response": {
       "fields": {
@@ -346,15 +359,23 @@
         ]
       }
     },
-    "expect": {
-      "method": "GET",
-      "path": "/rest/api/2/issue/P-1",
-      "items": 1
-    },
     "credential": {
       "email": "a@x.io",
       "api_token": "t",
       "domain": "team.atlassian.net"
+    },
+    "expect_requests": [
+      {
+        "method": "GET",
+        "path": "/rest/api/2/issue/P-1"
+      },
+      {
+        "method": "GET",
+        "path": "/rest/api/3/attachment/content/9"
+      }
+    ],
+    "expect": {
+      "items": 1
     }
   },
   "issueAttachment.remove": {

@@ -7,16 +7,51 @@
         "value": "p1"
       },
       "table": "t1",
-      "id": "5"
+      "id": "5",
+      "downloadAttachments": true,
+      "downloadFieldNames": [
+        "Docs"
+      ]
     },
     "expect": {
-      "method": "GET",
-      "path": "/api/v3/data/p1/t1/records/5"
+      "items": 1
     },
     "credential": {
       "host": "https://app.nocodb.com",
       "api_token": "T"
-    }
+    },
+    "response": {
+      "id": 5,
+      "fields": {
+        "Docs": [
+          {
+            "url": "https://files.test/a.pdf",
+            "title": "a.pdf",
+            "mimetype": "application/pdf"
+          },
+          {
+            "signedUrl": "https://files.test/s/b.png",
+            "url": "https://files.test/b.png",
+            "title": "b.png",
+            "mimetype": "image/png"
+          }
+        ]
+      }
+    },
+    "expect_requests": [
+      {
+        "method": "GET",
+        "path": "/api/v3/data/p1/t1/records/5"
+      },
+      {
+        "method": "GET",
+        "path": "/a.pdf"
+      },
+      {
+        "method": "GET",
+        "path": "/s/b.png"
+      }
+    ]
   },
   "row.create": {
     "params": {

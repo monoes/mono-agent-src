@@ -1,0 +1,54 @@
+{
+  "credential_platform": "kafka",
+  "fields": [
+    {
+      "key": "topic",
+      "label": "Topic",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "group_id",
+      "label": "Consumer Group ID",
+      "type": "text",
+      "required": true,
+      "help": "Consumers sharing a group split the topic's partitions."
+    },
+    {
+      "key": "from_beginning",
+      "label": "Read From Beginning",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "help": "A new group starts at the oldest record; off starts at the newest."
+    },
+    {
+      "key": "json_parse_message",
+      "label": "Parse Message as JSON",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "only_message",
+      "label": "Only Message",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "depends_on": {
+        "key": "json_parse_message",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Emit the parsed message instead of {message, topic, …}."
+    },
+    {
+      "key": "return_headers",
+      "label": "Return Headers",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    }
+  ]
+}

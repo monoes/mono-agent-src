@@ -1,18 +1,41 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
-	"github.com/monoes/mono-agent/internal/capture"
+	capturecli "github.com/monoes/mono-agent/internal/cli/capture"
 	"github.com/monoes/mono-agent/internal/extension"
+	"github.com/monoes/mono-agent/internal/storage"
 )
+
+// `capture` lives in internal/cli/capture; this is its adapter: the CLI's globals and helpers
+// handed over as capturecli.Deps. `capture page` (below: the extension bridge) and
+// `capture task` (capture_task.go: the org boards) stay here and are added to the group.
+
+// captureErrDeps is the part of captureDeps that needs no globalConfig: the CLI's errors.
+var captureErrDeps = capturecli.Deps{NotFound: errNotFound, InvalidInput: errInvalidInput}
+
+func captureDeps(cfg *globalConfig) capturecli.Deps {
+	d := captureErrDeps
+	d.JSONOutput = func() bool { return cfg.JSONOutput }
+	d.ProfileID = func() string { return cfg.ProfileID }
+	d.DBPath = func() string { return cfg.DBPath }
+	d.OpenDB = func() (*storage.Database, error) { return initDB(cfg) }
+	d.NewTable = func(w io.Writer, headers []string) *tablewriter.Table {
+		return newPlainTable(w, headers, nil)
+	}
+	return d
+}
 
 // newCaptureCmd returns the `capture` command group: save a page from the
 // user's real, logged-in Chrome into the monomind inbox
@@ -25,17 +48,27 @@ import (
 // artifacts arrive in chunks), and writes the envelope. See
 // docs/BROWSER_TRACK_PLAN.md and internal/capture.
 func newCaptureCmd(cfg *globalConfig) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "capture",
-		Short: "Capture web pages from your browser into the monomind inbox",
-	}
-	cmd.AddCommand(
-		newCapturePageCmd(cfg),
-		newCaptureListCmd(cfg),
-		newCaptureClassifyCmd(cfg), // capture_classify.go
-	)
-	cmd.AddCommand(captureGlueCmds(cfg)...) // export, import, task — see capture_archive.go
+	cmd := capturecli.NewCommand(captureDeps(cfg))
+	cmd.AddCommand(newCapturePageCmd(cfg), newCaptureTaskCmd(cfg))
 	return cmd
+}
+
+// defaultDBPath mirrors the --db-path flag default in root.go (see capturecli.DefaultDBPath).
+const defaultDBPath = capturecli.DefaultDBPath
+
+// The capture helpers the extension bridge, record, crawl and people commands share.
+var (
+	openProfileDB          = capturecli.OpenProfileDB
+	extensionProfileSource = capturecli.ExtensionProfileSource
+	newCaptureClassifier   = capturecli.NewClassifier
+	captureHumanBytes      = capturecli.HumanBytes
+	truncateCaptureCell    = capturecli.TruncateCell
+	slicesContains         = capturecli.SlicesContains
+)
+
+// resolveCaptureProfile turns what the user typed after --profile into a profile and its inbox.
+func resolveCaptureProfile(db *sql.DB, idOrName string) (capturecli.Profile, error) {
+	return captureErrDeps.ResolveProfile(db, idOrName)
 }
 
 // knownCaptureFormats are the artifact kinds the extension can produce.
@@ -157,180 +190,6 @@ func newCapturePageCmd(cfg *globalConfig) *cobra.Command {
 	return cmd
 }
 
-func newCaptureListCmd(cfg *globalConfig) *cobra.Command {
-	var (
-		out         string
-		allProfiles bool
-		suggested   bool
-	)
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List the captures waiting in the inbox",
-		Long: "Lists the capture envelopes in ~/.monomind/inbox, newest first.\n" +
-			"\n" +
-			"Captures still being written (staging directories, and any directory\n" +
-			"without a meta.json) are skipped: a capture is only real once it has been\n" +
-			"renamed into place, which is what keeps a watcher from ingesting half of\n" +
-			"one.\n" +
-			"\n" +
-			"A capture saved into a profile lands in that profile's own inbox, not this\n" +
-			"one — pass --profile (the global flag, an id or a name) to read one of\n" +
-			"those, or --all-profiles to read every inbox at once.",
-		Example: "  monoagentcli capture list\n" +
-			"  monoagentcli capture list --profile work\n" +
-			"  monoagentcli capture list --all-profiles --json",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			sources, err := captureListSources(cfg, out, allProfiles)
-			if err != nil {
-				return err
-			}
-
-			entries := []capture.Entry{}
-			for _, src := range sources {
-				found, err := capture.List(src.inbox)
-				if err != nil {
-					return fmt.Errorf("reading inbox: %w", err)
-				}
-				for _, e := range found {
-					// A capture written straight into a profile's inbox
-					// (`--out`) may not name the profile itself; the
-					// directory it was found in is the better answer than
-					// a blank column.
-					if e.Profile == "" {
-						e.Profile = src.profile
-					}
-					entries = append(entries, e)
-				}
-			}
-			sortCaptureEntries(entries)
-			if suggested {
-				return printSuggestedCaptures(cmd.OutOrStdout(), cfg.JSONOutput, entries) // capture_classify.go
-			}
-
-			if cfg.JSONOutput {
-				enc := json.NewEncoder(cmd.OutOrStdout())
-				enc.SetIndent("", "  ")
-				return enc.Encode(entries)
-			}
-			if len(entries) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "No captures in %s\n", captureSourceNames(sources))
-				return nil
-			}
-			columns := []string{"CAPTURED", "TITLE", "URL", "SIZE", "PATH"}
-			withProfile := len(sources) > 1 || sources[0].profile != ""
-			if withProfile {
-				columns = append([]string{"PROFILE"}, columns...)
-			}
-			table := newPlainTable(cmd.OutOrStdout(), columns, nil)
-			for _, e := range entries {
-				row := []string{
-					e.CapturedAt,
-					truncateCaptureCell(e.Title, 40),
-					truncateCaptureCell(e.URL, 60),
-					captureHumanBytes(e.Bytes),
-					e.Path,
-				}
-				if withProfile {
-					row = append([]string{captureProfileLabel(sources, e.Profile)}, row...)
-				}
-				_ = table.Append(row)
-			}
-			return table.Render()
-		},
-	}
-	cmd.Flags().StringVar(&out, "out", "", "Inbox directory to read (default: ~/.monomind/inbox)")
-	cmd.Flags().BoolVar(&allProfiles, "all-profiles", false, "Read the default inbox and every profile's inbox")
-	cmd.Flags().BoolVar(&suggested, "suggested", false, "Only captures whose classification.json suggests a route (see capture classify)")
-	return cmd
-}
-
-// captureListSource is one inbox `capture list` reads, and the profile it
-// belongs to ("" for the unprofiled default inbox).
-type captureListSource struct {
-	inbox   string
-	profile string
-	name    string
-}
-
-// captureListSources decides which inboxes to read. --out is an explicit
-// directory and wins outright; otherwise --profile names one profile's
-// inbox, --all-profiles reads the default inbox and every profile's, and
-// plain `capture list` reads the default inbox exactly as it always has.
-func captureListSources(cfg *globalConfig, out string, allProfiles bool) ([]captureListSource, error) {
-	if dir := expandPath(out); dir != "" {
-		if allProfiles {
-			return nil, errInvalidInput("--out reads one directory; drop it to use --all-profiles")
-		}
-		return []captureListSource{{inbox: dir}}, nil
-	}
-	wanted := strings.TrimSpace(cfg.ProfileID)
-	if wanted == "" && !allProfiles {
-		return []captureListSource{{inbox: capture.DefaultInbox()}}, nil
-	}
-	if wanted != "" && allProfiles {
-		return nil, errInvalidInput("--profile names one profile; drop it to use --all-profiles")
-	}
-
-	db, err := openProfileDB(cfg.DBPath)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read your profiles: %w", err)
-	}
-	defer db.Close()
-
-	if wanted != "" {
-		p, err := resolveCaptureProfile(db.DB, wanted)
-		if err != nil {
-			return nil, err
-		}
-		return []captureListSource{{inbox: p.Inbox, profile: p.ID, name: p.Name}}, nil
-	}
-
-	profiles, err := captureProfileInboxes(db.DB)
-	if err != nil {
-		return nil, err
-	}
-	sources := []captureListSource{{inbox: capture.DefaultInbox()}}
-	for _, p := range profiles {
-		sources = append(sources, captureListSource{inbox: p.Inbox, profile: p.ID, name: p.Name})
-	}
-	return sources, nil
-}
-
-// sortCaptureEntries restores "newest first" across several inboxes —
-// capture.List only ever sorted within one.
-func sortCaptureEntries(entries []capture.Entry) {
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].CapturedAt != entries[j].CapturedAt {
-			return entries[i].CapturedAt > entries[j].CapturedAt
-		}
-		return entries[i].Path > entries[j].Path
-	})
-}
-
-// captureProfileLabel renders a profile column: the name a person
-// recognises when this listing knows it, the id otherwise.
-func captureProfileLabel(sources []captureListSource, profile string) string {
-	if profile == "" {
-		return "-"
-	}
-	for _, s := range sources {
-		if s.profile == profile && s.name != "" {
-			return truncateCaptureCell(s.name, 20)
-		}
-	}
-	return truncateCaptureCell(profile, 20)
-}
-
-// captureSourceNames names the inboxes that turned out to be empty, so the
-// answer says where it looked.
-func captureSourceNames(sources []captureListSource) string {
-	names := make([]string, 0, len(sources))
-	for _, s := range sources {
-		names = append(names, s.inbox)
-	}
-	return strings.Join(names, ", ")
-}
-
 // normalizeCaptureFormats validates --formats and drops duplicates, so a
 // typo fails here with exit code 3 rather than reaching the browser and
 // coming back as a capture that is quietly missing an artifact.
@@ -360,40 +219,4 @@ func normalizeCaptureFormats(formats []string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
-}
-
-func slicesContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
-}
-
-// captureHumanBytes renders a byte count the way a person reads it. The
-// units run to exabytes because an int64 of bytes does: a count that
-// outgrew the table used to index past the end of it and panic, which is a
-// silly way to lose a listing.
-func captureHumanBytes(n int64) string {
-	const unit = 1024
-	const units = "KMGTPE"
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit && exp < len(units)-1; m /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), units[exp])
-}
-
-// truncateCaptureCell keeps one table cell from wrapping the whole row.
-func truncateCaptureCell(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max-1]) + "…"
 }

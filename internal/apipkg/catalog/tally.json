@@ -1,0 +1,367 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "tally",
+  "node_type": "app.tally",
+  "title": "Tally",
+  "description": "Tally forms, submissions, webhooks and workspaces",
+  "category": "app",
+  "docs_url": "https://developers.tally.so/api-reference/introduction",
+  "base_url": "https://api.tally.so",
+  "credentials": [
+    {
+      "platform": "tally",
+      "name": "Tally",
+      "methods": [
+        "bearer"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "Tally: Settings → API keys → Create API key"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "form",
+      "label": "Form"
+    },
+    {
+      "value": "submission",
+      "label": "Submission"
+    },
+    {
+      "value": "webhook",
+      "label": "Webhook"
+    },
+    {
+      "value": "workspace",
+      "label": "Workspace"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "form",
+      "operation": "getAll",
+      "title": "Get many forms",
+      "method": "GET",
+      "path": "/forms",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "workspaceIds"
+          ],
+          "help": "workspaceIds: only forms of these workspaces (a list or comma-separated ids)."
+        }
+      ],
+      "query": {
+        "workspaceIds": "{{ p.filters.workspaceIds | split }}"
+      },
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "items"
+      }
+    },
+    {
+      "resource": "form",
+      "operation": "get",
+      "title": "Get a form",
+      "description": "The form's settings and blocks (questions).",
+      "method": "GET",
+      "path": "/forms/{{ p.formId }}",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true,
+          "help": "The ID in the form's URL: https://tally.so/r/<formId>"
+        }
+      ]
+    },
+    {
+      "resource": "submission",
+      "operation": "getAll",
+      "title": "Get many submissions",
+      "method": "GET",
+      "path": "/forms/{{ p.formId }}/submissions",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "filter",
+            "startDate",
+            "endDate",
+            "afterId"
+          ],
+          "help": "filter: all, completed or partial. startDate / endDate: ISO date-times bounding the submission time. afterId: only submissions after this submission ID."
+        }
+      ],
+      "query": {
+        "filter": "{{ p.filters.filter }}",
+        "startDate": "{{ p.filters.startDate }}",
+        "endDate": "{{ p.filters.endDate }}",
+        "afterId": "{{ p.filters.afterId }}"
+      },
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "submissions"
+      }
+    },
+    {
+      "resource": "submission",
+      "operation": "get",
+      "title": "Get a submission",
+      "method": "GET",
+      "path": "/forms/{{ p.formId }}/submissions/{{ p.submissionId }}",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "submissionId",
+          "label": "Submission ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "submission",
+      "operation": "delete",
+      "title": "Delete a submission",
+      "method": "DELETE",
+      "path": "/forms/{{ p.formId }}/submissions/{{ p.submissionId }}",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "submissionId",
+          "label": "Submission ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "webhook",
+      "operation": "getAll",
+      "title": "Get many webhooks",
+      "method": "GET",
+      "path": "/webhooks",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        }
+      ],
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "webhooks"
+      }
+    },
+    {
+      "resource": "webhook",
+      "operation": "create",
+      "title": "Create a webhook",
+      "description": "Tally POSTs every new submission of the form to the URL.",
+      "method": "POST",
+      "path": "/webhooks",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "url",
+          "label": "URL",
+          "type": "text",
+          "required": true,
+          "help": "Where Tally sends submissions, e.g. a mono-agent webhook trigger's URL."
+        },
+        {
+          "key": "eventTypes",
+          "label": "Events",
+          "type": "multiselect",
+          "default": [
+            "FORM_RESPONSE"
+          ],
+          "options": [
+            "FORM_RESPONSE"
+          ]
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "signingSecret",
+            "httpHeaders",
+            "externalSubscriber"
+          ],
+          "help": "signingSecret: Tally signs each delivery with it (Tally-Signature header). httpHeaders: list of {name, value} sent with each delivery. externalSubscriber: a label for your integration."
+        }
+      ],
+      "body": {
+        "formId": "{{ p.formId }}",
+        "url": "{{ p.url }}",
+        "eventTypes": "{{ p.eventTypes }}",
+        "$merge": "{{ p.additionalFields }}"
+      }
+    },
+    {
+      "resource": "webhook",
+      "operation": "update",
+      "title": "Update a webhook",
+      "method": "PATCH",
+      "path": "/webhooks/{{ p.webhookId }}",
+      "fields": [
+        {
+          "key": "webhookId",
+          "label": "Webhook ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "formId",
+            "url",
+            "eventTypes",
+            "isEnabled",
+            "signingSecret",
+            "httpHeaders"
+          ],
+          "help": "Only the keys you set are changed. isEnabled: false pauses deliveries."
+        }
+      ],
+      "body": {
+        "$merge": "{{ p.updateFields }}",
+        "isEnabled": "{{ p.updateFields.isEnabled | bool }}"
+      }
+    },
+    {
+      "resource": "webhook",
+      "operation": "delete",
+      "title": "Delete a webhook",
+      "method": "DELETE",
+      "path": "/webhooks/{{ p.webhookId }}",
+      "fields": [
+        {
+          "key": "webhookId",
+          "label": "Webhook ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "workspace",
+      "operation": "getAll",
+      "title": "Get many workspaces",
+      "method": "GET",
+      "path": "/workspaces",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        }
+      ],
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "limit",
+        "page_size": 100,
+        "results_path": "items"
+      }
+    }
+  ]
+}

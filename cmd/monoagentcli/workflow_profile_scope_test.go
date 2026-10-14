@@ -3,7 +3,30 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/storage"
 )
+
+// twoProfileDB is newSummaryCLITestDB plus a Work profile with its own
+// workflow and runs in both profiles.
+func twoProfileDB(t *testing.T) *globalConfig {
+	t.Helper()
+	cfg := newSummaryCLITestDB(t)
+	db, err := storage.NewDatabase(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO profiles (id, name) VALUES ('p-work', 'Work');
+		INSERT INTO workflows (id, name, is_active, profile_id) VALUES ('w2','B',1,'p-work');
+		INSERT INTO workflow_executions (id, workflow_id, status, profile_id, created_at) VALUES
+		  ('e-old','w1','SUCCESS','default','2026-09-27 10:00:00'),
+		  ('e-new','w2','FAILED','p-work','2026-09-27 11:00:00'),
+		  ('e-mid','w1','SUCCESS','default','2026-09-27 10:30:00')`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	return cfg
+}
 
 // `--profile Work workflow import` must save into Work, whatever profile
 // id (often none) the file carries. It used to keep the file's, so the

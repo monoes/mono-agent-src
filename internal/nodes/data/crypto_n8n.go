@@ -20,7 +20,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/monoes/mono-agent/internal/workflow"
-	"golang.org/x/crypto/ripemd160" //nolint:staticcheck // RIPEMD-160 is requested by imported workflows
+	//lint:ignore SA1019 n8n's Crypto node offers RIPEMD-160, so imported workflows request it
+	"golang.org/x/crypto/ripemd160"
 )
 
 // n8n Crypto (v2) actions on data.crypto: hash, hmac, sign, generate,

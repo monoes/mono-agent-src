@@ -59,10 +59,6 @@ func SetInboxes(dirs ...string) {
 	scope.inboxes = append([]string(nil), dirs...)
 }
 
-// Inboxes returns the store directories List and Find read, in order. (The
-// name predates the move out of the capture inbox; see StoreDirs.)
-func Inboxes() []string { return StoreDirs() }
-
 // StoreDirs returns the store directories List and Find read, in order.
 func StoreDirs() []string {
 	scope.mu.Lock()

@@ -211,7 +211,8 @@ func TestSignV4KnownVector(t *testing.T) {
 		signV4(req, []byte(payload), "AK", "SK", "", "us-east-1", "bedrock", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 		return req.Header.Get("Authorization")
 	}
-	if mk("{}") != mk("{}") || mk("{}") == mk(`{"a":1}`) {
+	first, again := mk("{}"), mk("{}")
+	if first != again || first == mk(`{"a":1}`) {
 		t.Fatal("signature is not a deterministic function of the payload")
 	}
 }

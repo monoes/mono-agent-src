@@ -231,20 +231,56 @@
           "name"
         ],
         "trashed": false
-      }
+      },
+      "changeFileContent": true
     },
     "expect": {
-      "method": "PATCH",
-      "path": "/drive/v3/files/F1",
-      "query": {
-        "supportsAllDrives": "true",
-        "trashed": "false",
-        "fields": "id,name"
+      "items": 1
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "aGk=",
+          "fileName": "a.txt",
+          "mimeType": "text/plain"
+        }
+      }
+    },
+    "responses": [
+      {
+        "id": "F1"
       },
-      "body": {
+      {
+        "id": "F1",
         "name": "v2"
       }
-    }
+    ],
+    "expect_requests": [
+      {
+        "method": "PATCH",
+        "path": "/upload/drive/v3/files/F1",
+        "query": {
+          "uploadType": "media",
+          "supportsAllDrives": "true"
+        },
+        "headers": {
+          "Content-Type": "text/plain"
+        },
+        "body": "hi"
+      },
+      {
+        "method": "PATCH",
+        "path": "/drive/v3/files/F1",
+        "query": {
+          "supportsAllDrives": "true",
+          "trashed": "false",
+          "fields": "id,name"
+        },
+        "body": {
+          "name": "v2"
+        }
+      }
+    ]
   },
   "fileFolder.search": {
     "params": {
@@ -410,5 +446,10 @@
         "name": "Team 2"
       }
     }
+  },
+  "file.get": {
+    "params": { "fileId": { "__rl": true, "mode": "url", "value": "https://drive.google.com/file/d/1AbCdEfGhIjK/view" } },
+    "response": { "id": "1AbCdEfGhIjK", "modifiedTime": "2026-10-13T08:00:00Z" },
+    "expect": { "method": "GET", "path": "/drive/v3/files/1AbCdEfGhIjK", "query": { "fields": "*", "supportsAllDrives": "true" }, "items": 1 }
   }
 }

@@ -103,6 +103,7 @@ func addServiceHooks(env *health.Env, cfg *globalConfig) {
 	// Every installed coding-agent runtime (Claude Code, Codex, Gemini CLI,
 	// opencode), registered with --allow-mutations (agent_integrations.go).
 	env.MCPRegistration = agentsMCPRegistration
+	env.MCPRuntimes = agentsMCPRuntimes
 	env.RegisterMCP = registerAgentsMCP
 }
 

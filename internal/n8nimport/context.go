@@ -29,6 +29,9 @@ type MapContext struct {
 	Params      map[string]interface{}
 	Credentials map[string]n8nCredentialRef
 	SubNodes    []SubNode
+	// WebhookID is the n8n node's webhookId (the path n8n served the
+	// node's webhook under), empty for nodes without a webhook.
+	WebhookID string
 	// OnErrorOutput is true when the node routes failures to an extra
 	// n8n output (onError = continueErrorOutput).
 	OnErrorOutput bool
@@ -55,6 +58,7 @@ func newMapContext(n *n8nNode, wfName string) *MapContext {
 		TypeVersion: n.TypeVersion,
 		Params:      n.Parameters,
 		Credentials: n.Credentials,
+		WebhookID:   n.WebhookID,
 		tr:          &exprTranslator{workflowName: wfName},
 		used:        map[string]bool{},
 	}

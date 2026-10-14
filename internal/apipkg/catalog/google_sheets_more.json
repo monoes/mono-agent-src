@@ -20,7 +20,8 @@
       "n8n_credential": "googleSheetsOAuth2Api",
       "n8n_credential_alt": [
         "googleApi",
-        "googleOAuth2Api"
+        "googleOAuth2Api",
+        "googleSheetsTriggerOAuth2Api"
       ],
       "methods": [
         "oauth"

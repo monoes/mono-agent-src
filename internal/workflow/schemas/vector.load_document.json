@@ -165,5 +165,17 @@
       "min": 0,
       "help": "Used when Split into Chunks is on."
     }
+  ],
+  "outputs": [
+    {
+      "description": "one item per document (per page / CSV row / chunk): its text",
+      "key": "pageContent",
+      "type": "string"
+    },
+    {
+      "description": "source, loader, file_name, page/pages, row, chunk_index/chunk_count (when split), plus metadata_fields and the input item's metadata",
+      "key": "metadata",
+      "type": "object"
+    }
   ]
 }

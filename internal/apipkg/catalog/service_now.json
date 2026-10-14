@@ -423,7 +423,7 @@
       "operation": "get",
       "title": "Get an attachment",
       "method": "GET",
-      "path": "/now/attachment/{{ p.attachmentId }}{{ p.download | eq:'true' | then:'/file' }}",
+      "path": "/now/attachment/{{ p.attachmentId }}",
       "fields": [
         {
           "key": "attachmentId",
@@ -444,19 +444,16 @@
           "default": "data"
         }
       ],
-      "before": {
-        "when": "{{ p.download }}",
-        "method": "GET",
-        "path": "/now/attachment/{{ p.attachmentId }}"
-      },
-      "binary": {
-        "download_when": "{{ p.download }}",
-        "property_field": "outputField",
-        "file_name": "{{ pre.result.file_name }}",
-        "mime_type": "{{ pre.result.content_type }}"
-      },
       "output": {
-        "path": "result"
+        "path": "result",
+        "download": {
+          "when": "{{ p.download }}",
+          "method": "GET",
+          "path": "/now/attachment/{{ el.sys_id }}/file",
+          "property": "{{ p.outputField }}",
+          "file_name": "{{ el.file_name }}",
+          "mime_type": "{{ el.content_type }}"
+        }
       }
     },
     {
@@ -465,7 +462,7 @@
       "title": "Get many attachments of a table",
       "method": "GET",
       "path": "/now/attachment",
-      "description": "Lists attachment metadata (file download per attachment is not supported here; use Get with Download)",
+      "description": "Lists attachment metadata; with Download on, each file is added to its item as binary data",
       "fields": [
         {
           "key": "tableName",
@@ -491,8 +488,7 @@
           "key": "download",
           "label": "Download files",
           "type": "boolean",
-          "default": false,
-          "help": "Not supported here; use Get with Download per attachment"
+          "default": false
         },
         {
           "key": "outputField",
@@ -520,6 +516,16 @@
         "limit_param": "sysparm_limit",
         "page_size": 100,
         "results_path": "result"
+      },
+      "output": {
+        "download": {
+          "when": "{{ p.download }}",
+          "method": "GET",
+          "path": "/now/attachment/{{ el.sys_id }}/file",
+          "property": "{{ p.outputField }}",
+          "file_name": "{{ el.file_name }}",
+          "mime_type": "{{ el.content_type }}"
+        }
       }
     },
     {

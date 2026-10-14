@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/connections"
 )
 
 // oauthTokenKeys are what an OAuth connection stores (internal/connections).
@@ -163,6 +165,11 @@ func injectAuth(req *http.Request, c *Credential, sc Scope, body []byte) error {
 		}
 		req.Header.Set(h, prefix+tok)
 	}
+	if o := in.OAuth1; o != nil {
+		if err := signOAuth1(req, c, o, sc, body); err != nil {
+			return fmt.Errorf("credential %s: %w", c.Platform, err)
+		}
+	}
 	if s := in.AWSSigV4; s != nil {
 		var p sigV4Params
 		pairs := []struct {
@@ -212,4 +219,35 @@ func onlyPrefix(tmplSrc, rendered string, sc Scope) bool {
 		}
 	}
 	return true
+}
+
+// signOAuth1 signs req with OAuth 1.0a from the credential's keys.
+func signOAuth1(req *http.Request, c *Credential, o *OAuth1Inject, sc Scope, body []byte) error {
+	var p connections.OAuth1Params
+	method := o.SignatureMethod
+	if method == "" && c.OAuth != nil {
+		method = c.OAuth.SignatureMethod
+	}
+	for _, pr := range []struct {
+		dst       *string
+		tmpl, def string
+	}{
+		{&p.ConsumerKey, o.ConsumerKey, "{{ cred.consumer_key }}"},
+		{&p.ConsumerSecret, o.ConsumerSecret, "{{ cred.consumer_secret }}"},
+		{&p.Token, o.Token, "{{ cred.oauth_token }}"},
+		{&p.TokenSecret, o.TokenSecret, "{{ cred.oauth_token_secret }}"},
+		{&p.Realm, o.Realm, ""},
+		{&p.SignatureMethod, method, ""},
+	} {
+		t := pr.tmpl
+		if t == "" {
+			t = pr.def
+		}
+		v, err := renderText(t, sc)
+		if err != nil {
+			return fmt.Errorf("oauth1: %w", err)
+		}
+		*pr.dst = v
+	}
+	return connections.SignOAuth1(req, body, p)
 }

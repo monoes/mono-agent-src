@@ -94,7 +94,6 @@
       "title": "Get a row",
       "method": "GET",
       "path": "/api/v3/data/{{ p.projectId | rl }}/{{ p.table | rl }}/records/{{ p.id }}",
-      "description": "Attachment download (downloadAttachments) is not supported; attachment URLs are in the row.",
       "fields": [
         {
           "key": "authentication",
@@ -141,7 +140,8 @@
           "key": "downloadAttachments",
           "label": "Download attachments",
           "type": "boolean",
-          "default": false
+          "default": false,
+          "help": "Download the files of the attachment fields below onto the item (binary <field>_<index>)."
         },
         {
           "key": "downloadFieldNames",
@@ -150,7 +150,29 @@
           "default": [],
           "item_type": "text"
         }
-      ]
+      ],
+      "output": {
+        "download": {
+          "when": "{{ p.downloadAttachments }}",
+          "files": {
+            "$map": "{{ p.downloadFieldNames | split }}",
+            "$to": {
+              "$map": "{{ up.fields | get:el | fromjson }}",
+              "$to": {
+                "url": "{{ el.signedUrl | default:el.url }}",
+                "property": "{{ up }}_{{ idx }}",
+                "title": "{{ el.title }}",
+                "mimetype": "{{ el.mimetype }}"
+              }
+            }
+          },
+          "method": "GET",
+          "path": "{{ el.url }}",
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.title }}",
+          "mime_type": "{{ el.mimetype }}"
+        }
+      }
     },
     {
       "resource": "row",
@@ -535,7 +557,7 @@
           "label": "Download attachments",
           "type": "boolean",
           "default": false,
-          "help": "Not supported; attachment URLs are in the rows."
+          "help": "Download the files of the attachment fields below onto the item (binary <field>_<index>)."
         },
         {
           "key": "downloadFieldNames",
@@ -582,6 +604,28 @@
         "limit_param": "limit",
         "page_size": 100,
         "results_path": "records"
+      },
+      "output": {
+        "download": {
+          "when": "{{ p.downloadAttachments }}",
+          "files": {
+            "$map": "{{ p.downloadFieldNames | split }}",
+            "$to": {
+              "$map": "{{ up.fields | get:el | fromjson }}",
+              "$to": {
+                "url": "{{ el.signedUrl | default:el.url }}",
+                "property": "{{ up }}_{{ idx }}",
+                "title": "{{ el.title }}",
+                "mimetype": "{{ el.mimetype }}"
+              }
+            }
+          },
+          "method": "GET",
+          "path": "{{ el.url }}",
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.title }}",
+          "mime_type": "{{ el.mimetype }}"
+        }
       }
     },
     {

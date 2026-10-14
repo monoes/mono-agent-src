@@ -8,6 +8,12 @@ export const NODE_CONFIG_FIELDS = {
       help: '6-field cron: sec min hour dom month dow (e.g. "0 0 9 * * *" for 9am daily). 5-field expressions are rejected.' },
     { key: 'timezone', label: 'Timezone', type: 'text', default: 'UTC',
       help: 'IANA timezone name (e.g. "America/New_York"). Leave as UTC to run in server time.' },
+    { key: 'overlap', label: 'When a run is still going', type: 'select', options: ['allow','skip','queue_one'], default: 'allow',
+      help: 'allow: every tick starts a run. skip: drop the tick while a run is queued, running or waiting. queue_one: keep at most one tick waiting.' },
+    { key: 'catch_up', label: 'Missed runs', type: 'select', options: ['none','one','all'], default: 'none',
+      help: 'On daemon startup, ticks missed while it was not running: none skips them, one runs once, all runs once per missed tick (at most 100).' },
+    { key: 'catch_up_window', label: 'Catch-up window', type: 'text', default: '', placeholder: 'e.g. 6h',
+      help: 'Only catch up ticks missed within this long before startup. Empty: no limit.' },
   ],
   'trigger.webhook': [
     { key: 'path', label: 'URL Path', type: 'text', default: '/webhook' },
@@ -16,7 +22,15 @@ export const NODE_CONFIG_FIELDS = {
       help: 'If set, requests must include this header with the auth token value (e.g. X-Webhook-Secret). Leave blank for no auth.' },
     { key: 'auth_token', label: 'Auth Token', type: 'password', default: '',
       help: 'Secret value expected in the auth header.' },
+    { key: 'response_mode', label: 'Response Mode', type: 'select', options: ['onReceived','lastNode','responseNode'], default: 'onReceived',
+      help: 'onReceived answers at once with the execution_id. lastNode waits for the run and answers with the last node\'s output. responseNode waits for a Respond to Webhook node.' },
+    { key: 'response_code', label: 'Response Code', type: 'number', default: '200',
+      depends_on: { key: 'response_mode', values: ['onReceived'] } },
+    { key: 'dedupe_header', label: 'Delivery ID Header', type: 'text', default: '', placeholder: 'X-GitHub-Delivery',
+      help: 'If set, a request whose value of this header was seen in the last 7 days starts no run (e.g. Idempotency-Key).' },
   ],
+  'trigger.execute_workflow': [],
+  'trigger.error': [],
 
   // ── Control ───────────────────────────────────────────────────────────────
   'core.if': [
@@ -53,13 +67,25 @@ export const NODE_CONFIG_FIELDS = {
     { key: 'code', label: 'JavaScript Code', type: 'textarea', default: '// return array of items\nreturn items.map(item => ({ ...item.json }))' },
   ],
   'core.wait': [
-    { key: 'duration', label: 'Duration (e.g. 5s, 2m, 1h)', type: 'text', default: '5s' },
+    { key: 'resume', label: 'Resume', type: 'select', options: ['duration','timeInterval','specificTime'], default: 'duration',
+      help: 'duration waits Wait Duration seconds; timeInterval waits Amount × Unit; specificTime waits until Date and Time.' },
+    { key: 'amount', label: 'Amount', type: 'number', default: '1',
+      depends_on: { key: 'resume', values: ['timeInterval'] } },
+    { key: 'unit', label: 'Unit', type: 'select', options: ['seconds','minutes','hours','days'], default: 'hours',
+      depends_on: { key: 'resume', values: ['timeInterval'] } },
+    { key: 'dateTime', label: 'Date and Time', type: 'text', default: '', placeholder: '2026-12-31T09:00:00Z',
+      depends_on: { key: 'resume', values: ['specificTime'] }, help: 'RFC 3339 or local YYYY-MM-DD HH:MM.' },
+    { key: 'duration', label: 'Wait Duration (seconds)', type: 'number', default: '5',
+      depends_on: { key: 'resume', values: ['duration', ''] } },
   ],
   'core.limit': [
     { key: 'max_items', label: 'Max Items', type: 'number', default: '10' },
   ],
   'core.split_in_batches': [
-    { key: 'batch_size', label: 'Batch Size', type: 'number', default: '10' },
+    { key: 'batch_size', label: 'Batch Size', type: 'number', default: '10',
+      help: '"loop" sends one batch per iteration; wire the end of the loop body back into this node to continue. "done" sends all items once at the end.' },
+    { key: 'reset', label: 'Reset', type: 'boolean', default: false,
+      help: 'Treat this run\'s input as a new set instead of continuing the current loop (e.g. paging until a page comes back empty).' },
   ],
   'core.sort': [
     { key: 'field', label: 'Field', type: 'text', default: 'name' },
@@ -67,8 +93,39 @@ export const NODE_CONFIG_FIELDS = {
     { key: 'type', label: 'Sort Type', type: 'select', options: ['string','number','date'], default: 'string' },
   ],
   'core.remove_duplicates': [
+    { key: 'operation', label: 'Operation', type: 'select',
+      options: ['removeDuplicateInputItems','removeItemsRepeatedWithinPreviousExecutions','clearDeduplicationHistory'], default: 'removeDuplicateInputItems',
+      help: 'removeDuplicateInputItems: drop repeats within this run. removeItemsRepeatedWithinPreviousExecutions: keep only items no earlier run produced. clearDeduplicationHistory: forget the stored values.' },
     { key: 'field', label: 'Field Key', type: 'text', default: 'id' },
-    { key: 'keep', label: 'Keep', type: 'select', options: ['first','last'], default: 'first' },
+    { key: 'keep', label: 'Keep', type: 'select', options: ['first','last'], default: 'first',
+      depends_on: { key: 'operation', values: ['removeDuplicateInputItems'] } },
+    { key: 'dedupeValue', label: 'Dedupe Value', type: 'text', default: '', placeholder: '{{ $json.link }}',
+      depends_on: { key: 'operation', values: ['removeItemsRepeatedWithinPreviousExecutions'] },
+      help: 'Value compared with earlier runs. Empty falls back to the field above, then to the whole item.' },
+    { key: 'scope', label: 'History Scope', type: 'select', options: ['node','workflow'], default: 'node',
+      depends_on: { key: 'operation', values: ['removeItemsRepeatedWithinPreviousExecutions','clearDeduplicationHistory'] },
+      help: 'node: this node keeps its own history. workflow: every remove-duplicates node of the workflow shares one.' },
+    { key: 'historySize', label: 'History Size', type: 'number', default: '10000',
+      depends_on: { key: 'operation', values: ['removeItemsRepeatedWithinPreviousExecutions'] } },
+  ],
+  'core.execute_workflow': [
+    { key: 'workflowId', label: 'Workflow', type: 'text', default: '', placeholder: 'workflow ID or name',
+      help: 'The workflow to run. Give it a "When called by another workflow" trigger to receive the items.' },
+    { key: 'mode', label: 'Mode', type: 'select', options: ['once','each'], default: 'once',
+      help: 'once: one run with all items. each: one run per item.' },
+    { key: 'waitForSubWorkflow', label: 'Wait for Sub-workflow', type: 'boolean', default: true,
+      help: 'On: wait and output the sub-workflow\'s last node items. Off: pass the input items through with the started execution ID.' },
+  ],
+  'core.respond_webhook': [
+    { key: 'respond_with', label: 'Respond With', type: 'select',
+      options: ['firstIncomingItem','allIncomingItems','json','text','noData'], default: 'firstIncomingItem',
+      help: 'What the webhook caller gets back when the webhook trigger\'s Response Mode is responseNode.' },
+    { key: 'response_code', label: 'Response Code', type: 'number', default: '200' },
+    { key: 'response_headers', label: 'Response Headers (JSON)', type: 'textarea', rows: 3, default: '',
+      placeholder: '{ "X-Request-Id": "{{ $json.id }}" }' },
+    { key: 'response_body', label: 'Response Body', type: 'textarea', rows: 5, default: '',
+      depends_on: { key: 'respond_with', values: ['json','text'] },
+      help: 'For json: JSON text (expressions allowed). For text: the body as is.' },
   ],
   'core.stop_error': [
     { key: 'message', label: 'Error Message', type: 'text', default: 'Workflow stopped with error' },
@@ -663,8 +720,9 @@ export function deriveOutputs(type, config = {}) {
     const hs = caseHandles(cfg.cases, { handleFallsBackToValue: true }).filter(h => h !== 'low_confidence')
     return [...hs, 'low_confidence'].map(port)
   }
-  if (type === 'core.split_in_batches')  return [port('batch'), port('done')]
+  if (type === LOOP_NODE_TYPE)           return [port('loop'), port('done')]
   if (type === 'core.filter')            return [port('main'), port('rejected')]
+  if (type === 'core.human_in_loop')     return [port('main'), port('rejected')]
   if (type === 'core.merge')             return [port('out')]
   if (type === 'core.stop_error')        return []
   if (type === 'trigger.webhook')        return [port('body'), port('headers')]
@@ -672,6 +730,157 @@ export function deriveOutputs(type, config = {}) {
   if (type.startsWith('db.'))            return [port('rows'), port('error')]
   if (type.startsWith('http.'))          return [port('out'), port('error')]
   return [port('main')]
+}
+
+// LOOP_NODE_TYPE is the one node type that may close a cycle (n8n's "Loop
+// Over Items"): its "loop" output feeds the loop body, an edge from the body
+// back into it starts the next iteration, "done" fires once at the end.
+export const LOOP_NODE_TYPE = 'core.split_in_batches'
+
+// canonicalOutputHandle maps a legacy handle to its current port id: loop
+// nodes saved before the rename used "batch" for "loop" (the engine still
+// accepts both).
+export function canonicalOutputHandle(type, handle) {
+  return type === LOOP_NODE_TYPE && handle === 'batch' ? 'loop' : handle
+}
+
+const isLoopHandle = h => h === 'loop' || h === 'batch'
+
+// loopBackEdges mirrors workflow.BuildDAG (dag_loop.go): an edge u→L into a
+// loop node L is a back-edge when u is reachable from L's loop output
+// without passing through L itself. Returns a Map from each such edge to
+// the ids of the nodes its loop runs through (L and its body).
+export function loopBackEdges(nodes, edges) {
+  const byId = new Map((nodes || []).map(n => [n.id, n]))
+  const handleOf = e => e.sourcePortId ?? byId.get(e.source)?.outputs?.[e.sourcePortIdx]?.id
+  const out = new Map()
+  for (const e of edges || []) {
+    if (!out.has(e.source)) out.set(e.source, [])
+    out.get(e.source).push(e)
+  }
+  const back = new Map()
+  for (const n of nodes || []) {
+    if (n.subtype !== LOOP_NODE_TYPE) continue
+    const seen = new Set()
+    const queue = (out.get(n.id) || []).filter(e => isLoopHandle(handleOf(e))).map(e => e.target)
+    queue.forEach(t => seen.add(t))
+    while (queue.length) {
+      const cur = queue.shift()
+      if (cur === n.id) continue
+      for (const e of out.get(cur) || []) if (!seen.has(e.target)) { seen.add(e.target); queue.push(e.target) }
+    }
+    seen.add(n.id)
+    for (const e of edges || []) {
+      if (e.target === n.id && (e.source === n.id || seen.has(e.source))) back.set(e, seen)
+    }
+  }
+  return back
+}
+
+// LOOP_EDGE_OFF is how far right of the source port (and left of the target
+// port) a loop back-edge turns down/up: close to the port, so it stays clear
+// of the curves of neighbouring edges in the gap between two nodes.
+export const LOOP_EDGE_OFF = 12
+
+// loopEdgeBottom is the y of a loop back-edge's bottom run: below the
+// loop's own nodes, then pushed further down past any node box ({id, x, y,
+// w, h}) the run between x1 and x2 would otherwise cross.
+export function loopEdgeBottom(boxes, loopIds, x1, x2, margin = 28) {
+  return loopEdgeRun(boxes, loopIds, x1, x2, margin, 1)
+}
+
+// loopEdgeTop is loopEdgeBottom's mirror: a run above the loop's nodes.
+export function loopEdgeTop(boxes, loopIds, x1, x2, margin = 28) {
+  return loopEdgeRun(boxes, loopIds, x1, x2, margin, -1)
+}
+
+function loopEdgeRun(boxes, loopIds, x1, x2, margin, side) {
+  const lo = Math.min(x1, x2), hi = Math.max(x1, x2)
+  const own = boxes.filter(b => loopIds.has(b.id))
+  let y = side > 0
+    ? (own.length ? Math.max(...own.map(b => b.y + b.h)) : 0) + margin
+    : (own.length ? Math.min(...own.map(b => b.y)) : 0) - margin
+  const crossed = boxes.filter(b => b.x < hi && b.x + b.w > lo)
+  for (let moved = true; moved;) {
+    moved = false
+    for (const b of crossed) {
+      if (y > b.y - margin && y < b.y + b.h + margin) { y = side > 0 ? b.y + b.h + margin : b.y - margin; moved = true }
+    }
+  }
+  return y
+}
+
+// edgePath is an ordinary edge: a horizontal-tangent cubic bezier.
+export function edgePath(sx, sy, tx, ty) {
+  const dx = Math.max(60, Math.abs(tx - sx) * 0.5)
+  return `M${sx},${sy} C${sx+dx},${sy} ${tx-dx},${ty} ${tx},${ty}`
+}
+
+// edgePoints samples n+1 points along edgePath's curve.
+export function edgePoints(sx, sy, tx, ty, n = 24) {
+  const dx = Math.max(60, Math.abs(tx - sx) * 0.5)
+  const p = [[sx, sy], [sx + dx, sy], [tx - dx, ty], [tx, ty]]
+  const out = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t
+    const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t]
+    out.push([w.reduce((a, k, j) => a + k * p[j][0], 0), w.reduce((a, k, j) => a + k * p[j][1], 0)])
+  }
+  return out
+}
+
+// chooseLoopEdgeY picks where a loop back-edge from (sx,sy) to (tx,ty) runs:
+// below its loop or above it, whichever route has fewer obstacle points
+// ([x, y]: other edges' sampled curves, ports of nodes outside the loop)
+// within clearance of its segments. A tie keeps the route below.
+export function chooseLoopEdgeY({ sx, sy, tx, ty, boxes, loopIds, obstacles = [], off = LOOP_EDGE_OFF, clearance = 16 }) {
+  const a = sx + off, b = tx - off
+  const near = (y) => {
+    const segs = [[a, sy, a, y], [Math.min(a, b), y, Math.max(a, b), y], [b, y, b, ty]]
+    return obstacles.filter(([px, py]) => segs.some(([x1, y1, x2, y2]) => {
+      const cx = Math.max(Math.min(x1, x2), Math.min(px, Math.max(x1, x2)))
+      const cy = Math.max(Math.min(y1, y2), Math.min(py, Math.max(y1, y2)))
+      return Math.hypot(px - cx, py - cy) < clearance
+    })).length
+  }
+  const below = loopEdgeBottom(boxes, loopIds, a, b)
+  const above = loopEdgeTop(boxes, loopIds, a, b)
+  return near(above) < near(below) ? above : below
+}
+
+// loopEdgePath routes a loop back-edge around its loop instead of across it:
+// out of the source port, down (or up) to runY clear of the loop's nodes,
+// back along it, and into the target port, with rounded corners.
+export function loopEdgePath(sx, sy, tx, ty, runY, off = LOOP_EDGE_OFF, r = 8) {
+  const a = sx + off, b = tx - off
+  const dir = b < a ? -1 : 1
+  const down = runY < sy ? -1 : 1, up = ty < runY ? -1 : 1
+  return `M${sx},${sy} H${a - r} Q${a},${sy} ${a},${sy + down * r} V${runY - down * r} Q${a},${runY} ${a + dir * r},${runY}` +
+    ` H${b - dir * r} Q${b},${runY} ${b},${runY + up * r} V${ty - up * r} Q${b},${ty} ${b + r},${ty} H${tx}`
+}
+
+// hasForbiddenCycle reports whether the graph has a cycle other than a loop
+// back-edge into a loop node — the engine rejects such a workflow.
+export function hasForbiddenCycle(nodes, edges) {
+  const back = loopBackEdges(nodes, edges)
+  const adj = new Map()
+  for (const e of edges || []) {
+    if (back.has(e)) continue
+    if (!adj.has(e.source)) adj.set(e.source, [])
+    adj.get(e.source).push(e.target)
+  }
+  const state = new Map() // 1 = on the DFS stack, 2 = done
+  const visit = id => {
+    state.set(id, 1)
+    for (const t of adj.get(id) || []) {
+      if (state.get(t) === 1) return true
+      if (!state.has(t) && visit(t)) return true
+    }
+    state.set(id, 2)
+    return false
+  }
+  for (const id of adj.keys()) if (!state.has(id) && visit(id)) return true
+  return false
 }
 
 // portsDependOnConfig reports whether a config key change can move ports.
@@ -720,4 +929,25 @@ export function remapSourceEdges(edges, nodeId, outputs, prevOutputs) {
     if (idx === -1) return []
     return [idx === e.sourcePortIdx && id === e.sourcePortId ? e : { ...e, sourcePortIdx: idx, sourcePortId: id }]
   })
+}
+
+// makeIdGen hands out canvas ids (`${prefix}1`, `${prefix}2`, …). A loaded
+// workflow already holds such ids: advancePast moves the counter beyond
+// them, and next skips any id in taken.
+export function makeIdGen(prefix) {
+  let seq = 1
+  const re = new RegExp(`^${prefix}(\\d+)$`)
+  return {
+    next(taken) {
+      let id
+      do { id = `${prefix}${seq++}` } while (taken && taken.has(id))
+      return id
+    },
+    advancePast(ids) {
+      for (const id of ids || []) {
+        const m = re.exec(String(id))
+        if (m) seq = Math.max(seq, Number(m[1]) + 1)
+      }
+    },
+  }
 }

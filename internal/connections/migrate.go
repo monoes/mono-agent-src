@@ -42,9 +42,6 @@ const needsMigrationQuery = `SELECT COUNT(*) FROM connections WHERE data NOT LIK
 // aborting the rest of the batch.
 func MigrateConnectionsToVault(ctx context.Context, db *sql.DB) (migrated, total int, err error) {
 	store := NewStore(db)
-	if err := store.EnsureTable(ctx); err != nil {
-		return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: ensuring table: %w", err)
-	}
 
 	var needsMigrationCount int
 	if err := db.QueryRowContext(ctx, needsMigrationQuery).Scan(&needsMigrationCount); err != nil {

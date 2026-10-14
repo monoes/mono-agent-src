@@ -58,7 +58,7 @@
     },
     {
       "platform": "zendesk_oauth",
-      "name": "Zendesk (OAuth token)",
+      "name": "Zendesk (OAuth2)",
       "n8n_credential": "zendeskOAuth2Api",
       "n8n_field_map": {
         "subdomain": "subdomain",
@@ -67,20 +67,22 @@
         "marketplaceAppId": "marketplace_app_id"
       },
       "methods": [
+        "oauth",
         "bearer"
       ],
       "fields": [
         {
           "key": "subdomain",
           "label": "Subdomain",
-          "required": true
+          "required": true,
+          "help": "The part before .zendesk.com"
         },
         {
           "key": "access_token",
           "label": "OAuth access token",
           "secret": true,
           "required": true,
-          "help": "A token from your Zendesk OAuth client (the authorize URL depends on the subdomain)"
+          "help": "Filled by `monoagentcli connect zendesk_oauth`; or paste a token from your Zendesk OAuth client"
         },
         {
           "key": "marketplace_name",
@@ -99,6 +101,17 @@
         "headers": {
           "Authorization": "Bearer {{ cred.access_token }}"
         }
+      },
+      "oauth": {
+        "auth_url": "https://{{ cred.subdomain }}.zendesk.com/oauth/authorizations/new",
+        "token_url": "https://{{ cred.subdomain }}.zendesk.com/oauth/tokens",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "connect_fields": [
+          "subdomain"
+        ]
       }
     }
   ],

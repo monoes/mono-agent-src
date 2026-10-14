@@ -20,5 +20,17 @@
       "rows": 4,
       "type": "textarea"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the input item's fields, with the configured keys renamed",
+      "key": "*",
+      "type": "object"
+    },
+    {
+      "description": "each renamed key, holding the value of its current_key",
+      "key": "<keys[].new_key>",
+      "type": "any"
+    }
   ]
 }

@@ -18,7 +18,8 @@
       "n8n_field_map": {
         "username": "username",
         "password": "password",
-        "baseUrl": "base_url"
+        "baseUrl": "base_url",
+        "ignoreSSLIssues": "allow_unauthorized_certs"
       },
       "methods": [
         "basic"
@@ -40,6 +41,11 @@
           "label": "Base URL",
           "required": true,
           "help": "e.g. https://my-deployment.es.us-east-1.aws.found.io:9243"
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {

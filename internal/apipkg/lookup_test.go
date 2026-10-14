@@ -947,7 +947,7 @@ func TestListSnakeSkipSortAndParenHead(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, []any{"odoo", 2.0, "", map[string]any{}, []any{}, nil}) {
 		t.Errorf("$list = %#v, %v", got, err)
 	}
-	for in, want := range map[string]string{"Due Date": "due_date", "DueDate": "due_date", "due-date": "due_date", "HTTPServer2": "http_server_2", "already_snake": "already_snake"} {
+	for in, want := range map[string]string{"Due Date": "due_date", "DueDate": "due_date", "due-date": "due_date", "HTTPServer2": "http_server2", "Q1 Goals": "q1_goals", "Prénom": "prénom", "already_snake": "already_snake"} {
 		if g := snakeCase(in); g != want {
 			t.Errorf("snake(%q) = %q, want %q", in, g, want)
 		}

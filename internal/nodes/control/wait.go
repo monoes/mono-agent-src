@@ -19,7 +19,8 @@ const inMemoryWaitLimit = 60 * time.Second
 // WaitNode delays the items passing through it.
 // Config fields (one of):
 //
-//	"duration" (number): seconds to wait, at least 1
+//	"duration" (number): seconds to wait, at least 1; "resume" unset or
+//	    "duration"
 //	"resume": "timeInterval" with "amount" (number ≥ 0) and "unit"
 //	    (seconds|minutes|hours|days, default hours)
 //	"resume": "specificTime" with "dateTime" (RFC 3339, or local
@@ -108,8 +109,8 @@ func waitTarget(config map[string]interface{}, now time.Time) (time.Time, error)
 			return time.Time{}, fmt.Errorf("%w: wait node \"unit\" must be seconds, minutes, hours or days, got %q", workflow.ErrInvalidConfig, unit)
 		}
 		return now.Add(time.Duration(amount * float64(per))), nil
-	case resume != "":
-		return time.Time{}, fmt.Errorf("%w: wait node \"resume\" must be timeInterval or specificTime, got %q", workflow.ErrInvalidConfig, resume)
+	case resume != "" && resume != "duration":
+		return time.Time{}, fmt.Errorf("%w: wait node \"resume\" must be duration, timeInterval or specificTime, got %q", workflow.ErrInvalidConfig, resume)
 	}
 
 	rawDuration, ok := config["duration"]

@@ -10,7 +10,8 @@ import (
 
 // subWorkflowPollWindow is how long a waiting parent stays paused before the
 // resume poll re-checks its children. The last child's end wakes it sooner;
-// the window covers a child cancelled while queued, which wakes no one.
+// the window covers a wake that was missed (a child that ended in a process
+// with no engine, or a process that exited first).
 const subWorkflowPollWindow = 30 * time.Second
 
 // ExecuteWorkflowNode runs another workflow with this node's items.

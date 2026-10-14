@@ -56,12 +56,6 @@ var officialAutomations = map[string]bool{
 	"producthunt": true, "tiktok": true, "x": true,
 }
 
-// isBuiltinAutomation reports whether id is one of the official packages,
-// whose nodes keep their pre-package forms.
-func isBuiltinAutomation(id string) bool {
-	return officialAutomations[id]
-}
-
 // loadActionDef finds the action behind a browser node type, through the
 // installed definition source when there is one, else the legacy loader.
 func loadActionDef(automation, actionType string) (*action.ActionDef, error) {

@@ -163,9 +163,17 @@
             "fileUi",
             "markdown"
           ],
-          "help": "attachmentsUi: {\"attachmentValues\": [{\"elementsUi\": {\"elementValues\": [{\"type\": \"textBlock\", \"text\": \"Hi\"}]}, \"actionsUi\": {\"actionValues\": [{\"type\": \"openUrl\", \"title\": \"Open\", \"url\": \"https://x\"}]}}]}; fileUi: {\"fileValue\": {\"fileLocation\": \"url\", \"url\": \"https://...\"}} (binary files are not supported yet)"
+          "help": "attachmentsUi: {\"attachmentValues\": [{\"elementsUi\": {\"elementValues\": [{\"type\": \"textBlock\", \"text\": \"Hi\"}]}, \"actionsUi\": {\"actionValues\": [{\"type\": \"openUrl\", \"title\": \"Open\", \"url\": \"https://x\"}]}}]}; fileUi: {\"fileValue\": {\"fileLocation\": \"url\", \"url\": \"https://...\"}} or {\"fileValue\": {\"fileLocation\": \"binaryData\", \"binaryPropertyName\": \"data\"}} to upload the input binary"
         }
-      ]
+      ],
+      "body_type": "multipart",
+      "binary": {
+        "upload_field": "additionalFields",
+        "property": "{{ p.additionalFields.fileUi.fileValue.binaryPropertyName | default:'data' }}",
+        "upload_when": "{{ p.additionalFields.fileUi.fileValue.fileLocation | eq:'binaryData' }}",
+        "multipart_field": "files",
+        "fallback_body_type": "json"
+      }
     },
     {
       "resource": "message",

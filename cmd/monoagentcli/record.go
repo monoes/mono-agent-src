@@ -1,233 +1,105 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"io"
-	"os"
-	"strings"
-	"text/tabwriter"
+	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/monoes/mono-agent/internal/recording"
+	browserpkg "github.com/monoes/mono-agent/internal/browser"
+	recordcli "github.com/monoes/mono-agent/internal/cli/record"
+	"github.com/monoes/mono-agent/internal/logging"
+	"github.com/monoes/mono-agent/internal/recordanalyze"
+	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/vault"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// newRecordCmd builds `monoagentcli record …` (extension activity
-// recordings). Owned by the ingest builder; analyze/verify/save come from
-// addRecordAnalyzeCommands (record_analyze.go, analyze builder).
+// `record` lives in internal/cli/record; this is its adapter: the CLI's globals and helpers
+// handed over as recordcli.Deps, and the browser connection replay and verify drive.
+
+// recordVerifyExec returns the replay function for verify, or an error
+// when no browser is reachable.
+func recordVerifyExec(ctx context.Context, automationID string, verbose, keepOpen bool, secrets func(string) (string, bool)) (recordanalyze.ExecFunc, error) {
+	logger := logging.Zerolog().With().Str("component", "extension").Logger()
+	if verbose {
+		logger = logger.Level(zerolog.TraceLevel)
+	}
+	// Same connect path as `node run`: reuse or start the bridge, and when
+	// the extension is not attached launch the user's real Chrome and wait.
+	bridge := setupProfileBridge(vault.ProfileIDFromContext(ctx), logger, 3*time.Second)
+	if !bridge.IsConnected() {
+		if err := ensureExtensionConnected(bridge, 30*time.Second); err != nil {
+			return nil, fmt.Errorf("browser bridge not connected: %w", err)
+		}
+	}
+	provider := &browserpkg.HybridSessionProvider{ExtBridge: bridge, Logger: logger}
+	page, err := provider.GetPage(ctx, automationID, "")
+	if err != nil {
+		return nil, fmt.Errorf("browser bridge not connected: %w", err)
+	}
+	return recordanalyze.PageExecWith(page, logger, recordanalyze.PageExecOptions{Secrets: secrets, KeepOpen: keepOpen}), nil
+}
+
+// recordReplayPage opens the tab a replay drives — the same connect path
+// as verify.
+func recordReplayPage(ctx context.Context, verbose bool) (browserpkg.PageInterface, zerolog.Logger, error) {
+	logger := logging.Zerolog().With().Str("component", "replay").Logger()
+	if verbose {
+		logger = logger.Level(zerolog.TraceLevel)
+	}
+	bridge := setupProfileBridge(vault.ProfileIDFromContext(ctx), logger, 3*time.Second)
+	if !bridge.IsConnected() {
+		if err := ensureExtensionConnected(bridge, 30*time.Second); err != nil {
+			return nil, logger, fmt.Errorf("browser bridge not connected: %w", err)
+		}
+	}
+	provider := &browserpkg.HybridSessionProvider{ExtBridge: bridge, Logger: logger}
+	page, err := provider.GetPage(ctx, recordanalyze.ReplayAutomationID, "")
+	if err != nil {
+		return nil, logger, fmt.Errorf("browser bridge not connected: %w", err)
+	}
+	return page, logger, nil
+}
+
+func recordDeps(cfg *globalConfig) recordcli.Deps {
+	d := recordcli.Deps{
+		JSONOutput:     func() bool { return cfg.JSONOutput },
+		Verbose:        func() bool { return cfg.Verbose },
+		ProfileID:      func() string { return cfg.ProfileID },
+		BrowserProfile: func() string { return browserProfile(cfg) },
+		ResolveProfile: func(id string) string {
+			if db, err := openProfileDB(cfg.DBPath); err == nil {
+				p, rerr := resolveCaptureProfile(db.DB, id)
+				db.Close()
+				if rerr == nil {
+					return p.ID
+				}
+			}
+			return id
+		},
+		OpenDB: func() (*storage.Database, error) { return initDB(cfg) },
+		StoreWorkflow: func(ctx context.Context, db *storage.Database, wf *workflow.Workflow) error {
+			return createOrOverwriteWorkflowAtomically(ctx, openWorkflowStore(db), wf, false)
+		},
+		OpenRegistry:    openAutomationRegistry,
+		InvalidInput:    errInvalidInput,
+		Reported:        func(err error) error { return reportedError{err} },
+		WriteJSON:       writeJSONTo,
+		WithJSONErrors:  func(cmd *cobra.Command) { withJSONErrors(cfg, cmd) },
+		StdinIsTerminal: stdinIsTerminal,
+		AnalyzeRunner:   recordcli.ExecRunner,
+		VerifyExec:      recordVerifyExec,
+		ReplayPage:      recordReplayPage,
+	}
+	d.SecretLookup = d.VaultSecretLookup
+	d.SelfHeal = d.JevSelfHeal
+	return d
+}
+
+// newRecordCmd builds `monoagentcli record …` (extension activity recordings).
 func newRecordCmd(cfg *globalConfig) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "record",
-		Short: "Browser activity recordings",
-		Long: `Recordings are made with the extension's side panel (Record) and land in the
-capture inbox as envelopes with source "recording". List, inspect and delete
-them here; analyze turns one into a draft automation action.`,
-	}
-	cmd.AddCommand(
-		newRecordListCmd(cfg),
-		newRecordShowCmd(cfg),
-		newRecordDeleteCmd(cfg),
-		newRecordAPICmd(cfg),
-		newRecordReplayCmd(cfg),
-	)
-	addRecordAnalyzeCommands(cmd, cfg)
-	// Every record subcommand, analyze's included, prints {"error": …} on
-	// stdout under --json (contracts §5): the GUI and the extension's
-	// record.* bridge methods read it.
-	for _, sub := range cmd.Commands() {
-		withRecordJSONErrors(cfg, sub)
-	}
-	return cmd
-}
-
-// recordJSONErrorsAnnotation marks a command already wrapped by
-// withRecordJSONErrors, so a second wrap cannot print the error twice.
-const recordJSONErrorsAnnotation = "monoagent/json-errors"
-
-// withRecordJSONErrors is withJSONErrors made idempotent. A record
-// subcommand that wants to wrap itself should call this, not
-// withJSONErrors, so newRecordCmd's own pass skips it.
-func withRecordJSONErrors(cfg *globalConfig, cmd *cobra.Command) {
-	if cmd.Annotations[recordJSONErrorsAnnotation] != "" {
-		return
-	}
-	withJSONErrors(cfg, cmd)
-	if cmd.Annotations == nil {
-		cmd.Annotations = map[string]string{}
-	}
-	cmd.Annotations[recordJSONErrorsAnnotation] = "1"
-}
-
-// applyRecordScope points internal/recording at the inboxes this command
-// should read: one profile's with --profile, otherwise every inbox a
-// recording can land in. Every record subcommand calls it before touching
-// recordings (analyze/verify/save included).
-func applyRecordScope(cfg *globalConfig) error {
-	id := strings.TrimSpace(cfg.ProfileID)
-	if id == "" {
-		return recording.SetProfile("")
-	}
-	// --profile takes an id or a name; the name needs the database.
-	if db, err := openProfileDB(cfg.DBPath); err == nil {
-		p, rerr := resolveCaptureProfile(db.DB, id)
-		db.Close()
-		if rerr == nil {
-			id = p.ID
-		}
-	}
-	return recording.SetProfile(id)
-}
-
-func newRecordListCmd(cfg *globalConfig) *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List recordings, newest first",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := applyRecordScope(cfg); err != nil {
-				return err
-			}
-			list, err := recording.List()
-			if err != nil {
-				return err
-			}
-			if list == nil {
-				list = []recording.Summary{}
-			}
-			if cfg.JSONOutput {
-				return writeJSONTo(cmd.OutOrStdout(), map[string]any{"recordings": list})
-			}
-			printRecordList(cmd.OutOrStdout(), list)
-			return nil
-		},
-	}
-}
-
-func printRecordList(w io.Writer, list []recording.Summary) {
-	if len(list) == 0 {
-		fmt.Fprintln(w, "No recordings yet. Record one from the extension's side panel.")
-		return
-	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTARTED\tEVENTS\tSTATUS\tTITLE")
-	for _, s := range list {
-		status := "complete"
-		if !s.Complete {
-			status = "incomplete (" + recordFirstNonBlank(s.StopReason, "?") + ")"
-		}
-		if s.Automation != "" {
-			status += " → " + s.Automation
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\n", s.ID, s.StartedAt, s.Events, status, truncateCaptureCell(recordFirstNonBlank(s.Title, s.URL), 50))
-	}
-	tw.Flush()
-}
-
-func newRecordShowCmd(cfg *globalConfig) *cobra.Command {
-	return &cobra.Command{
-		Use:   "show <recording>",
-		Short: "Show a recording's events",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := applyRecordScope(cfg); err != nil {
-				return err
-			}
-			dir, err := recording.Find(args[0])
-			if err != nil {
-				return err
-			}
-			sum, events, err := recording.Load(dir)
-			if err != nil {
-				return err
-			}
-			artifacts, err := recording.Artifacts(dir)
-			if err != nil {
-				return err
-			}
-			if cfg.JSONOutput {
-				return writeJSONTo(cmd.OutOrStdout(), map[string]any{"summary": sum, "events": events, "artifacts": artifacts})
-			}
-			printRecordShow(cmd.OutOrStdout(), sum, events, artifacts)
-			return nil
-		},
-	}
-}
-
-func printRecordShow(w io.Writer, s *recording.Summary, events []recording.Event, artifacts []string) {
-	fmt.Fprintf(w, "%s\n  %s\n  %s\n", recordFirstNonBlank(s.Title, s.ID), s.URL, s.Dir)
-	if s.Goal != "" {
-		fmt.Fprintf(w, "  goal: %s\n", s.Goal)
-	}
-	fmt.Fprintf(w, "  started %s, %d events, complete=%v", s.StartedAt, s.Events, s.Complete)
-	if s.StopReason != "" {
-		fmt.Fprintf(w, " (%s)", s.StopReason)
-	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w)
-	for _, e := range events {
-		fmt.Fprintf(w, "%4d  %-13s %s\n", e.Seq, e.Type, describeEvent(e))
-	}
-	fmt.Fprintf(w, "\nartifacts: %s\n", strings.Join(artifacts, ", "))
-}
-
-// describeEvent is one line of `record show`.
-func describeEvent(e recording.Event) string {
-	var parts []string
-	if t := e.Target; t != nil {
-		label := recordFirstNonBlank(t.AriaName, t.Label, t.Text, t.Placeholder, t.Name, t.ID, t.Tag)
-		parts = append(parts, fmt.Sprintf("<%s> %q", t.Tag, truncateCaptureCell(label, 40)))
-	}
-	switch {
-	case e.Masked:
-		parts = append(parts, "value=•••")
-	case e.Value != "":
-		parts = append(parts, fmt.Sprintf("value=%q", truncateCaptureCell(e.Value, 40)))
-	}
-	if e.Key != "" {
-		parts = append(parts, "key="+e.Key)
-	}
-	if e.Type == recording.EvNavigate || e.Type == recording.EvNavigated {
-		parts = append(parts, e.URL)
-	}
-	return strings.Join(parts, " ")
-}
-
-func newRecordDeleteCmd(cfg *globalConfig) *cobra.Command {
-	var yes bool
-	cmd := &cobra.Command{
-		Use:   "delete <recording>",
-		Short: "Delete a recording",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := applyRecordScope(cfg); err != nil {
-				return err
-			}
-			dir, err := recording.Find(args[0])
-			if err != nil {
-				return err
-			}
-			if !yes && !cfg.JSONOutput && !confirmYes(os.Stdin, cmd.OutOrStdout(), "Delete recording "+dir+"?") {
-				return errInvalidInput("not deleted")
-			}
-			if err := recording.Delete(args[0]); err != nil {
-				return err
-			}
-			if cfg.JSONOutput {
-				return writeJSONTo(cmd.OutOrStdout(), map[string]any{"ok": true})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", dir)
-			return nil
-		},
-	}
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
-	return cmd
-}
-
-func recordFirstNonBlank(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
+	return recordcli.NewCommand(recordDeps(cfg))
 }

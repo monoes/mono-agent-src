@@ -412,7 +412,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -422,7 +422,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -895,7 +895,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -905,7 +905,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -1260,7 +1260,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -1270,7 +1270,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -1642,7 +1642,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -1652,7 +1652,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -1897,7 +1897,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -1907,7 +1907,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -2176,7 +2176,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -2186,7 +2186,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -2364,7 +2364,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -2374,7 +2374,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -2606,7 +2606,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -2616,7 +2616,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "
@@ -2844,7 +2844,7 @@
             "conditionsUi",
             "fields"
           ],
-          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted)"
+          "help": "fields: list or comma-separated; conditionsUi: {conditionValues: [{field, operation, value}]} (string values are quoted; date literals such as TODAY, LAST_N_DAYS:7 and ISO dates are not)"
         }
       ],
       "query": {
@@ -2854,7 +2854,7 @@
             {
               "$join": {
                 "$map": "{{ p.options.conditionsUi.conditionValues }}",
-                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\" }}"
+                "$to": "{{ el.field }} {{ el.operation | upper | replace:'EQUAL','=' }} {{ el.value | string | upper | matches:'^(YESTERDAY|TODAY|TOMORROW|(LAST|THIS|NEXT)_(WEEK|MONTH|QUARTER|YEAR|FISCAL_QUARTER|FISCAL_YEAR)|(LAST|NEXT)_90_DAYS|(LAST|NEXT)_N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS):[0-9]+|N_(DAYS|WEEKS|MONTHS|QUARTERS|YEARS|FISCAL_QUARTERS|FISCAL_YEARS)_AGO:[0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.][0-9][0-9][0-9])?(Z|[+-][0-9][0-9]:[0-9][0-9])?)?)$' | then:(el.value | upper) | default:(el.value | json | replace:\"'\",\"\\'\" | replace:'\"',\"'\") }}"
               },
               "$sep": " AND ",
               "$prefix": "WHERE "

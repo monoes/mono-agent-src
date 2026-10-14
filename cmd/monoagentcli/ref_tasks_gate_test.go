@@ -12,7 +12,7 @@ import (
 // not there), the real CLI must refuse an agent's call with operator_only exactly where op is true,
 // and the sentence of WHO MAY DO WHAT in `ref tasks` that says operator_only must name exactly the
 // operator's rows. When a command is added, removed or changes class, edit this table, and make
-// ref_tasks.go and AGENTS.md say the same.
+// internal/cli/ref/tasks.go and AGENTS.md say the same.
 var refTaskGate = []struct {
 	row  string   // what the text names: a subcommand, "add --ready", or a command of a group ("os install")
 	op   bool     // the operator's only: an agent's call answers operator_only
@@ -70,7 +70,7 @@ func TestRefTasksSaysWhichCommandsTheGateRefusesAnAgent(t *testing.T) {
 	commands := refTaskCommands()
 	for path, sub := range commands {
 		if !sub.HasSubCommands() && !rows[path] {
-			t.Errorf("`task %s` has no row in refTaskGate (ref_tasks_gate_test.go): add one that says whether an agent may run it, and say the same in WHO MAY DO WHAT (ref_tasks.go) and in AGENTS.md", path)
+			t.Errorf("`task %s` has no row in refTaskGate (ref_tasks_gate_test.go): add one that says whether an agent may run it, and say the same in WHO MAY DO WHAT (internal/cli/ref/tasks.go) and in AGENTS.md", path)
 		}
 	}
 	for path := range rows {

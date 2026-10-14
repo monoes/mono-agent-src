@@ -9,30 +9,136 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zalando/go-keyring"
+
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/connections"
 )
 
-// runtimeDDL runs every piece of schema the Go code creates at runtime,
-// outside data/migrations/, against db: the AI store (chat messages,
-// conversations, turns, events, answers), the connections store
-// (connections, oauth_refresh_locks, platform_oauth_credentials), and
+// legacyRuntimeDDL is, verbatim, the schema the Go code used to create at
+// runtime outside data/migrations/ — internal/ai (initTables,
+// initChatEventTables, ensureAnswersTable) and internal/connections
+// (EnsureTable, SaveOAuthClient) — before migration 095 took it over and
+// that code was deleted. Every database that ran a monoagent older than 095
+// has tables built by it, so it stays here as the fixture the migrations
+// must match and must upgrade without change.
+var legacyRuntimeDDL = []string{
+	`CREATE TABLE IF NOT EXISTS ai_chat_messages (
+	id TEXT PRIMARY KEY,
+	workflow_id TEXT NOT NULL,
+	role TEXT NOT NULL,
+	content TEXT NOT NULL,
+	tool_calls TEXT NOT NULL DEFAULT '',
+	tool_call_id TEXT NOT NULL DEFAULT '',
+	provider_id TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	token_count INTEGER NOT NULL DEFAULT 0,
+	session_id TEXT NOT NULL DEFAULT '',
+	profile_id TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+	)`,
+	`ALTER TABLE ai_chat_messages ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE ai_chat_messages ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE ai_chat_messages ADD COLUMN profile_id TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE IF NOT EXISTS ai_chat_answers (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	profile_id      TEXT NOT NULL,
+	conversation_id TEXT NOT NULL,
+	turn_id         TEXT NOT NULL,
+	agent_id        TEXT NOT NULL,
+	question_id     TEXT NOT NULL,
+	text            TEXT NOT NULL,
+	created_at      TEXT NOT NULL,
+	consumed_at     TEXT NOT NULL DEFAULT '',
+	UNIQUE(profile_id, turn_id, agent_id, question_id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS ai_chat_conversations (
+	id TEXT PRIMARY KEY,
+	profile_id TEXT NOT NULL,
+	backend TEXT NOT NULL,
+	workflow_context TEXT NOT NULL DEFAULT '',
+	runtime_id TEXT NOT NULL DEFAULT '',
+	provider_id TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	session_id TEXT NOT NULL DEFAULT '',
+	history_key TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS ai_chat_turns (
+	id TEXT PRIMARY KEY,
+	conversation_id TEXT NOT NULL,
+	profile_id TEXT NOT NULL,
+	owner_instance_id TEXT NOT NULL DEFAULT '',
+	prompt TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'active',
+	reason TEXT NOT NULL DEFAULT '',
+	last_committed_seq INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY (conversation_id) REFERENCES ai_chat_conversations(id) ON DELETE CASCADE
+	)`,
+	`CREATE TABLE IF NOT EXISTS ai_chat_events (
+	profile_id TEXT NOT NULL,
+	conversation_id TEXT NOT NULL,
+	turn_id TEXT NOT NULL,
+	seq INTEGER NOT NULL,
+	created_at TEXT NOT NULL,
+	version INTEGER NOT NULL,
+	type TEXT NOT NULL,
+	payload TEXT NOT NULL,
+	PRIMARY KEY (profile_id, conversation_id, turn_id, seq),
+	FOREIGN KEY (conversation_id) REFERENCES ai_chat_conversations(id) ON DELETE CASCADE,
+	FOREIGN KEY (turn_id) REFERENCES ai_chat_turns(id) ON DELETE CASCADE
+	)`,
+	`ALTER TABLE ai_chat_conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'assistant'`,
+	`ALTER TABLE ai_chat_conversations ADD COLUMN cwd TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE ai_chat_conversations ADD COLUMN effort TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE ai_chat_conversations ADD COLUMN org_mode TEXT NOT NULL DEFAULT 'solo'`,
+	`CREATE INDEX IF NOT EXISTS idx_ai_chat_conversations_profile ON ai_chat_conversations(profile_id, updated_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_ai_chat_turns_conversation ON ai_chat_turns(conversation_id, profile_id, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS connections (
+    id          TEXT PRIMARY KEY,
+    platform    TEXT NOT NULL,
+    method      TEXT NOT NULL,
+    label       TEXT NOT NULL,
+    account_id  TEXT NOT NULL DEFAULT '',
+    data        TEXT NOT NULL DEFAULT '{}',
+    status      TEXT NOT NULL DEFAULT 'active',
+    last_tested TEXT NOT NULL DEFAULT '',
+    profile_id  TEXT NOT NULL DEFAULT 'default',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_connections_platform ON connections(platform);
+CREATE INDEX IF NOT EXISTS idx_connections_status   ON connections(status);
+CREATE INDEX IF NOT EXISTS idx_connections_profile  ON connections(profile_id);`,
+	`ALTER TABLE connections ADD COLUMN vault_ref TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE IF NOT EXISTS oauth_refresh_locks (
+    connection_id TEXT PRIMARY KEY,
+    locked_at     TEXT NOT NULL
+);`,
+	`CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
+    platform      TEXT NOT NULL,
+    profile_id    TEXT NOT NULL DEFAULT 'default',
+    client_id     TEXT NOT NULL,
+    client_secret TEXT NOT NULL DEFAULT '',
+    updated_at    TEXT NOT NULL,
+    PRIMARY KEY (platform, profile_id)
+)`,
+}
+
+// runtimeDDL builds the tables legacyRuntimeDDL describes on d, the way the
+// old runtime code did (a repeated ADD COLUMN was ignored), then runs
 // ReconcileSchema (vault_keys).
 func runtimeDDL(t *testing.T, d *Database) {
 	t.Helper()
-	ctx := context.Background()
-	if _, err := ai.NewAIStore(d.DB); err != nil {
-		t.Fatalf("ai.NewAIStore: %v", err)
+	for _, stmt := range legacyRuntimeDDL {
+		if _, err := d.DB.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			t.Fatalf("legacy DDL %.60q: %v", stmt, err)
+		}
 	}
-	st := connections.NewStore(d.DB)
-	if err := st.EnsureTable(ctx); err != nil {
-		t.Fatalf("connections EnsureTable: %v", err)
-	}
-	// An empty client secret needs no vault; this only runs the DDL.
-	if err := st.SaveOAuthClient(ctx, "probe", "default", "client", ""); err != nil {
-		t.Fatalf("SaveOAuthClient: %v", err)
-	}
-	if err := d.ReconcileSchema(ctx); err != nil {
+	if err := d.ReconcileSchema(context.Background()); err != nil {
 		t.Fatalf("ReconcileSchema: %v", err)
 	}
 }
@@ -154,6 +260,7 @@ func TestAdhocTablesMigrationIsNoOpOnExistingDatabase(t *testing.T) {
 		`INSERT INTO oauth_refresh_locks (connection_id, locked_at) VALUES ('c1', 't')`,
 		`INSERT INTO ai_chat_messages (id, workflow_id, role, content, profile_id, created_at) VALUES ('m1', 'w', 'user', 'hi', 'default', 't')`,
 		`INSERT INTO ai_chat_answers (profile_id, conversation_id, turn_id, agent_id, question_id, text, created_at) VALUES ('default', 'cv', 'tu', 'ag', 'q', 'yes', 't')`,
+		`INSERT INTO platform_oauth_credentials (platform, profile_id, client_id, updated_at) VALUES ('probe', 'default', 'client', 't')`,
 	}
 	for _, s := range seed {
 		if _, err := db.DB.Exec(s); err != nil {
@@ -218,5 +325,75 @@ func TestReconcileAddsLaterColumns(t *testing.T) {
 	// Idempotent.
 	if err := db.ReconcileSchema(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The stores create and alter nothing any more: on a migrated database,
+// opening them and writing through them leaves the schema exactly as the
+// migrations made it.
+func TestStoresUseMigratedSchemaWithoutDDL(t *testing.T) {
+	keyring.MockInit()
+	db, err := NewDatabase(filepath.Join(t.TempDir(), "migrated.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	schema := func() []string {
+		t.Helper()
+		rows, err := db.DB.Query(`SELECT type || ' ' || name || ' ' || COALESCE(sql, '') FROM sqlite_master ORDER BY type, name`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+	before := schema()
+
+	ctx := context.Background()
+	store, err := ai.NewAIStore(db.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := store.CreateConversation("default", "agent", "general", "claude", "", "")
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if _, _, err := store.CreateTurn(conv.ID, "default", "turn-1", "inst", "hi"); err != nil {
+		t.Fatalf("CreateTurn: %v", err)
+	}
+	if err := store.AddAnswer("default", conv.ID, "turn-1", "agent-1", "q1", "yes"); err != nil {
+		t.Fatalf("AddAnswer: %v", err)
+	}
+	if err := store.SaveChatMessage(ai.ChatMessage{WorkflowID: "w", Role: "user", Content: "hi"}); err != nil {
+		t.Fatalf("SaveChatMessage: %v", err)
+	}
+	if _, err := connections.NewManager(db.DB); err != nil {
+		t.Fatal(err)
+	}
+	cs := connections.NewStore(db.DB)
+	if err := cs.Save(ctx, &connections.Connection{Platform: "github", Method: connections.MethodAPIKey, Label: "gh",
+		Data: map[string]interface{}{"token": "t"}}); err != nil {
+		t.Fatalf("Save connection: %v", err)
+	}
+	if err := cs.SaveOAuthClient(ctx, "probe", "default", "client", ""); err != nil {
+		t.Fatalf("SaveOAuthClient: %v", err)
+	}
+	if n, total, err := connections.MigrateConnectionsToVault(ctx, db.DB); err != nil {
+		t.Fatalf("MigrateConnectionsToVault: %d/%d %v", n, total, err)
+	}
+
+	if after := schema(); !reflect.DeepEqual(after, before) {
+		t.Errorf("the stores changed the schema:\nbefore: %v\nafter:  %v", before, after)
 	}
 }

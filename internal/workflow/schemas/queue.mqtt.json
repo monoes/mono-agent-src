@@ -45,5 +45,12 @@
       "required": false,
       "type": "boolean"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the input item passes through unchanged after the message is published",
+      "key": "*",
+      "type": "any"
+    }
   ]
 }

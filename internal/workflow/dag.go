@@ -158,16 +158,6 @@ func (d *DAG) InDegree(nodeID string) int {
 	return len(d.inEdges[nodeID])
 }
 
-// ConnectionsFrom returns all connections where source is nodeID.
-func (d *DAG) ConnectionsFrom(nodeID string) []WorkflowConnection {
-	return append([]WorkflowConnection(nil), d.outEdges[nodeID]...)
-}
-
-// ConnectionsTo returns all connections where target is nodeID.
-func (d *DAG) ConnectionsTo(nodeID string) []WorkflowConnection {
-	return append([]WorkflowConnection(nil), d.inEdges[nodeID]...)
-}
-
 // Node returns a node by ID. The returned pointer is a copy; mutations do not
 // affect the DAG's internal state.
 func (d *DAG) Node(nodeID string) (*WorkflowNode, bool) {
@@ -177,13 +167,4 @@ func (d *DAG) Node(nodeID string) (*WorkflowNode, bool) {
 	}
 	cp := *n
 	return &cp, true
-}
-
-// AllNodes returns all nodes in the DAG (order is non-deterministic).
-func (d *DAG) AllNodes() []WorkflowNode {
-	out := make([]WorkflowNode, 0, len(d.nodes))
-	for _, n := range d.nodes {
-		out = append(out, *n)
-	}
-	return out
 }

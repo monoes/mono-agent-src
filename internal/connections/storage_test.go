@@ -14,66 +14,16 @@ import (
 	"time"
 
 	"github.com/zalando/go-keyring"
-	_ "modernc.org/sqlite"
+
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
-// newTestDB opens an in-memory SQLite database and ensures the connections
-// table exists, plus the vault_keys table that secrets.EncryptBlob/DecryptBlob
-// (used by Save/scanConnection/scanConnections) needs to store the DEK.
+// newTestDB returns a migrated database (internal/testdb): the connections
+// tables, vault_keys and vault_secrets all come from data/migrations.
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	keyring.MockInit()
-	// cache=shared: a plain ":memory:" DSN gives each pooled connection its
-	// own separate database, which broke the moment scanConnections started
-	// issuing a nested query (secrets.DecryptBlob's vault_keys lookup) while
-	// the outer *sql.Rows was still open — that nested query needs a second
-	// connection to see the same in-memory database as the first. The DSN is
-	// keyed by test name so distinct tests don't share the same underlying
-	// shared-cache database.
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_pragma=foreign_keys(ON)", t.Name())
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("newTestDB: open: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-
-	store := NewStore(db)
-	if err := store.EnsureTable(context.Background()); err != nil {
-		t.Fatalf("newTestDB: EnsureTable: %v", err)
-	}
-	const createVaultKeysTable = `
-CREATE TABLE IF NOT EXISTS vault_keys (
-    profile_id    TEXT PRIMARY KEY,
-    wrapped_dek   BLOB NOT NULL,
-    wrapped_nonce BLOB NOT NULL,
-    created_at    TEXT NOT NULL
-);`
-	if _, err := db.Exec(createVaultKeysTable); err != nil {
-		t.Fatalf("newTestDB: create vault_keys: %v", err)
-	}
-	const createVaultSecretsTable = `
-CREATE TABLE IF NOT EXISTS vault_secrets (
-    id               TEXT PRIMARY KEY,
-    seq              INTEGER NOT NULL UNIQUE,
-    profile_id       TEXT NOT NULL DEFAULT 'default',
-    kind             TEXT NOT NULL,
-    name             TEXT NOT NULL,
-    username         TEXT,
-    url              TEXT,
-    ciphertext       BLOB NOT NULL,
-    nonce            BLOB NOT NULL,
-    notes_ciphertext BLOB,
-    notes_nonce      BLOB,
-    created_at       TEXT NOT NULL,
-    updated_at       TEXT NOT NULL,
-    kv               INTEGER NOT NULL DEFAULT 0,
-    field_count      INTEGER NOT NULL DEFAULT 1
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_vault_secrets_profile_name ON vault_secrets(profile_id, name);`
-	if _, err := db.Exec(createVaultSecretsTable); err != nil {
-		t.Fatalf("newTestDB: create vault_secrets: %v", err)
-	}
-	return db
+	return testdb.Open(t).DB
 }
 
 // TestStoreSaveAndGet verifies that a connection saved with an empty ID gets

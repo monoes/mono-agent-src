@@ -169,7 +169,7 @@ func TestSaveOrgDoc_NothingBelow221(t *testing.T) {
 func TestOnlyCreateOrgDesignSignsNewOrgs(t *testing.T) {
 	fset := token.NewFileSet()
 	var callers []string
-	for _, name := range []string{"app_orgs_design.go", "app_org_signature.go"} {
+	for _, name := range []string{"app_orgs_design.go", "app_orgs_design_save.go", "app_org_signature.go"} {
 		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)

@@ -59,6 +59,21 @@
               "field": "NumberOfEmployees",
               "operation": ">",
               "value": 10
+            },
+            {
+              "field": "CreatedDate",
+              "operation": ">=",
+              "value": "last_n_days:7"
+            },
+            {
+              "field": "CloseDate",
+              "operation": "<",
+              "value": "2024-03-01"
+            },
+            {
+              "field": "Status",
+              "operation": "equal",
+              "value": "Today Open"
             }
           ]
         }
@@ -68,7 +83,7 @@
       "method": "GET",
       "path": "/services/data/v59.0/query",
       "query": {
-        "q": "SELECT Id,Email FROM Lead WHERE Email = 'o\\'neil@x.com' AND NumberOfEmployees > 10"
+        "q": "SELECT Id,Email FROM Lead WHERE Email = 'o\\'neil@x.com' AND NumberOfEmployees > 10 AND CreatedDate >= LAST_N_DAYS:7 AND CloseDate < 2024-03-01 AND Status = 'Today Open'"
       },
       "items": 1
     },

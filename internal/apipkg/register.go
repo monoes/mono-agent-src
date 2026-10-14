@@ -1,6 +1,9 @@
 package apipkg
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -83,13 +86,65 @@ func platformDef(p *Package, c *Credential) (connections.PlatformDef, bool) {
 		case "oauth":
 			if c.OAuth != nil {
 				add(connections.MethodOAuth)
-				def.OAuth = &connections.OAuthConfig{
-					AuthURL: c.OAuth.AuthURL, TokenURL: c.OAuth.TokenURL,
-					Scopes: c.OAuth.Scopes, ExtraParams: c.OAuth.ExtraParams,
-					TokenFields: c.OAuth.TokenFields,
+				def.OAuth = oauthConfig(c, fields)
+			}
+		case "oauth1":
+			if c.OAuth != nil {
+				// The flow asks for the consumer key/secret (and other
+				// fields) and fills the token pair; pasting all four is the
+				// api-key form.
+				var form []connections.CredentialField
+				for _, f := range fields {
+					if f.Key != connections.OAuth1Token && f.Key != connections.OAuth1TokenSecret {
+						form = append(form, f)
+					}
 				}
+				def.Methods = append(def.Methods, connections.MethodOAuth1)
+				def.Fields[connections.MethodOAuth1] = form
+				def.OAuth1 = &connections.OAuth1Config{
+					RequestTokenURL: c.OAuth.RequestTokenURL, AuthURL: c.OAuth.AuthURL,
+					AccessTokenURL: c.OAuth.TokenURL, SignatureMethod: c.OAuth.SignatureMethod,
+				}
+				add(connections.MethodAPIKey)
 			}
 		}
 	}
 	return def, len(def.Methods) > 0
+}
+
+// oauthConfig is the connections OAuth config of credential c: its connect
+// fields, templated per-tenant endpoints and metadata lookup.
+func oauthConfig(c *Credential, fields []connections.CredentialField) *connections.OAuthConfig {
+	o := c.OAuth
+	cfg := &connections.OAuthConfig{
+		AuthURL: o.AuthURL, TokenURL: o.TokenURL,
+		Scopes: o.Scopes, ExtraParams: o.ExtraParams,
+		TokenFields: o.TokenFields,
+	}
+	for _, k := range o.ConnectFields {
+		for _, f := range fields {
+			if f.Key == k {
+				cfg.ConnectFields = append(cfg.ConnectFields, f)
+			}
+		}
+	}
+	if oauthTemplated(o) {
+		cfg.Tailor = func(cfg connections.OAuthConfig, data map[string]interface{}) (connections.OAuthConfig, error) {
+			return tailorOAuth(o, cfg, data)
+		}
+	}
+	if o.Metadata != nil {
+		platform := c.Platform
+		cfg.AfterToken = func(ctx context.Context, data map[string]interface{}) error {
+			vals, err := fetchMetadata(ctx, o.Metadata, data)
+			if err != nil {
+				return fmt.Errorf("credential %s: %w", platform, err)
+			}
+			for k, v := range vals {
+				data[k] = v
+			}
+			return nil
+		}
+	}
+	return cfg
 }

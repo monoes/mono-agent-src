@@ -42,7 +42,7 @@
       "title": "Get a GA4 report",
       "method": "POST",
       "path": "/properties/{{ p.propertyId | rl | re:'/p([0-9]+)' }}:runReport",
-      "description": "Google Analytics 4 runReport. lastCalendarWeek/lastCalendarMonth are not supported yet (use custom dates). Universal Analytics was shut down by Google and is not supported.",
+      "description": "Google Analytics 4 runReport. Calendar weeks run Monday to Sunday in UTC. Universal Analytics was shut down by Google and is not supported.",
       "fields": [
         {
           "key": "propertyType",
@@ -156,8 +156,8 @@
       "body": {
         "dateRanges": [
           {
-            "startDate": "{{ p.dateRange | eq:'last7days' | then:'7daysAgo' }}{{ p.dateRange | eq:'last30days' | then:'30daysAgo' }}{{ p.dateRange | eq:'today' | then:'today' }}{{ p.dateRange | eq:'yesterday' | then:'yesterday' }}{{ p.dateRange | eq:'custom' | then:(p.startDate | date:'YYYY-MM-DD') }}",
-            "endDate": "{{ p.dateRange | eq:'last7days' | then:'today' }}{{ p.dateRange | eq:'last30days' | then:'today' }}{{ p.dateRange | eq:'today' | then:'today' }}{{ p.dateRange | eq:'yesterday' | then:'yesterday' }}{{ p.dateRange | eq:'custom' | then:(p.endDate | date:'YYYY-MM-DD') }}"
+            "startDate": "{{ p.dateRange | eq:'last7days' | then:'7daysAgo' }}{{ p.dateRange | eq:'last30days' | then:'30daysAgo' }}{{ p.dateRange | eq:'today' | then:'today' }}{{ p.dateRange | eq:'yesterday' | then:'yesterday' }}{{ p.dateRange | eq:'lastCalendarMonth' | then:(now | date:'YYYY-MM-01' | epoch | sub:86400 | date:'YYYY-MM-01') }}{{ p.dateRange | eq:'lastCalendarWeek' | then:((now | date:'YYYY-MM-DD' | epoch) | sub:((now | weekday | add:6) | mul:86400) | date:'YYYY-MM-DD') }}{{ p.dateRange | eq:'custom' | then:(p.startDate | date:'YYYY-MM-DD') }}",
+            "endDate": "{{ p.dateRange | eq:'last7days' | then:'today' }}{{ p.dateRange | eq:'last30days' | then:'today' }}{{ p.dateRange | eq:'today' | then:'today' }}{{ p.dateRange | eq:'yesterday' | then:'yesterday' }}{{ p.dateRange | eq:'lastCalendarMonth' | then:(now | date:'YYYY-MM-01' | epoch | sub:86400 | date:'YYYY-MM-DD') }}{{ p.dateRange | eq:'lastCalendarWeek' | then:((now | date:'YYYY-MM-DD' | epoch) | sub:(now | weekday | mul:86400) | date:'YYYY-MM-DD') }}{{ p.dateRange | eq:'custom' | then:(p.endDate | date:'YYYY-MM-DD') }}"
           }
         ],
         "metrics": {

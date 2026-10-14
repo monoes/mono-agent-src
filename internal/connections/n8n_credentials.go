@@ -68,10 +68,9 @@ var N8nCredentials = map[string]N8nCredentialMapping{
 	"microsoftOneDriveOAuth2Api": {
 		Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"files"},
 	},
-	"microsoftSharePointOAuth2Api": {Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"sites"}},
-	"microsoftTeamsOAuth2Api":      {Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"teams"}},
-	"microsoftToDoOAuth2Api": {
-		Platform: "microsoft", Umbrella: "microsoft",
-		Note: "Microsoft To Do needs the Tasks.ReadWrite scope, which no microsoft scope group requests yet",
-	},
+	"microsoftSharePointOAuth2Api":    {Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"sites"}},
+	"microsoftTeamsOAuth2Api":         {Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"teams"}},
+	"microsoftToDoOAuth2Api":          {Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"tasks"}},
+	"microsoftEntraOAuth2Api":         {Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"directory"}},
+	"microsoftGraphSecurityOAuth2Api": {Platform: "microsoft", Umbrella: "microsoft", ScopeGroups: []string{"security"}},
 }

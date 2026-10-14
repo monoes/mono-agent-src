@@ -27,6 +27,22 @@
         "extra_params": { "scope": "{{ cred.environment_url | re:'^(.*?)/*$' }}/.default" }
       },
       "inject": { "headers": { "Authorization": "Bearer {{ cred.access_token }}" } }
+    },
+    {
+      "platform": "microsoft_dataverse_oauth",
+      "name": "Microsoft Dataverse (sign in)",
+      "methods": ["oauth"],
+      "fields": [
+        { "key": "environment_url", "label": "Environment URL", "required": true, "help": "e.g. https://yourorg.crm.dynamics.com" },
+        { "key": "tenant_id", "label": "Tenant ID", "help": "Directory (tenant) GUID or domain; empty = any work account." }
+      ],
+      "oauth": {
+        "auth_url": "https://login.microsoftonline.com/{{ cred.tenant_id | default:'organizations' }}/oauth2/v2.0/authorize",
+        "token_url": "https://login.microsoftonline.com/{{ cred.tenant_id | default:'organizations' }}/oauth2/v2.0/token",
+        "scopes": ["{{ cred.environment_url | re:'^(.*?)/*$' }}/user_impersonation", "offline_access"],
+        "connect_fields": ["environment_url", "tenant_id"]
+      },
+      "inject": { "headers": { "Authorization": "Bearer {{ cred.access_token }}" } }
     }
   ],
   "resources": [ { "value": "row", "label": "Row" } ],

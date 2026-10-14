@@ -139,6 +139,9 @@ func (r *opRun) paginate(ctx context.Context) ([]any, bool, error) {
 			}
 		}
 		all = append(all, results...)
+		if r.onPage != nil && r.onPage(results) {
+			return all, false, nil
+		}
 		if !returnAll && len(all) >= limit {
 			return all[:limit], false, nil
 		}

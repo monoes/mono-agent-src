@@ -80,8 +80,7 @@
       "path": "/getAlertContacts",
       "body_type": "form",
       "body": {
-        "alert_contacts": "{{ p.filters.alert_contacts }}",
-        "limit": "{{ p.returnAll | ne:'true' | then:p.limit }}"
+        "alert_contacts": "{{ p.filters.alert_contacts }}"
       },
       "fields": [
         {
@@ -110,6 +109,14 @@
       ],
       "output": {
         "path": "alert_contacts"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 50,
+        "param_in": "body",
+        "results_path": "alert_contacts"
       }
     },
     {
@@ -235,8 +242,7 @@
       "path": "/getMWindows",
       "body_type": "form",
       "body": {
-        "mwindows": "{{ p.filters.mwindow }}",
-        "limit": "{{ p.returnAll | ne:'true' | then:p.limit }}"
+        "mwindows": "{{ p.filters.mwindow }}"
       },
       "fields": [
         {
@@ -265,6 +271,14 @@
       ],
       "output": {
         "path": "mwindows"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 50,
+        "param_in": "body",
+        "results_path": "mwindows"
       }
     },
     {
@@ -435,8 +449,7 @@
         "alert_contacts": "{{ p.filters.alert_contacts | eq:'true' | then:1 }}",
         "logs": "{{ p.filters.logs | eq:'true' | then:1 }}",
         "mwindows": "{{ p.filters.mwindow | eq:'true' | then:1 }}",
-        "response_times": "{{ p.filters.response_times | eq:'true' | then:1 }}",
-        "limit": "{{ p.returnAll | ne:'true' | then:p.limit }}"
+        "response_times": "{{ p.filters.response_times | eq:'true' | then:1 }}"
       },
       "fields": [
         {
@@ -472,6 +485,14 @@
       ],
       "output": {
         "path": "monitors"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 50,
+        "param_in": "body",
+        "results_path": "monitors"
       }
     },
     {
@@ -626,8 +647,7 @@
       "path": "/getPSPs",
       "body_type": "form",
       "body": {
-        "psps": "{{ p.filters.psps }}",
-        "limit": "{{ p.returnAll | ne:'true' | then:p.limit }}"
+        "psps": "{{ p.filters.psps }}"
       },
       "fields": [
         {
@@ -656,6 +676,14 @@
       ],
       "output": {
         "path": "psps"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 50,
+        "param_in": "body",
+        "results_path": "psps"
       }
     },
     {

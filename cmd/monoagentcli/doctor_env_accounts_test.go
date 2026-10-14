@@ -53,9 +53,6 @@ func TestAccountChecksOnlyReadAndLeakNothing(t *testing.T) {
 
 	const token = "123456:SUPERSECRETTOKEN"
 	store := connections.NewStore(db.DB)
-	if err := store.EnsureTable(ctx); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.Save(ctx, &connections.Connection{ID: "c1", Platform: "telegram", Method: connections.MethodAPIKey,
 		Label: "orig", Status: "untested", ProfileID: "default", Data: map[string]interface{}{"bot_token": token}}); err != nil {
 		t.Fatal(err)
@@ -132,9 +129,6 @@ func accountTestDB(t *testing.T) (*health.Env, *connections.Store) {
 	}
 	t.Cleanup(func() { db.Close() })
 	store := connections.NewStore(db.DB)
-	if err := store.EnsureTable(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	env := &health.Env{ProfileID: "default"}
 	addAccountHooks(env, db.DB)
 	return env, store

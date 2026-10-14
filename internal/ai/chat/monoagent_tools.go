@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/monoes/mono-agent/internal/profiledir"
@@ -197,20 +195,6 @@ func (mt *MonoagentTools) orgProjectRootOverride() string {
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
 	return mt.orgProjectRoot
-}
-
-// homeExpand expands a leading "~/" to the current user's home directory.
-// A tiny local duplicate of cmd/monoagentcli/root.go's expandPath — that
-// helper lives in package main and can't be imported from here, and the
-// only other caller of "~" expansion in this package is this single
-// fallback path, so a shared helper isn't worth adding.
-func homeExpand(path string) string {
-	if len(path) >= 2 && path[:2] == "~/" {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, path[2:])
-		}
-	}
-	return path
 }
 
 // profileRoot resolves the filesystem root org-design tools read/write

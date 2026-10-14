@@ -452,7 +452,7 @@
       "title": "Update a file",
       "method": "PATCH",
       "path": "/files/{{ p.fileId | rl }}",
-      "description": "Changes the file's name, properties and trashed state.",
+      "description": "Optionally replaces the content (raw upload of the input binary), then changes the file's name, properties and trashed state.",
       "fields": [
         {
           "key": "fileId",
@@ -466,7 +466,7 @@
           "label": "Change file content",
           "type": "boolean",
           "default": false,
-          "help": "Not supported yet: the content is left unchanged."
+          "help": "Upload the input binary as the file's new content first"
         },
         {
           "key": "inputDataFieldName",
@@ -495,6 +495,23 @@
           ]
         }
       ],
+      "before": [
+        {
+          "when": "{{ p.changeFileContent }}",
+          "upload": true,
+          "method": "PATCH",
+          "base_url": "https://www.googleapis.com/upload/drive/v3",
+          "path": "/files/{{ p.fileId | rl }}",
+          "query": {
+            "uploadType": "media",
+            "supportsAllDrives": "true"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "inputDataFieldName",
+        "upload_when": "false"
+      },
       "query": {
         "supportsAllDrives": "true",
         "keepRevisionForever": "{{ p.options.keepRevisionForever }}",
@@ -507,6 +524,34 @@
         "name": "{{ p.newUpdatedFileName }}",
         "properties": "{{ p.options.propertiesUi.propertyValues | kv:'key,value' }}",
         "appProperties": "{{ p.options.appPropertiesUi.appPropertyValues | kv:'key,value' }}"
+      }
+    },
+    {
+      "resource": "file",
+      "operation": "get",
+      "title": "Get a file's metadata",
+      "description": "One file or folder with all its metadata (modifiedTime, trashed, …); the importer polls it for n8n's Drive trigger on a specific file or on the watched folder itself.",
+      "method": "GET",
+      "path": "/files/{{ p.fileId | rl }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File or folder",
+          "type": "text",
+          "required": true,
+          "help": "File/folder ID or URL (n8n resource locator accepted)."
+        },
+        {
+          "key": "fields",
+          "label": "Fields",
+          "type": "text",
+          "default": "*",
+          "help": "Drive fields selector; * returns every field."
+        }
+      ],
+      "query": {
+        "fields": "{{ p.fields }}",
+        "supportsAllDrives": "true"
       }
     },
     {

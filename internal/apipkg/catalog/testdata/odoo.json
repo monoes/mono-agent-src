@@ -197,48 +197,92 @@
         ]
       }
     },
-    "response": [
+    "credential": {
+      "url": "https://acme.odoo.com",
+      "username": "ada@acme.test",
+      "password": "PW"
+    },
+    "responses": [
       {
-        "id": 1
+        "jsonrpc": "2.0",
+        "result": 2
       },
       {
-        "id": 2
+        "jsonrpc": "2.0",
+        "result": [
+          {
+            "id": 1
+          },
+          {
+            "id": 2
+          }
+        ]
+      }
+    ],
+    "expect_requests": [
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "headers": {
+          "X-Odoo-Database": "acme"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "common",
+            "method": "login",
+            "args": [
+              "acme",
+              "ada@acme.test",
+              "PW"
+            ]
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "object",
+            "method": "execute",
+            "args": [
+              "acme",
+              2,
+              "PW",
+              "crm.lead",
+              "search_read",
+              [
+                [
+                  "id",
+                  "in",
+                  [
+                    "1",
+                    "2"
+                  ]
+                ],
+                [
+                  "name",
+                  "like",
+                  "Ada"
+                ]
+              ],
+              [
+                "name",
+                "email"
+              ],
+              0,
+              5
+            ]
+          }
+        }
       }
     ],
     "expect": {
-      "method": "POST",
-      "path": "/json/2/crm.lead/search_read",
-      "headers": {
-        "X-Odoo-Database": "acme"
-      },
-      "body": {
-        "domain": [
-          [
-            "id",
-            "in",
-            [
-              "1",
-              "2"
-            ]
-          ],
-          [
-            "name",
-            "like",
-            "Ada"
-          ]
-        ],
-        "fields": [
-          "name",
-          "email"
-        ],
-        "offset": 0,
-        "limit": 5
-      },
       "items": 2
-    },
-    "credential": {
-      "url": "https://acme.odoo.com",
-      "api_key": "K"
     }
   },
   "opportunity.create": {
@@ -250,24 +294,67 @@
         }
       }
     },
-    "response": [
-      42
-    ],
-    "expect": {
-      "method": "POST",
-      "path": "/json/2/crm.lead/create",
-      "body": {
-        "vals_list": [
-          {
-            "name": "Ada"
-          }
-        ]
-      },
-      "items": 1
-    },
     "credential": {
       "url": "https://acme.odoo.com",
-      "api_key": "K"
+      "username": "ada@acme.test",
+      "password": "PW"
+    },
+    "responses": [
+      {
+        "jsonrpc": "2.0",
+        "result": 2
+      },
+      {
+        "jsonrpc": "2.0",
+        "result": 42
+      }
+    ],
+    "expect_requests": [
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "headers": {
+          "X-Odoo-Database": "acme"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "common",
+            "method": "login",
+            "args": [
+              "acme",
+              "ada@acme.test",
+              "PW"
+            ]
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "object",
+            "method": "execute",
+            "args": [
+              "acme",
+              2,
+              "PW",
+              "crm.lead",
+              "create",
+              {
+                "name": "Ada"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "expect": {
+      "items": 1
     }
   },
   "opportunity.delete": {
@@ -278,44 +365,147 @@
         "value": "7"
       }
     },
-    "response": true,
-    "expect": {
-      "method": "POST",
-      "path": "/json/2/crm.lead/unlink",
-      "body": {
-        "ids": [
-          7
-        ]
-      },
-      "items": 1
-    },
     "credential": {
       "url": "https://acme.odoo.com",
-      "api_key": "K"
+      "username": "ada@acme.test",
+      "password": "PW"
+    },
+    "responses": [
+      {
+        "jsonrpc": "2.0",
+        "result": 2
+      },
+      {
+        "jsonrpc": "2.0",
+        "result": true
+      }
+    ],
+    "expect_requests": [
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "headers": {
+          "X-Odoo-Database": "acme"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "common",
+            "method": "login",
+            "args": [
+              "acme",
+              "ada@acme.test",
+              "PW"
+            ]
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "object",
+            "method": "execute",
+            "args": [
+              "acme",
+              2,
+              "PW",
+              "crm.lead",
+              "unlink",
+              [
+                7
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "expect": {
+      "items": 1
     }
   },
   "opportunity.get": {
     "params": {
-      "opportunityId": "7"
-    },
-    "response": [
-      {
-        "id": 7
-      }
-    ],
-    "expect": {
-      "method": "POST",
-      "path": "/json/2/crm.lead/read",
-      "body": {
-        "ids": [
-          7
+      "opportunityId": "7",
+      "options": {
+        "fieldsList": [
+          "name"
         ]
-      },
-      "items": 1
+      }
     },
     "credential": {
       "url": "https://acme.odoo.com",
-      "api_key": "K"
+      "username": "ada@acme.test",
+      "password": "PW"
+    },
+    "responses": [
+      {
+        "jsonrpc": "2.0",
+        "result": 2
+      },
+      {
+        "jsonrpc": "2.0",
+        "result": [
+          {
+            "id": 7,
+            "name": "Deal"
+          }
+        ]
+      }
+    ],
+    "expect_requests": [
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "headers": {
+          "X-Odoo-Database": "acme"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "common",
+            "method": "login",
+            "args": [
+              "acme",
+              "ada@acme.test",
+              "PW"
+            ]
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "object",
+            "method": "execute",
+            "args": [
+              "acme",
+              2,
+              "PW",
+              "crm.lead",
+              "read",
+              [
+                7
+              ],
+              [
+                "name"
+              ]
+            ]
+          }
+        }
+      }
+    ],
+    "expect": {
+      "items": 1
     }
   },
   "opportunity.update": {
@@ -328,23 +518,70 @@
     "input": {
       "phone": "1"
     },
-    "response": true,
-    "expect": {
-      "method": "POST",
-      "path": "/json/2/crm.lead/write",
-      "body": {
-        "ids": [
-          7
-        ],
-        "vals": {
-          "phone": "1"
-        }
-      },
-      "items": 1
-    },
     "credential": {
       "url": "https://acme.odoo.com",
-      "api_key": "K"
+      "username": "ada@acme.test",
+      "password": "PW"
+    },
+    "responses": [
+      {
+        "jsonrpc": "2.0",
+        "result": 2
+      },
+      {
+        "jsonrpc": "2.0",
+        "result": true
+      }
+    ],
+    "expect_requests": [
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "headers": {
+          "X-Odoo-Database": "acme"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "common",
+            "method": "login",
+            "args": [
+              "acme",
+              "ada@acme.test",
+              "PW"
+            ]
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "object",
+            "method": "execute",
+            "args": [
+              "acme",
+              2,
+              "PW",
+              "crm.lead",
+              "write",
+              [
+                7
+              ],
+              {
+                "phone": "1"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "expect": {
+      "items": 1
     }
   },
   "custom.getAll": {
@@ -593,68 +830,109 @@
         }
       }
     },
+    "credential": {
+      "url": "https://acme.odoo.com",
+      "username": "ada@acme.test",
+      "password": "PW"
+    },
     "responses": [
-      [
-        {
-          "id": 88
-        }
-      ],
-      [
-        9
-      ]
+      {
+        "jsonrpc": "2.0",
+        "result": 2
+      },
+      {
+        "jsonrpc": "2.0",
+        "result": [
+          {
+            "id": 88
+          }
+        ]
+      },
+      {
+        "jsonrpc": "2.0",
+        "result": 9
+      }
     ],
     "expect_requests": [
       {
         "method": "POST",
-        "path": "/json/2/ir.model/search_read",
+        "path": "/jsonrpc",
+        "headers": {
+          "X-Odoo-Database": "acme"
+        },
         "body": {
-          "domain": [
-            [
-              "model",
-              "=",
-              "res.partner"
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "common",
+            "method": "login",
+            "args": [
+              "acme",
+              "ada@acme.test",
+              "PW"
             ]
-          ],
-          "fields": [
-            "id"
-          ],
-          "limit": 1,
-          "offset": 0
+          }
         }
       },
       {
         "method": "POST",
-        "path": "/json/2/mail.activity/create",
+        "path": "/jsonrpc",
         "body": {
-          "vals_list": [
-            {
-              "summary": "Call",
-              "res_model_id": 88,
-              "res_id": 5,
-              "activity_type_id": 2
-            }
-          ]
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "object",
+            "method": "execute",
+            "args": [
+              "acme",
+              2,
+              "PW",
+              "ir.model",
+              "search_read",
+              [
+                [
+                  "model",
+                  "=",
+                  "res.partner"
+                ]
+              ],
+              [
+                "id"
+              ],
+              0,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/jsonrpc",
+        "body": {
+          "jsonrpc": "2.0",
+          "method": "call",
+          "params": {
+            "service": "object",
+            "method": "execute",
+            "args": [
+              "acme",
+              2,
+              "PW",
+              "mail.activity",
+              "create",
+              {
+                "summary": "Call",
+                "res_model_id": 88,
+                "res_id": 5,
+                "activity_type_id": 2
+              }
+            ]
+          }
         }
       }
     ],
     "expect": {
-      "method": "POST",
-      "path": "/json/2/mail.activity/create",
-      "body": {
-        "vals_list": [
-          {
-            "summary": "Call",
-            "res_model_id": 88,
-            "res_id": 5,
-            "activity_type_id": 2
-          }
-        ]
-      },
       "items": 1
-    },
-    "credential": {
-      "url": "https://acme.odoo.com",
-      "api_key": "K"
     }
   },
   "activity.delete": {

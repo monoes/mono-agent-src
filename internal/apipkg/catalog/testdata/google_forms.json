@@ -1,0 +1,244 @@
+{
+  "form.get": {
+    "params": {
+      "formId": "1FAIpQL"
+    },
+    "response": {
+      "formId": "1FAIpQL",
+      "info": {
+        "title": "Survey"
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/forms/1FAIpQL",
+      "headers": {
+        "Authorization": "Bearer test-access_token"
+      },
+      "items": 1
+    }
+  },
+  "form.create": {
+    "params": {
+      "title": "Event sign-up"
+    },
+    "response": {
+      "formId": "new1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/forms",
+      "body": {
+        "info": {
+          "title": "Event sign-up"
+        }
+      },
+      "items": 1
+    }
+  },
+  "form.updateInfo": {
+    "params": {
+      "formId": "f1",
+      "updateFields": {
+        "title": "New title",
+        "description": "Tell us more"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/forms/f1:batchUpdate",
+      "body": {
+        "includeFormInResponse": false,
+        "requests": [
+          {
+            "updateFormInfo": {
+              "info": {
+                "title": "New title",
+                "description": "Tell us more"
+              },
+              "updateMask": "title,description"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "form.addItem": {
+    "params": {
+      "formId": "f1",
+      "title": "Favourite colour?",
+      "questionType": "RADIO",
+      "index": 2,
+      "additionalFields": {
+        "required": true,
+        "choices": "Red, Green,Blue"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/forms/f1:batchUpdate",
+      "body": {
+        "requests": [
+          {
+            "createItem": {
+              "item": {
+                "title": "Favourite colour?",
+                "questionItem": {
+                  "question": {
+                    "required": true,
+                    "choiceQuestion": {
+                      "type": "RADIO",
+                      "options": [
+                        {
+                          "value": "Red"
+                        },
+                        {
+                          "value": "Green"
+                        },
+                        {
+                          "value": "Blue"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "location": {
+                "index": 2
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "form.batchUpdate": {
+    "params": {
+      "formId": "f1",
+      "requests": "[{\"deleteItem\": {\"location\": {\"index\": 0}}}]",
+      "requiredRevisionId": "rev7"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/forms/f1:batchUpdate",
+      "body": {
+        "includeFormInResponse": false,
+        "requests": [
+          {
+            "deleteItem": {
+              "location": {
+                "index": 0
+              }
+            }
+          }
+        ],
+        "writeControl": {
+          "requiredRevisionId": "rev7"
+        }
+      }
+    }
+  },
+  "response.getAll": {
+    "params": {
+      "formId": "f1",
+      "limit": 10,
+      "filters": {
+        "submittedAfter": "2026-10-01T08:30:00Z"
+      }
+    },
+    "response": {
+      "responses": [
+        {
+          "responseId": "r1"
+        },
+        {
+          "responseId": "r2"
+        }
+      ],
+      "nextPageToken": "tok2"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/forms/f1/responses",
+      "query": {
+        "filter": "timestamp > 2026-10-01T08:30:00Z",
+        "pageSize": "10"
+      },
+      "items": 2
+    }
+  },
+  "response.get": {
+    "params": {
+      "formId": "f1",
+      "responseId": "r1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/forms/f1/responses/r1"
+    }
+  },
+  "watch.create": {
+    "params": {
+      "formId": "f1",
+      "topicName": "projects/p/topics/forms"
+    },
+    "response": {
+      "id": "w1",
+      "eventType": "RESPONSES"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/forms/f1/watches",
+      "body": {
+        "watch": {
+          "eventType": "RESPONSES",
+          "target": {
+            "topic": {
+              "topicName": "projects/p/topics/forms"
+            }
+          }
+        }
+      }
+    }
+  },
+  "watch.getAll": {
+    "params": {
+      "formId": "f1"
+    },
+    "response": {
+      "watches": [
+        {
+          "id": "w1"
+        },
+        {
+          "id": "w2"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/forms/f1/watches",
+      "items": 2
+    }
+  },
+  "watch.renew": {
+    "params": {
+      "formId": "f1",
+      "watchId": "w1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/forms/f1/watches/w1:renew"
+    }
+  },
+  "watch.delete": {
+    "params": {
+      "formId": "f1",
+      "watchId": "w1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v1/forms/f1/watches/w1"
+    }
+  }
+}

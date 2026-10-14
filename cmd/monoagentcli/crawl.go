@@ -24,20 +24,21 @@ func newCrawlCmd(cfg *globalConfig) *cobra.Command {
 		Short: "Capture a website for AI-assisted crawling automation",
 		Long: `Render a URL in a real browser and capture its HTML for Claude Code analysis.
 
-Claude will then generate a monoagent ActionDef template that you can
+Claude will then write a monoagent automation package that you can
 install and run as a reusable automation node — no API key required.
 
 Steps (automated by Claude when you use /action-template-generator):
-  1. monoagent crawl <url>           ← you are here
-  2. /action-template-generator      ← Claude Code skill
-  3. monoagent action template install <generated-file>
-  4. monoagent node run <platform>.<action_type>
+  1. monoagentcli crawl <url>                          ← you are here
+  2. /action-template-generator                        ← Claude Code skill
+  3. monoagentcli automation validate <id>
+  4. monoagentcli automation install <id> --local --yes
+  5. monoagentcli node run <id>.<action_type>
 
-For the full guide:  monoagent ref crawling`,
+For the full guide:  monoagentcli ref crawling`,
 		Args: cobra.ExactArgs(1),
-		Example: `  monoagent crawl https://www.producthunt.com/posts/new-product
-  monoagent crawl https://github.com/someuser --headless
-  monoagent crawl https://somesite.com/profile --wait 12`,
+		Example: `  monoagentcli crawl https://www.producthunt.com/posts/new-product
+  monoagentcli crawl https://github.com/someuser --headless
+  monoagentcli crawl https://somesite.com/profile --wait 12`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rawURL := args[0]
 
@@ -123,11 +124,12 @@ For the full guide:  monoagent ref crawling`,
 				fmt.Printf("  /action-template-generator\n\n")
 				fmt.Printf("When prompted, provide the HTML file path:\n")
 				fmt.Printf("  %s\n\n", htmlFile)
-				fmt.Printf("After the skill generates the template, install it:\n")
-				fmt.Printf("  monoagent action template install <generated-file>\n")
+				fmt.Printf("After the skill writes the package, validate and install it:\n")
+				fmt.Printf("  monoagentcli automation validate <id>\n")
+				fmt.Printf("  monoagentcli automation install <id> --local --yes\n")
 			} else {
 				fmt.Printf("Claude skill not installed. Run once:\n")
-				fmt.Printf("  monoagent init --claude\n\n")
+				fmt.Printf("  monoagentcli init --claude\n\n")
 				fmt.Printf("Then run:\n")
 				fmt.Printf("  /action-template-generator\n")
 				fmt.Printf("  (provide html_file: %s)\n", htmlFile)

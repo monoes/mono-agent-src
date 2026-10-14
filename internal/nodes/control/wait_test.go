@@ -120,3 +120,18 @@ func TestWait_NoStateSlotWaitsInMemory(t *testing.T) {
 		t.Errorf("err = %v, want ErrExecutionCancelled", err)
 	}
 }
+
+// resume "duration" (the inspector's default) is the same as no resume.
+func TestWait_ResumeDurationUsesDuration(t *testing.T) {
+	now := time.Now()
+	for _, cfg := range []map[string]interface{}{
+		{"duration": 30},
+		{"resume": "duration", "duration": 30},
+		{"resume": "", "duration": 30},
+	} {
+		got, err := waitTarget(cfg, now)
+		if err != nil || !got.Equal(now.Add(30*time.Second)) {
+			t.Errorf("%v: target = %v, %v; want now+30s", cfg, got.Sub(now), err)
+		}
+	}
+}

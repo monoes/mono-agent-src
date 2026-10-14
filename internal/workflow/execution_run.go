@@ -37,6 +37,9 @@ type runner struct {
 	nodeOutputs map[string][]Item
 	// pendingInputs accumulates items routed to each node by its ID.
 	pendingInputs map[string][]Item
+	// pendingFrom names, by target node ID, the one node whose items are
+	// in pendingInputs ($prevNode); "" when several nodes contributed.
+	pendingFrom map[string]string
 	// completedNodes tracks which nodes have finished (by ID) so we can
 	// manage the merge counters. Inside a loop it covers the current
 	// iteration only.
@@ -59,6 +62,12 @@ type runner struct {
 
 	// parallel is how many independent nodes may run at once (1 = sequential).
 	parallel int
+
+	// activeBefore is the active time of the run's earlier segments (before
+	// a pause); segmentStart is when this segment started. Together they
+	// bound the run by its executionTimeout setting.
+	activeBefore time.Duration
+	segmentStart time.Time
 }
 
 // RunExecution executes a workflow against its DAG. Called by WorkflowEngine.
@@ -97,6 +106,7 @@ func RunExecution(
 		triggerItems:   buildTriggerItems(exec.TriggerData),
 		nodeOutputs:    make(map[string][]Item),
 		pendingInputs:  make(map[string][]Item),
+		pendingFrom:    make(map[string]string),
 		triggerNodeIDs: make(map[string]bool, len(triggerNodes)),
 		mergeWaiting:   make(map[string]int),
 		nodeState:      make(map[string]json.RawMessage),
@@ -150,7 +160,11 @@ func RunExecution(
 		}
 	}
 
-	return r.run()
+	ctx, cancel := r.withExecutionTimeout(r.ctx)
+	defer cancel()
+	r.ctx = ctx
+
+	return r.timeoutErr(r.run())
 }
 
 // restore seeds the working state from a persisted executionResumeState.
@@ -161,6 +175,9 @@ func (r *runner) restore(raw string) error {
 	}
 	if rs.PendingInputs != nil {
 		r.pendingInputs = rs.PendingInputs
+	}
+	if rs.PendingFrom != nil {
+		r.pendingFrom = rs.PendingFrom
 	}
 	if rs.NodeOutputs != nil {
 		r.nodeOutputs = rs.NodeOutputs
@@ -177,6 +194,7 @@ func (r *runner) restore(raw string) error {
 	if rs.Loops != nil {
 		r.loops = rs.Loops
 	}
+	r.activeBefore = time.Duration(rs.ActiveMs) * time.Millisecond
 	return nil
 }
 
@@ -257,11 +275,13 @@ func (r *runner) abandon(tasks []*nodeTask, msg string) {
 func (r *runner) pause(paused []*nodeTask) error {
 	state, mErr := json.Marshal(executionResumeState{
 		PendingInputs:  r.pendingInputs,
+		PendingFrom:    r.pendingFrom,
 		NodeOutputs:    r.nodeOutputs,
 		CompletedNodes: r.completedNodes,
 		MergeWaiting:   r.mergeWaiting,
 		NodeState:      r.nodeState,
 		Loops:          r.loops,
+		ActiveMs:       r.activeTime().Milliseconds(),
 	})
 	if mErr != nil {
 		return fmt.Errorf("pause: encode resume state for execution %s: %w", r.exec.ID, mErr)
@@ -301,6 +321,20 @@ func earliestPause(paused []*nodeTask) error {
 		}
 	}
 	return best
+}
+
+// route queues items as input of node targetID, remembering which node
+// fed it for $prevNode. Routing no items leaves the record alone.
+func (r *runner) route(from WorkflowNode, targetID string, items []Item) {
+	r.pendingInputs[targetID] = append(r.pendingInputs[targetID], items...)
+	if len(items) == 0 {
+		return
+	}
+	if prev, ok := r.pendingFrom[targetID]; ok && prev != from.Name {
+		r.pendingFrom[targetID] = ""
+	} else {
+		r.pendingFrom[targetID] = from.Name
+	}
 }
 
 // complete marks a node finished and updates merge counters downstream.

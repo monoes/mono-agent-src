@@ -12,7 +12,6 @@ import (
 
 	"github.com/monoes/mono-agent/internal/action"
 	"github.com/monoes/mono-agent/internal/browser"
-	"github.com/monoes/mono-agent/internal/workflow"
 	"github.com/rs/zerolog"
 )
 
@@ -202,22 +201,5 @@ func TestPackageResolverDisabledLegacy(t *testing.T) {
 	}
 	if got := packageResolver(reg)("core", "set"); got != "" {
 		t.Fatalf("core resolved to %q", got)
-	}
-}
-
-func TestCanonicalNodeTypes(t *testing.T) {
-	resolve := func(p, _ string) string {
-		return map[string]string{"foo": "local-foo", "hn": "hn", "bar": "local-bar"}[p]
-	}
-	in := []workflow.WorkflowFileNode{{Type: "foo.x"}, {Type: "hn.y"}, {Type: "bar.z"}, {Type: "core.set"}}
-	got := canonicalNodeTypes(in, resolve, map[string]bundledAutomation{"local-foo": {}, "hn": {}})
-	want := []string{"local-foo.x", "hn.y", "bar.z", "core.set"} // bar: not bundled, left alone
-	for i, w := range want {
-		if got[i].Type != w {
-			t.Fatalf("node %d = %q, want %q", i, got[i].Type, w)
-		}
-	}
-	if in[0].Type != "foo.x" {
-		t.Fatal("input nodes were mutated")
 	}
 }

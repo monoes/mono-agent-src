@@ -32,14 +32,6 @@ func (r *NodeTypeRegistry) Register(nodeType string, factory NodeFactory) {
 	r.factories[nodeType] = factory
 }
 
-// RegisterAll registers multiple factories at once.
-// Panics if any type is already registered.
-func (r *NodeTypeRegistry) RegisterAll(factories map[string]NodeFactory) {
-	for nodeType, factory := range factories {
-		r.Register(nodeType, factory)
-	}
-}
-
 // Alias registers an alternative name that resolves to an existing type.
 func (r *NodeTypeRegistry) Alias(from, to string) {
 	r.aliases[from] = to
@@ -59,15 +51,6 @@ func (r *NodeTypeRegistry) resolve(nodeType string) string {
 func (r *NodeTypeRegistry) Get(nodeType string) (NodeFactory, bool) {
 	factory, ok := r.factories[r.resolve(nodeType)]
 	return factory, ok
-}
-
-// MustGet returns a factory, panicking if not found.
-func (r *NodeTypeRegistry) MustGet(nodeType string) NodeFactory {
-	factory, ok := r.factories[nodeType]
-	if !ok {
-		panic(fmt.Sprintf("workflow: node type %q is not registered", nodeType))
-	}
-	return factory
 }
 
 // Types returns all registered type strings sorted alphabetically.

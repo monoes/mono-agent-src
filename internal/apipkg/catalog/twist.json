@@ -83,7 +83,8 @@
           "$sep": " "
         },
         "$merge": "{{ p.additionalFields | omit:'actionsUi,binaryProperties' }}",
-        "actions": "{{ p.additionalFields.actionsUi.actionValues }}"
+        "actions": "{{ p.additionalFields.actionsUi.actionValues }}",
+        "attachments": "{{ pres.0 }}"
       },
       "fields": [
         {
@@ -114,9 +115,26 @@
             "binaryProperties",
             "direct_mentions"
           ],
-          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties (file attachments) is not supported yet"
+          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties: comma-separated binary properties, each uploaded and attached"
         }
-      ]
+      ],
+      "before": [
+        {
+          "for_each": "{{ p.additionalFields.binaryProperties | split }}",
+          "upload": true,
+          "method": "POST",
+          "path": "/attachments/upload",
+          "body_type": "multipart",
+          "body": {
+            "attachment_id": "{{ uuid }}"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "additionalFields",
+        "upload_when": "false",
+        "multipart_field": "file_name"
+      }
     },
     {
       "resource": "messageConversation",
@@ -213,7 +231,8 @@
           "$sep": " "
         },
         "$merge": "{{ p.updateFields | omit:'actionsUi,binaryProperties' }}",
-        "actions": "{{ p.updateFields.actionsUi.actionValues }}"
+        "actions": "{{ p.updateFields.actionsUi.actionValues }}",
+        "attachments": "{{ pres.0 }}"
       },
       "fields": [
         {
@@ -233,9 +252,26 @@
             "direct_mentions",
             "content"
           ],
-          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties (file attachments) is not supported yet"
+          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties: comma-separated binary properties, each uploaded and attached"
         }
-      ]
+      ],
+      "before": [
+        {
+          "for_each": "{{ p.updateFields.binaryProperties | split }}",
+          "upload": true,
+          "method": "POST",
+          "path": "/attachments/upload",
+          "body_type": "multipart",
+          "body": {
+            "attachment_id": "{{ uuid }}"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "updateFields",
+        "upload_when": "false",
+        "multipart_field": "file_name"
+      }
     },
     {
       "resource": "channel",
@@ -446,7 +482,8 @@
           "$sep": " "
         },
         "$merge": "{{ p.additionalFields | omit:'actionsUi,binaryProperties' }}",
-        "actions": "{{ p.additionalFields.actionsUi.actionValues }}"
+        "actions": "{{ p.additionalFields.actionsUi.actionValues }}",
+        "attachments": "{{ pres.0 }}"
       },
       "fields": [
         {
@@ -475,9 +512,26 @@
             "temp_id",
             "send_as_integration"
           ],
-          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties (file attachments) is not supported yet"
+          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties: comma-separated binary properties, each uploaded and attached"
         }
-      ]
+      ],
+      "before": [
+        {
+          "for_each": "{{ p.additionalFields.binaryProperties | split }}",
+          "upload": true,
+          "method": "POST",
+          "path": "/attachments/upload",
+          "body_type": "multipart",
+          "body": {
+            "attachment_id": "{{ uuid }}"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "additionalFields",
+        "upload_when": "false",
+        "multipart_field": "file_name"
+      }
     },
     {
       "resource": "comment",
@@ -595,7 +649,8 @@
           "$sep": " "
         },
         "$merge": "{{ p.updateFields | omit:'actionsUi,binaryProperties' }}",
-        "actions": "{{ p.updateFields.actionsUi.actionValues }}"
+        "actions": "{{ p.updateFields.actionsUi.actionValues }}",
+        "attachments": "{{ pres.0 }}"
       },
       "fields": [
         {
@@ -615,9 +670,26 @@
             "direct_mentions",
             "content"
           ],
-          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties (file attachments) is not supported yet"
+          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties: comma-separated binary properties, each uploaded and attached"
         }
-      ]
+      ],
+      "before": [
+        {
+          "for_each": "{{ p.updateFields.binaryProperties | split }}",
+          "upload": true,
+          "method": "POST",
+          "path": "/attachments/upload",
+          "body_type": "multipart",
+          "body": {
+            "attachment_id": "{{ uuid }}"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "updateFields",
+        "upload_when": "false",
+        "multipart_field": "file_name"
+      }
     },
     {
       "resource": "thread",
@@ -642,7 +714,8 @@
           "$sep": " "
         },
         "$merge": "{{ p.additionalFields | omit:'actionsUi,binaryProperties' }}",
-        "actions": "{{ p.additionalFields.actionsUi.actionValues }}"
+        "actions": "{{ p.additionalFields.actionsUi.actionValues }}",
+        "attachments": "{{ pres.0 }}"
       },
       "fields": [
         {
@@ -676,9 +749,26 @@
             "send_as_integration",
             "temp_id"
           ],
-          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties (file attachments) is not supported yet"
+          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties: comma-separated binary properties, each uploaded and attached"
         }
-      ]
+      ],
+      "before": [
+        {
+          "for_each": "{{ p.additionalFields.binaryProperties | split }}",
+          "upload": true,
+          "method": "POST",
+          "path": "/attachments/upload",
+          "body_type": "multipart",
+          "body": {
+            "attachment_id": "{{ uuid }}"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "additionalFields",
+        "upload_when": "false",
+        "multipart_field": "file_name"
+      }
     },
     {
       "resource": "thread",
@@ -791,7 +881,8 @@
           "$sep": " "
         },
         "$merge": "{{ p.updateFields | omit:'actionsUi,binaryProperties' }}",
-        "actions": "{{ p.updateFields.actionsUi.actionValues }}"
+        "actions": "{{ p.updateFields.actionsUi.actionValues }}",
+        "attachments": "{{ pres.0 }}"
       },
       "fields": [
         {
@@ -812,9 +903,26 @@
             "content",
             "title"
           ],
-          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties (file attachments) is not supported yet"
+          "help": "actionsUi.actionValues: [{action, button_text, message, type, url}]; direct_mentions: user IDs to mention; binaryProperties: comma-separated binary properties, each uploaded and attached"
         }
-      ]
+      ],
+      "before": [
+        {
+          "for_each": "{{ p.updateFields.binaryProperties | split }}",
+          "upload": true,
+          "method": "POST",
+          "path": "/attachments/upload",
+          "body_type": "multipart",
+          "body": {
+            "attachment_id": "{{ uuid }}"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "updateFields",
+        "upload_when": "false",
+        "multipart_field": "file_name"
+      }
     }
   ]
 }

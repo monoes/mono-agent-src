@@ -5905,6 +5905,10 @@
   },
   "text.checkStringAlpha": {
     "params": {
+      "resource": "",
+      "operation": "",
+      "group": "text",
+      "tool": "checkStringAlpha",
       "text": "v_text"
     },
     "expect": {

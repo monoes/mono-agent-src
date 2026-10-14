@@ -99,5 +99,47 @@
       "required": false,
       "type": "boolean"
     }
+  ],
+  "outputs": [
+    {
+      "description": "read: the file's contents, base64-encoded (default property \"data\"); one item per matched file",
+      "key": "<data_property_name>",
+      "type": "string"
+    },
+    {
+      "description": "read: the file's name",
+      "key": "file_name",
+      "type": "string"
+    },
+    {
+      "description": "read: the file's media type",
+      "key": "mime_type",
+      "type": "string"
+    },
+    {
+      "description": "read: the file's extension, without the dot",
+      "key": "file_extension",
+      "type": "string"
+    },
+    {
+      "description": "read: the file's size in bytes",
+      "key": "file_size",
+      "type": "number"
+    },
+    {
+      "description": "read: the path of the file read; write: the path written",
+      "key": "file_path",
+      "type": "string"
+    },
+    {
+      "description": "write: the input item, passed through",
+      "key": "*",
+      "type": "object"
+    },
+    {
+      "description": "write: number of bytes written",
+      "key": "bytes_written",
+      "type": "number"
+    }
   ]
 }

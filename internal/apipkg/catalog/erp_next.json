@@ -20,7 +20,8 @@
         "apiSecret": "api_secret",
         "environment": "environment",
         "subdomain": "subdomain",
-        "domain": "domain"
+        "domain": "domain",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "api_key"
@@ -52,6 +53,11 @@
           "key": "domain",
           "label": "Domain",
           "help": "Cloud: erpnext.com (default) or frappe.cloud; self-hosted: the full URL, e.g. https://erp.example.com"
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {

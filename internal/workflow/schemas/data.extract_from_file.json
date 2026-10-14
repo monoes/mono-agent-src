@@ -304,5 +304,47 @@
       "required": false,
       "type": "password"
     }
+  ],
+  "outputs": [
+    {
+      "description": "csv/html/ods/rtf/xlsx: one item per row, keyed by the header row's column names; rtf without a table: {text}",
+      "key": "<columns>",
+      "type": "any"
+    },
+    {
+      "description": "csv/html/ods/rtf/xlsx with header_row off: the row's cell values",
+      "key": "row",
+      "type": "array"
+    },
+    {
+      "description": "json/text/xml/ics/binary_to_property/pdf: the input item, kept per keep_source (json: without the file, binary: only the file, both: everything)",
+      "key": "*",
+      "type": "object"
+    },
+    {
+      "description": "json/text/xml/ics/binary_to_property: the extracted value (parsed JSON; text; parsed calendar; base64 string)",
+      "key": "<destination_key>",
+      "type": "any"
+    },
+    {
+      "description": "pdf: the document's text (a string, or one string per page when join_pages is off); rtf without a table: the document's text",
+      "key": "text",
+      "type": "any"
+    },
+    {
+      "description": "pdf: number of pages",
+      "key": "numpages",
+      "type": "number"
+    },
+    {
+      "description": "pdf: number of pages",
+      "key": "numrender",
+      "type": "number"
+    },
+    {
+      "description": "pdf: document information (PDFFormatVersion, IsEncrypted, Title, Author, ...)",
+      "key": "info",
+      "type": "object"
+    }
   ]
 }

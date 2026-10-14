@@ -27,6 +27,9 @@ var knownFilters = map[string]bool{
 	"lines": true, "escape_html": true, "join": true, "mul": true, "numeric": true,
 	"firestore_value": true, "firestore_fields": true, "pick": true,
 	"replace": true, "re": true, "zip": true, "pluck": true, "hex": true, "values": true, "snake": true, "matches": true, "in": true, "flatten": true, "unflatten": true,
+	"len": true, "urlencode": true,
+	"md5": true, "sha1": true, "sha256": true, "mod": true, "weekday": true, "dotnet_date": true,
+	"wrap": true, "mime_parts": true, "sealbox": true,
 }
 
 // applyFilter runs one pipe filter. Filters other than default and then pass
@@ -71,6 +74,10 @@ func applyFilter(name string, v, arg any) (any, error) {
 		return nil, nil
 	}
 	switch name {
+	case "len":
+		return lengthOf(v), nil
+	case "urlencode":
+		return urlEncode(v), nil
 	case "json":
 		b, err := json.Marshal(v)
 		if err != nil {
@@ -196,7 +203,11 @@ func applyFilter(name string, v, arg any) (any, error) {
 		add(v, true)
 		return out, nil
 	case "snake":
-		return snakeCase(stringify(v)), nil
+		str := stringify(v)
+		if stringify(arg) == "ascii" {
+			str = foldNonASCII(str)
+		}
+		return snakeCase(str), nil
 	case "values":
 		m, ok := v.(map[string]any)
 		if !ok {
@@ -298,11 +309,19 @@ func applyFilter(name string, v, arg any) (any, error) {
 	case "path":
 		// Escape each segment but keep the slashes of resource names
 		// (spaces/AAA/messages/BBB) in a path template.
-		segs := strings.Split(stringify(v), "/")
+		// path:'query' keeps a "?query" suffix as is (a server-relative
+		// link with its own query, e.g. Confluence's downloadLink).
+		p, query := stringify(v), ""
+		if stringify(arg) == "query" {
+			if i := strings.Index(p, "?"); i >= 0 {
+				p, query = p[:i], p[i:]
+			}
+		}
+		segs := strings.Split(p, "/")
 		for i, sg := range segs {
 			segs[i] = url.PathEscape(sg)
 		}
-		return pathValue(strings.Join(segs, "/")), nil
+		return pathValue(strings.Join(segs, "/") + query), nil
 	case "entries":
 		return toEntries(v, arg)
 	case "sheetgid":
@@ -358,6 +377,20 @@ func applyFilter(name string, v, arg any) (any, error) {
 		return omitKeys(v, arg)
 	case "pick":
 		return pickKeys(v, arg)
+	case "md5", "sha1", "sha256":
+		return hashHex(name, v, arg)
+	case "mod":
+		return modulo(v, arg)
+	case "sealbox":
+		return sealBox(v, arg)
+	case "weekday":
+		return isoWeekday(v)
+	case "dotnet_date":
+		return dotnetDates(v), nil
+	case "wrap":
+		return wrapLines(v, arg)
+	case "mime_parts":
+		return mimeParts(v, arg)
 	case "lower":
 		return strings.ToLower(stringify(v)), nil
 	case "upper":
@@ -954,9 +987,12 @@ func truthy(v any) bool {
 	return true
 }
 
-// snakeCase is lodash's snakeCase: words split on case changes, digits
-// and non-alphanumerics, lower-cased, joined by "_" ("Due Date",
-// "DueDate", "due-date" → "due_date").
+// snakeCase is change-case's snakeCase (v5, as n8n uses it): words split
+// where a lower-case letter or digit meets an upper-case one, before the
+// last capital of an acronym followed by a lower-case letter, and on
+// anything that is not a letter or ASCII digit; lower-cased and joined by
+// "_" ("Due Date", "DueDate", "due-date" → "due_date"; "Q1 Goals" →
+// "q1_goals"; letters and digits are not split apart).
 func snakeCase(s string) string {
 	var words []string
 	var cur []rune
@@ -966,16 +1002,16 @@ func snakeCase(s string) string {
 			cur = cur[:0]
 		}
 	}
+	isDigit := func(r rune) bool { return r >= '0' && r <= '9' }
 	rs := []rune(s)
 	for i, r := range rs {
 		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
+		case unicode.IsLetter(r) || isDigit(r):
 			if len(cur) > 0 {
 				prev := cur[len(cur)-1]
-				lowerToUpper := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev))
+				lowerToUpper := unicode.IsUpper(r) && (unicode.IsLower(prev) || isDigit(prev))
 				acronymEnd := unicode.IsUpper(r) && unicode.IsUpper(prev) && i+1 < len(rs) && unicode.IsLower(rs[i+1])
-				digitEdge := unicode.IsDigit(r) != unicode.IsDigit(prev)
-				if lowerToUpper || acronymEnd || digitEdge {
+				if lowerToUpper || acronymEnd {
 					flush()
 				}
 			}
@@ -986,6 +1022,18 @@ func snakeCase(s string) string {
 	}
 	flush()
 	return strings.Join(words, "_")
+}
+
+// foldNonASCII turns every character outside printable ASCII into a space,
+// so snake gives the older ASCII-only keys ("Prénom" → "pr_nom"; n8n
+// Notion before node version 3).
+func foldNonASCII(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // unset is what then treats as "no value": empty, false and the text

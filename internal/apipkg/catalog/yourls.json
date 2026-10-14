@@ -9,6 +9,8 @@
     "n8n-nodes-base.yourls"
   ],
   "base_url": "{{ cred.url }}",
+  "error_when": "{{ res.status | eq:'fail' }}",
+  "error_message": "{{ res.message }}",
   "credentials": [
     {
       "platform": "yourls",

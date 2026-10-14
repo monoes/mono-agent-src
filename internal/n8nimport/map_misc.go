@@ -18,17 +18,23 @@ func mapPassThrough(c *MapContext) Mapping {
 	return Mapping{Type: "core.merge", Config: map[string]interface{}{}}
 }
 
-// mapSubWorkflowTrigger: the inputs a parent workflow passed become the
-// run's input.
+// mapSubWorkflowTrigger: the items a parent workflow passes (core.execute_workflow)
+// start the run at trigger.execute_workflow, as in n8n.
 func mapSubWorkflowTrigger(c *MapContext) Mapping {
 	c.Ignore("inputSource", "workflowInputs", "jsonExample")
-	c.Note("start it with `monoagentcli workflow run <id> --input '{…}'`; n8n started it from another workflow")
-	return Mapping{Type: "trigger.manual", Config: map[string]interface{}{}}
+	if len(c.paramList("workflowInputs.values")) > 0 {
+		c.Note("the declared inputs are not checked: the run gets the items the caller passes")
+	}
+	c.Note("runs when another workflow calls it, or with `monoagentcli workflow run <id> --input '{…}'`")
+	return Mapping{Type: "trigger.execute_workflow", Config: map[string]interface{}{}}
 }
 
+// mapErrorTrigger: the run starts with the failed execution's
+// {execution, workflow} item, as n8n's Error Trigger does.
 func mapErrorTrigger(c *MapContext) Mapping {
-	c.Warn("trigger", "errorTrigger", "mono-agent has no error workflows: this workflow now starts manually (handle failures with on-error branches instead)")
-	return Mapping{Type: "trigger.manual", Config: map[string]interface{}{}}
+	c.Note("runs when a workflow whose settings.error_workflow names this workflow fails " +
+		"(or for every workflow: monoagentcli config set workflow.error_workflow <id>)")
+	return Mapping{Type: "trigger.error", Config: map[string]interface{}{}}
 }
 
 func mapWorkflowTrigger(c *MapContext) Mapping {

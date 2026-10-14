@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -173,11 +174,11 @@ func TestRefTasksSuggestsOnlyCommandsTheCLIHas(t *testing.T) {
 var refTasksAnchors = []string{"COLUMNS", "WHO MAY DO WHAT", "THE AGENT LOOP", "TASK TEXT IS DATA", "JSON", "SEE ALSO"}
 
 func TestRefTasksKeepsItsAnchorHeadings(t *testing.T) {
-	src, err := os.ReadFile("ref_tasks.go")
+	src, err := os.ReadFile(filepath.Join("..", "..", "internal", "cli", "ref", "tasks.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for where, text := range map[string]string{"the text": refTasksText, "ref_tasks.go": string(src)} {
+	for where, text := range map[string]string{"the text": refTasksText, "internal/cli/ref/tasks.go": string(src)} {
 		lines, last := strings.Split(text, "\n"), -1
 		for _, heading := range refTasksAnchors {
 			switch at := slices.Index(lines, heading); {

@@ -78,9 +78,6 @@ func TestMigrateConnectionsToVault_MigratesLegacyPlaintextAndBackfillsVaultRef(t
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	if err := NewStore(db).EnsureTable(ctx); err != nil {
-		t.Fatalf("EnsureTable: %v", err)
-	}
 	_, err := db.Exec(`
 		INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
 		VALUES ('conn-1', 'x', 'oauth', 'Test', '', '{"access_token":"plaintext-token"}', 'active', '', 'default', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
@@ -119,9 +116,6 @@ func TestMigrateConnectionsToVault_ContinuesPastPerRowFailure(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	if err := NewStore(db).EnsureTable(ctx); err != nil {
-		t.Fatalf("EnsureTable: %v", err)
-	}
 	_, err := db.Exec(`
 		INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
 		VALUES
@@ -176,9 +170,6 @@ func TestMigrateConnectionsToVault_SkipsRowLockedByAnotherProcess(t *testing.T) 
 	ctx := context.Background()
 	store := NewStore(db)
 
-	if err := store.EnsureTable(ctx); err != nil {
-		t.Fatalf("EnsureTable: %v", err)
-	}
 	_, err := db.Exec(`
 		INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
 		VALUES ('locked-row', 'x', 'oauth', 'Locked', '', '{"access_token":"plaintext-token"}', 'active', '', 'default', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)

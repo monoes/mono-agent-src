@@ -21,7 +21,8 @@
       "n8n_field_map": {
         "ApiKey": "api_key",
         "url": "url",
-        "apiVersion": "api_version"
+        "apiVersion": "api_version",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "api_key"
@@ -42,6 +43,11 @@
           "key": "api_version",
           "label": "API version",
           "help": "v1 for TheHive 4 (default empty = TheHive 3, API v0)"
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {
@@ -126,7 +132,7 @@
             "message": "{{ el.message }}",
             "tags": "{{ el.tags | split }}",
             "dataType": "{{ el.dataType }}",
-            "data": "{{ el.data }}"
+            "data": "{{ el.dataType | ne:'file' | then:el.data }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'file_name' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | then:';' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'mime_type' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | then:';' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'base64' }}"
           }
         }
       },
@@ -208,7 +214,7 @@
           "options": [
             "artifactValues"
           ],
-          "help": "artifactValues: [{dataType, data, message, tags}] (file artifacts are not supported yet)"
+          "help": "artifactValues: [{dataType, data, message, tags}] (a file artifact is {dataType: \"file\", binaryProperty: \"data\"}: the input binary is sent as name;type;base64)"
         },
         {
           "key": "jsonParameters",
@@ -228,7 +234,14 @@
           ],
           "help": "customFieldsJson: JSON object of custom fields (with jsonParameters on); customFieldsUi.customFields: [{field, value}]"
         }
-      ]
+      ],
+      "body_type": "json",
+      "binary": {
+        "upload_field": "artifactUi",
+        "properties": "{{ p.artifactUi.artifactValues | pluck:'binaryProperty' }}",
+        "upload_when": "{{ p.artifactUi.artifactValues | find:'dataType','file' }}",
+        "fallback_body_type": "json"
+      }
     },
     {
       "resource": "alert",
@@ -697,7 +710,7 @@
             "message": "{{ el.message }}",
             "tags": "{{ el.tags | split }}",
             "dataType": "{{ el.dataType }}",
-            "data": "{{ el.data }}"
+            "data": "{{ el.dataType | ne:'file' | then:el.data }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'file_name' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | then:';' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'mime_type' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | then:';' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'base64' }}"
           }
         }
       },
@@ -733,7 +746,14 @@
             "tlp"
           ]
         }
-      ]
+      ],
+      "body_type": "json",
+      "binary": {
+        "upload_field": "updateFields",
+        "properties": "{{ p.updateFields.artifactUi.artifactValues | pluck:'binaryProperty' }}",
+        "upload_when": "{{ p.updateFields.artifactUi.artifactValues | find:'dataType','file' }}",
+        "fallback_body_type": "json"
+      }
     },
     {
       "resource": "case",

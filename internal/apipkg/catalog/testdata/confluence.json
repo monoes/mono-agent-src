@@ -358,7 +358,9 @@
         "__rl": true,
         "mode": "id",
         "value": "123"
-      }
+      },
+      "download": true,
+      "binaryPropertyName": "file"
     },
     "expect": {
       "method": "GET",
@@ -371,10 +373,30 @@
     "response": {
       "results": [
         {
-          "id": "a"
+          "id": "a",
+          "title": "a b.pdf",
+          "mediaType": "application/pdf",
+          "downloadLink": "/download/attachments/123/a b.pdf?version=1&api=v2"
         }
       ]
-    }
+    },
+    "expect_requests": [
+      {
+        "method": "GET",
+        "path": "/ex/confluence/c1/wiki/api/v2/pages/123/attachments",
+        "query": {
+          "limit": "50"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/ex/confluence/c1/wiki/download/attachments/123/a%20b.pdf",
+        "query": {
+          "version": "1",
+          "api": "v2"
+        }
+      }
+    ]
   },
   "attachment.delete": {
     "params": {

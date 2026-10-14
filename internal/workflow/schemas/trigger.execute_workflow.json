@@ -1,1 +1,11 @@
-{ "credential_platform": null, "fields": [] }
+{
+  "credential_platform": null,
+  "fields": [],
+  "outputs": [
+    {
+      "description": "the items the calling workflow passed in",
+      "key": "<input>",
+      "type": "any"
+    }
+  ]
+}

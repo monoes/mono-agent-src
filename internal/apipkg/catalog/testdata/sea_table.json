@@ -394,5 +394,22 @@
         }
       }
     }
+  },
+  "asset.upload": {
+    "params": { "tableName": "T", "uploadColumn": "Photos:::image", "rowId": "r1" },
+    "input": { "file_name": "a.png", "data": "aGk=" },
+    "responses": [
+      { "upload_link": "https://cloud.seatable.io/seafhttp/upload-api/TOK", "parent_path": "/asset/U1", "img_relative_path": "images/2026-10", "file_relative_path": "files/2026-10" },
+      { "access_token": "AT", "dtable_uuid": "U1", "workspace_id": 7 },
+      { "Photos": ["https://cloud.seatable.io/workspace/7/asset/U1/images/2026-10/old.png"] },
+      [ { "name": "a.png", "size": 2 } ]
+    ],
+    "expect": {
+      "method": "POST",
+      "path": "/seafhttp/upload-api/TOK",
+      "query": { "ret-json": "true" },
+      "body": { "parent_dir": "/asset/U1", "replace": "0", "relative_path": "images/2026-10", "file": "file:a.png:hi" },
+      "items": 1
+    }
   }
 }

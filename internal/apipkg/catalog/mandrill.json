@@ -159,7 +159,7 @@
             "attachmentsBinary",
             "attachmentsValues"
           ],
-          "help": "attachmentsValues: [{type, name, content}]; attachmentsBinary: [{property}] (the first property is attached)"
+          "help": "attachmentsValues: [{type, name, content}]; attachmentsBinary: [{property}] (every property is attached)"
         },
         {
           "key": "headersJson",
@@ -240,10 +240,12 @@
             "$concat": [
               "{{ p.jsonParameters | eq:'true' | then:(p.attachmentsJson | fromjson) }}",
               {
-                "$when": "{{ p.jsonParameters | ne:'true' | then:p.attachmentsUi.attachmentsBinary.0.property }}",
-                "name": "{{ bin.file_name }}",
-                "content": "{{ bin.base64 }}",
-                "type": "{{ bin.mime_type }}"
+                "$map": "{{ p.jsonParameters | ne:'true' | then:(p.attachmentsUi.attachmentsBinary.0.property | then:bin.files) }}",
+                "$to": {
+                  "name": "{{ el.file_name }}",
+                  "content": "{{ el.base64 }}",
+                  "type": "{{ el.mime_type }}"
+                }
               },
               {
                 "$map": "{{ p.jsonParameters | ne:'true' | then:p.attachmentsUi.attachmentsValues }}",
@@ -261,9 +263,9 @@
       },
       "binary": {
         "upload_field": "attachmentsUi",
-        "property": "{{ p.attachmentsUi.attachmentsBinary.0.property }}",
         "upload_when": "{{ p.jsonParameters | ne:'true' | then:p.attachmentsUi.attachmentsBinary.0.property }}",
-        "fallback_body_type": "json"
+        "fallback_body_type": "json",
+        "properties": "{{ p.jsonParameters | ne:'true' | then:(p.attachmentsUi.attachmentsBinary | pluck:'property') }}"
       }
     },
     {
@@ -375,7 +377,7 @@
             "attachmentsBinary",
             "attachmentsValues"
           ],
-          "help": "attachmentsValues: [{type, name, content}]; attachmentsBinary: [{property}] (the first property is attached)"
+          "help": "attachmentsValues: [{type, name, content}]; attachmentsBinary: [{property}] (every property is attached)"
         },
         {
           "key": "headersJson",
@@ -456,10 +458,12 @@
             "$concat": [
               "{{ p.jsonParameters | eq:'true' | then:(p.attachmentsJson | fromjson) }}",
               {
-                "$when": "{{ p.jsonParameters | ne:'true' | then:p.attachmentsUi.attachmentsBinary.0.property }}",
-                "name": "{{ bin.file_name }}",
-                "content": "{{ bin.base64 }}",
-                "type": "{{ bin.mime_type }}"
+                "$map": "{{ p.jsonParameters | ne:'true' | then:(p.attachmentsUi.attachmentsBinary.0.property | then:bin.files) }}",
+                "$to": {
+                  "name": "{{ el.file_name }}",
+                  "content": "{{ el.base64 }}",
+                  "type": "{{ el.mime_type }}"
+                }
               },
               {
                 "$map": "{{ p.jsonParameters | ne:'true' | then:p.attachmentsUi.attachmentsValues }}",
@@ -476,9 +480,9 @@
       },
       "binary": {
         "upload_field": "attachmentsUi",
-        "property": "{{ p.attachmentsUi.attachmentsBinary.0.property }}",
         "upload_when": "{{ p.jsonParameters | ne:'true' | then:p.attachmentsUi.attachmentsBinary.0.property }}",
-        "fallback_body_type": "json"
+        "fallback_body_type": "json",
+        "properties": "{{ p.jsonParameters | ne:'true' | then:(p.attachmentsUi.attachmentsBinary | pluck:'property') }}"
       }
     }
   ]

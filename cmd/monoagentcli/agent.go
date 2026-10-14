@@ -1,177 +1,55 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"os"
-	"strings"
+	"context"
 
 	"github.com/spf13/cobra"
 
-	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/agentinstall"
+	agentcli "github.com/monoes/mono-agent/internal/cli/agent"
+	"github.com/monoes/mono-agent/internal/storage"
 )
 
+// `agent` lives in internal/cli/agent; this is its adapter: the CLI's globals and helpers
+// handed over as agentcli.Deps. The daemon's re-validation scheduler stays in
+// agent_auto_revalidate.go.
+
+// agentBaseDeps is the part of agentDeps that needs no globalConfig: the CLI's errors and
+// streamed output, which `doctor fix` shares through installRuntime.
+var agentBaseDeps = agentcli.Deps{
+	NotFound:        errNotFound,
+	InvalidInput:    errInvalidInput,
+	NewTable:        newPlainTable,
+	ProgressWriter:  progressWriter,
+	FinishStreamed:  finishStreamed,
+	StdinIsTerminal: stdinIsTerminal,
+}
+
+func agentDeps(cfg *globalConfig) agentcli.Deps {
+	d := agentBaseDeps
+	d.JSONOutput = func() bool { return cfg.JSONOutput }
+	d.OpenDB = func() (*storage.Database, error) { return initDB(cfg) }
+	return d
+}
+
 // newAgentCmd exposes the local agent-runner surface: thin proxies over
-// monomind's Agent Exec Protocol commands. mono-agent never learns
-// agent-CLI wire formats — discovery, probing, and smoke tests all live in
-// monomind (`agent scan` / `agent test`, protocol §6).
-func newAgentCmd(cfg *globalConfig) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "agent",
-		Short: "Local AI agent runtimes (via the monomind engine)",
-		Long: "Detect, install and smoke-test the AI agent CLIs on this machine — claude, codex, " +
-			"kimicode, opencode, qwen, grok, crush, copilot, pi, and more — through the monomind engine. " +
-			"monomind runs every chat turn and AI generation in mono-agent on one of these runtimes, " +
-			"using the runtime's own login; mono-agent stores no API keys for text AI. " +
-			"If monomind is missing, these commands print the install hint.",
-	}
-	cmd.AddCommand(
-		newAgentScanCmd(cfg),
-		newAgentTestCmd(cfg),
-		newAgentInstallCmd(cfg),
-		newAgentValidateCmd(cfg),
-		newAgentRosterCmd(cfg),
-	)
-	return cmd
-}
+// monomind's Agent Exec Protocol commands.
+func newAgentCmd(cfg *globalConfig) *cobra.Command { return agentcli.NewCommand(agentDeps(cfg)) }
 
-func newAgentScanCmd(cfg *globalConfig) *cobra.Command {
-	var installedOnly bool
-	cmd := &cobra.Command{
-		Use:   "scan",
-		Short: "Detect installed AI agent runtimes",
-		Example: `  monoagentcli agent scan
-  monoagentcli agent scan --installed --json`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := monomind.Scan(cmd.Context()) // handshakes internally
-			if err != nil {
-				return err
-			}
-			agents := res.Agents
-			if installedOnly {
-				agents = res.Installed()
-			}
-			if cfg.JSONOutput {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(map[string]interface{}{"v": res.V, "agents": agents})
-			}
-			if len(agents) == 0 {
-				fmt.Println("No agent runtimes detected. Install monomind-visible agents (see `agent scan` without --installed).")
-				return nil
-			}
-			table := newPlainTable(os.Stdout, []string{"Runtime", "Installed", "Version", "Binary"}, nil)
-			for _, a := range agents {
-				binary, version := "—", "—"
-				if a.Binary != nil && *a.Binary != "" {
-					binary = *a.Binary
-				}
-				if a.Version != nil && *a.Version != "" {
-					version = *a.Version
-				}
-				installed := "no"
-				if a.Installed {
-					installed = "yes"
-				}
-				table.Append([]string{a.ID, installed, version, binary})
-			}
-			table.Render()
-			if !installedOnly {
-				fmt.Fprintln(os.Stderr, "\nNot installed:")
-				for _, a := range res.Agents {
-					if !a.Installed {
-						fmt.Fprintf(os.Stderr, "  %s: %s\n", a.ID, a.InstallHint)
-					}
-				}
-			}
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&installedOnly, "installed", false, "Only list installed runtimes")
-	return cmd
-}
-
+// newAgentTestCmd is `agent test` on its own.
 func newAgentTestCmd(cfg *globalConfig) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "test <runtime>",
-		Short:   "Smoke-test one agent runtime (also verifies auth)",
-		Args:    cobra.ExactArgs(1),
-		Example: `  monoagentcli agent test codex`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			runtime := args[0]
-			ctx := cmd.Context()
-			bin, _, err := monomind.Ensure(ctx)
-			if err != nil {
-				return err
-			}
-			timeoutRaw, _ := cmd.Flags().GetString("timeout")
-			timeout, err := parseDurationFlag(timeoutRaw)
-			if err != nil {
-				return err
-			}
-			res, err := monomind.Exec(ctx, monomind.ExecOptions{
-				Bin:     bin,
-				Runtime: runtime,
-				Prompt:  "Reply with the single word: ok",
-				Timeout: timeout,
-				// Tested the way chat runs it.
-				Sandbox:          monomind.TurnSandboxMode,
-				WorkspacePurpose: monomind.WorkspaceAgentTest,
-			}, (&turnPrinter{w: os.Stderr}).print)
-			if err != nil {
-				return err
-			}
-			if res.Err != nil {
-				return res.Err
-			}
-			fmt.Fprintf(os.Stderr, "\n%s: OK (session %s)\n", runtime, res.SessionID)
-			return nil
-		},
-	}
-	cmd.Flags().String("timeout", "90s", "Overall timeout")
-	return cmd
+	return agentcli.NewTestCommand(agentDeps(cfg))
 }
 
-// turnPrinter writes one turn's events for a person to read. A runtime that
-// streams (start's streams_incrementally) sends the reply in chunks, which
-// are printed as running text; otherwise each assistant event is a whole
-// message on its own line.
-type turnPrinter struct {
-	w           io.Writer
-	incremental bool
-	midLine     bool
+// realRuntimeMachine is the machine installRuntime runs on outside tests.
+func realRuntimeMachine() agentcli.RuntimeMachine { return agentcli.RealRuntimeMachine() }
+
+// installRuntime installs one runtime by its `agent scan` id and verifies
+// it with a re-scan. confirmScript gates vendor install scripts.
+func installRuntime(ctx context.Context, m agentcli.RuntimeMachine, id string, force bool, confirmScript func(agentinstall.Recipe) bool,
+	progress func(string)) (string, error) {
+	return agentBaseDeps.InstallRuntime(ctx, m, id, force, confirmScript, progress)
 }
 
-func (p *turnPrinter) print(ev monomind.Event) {
-	switch ev.Type {
-	case monomind.EventStart:
-		p.incremental = ev.StreamsIncrementally
-	case monomind.EventAssistant:
-		if !p.incremental {
-			fmt.Fprintln(p.w, ev.Text)
-			return
-		}
-		if ev.Text != "" {
-			fmt.Fprint(p.w, ev.Text)
-			p.midLine = !strings.HasSuffix(ev.Text, "\n")
-		}
-	case monomind.EventToolCall:
-		p.endLine()
-	case monomind.EventError:
-		p.endLine()
-		fmt.Fprintf(p.w, "error: %s: %s\n", ev.Code, ev.ErrMessage)
-	case monomind.EventDone:
-		p.endLine()
-		fmt.Fprintf(p.w, "exit: %d\n", ev.ExitCode)
-	}
-}
-
-// endLine finishes streamed text that did not end in a newline, so the next
-// line starts at the left edge.
-func (p *turnPrinter) endLine() {
-	if p.midLine {
-		fmt.Fprintln(p.w)
-		p.midLine = false
-	}
-}
+// shellQuote quotes s for a POSIX shell when it needs it.
+func shellQuote(s string) string { return agentcli.ShellQuote(s) }

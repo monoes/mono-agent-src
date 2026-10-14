@@ -311,7 +311,7 @@ func TestEngine_EnqueueClaimsUnownedRow(t *testing.T) {
 		t.Fatalf("locally enqueued row is adoptable: %v", ids)
 	}
 	other.adoptQueuedExecutions(ctx)
-	if other.queue.Len() != 0 {
+	if len(other.queue.ch) != 0 {
 		t.Fatal("another engine adopted a row this engine has queued")
 	}
 }

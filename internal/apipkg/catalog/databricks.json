@@ -111,6 +111,10 @@
       "label": "Model serving"
     },
     {
+      "value": "pipeline",
+      "label": "Pipeline"
+    },
+    {
       "value": "unityCatalog",
       "label": "Unity Catalog"
     },
@@ -351,11 +355,15 @@
           "help": "Path inside the volume, e.g. reports/q1.csv"
         }
       ],
-      "description": "Succeeds when the file exists (response headers are not returned yet).",
+      "description": "Reads the file's metadata from the response headers.",
       "output": {
         "to": {
-          "success": true,
-          "filePath": "{{ p.filePath }}"
+          "volumePath": "{{ p.volumePath }}",
+          "filePath": "{{ p.filePath }}",
+          "headers": "{{ hdr }}",
+          "contentLength": "{{ hdr.Content-Length }}",
+          "contentType": "{{ hdr.Content-Type }}",
+          "lastModified": "{{ hdr.Last-Modified }}"
         }
       }
     },
@@ -697,6 +705,69 @@
       }
     },
     {
+      "resource": "job",
+      "operation": "listRuns",
+      "title": "List job runs",
+      "description": "Lists the runs of a job (or of every job), newest first.",
+      "method": "GET",
+      "path": "/api/2.2/jobs/runs/list",
+      "query": {
+        "job_id": "{{ p.jobId | rl | re:'jobs?/([0-9]+)' }}",
+        "start_time_from": "{{ p.filters.startTimeFrom | epoch_ms }}",
+        "start_time_to": "{{ p.filters.startTimeTo | epoch_ms }}",
+        "active_only": "{{ p.filters.activeOnly | then:'true' }}",
+        "completed_only": "{{ p.filters.completedOnly | then:'true' }}",
+        "run_type": "{{ p.filters.runType }}",
+        "expand_tasks": "{{ p.filters.expandTasks | then:'true' }}"
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page_token",
+        "cursor_path": "next_page_token",
+        "has_more_path": "has_more",
+        "limit_param": "limit",
+        "page_size": 25,
+        "results_path": "runs"
+      },
+      "fields": [
+        {
+          "key": "jobId",
+          "label": "Job ID",
+          "type": "text",
+          "default": "",
+          "help": "Empty lists the runs of every job."
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 25,
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "startTimeFrom",
+            "startTimeTo",
+            "activeOnly",
+            "completedOnly",
+            "runType",
+            "expandTasks"
+          ],
+          "help": "startTimeFrom/startTimeTo: ISO 8601 time or epoch milliseconds. activeOnly / completedOnly: only running or only finished runs. runType: JOB_RUN, WORKFLOW_RUN or SUBMIT_RUN. expandTasks: include each run's tasks."
+        }
+      ]
+    },
+    {
       "resource": "modelServing",
       "operation": "queryEndpoint",
       "title": "Query a serving endpoint",
@@ -721,6 +792,57 @@
       "body": {
         "$merge": "{{ p.requestBody | fromjson }}"
       }
+    },
+    {
+      "resource": "pipeline",
+      "operation": "listUpdates",
+      "title": "List pipeline updates",
+      "description": "Lists the updates of a Lakeflow Declarative (Delta Live Tables) pipeline, newest first.",
+      "method": "GET",
+      "path": "/api/2.0/pipelines/{{ p.pipelineId | rl | re:'pipelines/([0-9a-fA-F-]{36})' }}/updates",
+      "query": {
+        "until_update_id": "{{ p.options.untilUpdateId }}"
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "page_token",
+        "cursor_path": "next_page_token",
+        "limit_param": "max_results",
+        "page_size": 100,
+        "results_path": "updates"
+      },
+      "fields": [
+        {
+          "key": "pipelineId",
+          "label": "Pipeline ID",
+          "type": "text",
+          "required": true,
+          "help": "The pipeline's UUID or its URL."
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 25,
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "untilUpdateId"
+          ],
+          "help": "untilUpdateId: stop at this update."
+        }
+      ]
     },
     {
       "resource": "unityCatalog",

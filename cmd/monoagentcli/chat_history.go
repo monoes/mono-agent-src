@@ -232,7 +232,11 @@ func newChatHistoryCreateCmd(cfg *globalConfig) *cobra.Command {
 				return printConversation(cfg, conv.Record())
 			}
 			if runtimeID == "" {
-				return errInvalidInput("--runtime is required (see `agent scan --installed`)")
+				rt, err := defaultChatRuntime(cmd.Context(), cfg)
+				if err != nil {
+					return err
+				}
+				runtimeID = rt
 			}
 			if cmd.Flags().Changed("org") {
 				return errInvalidInput("--org only applies to --mode coder")

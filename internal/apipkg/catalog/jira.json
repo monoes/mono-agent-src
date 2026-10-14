@@ -820,9 +820,9 @@
       "resource": "issueAttachment",
       "operation": "get",
       "title": "Get an attachment",
-      "description": "With Download on, the file content is returned as binary (Jira Cloud)",
+      "description": "With Download on, the file is added to the item as binary data",
       "method": "GET",
-      "path": "/api/{{ p.jiraVersion | default:'cloud' | prefix:'~' | replace:'~serverPat','~server' | eq:'~server' | then:'2' | default:'3' }}/attachment/{{ p.download | eq:'true' | then:'content/' }}{{ p.attachmentId }}",
+      "path": "/api/{{ p.jiraVersion | default:'cloud' | prefix:'~' | replace:'~serverPat','~server' | eq:'~server' | then:'2' | default:'3' }}/attachment/{{ p.attachmentId }}",
       "fields": [
         {
           "key": "jiraVersion",
@@ -857,9 +857,16 @@
           "default": "data"
         }
       ],
-      "binary": {
-        "download_when": "{{ p.download }}",
-        "property_field": "binaryProperty"
+      "output": {
+        "download": {
+          "when": "{{ p.download }}",
+          "method": "GET",
+          "base_url": "{{ cred.access_token | then:(p.jiraVersion | ne:'serverPat' | then:(pres.0 | find:'url',(cred.domain | prefix:'https://' | replace:'https://https://','https://' | re:'^(.*?)/*$') | get:'id' | default:pres.0.0.id | prefix:'https://api.atlassian.com/ex/jira/')) | default:(cred.domain | prefix:'https://' | replace:'https://http://','http://' | replace:'https://https://','https://' | re:'^(.*?)/*$') }}/rest",
+          "path": "/api/{{ p.jiraVersion | default:'cloud' | prefix:'~' | replace:'~serverPat','~server' | eq:'~server' | then:'2' | default:'3' }}/attachment/content/{{ el.id }}",
+          "property": "{{ p.binaryProperty }}",
+          "file_name": "{{ el.filename }}",
+          "mime_type": "{{ el.mimeType }}"
+        }
       },
       "base_url": "{{ cred.access_token | then:(p.jiraVersion | ne:'serverPat' | then:(pres.0 | find:'url',(cred.domain | prefix:'https://' | replace:'https://https://','https://' | re:'^(.*?)/*$') | get:'id' | default:pres.0.0.id | prefix:'https://api.atlassian.com/ex/jira/')) | default:(cred.domain | prefix:'https://' | replace:'https://http://','http://' | replace:'https://https://','https://' | re:'^(.*?)/*$') }}/rest",
       "before": [
@@ -874,7 +881,7 @@
       "resource": "issueAttachment",
       "operation": "getAll",
       "title": "Get an issue's attachments",
-      "description": "Download of each file is not supported yet",
+      "description": "With Download on, each attachment's file is added to its item as binary data",
       "method": "GET",
       "path": "/api/2/issue/{{ p.issueKey }}",
       "fields": [
@@ -927,7 +934,16 @@
       ],
       "output": {
         "path": "fields.attachment",
-        "limit": true
+        "limit": true,
+        "download": {
+          "when": "{{ p.download }}",
+          "method": "GET",
+          "base_url": "{{ cred.access_token | then:(p.jiraVersion | ne:'serverPat' | then:(pres.0 | find:'url',(cred.domain | prefix:'https://' | replace:'https://https://','https://' | re:'^(.*?)/*$') | get:'id' | default:pres.0.0.id | prefix:'https://api.atlassian.com/ex/jira/')) | default:(cred.domain | prefix:'https://' | replace:'https://http://','http://' | replace:'https://https://','https://' | re:'^(.*?)/*$') }}/rest",
+          "path": "/api/{{ p.jiraVersion | default:'cloud' | prefix:'~' | replace:'~serverPat','~server' | eq:'~server' | then:'2' | default:'3' }}/attachment/content/{{ el.id }}",
+          "property": "{{ p.binaryProperty }}",
+          "file_name": "{{ el.filename }}",
+          "mime_type": "{{ el.mimeType }}"
+        }
       },
       "base_url": "{{ cred.access_token | then:(p.jiraVersion | ne:'serverPat' | then:(pres.0 | find:'url',(cred.domain | prefix:'https://' | replace:'https://https://','https://' | re:'^(.*?)/*$') | get:'id' | default:pres.0.0.id | prefix:'https://api.atlassian.com/ex/jira/')) | default:(cred.domain | prefix:'https://' | replace:'https://http://','http://' | replace:'https://https://','https://' | re:'^(.*?)/*$') }}/rest",
       "before": [

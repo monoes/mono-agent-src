@@ -19,20 +19,21 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
-// newLibraryCmd is `library`: the monoes.me library of workflows, orgs and
-// web automations — log in, browse, install and publish. The desktop app
+// newLibraryCmd is `library`: the monoes.me library of workflows, orgs, web
+// automations and API packages — log in, browse, install and publish. The desktop app
 // shells out to these commands (spec: monoes.me Library ↔ MonoAgent v1).
 func newLibraryCmd(cfg *globalConfig) *cobra.Command {
 	env := &libEnv{cfg: cfg}
 	cmd := &cobra.Command{
 		Use:   "library",
-		Short: "Browse, install and publish workflows, orgs and web automations on monoes.me",
-		Long: "The monoes.me library holds workflows, orgs and web automations: official ones " +
+		Short: "Browse, install and publish workflows, orgs, web automations and API packages on monoes.me",
+		Long: "The monoes.me library holds workflows, orgs, web automations and API packages (app.* nodes): official ones " +
 			"published by monoes, public ones from the community, and your own private ones.\n\n" +
 			"  monoagentcli library login                       # log in (opens the browser)\n" +
 			"  monoagentcli library list --kind automation       # official + public automations\n" +
 			"  monoagentcli library install automation instagram # download, verify, install\n" +
 			"  monoagentcli library publish workflow <id>        # upload (private unless --public)\n" +
+			"  monoagentcli library install api trello           # an API package: the app.trello node\n" +
 			"  monoagentcli library update                       # newer versions of what you installed\n\n" +
 			"The host is https://monoes.me unless MONOES_BASE_URL says otherwise. The login is the machine-wide " +
 			"monoes.me session (`monoagentcli account status`), shared by every profile.",

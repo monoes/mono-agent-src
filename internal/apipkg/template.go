@@ -42,6 +42,8 @@ type Scope struct {
 	// inject.hmac (method, path, query, body).
 	Page map[string]any
 	Req  map[string]any
+	// Up is the enclosing element inside a nested $map (the outer el).
+	Up any
 }
 
 // headerMap holds response headers; lookupPath matches its keys
@@ -58,6 +60,8 @@ func (s Scope) root(name string) any {
 		return s.Item
 	case "el":
 		return s.El
+	case "up":
+		return s.Up
 	case "res":
 		return s.Res
 	case "items":
@@ -260,9 +264,9 @@ func parsePath(s string) (*expr, error) {
 	}
 	segs := strings.Split(s, ".")
 	switch segs[0] {
-	case "p", "cred", "item", "el", "res", "items", "pre", "pres", "bin", "main", "hdr", "uuid", "now", "idx", "page", "req":
+	case "p", "cred", "item", "el", "up", "res", "items", "pre", "pres", "bin", "main", "hdr", "uuid", "now", "idx", "page", "req":
 	default:
-		return nil, fmt.Errorf("expression %q must start with p., cred., item., items, el., res., main., hdr., pre., pres., bin., page., req. or be uuid / now / idx", s)
+		return nil, fmt.Errorf("expression %q must start with p., cred., item., items, el., up., res., main., hdr., pre., pres., bin., page., req. or be uuid / now / idx", s)
 	}
 	for _, sg := range segs[1:] {
 		if sg == "" {
@@ -672,7 +676,7 @@ func renderMap(src, to any, sc Scope) (any, error) {
 	out := make([]any, 0, len(arr))
 	for i, el := range arr {
 		esc := sc
-		esc.El, esc.Idx = el, i
+		esc.El, esc.Idx, esc.Up = el, i, sc.El
 		r, err := renderValue(to, esc)
 		if err != nil {
 			return nil, fmt.Errorf("$map element %d: %w", i, err)

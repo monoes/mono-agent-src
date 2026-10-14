@@ -46,18 +46,21 @@
       "methods": [
         "oauth"
       ],
-      "fields": [
-        {
-          "key": "dc",
-          "label": "Data center",
-          "required": true,
-          "help": "Server prefix of your account, e.g. us6 (the api_endpoint host from login.mailchimp.com/oauth2/metadata)"
-        }
-      ],
+      "fields": [],
       "oauth": {
         "auth_url": "https://login.mailchimp.com/oauth2/authorize",
         "token_url": "https://login.mailchimp.com/oauth2/token",
-        "scopes": []
+        "scopes": [],
+        "metadata": {
+          "url": "https://login.mailchimp.com/oauth2/metadata",
+          "headers": {
+            "Authorization": "OAuth {{ cred.access_token }}"
+          },
+          "fields": {
+            "dc": "dc",
+            "api_endpoint": "api_endpoint"
+          }
+        }
       },
       "inject": {
         "headers": {

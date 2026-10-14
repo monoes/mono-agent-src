@@ -374,22 +374,26 @@
       "user": "u",
       "password": "pw"
     },
-    "expect": {
-      "method": "GET",
-      "path": "/api/now/attachment/a1/file",
-      "items": 1
+    "response": {
+      "result": {
+        "sys_id": "a1",
+        "file_name": "r.pdf",
+        "content_type": "application/pdf"
+      }
     },
-    "responses": [
+    "expect_requests": [
       {
-        "result": {
-          "file_name": "r.pdf",
-          "content_type": "application/pdf"
-        }
+        "method": "GET",
+        "path": "/api/now/attachment/a1"
       },
       {
-        "x": 1
+        "method": "GET",
+        "path": "/api/now/attachment/a1/file"
       }
-    ]
+    ],
+    "expect": {
+      "items": 1
+    }
   },
   "attachment.getAll": {
     "params": {
@@ -397,7 +401,8 @@
       "limit": 10,
       "options": {
         "queryFilter": "file_nameLIKEpdf"
-      }
+      },
+      "download": true
     },
     "credential": {
       "subdomain": "dev1",
@@ -405,13 +410,6 @@
       "password": "pw"
     },
     "expect": {
-      "method": "GET",
-      "path": "/api/now/attachment",
-      "query": {
-        "sysparm_query": "table_name=incident^file_nameLIKEpdf",
-        "sysparm_limit": "10",
-        "sysparm_offset": "0"
-      },
       "items": 1
     },
     "response": {
@@ -420,7 +418,22 @@
           "sys_id": "1"
         }
       ]
-    }
+    },
+    "expect_requests": [
+      {
+        "method": "GET",
+        "path": "/api/now/attachment",
+        "query": {
+          "sysparm_query": "table_name=incident^file_nameLIKEpdf",
+          "sysparm_limit": "10",
+          "sysparm_offset": "0"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/now/attachment/1/file"
+      }
+    ]
   },
   "incident.get": {
     "params": {

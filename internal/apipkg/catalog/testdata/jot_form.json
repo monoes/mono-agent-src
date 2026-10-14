@@ -1,1 +1,135 @@
-{}
+{
+  "form.getAll": {
+    "params": {
+      "limit": 5,
+      "options": {
+        "filter": "{\"status\": \"ENABLED\"}",
+        "orderby": "created_at"
+      }
+    },
+    "response": {
+      "responseCode": 200,
+      "content": [
+        {
+          "id": "1"
+        },
+        {
+          "id": "2"
+        }
+      ],
+      "resultSet": {
+        "offset": 0,
+        "limit": 5,
+        "count": 2
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/user/forms",
+      "query": {
+        "filter": "{\"status\":\"ENABLED\"}",
+        "orderby": "created_at",
+        "offset": "0",
+        "limit": "5"
+      },
+      "headers": {
+        "APIKEY": "test-api_key"
+      },
+      "items": 2
+    }
+  },
+  "form.get": {
+    "params": {
+      "formId": "241234"
+    },
+    "response": {
+      "content": {
+        "id": "241234",
+        "title": "Contact"
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/form/241234",
+      "items": 1
+    }
+  },
+  "form.getQuestions": {
+    "params": {
+      "formId": "241234"
+    },
+    "response": {
+      "content": {
+        "1": {
+          "qid": "1",
+          "name": "name",
+          "type": "control_fullname"
+        },
+        "2": {
+          "qid": "2",
+          "name": "email",
+          "type": "control_email"
+        },
+        "10": {
+          "qid": "10",
+          "name": "submit",
+          "type": "control_button"
+        }
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/form/241234/questions",
+      "items": 3
+    }
+  },
+  "submission.getAll": {
+    "params": {
+      "formId": "241234",
+      "returnAll": true,
+      "options": {
+        "filter": {
+          "created_at:gt": "2026-10-01 00:00:00"
+        }
+      }
+    },
+    "response": {
+      "content": [
+        {
+          "id": "s1"
+        }
+      ],
+      "resultSet": {
+        "offset": 0,
+        "limit": 1000,
+        "count": 1
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/form/241234/submissions",
+      "query": {
+        "filter": "{\"created_at:gt\":\"2026-10-01 00:00:00\"}",
+        "offset": "0",
+        "limit": "1000"
+      },
+      "items": 1
+    }
+  },
+  "submission.get": {
+    "params": {
+      "submissionId": "5900"
+    },
+    "response": {
+      "content": {
+        "id": "5900",
+        "answers": {}
+      }
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/submission/5900",
+      "items": 1
+    }
+  }
+}

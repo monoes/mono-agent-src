@@ -152,8 +152,21 @@
       ],
       "binary": {
         "upload_field": "binaryPropertyName",
-        "upload_text": "{{ p.binaryData | ne:'true' | then:p.fileContent }}"
-      }
+        "upload_text": "{{ p.binaryData | ne:'true' | then:p.fileContent }}",
+        "upload_session": {
+          "create": {
+            "method": "POST",
+            "base_url": "https://graph.microsoft.com/v1.0{{ p.resourceTarget | eq:'drive' | then:'/drives/' }}{{ p.resourceTarget | eq:'drive' | then:(p.driveTarget | rl) }}{{ p.resourceTarget | ne:'drive' | then:(p.userTarget | rl | prefix:'/users/' | default:'/me') }}{{ p.resourceTarget | ne:'drive' | then:'/drive' }}",
+            "path": "/items/{{ p.parentId }}:/{{ p.fileName | default:bin.file_name }}:/createUploadSession",
+            "body": {
+              "item": {
+                "@microsoft.graph.conflictBehavior": "replace"
+              }
+            }
+          }
+        }
+      },
+      "description": "Files over 4 MiB go through an upload session in 10 MiB chunks."
     },
     {
       "resource": "file",

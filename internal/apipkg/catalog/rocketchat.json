@@ -159,9 +159,21 @@
       "path": "/api/v1/subscriptions.get",
       "fields": [],
       "output": {
-        "path": "update",
         "to": {
-          "update": "{{ el }}"
+          "$concat": [
+            {
+              "$map": "{{ el.update }}",
+              "$to": {
+                "update": "{{ el }}"
+              }
+            },
+            {
+              "$map": "{{ el.remove }}",
+              "$to": {
+                "remove": "{{ el }}"
+              }
+            }
+          ]
         }
       }
     },

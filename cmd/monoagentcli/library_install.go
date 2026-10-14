@@ -43,26 +43,29 @@ type libInstallResult struct {
 func newLibraryInstallCmd(e *libEnv) *cobra.Command {
 	var o libInstallOptions
 	cmd := &cobra.Command{
-		Use:   "install <workflow|automation|org> <id | slug>  (or <kind>/<slug>)",
+		Use:   "install <workflow|automation|org|api> <id | slug>  (or <kind>/<slug>)",
 		Short: "Download a library item, verify its sha256 and install it into this profile (needs a login)",
 		Long: "Downloads the item's artifact, checks it against the sha256 the library reports, and hands " +
 			"it to the matching local install:\n" +
 			"  automation  the automation package installer (official items get built-in trust; others install as imported)\n" +
 			"  workflow    workflow import into the active profile, installing automations bundled in it\n" +
-			"  org         the active profile's org folder; an org of the same name needs --rename <new> or --yes (replace)\n\n" +
+			"  org         the active profile's org folder; an org of the same name needs --rename <new> or --yes (replace)\n" +
+			"  api         an API package, validated, then written to ~/.monoagent/apipkgs/<id>/package.json; its\n" +
+			"              app.<id> node (or the native node it extends) is available to the next command. It may\n" +
+			"              replace a built-in package; replacing an installed one from elsewhere needs --yes\n\n" +
 			"Where the item came from is recorded, so `library update` can install newer versions.",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 { // "automations/instagram", as a library page's URL names it
 				k, slug, ok := strings.Cut(args[0], "/")
 				if !ok {
-					return errInvalidInput("usage: library install <workflow|automation|org> <id | slug>")
+					return errInvalidInput("usage: library install <workflow|automation|org|api> <id | slug>")
 				}
 				args = []string{k, k + "/" + slug}
 			}
 			kind, ref := library.NormalizeKind(args[0]), args[1]
 			if !library.ValidKind(kind) {
-				return errInvalidInput("kind must be workflow, automation or org, not %q", kind)
+				return errInvalidInput("kind must be workflow, automation, org or api, not %q", kind)
 			}
 			if o.rename != "" && kind != library.KindOrg {
 				return errInvalidInput("--rename only applies to orgs")
@@ -83,7 +86,7 @@ func newLibraryInstallCmd(e *libEnv) *cobra.Command {
 			return printLib(e.cfg, cmd, res, func(w io.Writer) { printInstall(w, res) })
 		},
 	}
-	cmd.Flags().BoolVarP(&o.yes, "yes", "y", false, "Don't ask: replace an org of the same name or an installed copy, install bundled automations")
+	cmd.Flags().BoolVarP(&o.yes, "yes", "y", false, "Don't ask: replace an org or API package of the same name or an installed copy, install bundled automations")
 	cmd.Flags().BoolVar(&o.dryRun, "dry-run", false, "Download and check, show what would be installed, change nothing")
 	cmd.Flags().BoolVar(&o.replace, "replace", false, "Automations: replace an installed package that needs confirmation (your own or a more trusted one)")
 	cmd.Flags().StringVar(&o.rename, "rename", "", "Orgs: install under this name instead")
@@ -134,6 +137,8 @@ func (e *libEnv) install(ctx context.Context, c *library.Client, it *library.Ite
 		err = e.installWorkflow(ctx, it, data, sum, o, res)
 	case library.KindOrg:
 		err = e.installOrg(ctx, it, data, sum, o, res)
+	case library.KindAPI:
+		err = e.installAPI(it, data, sum, o, res)
 	}
 	if err != nil {
 		return nil, err
@@ -374,6 +379,13 @@ func printInstall(w io.Writer, r *libInstallResult) {
 	fmt.Fprintf(w, " (sha256 %s verified)\n", shortHash(r.SHA256))
 	if r.Trust != "" {
 		fmt.Fprintf(w, "Trust: %s\n", r.Trust)
+	}
+	if a, ok := r.Result.(*apiInstallResult); ok && r.Installed {
+		if a.Extends != "" {
+			fmt.Fprintf(w, "Its operations are now part of the %s node (monoagentcli ref node %s).\n", a.Extends, a.Extends)
+		} else {
+			fmt.Fprintf(w, "Node type %s is now available in workflows (monoagentcli ref node %s).\n", a.NodeType, a.NodeType)
+		}
 	}
 	for _, s := range r.Warnings {
 		fmt.Fprintln(w, "Warning:", s)

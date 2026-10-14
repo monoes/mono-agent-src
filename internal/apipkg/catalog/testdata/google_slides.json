@@ -99,11 +99,17 @@
   "page.getThumbnail": {
     "params": {
       "presentationId": "1PresAbcdefgh",
-      "pageObjectId": "p1"
+      "pageObjectId": "p1",
+      "download": true
     },
     "expect": {
       "method": "GET",
-      "path": "/v1/presentations/1PresAbcdefgh/pages/p1/thumbnail"
+      "path": "/v1/presentations/1PresAbcdefgh/pages/p1/thumbnail",
+      "items": 1
+    },
+    "response": {
+      "contentUrl": "https://lh3.googleusercontent.test/thumb1",
+      "width": 800
     }
   }
 }

@@ -8,9 +8,13 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	browserpkg "github.com/monoes/mono-agent/internal/browser"
+	automationcli "github.com/monoes/mono-agent/internal/cli/automation"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -30,24 +34,52 @@ Hunt, Gemini) are published on monoes.me: log in with
 from a .mpkg file, a package directory or a URL. Packages an earlier version
 seeded stay installed.`,
 	}
+	// list, show, new, test, doctor, trust and rerecord live in internal/cli/automation.
+	cmd.AddCommand(automationcli.Commands(automationDeps(cfg))...)
 	cmd.AddCommand(
-		newAutomationListCmd(cfg),
-		newAutomationShowCmd(cfg),
-		newAutomationNewCmd(cfg),
 		newAutomationValidateCmd(cfg),
-		newAutomationTestCmd(cfg),
 		newAutomationPackCmd(cfg),
 		newAutomationInstallCmd(cfg),
 		newAutomationExportCmd(cfg),
-		newAutomationDoctorCmd(cfg), // automation_doctor.go (health builder)
-		newAutomationTrustCmd(cfg),
-		newAutomationRerecordCmd(cfg),
 	)
 	cmd.AddCommand(newAutomationLifecycleCmds(cfg)...)
 	for _, sub := range cmd.Commands() {
 		withJSONErrors(cfg, sub)
 	}
 	return cmd
+}
+
+// automationDeps hands the CLI's globals and helpers to internal/cli/automation.
+func automationDeps(cfg *globalConfig) automationcli.Deps {
+	return automationcli.Deps{
+		JSONOutput:   func() bool { return cfg.JSONOutput },
+		ProfileID:    func() string { return cfg.ProfileID },
+		Verbose:      func() bool { return cfg.Verbose },
+		DBPath:       func() string { return expandPath(cfg.DBPath) },
+		OpenDB:       func() (*storage.Database, error) { return initDB(cfg) },
+		OpenRegistry: openAutomationRegistry,
+		NewTable:     newPlainTable,
+		WithJSONErrors: func(cmd *cobra.Command) {
+			withJSONErrors(cfg, cmd)
+		},
+		Reported:          func(err error) error { return reportedError{err} },
+		WithInstallResult: withInstallResult,
+		SetupBridge:       setupProfileBridge,
+		EnsureConnected: func(bridge browserpkg.ExtensionBridge, timeout time.Duration) error {
+			return ensureExtensionConnected(bridge, timeout)
+		},
+	}
+}
+
+// printIssues prints validation issues (validate and install share it with the package).
+var printIssues = automationcli.PrintIssues
+
+// orDash is s, or "-" when s is empty.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 // withJSONErrors makes a failing command also print {"error": "…"} on

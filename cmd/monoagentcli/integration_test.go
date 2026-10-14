@@ -47,8 +47,12 @@ func TestIntegrationListAndShow(t *testing.T) {
 		t.Errorf("show: %v\n%s", err, out)
 	}
 	out, err = runIntegration(t, false, "show", "typeform")
-	if err != nil || !strings.Contains(out, "triggers, not supported yet: n8n-nodes-base.typeformTrigger") {
+	if err != nil || !strings.Contains(out, "n8n trigger: n8n-nodes-base.typeformTrigger → trigger.webhook") {
 		t.Errorf("show typeform: %v\n%s", err, out)
+	}
+	out, err = runIntegration(t, false, "show", "gmail_more")
+	if err != nil || !strings.Contains(out, "n8n trigger: n8n-nodes-base.gmailTrigger → trigger.schedule polling") {
+		t.Errorf("show gmail_more: %v\n%s", err, out)
 	}
 	if _, err := runIntegration(t, false, "show", "nope"); exitCodeFor(err) != 2 {
 		t.Errorf("show unknown: exit %d (%v)", exitCodeFor(err), err)

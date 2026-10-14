@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/connections"
@@ -26,7 +25,6 @@ type WorkflowEngine struct {
 	scheduler        SchedulerInterface
 	expr             *ExpressionEngine
 	logger           zerolog.Logger
-	mu               sync.RWMutex
 	ctx              context.Context
 	cancel           context.CancelFunc
 	pruneInterval    time.Duration
@@ -53,7 +51,6 @@ type EngineConfig struct {
 	AllowAllProfiles bool
 }
 
-// NewWorkflowEngine creates a fully wired engine. Call Start() to begin processing.
 // NewWorkflowEngineWithStore creates a WorkflowEngine using a caller-supplied
 // WorkflowStore. Use this when you need a HybridWorkflowStore (file store +
 // SQLite). db is still required for the connections store.
@@ -131,53 +128,6 @@ func applyEngineDefaults(cfg *EngineConfig) error {
 		cfg.WebhookAddr = envAddr
 	}
 	return nil
-}
-
-func NewWorkflowEngine(db *sql.DB, scheduler SchedulerInterface, registry *NodeTypeRegistry, cfg EngineConfig, logger zerolog.Logger) *WorkflowEngine {
-	if err := applyEngineDefaults(&cfg); err != nil {
-		logger.Error().Err(err).Msg("engine: webhook address override rejected, using config/default instead")
-	}
-
-	store := NewSQLiteWorkflowStore(db)
-	connStore := connections.NewStore(db)
-	webhookServer := NewWebhookServer(cfg.WebhookAddr, logger)
-
-	e := &WorkflowEngine{
-		store:          store,
-		connStore:      connStore,
-		registry:       registry,
-		webhookServer:  webhookServer,
-		scheduler:      scheduler,
-		expr:           NewExpressionEngine(),
-		logger:         logger,
-		pruneInterval:  cfg.PruneInterval,
-		maxExecHistory: cfg.MaxExecHistory,
-	}
-
-	// Wire trigger manager with a handleTrigger closure.
-	e.triggerMgr = NewTriggerManager(
-		store,
-		webhookServer,
-		scheduler,
-		func(workflowID string, nodeID string, items []Item) {
-			e.handleTrigger(workflowID, nodeID, items)
-		},
-		logger,
-	)
-
-	// Wire execution queue with handleExecution as the handler.
-	e.queue = NewExecutionQueue(
-		cfg.QueueCapacity,
-		cfg.MaxConcurrent,
-		func(ctx context.Context, req ExecutionRequest) {
-			e.handleExecution(ctx, req)
-		},
-		logger,
-	)
-	e.queue.claim = e.claimLocal
-	e.wireWebhookRuns()
-
-	return e
 }
 
 // Start initializes the engine: starts the queue workers, webhook server,

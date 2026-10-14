@@ -1,1 +1,282 @@
-{}
+{
+  "timeEntry.create": {
+    "params": {
+      "workspaceId": "77",
+      "start": "2024-01-31T09:00:00Z",
+      "additionalFields": {
+        "description": "Review",
+        "projectId": "12",
+        "tags": "a, b",
+        "duration": 3600,
+        "billable": false
+      }
+    },
+    "credential": {
+      "username": "tok"
+    },
+    "response": {
+      "id": 5
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v9/workspaces/77/time_entries",
+      "query": {},
+      "headers": {
+        "Authorization": "Basic dG9rOmFwaV90b2tlbg=="
+      },
+      "body": {
+        "created_with": "mono-agent",
+        "workspace_id": 77,
+        "start": "2024-01-31T09:00:00Z",
+        "duration": 3600,
+        "description": "Review",
+        "project_id": 12,
+        "tags": [
+          "a",
+          "b"
+        ],
+        "billable": false
+      },
+      "items": 1
+    }
+  },
+  "timeEntry.delete": {
+    "params": {
+      "workspaceId": "77",
+      "timeEntryId": "5"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/v9/workspaces/77/time_entries/5",
+      "query": {}
+    }
+  },
+  "timeEntry.get": {
+    "params": {
+      "timeEntryId": "5"
+    },
+    "response": {
+      "id": 5
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v9/me/time_entries/5",
+      "query": {},
+      "items": 1
+    }
+  },
+  "timeEntry.getAll": {
+    "params": {
+      "limit": 1,
+      "filters": {
+        "startDate": "2024-01-01",
+        "endDate": "2024-01-31",
+        "meta": true
+      }
+    },
+    "response": [
+      {
+        "id": 1
+      },
+      {
+        "id": 2
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/api/v9/me/time_entries",
+      "query": {
+        "start_date": "2024-01-01",
+        "end_date": "2024-01-31",
+        "meta": "true"
+      },
+      "items": 1
+    }
+  },
+  "timeEntry.getCurrent": {
+    "params": {},
+    "response": {
+      "id": 9,
+      "duration": -1
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v9/me/time_entries/current",
+      "query": {},
+      "items": 1
+    }
+  },
+  "timeEntry.start": {
+    "params": {
+      "workspaceId": "77",
+      "additionalFields": {
+        "description": "Focus",
+        "taskId": 3
+      }
+    },
+    "response": {
+      "id": 10
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v9/workspaces/77/time_entries",
+      "query": {},
+      "body": {
+        "created_with": "mono-agent",
+        "workspace_id": 77,
+        "start": "<any>",
+        "duration": -1,
+        "description": "Focus",
+        "task_id": 3
+      }
+    }
+  },
+  "timeEntry.stop": {
+    "params": {
+      "workspaceId": "77",
+      "timeEntryId": "10"
+    },
+    "expect": {
+      "method": "PATCH",
+      "path": "/api/v9/workspaces/77/time_entries/10/stop",
+      "query": {}
+    }
+  },
+  "timeEntry.update": {
+    "params": {
+      "workspaceId": "77",
+      "timeEntryId": "10",
+      "updateFields": {
+        "description": "Renamed",
+        "stop": "2024-01-31T10:00:00Z"
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v9/workspaces/77/time_entries/10",
+      "query": {},
+      "body": {
+        "description": "Renamed",
+        "stop": "2024-01-31T10:00:00Z"
+      }
+    }
+  },
+  "project.create": {
+    "params": {
+      "workspaceId": "77",
+      "name": "Website",
+      "additionalFields": {
+        "color": "#06aaf5",
+        "isPrivate": true,
+        "clientId": "4"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/api/v9/workspaces/77/projects",
+      "query": {},
+      "body": {
+        "name": "Website",
+        "color": "#06aaf5",
+        "is_private": true,
+        "client_id": 4
+      }
+    }
+  },
+  "project.delete": {
+    "params": {
+      "workspaceId": "77",
+      "projectId": "12"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/api/v9/workspaces/77/projects/12",
+      "query": {}
+    }
+  },
+  "project.get": {
+    "params": {
+      "workspaceId": "77",
+      "projectId": "12"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v9/workspaces/77/projects/12",
+      "query": {}
+    }
+  },
+  "project.getAll": {
+    "params": {
+      "workspaceId": "77",
+      "limit": 20,
+      "filters": {
+        "active": "true",
+        "name": "Web"
+      }
+    },
+    "response": [
+      {
+        "id": 12
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/api/v9/workspaces/77/projects",
+      "query": {
+        "active": "true",
+        "name": "Web",
+        "page": "1",
+        "per_page": "20"
+      },
+      "items": 1
+    }
+  },
+  "project.update": {
+    "params": {
+      "workspaceId": "77",
+      "projectId": "12",
+      "updateFields": {
+        "name": "Site",
+        "active": false
+      }
+    },
+    "expect": {
+      "method": "PUT",
+      "path": "/api/v9/workspaces/77/projects/12",
+      "query": {},
+      "body": {
+        "name": "Site",
+        "active": false
+      }
+    }
+  },
+  "workspace.getAll": {
+    "params": {
+      "returnAll": true
+    },
+    "response": [
+      {
+        "id": 77
+      },
+      {
+        "id": 78
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/api/v9/me/workspaces",
+      "query": {},
+      "items": 2
+    }
+  },
+  "workspace.get": {
+    "params": {
+      "workspaceId": "77"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/v9/workspaces/77",
+      "query": {}
+    }
+  }
+}

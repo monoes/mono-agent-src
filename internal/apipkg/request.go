@@ -126,14 +126,8 @@ func (r *opRun) buildRequest(ctx context.Context, pp pageParams) (*built, error)
 		return nil, r.errf("request: %w", err)
 	}
 	for _, hs := range []map[string]string{r.pkg.Headers, r.op.Headers} {
-		for k, tv := range hs {
-			v, err := renderText(tv, sc)
-			if err != nil {
-				return nil, r.errf("header %s: %w", k, err)
-			}
-			if v != "" {
-				req.Header.Set(k, v)
-			}
+		if err := applyHeaders(req.Header, hs, sc); err != nil {
+			return nil, r.errf("%w", err)
 		}
 	}
 	if contentType != "" && req.Header.Get("Content-Type") == "" {

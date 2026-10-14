@@ -52,5 +52,22 @@
       "required": false,
       "type": "text"
     }
+  ],
+  "outputs": [
+    {
+      "description": "always \"schedule\"",
+      "key": "trigger_type",
+      "type": "string"
+    },
+    {
+      "description": "fire time, RFC 3339 UTC",
+      "key": "timestamp",
+      "type": "string"
+    },
+    {
+      "description": "true on a catch-up run for a missed tick (absent otherwise)",
+      "key": "catch_up",
+      "type": "boolean"
+    }
   ]
 }

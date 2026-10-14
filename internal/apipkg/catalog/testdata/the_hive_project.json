@@ -18,6 +18,11 @@
             "dataType": "ip",
             "data": "1.2.3.4",
             "tags": "x"
+          },
+          {
+            "dataType": "file",
+            "binaryProperty": "evidence",
+            "message": "pcap"
           }
         ]
       }
@@ -29,30 +34,24 @@
       "method": "POST",
       "path": "/api/v1/alert",
       "body": {
-        "title": "T",
-        "type": "ext",
-        "source": "s",
-        "sourceRef": "r",
-        "date": 1704067200000,
-        "tags": [
-          "a",
-          "b"
-        ],
-        "observables": [
-          {
-            "dataType": "ip",
-            "data": "1.2.3.4",
-            "tags": [
-              "x"
-            ]
-          }
-        ]
+        "_json": "{\"date\":1704067200000,\"observables\":[{\"data\":\"1.2.3.4\",\"dataType\":\"ip\",\"tags\":[\"x\"]},{\"attachment\":\"evidence\",\"dataType\":\"file\",\"message\":\"pcap\"}],\"source\":\"s\",\"sourceRef\":\"r\",\"tags\":[\"a\",\"b\"],\"title\":\"T\",\"type\":\"ext\"}",
+        "evidence": "file:x.pcap:hi"
       },
       "items": 1
     },
     "credential": {
       "url": "https://hive.example.com",
-      "api_key": "k"
+      "api_key": "k",
+      "allow_unauthorized_certs": true
+    },
+    "input": {
+      "binary": {
+        "evidence": {
+          "data": "aGk=",
+          "fileName": "x.pcap",
+          "mimeType": "application/vnd.tcpdump.pcap"
+        }
+      }
     }
   },
   "alert.deleteAlert": {
@@ -427,7 +426,9 @@
         "value": {
           "title": "C",
           "description": "d",
-          "startDate": "2024-01-01T00:00:00Z"
+          "startDate": "2024-01-01T00:00:00Z",
+          "customFields.severityScore": 7,
+          "customFields.team": "red"
         }
       }
     },
@@ -437,7 +438,11 @@
       "body": {
         "title": "C",
         "description": "d",
-        "startDate": 1704067200000
+        "startDate": 1704067200000,
+        "customFields": {
+          "severityScore": 7,
+          "team": "red"
+        }
       }
     },
     "credential": {
@@ -634,7 +639,10 @@
         "mode": "id",
         "value": "~456"
       },
-      "attachmentId": "at1"
+      "attachmentId": "at1",
+      "options": {
+        "dataPropertyName": "att"
+      }
     },
     "expect": {
       "method": "GET",

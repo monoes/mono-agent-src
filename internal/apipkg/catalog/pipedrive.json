@@ -13,6 +13,8 @@
     "n8n-nodes-base.pipedriveTrigger"
   ],
   "base_url": "https://api.pipedrive.com",
+  "error_when": "{{ res.success | eq:'false' }}",
+  "error_message": "{{ res.error }}{{ res.error_info | prefix:' (' | suffix:')' }}",
   "credentials": [
     {
       "platform": "pipedrive",

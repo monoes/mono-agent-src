@@ -3,6 +3,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/release"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +35,9 @@ func newExtensionInstallCmd() *cobra.Command {
 		Short: "Download the MonoAgent Bridge extension for this version and unpack it for your browser",
 		Long: "Downloads monoagent-chrome-extension.zip from the release that matches this\n" +
 			"CLI (the latest release for a development build), checks it against the\n" +
-			"release's SHA256SUMS.txt, and unpacks it into ~/.monoagent/extension. The\n" +
+			"release's signed manifest (Ed25519 signature, then the zip's sha256), and\n" +
+			"unpacks it into ~/.monoagent/extension. An older release whose manifest has\n" +
+			"no extension entry is checked against its SHA256SUMS.txt instead. The\n" +
 			"folder stays at that path, so the browser keeps loading it from there:\n" +
 			"after an update, run this again and click Reload on the extension.\n" +
 			"\n" +
@@ -83,10 +88,54 @@ func extensionDownloadBase(version string) string {
 	return extensionReleasesURL + "/download/" + version
 }
 
-// downloadExtensionZip fetches the extension zip and the release's
-// SHA256SUMS.txt and returns the zip only when its digest matches.
+// extensionManifestClient is the release client that reads the signed
+// manifest at manifestURL (a variable so tests can use a test key and server).
+var extensionManifestClient = func(manifestURL string) *release.Client {
+	c := release.DefaultClient()
+	c.ManifestURLs = []string{manifestURL}
+	// This reads the CLI's own release, which may be older than one `update`
+	// already accepted, so it keeps no rollback record.
+	c.StatePath = ""
+	c.MaxAssetBytes = maxExtensionZip
+	return c
+}
+
+// downloadExtensionZip returns the extension zip only after it is verified:
+// against the release's signed manifest (signature, then the zip's sha256),
+// or, when that manifest has no extension entry (releases before the
+// extension was listed) or no signed manifest can be had, against the
+// release's SHA256SUMS.txt. A manifest that fails a check is never a reason
+// to fall back.
 func downloadExtensionZip(out io.Writer, version string) ([]byte, error) {
 	base := extensionDownloadBase(version)
+	ctx := context.Background()
+	rc := extensionManifestClient(base + "/manifest.json")
+	m, err := rc.Latest(ctx)
+	switch {
+	case err == nil:
+		if !isDevVersion(version) && m.Version != version {
+			return nil, fmt.Errorf("the signed manifest at %s is for %s, not %s; nothing was installed", base, m.Version, version)
+		}
+		a, aerr := m.Asset(extensionZipAsset, "", "", "extension")
+		if aerr != nil {
+			fmt.Fprintf(out, "Manifest signature verified, but release %s lists no extension in it (an older release); checking against %s instead.\n", m.Version, sha256SumsAssetName)
+			break
+		}
+		fmt.Fprintf(out, "Manifest signature verified (release %s).\n", m.Version)
+		fmt.Fprintf(out, "Downloading %s (%s)...\n", extensionZipAsset, a.URL)
+		data, err := rc.Download(ctx, a)
+		if err != nil {
+			return nil, fmt.Errorf("%w; nothing was installed", err)
+		}
+		fmt.Fprintf(out, "Checksum verified against the signed manifest: %s SHA256 %s\n", extensionZipAsset, a.SHA256)
+		return data, nil
+	case !errors.Is(err, release.ErrUnavailable):
+		return nil, fmt.Errorf("the signed release manifest was rejected: %w; nothing was installed", err)
+	case !release.AllowLegacyGitHubUpdates:
+		return nil, fmt.Errorf("cannot verify the extension: %w", err)
+	default:
+		fmt.Fprintf(out, "No signed manifest to check against (%v); checking against %s only.\n", err, sha256SumsAssetName)
+	}
 	fmt.Fprintf(out, "Downloading %s (%s)...\n", extensionZipAsset, base)
 	data, err := httpGetAll(base + "/" + extensionZipAsset)
 	if err != nil {

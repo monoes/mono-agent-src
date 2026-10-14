@@ -426,5 +426,41 @@
       "query": {},
       "items": 1
     }
+  },
+  "timeEntry.getAll": {
+    "params": {
+      "workspaceId": "w1",
+      "limit": 10,
+      "filters": {
+        "start": "2024-01-01T00:00:00Z",
+        "hydrated": true,
+        "in-progress": false
+      }
+    },
+    "responses": [
+      {
+        "id": "u1"
+      },
+      [
+        {
+          "id": "e1"
+        },
+        {
+          "id": "e2"
+        }
+      ]
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/workspaces/w1/user/u1/time-entries",
+      "query": {
+        "start": "2024-01-01T00:00:00Z",
+        "hydrated": "true",
+        "in-progress": "false",
+        "page": "1",
+        "page-size": "10"
+      },
+      "items": 2
+    }
   }
 }

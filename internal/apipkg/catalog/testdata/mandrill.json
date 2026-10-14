@@ -25,6 +25,23 @@
             "value": "1"
           }
         ]
+      },
+      "attachmentsUi": {
+        "attachmentsBinary": [
+          {
+            "property": "data"
+          },
+          {
+            "property": "data2"
+          }
+        ],
+        "attachmentsValues": [
+          {
+            "type": "text/plain",
+            "name": "c.txt",
+            "content": "Yw=="
+          }
+        ]
       }
     },
     "credential": {
@@ -71,7 +88,38 @@
               "name": "fname",
               "content": "Ada"
             }
+          ],
+          "attachments": [
+            {
+              "name": "a.txt",
+              "content": "aGk=",
+              "type": "text/plain"
+            },
+            {
+              "name": "b.pdf",
+              "content": "eW8=",
+              "type": "application/pdf"
+            },
+            {
+              "type": "text/plain",
+              "name": "c.txt",
+              "content": "Yw=="
+            }
           ]
+        }
+      }
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "aGk=",
+          "fileName": "a.txt",
+          "mimeType": "text/plain"
+        },
+        "data2": {
+          "data": "eW8=",
+          "fileName": "b.pdf",
+          "mimeType": "application/pdf"
         }
       }
     }

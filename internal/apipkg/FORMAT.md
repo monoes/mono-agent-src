@@ -58,7 +58,7 @@ Where packages live:
   "category": "app",                       // palette group (keep "app")
   "docs_url": "https://developer.todoist.com/api/v1/",
   "n8n_types": ["n8n-nodes-base.todoist"],           // n8n node types this package imports
-  "n8n_trigger_types": ["n8n-nodes-base.todoistTrigger"], // trigger types (not supported yet; listed for the importer)
+  "n8n_trigger_types": ["n8n-nodes-base.todoistTrigger"], // trigger types (the importer maps them to webhook/schedule triggers, §12)
   "base_url": "https://api.todoist.com/api/v1",       // may use {{ cred.x }}
   "headers": { "Accept": "application/json" },        // sent on every request; templates allowed
   "credentials": [ … ],                    // §7
@@ -173,6 +173,7 @@ Scopes:
 | `cred.<key>` | the credential (the connection's fields, or OAuth tokens) |
 | `item.<path>` | the current input item's JSON |
 | `el.<path>` | the current element inside a `$map` (`el` alone is the element) |
+| `up.<path>` | inside a nested `$map`, the enclosing `$map`'s element (`{{ up \| get:el }}` reads the outer object at the key the inner list holds) |
 | `res.<path>` | the main request's decoded response, inside `also` steps |
 | `items` | every input item's JSON as a list, in `batch` operations |
 | `pre.<path>` | the decoded response of the op's (last) `before` request |
@@ -232,7 +233,7 @@ through, so an unset param stays unset:
 | `in:'a,b'` | `true` when the value is one of the listed (comma text, list or path), else nil |
 | `unflatten` | dotted keys → nested objects (`{"customFields.x": 1}` → `{"customFields": {"x": 1}}`; TheHive 5) |
 | `flatten` | lists and objects of lists → one flat list (object keys sorted; Rocket.Chat `{update: […], remove: […]}`) |
-| `snake` | lodash snake_case (`"Due Date"`, `"DueDate"` → `due_date`; Notion `property_*` keys) |
+| `snake` / `snake:'ascii'` | change-case v5 snake_case as n8n uses it (`"Due Date"`, `"DueDate"` → `due_date`, `"Q1 Goals"` → `q1_goals`: letters and digits stay together; accented letters kept, `"Prénom"` → `prénom`); `'ascii'` first turns every non-ASCII character into a separator (`pr_nom`, n8n Notion before node version 3) |
 | `values` | object → list of its values, by sorted key (maps keyed by id: Philips Hue lights) |
 | `hex` | hex text → integer (`#ff0000` → 16711680; `#`/`0x` stripped) |
 | `pluck:'path'` | list of objects → list of their values at `path` (empties dropped): `{{ p.options.fields.field \| pluck:'name' \| csv }}` |
@@ -242,7 +243,7 @@ through, so an unset param stays unset:
 | `escape_html` | escape `& < > " '`; on a list, each element (also `prefix`/`suffix`) |
 | `join:'sep'` | list → text joined by `sep`: `{{ p.bodyPlainText \| lines \| escape_html \| prefix:'<p>' \| suffix:'</p>' \| join:'' }}` |
 | `colnum`, `colname` | spreadsheet column letter ↔ 1-based number (`"C"` ↔ 3, `"AA"` ↔ 27) |
-| `path` | in a `path` template: escape each segment but keep `/` (Google resource names `spaces/A/messages/B`, `accounts/1/locations/2`) |
+| `path` / `path:'query'` | in a `path` template: escape each segment but keep `/` (Google resource names `spaces/A/messages/B`, `accounts/1/locations/2`); `'query'` also keeps a `?query` suffix as is (Confluence `"/wiki{{ el.downloadLink \| path:'query' }}"`) |
 | `entries` / `entries:'column,value'` | object → `[{key, value}, …]` sorted by key (names optional): Coda `"cells": "{{ el \| entries:'column,value' }}"`; `get:p.keyName` picks a key named by a param |
 | `sheetgid` | n8n sheet locator → sheet id text: `"gid=0"` (list mode), `…#gid=123` (url mode), `123` (id mode/expression), or the locator object itself |
 | `gid` | Google file id from a URL (`…/d/<id>/edit`, `…/folders/<id>`, `?id=<id>`); bare ids and non-Google values pass (n8n Docs `documentURL`) |
@@ -260,6 +261,15 @@ through, so an unset param stays unset:
 | `firestore_value` | a JSON value → a Firestore Value (stringValue, integerValue/doubleValue, booleanValue incl. "true"/"false", timestampValue for RFC 3339 text, nullValue, arrayValue, mapValue) |
 | `firestore_fields` / `firestore_fields:p.columns` | object → Firestore `fields` (all keys, or the listed columns with missing ones as nullValue) |
 | `omit:'a,b'` | object without the listed keys; the argument may be a path to a comma string or list (`omit:p.inputsToIgnore`) |
+| `len` | number of elements of a list, keys of an object or characters of a text: `{{ p.data \| fromjson \| len }}` (Excel raw append spans that many rows) |
+| `md5`, `sha1`, `sha256` / `…:'base64'` | hex digest of the value's text; with `'base64'` of the base64-decoded bytes, so a file's hash is `{{ bin.base64 \| sha256:'base64' }}` (Cortex attachment hashes) |
+| `mod:n` | remainder with the sign of `n` (`-1` with `mod:7` → `6`; `{{ p.offset \| mod:7 }}`) |
+| `weekday` | date or epoch → ISO weekday in UTC, 1 = Monday … 7 = Sunday. Monday of last week: `{{ (now \| date:'YYYY-MM-DD' \| epoch) \| sub:((now \| weekday \| add:6) \| mul:86400) \| date:'YYYY-MM-DD' }}` (GA4 `lastCalendarWeek`) |
+| `dotnet_date` | .NET JSON date `/Date(1586833770780)/` (optional `+0100` offset) → `2020-04-14T03:09:30.780Z`; objects and lists are converted deeply, other values pass. A whole response: `"output": {"to": "{{ el \| dotnet_date }}"}` (Unleashed) |
+| `wrap:n` | text broken into lines of at most `n` characters joined by CRLF (base64 bodies in MIME messages: `{{ p.message \| base64 \| wrap:76 }}`) |
+| `mime_parts:'boundary'` | `bin.files` → one base64 attachment part per file (Content-Type with the file's MIME type and name, Content-Disposition attachment, lines wrapped at 76) plus the closing `--boundary--`; an empty list is nil, a file without data fails naming its property. The template writes the `multipart/mixed` header and the text part (Gmail send/reply/draft) |
+| `sealbox:key` | the value's text sealed for a base64 X25519 public key (libsodium `crypto_box_seal`), base64: Venafi `"{{ p.privateKeyPassphrase \| sealbox:pres.1.key }}"` |
+| `urlencode` | object → `k=v&k2=v2` (keys sorted, each part percent-encoded like `encodeURIComponent`); any other value → its text percent-encoded: Azure `"x-ms-tags": "{{ p.options.tags \| kv:'tagName,tagValue' \| urlencode }}"` |
 
 **n8n `dataToSend` pattern.** `autoMapInputData` sends the input item, `defineBelow` sends the key/value rows:
 ```json
@@ -318,12 +328,35 @@ argument are not, so an optional path suffix works:
    - `none` — no body (`body` must be unset).
 4. Package `headers`, then op `headers` (rendered; empty values not sent).
    `Accept: application/json` unless set (or a download).
+   Header **names** may be templates; a header whose name renders empty is
+   not sent (`"{{ p.options.hdr }}": "{{ p.options.hdrValue }}"`). A
+   `"$merge"` entry spreads an object of headers (rendered first, so explicit
+   headers override it; empty names/values skipped; a non-object is an
+   error) — Azure custom metadata from an n8n key/value collection:
+   `"$merge": "{{ p.options.metadata | kv:'fieldName,fieldValue,x-ms-meta-' }}"`.
+   The same works in `also`/`before` step headers.
 5. Auth is injected last (§7).
 
 Responses: 2xx bodies are read up to 64 MiB (larger is an error); a non-2xx
 status is an error carrying up to 64 KiB of the body:
 `apipkg todoist task.get: HTTP 404: {"error":"…"}`. Error handling in
 workflows is the node's normal `on_error`.
+
+**Errors in a 2xx body (`error_when`).** Some APIs answer HTTP 200 with an
+error inside (JSON-RPC `{"error": …}`, Slack `{"ok": false}`, GraphQL
+`{"errors": […]}`). A package-level `error_when` template is checked on every
+2xx response of the package (main request, pages, `before`/`also`/`poll`
+steps, downloads) with `res` = the decoded body and `hdr` = its headers;
+when it renders true the item fails with `error_message` (a template in the
+same scope; empty → the body):
+```json
+"error_when": "{{ res.jsonrpc | then:res.error }}",
+"error_message": "{{ res.error.data.message | default:res.error.message }}"
+```
+→ `apipkg odoo contact.get: the API reported an error: Access Denied`. An
+operation's own `error_when`/`error_message` replace the package's (use
+`"error_when": "false"` to switch the check off for one op). Use `eq:'false'`
+for flags that are only an error when explicitly false (`{{ res.success | eq:'false' }}`).
 
 `method` may be a template (`"{{ p.sendResume | then:'POST' | default:'GET' }}"`), upper-cased and checked at run time. A `path` that is a single expression yielding an absolute `http(s)://` URL is used unescaped.
 
@@ -338,7 +371,7 @@ WebDAV methods MKCOL, MOVE, COPY, PROPFIND and PROPPATCH are allowed (NextCloud)
   "n8n_credential": "todoistApi",     // n8n credential type, for the importer
   "n8n_credential_alt": ["todoistOAuth2Api"],    // more n8n types mapping here
   "n8n_field_map": { "apiKey": "access_token" }, // n8n credential field → our field key
-  "methods": ["bearer", "oauth"],     // api_key | bearer | basic | oauth | none
+  "methods": ["bearer", "oauth"],     // api_key | bearer | basic | oauth | oauth1 | client_credentials | none
   "fields": [ { "key": "access_token", "label": "API token", "secret": true, "required": true, "help": "…" } ],
   "oauth": { "auth_url": "…", "token_url": "…", "scopes": ["a", "b"], "pkce": true, "extra_params": {} },
   "inject": {
@@ -380,7 +413,9 @@ WebDAV methods MKCOL, MOVE, COPY, PROPFIND and PROPPATCH are allowed (NextCloud)
   `X-Amz-Content-Sha256`.
 - `inject` must not be empty unless the only method is `none`.
 
-**Scope groups (`scope_group`).** A credential on an umbrella connection (`"reuse_platform": "google"` / `"microsoft"`) names the scope group it needs: `"scope_group": "calendar"` (google: sheets, gmail, drive, youtube, calendar, docs, forms, tasks, contacts; microsoft: mail, calendar, files, sites, teams). Before the first request the engine checks the connection grants it and otherwise fails with the exact `monoagentcli connect google --scopes …` command.
+**Scope groups (`scope_group`).** A credential on an umbrella connection (`"reuse_platform": "google"` / `"microsoft"`) names the scope group it needs: `"scope_group": "calendar"`. Groups (`monoagentcli connect --help` lists them under `--scopes`): google — sheets, gmail, drive, youtube, calendar, docs, forms, tasks, contacts, opt-in translate, naturallanguage, chat, bigquery, cloudstorage, firebase, ads, analytics, books, businessprofile, admin; microsoft — mail, calendar, files, sites, teams, tasks (To Do / Planner), contacts, opt-in teams_admin (channel create/settings/delete, reading channel messages), directory (Entra users and groups), security (Graph Security). Opt-in groups are granted only when named in `--scopes` (or `all`): their scopes need a Google review or a Microsoft tenant admin's consent, so a plain `connect` never asks for them. Before an item's request the engine checks the connection grants the group and otherwise fails with the exact `monoagentcli connect … --scopes …` command (non-umbrella connections are not judged).
+
+An **operation** may set its own `"scope_group"`, which replaces the credential's for that op — one package, several groups: Outlook's credential says `mail`, its calendar/event ops `"scope_group": "calendar"` and contact ops `"contacts"`; Teams channel management `teams_admin`, Planner tasks `tasks`. Names are validated against the umbrella's groups when the package has an umbrella credential.
 
 `inject.body: {"key": "{{ cred.api_key }}"}` merges credential values (typed: a single expression keeps booleans/numbers) into JSON/form/multipart bodies (Mandrill sends its key in every body).
 
@@ -403,6 +438,23 @@ WebDAV methods MKCOL, MOVE, COPY, PROPFIND and PROPPATCH are allowed (NextCloud)
              "extra_params": { "deviceName": "mono-agent", "deviceType": "2", "deviceIdentifier": "mono-agent" } },
   "inject": { "headers": { "Authorization": "Bearer {{ cred.access_token }}" } } }
 ```
+
+**OAuth 1.0a (`"methods": ["oauth1"]`, `inject.oauth1`).** Trello and Twitter/X v1.1-style user tokens. Every request gets an `Authorization: OAuth …` header signed per RFC 5849 over the method, URL, query and (for form bodies) the form fields. `inject.oauth1` keys are templates defaulting to `cred.consumer_key`, `cred.consumer_secret`, `cred.oauth_token`, `cred.oauth_token_secret`; `signature_method` (HMAC-SHA1 default, HMAC-SHA256, HMAC-SHA512, PLAINTEXT) and `realm` are optional, so `"oauth1": {}` is the usual inject. The credential declares those four fields and `oauth.request_token_url`, `oauth.auth_url` (the authorization page; it may carry its own query) and `oauth.token_url` (the access-token endpoint). `monoagentcli connect <platform>` then offers the three-legged flow (asks the consumer key/secret, opens the authorization page, stores the token pair) and the API-key form for pasting all four values.
+```json
+{ "platform": "trello_oauth1", "methods": ["oauth1"], "n8n_credential": "trelloOAuth1Api",
+  "fields": [ {"key":"consumer_key",…}, {"key":"consumer_secret",…}, {"key":"oauth_token",…}, {"key":"oauth_token_secret",…} ],
+  "oauth": { "request_token_url": "https://trello.com/1/OAuthGetRequestToken",
+             "auth_url": "https://trello.com/1/OAuthAuthorizeToken?scope=read,write&expiration=never&name=mono-agent",
+             "token_url": "https://trello.com/1/OAuthGetAccessToken" },
+  "inject": { "oauth1": {} } }
+```
+
+**Per-tenant OAuth (`oauth.connect_fields`).** `oauth.auth_url`, `token_url`, `scopes` and `extra_params` may be templates over `cred.*` when the endpoints depend on the account (Zendesk subdomain, self-managed GitLab, Microsoft tenant, Zoho data centre). List the credential fields they read in `connect_fields`: `connect` asks for them before opening the browser, stores them on the connection, and renders the endpoints from them at connect and at every token refresh (a reconnect keeps the earlier values). Zendesk:
+`"oauth": {"auth_url": "https://{{ cred.subdomain }}.zendesk.com/oauth/authorizations/new", "token_url": "https://{{ cred.subdomain }}.zendesk.com/oauth/tokens", "scopes": ["read", "write"], "connect_fields": ["subdomain"]}`.
+
+**Account lookup after connect (`oauth.metadata`).** `{"url": "https://login.mailchimp.com/oauth2/metadata", "headers": {"Authorization": "OAuth {{ cred.access_token }}"}, "fields": {"dc": "dc", "api_endpoint": "api_endpoint"}}` — after the OAuth flow the engine GETs `url` with the new token and stores the response values at the `fields` paths on the connection (readable as `cred.dc`). A connection that lacks them (connected earlier, or saved by hand) gets the same lookup before its first request, cached per token.
+
+**AWS AssumeRole.** Any `aws_sigv4` credential whose connection has `role_arn` (n8n's "AWS (Assume Role)" credential, `awsAssumeRole`) first calls STS AssumeRole with the connection's keys — `external_id` and `role_session_name` (default `mono-agent`) when set, on the regional STS endpoint of `region` (else the global one) — caches the temporary credentials until a minute before they expire, and signs with them: `cred.access_key_id`, `secret_access_key` and `session_token` are replaced by the role's. Packages need nothing beyond `"n8n_credential_alt": ["awsAssumeRole"]` and the field map (`roleArn` → `role_arn`, `externalId` → `external_id`, `roleSessionName` → `role_session_name`, `sts*` keys → the access keys).
 
 ## 8. Pagination
 
@@ -490,7 +542,53 @@ non-JSON body becomes `{"data": "<text>"}`; an empty body (e.g. 204) becomes
 - `"limit": true` applies n8n's `returnAll`/`limit` params to a list the API returns whole (client-side slicing; replaces the `__no_next_page__` pagination trick).
 - `expand` with `"expand_merge_key": "transcript", "expand_merge_path": "callTranscripts.0.transcript"` sets that key on the element instead of replacing it.
 - `"to": {"id": "{{ el.id }}", "$merge": "{{ el.values }}"}` reshapes each element (`el` = element; same rules as `$map`'s `$to`); `"to_when": "{{ p.options.rawData | ne:'true' }}"` skips the reshape when it renders empty/false. Runs after `match`.
-- `"match": {"rows": "{{ p.filtersUI.values }}", "column": "lookupColumn", "value": "lookupValue", "combine": "{{ p.combineFilters }}", "first": "{{ p.options.returnFirstMatch }}"}` keeps elements whose field named by each row's `column` key equals its `value` key — all rows (AND, default) or any (`combine` = OR); `first` keeps only the first match. No rows → everything is kept.
+- `"match": {"rows": "{{ p.filtersUI.values }}", "column": "lookupColumn", "value": "lookupValue", "combine": "{{ p.combineFilters }}", "first": "{{ p.options.returnFirstMatch }}"}` keeps elements whose field named by each row's `column` key equals its `value` key — all rows (AND, default) or any (`combine` = OR); `first` keeps only the first match. No rows → everything is kept. `rows` may give one object for a single condition: `"rows": "{{ p | pick:'lookupColumn,lookupValue' }}"`.
+- `"where": "{{ el.file }}"` keeps only the elements for which the template (`el` = the element) renders true — client-side filtering for APIs without a server-side filter (Graph delta: files only, no folders or the root). Runs after `download`, before `match`.
+- `"match_after_to": true` runs `match` after `to` instead of before, so it filters the reshaped elements (Excel table rows `{values: [[…]]}` zipped with their column names, then matched by column; `first` = `{{ p.options.returnAllMatches | ne:'true' }}`).
+
+**Files per element (`output.download`).** Fetches files for every output
+element (after `each`/`expand`, before `match`/`to`) and puts them on that
+element's item: the bytes in the item's binary data and
+`{fileName, mimeType, fileSize}` under `json.binary.<property>`. The element
+JSON stays the item (n8n's "download attachments" options). Keys: those of a
+step (`when`, `auth`, `method`, `path`, `base_url`, `query`, `headers`, …;
+no `for_each`) plus `files`, `property`, `file_name`, `mime_type`.
+```json
+"output": { "path": "fields.attachment", "download": {
+  "when": "{{ p.download }}", "method": "GET",
+  "path": "/api/3/attachment/content/{{ el.id }}",
+  "property": "{{ p.binaryProperty }}", "file_name": "{{ el.filename }}", "mime_type": "{{ el.mimeType }}" } }
+```
+- `when` and the templates see `el` = the element. A step `base_url` is not
+  inherited from the op: repeat a per-op `base_url` when the path is relative.
+- `files` (a template or builder giving a list; nested lists are spread one
+  level) downloads several files per element: each entry becomes `el`, the
+  element `up` and its position `idx`. NocoDB, one binary per attachment
+  named `<field>_<index>`:
+  `"files": {"$map": "{{ p.downloadFieldNames | split }}", "$to": {"$map": "{{ up.fields | get:el | fromjson }}", "$to": {"url": "{{ el.signedUrl | default:el.url }}", "property": "{{ up }}_{{ idx }}"}}}`
+  with `"path": "{{ el.url }}", "property": "{{ el.property }}"`.
+- `property` defaults to `data`, `mime_type` to the response's Content-Type,
+  `file_name` to its Content-Disposition name. The download is sent without
+  `Accept: application/json`; `"auth": false` leaves the credential off
+  (presigned file URLs: Notion files, Google Slides thumbnails).
+
+**Tree walks (`output.walk`).** Some n8n operations return a whole sub-tree: the API lists the records below an id only to a fixed depth, so the records at that depth are listed again until nothing new turns up. `walk` appends what it finds to the main result (the main response stays first; a list result keeps its elements):
+```json
+"output": { "walk": {
+  "when": "{{ p.includeDescendants }}",
+  "start": "{{ res.id }}",
+  "request": { "method": "GET", "path": "/wiki/api/v2/pages/{{ el }}/descendants", "query": { "depth": 10 } },
+  "pagination": { "type": "next_url", "next_url_path": "_links.next", "limit_param": "limit", "page_size": 250 },
+  "results_path": "results",
+  "descend": "{{ el.type | in:'page,folder' | then:(el.depth | eq:'10') }}",
+  "keep": "{{ el.type | eq:'page' }}",
+  "max": "{{ p.maxPages | sub:1 }}",
+  "fetch": { "method": "GET", "path": "/wiki/api/v2/pages", "query": { "id": "{{ el | csv }}" }, "chunk": 250, "results_path": "results" } } }
+```
+- `start` (a template or builder; `res` = the main response, or on a paginated op the list of every result) gives the first frontier: an id or a list of ids. Outlook folders with children: `{"$map": "{{ res }}", "$to": "{{ el.childFolderCount | ne:'0' | then:el.childFolderCount | then:el.id }}"}`. Each round sends `request` once per frontier id (`el` = the id), every page of it when `pagination` is set (any §8 type; `results_path` says where the records are). `request` and `fetch` take a step's `method`, `path`, `base_url`, `query`, `body`, `body_type`, `headers` and `auth`.
+- Per record (`el` = the record): `id` (default `{{ el.id }}`) — records with an empty or already seen id are skipped (start ids count as seen, so cycles end); `descend` — its id joins the next round's frontier; `keep` (default true) — it is collected. The walk ends when a round finds nothing to descend into or `max` records are kept; it stops mid-page at the cap. `max` empty = no cap; `0` or less walks nothing.
+- `fetch` (optional) replaces the kept records by full objects: the ids go out in chunks of `chunk` (default 100) with `el` = the chunk's list of ids, the objects at its `results_path` are matched back by `key` (default `{{ el.id }}`), in walk order; ids the API does not return are dropped.
+- The walked records go through the rest of `output` (`each`, `to`, …) with the main result.
 
 **Header-row output.** `"output": {"path": "values", "header_row": true}` turns `[[h1,h2],[v1,v2],…]` into one item per row keyed by the first row.
 
@@ -521,7 +619,7 @@ Workflow items carry files in `item.binary[<property>]` (n8n's
 - `upload_field`/`property_field` must be declared op fields (n8n uses
   `binaryPropertyName`).
 
-`binary.download_when` (template) decides per run whether the response is a file (GCS `alt=media`, Slides thumbnail download); it overrides `download`. `binary.upload_text` (template): when it renders non-empty, that text (Content-Type text/plain) is uploaded instead of the item's binary (GCS create from text).
+`binary.download_when` (template) decides per run whether the response is a file (GCS `alt=media`; for a file that a JSON response links to, see `output.download` in §9); it overrides `download`. `binary.upload_text` (template): when it renders non-empty, that text (Content-Type text/plain) is uploaded instead of the item's binary (GCS create from text).
 
 `binary.upload_when` (template) decides per run whether to upload (n8n `sendBinaryData`); without the upload a multipart op sends its `body` as JSON (or nothing). `binary.multipart_field` may be a template, and `binary.property` (template) overrides the property read from `upload_field` — n8n's `"formField:binaryProperty"` values: `"multipart_field": "{{ p.binaryPropertyName | split:':' | get:'-2' | default:'file' }}"`, `"property": "{{ p.binaryPropertyName | split:':' | get:'-1' }}"`.
 
@@ -529,7 +627,9 @@ Workflow items carry files in `item.binary[<property>]` (n8n's
 
 `binary.fallback_body_type` (json/form/multipart/raw/none) is the body type when `upload_when` turns the upload off (LINE Notify stays a form without an image).
 
-**Several files.** `binary.properties` (a template giving a list or comma text, e.g. n8n's `"attachments": "data,data2"`) uploads each property: in a multipart body one part per file, with `el = {property, index}` in the `multipart_field` template (`"attachment[{{ el.index }}]"`); for JSON bodies `bin.files` is the list of `{property, file_name, mime_type, file_extension, base64, file_size}` (`{"$map": "{{ bin.files }}", "$to": {"name": "{{ el.file_name }}", "content": "{{ el.base64 }}"}}`).
+**Large files in chunks (`upload_session`).** `"binary": {"upload_field": "binaryPropertyName", "upload_session": {"create": {"method": "POST", "path": "/items/{{ p.parentId }}:/{{ p.fileName }}:/createUploadSession", "body": {"item": {"@microsoft.graph.conflictBehavior": "replace"}}}}}` — when the upload is larger than `min_size` bytes (default 4 MiB) the engine sends `create` (a step, with auth), reads the upload URL at `url_path` (default `uploadUrl`) of its response, and PUTs the file there in `chunk_size` pieces (default 10 MiB; Graph wants multiples of 320 KiB) with `Content-Range: bytes a-b/total` and no credential (the URL is pre-authorised). The last chunk's response is the op's response. Smaller files go in the op's single request as before (OneDrive / SharePoint upload).
+
+**Several files.** `binary.properties` (a template giving a list or comma text, e.g. n8n's `"attachments": "data,data2"`) uploads each property: in a multipart body one part per file, with `el = {property, index}` in the `multipart_field` template (`"attachment[{{ el.index }}]"`); for JSON bodies `bin.files` is the list of `{property, file_name, mime_type, file_extension, base64, file_size}` (`{"$map": "{{ bin.files }}", "$to": {"name": "{{ el.file_name }}", "content": "{{ el.base64 }}"}}`). `binary.properties` without `upload_field` only fills `bin.files` (nothing is uploaded), for bodies that embed the files themselves — Gmail builds a MIME message: `"binary": {"properties": "{{ p.options.attachmentsUi.attachmentsBinary | pluck:'property' | join:',' }}"}` with `{{ bin.files | mime_parts:'monoagent_mixed' }}` in its raw body.
 
 ## 11. `extends` (apps with a native Go node)
 
@@ -549,8 +649,12 @@ An `extends` package's operation without a resource must not reuse one of the na
 ## 12. n8n compatibility
 
 - `n8n_types` — n8n node types imported as this package; `n8n_trigger_types`
-  — trigger types of the same app, listed so the importer can say "not
-  supported yet". A type may appear in one package only.
+  — trigger types of the same app. The importer rebuilds them from its
+  trigger tables (`internal/n8nimport/app_triggers_*.go`): a webhook trigger
+  becomes `trigger.webhook`, a polling trigger `trigger.schedule` → this
+  package's list operation → `core.remove_duplicates`. A new trigger type
+  needs a line in one of those tables (`TestEveryCatalogTriggerIsMapped`
+  checks). A type may appear in one package only.
 - `apipkg.N8nIndex()` gives the importer, per n8n type: package id,
   `node_type`/`extends`, default resource and default operation per resource,
   credential mappings (n8n credential type → platform + field map) and per
@@ -718,7 +822,7 @@ Optional keys the engine added (the design's keys are unchanged):
 
 | Where | Key | Meaning |
 |---|---|---|
-| package | `n8n_trigger_types` | n8n trigger types of the app (unsupported for now) |
+| package | `n8n_trigger_types` | n8n trigger types of the app (imported as webhook/schedule triggers) |
 | credential | `n8n_credential_alt` | further n8n credential types |
 | credential | `n8n_field_map` | n8n credential field → our field |
 | resource | `description` | help text |
@@ -739,4 +843,18 @@ Optional keys the engine added (the design's keys are unchanged):
 | credential | method `client_credentials`; `oauth.client_id_field`, `client_secret_field`, `client_auth` (`auth_url` optional for it) | §7 |
 | operation | `also` (follow-up requests), `batch` (one request for all items) | §9 |
 | templates | filters `split`, `date`; `kv` key prefix; root `items` | §5 |
+| templates | filters `len`, `urlencode`; templated header names, headers `$merge` | §5, §6 |
+| operation | `scope_group` (overrides the credential's) | §7 |
+| output | `match_after_to`; `match.rows` may be one object | §9 |
+| binary | `upload_session` (`create`, `min_size`, `chunk_size`, `url_path`) | §10 |
+| package, operation | `error_when`, `error_message` (fail a 2xx body that reports an error) | §6 |
+| output | `download` (per-element files: `files`, `property`, `file_name`, `mime_type`) | §9 |
+| templates | root `up`; filters `md5`, `sha1`, `sha256`, `mod`, `weekday`, `dotnet_date`; `snake:'ascii'`, `path:'query'`; `snake` follows change-case v5 | §5 |
 | schema output | `visible_for`, `apipkg`, `extended_by` | exact op visibility; package id; extending packages |
+| credential | method `oauth1`, `inject.oauth1`, `oauth.request_token_url`, `oauth.signature_method` | §7 OAuth 1.0a |
+| credential | `oauth.connect_fields` (templated per-tenant OAuth endpoints), `oauth.metadata` | §7 |
+| credential | AWS AssumeRole via connection `role_arn` (`external_id`, `role_session_name`) | §7 |
+| templates, binary | filters `wrap`, `mime_parts`; `binary.properties` without `upload_field` | §5, §10 |
+| output | `where` (keep elements by a template) | §9 |
+| templates | filter `sealbox` | §5 |
+| output | `walk` (tree walk over a growing id frontier, optional chunked `fetch`) | §9 |

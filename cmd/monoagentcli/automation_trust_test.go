@@ -85,15 +85,6 @@ func TestAutomationTrustAndReplaceBuiltin(t *testing.T) {
 	}
 }
 
-func TestAutomationReviewPrintsScriptSources(t *testing.T) {
-	var b strings.Builder
-	printScriptSources(&b, map[string]string{"grab.js": "return document.title"})
-	s := b.String()
-	if !strings.Contains(s, "WARNING") || !strings.Contains(s, "return document.title") || !strings.Contains(s, "scripts/grab.js") {
-		t.Fatalf("output:\n%s", s)
-	}
-}
-
 func TestAutomationInstallLocalAndNewInstall(t *testing.T) {
 	home := t.TempDir()
 	// --local is refused for an archive.

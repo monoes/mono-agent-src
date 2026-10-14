@@ -1757,6 +1757,7 @@ button.dash-row:hover { background: var(--elevated); }
   color: var(--text-muted, #888);
   margin-top: 2px;
   margin-bottom: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Ready-made values a field offers (NodeSchemaField.Examples) — click to

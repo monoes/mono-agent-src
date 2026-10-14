@@ -164,5 +164,12 @@
       "rows": 2,
       "type": "textarea"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the input item passes through unchanged after the message is published",
+      "key": "*",
+      "type": "any"
+    }
   ]
 }
