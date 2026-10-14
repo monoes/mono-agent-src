@@ -27,6 +27,15 @@
       "key": "formFields",
       "label": "Form Fields",
       "language": "json",
+      "options": [
+        "text",
+        "email",
+        "number",
+        "textarea",
+        "dropdown",
+        "date",
+        "checkbox"
+      ],
       "placeholder": "[{\"fieldLabel\": \"Email\", \"fieldType\": \"email\", \"requiredField\": true}]",
       "required": true,
       "rows": 6,

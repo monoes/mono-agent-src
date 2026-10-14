@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { ChevronUp, ChevronDown, Trash2, Plus } from 'lucide-react'
 import {
-  FORM_FIELD_TYPES, OPTION_TYPES, parseFormFields, serializeFormFields, validateFormFields,
+  formFieldCapabilities, OPTION_TYPES, parseFormFields, serializeFormFields, validateFormFields,
   newField, moveItem,
 } from './formFieldsModel.js'
 import { collectionText, jsonTextError } from './nodeInspectorRules.js'
@@ -58,6 +58,7 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
 
   const { mode, fields, text, note } = state
   const errors = validateFormFields(fields)
+  const caps = formFieldCapabilities(field)
 
   const update = next => {
     setState(s => ({ ...s, fields: next }))
@@ -126,6 +127,7 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
             f={f}
             index={i}
             count={fields.length}
+            caps={caps}
             error={errors[f.id]}
             inputStyle={inputStyle}
             labelRef={el => { labelRefs.current[f.id] = el }}
@@ -150,10 +152,10 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
   )
 }
 
-function FieldCard({ f, index, count, error, inputStyle, labelRef, onPatch, onMove, onRemove }) {
+function FieldCard({ f, index, count, caps, error, inputStyle, labelRef, onPatch, onMove, onRemove }) {
   const n = index + 1
   const errorId = `form-field-${f.id}-error`
-  const types = FORM_FIELD_TYPES.includes(f.fieldType) ? FORM_FIELD_TYPES : [...FORM_FIELD_TYPES, f.fieldType]
+  const types = caps.types.includes(f.fieldType) ? caps.types : [...caps.types, f.fieldType]
   const takesOptions = OPTION_TYPES.has(f.fieldType)
   const takesPlaceholder = !takesOptions
   const options = f.options || []
@@ -227,6 +229,22 @@ function FieldCard({ f, index, count, error, inputStyle, labelRef, onPatch, onMo
             onClick={() => setOptions([...options, { option: '' }])}>
             <Plus size={10} /> Add option
           </button>
+          {caps.multiselect && f.fieldType === 'dropdown' && (
+            <label style={{ ...mono, fontSize: 10, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input
+                type="checkbox"
+                checked={f.rest?.multiselect === true}
+                onChange={e => {
+                  const rest = { ...f.rest }
+                  if (e.target.checked) rest.multiselect = true
+                  else delete rest.multiselect
+                  onPatch({ rest })
+                }}
+                style={{ accentColor: '#00b4d8', width: 13, height: 13 }}
+              />
+              Allow several choices
+            </label>
+          )}
         </div>
       )}
       {error && <div id={errorId} role="alert" style={errorStyle}>{error}</div>}
@@ -270,11 +288,11 @@ function PreviewField({ f }) {
   const label = String(f.fieldLabel ?? '').trim() || 'Untitled field'
   const star = f.requiredField ? <span aria-hidden="true"> *</span> : null
   const options = (f.options || []).map(o => String(o.option ?? '').trim()).filter(Boolean)
-  if (f.fieldType === 'checkbox' && options.length) {
+  if ((f.fieldType === 'checkbox' && options.length) || f.fieldType === 'radio') {
     return (
       <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
         <legend style={pv.label}>{label}{star}</legend>
-        {options.map(o => <label key={o} style={{ display: 'block', marginTop: 4 }}><input type="checkbox" tabIndex={-1} /> {o}</label>)}
+        {options.map(o => <label key={o} style={{ display: 'block', marginTop: 4 }}><input type={f.fieldType} tabIndex={-1} /> {o}</label>)}
       </fieldset>
     )
   }
@@ -283,7 +301,13 @@ function PreviewField({ f }) {
   }
   let control
   if (f.fieldType === 'textarea') control = <textarea rows={3} tabIndex={-1} readOnly placeholder={f.placeholder} style={pv.input} />
-  else if (f.fieldType === 'dropdown' || f.fieldType === 'radio') {
+  else if (f.fieldType === 'dropdown' && f.rest?.multiselect === true) {
+    control = (
+      <select multiple tabIndex={-1} className="select-compact" style={previewSelect}>
+        {options.map(o => <option key={o}>{o}</option>)}
+      </select>
+    )
+  } else if (f.fieldType === 'dropdown') {
     control = (
       <select tabIndex={-1} className="select-compact" style={previewSelect} defaultValue="">
         <option value="">Choose…</option>
@@ -291,7 +315,7 @@ function PreviewField({ f }) {
       </select>
     )
   } else {
-    const type = ['email', 'number', 'date'].includes(f.fieldType) ? f.fieldType : 'text'
+    const type = ['email', 'number', 'date', 'password'].includes(f.fieldType) ? f.fieldType : 'text'
     control = <input type={type} tabIndex={-1} readOnly placeholder={f.placeholder} style={pv.input} />
   }
   return <label style={pv.label}>{label}{star}{control}</label>

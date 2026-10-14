@@ -14,8 +14,18 @@
 // written as {values: [{option}]}, the shape every form node reads. Keys the
 // editor does not know (n8n has more per field) are kept as they were.
 
-// The field types the engine serves.
+// The field types trigger.form serves, offered when the schema field
+// declares none.
 export const FORM_FIELD_TYPES = ['text', 'email', 'number', 'textarea', 'dropdown', 'date', 'checkbox']
+
+// formFieldCapabilities reads what a node's form serves from its schema
+// field: `options` lists the fieldType values, plus "multiselect" when a
+// dropdown may take several choices (the Wait node's form).
+export function formFieldCapabilities(field) {
+  const declared = Array.isArray(field?.options) ? field.options.map(String).filter(Boolean) : []
+  const types = declared.filter(t => t !== 'multiselect')
+  return { types: types.length ? types : FORM_FIELD_TYPES, multiselect: declared.includes('multiselect') }
+}
 
 // Types whose choices the editor lists. A dropdown needs at least one; a
 // checkbox with options is a group of boxes, without them a single box.

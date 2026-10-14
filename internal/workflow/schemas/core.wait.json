@@ -135,6 +135,18 @@
       "key": "formFields",
       "label": "Form Fields",
       "language": "json",
+      "options": [
+        "text",
+        "textarea",
+        "number",
+        "email",
+        "password",
+        "date",
+        "dropdown",
+        "radio",
+        "checkbox",
+        "multiselect"
+      ],
       "placeholder": "[{\"fieldLabel\": \"Name\", \"requiredField\": true}]",
       "required": false,
       "rows": 6,

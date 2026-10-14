@@ -7,9 +7,9 @@ import FormFieldsEditor from './FormFieldsEditor.jsx'
 afterEach(cleanup)
 
 const field = { key: 'formFields', label: 'Form Fields (JSON)', type: 'code', language: 'json', required: true }
-const setup = (value, config = {}) => {
+const setup = (value, config = {}, schemaField = field) => {
   const onCommit = vi.fn()
-  render(<FormFieldsEditor field={field} value={value} config={config} onCommit={onCommit} inputStyle={{}} />)
+  render(<FormFieldsEditor field={schemaField} value={value} config={config} onCommit={onCommit} inputStyle={{}} />)
   return onCommit
 }
 const type = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
@@ -107,5 +107,43 @@ describe('FormFieldsEditor', () => {
     expect(screen.getByLabelText('Form Fields (JSON) JSON')).toHaveValue('{{ $json.fields }}')
     expect(screen.getByRole('alert')).toHaveTextContent(/template/)
     expect(onCommit).not.toHaveBeenCalled()
+  })
+})
+
+describe('FormFieldsEditor field types from the schema', () => {
+  const typesOf = label => [...screen.getByLabelText(label).options].map(o => o.value)
+  const waitField = {
+    key: 'formFields', label: 'Form Fields', type: 'code',
+    options: ['text', 'textarea', 'number', 'email', 'password', 'date', 'dropdown', 'radio', 'checkbox', 'multiselect'],
+  }
+  const formField = { ...field, options: ['text', 'email', 'number', 'textarea', 'dropdown', 'date', 'checkbox'] }
+
+  it('offers trigger.form only the types it serves, with no several-choices toggle', () => {
+    setup([{ fieldLabel: 'Plan', fieldType: 'dropdown', fieldOptions: ['A'] }], {}, formField)
+    expect(typesOf('Field 1 type')).toEqual(formField.options)
+    expect(screen.queryByLabelText('Allow several choices')).toBeNull()
+  })
+
+  it('offers the Wait form password, radio and several choices on a dropdown', () => {
+    const onCommit = setup([{ fieldLabel: 'Plan', fieldType: 'dropdown', fieldOptions: ['A', 'B'] }], {}, waitField)
+    expect(typesOf('Field 1 type')).toEqual(waitField.options.filter(t => t !== 'multiselect'))
+
+    fireEvent.click(screen.getByLabelText('Allow several choices'))
+    expect(onCommit).toHaveBeenLastCalledWith([
+      { fieldLabel: 'Plan', fieldType: 'dropdown', fieldOptions: { values: [{ option: 'A' }, { option: 'B' }] }, multiselect: true },
+    ])
+    const preview = within(screen.getByRole('region', { name: 'Form preview' }))
+    expect(preview.getByRole('listbox')).toHaveAttribute('multiple')
+    fireEvent.click(screen.getByLabelText('Allow several choices'))
+    expect(onCommit.mock.lastCall[0][0]).not.toHaveProperty('multiselect')
+
+    type('Field 1 type', 'radio')
+    expect(screen.queryByLabelText('Allow several choices')).toBeNull()
+    expect(preview.getAllByRole('radio')).toHaveLength(2)
+  })
+
+  it('previews a password field as a password input', () => {
+    const { container } = render(<FormFieldsEditor field={waitField} value={[{ fieldLabel: 'Secret', fieldType: 'password', placeholder: 'shh' }]} config={{}} onCommit={vi.fn()} inputStyle={{}} />)
+    expect(container.querySelector('section[aria-label="Form preview"] input[placeholder="shh"]')).toHaveAttribute('type', 'password')
   })
 })

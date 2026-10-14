@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { parseFormFields, serializeFormFields, validateFormFields, newField, moveItem } from './formFieldsModel.js'
+import { parseFormFields, serializeFormFields, validateFormFields, newField, moveItem, formFieldCapabilities, FORM_FIELD_TYPES } from './formFieldsModel.js'
+import triggerForm from '../../../../internal/workflow/schemas/trigger.form.json'
+import coreWait from '../../../../internal/workflow/schemas/core.wait.json'
 import { isFormFieldsField } from './nodeInspectorRules.js'
 
 const roundTrip = v => {
@@ -105,5 +107,26 @@ describe('isFormFieldsField', () => {
     expect(isFormFieldsField({ key: 'formFields', type: 'code' })).toBe(true)
     expect(isFormFieldsField({ key: 'formTitle' })).toBe(false)
     expect(isFormFieldsField(undefined)).toBe(false)
+  })
+})
+
+describe('formFieldCapabilities', () => {
+  const formFieldsOf = schema => schema.fields.find(f => f.key === 'formFields')
+  it('offers what the schema declares: trigger.form serves the seven types, no multiselect', () => {
+    expect(formFieldCapabilities(formFieldsOf(triggerForm))).toEqual({ types: FORM_FIELD_TYPES, multiselect: false })
+  })
+  it('offers the Wait form its extra types and multiselect', () => {
+    const caps = formFieldCapabilities(formFieldsOf(coreWait))
+    expect(caps.types).toEqual(expect.arrayContaining(['password', 'radio', 'dropdown', 'checkbox']))
+    expect(caps.types).not.toContain('multiselect')
+    expect(caps.multiselect).toBe(true)
+  })
+  it('falls back to the trigger.form types when the schema declares none', () => {
+    expect(formFieldCapabilities({ key: 'formFields' })).toEqual({ types: FORM_FIELD_TYPES, multiselect: false })
+    expect(formFieldCapabilities(undefined).types).toBe(FORM_FIELD_TYPES)
+  })
+  it('requires options on a radio field', () => {
+    const f = parseFormFields([{ fieldLabel: 'Size', fieldType: 'radio' }]).fields
+    expect(validateFormFields(f)[f[0].id]).toBe('Add at least one option.')
   })
 })
