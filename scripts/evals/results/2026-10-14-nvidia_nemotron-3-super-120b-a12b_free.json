@@ -1,0 +1,773 @@
+{
+ "v": 1,
+ "label": "nvidia/nemotron-3-super-120b-a12b:free",
+ "binary": "/home/monoes/scratch/rw-qa-home-agents/bin/monoagentcli",
+ "started": "20261014-093818",
+ "seconds": 2574.3,
+ "results": [
+  {
+   "task": "aggregate-sum",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 16,
+   "seconds": 123.2,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/aggregate-sum-cli.json"
+  },
+  {
+   "task": "aggregate-sum",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 26,
+   "seconds": 95.9,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/aggregate-sum-mcp.json"
+  },
+  {
+   "task": "code-transform",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": false,
+     "detail": "status FAILED, want SUCCESS; non-success nodes: n2:FAILED"
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": false,
+     "detail": "no successful core.code node with output; non-success nodes: n2:FAILED"
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": false,
+     "detail": "no successful core.code node with output; non-success nodes: n2:FAILED"
+    }
+   ],
+   "steps": 12,
+   "seconds": 61.6,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/code-transform-cli.json"
+  },
+  {
+   "task": "code-transform",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": false,
+     "detail": "status FAILED, want SUCCESS; non-success nodes: node-8cbfa8d6-12be-4c96-9adb-54b79d8f0536:FAILED"
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": false,
+     "detail": "missing node types ['core.code'] (have ['code', 'http.request', 'trigger.manual'])"
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": false,
+     "detail": "no successful core.code node with output; non-success nodes: node-8cbfa8d6-12be-4c96-9adb-54b79d8f0536:FAILED"
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": false,
+     "detail": "no successful core.code node with output; non-success nodes: node-8cbfa8d6-12be-4c96-9adb-54b79d8f0536:FAILED"
+    }
+   ],
+   "steps": 30,
+   "seconds": 98.1,
+   "finished": false,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/code-transform-mcp.json"
+  },
+  {
+   "task": "http-filter-csv",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": false,
+     "detail": "status FAILED, want SUCCESS; non-success nodes: n4:FAILED"
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "file",
+     "type": "file",
+     "pass": false,
+     "detail": "cannot read /home/monoes/scratch/monoagent-evals-20261014-093818/http-filter-csv-cli-785kf_6f/out/expensive.csv: No such file or directory"
+    }
+   ],
+   "steps": 30,
+   "seconds": 306.7,
+   "finished": false,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/http-filter-csv-cli.json"
+  },
+  {
+   "task": "http-filter-csv",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": false,
+     "detail": "status FAILED, want SUCCESS; non-success nodes: node-cee78017-6497-42c5-b04f-baf9d8d7ef53:FAILED"
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "file",
+     "type": "file",
+     "pass": false,
+     "detail": "cannot read /home/monoes/scratch/monoagent-evals-20261014-093818/http-filter-csv-mcp-xfnvaofn/out/expensive.csv: No such file or directory"
+    }
+   ],
+   "steps": 30,
+   "seconds": 177.7,
+   "finished": false,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/http-filter-csv-mcp.json"
+  },
+  {
+   "task": "if-routing",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": false,
+     "detail": "missing [\"premium\"] in [\"budget\", \"budget\", \"budget\", \"budget\"]"
+    }
+   ],
+   "steps": 22,
+   "seconds": 234.9,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/if-routing-cli.json"
+  },
+  {
+   "task": "if-routing",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": false,
+     "detail": "exit 3: fed080-6889-4598-8178-b5670648f721\": required field \"assignments\" is missing (set config.assignments (see `monoagentcli node schema core.set`))\nnode \"node-31f7dc27-b5bf-42eb-992d-5e1e17cda456\": required field \"assignments\" is missing (set config.assignments (see `monoagentcli node schema core.set`))"
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": false,
+     "detail": "status FAILED, want SUCCESS; non-success nodes: node-31f7dc27-b5bf-42eb-992d-5e1e17cda456:FAILED"
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": false,
+     "detail": "no successful core.merge node with output; non-success nodes: node-31f7dc27-b5bf-42eb-992d-5e1e17cda456:FAILED"
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": false,
+     "detail": "no successful core.merge node with output; non-success nodes: node-31f7dc27-b5bf-42eb-992d-5e1e17cda456:FAILED"
+    }
+   ],
+   "steps": 30,
+   "seconds": 363.8,
+   "finished": false,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/if-routing-mcp.json"
+  },
+  {
+   "task": "rss-read",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_validate_ok",
+     "type": "mcp_validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_run_status",
+     "type": "mcp_run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 13,
+   "seconds": 51.1,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/rss-read-cli.json"
+  },
+  {
+   "task": "rss-read",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_validate_ok",
+     "type": "mcp_validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_run_status",
+     "type": "mcp_run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 12,
+   "seconds": 55.9,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/rss-read-mcp.json"
+  },
+  {
+   "task": "schedule-daily",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_config",
+     "type": "node_config",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "inactive",
+     "type": "inactive",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 11,
+   "seconds": 67.6,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/schedule-daily-cli.json"
+  },
+  {
+   "task": "schedule-daily",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_config",
+     "type": "node_config",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "inactive",
+     "type": "inactive",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 11,
+   "seconds": 25.4,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/schedule-daily-mcp.json"
+  },
+  {
+   "task": "set-template",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_validate_ok",
+     "type": "mcp_validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_run_status",
+     "type": "mcp_run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 11,
+   "seconds": 63.6,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/set-template-cli.json"
+  },
+  {
+   "task": "set-template",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_validate_ok",
+     "type": "mcp_validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "mcp_run_status",
+     "type": "mcp_run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 17,
+   "seconds": 113.8,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/set-template-mcp.json"
+  },
+  {
+   "task": "webhook-set-respond",
+   "mode": "cli",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_config",
+     "type": "node_config",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 14,
+   "seconds": 89.9,
+   "finished": true,
+   "agent_error": "",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/webhook-set-respond-cli.json"
+  },
+  {
+   "task": "webhook-set-respond",
+   "mode": "mcp",
+   "checks": [
+    {
+     "check": "validate_ok",
+     "type": "validate_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "dry_run_ok",
+     "type": "dry_run_ok",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "run_status",
+     "type": "run_status",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_types",
+     "type": "node_types",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "node_config",
+     "type": "node_config",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "check": "output",
+     "type": "output",
+     "pass": true,
+     "detail": ""
+    }
+   ],
+   "steps": 20,
+   "seconds": 602.2,
+   "finished": false,
+   "agent_error": "openrouter: model request took longer than 1 s (no time left to retry)",
+   "transcript": "/home/monoes/scratch/monoagent-evals-20261014-093818/transcripts/webhook-set-respond-mcp.json"
+  }
+ ]
+}
