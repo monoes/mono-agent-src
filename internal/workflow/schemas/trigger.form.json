@@ -25,7 +25,7 @@
     {
       "help": "A list of fields: {fieldLabel, fieldType (text, email, number, textarea, dropdown, date, checkbox), fieldOptions (dropdown and checkbox choices), requiredField, placeholder}. Answers are keyed by fieldLabel.",
       "key": "formFields",
-      "label": "Form Fields (JSON)",
+      "label": "Form Fields",
       "language": "json",
       "placeholder": "[{\"fieldLabel\": \"Email\", \"fieldType\": \"email\", \"requiredField\": true}]",
       "required": true,
