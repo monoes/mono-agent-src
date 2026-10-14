@@ -240,12 +240,3 @@ func ReadDraft(dir string) (*Draft, error) {
 	}
 	return &d, nil
 }
-
-// WriteDraftMeta rewrites draft.json only.
-func WriteDraftMeta(dir string, d *Draft) error {
-	b, err := json.MarshalIndent(d, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeFile(filepath.Join(dir, DraftFile), append(b, '\n'))
-}

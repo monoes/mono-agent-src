@@ -17,7 +17,8 @@
       "n8n_credential": "mattermostApi",
       "n8n_field_map": {
         "accessToken": "access_token",
-        "baseUrl": "base_url"
+        "baseUrl": "base_url",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "bearer"
@@ -34,6 +35,11 @@
           "label": "Base URL",
           "required": true,
           "help": "e.g. https://chat.example.com (no trailing slash)"
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {

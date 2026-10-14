@@ -40,7 +40,7 @@ func TestManifestGeneration(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	if m.Schema != 1 || m.Version != "v1.2.3" || len(m.Assets) != 9 {
+	if m.Schema != 1 || m.Version != "v1.2.3" || len(m.Assets) != 10 {
 		t.Fatalf("unexpected manifest: %+v", m)
 	}
 	if _, err := time.Parse(time.RFC3339, m.ReleasedAt); err != nil {
@@ -50,8 +50,28 @@ func TestManifestGeneration(t *testing.T) {
 	for _, a := range m.Assets {
 		got[a.Name] = a
 	}
-	if _, ok := got["monoagent-chrome-extension.zip"]; ok || got["NOTICE"].Name != "" {
-		t.Fatal("extension zip and NOTICE have no platform and must not be assets")
+	if got["NOTICE"].Name != "" {
+		t.Fatal("NOTICE is not a download and must not be an asset")
+	}
+	ext := got["monoagent-chrome-extension.zip"]
+	if ext.Kind != "extension" || ext.OS != "" || ext.Arch != "" || len(ext.SHA256) != 64 ||
+		ext.URL != "https://github.com/monoes/mono-agent/releases/download/v1.2.3/monoagent-chrome-extension.zip" {
+		t.Errorf("extension asset: %+v", ext)
+	}
+	// The extension has no platform: os and arch are left out of its entry, so
+	// a client picking by os/arch never selects it.
+	var rawAssets struct {
+		Assets []map[string]any `json:"assets"`
+	}
+	if err := json.Unmarshal(raw, &rawAssets); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range rawAssets.Assets {
+		_, hasOS := a["os"]
+		_, hasArch := a["arch"]
+		if (a["kind"] == "extension") == (hasOS || hasArch) {
+			t.Errorf("os/arch presence wrong for %v", a)
+		}
 	}
 	cases := map[string][3]string{
 		"monoagentcli-windows-amd64.exe": {"windows", "amd64", "cli"},
@@ -199,5 +219,48 @@ func TestSignFromKeyringSeedAndFullKey(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestCheckRequiresTheExtensionInTheManifest(t *testing.T) {
+	dir := fixture(t)
+	if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3"}); err != nil {
+		t.Fatal(err)
+	}
+	mpath := filepath.Join(dir, "manifest.json")
+	prefix := "https://github.com/monoes/mono-agent/releases/download/v1.2.3/"
+	args := []string{"check", "-manifest", mpath, "-assets-dir", dir, "-expect-version", "v1.2.3", "-url-prefix", prefix}
+	if err := run(args); err != nil {
+		t.Fatalf("check of a fresh manifest: %v", err)
+	}
+	// A manifest written before the extension was an asset no longer matches
+	// a dir that holds the zip.
+	var m Manifest
+	raw, _ := os.ReadFile(mpath)
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	var kept []Asset
+	for _, a := range m.Assets {
+		if a.Kind != "extension" {
+			kept = append(kept, a)
+		}
+	}
+	m.Assets = kept
+	out, _ := json.MarshalIndent(m, "", "  ")
+	if err := os.WriteFile(mpath, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(args); err == nil || !strings.Contains(err.Error(), "monoagent-chrome-extension.zip is missing from the manifest") {
+		t.Errorf("check without the extension entry: %v", err)
+	}
+	// The extension entry must not claim a platform.
+	m.Assets = append(kept, Asset{OS: "linux", Arch: "amd64", Name: "monoagent-chrome-extension.zip", URL: prefix + "monoagent-chrome-extension.zip", Kind: "extension"})
+	out, _ = json.MarshalIndent(m, "", "  ")
+	if err := os.WriteFile(mpath, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(args); err == nil || !strings.Contains(err.Error(), "os/arch/kind do not match") {
+		t.Errorf("check with a platform on the extension: %v", err)
 	}
 }

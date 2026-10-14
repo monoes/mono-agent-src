@@ -9,6 +9,8 @@
     "n8n-nodes-base.sms77"
   ],
   "base_url": "https://gateway.seven.io/api",
+  "error_when": "{{ res.success | ne:'100' }}",
+  "error_message": "sms77 rejected the request (success code {{ res.success }})",
   "headers": {
     "SentWith": "mono-agent"
   },

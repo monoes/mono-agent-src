@@ -2,8 +2,6 @@ package ai
 
 import (
 	"database/sql"
-	"fmt"
-	"strings"
 	"time"
 )
 
@@ -53,77 +51,12 @@ type AIStore struct {
 	db *sql.DB
 }
 
-// NewAIStore creates a new AIStore and ensures the required tables exist.
+// NewAIStore returns an AIStore over db. It creates and alters nothing:
+// the tables come from data/migrations (095, 040) and the columns added
+// later from storage.ReconcileSchema, both run by ApplyMigrations, so db
+// must be migrated. The error is always nil; it stays for the callers.
 func NewAIStore(db *sql.DB) (*AIStore, error) {
-	s := &AIStore{db: db}
-	if err := s.initTables(); err != nil {
-		return nil, fmt.Errorf("ai store: init tables: %w", err)
-	}
-	return s, nil
-}
-
-// OpenAIStore returns an AIStore over db without creating or altering any
-// table, for read-only callers such as `monoagentcli doctor` (whose checks
-// must not change the database). The tables must already exist.
-func OpenAIStore(db *sql.DB) *AIStore { return &AIStore{db: db} }
-
-func (s *AIStore) initTables() error {
-	const messagesSQL = `CREATE TABLE IF NOT EXISTS ai_chat_messages (
-		id TEXT PRIMARY KEY,
-		workflow_id TEXT NOT NULL,
-		role TEXT NOT NULL,
-		content TEXT NOT NULL,
-		tool_calls TEXT NOT NULL DEFAULT '',
-		tool_call_id TEXT NOT NULL DEFAULT '',
-		provider_id TEXT NOT NULL DEFAULT '',
-		model TEXT NOT NULL DEFAULT '',
-		token_count INTEGER NOT NULL DEFAULT 0,
-		session_id TEXT NOT NULL DEFAULT '',
-		-- This defaults to '' (not 'default') — a sentinel that never matches any
-		-- real profile's exact-match lookups. SaveChatMessage always writes a
-		-- real profile ID, so '' only ever occurs on rows that predate this
-		-- column; those must stay excluded from every profile's history
-		-- rather than being silently attributed to whichever profile is
-		-- named "default" (see the legacy-ambiguous-exclusion requirement).
-		profile_id TEXT NOT NULL DEFAULT '',
-		created_at TEXT NOT NULL
-	)`
-
-	if _, err := s.db.Exec(messagesSQL); err != nil {
-		return fmt.Errorf("create ai_chat_messages: %w", err)
-	}
-	// Migrate: add columns that may be missing on existing DBs. SQLite errors
-	// if the column already exists ("duplicate column name: ..."); that one
-	// error is expected and ignored, but any other failure (disk full,
-	// locked DB, corrupted schema) must propagate instead of being silently
-	// swallowed alongside it.
-	if err := addColumnIfMissing(s.db, `ALTER TABLE ai_chat_messages ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT ''`); err != nil {
-		return err
-	}
-	if err := addColumnIfMissing(s.db, `ALTER TABLE ai_chat_messages ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`); err != nil {
-		return err
-	}
-	// Backfill to an empty-string sentinel (ambiguous), not "default" — see
-	// messagesSQL's comment.
-	if err := addColumnIfMissing(s.db, `ALTER TABLE ai_chat_messages ADD COLUMN profile_id TEXT NOT NULL DEFAULT ''`); err != nil {
-		return err
-	}
-	if err := s.initChatEventTables(); err != nil {
-		return err
-	}
-	return nil
-}
-
-// addColumnIfMissing runs an ALTER TABLE ... ADD COLUMN statement, treating
-// SQLite's "duplicate column name" error (the column already exists, from a
-// previous run of this same migration) as success, and propagating any
-// other error instead of discarding it.
-func addColumnIfMissing(db *sql.DB, alterSQL string) error {
-	_, err := db.Exec(alterSQL)
-	if err == nil || strings.Contains(err.Error(), "duplicate column name") {
-		return nil
-	}
-	return fmt.Errorf("migrate: %s: %w", alterSQL, err)
+	return &AIStore{db: db}, nil
 }
 
 // SaveChatMessage inserts a chat message. If CreatedAt is empty it is set to

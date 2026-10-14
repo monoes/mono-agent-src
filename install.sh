@@ -37,6 +37,8 @@
 #   MONOAGENT_MANIFEST_URL           manifest URL (tests, mirrors); only this one is tried
 #   MONOAGENT_RELEASE_PUBKEY         base64 raw Ed25519 public key; overrides RELEASE_PUBKEY
 #   MONOAGENT_ALLOW_LEGACY_GITHUB=1  use the GitHub API path directly
+#   MONOAGENT_TEST_APPLICATIONS_DIR  tests only: stands in for /Applications
+#                                    when --app picks the macOS app folder
 set -euo pipefail
 
 # Repository used by the legacy path.
@@ -153,6 +155,13 @@ verify_manifest_signature() {
   } > "${m_tmp}/pub.pem"
   if ! openssl pkey -pubin -in "${m_tmp}/pub.pem" -noout >/dev/null 2>&1; then
     echo "NOTE: this openssl cannot read Ed25519 keys; manifest signature verification is SKIPPED (checksum-only)." >&2
+    return 2
+  fi
+  # Verifying needs pkeyutl -rawin (OpenSSL 1.1.1+). An openssl that reads the
+  # key but lacks it (such as a LibreSSL build) would fail every signature, so
+  # it is treated like one without Ed25519.
+  if ! openssl pkeyutl -help 2>&1 | grep -q -e '-rawin'; then
+    echo "NOTE: this openssl cannot verify raw Ed25519 signatures (no pkeyutl -rawin); manifest signature verification is SKIPPED (checksum-only)." >&2
     return 2
   fi
   curl --retry 3 --fail --location -fsSL -o "${m_tmp}/manifest.json.sig" "$m_sigurl" || return 1
@@ -418,8 +427,8 @@ DESKTOP
       command -v unzip >/dev/null 2>&1 || err "unzip is required to unpack the desktop app"
       if [ -n "${MONOAGENT_APP_DIR:-}" ]; then
         app_dir="$MONOAGENT_APP_DIR"
-      elif [ -w /Applications ]; then
-        app_dir="/Applications"
+      elif [ -w "${MONOAGENT_TEST_APPLICATIONS_DIR:-/Applications}" ]; then
+        app_dir="${MONOAGENT_TEST_APPLICATIONS_DIR:-/Applications}"
       else
         app_dir="${HOME}/Applications"
       fi

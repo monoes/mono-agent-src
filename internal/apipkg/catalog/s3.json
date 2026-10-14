@@ -21,7 +21,7 @@
         "accessKeyId": "access_key_id",
         "secretAccessKey": "secret_access_key",
         "forcePathStyle": "force_path_style",
-        "ignoreSSLIssues": "ignore_ssl_issues"
+        "ignoreSSLIssues": "allow_unauthorized_certs"
       },
       "methods": [
         "api_key"
@@ -55,9 +55,9 @@
           "help": "Always on here"
         },
         {
-          "key": "ignore_ssl_issues",
+          "key": "allow_unauthorized_certs",
           "label": "Ignore SSL issues",
-          "help": "Not supported; kept for import"
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted S3-compatible servers)"
         }
       ],
       "inject": {

@@ -60,7 +60,7 @@
       "method": "POST",
       "base_url": "https://gmail.googleapis.com/upload/gmail/v1/users/me",
       "path": "/messages/send",
-      "description": "Sends an e-mail (HTML or text). Attachments are not supported yet; senderName reads your address from the profile.",
+      "description": "Sends an e-mail (HTML or text) with attachments from the item's binary properties; senderName reads your address from the profile.",
       "fields": [
         {
           "key": "sendTo",
@@ -120,7 +120,10 @@
         "Content-Type": "message/rfc822"
       },
       "body_type": "raw",
-      "body": "{{ p.options.senderName | prefix:'From: ' }}{{ p.options.senderName | then:pre.emailAddress | prefix:' <' | suffix:'>\r\n' }}{{ p.sendTo | prefix:'To: ' | suffix:'\r\n' }}{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ p.options.replyTo | prefix:'Reply-To: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ p.subject | base64 }}?=\r\nMIME-Version: 1.0\r\nContent-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 }}\r\n"
+      "body": "{{ p.options.senderName | prefix:'From: ' }}{{ p.options.senderName | then:pre.emailAddress | prefix:' <' | suffix:'>\r\n' }}{{ p.sendTo | prefix:'To: ' | suffix:'\r\n' }}{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ p.options.replyTo | prefix:'Reply-To: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ p.subject | base64 }}?=\r\nMIME-Version: 1.0\r\n{{ bin.files | then:'Content-Type: multipart/mixed; boundary=\"monoagent_mixed\"\r\n\r\n--monoagent_mixed\r\n' }}Content-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 | wrap:76 }}\r\n{{ bin.files | mime_parts:'monoagent_mixed' }}",
+      "binary": {
+        "properties": "{{ p.options.attachmentsUi.attachmentsBinary | pluck:'property' | join:',' }}"
+      }
     },
     {
       "resource": "message",
@@ -129,7 +132,7 @@
       "method": "POST",
       "base_url": "https://gmail.googleapis.com/upload/gmail/v1/users/me",
       "path": "/messages/send",
-      "description": "Reads the original message, then sends the reply in its thread with In-Reply-To/References set. Attachments are not supported yet.",
+      "description": "Reads the original message, then sends the reply in its thread with In-Reply-To/References set.",
       "fields": [
         {
           "key": "messageId",
@@ -196,7 +199,10 @@
         "Content-Type": "multipart/related; boundary=monoagent_mime_boundary"
       },
       "body_type": "raw",
-      "body": "--monoagent_mime_boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"threadId\":\"{{ pres.0.threadId }}\"}\r\n--monoagent_mime_boundary\r\nContent-Type: message/rfc822\r\n\r\n{{ p.options.senderName | prefix:'From: ' }}{{ p.options.senderName | then:pres.1.emailAddress | prefix:' <' | suffix:'>\r\n' }}To: {{ p.options.replyToRecipientsOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','Reply-To' | default:(pres.0.payload.headers | find:'name','reply-to') | default:(pres.0.payload.headers | find:'name','Reply-To') | get:'value' | default:(pres.0.payload.headers | find:'name','From' | default:(pres.0.payload.headers | find:'name','from') | default:(pres.0.payload.headers | find:'name','From') | get:'value')) }}{{ p.options.replyToSenderOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','To' | default:(pres.0.payload.headers | find:'name','to') | default:(pres.0.payload.headers | find:'name','To') | get:'value') | prefix:', ' }}\r\n{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'In-Reply-To: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'References: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ pres.0.payload.headers | find:'name','Subject' | default:(pres.0.payload.headers | find:'name','subject') | default:(pres.0.payload.headers | find:'name','Subject') | get:'value' | base64 }}?=\r\nMIME-Version: 1.0\r\nContent-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 }}\r\n--monoagent_mime_boundary--\r\n"
+      "body": "--monoagent_mime_boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"threadId\":\"{{ pres.0.threadId }}\"}\r\n--monoagent_mime_boundary\r\nContent-Type: message/rfc822\r\n\r\n{{ p.options.senderName | prefix:'From: ' }}{{ p.options.senderName | then:pres.1.emailAddress | prefix:' <' | suffix:'>\r\n' }}To: {{ p.options.replyToRecipientsOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','Reply-To' | default:(pres.0.payload.headers | find:'name','reply-to') | default:(pres.0.payload.headers | find:'name','Reply-To') | get:'value' | default:(pres.0.payload.headers | find:'name','From' | default:(pres.0.payload.headers | find:'name','from') | default:(pres.0.payload.headers | find:'name','From') | get:'value')) }}{{ p.options.replyToSenderOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','To' | default:(pres.0.payload.headers | find:'name','to') | default:(pres.0.payload.headers | find:'name','To') | get:'value') | prefix:', ' }}\r\n{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'In-Reply-To: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'References: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ pres.0.payload.headers | find:'name','Subject' | default:(pres.0.payload.headers | find:'name','subject') | default:(pres.0.payload.headers | find:'name','Subject') | get:'value' | base64 }}?=\r\nMIME-Version: 1.0\r\n{{ bin.files | then:'Content-Type: multipart/mixed; boundary=\"monoagent_mixed\"\r\n\r\n--monoagent_mixed\r\n' }}Content-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 | wrap:76 }}\r\n{{ bin.files | mime_parts:'monoagent_mixed' }}--monoagent_mime_boundary--\r\n",
+      "binary": {
+        "properties": "{{ p.options.attachmentsUi.attachmentsBinary | pluck:'property' | join:',' }}"
+      }
     },
     {
       "resource": "message",
@@ -529,7 +535,7 @@
       "method": "POST",
       "base_url": "https://gmail.googleapis.com/upload/gmail/v1/users/me",
       "path": "/drafts",
-      "description": "Attachments are not supported yet; with threadId the draft is filed in that thread.",
+      "description": "With threadId the draft is filed in that thread.",
       "fields": [
         {
           "key": "subject",
@@ -576,7 +582,10 @@
         "Content-Type": "multipart/related; boundary=monoagent_mime_boundary"
       },
       "body_type": "raw",
-      "body": "--monoagent_mime_boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"message\":{\"threadId\":\"{{ p.options.threadId }}\"}}\r\n--monoagent_mime_boundary\r\nContent-Type: message/rfc822\r\n\r\n{{ p.options.fromAlias | prefix:'From: ' | suffix:'\r\n' }}{{ p.options.sendTo | prefix:'To: ' | suffix:'\r\n' }}{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ p.options.replyTo | prefix:'Reply-To: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ p.subject | base64 }}?=\r\nMIME-Version: 1.0\r\nContent-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 }}\r\n--monoagent_mime_boundary--\r\n"
+      "body": "--monoagent_mime_boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"message\":{\"threadId\":\"{{ p.options.threadId }}\"}}\r\n--monoagent_mime_boundary\r\nContent-Type: message/rfc822\r\n\r\n{{ p.options.fromAlias | prefix:'From: ' | suffix:'\r\n' }}{{ p.options.sendTo | prefix:'To: ' | suffix:'\r\n' }}{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ p.options.replyTo | prefix:'Reply-To: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ p.subject | base64 }}?=\r\nMIME-Version: 1.0\r\n{{ bin.files | then:'Content-Type: multipart/mixed; boundary=\"monoagent_mixed\"\r\n\r\n--monoagent_mixed\r\n' }}Content-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 | wrap:76 }}\r\n{{ bin.files | mime_parts:'monoagent_mixed' }}--monoagent_mime_boundary--\r\n",
+      "binary": {
+        "properties": "{{ p.options.attachmentsUi.attachmentsBinary | pluck:'property' | join:',' }}"
+      }
     },
     {
       "resource": "draft",
@@ -842,7 +851,7 @@
       "method": "POST",
       "base_url": "https://gmail.googleapis.com/upload/gmail/v1/users/me",
       "path": "/messages/send",
-      "description": "Reads the original message, then sends the reply in its thread with In-Reply-To/References set. Attachments are not supported yet.",
+      "description": "Reads the original message, then sends the reply in its thread with In-Reply-To/References set.",
       "fields": [
         {
           "key": "threadId",
@@ -915,7 +924,10 @@
         "Content-Type": "multipart/related; boundary=monoagent_mime_boundary"
       },
       "body_type": "raw",
-      "body": "--monoagent_mime_boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"threadId\":\"{{ pres.0.threadId }}\"}\r\n--monoagent_mime_boundary\r\nContent-Type: message/rfc822\r\n\r\n{{ p.options.senderName | prefix:'From: ' }}{{ p.options.senderName | then:pres.1.emailAddress | prefix:' <' | suffix:'>\r\n' }}To: {{ p.options.replyToRecipientsOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','Reply-To' | default:(pres.0.payload.headers | find:'name','reply-to') | default:(pres.0.payload.headers | find:'name','Reply-To') | get:'value' | default:(pres.0.payload.headers | find:'name','From' | default:(pres.0.payload.headers | find:'name','from') | default:(pres.0.payload.headers | find:'name','From') | get:'value')) }}{{ p.options.replyToSenderOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','To' | default:(pres.0.payload.headers | find:'name','to') | default:(pres.0.payload.headers | find:'name','To') | get:'value') | prefix:', ' }}\r\n{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'In-Reply-To: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'References: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ pres.0.payload.headers | find:'name','Subject' | default:(pres.0.payload.headers | find:'name','subject') | default:(pres.0.payload.headers | find:'name','Subject') | get:'value' | base64 }}?=\r\nMIME-Version: 1.0\r\nContent-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 }}\r\n--monoagent_mime_boundary--\r\n"
+      "body": "--monoagent_mime_boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{\"threadId\":\"{{ pres.0.threadId }}\"}\r\n--monoagent_mime_boundary\r\nContent-Type: message/rfc822\r\n\r\n{{ p.options.senderName | prefix:'From: ' }}{{ p.options.senderName | then:pres.1.emailAddress | prefix:' <' | suffix:'>\r\n' }}To: {{ p.options.replyToRecipientsOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','Reply-To' | default:(pres.0.payload.headers | find:'name','reply-to') | default:(pres.0.payload.headers | find:'name','Reply-To') | get:'value' | default:(pres.0.payload.headers | find:'name','From' | default:(pres.0.payload.headers | find:'name','from') | default:(pres.0.payload.headers | find:'name','From') | get:'value')) }}{{ p.options.replyToSenderOnly | ne:'true' | then:(pres.0.payload.headers | find:'name','To' | default:(pres.0.payload.headers | find:'name','to') | default:(pres.0.payload.headers | find:'name','To') | get:'value') | prefix:', ' }}\r\n{{ p.options.ccList | prefix:'Cc: ' | suffix:'\r\n' }}{{ p.options.bccList | prefix:'Bcc: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'In-Reply-To: ' | suffix:'\r\n' }}{{ pres.0.payload.headers | find:'name','Message-ID' | default:(pres.0.payload.headers | find:'name','message-id') | default:(pres.0.payload.headers | find:'name','Message-Id') | get:'value' | prefix:'References: ' | suffix:'\r\n' }}Subject: =?UTF-8?B?{{ pres.0.payload.headers | find:'name','Subject' | default:(pres.0.payload.headers | find:'name','subject') | default:(pres.0.payload.headers | find:'name','Subject') | get:'value' | base64 }}?=\r\nMIME-Version: 1.0\r\n{{ bin.files | then:'Content-Type: multipart/mixed; boundary=\"monoagent_mixed\"\r\n\r\n--monoagent_mixed\r\n' }}Content-Type: text/{{ p.emailType | default:'html' | eq:'text' | then:'plain' | default:'html' }}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{{ p.message | base64 | wrap:76 }}\r\n{{ bin.files | mime_parts:'monoagent_mixed' }}--monoagent_mime_boundary--\r\n",
+      "binary": {
+        "properties": "{{ p.options.attachmentsUi.attachmentsBinary | pluck:'property' | join:',' }}"
+      }
     },
     {
       "resource": "thread",

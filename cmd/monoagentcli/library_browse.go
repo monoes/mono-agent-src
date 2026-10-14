@@ -94,8 +94,8 @@ func (e *libEnv) recordLive(ctx context.Context, li *localIndex, r library.Recor
 	return e.localExists(ctx, r.Kind, r.LocalID)
 }
 
-// localExists reports whether a workflow or org the library installed is
-// still there (a deleted one is simply not installed any more).
+// localExists reports whether a workflow, org or API package the library
+// installed is still there (a deleted one is simply not installed any more).
 func (e *libEnv) localExists(ctx context.Context, kind, id string) bool {
 	switch kind {
 	case library.KindWorkflow:
@@ -107,6 +107,8 @@ func (e *libEnv) localExists(ctx context.Context, kind, id string) bool {
 		}
 		_, err = os.Stat(path)
 		return err == nil
+	case library.KindAPI:
+		return apiPackageInstalled(id)
 	}
 	return false
 }
@@ -148,7 +150,7 @@ func newLibraryListCmd(e *libEnv) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q.Kind = library.NormalizeKind(q.Kind)
 			if q.Kind != "" && !library.ValidKind(q.Kind) {
-				return errInvalidInput("--kind must be workflow, automation or org")
+				return errInvalidInput("--kind must be workflow, automation, org or api")
 			}
 			switch q.Scope {
 			case "", "public", "official", "mine":
@@ -182,7 +184,7 @@ func newLibraryListCmd(e *libEnv) *cobra.Command {
 			return printLib(e.cfg, cmd, out, func(w io.Writer) { printItemTable(w, items, res.Total) })
 		},
 	}
-	cmd.Flags().StringVar(&q.Kind, "kind", "", "workflow, automation or org (default: all)")
+	cmd.Flags().StringVar(&q.Kind, "kind", "", "workflow, automation, org or api (default: all)")
 	cmd.Flags().StringVar(&q.Scope, "scope", "public", "public (public + official), official, or mine")
 	cmd.Flags().StringVar(&q.Search, "search", "", "Search names and descriptions")
 	cmd.Flags().StringVar(&q.Tag, "tag", "", "Only items with this tag")
@@ -318,7 +320,7 @@ func newLibraryInstalledCmd(e *libEnv) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kind = library.NormalizeKind(kind)
 			if kind != "" && !library.ValidKind(kind) {
-				return errInvalidInput("--kind must be workflow, automation or org")
+				return errInvalidInput("--kind must be workflow, automation, org or api")
 			}
 			recs, err := e.installedRecords(cmd.Context(), kind)
 			if err != nil {
@@ -338,7 +340,7 @@ func newLibraryInstalledCmd(e *libEnv) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&kind, "kind", "", "workflow, automation or org (default: all)")
+	cmd.Flags().StringVar(&kind, "kind", "", "workflow, automation, org or api (default: all)")
 	return cmd
 }
 

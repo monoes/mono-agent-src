@@ -3,57 +3,48 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/publication"
 )
 
-func TestPublicationCLI(t *testing.T) {
-	asOperatorProcess(t) // an agent's register needs an approved send (hil_send_test.go)
+// `publication` lives in internal/cli/publication (tested there); this pins its adapter: the
+// active profile, --json, the exit codes and the real operator check (MONOAGENT_ACTOR) reach the
+// commands. The approval of an agent's register is pinned by hil_send_test.go.
+func TestPublicationAdapterWiring(t *testing.T) {
+	asOperatorProcess(t)
 	dbPath := newApplicationCLITestDB(t)
+	seedProfile(t, dbPath, "work")
 	run := func(input string, args ...string) (string, error) {
-		cfg := &globalConfig{DBPath: dbPath, JSONOutput: true}
-		cmd := newPublicationCmd(cfg)
-		var out bytes.Buffer
+		cmd := newPublicationCmd(&globalConfig{DBPath: dbPath, ProfileID: "work", JSONOutput: true})
+		var out, errb bytes.Buffer
 		cmd.SetOut(&out)
+		cmd.SetErr(&errb)
 		cmd.SetIn(strings.NewReader(input))
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		return out.String(), err
 	}
-	out, err := run(`{"platform":"x","kind":"post","body":"Published text","idempotency_key":"once"}`, "register", "--stdin-json")
-	if err != nil {
-		t.Fatal(err)
+	out, err := run(`{"platform":"x","kind":"post","body":"text"}`, "register", "--stdin-json")
+	var e publication.Entry
+	if err != nil || json.Unmarshal([]byte(out), &e) != nil || e.ProfileID != "work" {
+		t.Fatalf("register as work: %s %v", out, err)
 	}
-	var entry publication.Entry
-	if err := json.Unmarshal([]byte(out), &entry); err != nil || entry.ID == "" || entry.ProfileID != "default" {
-		t.Fatalf("register JSON: %s %v", out, err)
+	if _, err := run("", "get", "missing"); exitCode(err) != 2 {
+		t.Errorf("get of an unknown publication: exit %d (%v), want 2", exitCode(err), err)
 	}
-	out, err = run("", "list", "--search", "Published", "--platform", "x", "--limit", "1")
-	if err != nil || !strings.Contains(out, entry.ID) {
-		t.Fatalf("list JSON: %s %v", out, err)
+	if _, err := run("", "list", "--limit", "0"); exitCode(err) != 3 {
+		t.Errorf("list --limit 0: exit %d (%v), want 3", exitCode(err), err)
 	}
-	out, err = run("", "get", entry.ID)
-	if err != nil || !strings.Contains(out, "Published text") {
-		t.Fatalf("get: %s %v", out, err)
-	}
-	out, err = run("", "stats")
-	if err != nil || !strings.Contains(out, `"total": 1`) {
-		t.Fatalf("stats: %s %v", out, err)
-	}
-	out, err = run("", "list", "--search", "missing")
-	if err != nil || strings.TrimSpace(out) != "[]" {
-		t.Fatalf("empty list: %s %v", out, err)
-	}
-	for _, args := range [][]string{{"list", "--limit", "0"}, {"list", "--since", "invalid"}, {"register"}} {
-		if _, err := run("", args...); err == nil {
-			t.Errorf("expected invalid input for %v", args)
+	t.Setenv("MONOAGENT_ACTOR", "writer-bot")
+	for _, args := range [][]string{{"delete", e.ID}, {"redact", e.ID}} {
+		if _, err := run("", args...); exitCode(err) != 3 || !strings.Contains(err.Error(), "only the operator") {
+			t.Errorf("%v by an agent: exit %d (%v), want the operator-only refusal", args, exitCode(err), err)
 		}
 	}
-	_, err = run("", "get", "missing")
-	if err == nil || !errors.Is(err, publication.ErrNotFound) && !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("missing: %v", err)
+	t.Setenv("MONOAGENT_ACTOR", "")
+	if out, err := run("", "delete", e.ID); err != nil || !strings.Contains(out, e.ID) {
+		t.Errorf("delete by the operator: %s %v", out, err)
 	}
 }

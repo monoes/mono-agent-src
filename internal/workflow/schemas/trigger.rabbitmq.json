@@ -1,0 +1,99 @@
+{
+  "credential_platform": "rabbitmq",
+  "fields": [
+    {
+      "key": "queue",
+      "label": "Queue",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "acknowledge",
+      "label": "Acknowledge",
+      "type": "select",
+      "required": false,
+      "default": "immediately",
+      "options": [
+        "immediately",
+        "executionFinishes",
+        "executionFinishesSuccessfully",
+        "laterMessageNode"
+      ],
+      "help": "immediately acks on delivery; the other values ack once the run has been started."
+    },
+    {
+      "key": "parallel_messages",
+      "label": "Parallel Messages",
+      "type": "number",
+      "required": false,
+      "min": 1,
+      "help": "Prefetch count: unacknowledged messages held at once."
+    },
+    {
+      "key": "json_parse_body",
+      "label": "Parse Body as JSON",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "only_content",
+      "label": "Only Content",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "content_is_binary",
+      "label": "Content Is Binary",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "assert_queue",
+      "label": "Assert Queue",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "help": "Declare the queue (with the options below) before consuming."
+    },
+    {
+      "key": "durable",
+      "label": "Durable",
+      "type": "boolean",
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "auto_delete",
+      "label": "Auto Delete",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "exclusive",
+      "label": "Exclusive",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "arguments",
+      "label": "Arguments (JSON object)",
+      "type": "textarea",
+      "required": false,
+      "rows": 2
+    },
+    {
+      "key": "bindings",
+      "label": "Bindings (JSON list)",
+      "type": "textarea",
+      "required": false,
+      "rows": 2,
+      "placeholder": "[{\"exchange\": \"orders\", \"routing_key\": \"#\"}]",
+      "help": "Exchanges to bind the queue to."
+    }
+  ]
+}

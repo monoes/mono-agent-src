@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/action"
 )
 
 func formEnv(t *testing.T) *Env {
@@ -72,14 +74,21 @@ func TestCheckOutputProblems(t *testing.T) {
 	out.Action.SideEffects = "sometimes"
 	out.Action.Steps[1].Intent = ""
 	out.Action.Steps[2].ConfigKey = "missing.key"
-	out.Selectors["contact.save_button"] = out.Selectors["contact.save_button"]
+	// Break both selector checks: a candidate naming two kinds, and an
+	// entry without candidates.
+	save := out.Selectors["contact.save_button"]
+	save.Candidates[0].Text = "Save"
+	out.Selectors["contact.save_button"] = save
+	out.Selectors["contact.empty"] = action.SelectorEntry{Intent: "nothing"}
 	out.Action.Steps = append(out.Action.Steps, out.Action.Steps[0])
 	out.Action.Steps[len(out.Action.Steps)-1].Type = "call_fragment"
 	out.Action.Steps[len(out.Action.Steps)-1].Fragment = "nope"
 	probs = CheckOutput(out, env)
 	joined := strings.Join(probs, "\n")
 	for _, want := range []string{"sideEffects \"sometimes\"", `step "email" (type) has no intent`,
-		`configKey "missing.key" is not defined`, `fragment "nope" not found`} {
+		`configKey "missing.key" is not defined`, `fragment "nope" not found`,
+		`selectors["contact.save_button"].candidates[0] must set exactly one of css, xpath, aria, text`,
+		`selectors["contact.empty"] has no candidates`} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in:\n%s", want, joined)
 		}

@@ -20,6 +20,8 @@
     "n8n_resource_param": { "type": "string" },
     "n8n_version_defaults": { "type": "object" },
     "query_style": { "type": "string", "enum": ["", "brackets"] },
+    "error_when": { "type": "string" },
+    "error_message": { "type": "string" },
     "n8n_trigger_types": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9@/_-]+\\.[A-Za-z0-9_]+$" } },
     "base_url": { "type": "string", "minLength": 1 },
     "headers": { "$ref": "#/$defs/stringMap" },
@@ -29,6 +31,24 @@
   },
   "$defs": {
     "stringMap": { "type": "object", "additionalProperties": { "type": "string" } },
+    "walkStep": {
+      "type": "object",
+      "required": ["method", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "auth": { "type": "boolean" },
+        "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
+        "path": { "type": "string", "minLength": 1 },
+        "base_url": { "type": "string" },
+        "query": { "type": "object" },
+        "body": {},
+        "body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none"] },
+        "headers": { "$ref": "#/$defs/stringMap" },
+        "chunk": { "type": "integer" },
+        "results_path": { "type": "string" },
+        "key": { "type": "string" }
+      }
+    },
     "resource": {
       "type": "object",
       "required": ["value", "label"],
@@ -51,7 +71,7 @@
         "n8n_field_map": { "$ref": "#/$defs/stringMap" },
         "methods": {
           "type": "array", "minItems": 1,
-          "items": { "type": "string", "enum": ["api_key", "oauth", "basic", "bearer", "client_credentials", "none"] }
+          "items": { "type": "string", "enum": ["api_key", "oauth", "oauth1", "basic", "bearer", "client_credentials", "none"] }
         },
         "fields": { "type": "array", "items": { "$ref": "#/$defs/credentialField" } },
         "oauth": { "$ref": "#/$defs/oauth" },
@@ -85,7 +105,12 @@
         "token_url": { "type": "string", "minLength": 1 },
         "scopes": { "type": "array", "items": { "type": "string" } },
         "pkce": { "type": "boolean" },
-        "extra_params": { "$ref": "#/$defs/stringMap" }
+        "extra_params": { "$ref": "#/$defs/stringMap" },
+        "connect_fields": { "type": "array", "items": { "type": "string" } },
+        "metadata": { "type": "object", "required": ["url", "fields"], "additionalProperties": false,
+          "properties": { "url": { "type": "string", "minLength": 1 }, "headers": { "$ref": "#/$defs/stringMap" }, "fields": { "$ref": "#/$defs/stringMap" } } },
+        "request_token_url": { "type": "string" },
+        "signature_method": { "type": "string", "enum": ["HMAC-SHA1", "HMAC-SHA256", "HMAC-SHA512", "PLAINTEXT"] }
       }
     },
     "inject": {
@@ -99,6 +124,10 @@
           "properties": { "account": { "type": "string" }, "key": { "type": "string" } } },
         "azure_cosmos": { "type": "object", "required": ["key"], "additionalProperties": false,
           "properties": { "key": { "type": "string" } } },
+        "oauth1": { "type": "object", "additionalProperties": false,
+          "properties": { "consumer_key": { "type": "string" }, "consumer_secret": { "type": "string" }, "token": { "type": "string" },
+            "token_secret": { "type": "string" }, "realm": { "type": "string" },
+            "signature_method": { "type": "string", "enum": ["HMAC-SHA1", "HMAC-SHA256", "HMAC-SHA512", "PLAINTEXT"] } } },
         "hmac": { "type": "object", "required": ["header", "secret", "message"], "additionalProperties": false,
           "properties": { "header": { "type": "string" }, "secret": { "type": "string" }, "message": { "type": "string" },
             "alg": { "type": "string", "enum": ["SHA256", "SHA1", "SHA512"] }, "encoding": { "type": "string", "enum": ["base64", "hex"] }, "prefix": { "type": "string" } } },
@@ -164,9 +193,30 @@
             "expand_merge_path": { "type": "string" },
             "to": {},
             "to_when": { "type": "string" },
+            "match_after_to": { "type": "boolean" },
             "firestore": { "type": "string" },
             "schema_rows": { "type": "string" },
             "numbers": { "type": "string" },
+            "download": {
+              "type": "object",
+              "required": ["method", "path"],
+              "additionalProperties": false,
+              "properties": {
+                "when": { "type": "string" },
+                "files": {},
+                "auth": { "type": "boolean" },
+                "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
+                "path": { "type": "string", "minLength": 1 },
+                "base_url": { "type": "string" },
+                "query": { "type": "object" },
+                "body": {},
+                "body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none"] },
+                "headers": { "$ref": "#/$defs/stringMap" },
+                "property": { "type": "string" },
+                "file_name": { "type": "string" },
+                "mime_type": { "type": "string" }
+              }
+            },
             "expand": {
           "type": "object",
           "required": ["method", "path"],
@@ -185,6 +235,24 @@
             "headers": { "$ref": "#/$defs/stringMap" }
           }
         },
+            "where": { "type": "string" },
+            "walk": {
+              "type": "object",
+              "required": ["start", "request"],
+              "additionalProperties": false,
+              "properties": {
+                "when": { "type": "string" },
+                "start": {},
+                "request": { "$ref": "#/$defs/walkStep" },
+                "pagination": { "$ref": "#/$defs/pagination" },
+                "results_path": { "type": "string" },
+                "id": { "type": "string" },
+                "descend": { "type": "string" },
+                "keep": { "type": "string" },
+                "max": { "type": "string" },
+                "fetch": { "$ref": "#/$defs/walkStep" }
+              }
+            },
             "match": { "type": "object", "required": ["rows", "column", "value"], "additionalProperties": false,
               "properties": { "rows": { "type": "string" }, "column": { "type": "string" }, "value": { "type": "string" },
                 "combine": { "type": "string" }, "first": { "type": "string" } } } }
@@ -205,11 +273,39 @@
             "download_base64": { "type": "string" },
             "property": { "type": "string" },
             "properties": { "type": "string" },
-            "upload_text": { "type": "string" }
+            "upload_text": { "type": "string" },
+            "upload_session": {
+              "type": "object",
+              "required": ["create"],
+              "additionalProperties": false,
+              "properties": {
+                "min_size": { "type": "integer" },
+                "chunk_size": { "type": "integer" },
+                "url_path": { "type": "string" },
+                "create": {
+                  "type": "object",
+                  "required": ["method", "path"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "when": { "type": "string" },
+                    "method": { "type": "string" },
+                    "path": { "type": "string", "minLength": 1 },
+                    "base_url": { "type": "string" },
+                    "query": { "type": "object" },
+                    "body": {},
+                    "body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none"] },
+                    "headers": { "$ref": "#/$defs/stringMap" }
+                  }
+                }
+              }
+            }
           }
         },
         "n8n_param_map": { "$ref": "#/$defs/stringMap" },
         "batch": { "type": "boolean" },
+        "scope_group": { "type": "string" },
+        "error_when": { "type": "string" },
+        "error_message": { "type": "string" },
         "query_style": { "type": "string", "enum": ["", "brackets"] },
         "poll": {
           "type": "object",

@@ -96,6 +96,9 @@ type opRun struct {
 	scope   Scope
 	// prop overrides the upload property (one of binary.properties).
 	prop string
+	// onPage, when set, sees each page's results while paginating;
+	// returning true stops (output.walk stops at its cap).
+	onPage func(results []any) bool
 }
 
 func (r *opRun) errf(format string, a ...any) error {
@@ -111,11 +114,7 @@ func run(ctx context.Context, pkg *Package, input workflow.NodeInput, config map
 			pkg.ID, pkg.PrimaryPlatform(), pkg.PrimaryPlatform())
 	}
 	credDef := pkg.selectCredential(cred)
-	if credDef != nil && credDef.ScopeGroup != "" && ScopeCheck != nil {
-		if err := ScopeCheck(cred, credDef.ScopeGroup); err != nil {
-			return nil, fmt.Errorf("apipkg %s: %w", pkg.ID, err)
-		}
-	}
+	scopes := scopeChecker{pkg: pkg, cred: cred, credDef: credDef}
 	if credDef != nil && credDef.hasMethod("client_credentials") && isEmpty(cred["access_token"]) {
 		tok, err := clientCredentialsToken(ctx, credDef, cred)
 		if err != nil {
@@ -127,6 +126,13 @@ func run(ctx context.Context, pkg *Package, input workflow.NodeInput, config map
 		}
 		withTok["access_token"] = tok
 		cred = withTok
+	}
+	cred, err := withAssumedRole(ctx, credDef, cred)
+	if err != nil {
+		return nil, fmt.Errorf("apipkg %s: %w", pkg.ID, err)
+	}
+	if cred, err = withMetadata(ctx, credDef, cred); err != nil {
+		return nil, fmt.Errorf("apipkg %s: %w", pkg.ID, err)
 	}
 	items := input.Items
 	if len(items) == 0 {
@@ -150,15 +156,20 @@ func run(ctx context.Context, pkg *Package, input workflow.NodeInput, config map
 		if err != nil {
 			return nil, err
 		}
+		if err := scopes.check(op); err != nil {
+			return nil, err
+		}
 		applyDefaults(op, params)
 		if err := checkRequired(pkg, op, params); err != nil {
 			return nil, err
 		}
 		r := &opRun{pkg: pkg, op: op, params: params, item: it, credDef: credDef,
 			scope: Scope{P: params, Cred: cred, Item: it.JSON}}
-		if op.Binary != nil && op.Binary.UploadField != "" {
+		if op.Binary != nil && (op.Binary.UploadField != "" || op.Binary.Properties != "") {
 			// Filled for every step: a before step that requests an upload
 			// slot needs the file's name and type (Pushbullet, S3 presigned).
+			// binary.properties alone fills bin.files for a body that embeds
+			// the files (Gmail MIME attachments) without uploading one.
 			r.scope.Bin = r.binMeta()
 		}
 		if op.Batch {
@@ -331,7 +342,13 @@ func (r *opRun) execute(ctx context.Context) ([]workflow.Item, error) {
 		if err != nil {
 			return nil, err
 		}
-		shaped, err := r.shapeOutput(ctx, results)
+		var all any = results
+		if o := r.op.Output; o != nil && o.Walk != nil {
+			if all, err = r.walk(ctx, results, results); err != nil {
+				return nil, err
+			}
+		}
+		shaped, err := r.shapeOutput(ctx, all)
 		if err != nil {
 			return nil, err
 		}
@@ -343,7 +360,7 @@ func (r *opRun) execute(ctx context.Context) ([]workflow.Item, error) {
 		}
 		return items, nil
 	}
-	resp, err := r.send(ctx, pageParams{})
+	resp, err := r.sendMain(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -407,6 +424,11 @@ func (r *opRun) execute(ctx context.Context) ([]workflow.Item, error) {
 	if r.op.Output != nil && r.op.Output.HeaderRow {
 		v = rowsToObjects(v)
 	}
+	if o := r.op.Output; o != nil && o.Walk != nil {
+		if v, err = r.walk(ctx, doc, v); err != nil {
+			return nil, err
+		}
+	}
 	r.scope.Res = doc // output.to/match templates may read the whole response
 	if v, err = r.shapeOutput(ctx, v); err != nil {
 		return nil, err
@@ -443,6 +465,9 @@ func (r *opRun) send(ctx context.Context, pp pageParams) (*response, error) {
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, r.errf("HTTP %d: %s", resp.StatusCode, errorBodyEcho(body))
+	}
+	if err := r.checkErrorWhen(body, resp.Header); err != nil {
+		return nil, err
 	}
 	return &response{status: resp.StatusCode, header: resp.Header, body: body, url: b.req.URL.String()}, nil
 }
@@ -501,14 +526,18 @@ func toItems(v any, split bool) []workflow.Item {
 	if arr, ok := v.([]any); ok && split {
 		items := make([]workflow.Item, 0, len(arr))
 		for _, el := range arr {
-			items = append(items, workflow.Item{JSON: asObject(el)})
+			it := workflow.Item{JSON: asObject(el)}
+			takeFiles(&it)
+			items = append(items, it)
 		}
 		return items
 	}
 	if v == nil {
 		return []workflow.Item{}
 	}
-	return []workflow.Item{{JSON: asObject(v)}}
+	it := workflow.Item{JSON: asObject(v)}
+	takeFiles(&it)
+	return []workflow.Item{it}
 }
 
 func asObject(v any) map[string]any {
@@ -584,6 +613,8 @@ func (r *opRun) sendStep(ctx context.Context, st Step, sc Scope) (*response, err
 		} else {
 			op.Body, op.BodyType = nil, BodyRaw
 		}
+	} else if st.download {
+		op.Binary = &Binary{Download: true}
 	} else {
 		op.Binary = nil
 	}
@@ -657,32 +688,19 @@ func (r *opRun) shapeOutput(ctx context.Context, v any) (any, error) {
 			}
 		}
 	}
-	if m := o.Match; m != nil {
-		rowsV, err := renderString(m.Rows, r.scope)
-		if err != nil {
-			return nil, r.errf("output.match.rows: %w", err)
+	if o.Download != nil {
+		if err := r.downloadFiles(ctx, list); err != nil {
+			return nil, err
 		}
-		conds, _ := rowsV.([]any)
-		if len(conds) > 0 {
-			combine, err := renderText(m.Combine, r.scope)
-			if err != nil {
-				return nil, r.errf("output.match.combine: %w", err)
-			}
-			first, err := renderString(m.First, r.scope)
-			if err != nil {
-				return nil, r.errf("output.match.first: %w", err)
-			}
-			or := strings.EqualFold(combine, "OR")
-			kept := make([]any, 0, len(list))
-			for _, el := range list {
-				if matchRow(el, conds, m.Column, m.Value, or) {
-					kept = append(kept, el)
-					if b, _ := toBool(first); b == true {
-						break
-					}
-				}
-			}
-			list = kept
+	}
+	if o.Where != "" {
+		if list, err = r.applyWhere(list); err != nil {
+			return nil, err
+		}
+	}
+	if !o.MatchAfterTo {
+		if list, err = r.applyMatch(list); err != nil {
+			return nil, err
 		}
 	}
 	if o.Firestore != "" {
@@ -745,28 +763,17 @@ func (r *opRun) shapeOutput(ctx context.Context, v any) (any, error) {
 				if err != nil {
 					return nil, r.errf("output.to element %d: %w", i, err)
 				}
+				carryFiles(el, x)
 				list[i] = x
 			}
 		}
 	}
-	return list, nil
-}
-
-// matchRow reports whether el satisfies the condition rows (each names a
-// field via colKey and a wanted value via valKey), all (AND) or any (OR).
-func matchRow(el any, conds []any, colKey, valKey string, or bool) bool {
-	obj, _ := el.(map[string]any)
-	for _, c := range conds {
-		cm, _ := c.(map[string]any)
-		ok := stringify(obj[stringify(cm[colKey])]) == stringify(cm[valKey])
-		if or && ok {
-			return true
-		}
-		if !or && !ok {
-			return false
+	if o.MatchAfterTo {
+		if list, err = r.applyMatch(list); err != nil {
+			return nil, err
 		}
 	}
-	return !or
+	return list, nil
 }
 
 // renderOutputKey renders an output path/each value, which may be a

@@ -15,6 +15,8 @@ import {
   NODE_CONFIG_FIELDS, BROWSER_NODE_GENERIC,
   deriveInputs, deriveOutputs, portsDependOnConfig, isCaseListSettled, remapSourceEdges,
   arrayFieldItems, arrayTagLabel, normalizeConfigForSave,
+  canonicalOutputHandle, loopBackEdges, hasForbiddenCycle, loopEdgePath, chooseLoopEdgeY, edgePath, edgePoints,
+  makeIdGen,
 } from './nodeConfigFields.js'
 import { SaveModal, WorkflowsModal, TriggerInputModal } from './NodeRunnerModals.jsx'
 import WorkflowImportDialog from './WorkflowImportDialog.jsx'
@@ -68,6 +70,7 @@ const CAT_COLOR = {
   org:            '#6366f1',
 }
 const catColor = (cat) => CAT_COLOR[cat] || '#00b4d8'
+const LOOP_EDGE_COLOR = '#f59e0b'
 
 function nodeH(n) {
   return HEAD_H + PORT_PAD + Math.max(n.inputs.length, n.outputs.length, 1) * PORT_H + PORT_PAD
@@ -78,13 +81,11 @@ function inPortPos(n, i) {
 function outPortPos(n, i) {
   return { x: n.x + NODE_W, y: n.y + HEAD_H + PORT_PAD + i * PORT_H + PORT_H / 2 }
 }
-function edgePath(sx, sy, tx, ty) {
-  const dx = Math.max(60, Math.abs(tx - sx) * 0.5)
-  return `M${sx},${sy} C${sx+dx},${sy} ${tx-dx},${ty} ${tx},${ty}`
-}
 
-let _seq = 1
-const uid = () => `nr${_seq++}`
+// Canvas ids. Loading a workflow advances the counter past its nr<N> ids;
+// taken (a Set) skips any id already on the canvas.
+const canvasIds = makeIdGen('nr')
+const uid = (taken) => canvasIds.next(taken)
 
 // Parse Go time.String() format: "2026-04-08 19:55:14.260072 +0000 UTC"
 // Also handles SQLite CURRENT_TIMESTAMP: "2026-04-08 19:55:14"
@@ -139,6 +140,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
           : '0 6px 20px rgba(0,0,0,.5)',
         userSelect: 'none',
         overflow: 'visible',
+        pointerEvents: 'auto',
         transition: 'border-color 140ms, box-shadow 140ms',
       }}
       onMouseDown={(e) => { e.stopPropagation(); onClick?.() }}
@@ -446,7 +448,9 @@ function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchemas, aut
         ><X size={12} /></button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+      {/* overflowWrap: long unbroken words (option ids in help text) wrap
+          instead of running past the inspector's right edge. */}
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', overflowWrap: 'anywhere', padding: '12px' }}>
         {/* Credential dropdown — shown for platforms that require auth */}
         {pickerMode && (
           <>
@@ -992,23 +996,6 @@ function Label({ children, style }) {
   )
 }
 
-// ── Cycle detection: would adding edge source→target create a loop? ──────────
-// True when target already reaches source through existing edges.
-function wouldCreateCycle(edges, source, target) {
-  const adj = {}
-  edges.forEach(e => { (adj[e.source] = adj[e.source] || []).push(e.target) })
-  const seen = new Set()
-  const stack = [target]
-  while (stack.length) {
-    const id = stack.pop()
-    if (id === source) return true
-    if (seen.has(id)) continue
-    seen.add(id)
-    ;(adj[id] || []).forEach(n => stack.push(n))
-  }
-  return false
-}
-
 // ── Resolve a stored connection handle ('main', 'true', …) to a port index ───
 // Handles are port ids, not indexes; legacy files stored numeric strings.
 function resolvePortIdx(ports, handle) {
@@ -1194,14 +1181,15 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         const nodeById = {}
         loadedNodes.forEach(n => { nodeById[n.id] = n })
         const loadedEdges = (wf.connections || []).map(c => ({
-          id: c.id, source: c.source_node_id, sourcePortId: c.source_handle,
-          sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, c.source_handle),
+          id: c.id, source: c.source_node_id, sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
+          sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
           target: c.target_node_id, targetPortId: c.target_handle,
           targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
         }))
         setWfId(wf.id)
         setWfName(wf.name || 'Untitled Workflow')
         setWfActive(!!wf.is_active)
+        canvasIds.advancePast([...loadedNodes, ...loadedEdges].map(x => x.id))
         setNodes(loadedNodes)
         setEdges(loadedEdges)
         setSelectedId(null)
@@ -1245,14 +1233,15 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             const nodeById = {}
             loadedNodes.forEach(n => { nodeById[n.id] = n })
             const loadedEdges = (wf.connections || []).map(c => ({
-              id: c.id, source: c.source_node_id, sourcePortId: c.source_handle,
-              sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, c.source_handle),
+              id: c.id, source: c.source_node_id, sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
+              sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
               target: c.target_node_id, targetPortId: c.target_handle,
               targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
             }))
             setWfId(wf.id)
             setWfName(wf.name || 'Untitled Workflow')
             setWfActive(!!wf.is_active)
+            canvasIds.advancePast([...loadedNodes, ...loadedEdges].map(x => x.id))
             setNodes(loadedNodes)
             setEdges(loadedEdges)
             setSelectedId(null)
@@ -1426,7 +1415,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     const y = worldY ?? (rect.height / 2 - cam.y) / cam.zoom - 60 + (Math.random() - .5) * 80
     const defaults = {}
     template.configFields?.forEach(f => { defaults[f.key] = f.default ?? '' })
-    const id = uid()
+    const id = uid(new Set(nodesRef.current.map(n => n.id)))
     setNodes(prev => [...prev, {
       id, label: template.label, subtype: template.subtype,
       category: template.category,
@@ -1490,15 +1479,17 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     const sNode = nodesRef.current.find(n => n.id === sourceNodeId)
     const tNode = nodesRef.current.find(n => n.id === targetNodeId)
     if (!sNode || !tNode) { dragRef.current = null; setPendingEdge(null); return }
-    if (wouldCreateCycle(edges, sourceNodeId, targetNodeId)) {
-      notify('connect nodes', 'Connection rejected: it would create a cycle')
+    // A cycle is allowed only as a loop closing into a Split In Batches node.
+    const candidate = { source: sourceNodeId, sourcePortIdx, sourcePortId: sNode.outputs[sourcePortIdx]?.id, target: targetNodeId }
+    if (hasForbiddenCycle(nodesRef.current, [...edges, candidate])) {
+      notify('connect nodes', 'Connection rejected: it would create a cycle. Only a loop back into a Split In Batches node may close one.')
       dragRef.current = null; setPendingEdge(null)
       return
     }
     setEdges(prev => {
       if (prev.some(e => e.source === sourceNodeId && e.sourcePortIdx === sourcePortIdx && e.target === targetNodeId && e.targetPortIdx === targetPortIdx)) return prev
       return [...prev, {
-        id: uid(), source: sourceNodeId, sourcePortIdx,
+        id: uid(new Set(prev.map(e => e.id))), source: sourceNodeId, sourcePortIdx,
         sourcePortId: sNode.outputs[sourcePortIdx]?.id,
         target: targetNodeId, targetPortIdx,
         targetPortId: tNode.inputs[targetPortIdx]?.id,
@@ -1735,12 +1726,13 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       const loadedEdges = (wf.connections || []).map(c => ({
         id:           c.id,
         source:       c.source_node_id,
-        sourcePortId: c.source_handle,
-        sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, c.source_handle),
+        sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
+        sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
         target:       c.target_node_id,
         targetPortId: c.target_handle,
         targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
       }))
+      canvasIds.advancePast([...loadedNodes, ...loadedEdges].map(x => x.id))
       setNodes(loadedNodes)
       setEdges(loadedEdges)
       setSelectedId(null)
@@ -1797,7 +1789,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     const successors = {}
     const predecessors = {}
     nodes.forEach(n => { successors[n.id] = []; predecessors[n.id] = [] })
+    // Loop back-edges point backwards; following them would never terminate.
+    const back = loopBackEdges(nodes, edges)
     edges.forEach(e => {
+      if (back.has(e)) return
       if (successors[e.source]) successors[e.source].push(e.target)
       if (predecessors[e.target]) predecessors[e.target].push(e.source)
     })
@@ -1836,12 +1831,32 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   }, [nodes, edges])
 
   // ── Edge paths ────────────────────────────────────────────────────────────
+  // Loop back-edges run below (or above) their loop's nodes, dashed in
+  // LOOP_EDGE_COLOR.
+  const backEdges = loopBackEdges(nodes, edges)
   const edgePaths = edges.map(edge => {
     const sNode = nodes.find(n => n.id === edge.source)
     const tNode = nodes.find(n => n.id === edge.target)
     if (!sNode || !tNode) return null
     const sp = outPortPos(sNode, edge.sourcePortIdx)
     const tp = inPortPos(tNode, edge.targetPortIdx)
+    const loopIds = backEdges.get(edge)
+    if (loopIds) {
+      const boxes = nodes.map(n => ({ id: n.id, x: n.x, y: n.y, w: NODE_W, h: nodeH(n) }))
+      // Other edges' curves and the output ports of nodes outside the loop:
+      // the route (below or above the loop) keeps clear of them.
+      const obstacles = []
+      for (const o of edges) {
+        if (o === edge) continue
+        const os = nodes.find(n => n.id === o.source), ot = nodes.find(n => n.id === o.target)
+        if (!os || !ot) continue
+        const a = outPortPos(os, o.sourcePortIdx), b = inPortPos(ot, o.targetPortIdx)
+        obstacles.push(...edgePoints(a.x, a.y, b.x, b.y))
+      }
+      for (const n of nodes) if (!loopIds.has(n.id)) n.outputs.forEach((_, i) => { const p = outPortPos(n, i); obstacles.push([p.x, p.y]) })
+      const runY = chooseLoopEdgeY({ sx: sp.x, sy: sp.y, tx: tp.x, ty: tp.y, boxes, loopIds, obstacles })
+      return { ...edge, path: loopEdgePath(sp.x, sp.y, tp.x, tp.y, runY), color: LOOP_EDGE_COLOR, loop: true }
+    }
     return { ...edge, path: edgePath(sp.x, sp.y, tp.x, tp.y), color: sNode.color || catColor(sNode.category) }
   }).filter(Boolean)
 
@@ -2273,8 +2288,9 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
                 {edgePaths.map(ep => (
                   <g key={ep.id}>
-                    <path d={ep.path} stroke={ep.color} strokeWidth={1.5} fill="none" strokeOpacity={0.5} />
-                    <path d={ep.path} stroke={ep.color} strokeWidth={4} fill="none" strokeOpacity={0}
+                    <path d={ep.path} stroke={ep.color} strokeWidth={1.5} fill="none"
+                      strokeOpacity={ep.loop ? 0.85 : 0.5} strokeDasharray={ep.loop ? '6 4' : undefined} />
+                    <path d={ep.path} stroke={ep.color} strokeWidth={12} fill="none" strokeOpacity={0}
                       style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                       onClick={() => { setEdges(prev => prev.filter(e => e.id !== ep.id)); setIsDirty(true) }}
                     />
@@ -2286,8 +2302,9 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               </g>
             </svg>
 
-            {/* Nodes */}
-            <div style={{ position: 'absolute', inset: 0, zIndex: 2, transformOrigin: '0 0', transform: `translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})` }}>
+            {/* Nodes — the layer itself lets clicks through to the edges
+                below; each node card takes pointer events back. */}
+            <div style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none', transformOrigin: '0 0', transform: `translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})` }}>
               {nodes.map(node => (
                 <CanvasNode
                   key={node.id}

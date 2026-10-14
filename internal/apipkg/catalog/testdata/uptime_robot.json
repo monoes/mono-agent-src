@@ -30,7 +30,8 @@
       "path": "/v2/getAlertContacts",
       "body": {
         "limit": "5",
-        "api_key": "test-api_key"
+        "api_key": "test-api_key",
+        "offset": "0"
       },
       "items": 1
     }
@@ -110,7 +111,9 @@
       "method": "POST",
       "path": "/v2/getMWindows",
       "body": {
-        "api_key": "test-api_key"
+        "api_key": "test-api_key",
+        "offset": "0",
+        "limit": "50"
       },
       "items": 1
     }
@@ -217,7 +220,8 @@
         "statuses": "2-9",
         "logs": "1",
         "limit": "5",
-        "api_key": "test-api_key"
+        "api_key": "test-api_key",
+        "offset": "0"
       },
       "items": 2
     }
@@ -311,7 +315,8 @@
       "path": "/v2/getPSPs",
       "body": {
         "limit": "5",
-        "api_key": "test-api_key"
+        "api_key": "test-api_key",
+        "offset": "0"
       },
       "items": 1
     }

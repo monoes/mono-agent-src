@@ -518,8 +518,21 @@
         }
       ],
       "binary": {
-        "upload_field": "binaryPropertyName"
-      }
+        "upload_field": "binaryPropertyName",
+        "upload_session": {
+          "create": {
+            "method": "POST",
+            "base_url": "https://graph.microsoft.com/v1.0/sites/{{ p.site | rl | re:'^https?://([^/]+)' }}{{ p.site | rl | matches:'^https?://[^/]+/.' | then:':' }}{{ p.site | rl | matches:'^https?://[^/]+/.' | then:(p.site | rl | re:'^https?://[^/]+(/[^?#]*?)/?$') }}{{ p.site | rl | matches:'^https?://[^/]+/.' | then:':' }}",
+            "path": "/drive/items/{{ p.folder | rl }}:/{{ p.fileName }}:/createUploadSession",
+            "body": {
+              "item": {
+                "@microsoft.graph.conflictBehavior": "replace"
+              }
+            }
+          }
+        }
+      },
+      "description": "Files over 4 MiB go through an upload session in 10 MiB chunks."
     },
     {
       "resource": "file",
@@ -631,6 +644,39 @@
           "path": "/drive/items/{{ p.file | rl }}/content"
         }
       ]
+    },
+    {
+      "resource": "file",
+      "operation": "getChanges",
+      "title": "List a library's files",
+      "description": "Every file of a document library with its lastModifiedDateTime (Graph delta, folders left out); the importer polls it for n8n's SharePoint trigger on a document library.",
+      "method": "GET",
+      "base_url": "https://graph.microsoft.com/v1.0/sites/{{ p.site | rl | re:'^https?://([^/]+)' }}{{ p.site | rl | matches:'^https?://[^/]+/.' | then:':' }}{{ p.site | rl | matches:'^https?://[^/]+/.' | then:(p.site | rl | re:'^https?://[^/]+(/[^?#]*?)/?$') }}{{ p.site | rl | matches:'^https?://[^/]+/.' | then:':' }}",
+      "path": "/drive{{ p.drive | rl | then:'s/' }}{{ p.drive | rl }}/root/delta",
+      "fields": [
+        {
+          "key": "site",
+          "label": "Site",
+          "type": "text",
+          "required": true,
+          "help": "Graph site ID (host,site-guid,web-guid) or the site's URL, e.g. https://contoso.sharepoint.com/sites/team."
+        },
+        {
+          "key": "drive",
+          "label": "Document library (drive) ID",
+          "type": "text",
+          "help": "Empty uses the site's default library."
+        }
+      ],
+      "pagination": {
+        "type": "next_url",
+        "next_url_path": "@odata.nextLink",
+        "results_path": "value"
+      },
+      "output": {
+        "path": "value",
+        "where": "{{ el.file }}"
+      }
     }
   ]
 }

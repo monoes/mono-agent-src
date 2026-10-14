@@ -99,9 +99,6 @@ func fakeProviders(t *testing.T, want *string) *[]string {
 func (e *sessionsTestEnv) seedConnection(t *testing.T, profile, platform string, data map[string]interface{}) string {
 	t.Helper()
 	store := connections.NewStore(e.db.DB)
-	if err := store.EnsureTable(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	c := &connections.Connection{Platform: platform, Method: connections.MethodOAuth, ProfileID: profile, Data: data}
 	if err := store.Save(context.Background(), c); err != nil {
 		t.Fatal(err)

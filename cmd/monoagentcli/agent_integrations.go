@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/nodemgr"
 )
 
@@ -138,6 +139,26 @@ func mcpRuntimeStates() []mcpRuntimeState {
 		st := rt.state(home)
 		st.ID, st.Label = rt.id, rt.label
 		out = append(out, st)
+	}
+	return out
+}
+
+// agentsMCPRuntimes is the doctor's per-runtime view (one row per installed
+// coding agent).
+func agentsMCPRuntimes() []health.MCPRuntime {
+	var out []health.MCPRuntime
+	for _, st := range mcpRuntimeStates() {
+		if !st.Installed {
+			continue
+		}
+		rt := health.MCPRuntime{ID: st.ID, Label: st.Label, Registered: st.Registered, Current: st.Current}
+		if st.Registered {
+			rt.Where = fmt.Sprintf("%q in %s", st.Entry, st.Where)
+		}
+		if st.Err != nil {
+			rt.Err = st.Err.Error()
+		}
+		out = append(out, rt)
 	}
 	return out
 }

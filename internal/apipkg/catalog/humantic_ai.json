@@ -10,6 +10,8 @@
     "n8n-nodes-base.humanticAi"
   ],
   "base_url": "https://api.humantic.ai/v1",
+  "error_when": "{{ res.data.status | eq:'error' }}",
+  "error_message": "{{ res.data.message }}",
   "headers": {
     "Accept": "application/json"
   },

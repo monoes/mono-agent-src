@@ -16,7 +16,8 @@
       "n8n_credential_alt": ["microsoftOAuth2Api"],
       "methods": ["oauth"],
       "inject": { "headers": { "Authorization": "Bearer {{ cred.access_token }}" } },
-      "reuse_platform": "microsoft"
+      "reuse_platform": "microsoft",
+      "scope_group": "directory"
     }
   ],
   "resources": [

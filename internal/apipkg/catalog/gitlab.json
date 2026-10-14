@@ -47,10 +47,13 @@
         }
       ],
       "oauth": {
-        "auth_url": "https://gitlab.com/oauth/authorize",
-        "token_url": "https://gitlab.com/oauth/token",
+        "auth_url": "{{ cred.server | default:'https://gitlab.com' | re:'^(.*?)/*$' }}/oauth/authorize",
+        "token_url": "{{ cred.server | default:'https://gitlab.com' | re:'^(.*?)/*$' }}/oauth/token",
         "scopes": [
           "api"
+        ],
+        "connect_fields": [
+          "server"
         ]
       },
       "inject": {

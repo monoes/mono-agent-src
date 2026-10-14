@@ -1,0 +1,27 @@
+{
+  "credential_platform": "mqtt",
+  "fields": [
+    {
+      "key": "topics",
+      "label": "Topics",
+      "type": "text",
+      "required": true,
+      "placeholder": "sensors/#, alerts:1",
+      "help": "Comma-separated; an optional :0, :1 or :2 suffix sets the QoS."
+    },
+    {
+      "key": "json_parse_body",
+      "label": "Parse Body as JSON",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "only_message",
+      "label": "Only Message",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    }
+  ]
+}

@@ -446,5 +446,62 @@
         ]
       }
     }
+  ],
+  "outputs": [
+    {
+      "description": "insert/update/search: document id",
+      "key": "id",
+      "type": "string"
+    },
+    {
+      "description": "insert/update/search: document text",
+      "key": "pageContent",
+      "type": "string"
+    },
+    {
+      "description": "insert/update/search: document metadata",
+      "key": "metadata",
+      "type": "object"
+    },
+    {
+      "description": "search: similarity score (one item per hit)",
+      "key": "score",
+      "type": "number"
+    },
+    {
+      "description": "search: 1-based rank of the hit",
+      "key": "rank",
+      "type": "number"
+    },
+    {
+      "description": "search: the query text",
+      "key": "query",
+      "type": "string"
+    },
+    {
+      "description": "search: index of the input item the query came from",
+      "key": "source_item",
+      "type": "number"
+    },
+    {
+      "description": "search: the hit's vector, when include_vectors is on",
+      "key": "embedding",
+      "type": "array"
+    },
+    {
+      "description": "delete: ids that were deleted",
+      "key": "ids",
+      "type": "array"
+    },
+    {
+      "description": "delete: the collection",
+      "key": "collection",
+      "type": "string"
+    },
+    {
+      "description": "delete: number of documents deleted, when the backend reports it",
+      "key": "deleted",
+      "type": "number"
+    }
   ]
 }

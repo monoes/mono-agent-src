@@ -296,12 +296,22 @@
         "attachmentsBinary": [
           {
             "property": "data"
+          },
+          {
+            "property": "data2"
           }
         ]
       }
     },
     "input": {
-      "data": "aGk="
+      "data": "aGk=",
+      "binary": {
+        "data2": {
+          "data": "eW8=",
+          "fileName": "b.png",
+          "mimeType": "image/png"
+        }
+      }
     },
     "expect": {
       "method": "POST",
@@ -316,6 +326,11 @@
             "fileName": "data",
             "mimeType": "application/octet-stream",
             "data": "aGk="
+          },
+          {
+            "fileName": "b.png",
+            "mimeType": "image/png",
+            "data": "eW8="
           }
         ]
       }

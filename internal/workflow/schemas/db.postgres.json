@@ -358,7 +358,7 @@
   "outputs": [
     {
       "description": "one item per result row, keyed by column",
-      "key": "<columns>",
+      "key": "<row_columns>",
       "type": "any"
     }
   ]

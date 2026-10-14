@@ -1,0 +1,115 @@
+{
+  "store": {
+    "state": "ok",
+    "tray": true,
+    "highlights": [
+      "Travel",
+      "Food"
+    ],
+    "user": {
+      "pk": "9001",
+      "username": "synth.ada",
+      "full_name": "Ada Synth",
+      "biography": "Builds synthetic things",
+      "is_verified": true,
+      "is_private": false,
+      "external_url": "",
+      "hd_profile_pic_url_info": {
+        "url": "https://cdn.example/ada_hd.jpg"
+      },
+      "profile_pic_url": "https://cdn.example/ada.jpg",
+      "follower_count": 12345,
+      "following_count": 67,
+      "media_count": 89,
+      "should_show_category": true,
+      "category": "Artist",
+      "account_type": 3,
+      "pronouns": [
+        "she",
+        " ",
+        "her"
+      ],
+      "bio_links": [
+        {
+          "url": "",
+          "lynx_url": "https://l.instagram.com/?u=https%3A%2F%2Fada.example%2Fshop&e=x",
+          "title": "Shop"
+        },
+        {
+          "url": "https://ada.example/blog"
+        },
+        {
+          "url": "https://ada.example/blog",
+          "title": "dupe"
+        },
+        "not-a-link"
+      ],
+      "show_text_post_app_badge": true,
+      "text_post_app_badge_label": "",
+      "public_email": "ada@example.com",
+      "public_phone_number": "5551234",
+      "public_phone_country_code": "1",
+      "address_street": "1 Synth St",
+      "city_name": "Berlin",
+      "zip": "10115"
+    }
+  },
+  "api": {
+    "data": {
+      "data": {
+        "user": {
+          "id": "777",
+          "username": "synth.bob",
+          "full_name": "Bob Synth",
+          "biography": "Bio from the API",
+          "external_url": "https://bob.example",
+          "profile_pic_url_hd": "https://cdn.example/bob_hd.jpg",
+          "edge_followed_by": {
+            "count": 1500
+          },
+          "edge_follow": {
+            "count": 20
+          },
+          "edge_owner_to_timeline_media": {
+            "count": 3
+          },
+          "should_show_category": false,
+          "category_name": "Hidden category",
+          "is_business_account": true,
+          "business_email": "bob@example.com",
+          "business_phone_number": "+49 30 1234",
+          "business_address_json": "{\"street_address\":\"2 Fake Rd\",\"city_name\":\"Hamburg\",\"zip_code\":\"20095\"}"
+        }
+      }
+    }
+  },
+  "dom": {
+    "state": "ok",
+    "username": "synth.cy",
+    "full_name": "",
+    "bio": "",
+    "followers": "",
+    "following": "1,234",
+    "posts": "",
+    "image": "https://cdn.example/cy.jpg",
+    "website": "https://l.instagram.com/?u=https%3A%2F%2Fcy.example%2F&e=1",
+    "verified": false,
+    "private": true,
+    "og_description": "1.2K Followers, 999 Following, 45 Posts - See Instagram photos and videos from Cy",
+    "og_title": "Cy Synth (@synth.cy) \u2022 Instagram photos and videos",
+    "ldjson": [
+      "not json",
+      "{\"name\":\"LD Name\",\"description\":\"LD bio\"}"
+    ],
+    "category": "Musician",
+    "unavailable": false
+  },
+  "dom_unavailable": {
+    "state": "no_header",
+    "unavailable": true
+  },
+  "dom_no_header": {
+    "state": "no_header",
+    "og_description": ""
+  }
+}

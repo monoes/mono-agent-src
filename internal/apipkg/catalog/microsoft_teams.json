@@ -115,6 +115,7 @@
       "resource": "channel",
       "operation": "create",
       "title": "Create a channel",
+      "scope_group": "teams_admin",
       "method": "POST",
       "path": "/teams/{{ p.teamId | rl }}/channels",
       "fields": [
@@ -152,6 +153,7 @@
       "resource": "channel",
       "operation": "deleteChannel",
       "title": "Delete a channel",
+      "scope_group": "teams_admin",
       "method": "DELETE",
       "path": "/teams/{{ p.teamId | rl }}/channels/{{ p.channelId | rl }}",
       "fields": [
@@ -232,6 +234,7 @@
       "resource": "channel",
       "operation": "update",
       "title": "Update a channel",
+      "scope_group": "teams_admin",
       "method": "PATCH",
       "path": "/teams/{{ p.teamId | rl }}/channels/{{ p.channelId | rl }}",
       "fields": [
@@ -332,6 +335,7 @@
       "resource": "channelMessage",
       "operation": "softDeleteMessage",
       "title": "Delete a channel message",
+      "scope_group": "teams_admin",
       "method": "POST",
       "path": "/teams/{{ p.teamId | rl }}/channels/{{ p.channelId | rl }}/messages/{{ p.options.parentMessageId | then:(p.options.parentMessageId) }}{{ p.options.parentMessageId | then:'/replies/' }}{{ p.messageId }}/softDelete",
       "fields": [
@@ -374,6 +378,7 @@
       "resource": "channelMessage",
       "operation": "get",
       "title": "Get a channel message",
+      "scope_group": "teams_admin",
       "method": "GET",
       "path": "/teams/{{ p.teamId | rl }}/channels/{{ p.channelId | rl }}/messages/{{ p.messageId }}",
       "fields": [
@@ -402,6 +407,7 @@
       "resource": "channelMessage",
       "operation": "getAll",
       "title": "Get many channel messages",
+      "scope_group": "teams_admin",
       "method": "GET",
       "path": "/teams/{{ p.teamId | rl }}/channels/{{ p.channelId | rl }}/messages",
       "fields": [
@@ -444,6 +450,7 @@
       "resource": "channelMessage",
       "operation": "getAllReplies",
       "title": "Get many replies",
+      "scope_group": "teams_admin",
       "method": "GET",
       "path": "/teams/{{ p.teamId | rl }}/channels/{{ p.channelId | rl }}/messages/{{ p.messageId }}/replies",
       "fields": [
@@ -552,6 +559,7 @@
       "resource": "channelMessage",
       "operation": "undoSoftDeleteMessage",
       "title": "Restore a deleted channel message",
+      "scope_group": "teams_admin",
       "method": "POST",
       "path": "/teams/{{ p.teamId | rl }}/channels/{{ p.channelId | rl }}/messages/{{ p.options.parentMessageId | then:(p.options.parentMessageId) }}{{ p.options.parentMessageId | then:'/replies/' }}{{ p.messageId }}/undoSoftDelete",
       "fields": [
@@ -1138,7 +1146,7 @@
       "operation": "deleteMeeting",
       "title": "Delete an online meeting",
       "method": "DELETE",
-      "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings/{{ p.meetingId | rl }}",
+      "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings/{{ pres.0.value.0.id | default:(p.meetingId | rl) }}",
       "fields": [
         {
           "key": "organizerId",
@@ -1151,12 +1159,20 @@
           "label": "Meeting ID",
           "type": "text",
           "required": true,
-          "help": "The online meeting's ID (join-URL lookup is not supported)."
+          "help": "The online meeting's ID, or n8n's locator in url mode with the meeting's join URL (looked up first)."
         }
       ],
       "output": {
         "to": {
           "success": true
+        }
+      },
+      "before": {
+        "when": "{{ p.meetingId.mode | eq:'url' }}",
+        "method": "GET",
+        "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings",
+        "query": {
+          "$filter": "JoinWebUrl eq '{{ p.meetingId | rl | replace:\"'\",\"''\" }}'"
         }
       }
     },
@@ -1165,7 +1181,7 @@
       "operation": "get",
       "title": "Get an online meeting",
       "method": "GET",
-      "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings/{{ p.meetingId | rl }}",
+      "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings/{{ pres.0.value.0.id | default:(p.meetingId | rl) }}",
       "fields": [
         {
           "key": "organizerId",
@@ -1178,16 +1194,24 @@
           "label": "Meeting ID",
           "type": "text",
           "required": true,
-          "help": "The online meeting's ID (join-URL lookup is not supported)."
+          "help": "The online meeting's ID, or n8n's locator in url mode with the meeting's join URL (looked up first)."
         }
-      ]
+      ],
+      "before": {
+        "when": "{{ p.meetingId.mode | eq:'url' }}",
+        "method": "GET",
+        "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings",
+        "query": {
+          "$filter": "JoinWebUrl eq '{{ p.meetingId | rl | replace:\"'\",\"''\" }}'"
+        }
+      }
     },
     {
       "resource": "onlineMeeting",
       "operation": "update",
       "title": "Update an online meeting",
       "method": "PATCH",
-      "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings/{{ p.meetingId | rl }}",
+      "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings/{{ pres.0.value.0.id | default:(p.meetingId | rl) }}",
       "fields": [
         {
           "key": "organizerId",
@@ -1200,7 +1224,7 @@
           "label": "Meeting ID",
           "type": "text",
           "required": true,
-          "help": "The online meeting's ID (join-URL lookup is not supported)."
+          "help": "The online meeting's ID, or n8n's locator in url mode with the meeting's join URL (looked up first)."
         },
         {
           "key": "updateFields",
@@ -1225,14 +1249,24 @@
           "help": "Start and end time go together; attendees: {attendee: [{userId, role}]} replaces the list."
         }
       ],
-      "before": {
-        "for_each": "{{ p.updateFields.attendees.attendee }}",
-        "method": "GET",
-        "path": "/users/{{ el.userId | rl }}",
-        "query": {
-          "$select": "id,userPrincipalName"
+      "before": [
+        {
+          "when": "{{ p.meetingId.mode | eq:'url' }}",
+          "method": "GET",
+          "path": "/{{ p.organizerId | rl | then:'users' | default:'me' }}{{ p.organizerId | rl | then:'/' }}{{ p.organizerId | rl }}/onlineMeetings",
+          "query": {
+            "$filter": "JoinWebUrl eq '{{ p.meetingId | rl | replace:\"'\",\"''\" }}'"
+          }
+        },
+        {
+          "for_each": "{{ p.updateFields.attendees.attendee }}",
+          "method": "GET",
+          "path": "/users/{{ el.userId | rl }}",
+          "query": {
+            "$select": "id,userPrincipalName"
+          }
         }
-      },
+      ],
       "body": {
         "$merge": "{{ p.updateFields | pick:'allowAttendeeToEnableCamera,allowAttendeeToEnableMic,allowMeetingChat,allowTeamworkReactions,allowedPresenters,isEntryExitAnnounced,recordAutomatically' }}",
         "lobbyBypassSettings": {
@@ -1262,6 +1296,7 @@
       "resource": "task",
       "operation": "create",
       "title": "Create a task",
+      "scope_group": "tasks",
       "method": "POST",
       "path": "/planner/tasks",
       "fields": [
@@ -1321,6 +1356,7 @@
       "resource": "task",
       "operation": "deleteTask",
       "title": "Delete a task",
+      "scope_group": "tasks",
       "method": "DELETE",
       "path": "/planner/tasks/{{ p.taskId | rl }}",
       "fields": [
@@ -1348,6 +1384,7 @@
       "resource": "task",
       "operation": "get",
       "title": "Get a task",
+      "scope_group": "tasks",
       "method": "GET",
       "path": "/planner/tasks/{{ p.taskId | rl }}",
       "fields": [
@@ -1363,6 +1400,7 @@
       "resource": "task",
       "operation": "getAll",
       "title": "Get many tasks",
+      "scope_group": "tasks",
       "method": "GET",
       "path": "{{ p.tasksFor | eq:'plan' | then:'/planner/plans/' | default:'/users/' }}{{ p.tasksFor | eq:'plan' | then:(p.planId | rl) | default:pre.id }}{{ p.tasksFor | eq:'plan' | then:'/tasks' | default:'/planner/tasks' }}",
       "fields": [
@@ -1421,6 +1459,7 @@
       "resource": "task",
       "operation": "update",
       "title": "Update a task",
+      "scope_group": "tasks",
       "method": "PATCH",
       "path": "/planner/tasks/{{ p.taskId | rl }}",
       "fields": [

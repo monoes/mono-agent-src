@@ -336,6 +336,9 @@ func (e *WorkflowEngine) cancelExecution(executionID string, cause error) {
 	// re-checks status before running, so this makes the cancel stick.
 	dctx, cancel := dbCtx()
 	defer cancel()
+	// Only a run that has not finished takes its sub-workflow children with
+	// it; a finished run's fire-and-forget children are left alone.
+	status, _ := e.store.GetExecutionStatus(dctx, executionID)
 	// Covers QUEUED (not yet dispatched) and WAITING (paused at a HIL node with
 	// no live goroutine) — a status flip is enough for both.
 	if cancelled, err := e.store.CancelQueuedExecution(dctx, executionID); err == nil && cancelled {
@@ -347,10 +350,14 @@ func (e *WorkflowEngine) cancelExecution(executionID string, cause error) {
 				executionID)
 		}
 		e.logger.Info().Str("execution_id", executionID).Msg("engine: queued/waiting execution cancelled")
+		e.onExecutionFinished(executionID) // wakes a parent waiting on this sub-workflow run
 	}
 	// Signal cancellation for an already-dispatched (running) execution.
 	e.queue.CancelWithCause(executionID, cause)
 	e.logger.Info().Str("execution_id", executionID).Msg("engine: execution cancel requested")
+	if status != "" && !isTerminalStatus(status) {
+		e.cancelSubWorkflowChildren(executionID, cause)
+	}
 }
 
 // CancelRunning asks every execution this engine has dispatched and not

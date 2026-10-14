@@ -127,6 +127,7 @@ func (r *runner) rewind() (int, bool) {
 	for n := range body {
 		delete(r.completedNodes, n)
 		delete(r.pendingInputs, n)
+		delete(r.pendingFrom, n)
 		r.resetMergeCounter(n, loopID, body)
 	}
 	if !r.dag.loopHasBackEdge(loopID) {

@@ -145,3 +145,61 @@ func TestN8nGoogleCredentialMappings(t *testing.T) {
 		}
 	}
 }
+
+func TestMicrosoftScopeGroups(t *testing.T) {
+	groups := map[string]ScopeGroup{}
+	for _, g := range ScopeGroups("microsoft") {
+		groups[g.Name] = g
+	}
+	want := map[string]struct {
+		scopes []string
+		optIn  bool
+	}{
+		"tasks":       {[]string{"Tasks.ReadWrite"}, false},
+		"contacts":    {[]string{"Contacts.ReadWrite"}, false},
+		"teams":       {[]string{"Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Send", "Chat.ReadWrite", "OnlineMeetings.ReadWrite", "TeamsActivity.Send"}, false},
+		"teams_admin": {[]string{"ChannelMessage.Read.All", "Channel.Create", "ChannelSettings.ReadWrite.All", "ChatMember.ReadWrite", "ChannelMessage.ReadWrite", "Channel.Delete.All"}, true},
+		"directory":   {[]string{"User.ReadWrite.All", "Group.ReadWrite.All"}, true},
+		"security":    {[]string{"SecurityEvents.ReadWrite.All"}, true},
+	}
+	for name, w := range want {
+		g, ok := groups[name]
+		if !ok {
+			t.Errorf("microsoft has no %q scope group", name)
+			continue
+		}
+		if g.OptIn != w.optIn {
+			t.Errorf("group %q opt-in = %v, want %v", name, g.OptIn, w.optIn)
+		}
+		if strings.Join(g.Scopes, " ") != strings.Join(msScopes(w.scopes...), " ") {
+			t.Errorf("group %q scopes = %v, want %v", name, g.Scopes, msScopes(w.scopes...))
+		}
+	}
+	// A plain connect asks for nothing that needs a tenant admin's consent.
+	def, _ := ResolveScopes("microsoft", nil)
+	for _, s := range []string{"User.ReadWrite.All", "Group.ReadWrite.All", "SecurityEvents.ReadWrite.All", "ChannelMessage.Read.All", "Channel.Create", "ChannelSettings.ReadWrite.All", "ChatMember.ReadWrite"} {
+		if inList(def, microsoftScopePrefix+s) {
+			t.Errorf("a plain microsoft connect must not request %s", s)
+		}
+	}
+	for _, s := range []string{"Tasks.ReadWrite", "Contacts.ReadWrite", "OnlineMeetings.ReadWrite", "TeamsActivity.Send"} {
+		if !inList(def, microsoftScopePrefix+s) {
+			t.Errorf("a plain microsoft connect lacks %s", s)
+		}
+	}
+	got, err := ResolveScopes("microsoft", []string{"directory"})
+	if err != nil || !inList(got, microsoftScopePrefix+"Group.ReadWrite.All") || inList(got, microsoftScopePrefix+"Mail.ReadWrite") {
+		t.Errorf("--scopes directory = %v, %v", got, err)
+	}
+	// An Entra op on a default connection names the opt-in group to add.
+	cred := map[string]interface{}{"oauth_platform": "microsoft", "scope": strings.Join(def, " ")}
+	err = CheckCredentialScopes(cred, "directory")
+	if err == nil || !strings.Contains(err.Error(), "--scopes mail,calendar,files,sites,teams,tasks,contacts,directory") {
+		t.Errorf("directory on a default connection: %v", err)
+	}
+	for cred, group := range map[string]string{"microsoftToDoOAuth2Api": "tasks", "microsoftEntraOAuth2Api": "directory", "microsoftGraphSecurityOAuth2Api": "security"} {
+		if m := N8nCredentials[cred]; strings.Join(m.ScopeGroups, ",") != group {
+			t.Errorf("%s: scope groups %v, want %q", cred, m.ScopeGroups, group)
+		}
+	}
+}

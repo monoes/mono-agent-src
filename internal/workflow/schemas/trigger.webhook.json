@@ -129,5 +129,37 @@
       "required": false,
       "type": "number"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the request body's top-level fields (JSON or form)",
+      "key": "<body>",
+      "type": "any"
+    },
+    {
+      "description": "query parameters",
+      "key": "query",
+      "type": "object"
+    },
+    {
+      "description": "request headers (the auth header removed)",
+      "key": "headers",
+      "type": "object"
+    },
+    {
+      "description": "HTTP method",
+      "key": "method",
+      "type": "string"
+    },
+    {
+      "description": "the webhook path",
+      "key": "path",
+      "type": "string"
+    },
+    {
+      "description": "uploaded files by field: file_name, mime_type, file_size, data (base64); only with multipart files",
+      "key": "binary",
+      "type": "object"
+    }
   ]
 }

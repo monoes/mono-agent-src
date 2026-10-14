@@ -47,5 +47,17 @@
       "required": false,
       "type": "boolean"
     }
+  ],
+  "outputs": [
+    {
+      "description": "one key per fields_to_summarize entry, named by aggregation prefix + field (appended_, average_, concatenated_, count_, unique_count_, max_, min_, sum_)",
+      "key": "<aggregation>_<field>",
+      "type": "any"
+    },
+    {
+      "description": "separate_items: the group's value of each split-by field; single_item: one nested object per group value instead",
+      "key": "<fields_to_split_by>",
+      "type": "any"
+    }
   ]
 }

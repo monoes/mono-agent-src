@@ -12,6 +12,11 @@
   "n8n_trigger_types": [
     "n8n-nodes-base.invoiceNinjaTrigger"
   ],
+  "n8n_version_defaults": {
+    "1": {
+      "apiVersion": "v4"
+    }
+  },
   "base_url": "{{ cred.url | default:'https://invoicing.co' | re:'^(.*?)/*$' }}/api/v1",
   "headers": {
     "Accept": "application/json",

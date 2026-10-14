@@ -16,7 +16,8 @@
       "n8n_credential": "zammadTokenAuthApi",
       "n8n_field_map": {
         "baseUrl": "base_url",
-        "accessToken": "access_token"
+        "accessToken": "access_token",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "api_key"
@@ -33,6 +34,11 @@
           "label": "Access token",
           "secret": true,
           "required": true
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {
@@ -48,7 +54,8 @@
       "n8n_field_map": {
         "baseUrl": "base_url",
         "username": "username",
-        "password": "password"
+        "password": "password",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "basic"
@@ -69,6 +76,11 @@
           "label": "Password",
           "secret": true,
           "required": true
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {

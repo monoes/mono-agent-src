@@ -157,12 +157,13 @@ func (b *builder) runMapper(ctx *MapContext, nr *NodeReport) Mapping {
 	var m Mapping
 	native, hasNative := lookup(ctx.Type)
 	app, hasApp := lookupApp(ctx.Type)
+	saw := rewriteSendAndWait(ctx)
 	switch {
 	case hasNative:
 		m = native(ctx)
 		if ctx.opUnsupported && hasApp {
 			fresh := newMapContext(b.byName[ctx.NodeName], b.rep.Workflow)
-			fresh.SubNodes, fresh.OnErrorOutput = ctx.SubNodes, ctx.OnErrorOutput
+			fresh.SubNodes, fresh.OnErrorOutput, fresh.Params = ctx.SubNodes, ctx.OnErrorOutput, ctx.Params
 			*ctx = *fresh
 			m = mapApp(app, ctx)
 		}
@@ -172,6 +173,9 @@ func (b *builder) runMapper(ctx *MapContext, nr *NodeReport) Mapping {
 		m = Mapping{Unmapped: true}
 		ctx.issues = append(ctx.issues, Issue{Severity: SevError,
 			Message: fmt.Sprintf("n8n node type %s is not available in mono-agent yet", ctx.Type)})
+	}
+	if saw != nil && !m.Unmapped {
+		m = saw.attach(ctx, m)
 	}
 	if !m.Unmapped {
 		ctx.reportUnused()

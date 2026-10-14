@@ -176,7 +176,8 @@ func newWorkflowCancelCmd(cfg *globalConfig) *cobra.Command {
 		Short: "Cancel a queued, running or waiting execution",
 		Long: "Stops the process recorded for the execution (SIGTERM, only after checking " +
 			"that the pid is still a monoagent process, and never the daemon's own pid), " +
-			"marks the execution CANCELLED and rejects its pending human reviews. An " +
+			"marks the execution CANCELLED and rejects its pending human reviews. Its unfinished " +
+			"sub-workflow runs (core.execute_workflow) are cancelled the same way. An " +
 			"execution that has already finished is left as it is.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -250,6 +251,20 @@ func cancelExecution(ctx context.Context, db *sql.DB, profileID, executionID str
 		return res, fmt.Errorf("reject pending reviews: %w", err)
 	}
 	res.Status = "CANCELLED"
+	// A parent waiting on this run becomes due for resume now rather than on
+	// its poll, and the run's own sub-workflow children stop with it.
+	if err := workflow.NudgeSubWorkflowParent(ctx, db, executionID); err != nil {
+		return res, err
+	}
+	children, err := workflow.UnfinishedSubWorkflowChildren(ctx, db, executionID)
+	if err != nil {
+		return res, err
+	}
+	for _, id := range children {
+		if _, err := cancelExecution(ctx, db, profileID, id); err != nil {
+			return res, fmt.Errorf("cancel sub-workflow execution %s: %w", id, err)
+		}
+	}
 	return res, nil
 }
 

@@ -7,7 +7,7 @@ import (
 )
 
 // Platforms registered at run time (API packages, internal/apipkg) live
-// beside the built-in Registry. Get, All, ByCategory and ByConnectVia — and
+// beside the built-in Registry. Get, All and ByConnectVia — and
 // so every connect flow (api key, OAuth PKCE), `connect` listing and
 // Store.GetOrResolve's token refresh — see both. A built-in platform always
 // wins: RegisterPlatform refuses its id.

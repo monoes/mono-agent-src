@@ -120,7 +120,7 @@ func TestResolveApproveRunsOnceRejectNever(t *testing.T) {
 	rejectID := queueViaNodeRun(t, cfg, sendConfig)
 	asOperatorProcess(t)
 
-	out, err := runSendCLI(t, cfg, newHILResolveCmd(cfg), approveID, "--approve", "--edit-text", "Edited by me")
+	out, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", approveID, "--approve", "--edit-text", "Edited by me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,30 +135,30 @@ func TestResolveApproveRunsOnceRejectNever(t *testing.T) {
 		t.Fatal("secret in the replayed config")
 	}
 	// Again (and via the older approve command): still one send.
-	if _, err := runSendCLI(t, cfg, newHILResolveCmd(cfg), approveID, "--approve"); err != nil {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", approveID, "--approve"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runSendCLI(t, cfg, newHILApproveCmd(cfg), approveID); err != nil {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "approve", approveID); err != nil {
 		t.Fatal(err)
 	}
 	if len(*calls) != 1 {
 		t.Fatalf("sent %d times", len(*calls))
 	}
 
-	out, err = runSendCLI(t, cfg, newHILResolveCmd(cfg), rejectID, "--reject")
+	out, err = runSendCLI(t, cfg, newHILCmd(cfg), "resolve", rejectID, "--reject")
 	if err != nil || !strings.Contains(out, `"state": "rejected"`) && !strings.Contains(out, `"state":"rejected"`) {
 		t.Fatalf("reject: %v %s", err, out)
 	}
-	if _, err := runSendCLI(t, cfg, newHILApproveCmd(cfg), rejectID); err != nil {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "approve", rejectID); err != nil {
 		t.Fatal(err)
 	}
 	if len(*calls) != 1 {
 		t.Fatalf("a rejected send ran: %+v", *calls)
 	}
-	if _, err := runSendCLI(t, cfg, newHILResolveCmd(cfg), approveID); err == nil {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", approveID); err == nil {
 		t.Fatal("resolve with neither --approve nor --reject succeeded")
 	}
-	if _, err := runSendCLI(t, cfg, newHILResolveCmd(cfg), "nope", "--approve"); err == nil || exitCodeFor(err) != 2 {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", "nope", "--approve"); err == nil || exitCodeFor(err) != 2 {
 		t.Fatalf("unknown id: %v", err)
 	}
 }
@@ -185,7 +185,7 @@ func TestAgentCannotDecideEditOrAllow(t *testing.T) {
 		t.Fatalf("agent got a send performed: %+v", *calls)
 	}
 	// The agent can still read what it queued.
-	if _, err := runSendCLI(t, cfg, newHILShowCmd(cfg), id); err != nil {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "show", id); err != nil {
 		t.Fatalf("show: %v", err)
 	}
 	asOperatorProcess(t)
@@ -200,10 +200,10 @@ func TestAlwaysAllowThroughResolveSkipsTheQueueNextTime(t *testing.T) {
 	swapRunner(t)
 	id := queueViaNodeRun(t, cfg, sendConfig)
 	asOperatorProcess(t)
-	if _, err := runSendCLI(t, cfg, newHILResolveCmd(cfg), id, "--approve", "--always-allow"); err != nil {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", id, "--approve", "--always-allow"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runSendCLI(t, cfg, newHILAllowCmd(cfg), "list")
+	out, err := runSendCLI(t, cfg, newHILCmd(cfg), "allow", "list")
 	if err != nil || !strings.Contains(out, "ada@example.test") {
 		t.Fatalf("allow list: %v %s", err, out)
 	}
@@ -244,7 +244,7 @@ func TestAttachmentCommandConfinesPaths(t *testing.T) {
 	id := queueViaNodeRun(t, cfg, config)
 	asOperatorProcess(t)
 
-	out, err := runSendCLI(t, cfg, newHILAttachmentCmd(cfg), id, "0")
+	out, err := runSendCLI(t, cfg, newHILCmd(cfg), "attachment", id, "0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,11 +252,11 @@ func TestAttachmentCommandConfinesPaths(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &f); err != nil || f.Size != 7 || f.Kind != "image" || f.Mime != "image/png" {
 		t.Fatalf("file = %+v %v", f, err)
 	}
-	if out, err = runSendCLI(t, cfg, newHILAttachmentCmd(cfg), id, "0", "--stream"); err != nil || out != "PNGDATA" {
+	if out, err = runSendCLI(t, cfg, newHILCmd(cfg), "attachment", id, "0", "--stream"); err != nil || out != "PNGDATA" {
 		t.Fatalf("stream = %q %v", out, err)
 	}
 	for _, n := range []string{"1", "2", "9", "x"} {
-		if out, err := runSendCLI(t, cfg, newHILAttachmentCmd(cfg), id, n); err == nil {
+		if out, err := runSendCLI(t, cfg, newHILCmd(cfg), "attachment", id, n); err == nil {
 			t.Errorf("attachment %s served: %s", n, out)
 		}
 	}
@@ -280,7 +280,7 @@ func TestPublicationRegisterFromAgentNeedsApproval(t *testing.T) {
 		t.Fatal("a still-pending send counted as approved")
 	}
 	asOperatorProcess(t)
-	if _, err := runSendCLI(t, cfg, newHILResolveCmd(cfg), id, "--approve"); err != nil {
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", id, "--approve"); err != nil {
 		t.Fatal(err)
 	}
 	asAgentProcess(t)

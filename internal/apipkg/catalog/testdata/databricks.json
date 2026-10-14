@@ -797,5 +797,73 @@
       "host": "https://adb-1.azuredatabricks.net",
       "access_token": "dapi1"
     }
+  },
+  "job.listRuns": {
+    "params": {
+      "jobId": {
+        "__rl": true,
+        "mode": "id",
+        "value": "42"
+      },
+      "limit": 5,
+      "filters": {
+        "startTimeFrom": "2024-01-01T00:00:00Z",
+        "completedOnly": true,
+        "runType": "JOB_RUN"
+      }
+    },
+    "response": {
+      "runs": [
+        {
+          "run_id": 1
+        },
+        {
+          "run_id": 2
+        }
+      ],
+      "has_more": false
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/2.2/jobs/runs/list",
+      "query": {
+        "job_id": "42",
+        "start_time_from": "1704067200000",
+        "completed_only": "true",
+        "run_type": "JOB_RUN",
+        "limit": "5"
+      },
+      "items": 2
+    },
+    "credential": {
+      "host": "https://adb-1.azuredatabricks.net",
+      "access_token": "dapi1"
+    }
+  },
+  "pipeline.listUpdates": {
+    "params": {
+      "pipelineId": "https://adb-1.azuredatabricks.net/pipelines/8199cd89-e2f5-4169-a6aa-656a24c8886d",
+      "returnAll": true
+    },
+    "response": {
+      "updates": [
+        {
+          "update_id": "u1",
+          "state": "COMPLETED"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/api/2.0/pipelines/8199cd89-e2f5-4169-a6aa-656a24c8886d/updates",
+      "query": {
+        "max_results": "100"
+      },
+      "items": 1
+    },
+    "credential": {
+      "host": "https://adb-1.azuredatabricks.net",
+      "access_token": "dapi1"
+    }
   }
 }

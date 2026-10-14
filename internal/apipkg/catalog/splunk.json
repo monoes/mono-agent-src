@@ -16,7 +16,8 @@
       "n8n_credential": "splunkApi",
       "n8n_field_map": {
         "authToken": "access_token",
-        "baseUrl": "base_url"
+        "baseUrl": "base_url",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "bearer"
@@ -34,6 +35,11 @@
           "secret": true,
           "required": true,
           "help": "Settings → Tokens"
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {

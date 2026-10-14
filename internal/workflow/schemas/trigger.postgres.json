@@ -1,0 +1,104 @@
+{
+  "credential_platform": "postgresql",
+  "fields": [
+    {
+      "key": "trigger_mode",
+      "label": "Mode",
+      "type": "select",
+      "required": false,
+      "default": "createTrigger",
+      "options": [
+        "createTrigger",
+        "listenTrigger"
+      ],
+      "help": "createTrigger installs a row trigger that notifies on changes; listenTrigger only listens on a channel."
+    },
+    {
+      "key": "schema",
+      "label": "Schema",
+      "type": "text",
+      "required": false,
+      "default": "public",
+      "depends_on": {
+        "key": "trigger_mode",
+        "values": [
+          "createTrigger"
+        ]
+      }
+    },
+    {
+      "key": "table",
+      "label": "Table",
+      "type": "text",
+      "required": true,
+      "depends_on": {
+        "key": "trigger_mode",
+        "values": [
+          "createTrigger"
+        ]
+      }
+    },
+    {
+      "key": "fires_on",
+      "label": "Event",
+      "type": "select",
+      "required": false,
+      "default": "INSERT",
+      "options": [
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "depends_on": {
+        "key": "trigger_mode",
+        "values": [
+          "createTrigger"
+        ]
+      }
+    },
+    {
+      "key": "channel_name",
+      "label": "Channel",
+      "type": "text",
+      "required": false,
+      "help": "Required in listenTrigger mode; in createTrigger mode it defaults to monoagent_<table>_<event>."
+    },
+    {
+      "key": "function_name",
+      "label": "Function Name",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "trigger_mode",
+        "values": [
+          "createTrigger"
+        ]
+      }
+    },
+    {
+      "key": "trigger_name",
+      "label": "Trigger Name",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "trigger_mode",
+        "values": [
+          "createTrigger"
+        ]
+      }
+    },
+    {
+      "key": "replace_if_exists",
+      "label": "Replace If Exists",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "depends_on": {
+        "key": "trigger_mode",
+        "values": [
+          "createTrigger"
+        ]
+      }
+    }
+  ]
+}

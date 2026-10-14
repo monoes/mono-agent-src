@@ -272,6 +272,9 @@ func TestCheckStrict(t *testing.T) {
 	dir := manifestFixture(t, "v1.2.3")
 	mpath := filepath.Join(dir, "manifest.json")
 	args := []string{"check", "-manifest", mpath, "-assets-dir", dir, "-expect-version", "v1.2.3", "-url-prefix", prefixFor("v1.2.3")}
+	if err := os.WriteFile(filepath.Join(dir, "stray.txt"), []byte("not an asset"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := run(append(args, "-strict")); err == nil || !strings.Contains(err.Error(), "not listed") {
 		t.Errorf("strict check passed with the unlisted fixture file(s): %v", err)
 	}
@@ -314,11 +317,8 @@ func TestCheckStrictRejectsNonRegularEntries(t *testing.T) {
 	dir := manifestFixture(t, "v1.2.3")
 	mpath := filepath.Join(dir, "manifest.json")
 	args := []string{"check", "-manifest", mpath, "-assets-dir", dir, "-expect-version", "v1.2.3", "-url-prefix", prefixFor("v1.2.3")}
-	if err := os.Remove(filepath.Join(dir, "monoagent-chrome-extension.zip")); err != nil {
-		t.Fatal(err)
-	}
 	if err := run(append(args, "-strict")); err != nil {
-		t.Fatalf("strict check of a clean upload dir (NOTICE is allowed): %v", err)
+		t.Fatalf("strict check of a clean upload dir (NOTICE is allowed; the extension zip is listed): %v", err)
 	}
 	if err := os.Symlink("/etc/hostname", filepath.Join(dir, "link")); err != nil {
 		t.Fatal(err)

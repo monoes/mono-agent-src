@@ -61,8 +61,11 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 	// and pause the execution (ErrNodePaused) — the engine persists resume state
 	// and suspends without holding a goroutine. On resume, this node re-runs and
 	// evaluates the (now possibly resolved) rows. Idempotent by (execution,
-	// node): duplicate rows are never created.
-	existing, err := loadHILRows(ctx, db, input.ExecutionID, input.NodeID)
+	// node): duplicate rows are never created. Rows an earlier run of the node
+	// already used (a loop's earlier iterations) are skipped, so each run
+	// asks about its own items.
+	consumed := hilConsumed(ctx)
+	existing, err := loadHILRows(ctx, db, input.ExecutionID, input.NodeID, consumed)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +80,7 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 		}
 		// auto_decide settled some rows: evaluate them exactly as if a
 		// person had (all approved ⇒ no pause; any rejected ⇒ fail).
-		if existing, err = loadHILRows(ctx, db, input.ExecutionID, input.NodeID); err != nil {
+		if existing, err = loadHILRows(ctx, db, input.ExecutionID, input.NodeID, consumed); err != nil {
 			return nil, err
 		}
 	}
@@ -88,7 +91,7 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 			`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP
 			 WHERE execution_id=? AND node_id=? AND status='pending' AND created_at < datetime('now', ?)`,
 			input.ExecutionID, input.NodeID, fmt.Sprintf("-%d minutes", int(timeoutMinutes)))
-		if existing, err = loadHILRows(ctx, db, input.ExecutionID, input.NodeID); err != nil {
+		if existing, err = loadHILRows(ctx, db, input.ExecutionID, input.NodeID, consumed); err != nil {
 			return nil, err
 		}
 	}
@@ -113,6 +116,8 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 
 	// Approved items go to main with their row's edited_data applied.
 	approvedItems, rejectedItems := splitDecided(input.Items, existing)
+	// Outside an execution there is no state to keep: nothing runs again.
+	_ = workflow.SetNodeState(ctx, hilState{Consumed: consumed + len(existing)})
 	outputs := []workflow.NodeOutput{{Handle: "main", Items: approvedItems}}
 	if len(rejectedItems) > 0 {
 		outputs = append(outputs, workflow.NodeOutput{Handle: RejectedHandle, Items: rejectedItems})
@@ -125,8 +130,24 @@ type hilRow struct {
 	edited map[string]interface{}
 }
 
-// loadHILRows returns the HIL rows for one (execution, node) in insertion order.
-func loadHILRows(ctx context.Context, db *sql.DB, executionID, nodeID string) ([]hilRow, error) {
+// hilState is the node's state across its runs in one execution: how many
+// of its rows (in insertion order) earlier runs already used.
+type hilState struct {
+	Consumed int `json:"consumed"`
+}
+
+// hilConsumed reads hilState.Consumed from the node's state (0 for none).
+func hilConsumed(ctx context.Context) int {
+	var st hilState
+	if raw := workflow.NodeStateFromContext(ctx); raw != nil {
+		_ = json.Unmarshal(raw, &st)
+	}
+	return st.Consumed
+}
+
+// loadHILRows returns the HIL rows for one (execution, node) in insertion
+// order, skipping the first skip rows (used by earlier runs).
+func loadHILRows(ctx context.Context, db *sql.DB, executionID, nodeID string, skip int) ([]hilRow, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT status, edited_data FROM hil_pending WHERE execution_id=? AND node_id=? ORDER BY rowid`,
 		executionID, nodeID)
@@ -146,7 +167,10 @@ func loadHILRows(ctx context.Context, db *sql.DB, executionID, nodeID string) ([
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if skip >= len(out) {
+		return nil, rows.Err()
+	}
+	return out[skip:], rows.Err()
 }
 
 // createRows inserts one HIL row per input item, in input order. Rows are

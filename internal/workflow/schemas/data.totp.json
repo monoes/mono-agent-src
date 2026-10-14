@@ -63,5 +63,17 @@
       "required": false,
       "type": "number"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the current TOTP code",
+      "key": "token",
+      "type": "string"
+    },
+    {
+      "description": "seconds until the code changes",
+      "key": "secondsRemaining",
+      "type": "number"
+    }
   ]
 }

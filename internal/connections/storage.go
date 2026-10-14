@@ -75,41 +75,16 @@ func RedactAll(conns []Connection) []SafeConnection {
 	return out
 }
 
-const createConnectionsTable = `
-CREATE TABLE IF NOT EXISTS connections (
-    id          TEXT PRIMARY KEY,
-    platform    TEXT NOT NULL,
-    method      TEXT NOT NULL,
-    label       TEXT NOT NULL,
-    account_id  TEXT NOT NULL DEFAULT '',
-    data        TEXT NOT NULL DEFAULT '{}',
-    status      TEXT NOT NULL DEFAULT 'active',
-    last_tested TEXT NOT NULL DEFAULT '',
-    profile_id  TEXT NOT NULL DEFAULT 'default',
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_connections_platform ON connections(platform);
-CREATE INDEX IF NOT EXISTS idx_connections_status   ON connections(status);
-CREATE INDEX IF NOT EXISTS idx_connections_profile  ON connections(profile_id);
-`
-
-// createRefreshLocksTable backs RefreshToken's cross-process lock. The
-// connections DB is shared (by file path) across the CLI, the daemon, and
-// the GUI, each their own OS process with their own in-memory Store — a
+// The oauth_refresh_locks table (migration 095) backs RefreshToken's
+// cross-process lock. The connections DB is shared (by file path) across
+// the CLI, the daemon, and the GUI, each their own OS process with their own in-memory Store — a
 // Go-level mutex only ever serializes goroutines inside one of them. Two
 // processes resolving the same stale connection at once would otherwise both
 // exchange the same stored refresh_token; providers that rotate single-use
 // refresh tokens invalidate the loser's exchange, permanently breaking the
 // connection. Coordinating through this table (which every process reads
 // and writes through the same SQLite file) closes that gap.
-const createRefreshLocksTable = `
-CREATE TABLE IF NOT EXISTS oauth_refresh_locks (
-    connection_id TEXT PRIMARY KEY,
-    locked_at     TEXT NOT NULL
-);
-`
-
+//
 // refreshLockStaleAfter bounds how long a lock row is honored before it's
 // considered abandoned (its holder crashed or was killed mid-refresh) and
 // safe to steal — a token exchange is a single HTTP round trip and never
@@ -131,22 +106,6 @@ type Store struct {
 // NewStore creates a new Store backed by the given database.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
-}
-
-// DB returns the underlying *sql.DB.
-func (s *Store) DB() *sql.DB { return s.db }
-
-// EnsureTable creates the connections table and indices if they do not exist.
-func (s *Store) EnsureTable(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, createConnectionsTable); err != nil {
-		return err
-	}
-	// Idempotent column add for pre-existing databases: SQLite errors on a
-	// duplicate column, which is expected and ignored here — same pattern
-	// ai.AIStore.initTables already uses for its own added-later columns.
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE connections ADD COLUMN vault_ref TEXT NOT NULL DEFAULT ''`)
-	_, err := s.db.ExecContext(ctx, createRefreshLocksTable)
-	return err
 }
 
 // Save upserts a connection. If ID is empty a new UUID is generated. If
@@ -336,7 +295,10 @@ func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 		return fmt.Errorf("platform %q has no OAuth config", conn.Platform)
 	}
 
-	cfg := *p.OAuth
+	cfg, err := tailorOAuth(*p.OAuth, conn.Data)
+	if err != nil {
+		return err
+	}
 	cfg.PlatformID = p.ID
 	// Load client credentials from platform_oauth_credentials table (scoped
 	// per profile — two connections for the same platform under different
@@ -453,10 +415,6 @@ func (s *Store) releaseRefreshLock(ctx context.Context, connID string) {
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM oauth_refresh_locks WHERE connection_id = ?`, connID)
 }
 
-func envLookup(key string) string {
-	return os.Getenv(key)
-}
-
 // GetOAuthClient returns the OAuth app client_id/client_secret stored for
 // platform under profileID (set via `connect set-oauth-client`, the GUI, or
 // auto-persisted by a successful connect). Returns empty strings when none
@@ -486,18 +444,6 @@ func (s *Store) GetOAuthClient(ctx context.Context, platform, profileID string) 
 func (s *Store) SaveOAuthClient(ctx context.Context, platform, profileID, clientID, clientSecret string) error {
 	if profileID == "" {
 		profileID = "default"
-	}
-	// Same schema as migration 013 — created here too because Store is also
-	// used against databases initialized via EnsureTable alone (tests, embedders).
-	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
-    platform      TEXT NOT NULL,
-    profile_id    TEXT NOT NULL DEFAULT 'default',
-    client_id     TEXT NOT NULL,
-    client_secret TEXT NOT NULL DEFAULT '',
-    updated_at    TEXT NOT NULL,
-    PRIMARY KEY (platform, profile_id)
-)`); err != nil {
-		return fmt.Errorf("connections.SaveOAuthClient: ensure table: %w", err)
 	}
 	// Encrypt the client_secret under the vault envelope (same as connection
 	// data); an empty secret (PKCE-only platforms) stays empty.

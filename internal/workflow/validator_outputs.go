@@ -131,7 +131,8 @@ func configNamedKey(n WorkflowNode, schema *NodeSchema, alts string) (string, bo
 	}
 	pick := func(v interface{}) (string, bool) {
 		s, isStr := v.(string)
-		if !isStr || strings.TrimSpace(s) == "" || strings.Contains(s, "{{") {
+		// A list of names ("a, b") is not one key: treat the set as open.
+		if !isStr || strings.TrimSpace(s) == "" || strings.Contains(s, "{{") || strings.ContainsAny(s, ",\n") {
 			return "", false
 		}
 		return s, true

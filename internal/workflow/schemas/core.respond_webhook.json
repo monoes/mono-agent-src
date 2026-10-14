@@ -49,5 +49,12 @@
       "rows": 5,
       "type": "textarea"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the input items, passed through unchanged (the webhook response is sent as a side effect)",
+      "key": "*",
+      "type": "object"
+    }
   ]
 }

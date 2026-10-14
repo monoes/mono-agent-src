@@ -60,5 +60,17 @@
       "required": false,
       "type": "boolean"
     }
+  ],
+  "outputs": [
+    {
+      "description": "one item per element of the split list: the element under the destination name (or the field's name); an object element with include no_other_fields and no destination becomes the item itself",
+      "key": "<field_to_split_out|destination_field_name>",
+      "type": "any"
+    },
+    {
+      "description": "include all_other_fields: the input item's other fields; selected_other_fields: the fields in fields_to_include",
+      "key": "*",
+      "type": "object"
+    }
   ]
 }

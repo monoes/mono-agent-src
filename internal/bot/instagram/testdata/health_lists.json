@@ -1,0 +1,48 @@
+{
+  "followers_round1": [
+    {"username": "f.one", "full_name": "F One", "image": "https://cdn.example/1.jpg", "verified": true},
+    {"username": "f.two", "full_name": "", "image": "", "verified": false}
+  ],
+  "followers_round2": [
+    {"username": "f.two", "full_name": "", "image": "", "verified": false},
+    {"username": "f.three", "full_name": "F Three", "image": "", "verified": false},
+    {"username": "f.four", "full_name": "F Four", "image": "", "verified": false}
+  ],
+  "grid_round1": [
+    {"url": "https://www.instagram.com/p/AAA/", "shortcode": "AAA", "kind": "p", "author": "", "thumbnail_src": "https://cdn.example/a.jpg", "alt_text": "Photo A"},
+    {"url": "https://www.instagram.com/reel/BBB/", "shortcode": "BBB", "kind": "reel", "author": "other.user", "thumbnail_src": "", "alt_text": ""}
+  ],
+  "grid_round2": [
+    {"url": "https://www.instagram.com/p/AAA/", "shortcode": "AAA", "kind": "p", "author": "", "thumbnail_src": "https://cdn.example/a.jpg", "alt_text": "Photo A"},
+    {"url": "https://www.instagram.com/p/CCC/", "shortcode": "CCC", "kind": "p", "author": "", "thumbnail_src": "", "alt_text": ""},
+    {"url": "https://www.instagram.com/p/DDD/", "shortcode": "DDD", "kind": "p", "author": "", "thumbnail_src": "", "alt_text": ""}
+  ],
+  "comments": [
+    {"author": "c.alice", "text": "Great shot", "liked": false, "timestamp": "2026-01-02T03:04:05Z", "hasLike": true},
+    {"author": "c.bob", "text": "Already loved it", "liked": true, "timestamp": "", "hasLike": true},
+    {"author": "c.cara", "text": "No heart here", "liked": false, "timestamp": "", "hasLike": false},
+    {"author": "c.dan", "text": "Nice", "liked": false, "timestamp": "", "hasLike": true}
+  ],
+  "comment_list": [
+    {"author": "c.alice", "text": "Great shot", "timestamp": "2026-01-02T03:04:05Z", "is_liked": false, "likes_count": 12, "reply_count": 2, "is_reply": false},
+    {"author": "c.bob", "text": "Reply to alice", "timestamp": "", "is_liked": true, "likes_count": 0, "reply_count": 0, "is_reply": true},
+    {"author": "c.cara", "text": "Third", "timestamp": "", "is_liked": false, "likes_count": 1, "reply_count": 0, "is_reply": false}
+  ],
+  "post": {
+    "shortcode": "AAA",
+    "post_url": "https://www.instagram.com/p/AAA/",
+    "author_username": "synth.ada",
+    "rendered": true,
+    "caption": "Sunset #sky with @friend.one",
+    "hashtags": ["#sky"],
+    "mentions": ["friend.one"],
+    "likes_count": "1,234",
+    "comments_count": "1.5K",
+    "comments_loaded": 3,
+    "post_date": "2026-01-01T00:00:00.000Z",
+    "media_urls": ["https://cdn.example/a1.jpg", "https://cdn.example/a2.jpg"],
+    "post_type": "carousel",
+    "is_liked": false
+  },
+  "post_unrendered": {"shortcode": "", "rendered": false}
+}

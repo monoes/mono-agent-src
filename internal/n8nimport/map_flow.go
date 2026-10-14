@@ -85,11 +85,41 @@ func mapNoOp(_ *MapContext) Mapping {
 	return Mapping{Type: "core.merge", Config: map[string]interface{}{}}
 }
 
+// mapRespondToWebhook answers the webhook (or form) whose trigger waits
+// for it (response mode responseNode).
 func mapRespondToWebhook(c *MapContext) Mapping {
-	c.Ignore("respondWith", "responseBody", "redirectURL", "payload", "responseDataSource", "inputFieldName", "options", "enableResponseOutput")
-	c.Warn("respondWith", c.Literal("respondWith", "firstIncomingItem"),
-		"mono-agent answers webhooks itself ({\"success\":true}); this node now only passes items on")
-	return Mapping{Type: "core.merge", Config: map[string]interface{}{}}
+	cfg := map[string]interface{}{}
+	headers := map[string]interface{}{}
+	switch with := c.Literal("respondWith", "firstIncomingItem"); with {
+	case "firstIncomingItem", "allIncomingItems", "noData":
+		cfg["respond_with"] = with
+	case "json", "text":
+		cfg["respond_with"] = with
+		cfg["response_body"] = c.Value("responseBody")
+	case "redirect":
+		cfg["respond_with"], cfg["response_code"] = "noData", 307.0
+		headers["Location"] = c.Value("redirectURL")
+	default:
+		cfg["respond_with"] = "firstIncomingItem"
+		c.Warn("respondWith", with, "is not supported; the first incoming item's JSON is sent")
+		c.Ignore("responseDataSource", "inputFieldName", "payload")
+	}
+	if c.Has("options.responseCode") {
+		cfg["response_code"] = c.Float("options.responseCode", 200)
+	}
+	for _, h := range c.paramList("options.responseHeaders.entries") {
+		if name, _ := h["name"].(string); name != "" {
+			headers[name] = c.Translate("options.responseHeaders", h["value"])
+		}
+	}
+	if len(headers) > 0 {
+		cfg["response_headers"] = headers
+	}
+	if c.Has("options.responseKey") {
+		c.Unsupported("options.responseKey")
+	}
+	c.Ignore("enableResponseOutput", "options.enableStreaming")
+	return Mapping{Type: "core.respond_webhook", Config: cfg}
 }
 
 var awaitKeyword = regexp.MustCompile(`\bawait\s+`)

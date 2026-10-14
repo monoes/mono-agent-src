@@ -423,5 +423,32 @@
       "required": false,
       "type": "text"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the generated file, base64-encoded (default property \"data\"); csv/html/rtf/ods/xlsx and json mode once: one item for the batch; json mode each, text, to_binary, ics: one item per input item",
+      "key": "<binary_property_name>",
+      "type": "string"
+    },
+    {
+      "description": "the file's name",
+      "key": "file_name",
+      "type": "string"
+    },
+    {
+      "description": "the file's media type",
+      "key": "mime_type",
+      "type": "string"
+    },
+    {
+      "description": "the file's extension, without the dot",
+      "key": "file_extension",
+      "type": "string"
+    },
+    {
+      "description": "the file's size in bytes",
+      "key": "file_size",
+      "type": "number"
+    }
   ]
 }

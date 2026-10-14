@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/apipkg"
+	"github.com/monoes/mono-agent/internal/n8nimport"
 )
 
 // maxSpecBytes caps an OpenAPI document fetched from a URL.
@@ -121,12 +122,11 @@ func newIntegrationShowCmd(cfg *globalConfig) *cobra.Command {
 			for _, c := range p.Credentials {
 				fmt.Fprintf(out, "connection: %s (%s) — monoagentcli connect %s\n", c.EffectivePlatform(), strings.Join(c.Methods, ", "), c.EffectivePlatform())
 			}
-			if len(p.N8nTypes)+len(p.N8nTriggerTypes) > 0 {
-				fmt.Fprintf(out, "n8n:        %s", strings.Join(p.N8nTypes, ", "))
-				if len(p.N8nTriggerTypes) > 0 {
-					fmt.Fprintf(out, " (triggers, not supported yet: %s)", strings.Join(p.N8nTriggerTypes, ", "))
-				}
-				fmt.Fprintln(out)
+			if len(p.N8nTypes) > 0 {
+				fmt.Fprintf(out, "n8n:        %s\n", strings.Join(p.N8nTypes, ", "))
+			}
+			for _, t := range p.N8nTriggerTypes {
+				fmt.Fprintf(out, "n8n trigger: %s → %s\n", t, triggerImport(t))
 			}
 			fmt.Fprintln(out)
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
@@ -144,6 +144,19 @@ func newIntegrationShowCmd(cfg *globalConfig) *cobra.Command {
 			}
 			return w.Flush()
 		},
+	}
+}
+
+// triggerImport says what an n8n trigger of the package becomes when an
+// n8n workflow is imported.
+func triggerImport(n8nType string) string {
+	switch n8nimport.TriggerKind(n8nType) {
+	case "webhook":
+		return "trigger.webhook (register its URL with the app)"
+	case "poll":
+		return "trigger.schedule polling the app's list operation, new records only"
+	default:
+		return "not imported yet (no trigger mapping)"
 	}
 }
 

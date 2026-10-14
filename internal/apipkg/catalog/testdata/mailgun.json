@@ -14,7 +14,8 @@
             "value": "1"
           }
         ]
-      }
+      },
+      "attachments": "data, data2"
     },
     "credential": {
       "api_domain": "api.mailgun.net",
@@ -35,9 +36,24 @@
         "text": "hello",
         "o:tag": "t2",
         "h:Reply-To": "r@x.io",
-        "h:X-One": "1"
+        "h:X-One": "1",
+        "attachment": "file:b.txt:yo"
       },
       "items": 1
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "aGk=",
+          "fileName": "a.txt",
+          "mimeType": "text/plain"
+        },
+        "data2": {
+          "data": "eW8=",
+          "fileName": "b.txt",
+          "mimeType": "text/plain"
+        }
+      }
     }
   }
 }

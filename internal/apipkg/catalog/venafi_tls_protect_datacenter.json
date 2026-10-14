@@ -22,7 +22,8 @@
         "domain": "domain",
         "clientId": "client_id",
         "username": "username",
-        "password": "password"
+        "password": "password",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "api_key"
@@ -49,6 +50,11 @@
           "label": "Password",
           "secret": true,
           "required": true
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {
@@ -269,6 +275,7 @@
       "method": "GET",
       "path": "/vedsdk/Certificates",
       "query": {
+        "$merge": "{{ p.filters }}",
         "OptionalFields": "{{ p.options.fields | csv }}"
       },
       "pagination": {
@@ -311,6 +318,27 @@
             "fields"
           ],
           "help": "fields: Issuer, KeyAlgorithm, KeySize, Subject"
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "ValidToGreater",
+            "ValidToLess",
+            "ValidFrom",
+            "ValidTo",
+            "CreatedOnGreater",
+            "CreatedOnLess",
+            "CN",
+            "Issuer",
+            "KeySize",
+            "ParentDnRecursive",
+            "Disabled",
+            "InError"
+          ],
+          "help": "Venafi certificate filters. ValidToGreater/ValidToLess: expiry window as ISO 8601 times. ParentDnRecursive: a policy folder DN, searched with its subfolders."
         }
       ]
     },

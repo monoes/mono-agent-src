@@ -63,7 +63,19 @@
         "values": {
           "title": "Phish",
           "tags": "a, b",
-          "startDate": "2024-01-01T00:00:00Z"
+          "startDate": "2024-01-01T00:00:00Z",
+          "artifacts": {
+            "artifactValues": [
+              {
+                "dataType": "domain",
+                "data": "x.io"
+              },
+              {
+                "dataType": "file",
+                "binaryProperty": "mail"
+              }
+            ]
+          }
         }
       }
     },
@@ -81,7 +93,26 @@
             "a",
             "b"
           ],
-          "startDate": 1704067200000
+          "startDate": 1704067200000,
+          "artifacts": [
+            {
+              "dataType": "domain",
+              "data": "x.io"
+            },
+            {
+              "dataType": "file",
+              "data": "m.eml;message/rfc822;aGk="
+            }
+          ]
+        }
+      }
+    },
+    "input": {
+      "binary": {
+        "mail": {
+          "data": "aGk=",
+          "fileName": "m.eml",
+          "mimeType": "message/rfc822"
         }
       }
     }

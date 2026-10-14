@@ -20,7 +20,13 @@
         "accessKeyId": "access_key_id",
         "secretAccessKey": "secret_access_key",
         "sessionToken": "session_token",
-        "region": "region"
+        "region": "region",
+        "stsAccessKeyId": "access_key_id",
+        "stsSecretAccessKey": "secret_access_key",
+        "stsSessionToken": "session_token",
+        "roleArn": "role_arn",
+        "externalId": "external_id",
+        "roleSessionName": "role_session_name"
       },
       "methods": [
         "api_key"
@@ -54,7 +60,10 @@
           "service": "dynamodb",
           "region": "{{ cred.region | default:'us-east-1' }}"
         }
-      }
+      },
+      "n8n_credential_alt": [
+        "awsAssumeRole"
+      ]
     }
   ],
   "resources": [

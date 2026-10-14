@@ -219,5 +219,27 @@
       "required": false,
       "type": "select"
     }
+  ],
+  "outputs": [
+    {
+      "description": "every operation: the entry's DN (rename: the new DN)",
+      "key": "dn",
+      "type": "string"
+    },
+    {
+      "description": "create/update/delete/rename: \"success\"; compare: true/false",
+      "key": "result",
+      "type": "any"
+    },
+    {
+      "description": "compare: the compared attribute",
+      "key": "attribute",
+      "type": "string"
+    },
+    {
+      "description": "search: one item per entry, each attribute keyed by name (string, or an array for multi-valued; non-UTF-8 values base64)",
+      "key": "<entry_attributes>",
+      "type": "any"
+    }
   ]
 }

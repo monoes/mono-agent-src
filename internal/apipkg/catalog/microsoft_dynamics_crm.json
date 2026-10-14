@@ -28,6 +28,23 @@
         "extra_params": { "scope": "https://{{ cred.subdomain }}.{{ cred.region | default:'crm.dynamics.com' }}/.default" }
       },
       "inject": { "headers": { "Authorization": "Bearer {{ cred.access_token }}" } }
+    },
+    {
+      "platform": "microsoft_dynamics_oauth",
+      "name": "Microsoft Dynamics 365 (sign in)",
+      "methods": ["oauth"],
+      "fields": [
+        { "key": "subdomain", "label": "Organization subdomain", "required": true, "help": "The part before the region in your org URL, e.g. contoso in contoso.crm.dynamics.com." },
+        { "key": "region", "label": "Region host", "help": "e.g. crm.dynamics.com (North America, the default), crm4.dynamics.com (EMEA), crm5.dynamics.com (APAC)." },
+        { "key": "tenant_id", "label": "Tenant ID", "help": "Directory (tenant) GUID or domain; empty = any work account." }
+      ],
+      "oauth": {
+        "auth_url": "https://login.microsoftonline.com/{{ cred.tenant_id | default:'organizations' }}/oauth2/v2.0/authorize",
+        "token_url": "https://login.microsoftonline.com/{{ cred.tenant_id | default:'organizations' }}/oauth2/v2.0/token",
+        "scopes": ["https://{{ cred.subdomain }}.{{ cred.region | default:'crm.dynamics.com' }}/user_impersonation", "offline_access"],
+        "connect_fields": ["subdomain", "region", "tenant_id"]
+      },
+      "inject": { "headers": { "Authorization": "Bearer {{ cred.access_token }}" } }
     }
   ],
   "resources": [ { "value": "account", "label": "Account" } ],

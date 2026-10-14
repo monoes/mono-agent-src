@@ -25,7 +25,7 @@ const RedactedValue = "***"
 // item recurses forever and kills the process with a stack overflow.
 const CycleMarker = "***cycle***"
 
-// MaxRedactDepth bounds how deep redactValue recurses into nested maps
+// MaxRedactDepth bounds how deep redactValueDepth recurses into nested maps
 // and arrays before substituting CycleMarker.
 const MaxRedactDepth = 32
 
@@ -71,13 +71,9 @@ func redactMap(m map[string]any) map[string]any {
 	return out
 }
 
-// redactValue recursively redacts maps and arrays; scalars pass through.
-// Guarded against cycles (path-based visited set of container pointers)
-// and excessive depth; violations become CycleMarker.
-func redactValue(v any) any {
-	return redactValueDepth(v, 0, nil)
-}
-
+// redactValueDepth recursively redacts maps and arrays; scalars pass
+// through. Guarded against cycles (path-based visited set of container
+// pointers) and excessive depth; violations become CycleMarker.
 func redactValueDepth(v any, depth int, visited map[uintptr]bool) any {
 	if depth > MaxRedactDepth {
 		return CycleMarker

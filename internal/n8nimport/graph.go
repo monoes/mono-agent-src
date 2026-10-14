@@ -330,7 +330,7 @@ func (b *builder) applySettings() {
 			}
 		case "errorWorkflow":
 			if s := fmt.Sprint(v); s != "" {
-				b.rep.note("n8n error workflow %s is not carried over: mono-agent has no error-workflow setting (use on-error branches)", s)
+				b.rep.note("n8n error workflow %s is not carried over: import it, then set settings.error_workflow to its mono-agent id", s)
 			}
 		case "executionTimeout":
 			if f, ok := v.(float64); ok && f > 0 {

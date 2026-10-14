@@ -143,5 +143,17 @@
       "required": false,
       "type": "boolean"
     }
+  ],
+  "outputs": [
+    {
+      "description": "random_data: the generated record's fields, by random_data_type: user {uid, email, firstname, lastname, password}; email {email, confirmed}; address {firstname, lastname, street, city, zip, state, country}; credit_card {type, number, ccv, exp, holder_name}; uuid {uuid}; nanoid {nanoId}; url {url}; ipv4 {ip}; ipv6 {ipv6}; mac_address {mac}; lat_long {location}; semver {version}. do_nothing emits no items; throw_error fails",
+      "key": "<random_data>",
+      "type": "object"
+    },
+    {
+      "description": "random_data with random_data_single_array: all generated records in one item",
+      "key": "generatedItems",
+      "type": "array"
+    }
   ]
 }

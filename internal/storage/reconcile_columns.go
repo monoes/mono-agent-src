@@ -15,9 +15,10 @@ type addedColumn struct {
 }
 
 // addedColumns are healed by shape on every open, so a database built by
-// migrations alone ends up with the same columns the runtime DDL in
-// internal/ai (initTables, initChatEventTables) and internal/connections (EnsureTable)
-// creates, in the same order.
+// migrations alone ends up with the same columns, in the same order, as one
+// whose tables the old runtime DDL in internal/ai and internal/connections
+// created and later altered. That DDL is gone: these tables now come only
+// from migrations plus this list.
 var addedColumns = []addedColumn{
 	{"ai_chat_messages", "tool_call_id", `ALTER TABLE ai_chat_messages ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT ''`},
 	{"ai_chat_messages", "session_id", `ALTER TABLE ai_chat_messages ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`},

@@ -226,7 +226,10 @@ type Env struct {
 	ClaudeSkills        func() (claudeFound bool, missing, stale []string)
 	InstallClaudeSkills func() error
 	MCPRegistration     func() (claudeFound, registered bool, where string)
-	RegisterMCP         func(ctx context.Context, progress func(string)) error
+	// MCPRuntimes, when set, is the registration per installed coding agent
+	// (one doctor row each); MCPRegistration is the fallback without it.
+	MCPRuntimes func() []MCPRuntime
+	RegisterMCP func(ctx context.Context, progress func(string)) error
 
 	// MonoesAccount reads the monoes.me session from this machine (no
 	// network, nothing written).
@@ -311,4 +314,13 @@ func (r *Report) RequiredFailures() int {
 		}
 	}
 	return n
+}
+
+// MCPRuntime is one installed coding agent's monoagent MCP registration.
+type MCPRuntime struct {
+	ID, Label  string
+	Registered bool   // a `monoagentcli mcp` server is configured
+	Current    bool   // ... and it runs with --allow-mutations
+	Where      string // where it is configured (entry and file)
+	Err        string // the agent's config could not be read
 }

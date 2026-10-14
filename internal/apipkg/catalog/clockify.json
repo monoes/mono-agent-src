@@ -845,6 +845,77 @@
     },
     {
       "resource": "timeEntry",
+      "operation": "getAll",
+      "title": "Get many time entries of a user",
+      "description": "Lists a user's time entries in a workspace, newest first. Without a user ID the API key's own user is used.",
+      "method": "GET",
+      "path": "/workspaces/{{ p.workspaceId }}/user/{{ p.userId | default:pre.id }}/time-entries",
+      "before": {
+        "when": "{{ p.userId | default:'me' | eq:'me' }}",
+        "method": "GET",
+        "path": "/user"
+      },
+      "query": {
+        "$merge": "{{ p.filters }}"
+      },
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "page-size",
+        "page_size": 50,
+        "results_path": ""
+      },
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "userId",
+          "label": "User ID",
+          "type": "text",
+          "default": "",
+          "help": "Empty: the user the API key belongs to."
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false,
+          "help": "Fetch every page instead of stopping at Limit."
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1,
+          "help": "Maximum number of results when Return all is off."
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "description",
+            "start",
+            "end",
+            "project",
+            "task",
+            "tags",
+            "hydrated",
+            "in-progress",
+            "get-week-before"
+          ],
+          "help": "start/end: ISO 8601 times (2024-01-31T00:00:00Z). hydrated: include project, task and tag objects. in-progress: true lists only the running entry."
+        }
+      ]
+    },
+    {
+      "resource": "timeEntry",
       "operation": "update",
       "title": "Update a time entry",
       "method": "PUT",

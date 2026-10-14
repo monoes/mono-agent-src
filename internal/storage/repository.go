@@ -268,7 +268,8 @@ func (d *Database) DeletePerson(id string) error {
 }
 
 // BatchUpsertPeople inserts or updates multiple people within a single
-// transaction.
+// transaction. Like UpsertPerson, an empty field never overwrites a stored
+// value, so re-saving a person with fewer fields keeps their enrichment.
 func (d *Database) BatchUpsertPeople(people []*Person) error {
 	if len(people) == 0 {
 		return nil
@@ -288,17 +289,17 @@ func (d *Database) BatchUpsertPeople(people []*Person) error {
 		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(platform_username, platform, profile_id)
 		DO UPDATE SET
-			full_name       = excluded.full_name,
-			image_url       = excluded.image_url,
-			contact_details = excluded.contact_details,
-			website         = excluded.website,
-			content_count   = excluded.content_count,
-			follower_count  = excluded.follower_count,
-			following_count = excluded.following_count,
-			introduction    = excluded.introduction,
-			is_verified     = excluded.is_verified,
-			category        = excluded.category,
-			job_title       = excluded.job_title,
+			full_name       = COALESCE(excluded.full_name,              people.full_name),
+			image_url       = COALESCE(excluded.image_url,              people.image_url),
+			contact_details = COALESCE(excluded.contact_details,        people.contact_details),
+			website         = COALESCE(excluded.website,                people.website),
+			content_count   = COALESCE(NULLIF(excluded.content_count,   0), people.content_count),
+			follower_count  = COALESCE(excluded.follower_count,         people.follower_count),
+			following_count = COALESCE(NULLIF(excluded.following_count, 0), people.following_count),
+			introduction    = COALESCE(excluded.introduction,           people.introduction),
+			is_verified     = COALESCE(NULLIF(excluded.is_verified,     0), people.is_verified),
+			category        = COALESCE(excluded.category,               people.category),
+			job_title       = COALESCE(excluded.job_title,               people.job_title),
 			updated_at      = excluded.updated_at`)
 	if err != nil {
 		tx.Rollback()

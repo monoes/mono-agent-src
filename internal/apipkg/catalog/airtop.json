@@ -10,6 +10,8 @@
     "n8n-nodes-base.airtop"
   ],
   "base_url": "https://api.airtop.ai/api/v1",
+  "error_when": "{{ res.errors | len }}",
+  "error_message": "{{ res.errors | pluck:'message' | join:'; ' }}",
   "headers": {
     "Accept": "application/json",
     "x-airtop-sdk-environment": "monoagent"

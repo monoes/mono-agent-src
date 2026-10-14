@@ -1,0 +1,214 @@
+{
+  "form.getAll": {
+    "params": {
+      "limit": 20,
+      "filters": {
+        "workspaceIds": "w1, w2"
+      }
+    },
+    "response": {
+      "items": [
+        {
+          "id": "nW8xYz"
+        },
+        {
+          "id": "mP2aBc"
+        }
+      ],
+      "page": 1,
+      "hasMore": false
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/forms",
+      "query": {
+        "workspaceIds": [
+          "w1",
+          "w2"
+        ],
+        "page": "1",
+        "limit": "20"
+      },
+      "headers": {
+        "Authorization": "Bearer test-access_token"
+      },
+      "items": 2
+    }
+  },
+  "form.get": {
+    "params": {
+      "formId": "nW8xYz"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/forms/nW8xYz",
+      "items": 1
+    }
+  },
+  "submission.getAll": {
+    "params": {
+      "formId": "nW8xYz",
+      "returnAll": true,
+      "filters": {
+        "filter": "completed",
+        "startDate": "2026-10-01T00:00:00Z"
+      }
+    },
+    "response": {
+      "page": 1,
+      "hasMore": false,
+      "questions": [],
+      "submissions": [
+        {
+          "id": "s1"
+        },
+        {
+          "id": "s2"
+        },
+        {
+          "id": "s3"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/forms/nW8xYz/submissions",
+      "query": {
+        "filter": "completed",
+        "startDate": "2026-10-01T00:00:00Z",
+        "page": "1",
+        "limit": "100"
+      },
+      "items": 3
+    }
+  },
+  "submission.get": {
+    "params": {
+      "formId": "nW8xYz",
+      "submissionId": "s1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/forms/nW8xYz/submissions/s1"
+    }
+  },
+  "submission.delete": {
+    "params": {
+      "formId": "nW8xYz",
+      "submissionId": "s1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/forms/nW8xYz/submissions/s1"
+    }
+  },
+  "webhook.getAll": {
+    "params": {},
+    "response": {
+      "webhooks": [
+        {
+          "id": "h1"
+        }
+      ],
+      "page": 1,
+      "hasMore": false
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/webhooks",
+      "query": {
+        "page": "1",
+        "limit": "50"
+      },
+      "items": 1
+    }
+  },
+  "webhook.create": {
+    "params": {
+      "formId": "nW8xYz",
+      "url": "https://example.test/webhook/tally",
+      "additionalFields": {
+        "signingSecret": "s3cret",
+        "httpHeaders": [
+          {
+            "name": "X-Token",
+            "value": "abc"
+          }
+        ]
+      }
+    },
+    "response": {
+      "id": "h1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/webhooks",
+      "body": {
+        "formId": "nW8xYz",
+        "url": "https://example.test/webhook/tally",
+        "eventTypes": [
+          "FORM_RESPONSE"
+        ],
+        "signingSecret": "s3cret",
+        "httpHeaders": [
+          {
+            "name": "X-Token",
+            "value": "abc"
+          }
+        ]
+      }
+    }
+  },
+  "webhook.update": {
+    "params": {
+      "webhookId": "h1",
+      "updateFields": {
+        "url": "https://example.test/webhook/new",
+        "isEnabled": "false"
+      }
+    },
+    "expect": {
+      "method": "PATCH",
+      "path": "/webhooks/h1",
+      "body": {
+        "url": "https://example.test/webhook/new",
+        "isEnabled": false
+      }
+    }
+  },
+  "webhook.delete": {
+    "params": {
+      "webhookId": "h1"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/webhooks/h1"
+    }
+  },
+  "workspace.getAll": {
+    "params": {
+      "returnAll": true
+    },
+    "response": {
+      "items": [
+        {
+          "id": "w1"
+        },
+        {
+          "id": "w2"
+        }
+      ],
+      "page": 1,
+      "hasMore": false
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/workspaces",
+      "query": {
+        "page": "1",
+        "limit": "100"
+      },
+      "items": 2
+    }
+  }
+}

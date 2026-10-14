@@ -167,5 +167,17 @@
       "required": false,
       "default": 64
     }
+  ],
+  "outputs": [
+    {
+      "description": "response_format json: the GraphQL response's data (the response object's top-level keys become the item)",
+      "key": "data",
+      "type": "object"
+    },
+    {
+      "description": "response_format text: the raw response body (default property \"data\")",
+      "key": "<data_property_name>",
+      "type": "string"
+    }
   ]
 }

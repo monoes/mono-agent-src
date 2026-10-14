@@ -18,13 +18,11 @@ type Manager struct {
 	store *Store
 }
 
-// NewManager creates a Manager backed by db. Calls EnsureTable on init.
+// NewManager creates a Manager backed by db, which must be migrated
+// (ApplyMigrations creates the connections tables). The error is always
+// nil; it stays for the callers.
 func NewManager(db *sql.DB) (*Manager, error) {
-	store := NewStore(db)
-	if err := store.EnsureTable(context.Background()); err != nil {
-		return nil, fmt.Errorf("NewManager: EnsureTable: %w", err)
-	}
-	return &Manager{store: store}, nil
+	return &Manager{store: NewStore(db)}, nil
 }
 
 // ConnectOptions controls how Connect behaves.
@@ -84,8 +82,20 @@ func (m *Manager) Connect(ctx context.Context, platformID string, opts ConnectOp
 	// 4. Switch on method
 	switch method {
 	case MethodOAuth:
+		if p.OAuth != nil && len(p.OAuth.ConnectFields) > 0 {
+			if err := promptFields(p.OAuth.ConnectFields, conn, opts.FieldValues, stdinReader); err != nil {
+				return nil, fmt.Errorf("connect: fields: %w", err)
+			}
+		}
 		if err := m.connectOAuth(ctx, p, conn, opts.OAuthTimeout, opts.Scopes); err != nil {
 			return nil, fmt.Errorf("connect: oauth: %w", err)
+		}
+	case MethodOAuth1:
+		if err := m.connectFields(p, method, conn, opts.FieldValues, stdinReader); err != nil {
+			return nil, fmt.Errorf("connect: fields: %w", err)
+		}
+		if err := m.runOAuth1(ctx, p, conn, opts.OAuthTimeout, nil); err != nil {
+			return nil, fmt.Errorf("connect: oauth1: %w", err)
 		}
 	case MethodAPIKey, MethodAppPass, MethodConnStr, MethodSSHKey:
 		if err := m.connectFields(p, method, conn, opts.FieldValues, stdinReader); err != nil {
@@ -260,20 +270,6 @@ func (m *Manager) Remove(ctx context.Context, id, profileID string) error {
 	return m.store.Delete(ctx, id, profileID)
 }
 
-// Save persists a connection (insert or update).
-func (m *Manager) Save(ctx context.Context, conn *Connection) error {
-	return m.store.Save(ctx, conn)
-}
-
-// RefreshToken silently exchanges conn's stored refresh_token for a new
-// access_token (per-profile client credentials, with the /consumers/
-// audience fallback) and persists the result. Exposed so every caller —
-// CLI, GUI, workflow engine — shares this one implementation instead of
-// keeping its own copy that silently misses fixes applied to the others.
-func (m *Manager) RefreshToken(ctx context.Context, conn *Connection) error {
-	return m.store.RefreshToken(ctx, conn)
-}
-
 // Refresh silently exchanges a connection's stored refresh_token for a new
 // access_token — no browser, no user interaction — the same mechanism used
 // automatically whenever a stale connection is resolved for use. Falls back
@@ -391,6 +387,14 @@ func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID strin
 // an umbrella platform (google, microsoft) should request; nil requests
 // every group, and scope groups on any other platform are an error.
 func (m *Manager) ConnectOAuthWithScopes(ctx context.Context, platformID string, progress func(msg, kind string), clientID, clientSecret, profileID string, scopeGroups []string) (*Connection, error) {
+	return m.ConnectOAuthWithFields(ctx, platformID, progress, clientID, clientSecret, profileID, scopeGroups, nil)
+}
+
+// ConnectOAuthWithFields is ConnectOAuthWithScopes with the values of the
+// platform's OAuth connect fields (a tenant subdomain, a Salesforce
+// environment); a reconnect keeps the earlier connection's values for the
+// fields not given.
+func (m *Manager) ConnectOAuthWithFields(ctx context.Context, platformID string, progress func(msg, kind string), clientID, clientSecret, profileID string, scopeGroups []string, fields map[string]string) (*Connection, error) {
 	p, ok := Get(platformID)
 	if !ok {
 		return nil, fmt.Errorf("unknown platform %q", platformID)
@@ -413,13 +417,20 @@ func (m *Manager) ConnectOAuthWithScopes(ctx context.Context, platformID string,
 		for i := range existing {
 			if existing[i].Method == MethodOAuth {
 				conn = &existing[i]
-				conn.Data = map[string]interface{}{} // clear old tokens
 				break
 			}
 		}
 	}
+	old := conn.Data
+	conn.Data = map[string]interface{}{} // clear old tokens
+	if err := fillConnectFields(p.OAuth.ConnectFields, conn.Data, fields, old); err != nil {
+		return nil, err
+	}
 
-	cfg := *p.OAuth
+	cfg, err := tailorOAuth(*p.OAuth, conn.Data)
+	if err != nil {
+		return nil, err
+	}
 	cfg.PlatformID = platformID
 	if err := prepareUmbrellaOAuth(&cfg, platformID, scopeGroups); err != nil {
 		return nil, err
@@ -469,6 +480,11 @@ func (m *Manager) ConnectOAuthWithScopes(ctx context.Context, platformID string,
 		conn.Data["expires_at"] = ""
 	}
 	recordUmbrellaGrant(conn, platformID, cfg.Scopes)
+	if cfg.AfterToken != nil {
+		if err := cfg.AfterToken(ctx, conn.Data); err != nil {
+			return nil, fmt.Errorf("after token: %w", err)
+		}
+	}
 
 	if progress != nil {
 		progress("Validating your account…", "info")
@@ -513,7 +529,10 @@ func (m *Manager) connectOAuth(ctx context.Context, p PlatformDef, conn *Connect
 		return fmt.Errorf("connectOAuth: platform %q has no OAuth config", p.ID)
 	}
 
-	cfg := *p.OAuth // copy
+	cfg, err := tailorOAuth(*p.OAuth, conn.Data)
+	if err != nil {
+		return fmt.Errorf("connectOAuth: %w", err)
+	}
 	cfg.PlatformID = p.ID
 	if err := prepareUmbrellaOAuth(&cfg, p.ID, scopeGroups); err != nil {
 		return fmt.Errorf("connectOAuth: %w", err)
@@ -561,6 +580,11 @@ func (m *Manager) connectOAuth(ctx context.Context, p PlatformDef, conn *Connect
 		conn.Data["expires_at"] = ""
 	}
 	recordUmbrellaGrant(conn, p.ID, cfg.Scopes)
+	if cfg.AfterToken != nil {
+		if err := cfg.AfterToken(ctx, conn.Data); err != nil {
+			return fmt.Errorf("connectOAuth: after token: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -571,7 +595,11 @@ func (m *Manager) connectFields(p PlatformDef, method AuthMethod, conn *Connecti
 	if !ok {
 		return fmt.Errorf("connectFields: platform %q has no fields for method %q", p.ID, method)
 	}
+	return promptFields(fields, conn, prefilled, reader)
+}
 
+// promptFields fills conn.Data with fields, from prefilled or the terminal.
+func promptFields(fields []CredentialField, conn *Connection, prefilled map[string]string, reader *bufio.Reader) error {
 	for _, field := range fields {
 		// Check prefilled map first
 		if prefilled != nil {

@@ -1,6 +1,7 @@
 // Package library talks to the monoes.me library: the HTTP API that lists,
-// downloads and publishes workflows, orgs and web automations, and the
-// OAuth 2.1 (PKCE loopback) and email-code logins MonoAgent uses for it.
+// downloads and publishes workflows, orgs, web automations and API
+// packages, and the OAuth 2.1 (PKCE loopback) and email-code logins
+// MonoAgent uses for it.
 //
 // Contract: ~/scratch/monoes-library/SPEC.md (monoes.me Library ↔
 // MonoAgent integration, v1). The CLI's `library` command group is the only
@@ -28,6 +29,7 @@ const (
 	KindWorkflow   = "workflow"
 	KindAutomation = "automation"
 	KindOrg        = "org"
+	KindAPI        = "api" // a declarative API package (apipkg.v1)
 )
 
 // Visibilities.
@@ -41,11 +43,11 @@ const (
 const OfficialOwner = "monoes"
 
 // NormalizeKind maps the plural forms monoes.me shows ("automations",
-// "workflows", "orgs") to the kind; anything else is returned as is.
+// "workflows", "orgs", "apis") to the kind; anything else is returned as is.
 func NormalizeKind(k string) string {
 	k = strings.ToLower(strings.TrimSpace(k))
 	switch k {
-	case "workflows", "automations", "orgs":
+	case "workflows", "automations", "orgs", "apis":
 		return strings.TrimSuffix(k, "s")
 	}
 	return k
@@ -53,7 +55,7 @@ func NormalizeKind(k string) string {
 
 // ValidKind reports whether k is a library kind.
 func ValidKind(k string) bool {
-	return k == KindWorkflow || k == KindAutomation || k == KindOrg
+	return k == KindWorkflow || k == KindAutomation || k == KindOrg || k == KindAPI
 }
 
 // BaseURL is MONOES_BASE_URL without a trailing slash, or DefaultBaseURL.

@@ -657,7 +657,7 @@
       "query": {
         "body-format": "{{ p.bodyFormat | eq:'plainText' | then:'atlas_doc_format' | default:p.bodyFormat }}"
       },
-      "description": "plainText returns the page in atlas_doc_format.",
+      "description": "plainText returns the page in atlas_doc_format. With includeDescendants every descendant page follows the page, one item each (drafts skipped), up to maxPages items in all.",
       "fields": [
         {
           "key": "authentication",
@@ -705,15 +705,53 @@
           "label": "Include descendants",
           "type": "boolean",
           "default": false,
-          "help": "Not supported yet: only the page itself is returned."
+          "help": "Also return every page below this one, one item per page; unpublished drafts are skipped."
         },
         {
           "key": "maxPages",
           "label": "Max pages",
           "type": "number",
-          "default": 100
+          "default": 100,
+          "help": "Stops the walk after this many pages, the page itself included."
         }
-      ]
+      ],
+      "output": {
+        "walk": {
+          "when": "{{ p.includeDescendants }}",
+          "start": "{{ res.id }}",
+          "request": {
+            "method": "GET",
+            "base_url": "https://api.atlassian.com/ex/confluence/{{ p.site | rl | default:pres.0.0.id }}",
+            "path": "/wiki/api/v2/pages/{{ el }}/descendants",
+            "query": {
+              "depth": 10
+            }
+          },
+          "pagination": {
+            "type": "next_url",
+            "next_url_path": "_links.next",
+            "next_url_prefix": "https://api.atlassian.com/ex/confluence/{{ p.site | rl | default:pres.0.0.id }}",
+            "limit_param": "limit",
+            "page_size": 250
+          },
+          "results_path": "results",
+          "descend": "{{ el.type | in:'page,folder' | then:(el.depth | eq:'10') }}",
+          "keep": "{{ el.type | eq:'page' | then:(el.status | default:'current' | in:'current,archived') }}",
+          "max": "{{ p.maxPages | sub:1 }}",
+          "fetch": {
+            "method": "GET",
+            "base_url": "https://api.atlassian.com/ex/confluence/{{ p.site | rl | default:pres.0.0.id }}",
+            "path": "/wiki/api/v2/pages",
+            "query": {
+              "id": "{{ el | csv }}",
+              "body-format": "{{ p.bodyFormat | eq:'plainText' | then:'atlas_doc_format' | default:p.bodyFormat }}",
+              "limit": 250
+            },
+            "chunk": 250,
+            "results_path": "results"
+          }
+        }
+      }
     },
     {
       "resource": "page",
@@ -1288,7 +1326,7 @@
           "label": "Download",
           "type": "boolean",
           "default": false,
-          "help": "Not supported yet: only the attachment records are returned."
+          "help": "Also download each attachment's file onto its item."
         },
         {
           "key": "binaryPropertyName",
@@ -1296,7 +1334,18 @@
           "type": "text",
           "default": "data"
         }
-      ]
+      ],
+      "output": {
+        "download": {
+          "when": "{{ p.download }}",
+          "method": "GET",
+          "base_url": "https://api.atlassian.com/ex/confluence/{{ p.site | rl | default:pres.0.0.id }}",
+          "path": "/wiki{{ el.downloadLink | path:'query' }}",
+          "property": "{{ p.binaryPropertyName }}",
+          "file_name": "{{ el.title }}",
+          "mime_type": "{{ el.mediaType }}"
+        }
+      }
     },
     {
       "resource": "attachment",

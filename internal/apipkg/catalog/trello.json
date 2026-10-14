@@ -45,6 +45,55 @@
           "token": "{{ cred.api_token }}"
         }
       }
+    },
+    {
+      "platform": "trello_oauth1",
+      "name": "Trello (OAuth 1.0a)",
+      "n8n_credential": "trelloOAuth1Api",
+      "n8n_field_map": {
+        "consumerKey": "consumer_key",
+        "consumerSecret": "consumer_secret"
+      },
+      "methods": [
+        "oauth1"
+      ],
+      "fields": [
+        {
+          "key": "consumer_key",
+          "label": "API key",
+          "required": true,
+          "help": "trello.com/power-ups/admin → your Power-Up → API key"
+        },
+        {
+          "key": "consumer_secret",
+          "label": "OAuth secret",
+          "secret": true,
+          "required": true,
+          "help": "Shown under the API key as the secret"
+        },
+        {
+          "key": "oauth_token",
+          "label": "Access token",
+          "secret": true,
+          "required": true,
+          "help": "Filled by `monoagentcli connect` (OAuth 1.0a); paste one only when you have it already"
+        },
+        {
+          "key": "oauth_token_secret",
+          "label": "Access token secret",
+          "secret": true,
+          "required": true,
+          "help": "Filled by `monoagentcli connect` together with the access token"
+        }
+      ],
+      "oauth": {
+        "request_token_url": "https://trello.com/1/OAuthGetRequestToken",
+        "auth_url": "https://trello.com/1/OAuthAuthorizeToken?scope=read,write,account&expiration=never&name=mono-agent",
+        "token_url": "https://trello.com/1/OAuthGetAccessToken"
+      },
+      "inject": {
+        "oauth1": {}
+      }
     }
   ],
   "resources": [

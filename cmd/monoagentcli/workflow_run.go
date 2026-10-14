@@ -12,7 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// waitForExecution polls until the execution leaves RUNNING/QUEUED, printing
+// waitForExecution polls until the execution leaves RUNNING/QUEUED (or a
+// WAITING that is only for its sub-workflows), printing
 // its final status, or returns an error once timeout elapses. When quiet is
 // true the status lines are suppressed (JSON callers emit their own record).
 func waitForExecution(ctx context.Context, engine *workflow.WorkflowEngine, executionID string, timeout time.Duration, quiet bool) error {
@@ -27,8 +28,17 @@ func waitForExecution(ctx context.Context, engine *workflow.WorkflowEngine, exec
 			if err != nil {
 				return fmt.Errorf("poll execution: %w", err)
 			}
-			switch status {
-			case "RUNNING", "QUEUED":
+			inFlight := status == "RUNNING" || status == "QUEUED"
+			if status == "WAITING" {
+				// Paused only for its sub-workflows: this engine runs the
+				// children and resumes the run, so the wait goes on. A
+				// human review still ends the wait as WAITING.
+				if inFlight, err = engine.WaitingOnSubWorkflows(ctx, executionID); err != nil {
+					return fmt.Errorf("poll execution: %w", err)
+				}
+			}
+			switch {
+			case inFlight:
 				if time.Now().After(deadline) {
 					return fmt.Errorf("timed out waiting for execution %s (still %s)", executionID, status)
 				}
@@ -212,7 +222,9 @@ func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
 			"--dry-run validates the workflow and prints the topological execution plan without " +
 			"starting anything. --no-wait prints the execution id and exits immediately — the run " +
 			"only keeps going while an engine (e.g. `monoagentcli daemon`) stays alive, so poll " +
-			"`workflow executions` for the final status. --json prints the execution record with " +
+			"`workflow executions` for the final status. A run that pauses for its sub-workflows " +
+			"(core.execute_workflow) is waited through: this process runs them. A run that pauses " +
+			"for a human review ends the wait as WAITING. --json prints the execution record with " +
 			"per-node output items once the wait finishes.\n\n" +
 			"A run whose every step failed exits 1 even though its status is SUCCESS_WITH_ERRORS " +
 			"(on_error=continue kept it going); a partial success exits 0. Without --json it ends " +

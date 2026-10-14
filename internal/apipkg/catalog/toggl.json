@@ -3,7 +3,7 @@
   "id": "toggl",
   "node_type": "app.toggl",
   "title": "Toggl",
-  "description": "Toggl Track time tracking (trigger only in n8n)",
+  "description": "Time entries, projects and workspaces in Toggl Track",
   "category": "app",
   "docs_url": "https://engineering.toggl.com/docs/",
   "n8n_trigger_types": [
@@ -25,24 +25,523 @@
       "fields": [
         {
           "key": "username",
-          "label": "Email or API token",
+          "label": "API token (or email)",
           "required": true,
-          "help": "Use your API token here and the word api_token as the password"
+          "help": "Toggl Track: Profile settings → API Token. With a token leave the password empty."
         },
         {
           "key": "password",
           "label": "Password",
           "secret": true,
-          "required": true
+          "help": "Only when the field above is your email; empty sends the word api_token, as Toggl wants with a token."
         }
       ],
       "inject": {
         "basic": {
           "username": "{{ cred.username }}",
-          "password": "{{ cred.password }}"
+          "password": "{{ cred.password | default:'api_token' }}"
         }
       }
     }
   ],
-  "operations": []
+  "operations": [
+    {
+      "resource": "timeEntry",
+      "operation": "create",
+      "title": "Create a time entry",
+      "description": "Records a finished time entry; set stop or duration.",
+      "method": "POST",
+      "path": "/workspaces/{{ p.workspaceId }}/time_entries",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "start",
+          "label": "Start",
+          "type": "datetime",
+          "required": true,
+          "help": "ISO 8601, e.g. 2024-01-31T09:00:00Z"
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "description",
+            "projectId",
+            "taskId",
+            "tags",
+            "billable",
+            "stop",
+            "duration"
+          ],
+          "help": "projectId/taskId: numeric ids. tags: list of tag names. stop: ISO 8601 end time. duration: seconds."
+        }
+      ],
+      "body": {
+        "created_with": "mono-agent",
+        "workspace_id": "{{ p.workspaceId | int }}",
+        "start": "{{ p.start }}",
+        "stop": "{{ p.additionalFields.stop }}",
+        "duration": "{{ p.additionalFields.duration | int }}",
+        "description": "{{ p.additionalFields.description }}",
+        "project_id": "{{ p.additionalFields.projectId | int }}",
+        "task_id": "{{ p.additionalFields.taskId | int }}",
+        "tags": "{{ p.additionalFields.tags | split }}",
+        "billable": "{{ p.additionalFields.billable | bool }}"
+      }
+    },
+    {
+      "resource": "timeEntry",
+      "operation": "delete",
+      "title": "Delete a time entry",
+      "method": "DELETE",
+      "path": "/workspaces/{{ p.workspaceId }}/time_entries/{{ p.timeEntryId }}",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "timeEntryId",
+          "label": "Time entry ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "timeEntry",
+      "operation": "get",
+      "title": "Get a time entry",
+      "method": "GET",
+      "path": "/me/time_entries/{{ p.timeEntryId }}",
+      "fields": [
+        {
+          "key": "timeEntryId",
+          "label": "Time entry ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "timeEntry",
+      "operation": "getAll",
+      "title": "Get many time entries",
+      "description": "Your time entries, newest first; without dates Toggl returns the last 9 days.",
+      "method": "GET",
+      "path": "/me/time_entries",
+      "query": {
+        "start_date": "{{ p.filters.startDate }}",
+        "end_date": "{{ p.filters.endDate }}",
+        "since": "{{ p.filters.since | epoch }}",
+        "before": "{{ p.filters.before }}",
+        "meta": "{{ p.filters.meta | then:'true' }}"
+      },
+      "output": {
+        "limit": true
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "startDate",
+            "endDate",
+            "since",
+            "before",
+            "meta"
+          ],
+          "help": "startDate/endDate: ISO 8601 date or time (both together). since: entries changed after this time, deleted ones included. before: entries started before this date. meta: add project, client and task names."
+        }
+      ]
+    },
+    {
+      "resource": "timeEntry",
+      "operation": "getCurrent",
+      "title": "Get the running time entry",
+      "description": "Empty output when no timer runs.",
+      "method": "GET",
+      "path": "/me/time_entries/current",
+      "fields": []
+    },
+    {
+      "resource": "timeEntry",
+      "operation": "start",
+      "title": "Start a time entry",
+      "description": "Starts a running timer now (stops the running one).",
+      "method": "POST",
+      "path": "/workspaces/{{ p.workspaceId }}/time_entries",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "description",
+            "projectId",
+            "taskId",
+            "tags",
+            "billable"
+          ],
+          "help": "projectId/taskId: numeric ids. tags: list of tag names. stop: ISO 8601 end time. duration: seconds."
+        }
+      ],
+      "body": {
+        "created_with": "mono-agent",
+        "workspace_id": "{{ p.workspaceId | int }}",
+        "start": "{{ now }}",
+        "duration": -1,
+        "description": "{{ p.additionalFields.description }}",
+        "project_id": "{{ p.additionalFields.projectId | int }}",
+        "task_id": "{{ p.additionalFields.taskId | int }}",
+        "tags": "{{ p.additionalFields.tags | split }}",
+        "billable": "{{ p.additionalFields.billable | bool }}"
+      }
+    },
+    {
+      "resource": "timeEntry",
+      "operation": "stop",
+      "title": "Stop a time entry",
+      "method": "PATCH",
+      "path": "/workspaces/{{ p.workspaceId }}/time_entries/{{ p.timeEntryId }}/stop",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "timeEntryId",
+          "label": "Time entry ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "timeEntry",
+      "operation": "update",
+      "title": "Update a time entry",
+      "method": "PUT",
+      "path": "/workspaces/{{ p.workspaceId }}/time_entries/{{ p.timeEntryId }}",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "timeEntryId",
+          "label": "Time entry ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "description",
+            "projectId",
+            "taskId",
+            "tags",
+            "billable",
+            "start",
+            "stop",
+            "duration"
+          ],
+          "help": "projectId/taskId: numeric ids. tags: list of tag names. stop: ISO 8601 end time. duration: seconds."
+        }
+      ],
+      "body": {
+        "description": "{{ p.updateFields.description }}",
+        "project_id": "{{ p.updateFields.projectId | int }}",
+        "task_id": "{{ p.updateFields.taskId | int }}",
+        "tags": "{{ p.updateFields.tags | split }}",
+        "billable": "{{ p.updateFields.billable | bool }}",
+        "start": "{{ p.updateFields.start }}",
+        "stop": "{{ p.updateFields.stop }}",
+        "duration": "{{ p.updateFields.duration | int }}"
+      }
+    },
+    {
+      "resource": "project",
+      "operation": "create",
+      "title": "Create a project",
+      "method": "POST",
+      "path": "/workspaces/{{ p.workspaceId }}/projects",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "active",
+            "isPrivate",
+            "billable",
+            "color",
+            "clientId",
+            "estimatedHours",
+            "templateId"
+          ],
+          "help": "color: hex like #06aaf5. clientId/templateId: numeric ids. estimatedHours: whole hours."
+        }
+      ],
+      "body": {
+        "name": "{{ p.name }}",
+        "active": "{{ p.additionalFields.active | bool }}",
+        "is_private": "{{ p.additionalFields.isPrivate | bool }}",
+        "billable": "{{ p.additionalFields.billable | bool }}",
+        "color": "{{ p.additionalFields.color }}",
+        "client_id": "{{ p.additionalFields.clientId | int }}",
+        "estimated_hours": "{{ p.additionalFields.estimatedHours | int }}",
+        "template_id": "{{ p.additionalFields.templateId | int }}"
+      }
+    },
+    {
+      "resource": "project",
+      "operation": "delete",
+      "title": "Delete a project",
+      "method": "DELETE",
+      "path": "/workspaces/{{ p.workspaceId }}/projects/{{ p.projectId }}",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "projectId",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "get",
+      "title": "Get a project",
+      "method": "GET",
+      "path": "/workspaces/{{ p.workspaceId }}/projects/{{ p.projectId }}",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "projectId",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "getAll",
+      "title": "Get many projects",
+      "method": "GET",
+      "path": "/workspaces/{{ p.workspaceId }}/projects",
+      "query": {
+        "active": "{{ p.filters.active }}",
+        "name": "{{ p.filters.name }}",
+        "billable": "{{ p.filters.billable }}",
+        "since": "{{ p.filters.since | epoch }}"
+      },
+      "pagination": {
+        "type": "page",
+        "page_param": "page",
+        "limit_param": "per_page",
+        "page_size": 200,
+        "results_path": ""
+      },
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "active",
+            "name",
+            "billable",
+            "since"
+          ],
+          "help": "active: true, false or both. since: projects changed after this time."
+        }
+      ]
+    },
+    {
+      "resource": "project",
+      "operation": "update",
+      "title": "Update a project",
+      "method": "PUT",
+      "path": "/workspaces/{{ p.workspaceId }}/projects/{{ p.projectId }}",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "projectId",
+          "label": "Project ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "name",
+            "active",
+            "isPrivate",
+            "billable",
+            "color",
+            "clientId",
+            "estimatedHours",
+            "templateId"
+          ]
+        }
+      ],
+      "body": {
+        "name": "{{ p.updateFields.name }}",
+        "active": "{{ p.updateFields.active | bool }}",
+        "is_private": "{{ p.updateFields.isPrivate | bool }}",
+        "billable": "{{ p.updateFields.billable | bool }}",
+        "color": "{{ p.updateFields.color }}",
+        "client_id": "{{ p.updateFields.clientId | int }}",
+        "estimated_hours": "{{ p.updateFields.estimatedHours | int }}",
+        "template_id": "{{ p.updateFields.templateId | int }}"
+      }
+    },
+    {
+      "resource": "workspace",
+      "operation": "getAll",
+      "title": "Get my workspaces",
+      "method": "GET",
+      "path": "/me/workspaces",
+      "output": {
+        "limit": true
+      },
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        }
+      ]
+    },
+    {
+      "resource": "workspace",
+      "operation": "get",
+      "title": "Get a workspace",
+      "method": "GET",
+      "path": "/workspaces/{{ p.workspaceId }}",
+      "fields": [
+        {
+          "key": "workspaceId",
+          "label": "Workspace ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "n8n_types": [],
+  "resources": [
+    {
+      "value": "timeEntry",
+      "label": "Time entry"
+    },
+    {
+      "value": "project",
+      "label": "Project"
+    },
+    {
+      "value": "workspace",
+      "label": "Workspace"
+    }
+  ]
 }

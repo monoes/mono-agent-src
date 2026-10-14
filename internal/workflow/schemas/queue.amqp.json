@@ -35,5 +35,12 @@
       "required": false,
       "type": "text"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the input item passes through unchanged after the message is sent",
+      "key": "*",
+      "type": "any"
+    }
   ]
 }

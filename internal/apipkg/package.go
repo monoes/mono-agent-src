@@ -50,6 +50,11 @@ type Package struct {
 	// QueryStyle "brackets" encodes nested query/form values PHP-style
 	// (a[b][0][c]=v); an op's own query_style overrides it.
 	QueryStyle string `json:"query_style,omitempty"`
+	// ErrorWhen (template over res, hdr, cred) fails a 2xx response
+	// that carries an error (JSON-RPC "error", ok:false); ErrorMessage
+	// is the error's text. An operation's own pair replaces these.
+	ErrorWhen    string `json:"error_when,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 
 	// Source is where the package was loaded from ("catalog" or a file
 	// path). Not part of the file.
@@ -112,6 +117,29 @@ type OAuthSpec struct {
 	ClientIDField     string   `json:"client_id_field,omitempty"`
 	ClientSecretField string   `json:"client_secret_field,omitempty"`
 	ClientAuth        string   `json:"client_auth,omitempty"`
+	// ConnectFields are credential field keys asked before the browser
+	// flow and stored on the connection; auth_url, token_url, scopes and
+	// extra_params may then be templates over them
+	// ("https://{{ cred.subdomain }}.zendesk.com/oauth/tokens").
+	ConnectFields []string `json:"connect_fields,omitempty"`
+	// Metadata is a request sent with a new token, whose response values
+	// are stored on the connection (Mailchimp: the data centre). It also
+	// runs before a node's first request when those keys are missing.
+	Metadata *MetadataSpec `json:"metadata,omitempty"`
+	// OAuth 1.0a (method "oauth1"): the request-token endpoint and the
+	// signature method (default HMAC-SHA1); auth_url is the authorization
+	// page and token_url the access-token endpoint.
+	RequestTokenURL string `json:"request_token_url,omitempty"`
+	SignatureMethod string `json:"signature_method,omitempty"`
+}
+
+// MetadataSpec fetches account details with an OAuth token. URL and
+// header values are templates over cred.* (access_token included); Fields
+// maps a connection key to a path in the JSON response.
+type MetadataSpec struct {
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Fields  map[string]string `json:"fields"`
 }
 
 // Inject says how a credential authenticates a request. Every value is a
@@ -132,6 +160,21 @@ type Inject struct {
 	AzureSharedKey *AzureSharedKeyInject `json:"azure_shared_key,omitempty"`
 	// AzureCosmos signs Cosmos DB requests with the master key.
 	AzureCosmos *AzureCosmosInject `json:"azure_cosmos,omitempty"`
+	// OAuth1 signs each request with OAuth 1.0a (Trello, Twitter v1.1).
+	OAuth1 *OAuth1Inject `json:"oauth1,omitempty"`
+}
+
+// OAuth1Inject signs requests with OAuth 1.0a. The keys are templates and
+// default to cred.consumer_key, cred.consumer_secret, cred.oauth_token and
+// cred.oauth_token_secret; signature_method defaults to the credential's
+// oauth.signature_method, else HMAC-SHA1.
+type OAuth1Inject struct {
+	ConsumerKey     string `json:"consumer_key,omitempty"`
+	ConsumerSecret  string `json:"consumer_secret,omitempty"`
+	Token           string `json:"token,omitempty"`
+	TokenSecret     string `json:"token_secret,omitempty"`
+	SignatureMethod string `json:"signature_method,omitempty"`
+	Realm           string `json:"realm,omitempty"`
 }
 
 // JWTInject signs a short-lived JWT per request (Ghost Admin API, Zoom
@@ -193,6 +236,10 @@ type Operation struct {
 	// batchUpdate/batchDelete): params come from the first item and the
 	// items root holds every item's JSON.
 	Batch bool `json:"batch,omitempty"`
+	// ScopeGroup overrides the credential's scope_group for this op: an
+	// umbrella connection must grant this group instead (Outlook calendar
+	// and contact ops need "calendar"/"contacts", not "mail").
+	ScopeGroup string `json:"scope_group,omitempty"`
 	// Poll repeats a request after the main one until Until (a template
 	// over res = the latest response) renders true (BigQuery jobs that
 	// are not complete yet). The last response replaces the main one.
@@ -201,6 +248,9 @@ type Operation struct {
 	// the last decoded response and pres.<i> each step's; later steps see
 	// earlier ones (e.g. resolve a sheet title, then read its header row).
 	Before Steps `json:"before,omitempty"`
+	// ErrorWhen / ErrorMessage replace the package's for this op.
+	ErrorWhen    string `json:"error_when,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // Step is one follow-up request of an operation. When is a template; an
@@ -210,6 +260,9 @@ type Step struct {
 	// ForEach (also steps): a template resolving to a list; the step is
 	// sent once per element with el bound (Egoi: one call per tag id).
 	ForEach string `json:"for_each,omitempty"`
+	// download marks an output.download request: the response is a file
+	// (no Accept: application/json).
+	download bool
 	// Upload sends the op's binary (binary.upload_field/property) as the
 	// raw body, Content-Type = its MIME type (register-then-upload APIs).
 	Upload bool `json:"upload,omitempty"`
@@ -324,10 +377,22 @@ type Output struct {
 	// template, skips the reshape when it renders empty/false (rawData).
 	To     any    `json:"to,omitempty"`
 	ToWhen string `json:"to_when,omitempty"`
+	// MatchAfterTo runs Match on the elements reshaped by To instead of
+	// the raw ones (Excel rows zipped with their column names, then
+	// filtered by column).
+	MatchAfterTo bool `json:"match_after_to,omitempty"`
 	// Firestore (a template): when true, decode Firestore documents
 	// ({name, fields{typed values}}) into plain JSON with _name, _id,
 	// _createTime and _updateTime (n8n's "simple" output).
 	Firestore string `json:"firestore,omitempty"`
+	// Download fetches files per element onto the item's binary data.
+	Download *DownloadStep `json:"download,omitempty"`
+	// Where (a template, el = the element) drops the elements it renders
+	// empty or false for (Graph delta: only entries with a file facet).
+	Where string `json:"where,omitempty"`
+	// Walk appends the records of a tree walk (a request repeated over a
+	// growing frontier of ids) to the main result: Confluence descendants.
+	Walk *Walk `json:"walk,omitempty"`
 	// SchemaRows is a path (in the whole response) to a BigQuery-style
 	// schema ([{name, type, mode, fields}]); the rows at output.path
 	// ({f: [{v}]}) become objects keyed by field name. Numbers (a
@@ -383,6 +448,10 @@ type Binary struct {
 	// UploadText (a template): when it renders non-empty, its text is the
 	// upload instead of the input item's binary (GCS create from text).
 	UploadText string `json:"upload_text,omitempty"`
+	// UploadSession sends files larger than MinSize in chunks through a
+	// resumable upload session (Microsoft Graph createUploadSession)
+	// instead of one raw request.
+	UploadSession *UploadSession `json:"upload_session,omitempty"`
 	// DownloadBase64 (a template over res): when the response carries the
 	// file base64-encoded in JSON (GitHub contents), decode it onto the
 	// item's binary and keep the JSON response as the item's json.

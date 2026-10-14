@@ -155,12 +155,22 @@ subcommand: `monoagentcli --json workflow search`.
 # What can this already do? Returns ready-to-run commands per hit.
 monoagentcli --json workflow search <query>
 
-# JSON schema for a node type (exit 2 on unknown type).
+# JSON schema for a node type (exit 2 on unknown type): config fields and,
+# for most nodes, `outputs` (the keys its items carry; "*" = input passed
+# through, "<name>" = a key named by a config field or an open key set).
 monoagentcli node schema <type>
 
-# Validate a workflow without running it (exit 3 on invalid).
+# Validate a workflow without running it (exit 3 on invalid). --json adds
+# issues[]: {node_id, field, code, severity, message, hint}; codes
+# invalid_workflow, unknown_node_type, missing_required, invalid_option,
+# dangling_node_ref, bad_expression (errors) and unknown_field,
+# unknown_upstream_field, needs_setup (warnings: e.g. no account chosen yet).
 monoagentcli workflow validate <id>
 monoagentcli workflow validate --file <workflow.json>
+
+# Draft a workflow from a description: an agent turn writes it, validate's
+# errors go back to it until it passes, and it is saved inactive.
+monoagentcli workflow generate "<description>" [--runtime <rt>|auto] [--no-save] [--json]
 
 # Run controls:
 monoagentcli workflow run <id> --dry-run    # validate + print execution plan, no run
@@ -171,7 +181,9 @@ monoagentcli --json workflow run <id>       # execution record + per-node output
 
 Typical agent loop: `workflow search --json` → inspect template with
 `workflow templates show <id>` → `workflow run --dry-run` → real run with
-`--json` → read per-node outputs.
+`--json` → read per-node outputs. To build one: `node schema` → write the
+JSON → `workflow validate --json` → `node run` single nodes → `workflow save`
+→ dry-run → run (the `monoagent-build` skill walks through it).
 
 ### At a glance: `summary`
 
@@ -505,7 +517,12 @@ dangerous calls.
 
 **Read-only, always exposed:**
 
-- `workflow_list`, `workflow_get`, `workflow_validate`, `workflow_status`
+- `workflow_list`, `workflow_get`, `workflow_validate` (the report of
+  `workflow validate --json`, with `issues[]`), `workflow_status`
+- `workflow_search`, `workflow_inputs`, `workflow_executions`,
+  `workflow_template_list`, `workflow_template_show` (bundled workflow
+  templates; `template_list` below is message templates)
+- `doctor` (this binary's `doctor --json`; never applies a fix)
 - `node_list` (optional `category` filter — see the tool's own
   description for values), `node_schema`
 - `hil_list`
@@ -566,6 +583,12 @@ existing MCP client config that relies on them.
 
 - `workflow_run`, `workflow_create`, `workflow_delete`,
   `workflow_set_active`, `workflow_node_add`
+- `workflow_connect`, `workflow_disconnect`, `workflow_node_update` (config
+  replace, or `merge: true`), `workflow_node_delete`, `workflow_save` (a whole
+  workflow document, as `workflow save`), `workflow_template_instantiate`
+- `node_run` (one node with config and input, as `node run`; an outbound send
+  an agent starts is still queued for approval) and `workflow_generate` (as
+  `workflow generate`)
 - `hil_approve`, `hil_reject`
 - `secret_add`, `secret_update`, `secret_delete`
 - `person_upsert`, `person_delete`
@@ -694,6 +717,25 @@ existing MCP client config that relies on them.
   It cannot be combined with `--api-only` (refused at start, the environment
   variables included) or `--grant`. A host that has tools of its own, such as a
   shell tool, is not stopped by it. Nothing registers it for you.
+
+**Workflows as tools.** `monoagentcli mcp --allow-mutations --workflow-tools`
+(or `MONOAGENT_MCP_WORKFLOW_TOOLS=1`) also serves every saved workflow of the
+profile as a tool `wf_<slug>`; `--workflow-tools=<id|name>,...` serves only
+those. A tool's input schema comes from the workflow's trigger fields
+(`workflow inputs`), and a call runs it as `workflow_run` does (same wait,
+result and redaction; `_timeout_seconds` sets the wait). Workflows are re-read
+on every `tools/list`. It cannot be combined with `--api-only`, `--tasks-only`
+or `--grant`.
+
+**Protocol.** Besides tools the server answers `resources/list`,
+`resources/templates/list` and `resources/read`: `monoagent://ref/<topic>`
+(the `ref` topics, `api-tools` among them for the long descriptions of the
+`api_*` tools) and `monoagent://node/<type>` (a node's schema). Grant mode and
+`--tasks-only` serve no resources, `--api-only` only `api-tools`. A
+`workflow_run` call that carries `_meta.progressToken` gets
+`notifications/progress`; JSON results also come back as `structuredContent`
+(not `api_key_create`), and `workflow_run`, `workflow_status` and
+`workflow_validate` declare an `outputSchema`.
 
 **Grant mode.** `monoagentcli mcp --grant <id> --profile <id>` is the tool
 provider monomind spawns for an org role. It serves only that role's
@@ -2055,8 +2097,12 @@ login (and its bill) is what the turn uses.
   the priciest cost seen so far; models with unknown cost not included).
   With `--no-scan`, `next` names no runtime (`next_unchecked`). The roster section of the AI agents page has the toggle,
   which asks first and shows that estimate.
-- **Picking a runtime.** `chat` and `agent.ask` take an explicit runtime
-  (`--runtime` / `"runtime"`). `ai.extract_page` uses `MONOAGENT_AI_RUNTIME`,
+- **Picking a runtime.** `chat` without `--runtime` uses the one runtime with
+  a validated model, else the one installed runtime that runs headless, and
+  names the candidates when there are several. `agent.ask` takes `"runtime"`;
+  `"auto"` picks the cheapest, then fastest, validated model of the roster
+  (else the first installed runtime). `workflow generate --runtime auto` picks
+  the same way. `ai.extract_page` uses `MONOAGENT_AI_RUNTIME`,
   else the first installed runtime in a fixed order starting with `claude`
   and `codex`. Capture summaries use `MONOAGENT_SUMMARY_RUNTIME` (see
   "Runtime environment variables").

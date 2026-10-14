@@ -304,5 +304,22 @@
       "required": false,
       "type": "select"
     }
+  ],
+  "outputs": [
+    {
+      "description": "executeQuery/select: one item per result row, keyed by column",
+      "key": "<row_columns>",
+      "type": "any"
+    },
+    {
+      "description": "statements that return no rows (insert/update/upsert/delete/deleteTable, or executeQuery without a result set): true",
+      "key": "success",
+      "type": "boolean"
+    },
+    {
+      "description": "statements that return no rows: rows affected",
+      "key": "rows_affected",
+      "type": "number"
+    }
   ]
 }
