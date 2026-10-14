@@ -213,6 +213,9 @@ func TestHandshakeMailchimpBareGet(t *testing.T) {
 	if rec := serve(s, httptest.NewRequest(http.MethodGet, "/webhook/hs", nil)); rec.Code != 405 {
 		t.Fatalf("bare GET without answer_get: %d, want 405", rec.Code)
 	}
+	if *fired != 0 {
+		t.Fatal("refused bare GET started a run")
+	}
 	s, fired = handshakeServer(t, func(r *WebhookRegistration) { r.AnswerGet = true })
 	rec := serve(s, httptest.NewRequest(http.MethodGet, "/webhook/hs", nil))
 	if rec.Code != 200 || rec.Body.Len() != 0 {
