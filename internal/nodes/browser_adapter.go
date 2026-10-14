@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
+	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -80,6 +81,16 @@ type BrowserNode struct {
 // newNopLogger returns a zerolog.Logger that discards all output.
 func newNopLogger() zerolog.Logger {
 	return zerolog.New(io.Discard).With().Logger()
+}
+
+// actionLogger is the logger handed to the ActionExecutor: a discard logger,
+// or with MONOAGENT_DEBUG set the shared root logger at every level (the
+// variable has always meant "show all of it", whatever --log-level says).
+func actionLogger() zerolog.Logger {
+	if os.Getenv("MONOAGENT_DEBUG") != "" {
+		return logging.Zerolog().Level(zerolog.TraceLevel)
+	}
+	return newNopLogger()
 }
 
 // NewBrowserNode creates a new BrowserNode for the given platform and action type.
@@ -248,10 +259,7 @@ func (b *BrowserNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	}
 
 	// 6. Create ActionExecutor and call Execute.
-	logger := newNopLogger()
-	if os.Getenv("MONOAGENT_DEBUG") != "" {
-		logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
-	}
+	logger := actionLogger()
 	// db/profileID reach BrowserNode via context, set once by the workflow
 	// engine (internal/workflow/engine.go) before any node executes — the
 	// same context-based DI pattern org.run uses (internal/nodes/org/run.go).

@@ -3,7 +3,6 @@ package nodes
 import (
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -12,7 +11,7 @@ import (
 	"github.com/monoes/mono-agent/internal/automation"
 	"github.com/monoes/mono-agent/internal/bot"
 	"github.com/monoes/mono-agent/internal/browser"
-	"github.com/rs/zerolog"
+	"github.com/monoes/mono-agent/internal/logging"
 )
 
 var (
@@ -86,7 +85,7 @@ func ensureAutomationsBooted() {
 		return // the CLI root (or an earlier call) already booted, or warned
 	}
 	if _, err := BootAutomations(""); err != nil {
-		l := zerolog.New(os.Stderr).With().Timestamp().Logger()
+		l := logging.Zerolog()
 		l.Warn().Err(err).Msg("automations: registry unavailable, using ~/.monoagent/actions only")
 	}
 }
