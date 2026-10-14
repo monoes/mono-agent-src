@@ -256,7 +256,7 @@ func (s *Server) workflowTools() []tool {
 		out = append(out, tool{
 			name:        toolNames[id],
 			description: workflowToolDescription(wf),
-			schema:      workflowInputSchema(workflow.TriggerInputs(wf.Nodes, workflow.LoadDefaultSchema)),
+			schema:      workflowInputSchema(workflow.TriggerInputsWorkflow(wf, workflow.LoadDefaultSchema)),
 			annotations: map[string]bool{"readOnlyHint": false},
 			mutating:    true,
 			handler: func(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {

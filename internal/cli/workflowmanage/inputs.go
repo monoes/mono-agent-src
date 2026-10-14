@@ -42,7 +42,7 @@ func (d Deps) newInputsCmd() *cobra.Command {
 				return err
 			}
 
-			fields := workflow.TriggerInputs(wf.Nodes, workflow.LoadDefaultSchema)
+			fields := workflow.TriggerInputsWorkflow(wf, workflow.LoadDefaultSchema)
 			skeleton := workflow.TriggerInputSkeleton(fields)
 
 			if d.JSONOutput() {

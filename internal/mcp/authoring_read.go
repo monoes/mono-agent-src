@@ -112,7 +112,7 @@ func toolWorkflowInputs(ctx context.Context, s *Server, args json.RawMessage) (i
 	if err != nil {
 		return nil, err
 	}
-	fields := workflow.TriggerInputs(wf.Nodes, workflow.LoadDefaultSchema)
+	fields := workflow.TriggerInputsWorkflow(wf, workflow.LoadDefaultSchema)
 	if fields == nil {
 		fields = []workflow.TriggerField{}
 	}
