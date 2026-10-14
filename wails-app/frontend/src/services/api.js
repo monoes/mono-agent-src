@@ -176,6 +176,8 @@ export const api = {
   // secret fields as a JSON object) goes on its stdin.
   connectPlatformOAuth:   (platformID, fieldPairs = [], secretJSON = '') => GoApp.ConnectPlatformOAuthFields(platformID, fieldPairs, secretJSON),
   cancelPlatformOAuth:    (platformID)                       => GoApp.CancelPlatformOAuth(platformID),
+  // `connect fields <id> --json`: a connection's non-secret field values (never secrets).
+  connectionFields:       (id) => GoApp.ConnectionFields(id).then(s => (s ? JSON.parse(s) : null)).catch(guard('connection fields', null)),
   loginSocial:            (platform)                         => GoApp.LoginSocial(platform),
   confirmSocialLogin:     (platform)                         => GoApp.ConfirmSocialLogin(platform),
   getOAuthCredentials:    (platformID)                       => GoApp.GetOAuthCredentials(platformID).catch(guard('oauth credentials', '')),

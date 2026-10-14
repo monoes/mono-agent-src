@@ -289,4 +289,14 @@ func TestManagerConnectOAuth1SavesTokens(t *testing.T) {
 	if got.Method != MethodOAuth1 || got.Data["oauth_callback_confirmed"] != nil {
 		t.Errorf("connection = %+v", got)
 	}
+
+	// A reconnect replaces the connection (same id, new key) instead of adding one.
+	again, err := mgr.ConnectOAuth1(context.Background(), "oauth1-test", map[string]string{OAuth1ConsumerKey: "ck2", OAuth1ConsumerSecret: "cs2"}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _ := mgr.store.ListByPlatform(context.Background(), "oauth1-test", "default")
+	if again.ID != conn.ID || len(all) != 1 || getStr(all[0].Data, OAuth1ConsumerKey) != "ck2" {
+		t.Errorf("reconnect: id %s (was %s), %d connections, data %v", again.ID, conn.ID, len(all), all[0].Data)
+	}
 }

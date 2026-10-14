@@ -215,6 +215,17 @@ func (a *App) ShowPlatform(platformID string) string {
 	return string(view)
 }
 
+// ConnectionFields returns `connect fields <id> --json` verbatim: the
+// connection's non-secret field values (never secrets or tokens), which a
+// reconnect form starts from. "" when the CLI fails.
+func (a *App) ConnectionFields(id string) string {
+	var view json.RawMessage
+	if err := a.runConnCLI("", &view, "connect", "fields", id); err != nil {
+		return ""
+	}
+	return string(view)
+}
+
 // ConnectPlatformOAuth starts an OAuth flow with no connect fields; see
 // ConnectPlatformOAuthFields.
 func (a *App) ConnectPlatformOAuth(platformID string) string {

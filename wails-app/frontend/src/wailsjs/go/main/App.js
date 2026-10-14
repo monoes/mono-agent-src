@@ -270,6 +270,10 @@ export function ConnectPlatformOAuthFields(arg1, arg2, arg3) {
   return window['go']['main']['App']['ConnectPlatformOAuthFields'](arg1, arg2, arg3);
 }
 
+export function ConnectionFields(arg1) {
+  return window['go']['main']['App']['ConnectionFields'](arg1);
+}
+
 export function ControlOrg(arg1, arg2) {
   return window['go']['main']['App']['ControlOrg'](arg1, arg2);
 }

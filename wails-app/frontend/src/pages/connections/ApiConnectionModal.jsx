@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, X, CheckCircle, Loader, Trash2, HelpCircle, ArrowLeft, ExternalLink } from 'lucide-react'
 import { api, onConnectionProgress, onConnectionDone } from '../../services/api.js'
 import { HELP_GUIDES } from '../../lib/helpGuides.js'
-import OAuthFields, { oauthFormFields, missingRequired, oauthFieldArgs } from './OAuthFields.jsx'
+import OAuthFields, { OAuth1Reconnect, oauthFormFields, missingRequired, oauthFieldArgs } from './OAuthFields.jsx'
 
 function fmtDate(s) {
   if (!s) return '—'
@@ -104,6 +104,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
   // `connect show --json`, and the OAuth 1.0a form / tenant connect field values.
   const [view, setView] = useState(null)
   const [oauthValues, setOauthValues] = useState({})
+  const [reconnecting, setReconnecting] = useState(false) // an OAuth 1.0a reconnect form is open
 
   const pid     = platform.id || ''
   const name    = platform.name || pid
@@ -209,6 +210,13 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
     }
   }, [pid, oauthFields, oauthValues])
 
+  // An OAuth 1.0a reconnect starts from the connection's stored non-secret
+  // fields; the secrets are asked again, never read back.
+  const openReconnect = useCallback(async () => {
+    const r = await api.connectionFields(conn.id)
+    setSelMethod('oauth1'); setOauthValues(r?.fields || {}); setFlowSteps([]); setReconnecting(true)
+  }, [conn])
+
   const dotColor = (kind) => {
     if (kind === 'success') return 'var(--green-neon)'
     if (kind === 'error')   return 'var(--red)'
@@ -280,6 +288,11 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                   {testing ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <CheckCircle size={11} />}
                   {testing ? 'Testing…' : 'Test'}
                 </button>
+                {conn.method === 'oauth1' && !reconnecting && (
+                  <button className="btn btn-primary btn-sm" onClick={openReconnect} style={{ gap: 5 }}>
+                    <RefreshCw size={11} /> Reconnect
+                  </button>
+                )}
                 {conn.method === 'oauth' && testMsg && testMsg !== 'ok' && (
                   <button className="btn btn-primary btn-sm" onClick={startOAuthFlow} disabled={flowRunning} style={{ gap: 5 }}>
                     {flowRunning ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <RefreshCw size={11} />}
@@ -301,6 +314,10 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                 )}
                 {!confirmDisconnect && <button className="btn btn-ghost btn-sm" onClick={onClose}>Close</button>}
               </div>
+              {reconnecting && (
+                <OAuth1Reconnect fields={oauthFields} values={oauthValues} onChange={setOauthValues} running={flowRunning} canStart={canStart}
+                  onStart={startOAuthFlow} onCancel={() => (flowRunning ? api.cancelPlatformOAuth(pid) : setReconnecting(false))} />
+              )}
               {flowSteps.length > 0 && (
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 10px', maxHeight: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {flowSteps.map((step, i) => (

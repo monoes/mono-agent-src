@@ -9,6 +9,9 @@ const api = vi.hoisted(() => ({
   showPlatform: vi.fn(),
   connectPlatformOAuth: vi.fn(() => Promise.resolve('started')),
   cancelPlatformOAuth: vi.fn(() => Promise.resolve('ok')),
+  connectionFields: vi.fn(),
+  testConnection: vi.fn(),
+  removeConnection: vi.fn(),
   getOAuthCredentials: vi.fn(() => Promise.resolve('')),
   setOAuthCredentials: vi.fn(),
   saveConnectionDirect: vi.fn(),
@@ -128,6 +131,43 @@ describe('OAuth 1.0a platform', () => {
     await act(async () => { events.done({ platform: 'generic_oauth1', success: false, error: 'oauth1 request token: 401 Unauthorized' }) })
     expect(screen.getByText('oauth1 request token: 401 Unauthorized')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Retry/ })).toBeEnabled()
+  })
+})
+
+describe('OAuth 1.0a reconnect', () => {
+  it('prefills the stored non-secret fields, asks for the secret again and re-runs the flow', async () => {
+    api.showPlatform.mockResolvedValue(genericOAuth1)
+    api.connectionFields.mockResolvedValue({ id: 'c1', method: 'oauth1', fields: {
+      request_token_url: 'http://127.0.0.1:9/rt', authorization_url: 'http://127.0.0.1:9/auth', access_token_url: 'http://127.0.0.1:9/at', consumer_key: 'ck',
+    } })
+    const conn = { id: 'c1', account: 'Generic OAuth 1.0a', method: 'oauth1', status: 'active' }
+    render(<ApiConnectionModal platform={platformOf(genericOAuth1)} conn={conn} onClose={() => {}} onRefresh={() => Promise.resolve()} onDisconnect={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Reconnect/ }))
+    expect(api.connectionFields).toHaveBeenCalledWith('c1')
+    expect(await screen.findByDisplayValue('http://127.0.0.1:9/rt')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Consumer Key/)).toHaveValue('ck')
+    const secret = screen.getByLabelText(/Consumer Secret/)
+    expect(secret).toHaveValue('')
+    expect(secret).toHaveAttribute('type', 'password')
+
+    const again = screen.getByRole('button', { name: /Connect again/ })
+    expect(again).toBeDisabled()
+    fireEvent.change(secret, { target: { value: 'new-secret' } })
+    fireEvent.click(again)
+    await waitFor(() => expect(api.connectPlatformOAuth).toHaveBeenCalledWith('generic_oauth1',
+      ['request_token_url=http://127.0.0.1:9/rt', 'authorization_url=http://127.0.0.1:9/auth', 'access_token_url=http://127.0.0.1:9/at', 'consumer_key=ck'],
+      '{"consumer_secret":"new-secret"}'))
+
+    // While it runs, Cancel stops the flow.
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/ }))
+    expect(api.cancelPlatformOAuth).toHaveBeenCalledWith('generic_oauth1')
+  })
+
+  it('offers no OAuth 1.0a reconnect for an API-key connection', async () => {
+    api.showPlatform.mockResolvedValue(genericOAuth1)
+    render(<ApiConnectionModal platform={platformOf(genericOAuth1)} conn={{ id: 'c2', method: 'apikey', status: 'active' }} onClose={() => {}} onRefresh={() => Promise.resolve()} onDisconnect={() => {}} />)
+    await waitFor(() => expect(api.showPlatform).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /Reconnect/ })).not.toBeInTheDocument()
   })
 })
 

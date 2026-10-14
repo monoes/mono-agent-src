@@ -54,7 +54,8 @@ func salesforceEnvironment(cfg OAuthConfig, data map[string]interface{}) (OAuthC
 
 // ConnectOAuth1 runs a platform's OAuth 1.0a flow with the consumer key and
 // secret in fields (plus any other fields of the platform's oauth1 form)
-// and saves the connection under profileID.
+// and saves the connection under profileID, replacing the profile's
+// existing OAuth 1.0a connection for the platform (a reconnect).
 func (m *Manager) ConnectOAuth1(ctx context.Context, platformID string, fields map[string]string, progress func(msg, kind string), profileID string) (*Connection, error) {
 	p, ok := Get(platformID)
 	if !ok {
@@ -64,6 +65,16 @@ func (m *Manager) ConnectOAuth1(ctx context.Context, platformID string, fields m
 		profileID = "default"
 	}
 	conn := &Connection{Platform: platformID, Method: MethodOAuth1, Data: map[string]interface{}{}, ProfileID: profileID}
+	// Reconnect: reuse the profile's OAuth 1.0a connection for the platform,
+	// replacing its data, rather than adding a second one.
+	if existing, _ := m.store.ListByPlatform(ctx, platformID, profileID); len(existing) > 0 {
+		for _, e := range existing {
+			if e.Method == MethodOAuth1 {
+				conn.ID, conn.VaultRef, conn.CreatedAt = e.ID, e.VaultRef, e.CreatedAt
+				break
+			}
+		}
+	}
 	for _, f := range p.Fields[MethodOAuth1] {
 		if v := strings.TrimSpace(fields[f.Key]); v != "" {
 			conn.Data[f.Key] = v

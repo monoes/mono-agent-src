@@ -1,6 +1,7 @@
 package connect
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -178,6 +179,43 @@ func TestConnectOAuthJSONStdoutIsOneDocument(t *testing.T) {
 	}
 	if !strings.Contains(errOut, `{"message":"Opening browser: `+prov.URL+`/authorize?oauth_token=tmp","kind":"info"}`) {
 		t.Errorf("stderr lacks the authorize URL progress line:\n%s", errOut)
+	}
+}
+
+// connect fields prints a connection's non-secret form values for a
+// reconnect form — never a secret field or a token.
+func TestConnectFieldsOmitsSecrets(t *testing.T) {
+	e := newSessionsTestEnv(t)
+	conn := &connections.Connection{Platform: "generic_oauth1", Method: connections.MethodOAuth1, ProfileID: "default", Data: map[string]interface{}{
+		"request_token_url": "https://api.example.com/rt", "authorization_url": "https://api.example.com/auth",
+		"access_token_url": "https://api.example.com/at", "consumer_key": "ck-9",
+		"consumer_secret": "cs-secret-9", "oauth_token": "tok-secret-9", "oauth_token_secret": "toks-secret-9",
+	}}
+	if err := connections.NewStore(e.db.DB).Save(context.Background(), conn); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, code := e.run(t, "", "--json", "connect", "fields", conn.ID)
+	var v struct {
+		ID     string            `json:"id"`
+		Method string            `json:"method"`
+		Fields map[string]string `json:"fields"`
+	}
+	if code != 0 || json.Unmarshal([]byte(out), &v) != nil {
+		t.Fatalf("code %d, stdout %q, stderr %s", code, out, errOut)
+	}
+	want := map[string]string{"request_token_url": "https://api.example.com/rt", "authorization_url": "https://api.example.com/auth",
+		"access_token_url": "https://api.example.com/at", "consumer_key": "ck-9"}
+	if v.ID != conn.ID || v.Method != "oauth1" || fmt.Sprint(v.Fields) != fmt.Sprint(want) {
+		t.Errorf("fields = %+v", v)
+	}
+	if strings.Contains(out, "secret-9") {
+		t.Errorf("a secret was printed: %s", out)
+	}
+	if _, _, code := e.run(t, "", "--json", "connect", "fields", "nope"); code != 2 {
+		t.Errorf("unknown id: code %d, want 2", code)
+	}
+	if _, _, code := e.run(t, "", "--profile", "work", "--json", "connect", "fields", conn.ID); code != 2 {
+		t.Errorf("another profile's connection: code %d, want 2", code)
 	}
 }
 

@@ -48,6 +48,7 @@ func (d Deps) newConnectCmd() *cobra.Command {
 		d.newConnectForNodeCmd(),
 		d.newConnectOAuthCmd(),
 		d.newConnectShowCmd(),
+		d.newConnectFieldsCmd(),
 		d.newConnectResourcesCmd(),
 	)
 

@@ -4,7 +4,7 @@
 // per-tenant connect fields (subdomain, region, environment URL). The CLI
 // checks them; this only renders the form and builds `connect oauth`'s
 // arguments from it.
-import { HelpCircle } from 'lucide-react'
+import { HelpCircle, RefreshCw, X } from 'lucide-react'
 import { api } from '../../services/api.js'
 
 // oauthFormFields are the fields `connect oauth` takes for method, from the
@@ -66,6 +66,26 @@ export default function OAuthFields({ title, fields, values, onChange, disabled 
           )}
         </div>
       ))}
+    </div>
+  )
+}
+
+// OAuth1Reconnect re-runs an OAuth 1.0a connection's flow from its stored
+// non-secret fields; the secret fields start empty and must be entered again.
+export function OAuth1Reconnect({ fields, values, onChange, running, canStart, onStart, onCancel }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {!running && <OAuthFields title="Reconnect — enter the secrets again" fields={fields} values={values} onChange={onChange} />}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {!running && (
+          <button className="btn btn-primary btn-sm" onClick={onStart} disabled={!canStart} style={{ gap: 5 }}>
+            <RefreshCw size={11} /> Connect again
+          </button>
+        )}
+        <button className="btn btn-ghost btn-sm" onClick={onCancel} style={{ gap: 5 }}>
+          <X size={11} /> Cancel
+        </button>
+      </div>
     </div>
   )
 }

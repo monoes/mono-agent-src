@@ -47,6 +47,18 @@ func TestShowPlatformShellsOut(t *testing.T) {
 	}
 }
 
+// ConnectionFields returns `connect fields <id> --json` verbatim.
+func TestConnectionFieldsShellsOut(t *testing.T) {
+	argsLog, _ := connFakeCLI(t, `echo '{"id":"c1","method":"oauth1","fields":{"consumer_key":"ck"}}'`)
+	a := newConnTestApp(t)
+	if got := a.ConnectionFields("c1"); got != `{"id":"c1","method":"oauth1","fields":{"consumer_key":"ck"}}` {
+		t.Fatalf("ConnectionFields = %q", got)
+	}
+	if got := strings.TrimSpace(readLog(t, argsLog)); got != "--profile work --json connect fields c1" {
+		t.Fatalf("argv = %q", got)
+	}
+}
+
 // The OAuth connect passes each connect field as --field and the secret
 // ones as a JSON object on stdin (--stdin-json), never in argv; the flow's
 // stdout lines ahead of the connection JSON become progress.
