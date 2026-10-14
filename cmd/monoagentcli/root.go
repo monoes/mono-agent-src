@@ -29,10 +29,6 @@ type globalConfig struct {
 	LogFile    string
 	ProfileID  string // active profile; defaults to value stored in settings table
 	Lang       string // UI locale; see internal/i18n and docs/i18n.md
-
-	// projectFilter narrows `doctor --project`: monomind projects (paths
-	// relative to the profile folder, or folder names) to check.
-	projectFilter []string
 }
 
 func newRootCmd() *cobra.Command {
@@ -63,7 +59,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().IntVar(&cfg.Workers, "workers", 1, "Number of concurrent browser workers")
 	cmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Enable debug logging")
 	cmd.PersistentFlags().BoolVar(&cfg.JSONOutput, "json", false, "Output in JSON format")
-	cmd.PersistentFlags().StringVar(&cfg.LogFile, "log-file", "", "Path to log file")
+	cmd.PersistentFlags().StringVar(&cfg.LogFile, "log-file", "", "Write log output to this file (appended) instead of stderr")
 	cmd.PersistentFlags().String("log-level", "", "Log level: debug, info, warn or error (default warn; also MONOAGENT_LOG_LEVEL)")
 	cmd.PersistentFlags().StringVar(&cfg.ProfileID, "profile", "", "Profile to use (defaults to the active profile in settings)")
 	cmd.PersistentFlags().StringVar(&cfg.Lang, "lang", i18n.CurrentLocale(), "UI locale for translated help text (also MONOAGENT_LANG env var); see docs/i18n.md")

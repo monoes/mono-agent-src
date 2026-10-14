@@ -109,6 +109,11 @@ func TestValidateWorkflowIssues(t *testing.T) {
 			want: []wantIssue{{"s", "assignments[0].value", IssueBadExpression, "error"}},
 		},
 		{
+			name:  "JavaScript with }} is not an expression",
+			w:     vwf(trig, vnode("c", "core.code", "Code", map[string]interface{}{"code": "var q = {\"a\":{\"b\":1}}; return [{json: $json}];"})),
+			valid: true,
+		},
+		{
 			name: "n8n $('X') syntax",
 			w:    vwf(trig, vnode("s", "core.set", "Set", map[string]interface{}{"assignments": assigns("a", "{{ $('Gone').json.x }}")})),
 			want: []wantIssue{
@@ -332,5 +337,18 @@ func TestNodeSchemaFieldVisibleForJSON(t *testing.T) {
 	}
 	if len(f.VisibleFor) != 1 || f.VisibleFor[0]["resource"] != "message" || f.VisibleFor[0]["operation"] != "reply" {
 		t.Fatalf("VisibleFor = %v", f.VisibleFor)
+	}
+}
+
+// node_timeout is read by the engine for every node type, like
+// retry_policy, so it is not an unknown field of the node.
+func TestValidateWorkflowNodeTimeoutIsGeneric(t *testing.T) {
+	rep := ValidateWorkflow(vwf(trig,
+		vnode("h", "http.request", "Fetch", map[string]interface{}{"url": "https://x", "node_timeout": 2})),
+		ValidateOptions{KnownNodeType: knownTypes()})
+	for _, is := range rep.Issues {
+		if is.Code == IssueUnknownField {
+			t.Errorf("unexpected issue: %+v", is)
+		}
 	}
 }

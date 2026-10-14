@@ -1,0 +1,559 @@
+{
+  "text.classify": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "input": "some text",
+      "simplify": true
+    },
+    "response": {
+      "id": "modr-1",
+      "results": [
+        {
+          "flagged": false,
+          "categories": {
+            "hate": false
+          }
+        }
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/moderations",
+      "headers": {
+        "Authorization": "Bearer sk-test",
+        "OpenAI-Organization": "org-1"
+      },
+      "body": {
+        "input": "some text",
+        "model": "omni-moderation-latest"
+      },
+      "items": 1
+    }
+  },
+  "image.generate": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "modelId": {
+        "__rl": true,
+        "mode": "list",
+        "value": "gpt-image-1"
+      },
+      "prompt": "a cat",
+      "options": {
+        "size": "1024x1536",
+        "quality": "high",
+        "binaryPropertyOutput": "img"
+      }
+    },
+    "response": {
+      "created": 1,
+      "data": [
+        {
+          "b64_json": "UE5HMQ=="
+        },
+        {
+          "b64_json": "UE5HMg=="
+        }
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/images/generations",
+      "body": {
+        "prompt": "a cat",
+        "model": "gpt-image-1",
+        "quality": "high",
+        "size": "1024x1536"
+      },
+      "items": 2
+    }
+  },
+  "image.analyze": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "modelId": "gpt-4o-mini",
+      "text": "What is it?",
+      "inputType": "base64",
+      "binaryPropertyName": "data",
+      "options": {
+        "detail": "low"
+      }
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "UE5H",
+          "mimeType": "image/png",
+          "fileName": "a.png"
+        }
+      }
+    },
+    "response": {
+      "id": "resp_1",
+      "output": [
+        {
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "a cat"
+            }
+          ]
+        }
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/responses",
+      "body": {
+        "model": "gpt-4o-mini",
+        "max_output_tokens": 300,
+        "input": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "What is it?"
+              },
+              {
+                "type": "input_image",
+                "detail": "low",
+                "image_url": "data:image/png;base64,UE5H"
+              }
+            ]
+          }
+        ]
+      },
+      "items": 1
+    }
+  },
+  "image.edit": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "modelId": "gpt-image-1",
+      "prompt": "add a hat",
+      "images": {
+        "values": [
+          {
+            "binaryPropertyName": "data"
+          }
+        ]
+      },
+      "outputFormat": "webp",
+      "outputCompression": 80,
+      "options": {
+        "imageMask": "mask",
+        "background": "transparent"
+      }
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "SU1H",
+          "mimeType": "image/png",
+          "fileName": "a.png"
+        },
+        "mask": {
+          "data": "TUFTSw==",
+          "mimeType": "image/png",
+          "fileName": "m.png"
+        }
+      }
+    },
+    "response": {
+      "data": [
+        {
+          "b64_json": "RURJVEVE"
+        }
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/images/edits",
+      "body": {
+        "prompt": "add a hat",
+        "model": "gpt-image-1",
+        "n": "1",
+        "size": "1024x1024",
+        "background": "transparent",
+        "output_format": "webp",
+        "output_compression": "80",
+        "quality": "auto",
+        "image[]": "file:a.png:IMG",
+        "mask": "file:m.png:MASK"
+      },
+      "items": 1
+    }
+  },
+  "audio.generate": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "input": "Hello there",
+      "voice": "nova",
+      "options": {
+        "response_format": "opus",
+        "speed": 1.5
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/audio/speech",
+      "body": {
+        "model": "tts-1",
+        "input": "Hello there",
+        "voice": "nova",
+        "response_format": "opus",
+        "speed": 1.5
+      },
+      "items": 1
+    }
+  },
+  "audio.transcribe": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "binaryPropertyName": "rec",
+      "options": {
+        "language": "de",
+        "temperature": 0.2
+      }
+    },
+    "input": {
+      "binary": {
+        "rec": {
+          "data": "QVVESU8=",
+          "mimeType": "audio/mpeg",
+          "fileName": "talk.mp3"
+        }
+      }
+    },
+    "response": {
+      "text": "hallo"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/audio/transcriptions",
+      "body": {
+        "model": "whisper-1",
+        "language": "de",
+        "temperature": "0.2",
+        "file": "file:talk.mp3:AUDIO"
+      },
+      "items": 1
+    }
+  },
+  "audio.translate": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {},
+    "input": {
+      "binary": {
+        "data": {
+          "data": "QVVESU8=",
+          "mimeType": "audio/mp4",
+          "fileName": "talk.m4a"
+        }
+      }
+    },
+    "response": {
+      "text": "hello"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/audio/translations",
+      "body": {
+        "model": "whisper-1",
+        "file": "file:talk.m4a:AUDIO"
+      },
+      "items": 1
+    }
+  },
+  "file.upload": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "options": {
+        "purpose": "fine-tune"
+      }
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "e30=",
+          "mimeType": "application/jsonl",
+          "fileName": "train.jsonl"
+        }
+      }
+    },
+    "response": {
+      "id": "file-1",
+      "object": "file"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/files",
+      "body": {
+        "purpose": "fine-tune",
+        "file": "file:train.jsonl:{}"
+      },
+      "items": 1
+    }
+  },
+  "file.deleteFile": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "fileId": {
+        "__rl": true,
+        "mode": "id",
+        "value": "file-abc"
+      }
+    },
+    "response": {
+      "id": "file-abc",
+      "deleted": true
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v1/files/file-abc",
+      "items": 1
+    }
+  },
+  "file.list": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "options": {
+        "purpose": "assistants"
+      }
+    },
+    "response": {
+      "object": "list",
+      "data": [
+        {
+          "id": "file-1"
+        },
+        {
+          "id": "file-2"
+        }
+      ]
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/files",
+      "query": {
+        "purpose": "assistants"
+      },
+      "items": 2
+    }
+  },
+  "conversation.create": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "messages": {
+        "values": [
+          {
+            "type": "text",
+            "role": "system",
+            "content": "Be brief"
+          },
+          {
+            "type": "text",
+            "role": "user",
+            "content": "Hi"
+          },
+          {
+            "type": "text",
+            "role": "assistant",
+            "content": "Hello"
+          }
+        ]
+      },
+      "options": {
+        "metadata": "{\"topic\": \"demo\"}"
+      }
+    },
+    "response": {
+      "id": "conv_1",
+      "object": "conversation"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/conversations",
+      "body": {
+        "items": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "Be brief"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "Hi"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Hello",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "topic": "demo"
+        }
+      },
+      "items": 1
+    }
+  },
+  "conversation.get": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "conversationId": "conv_1"
+    },
+    "response": {
+      "id": "conv_1"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/conversations/conv_1",
+      "items": 1
+    }
+  },
+  "conversation.remove": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "conversationId": "conv_1"
+    },
+    "response": {
+      "id": "conv_1",
+      "deleted": true
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v1/conversations/conv_1",
+      "items": 1
+    }
+  },
+  "conversation.update": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "conversationId": "conv_1",
+      "metadata": "{\"stage\": \"done\"}"
+    },
+    "response": {
+      "id": "conv_1"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/conversations/conv_1",
+      "body": {
+        "metadata": {
+          "stage": "done"
+        }
+      },
+      "items": 1
+    }
+  },
+  "video.generate": {
+    "credential": {
+      "api_key": "sk-test",
+      "organization_id": "org-1"
+    },
+    "params": {
+      "modelId": {
+        "__rl": true,
+        "mode": "list",
+        "value": "sora-2"
+      },
+      "prompt": "a dog surfing",
+      "seconds": 8,
+      "size": "720x1280",
+      "options": {
+        "binaryPropertyNameReference": "ref",
+        "fileName": "surf.mp4"
+      }
+    },
+    "input": {
+      "binary": {
+        "ref": {
+          "data": "UkVG",
+          "mimeType": "image/png",
+          "fileName": "ref.png"
+        }
+      }
+    },
+    "responses": [
+      {
+        "id": "video_1",
+        "status": "completed"
+      },
+      {
+        "ok": true
+      }
+    ],
+    "expect": {
+      "method": "POST",
+      "path": "/v1/videos",
+      "body": {
+        "model": "sora-2",
+        "prompt": "a dog surfing",
+        "seconds": "8",
+        "size": "720x1280",
+        "input_reference": "file:ref.png:REF"
+      },
+      "items": 1
+    }
+  }
+}

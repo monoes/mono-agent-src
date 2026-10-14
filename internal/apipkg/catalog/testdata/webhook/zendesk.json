@@ -1,0 +1,122 @@
+{
+  "credential": {
+    "subdomain": "acme",
+    "email": "a@b.c",
+    "api_token": "t"
+  },
+  "params": {
+    "conditions": {
+      "all": [
+        {
+          "field": "status",
+          "operation": "is",
+          "value": "open"
+        },
+        {
+          "field": "priority",
+          "operation": "changed",
+          "value": "x"
+        }
+      ]
+    },
+    "options": {
+      "fields": [
+        "ticket.id",
+        "ticket.title"
+      ]
+    }
+  },
+  "create_responses": [
+    {
+      "webhook": {
+        "id": "W1"
+      }
+    },
+    {
+      "signing_secret": {
+        "secret": "zd-secret"
+      }
+    },
+    {
+      "trigger": {
+        "id": 900
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v2/webhooks",
+      "body": {
+        "webhook": {
+          "name": "mono-agent webhook",
+          "endpoint": "https://hooks.example.test/webhook/wh-path",
+          "http_method": "POST",
+          "status": "active",
+          "request_format": "json",
+          "subscriptions": [
+            "conditional_ticket_events"
+          ]
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/webhooks/W1/signing_secret"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/triggers",
+      "body": {
+        "trigger": {
+          "title": "mono-agent-webhook:wh-path",
+          "conditions": {
+            "all": [
+              {
+                "field": "status",
+                "operator": "is",
+                "value": "open"
+              },
+              {
+                "field": "priority",
+                "operator": "changed",
+                "value": null
+              }
+            ]
+          },
+          "actions": [
+            {
+              "field": "notification_webhook",
+              "value": [
+                "W1",
+                "{\"ticket.id\":\"{{ticket.id}}\",\"ticket.title\":\"{{ticket.title}}\"}"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "hook_id": "900",
+  "extra": {
+    "target": "W1",
+    "secret": "zd-secret"
+  },
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v2/triggers/900"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v2/webhooks/W1"
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Zendesk-Webhook-Signature": "zrBlTagZZH95K7VeSbpYEd9KlEa8qGjvJsFFwdyzFm0=",
+      "X-Zendesk-Webhook-Signature-Timestamp": "2024-01-01T00:00:00Z"
+    },
+    "body": "{\"ticket.id\":\"1\"}"
+  }
+}

@@ -1,10 +1,12 @@
 // Inspector widgets for schema field types that need local state: the
 // collection editor (JSON text that only saves when valid) and the
 // http.request "Import cURL" box. The rules they apply live in
-// nodeInspectorRules.js.
+// nodeInspectorRules.js. The form builder for formFields lives in
+// FormFieldsEditor.jsx and is re-exported here with the other widgets.
 import { useState, useRef, useEffect } from 'react'
 import { api } from '../services/api.js'
 import { collectionText, commitCollection, connectionLabel, groupConnectionsByPlatform } from './nodeInspectorRules.js'
+export { default as FormFieldsEditor } from './FormFieldsEditor.jsx'
 
 const errorStyle = { fontFamily: 'var(--font-mono)', fontSize: 9, color: '#f87171', marginTop: 4 }
 const linkButton = {
@@ -41,11 +43,38 @@ export function CollectionField({ field, value, onCommit, inputStyle }) {
   )
 }
 
+// Platform display names (`connect list --all`), read once per window: they
+// only change with a new build. A failed read is not kept, so the next
+// picker asks again.
+let platformNames = null
+export function resetPlatformNamesCache() { platformNames = null }
+
+function usePlatformNames() {
+  const [names, setNames] = useState(() => platformNames?.value || {})
+  useEffect(() => {
+    if (platformNames?.value) return
+    let alive = true
+    if (!platformNames) {
+      const entry = { promise: api.platformNames() }
+      platformNames = entry
+      entry.promise.then(n => {
+        if (n && Object.keys(n).length) entry.value = n
+        else if (platformNames === entry) platformNames = null
+      })
+    }
+    platformNames.promise.then(n => { if (alive && n) setNames(n) })
+    return () => { alive = false }
+  }, [])
+  return names
+}
+
 // AnyPlatformConnections is the picker's option list when the node takes a
-// connection of any platform: connections grouped by platform.
+// connection of any platform: connections grouped by platform, each group
+// labelled with the platform's display name.
 export function AnyPlatformConnections({ connections }) {
+  const names = usePlatformNames()
   return groupConnectionsByPlatform(connections).map(g => (
-    <optgroup key={g.platform} label={g.platform}>
+    <optgroup key={g.platform} label={names[g.platform] || g.platform}>
       {g.connections.map(c => {
         const id = String(c.id || c.ID || '')
         return <option key={id} value={id}>{connectionLabel(c)}</option>

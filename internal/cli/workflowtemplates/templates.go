@@ -321,6 +321,7 @@ func (d Deps) newTemplatesUseCmd() *cobra.Command {
 			defer db.Close()
 
 			wf := InstantiateTemplate(tmplFile, d.ProfileID())
+			wf.Description = workflow.SavedTemplateDescription(args[0])
 			for i := range wf.Nodes {
 				wf.Nodes[i].WorkflowID = wf.ID
 			}

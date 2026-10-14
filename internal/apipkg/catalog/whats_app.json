@@ -43,6 +43,36 @@
           "Authorization": "Bearer {{ cred.access_token }}"
         }
       }
+    },
+    {
+      "platform": "whatsapp_trigger",
+      "name": "WhatsApp trigger (Meta app)",
+      "n8n_credential": "whatsAppTriggerApi",
+      "n8n_field_map": {
+        "clientId": "client_id",
+        "clientSecret": "client_secret"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "client_id",
+          "label": "App ID",
+          "required": true
+        },
+        {
+          "key": "client_secret",
+          "label": "App secret",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "query": {
+          "access_token": "{{ cred.client_id }}|{{ cred.client_secret }}"
+        }
+      }
     }
   ],
   "resources": [
@@ -468,5 +498,44 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "updates",
+        "label": "Updates",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/{{ cred.client_id }}/subscriptions",
+        "body": {
+          "object": "whatsapp_business_account",
+          "callback_url": "{{ hook.url }}",
+          "verify_token": "{{ hook.node_id }}",
+          "fields": "{{ p.updates | json }}",
+          "include_values": "true"
+        },
+        "body_type": "form"
+      }
+    ],
+    "id": "{{ cred.client_id }}:whatsapp_business_account",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/{{ cred.client_id }}/subscriptions",
+        "query": {
+          "object": "whatsapp_business_account"
+        }
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Hub-Signature-256 }}",
+      "prefix": "sha256=",
+      "secret": "{{ cred.client_secret }}"
+    }
+  }
 }

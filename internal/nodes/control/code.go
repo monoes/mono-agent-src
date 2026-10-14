@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dop251/goja"
@@ -19,6 +20,7 @@ import (
 //	      last(), and item (the first item)
 //	    - $json: first item's JSON map (shorthand)
 //	    - $('Node Name'): that node's output, with $input's accessors
+//	    - $execution: id, resumeUrl and resumeFormUrl; $workflow: id
 //	    The code must return an array of objects (or a single object), or
 //	    a promise of one; a top-level return or await runs the code as an
 //	    async function body.
@@ -71,6 +73,11 @@ func (n *CodeNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	if err := rt.Set("$input", inputObj); err != nil {
 		return nil, fmt.Errorf("code node: failed to set $input: %w", err)
 	}
+	// items: the input items as {json} objects, which n8n's Code node (and its
+	// Function node before it) still offers next to $input.all().
+	if _, err := rt.RunString("var items = $input.all().map(function (j) { return {json: j}; });"); err != nil {
+		return nil, fmt.Errorf("code node: failed to set items: %w", err)
+	}
 	if err := setNodeAccessor(rt, input.NodeOutputs); err != nil {
 		return nil, fmt.Errorf("code node: failed to set $: %w", err)
 	}
@@ -84,6 +91,17 @@ func (n *CodeNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	}
 	if err := rt.Set("$json", firstJSON); err != nil {
 		return nil, fmt.Errorf("code node: failed to set $json: %w", err)
+	}
+
+	// $execution and $workflow, as in n8n's Code node. The resume URL is
+	// signed, so it is only built for code that reads $execution.
+	if strings.Contains(code, "$execution") {
+		if err := rt.Set("$execution", workflow.ExecutionData(input.ExecutionID)); err != nil {
+			return nil, fmt.Errorf("code node: failed to set $execution: %w", err)
+		}
+	}
+	if err := rt.Set("$workflow", map[string]interface{}{"id": input.WorkflowID}); err != nil {
+		return nil, fmt.Errorf("code node: failed to set $workflow: %w", err)
 	}
 
 	// Enforce the timeout via goja's interrupt mechanism.
@@ -202,16 +220,32 @@ func jsValueToItems(val goja.Value) ([]workflow.Item, error) {
 			if err != nil {
 				return nil, fmt.Errorf("result[%d]: %w", i, err)
 			}
-			items = append(items, workflow.Item{JSON: m})
+			items = append(items, workflow.Item{JSON: n8nItemJSON(m)})
 		}
 		return items, nil
 
 	case map[string]interface{}:
-		return []workflow.Item{{JSON: v}}, nil
+		return []workflow.Item{{JSON: n8nItemJSON(v)}}, nil
 
 	default:
 		return nil, fmt.Errorf("code must return an array of objects or a single object, got %T", exported)
 	}
+}
+
+// n8nItemJSON unwraps an item written the n8n way, {json: {...}} (with
+// optional binary/pairedItem, which have no place in a mono item), to its
+// JSON; any other object is the item's JSON itself.
+func n8nItemJSON(m map[string]interface{}) map[string]interface{} {
+	j, ok := m["json"].(map[string]interface{})
+	if !ok {
+		return m
+	}
+	for k := range m {
+		if k != "json" && k != "binary" && k != "pairedItem" {
+			return m
+		}
+	}
+	return j
 }
 
 // toStringMap casts an interface{} to map[string]interface{}.

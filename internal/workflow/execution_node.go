@@ -100,8 +100,8 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 	var inputItems []Item
 	if r.triggerNodeIDs[node.ID] {
 		// Only the trigger node that actually fired receives the trigger
-		// payload. When TriggerNodeID is empty (manual/retry runs) every
-		// trigger node fires. Other trigger nodes get no items, so their
+		// payload. When TriggerNodeID is empty (a manual run of a workflow
+		// without exactly one trigger.manual) every trigger node fires. Other trigger nodes get no items, so their
 		// downstream branch is skipped by the empty-input guard above.
 		if r.exec.TriggerNodeID == "" || node.ID == r.exec.TriggerNodeID {
 			inputItems = r.triggerItems
@@ -265,6 +265,10 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 			NodeID:      node.ID,
 			NodeName:    node.Name,
 			Location:    exprCtx.Location,
+			Trigger:     exprCtx.Trigger,
+			Vars:        exprCtx.Vars,
+			RunIndex:    exprCtx.RunIndex,
+			PrevNode:    exprCtx.PrevNode,
 		},
 		config: resolvedConfig,
 		// Extract retry policy and on_error behaviour from config.
@@ -317,7 +321,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 
 		// Persist failure.
 		dbCtx2, dbCancel2 := dbCtx()
-		if storeErr := recordNodeFailure(dbCtx2, r.store, execNode, execErr); storeErr != nil {
+		if storeErr := recordNodeFailure(dbCtx2, r.store, execNode, execErr, nil); storeErr != nil {
 			logger.Error().Err(storeErr).
 				Str("node_id", node.ID).
 				Msg("failed to persist node failure")
@@ -379,7 +383,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 		}
 	}
 
-	outputs := t.outputs
+	outputs := alwaysOutputData(t.config, t.outputs)
 
 	// Auto-register any image files produced by the node into the image vault.
 	autoRegisterItemImages(ctx, outputs, r.wf.ID, r.exec.ID)
@@ -420,7 +424,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 			Str("node_name", node.Name).
 			Msg("node emitted error output with no edge wired from the 'error' handle — failing node (wire an error edge or set on_error=continue/skip to tolerate)")
 		fctx, fcancel := dbCtx()
-		if storeErr := recordNodeFailure(fctx, r.store, execNode, nodeErr); storeErr != nil {
+		if storeErr := recordNodeFailure(fctx, r.store, execNode, nodeErr, errorHandleItems); storeErr != nil {
 			logger.Error().Err(storeErr).
 				Str("node_id", node.ID).
 				Msg("failed to persist node failure")

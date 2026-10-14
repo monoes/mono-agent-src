@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -30,6 +31,25 @@ func ZerologContext(ctx context.Context) zerolog.Logger {
 		l = l.With().Str(KeyRunID, id).Logger()
 	}
 	return l
+}
+
+// demoted maps a Zerolog event message to the level Demote set for it.
+var demoted sync.Map // string → slog.Level
+
+// Demote logs the Zerolog events whose message is one of msgs at level
+// instead of their own, filtered by the root level like any slog record. A
+// one-shot command that reports those events itself (a run's summary names
+// the failed node) uses it to keep them off the terminal at the default
+// level. The returned func undoes it.
+func Demote(level slog.Level, msgs ...string) (undo func()) {
+	for _, m := range msgs {
+		demoted.Store(m, level)
+	}
+	return func() {
+		for _, m := range msgs {
+			demoted.Delete(m)
+		}
+	}
 }
 
 // zerologLevel maps a slog level onto zerolog's.
@@ -85,6 +105,12 @@ func (zerologWriter) WriteLevel(zl zerolog.Level, p []byte) (int, error) {
 		return len(p), l.Handler().Handle(ctx, r)
 	}
 	msg, _ := fields[zerolog.MessageFieldName].(string)
+	if v, ok := demoted.Load(msg); ok {
+		level = v.(slog.Level)
+		if !l.Enabled(ctx, level) {
+			return len(p), nil
+		}
+	}
 	delete(fields, zerolog.MessageFieldName)
 	delete(fields, zerolog.LevelFieldName)
 	delete(fields, zerolog.TimestampFieldName)

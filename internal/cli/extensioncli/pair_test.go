@@ -37,8 +37,12 @@ func pairTestHome(t *testing.T) string {
 }
 
 func runPairCmd(t *testing.T, args ...string) (string, error) {
+	return runPairCmdJSON(t, false, args...)
+}
+
+func runPairCmdJSON(t *testing.T, asJSON bool, args ...string) (string, error) {
 	t.Helper()
-	cmd := newExtensionPairCmd()
+	cmd := newExtensionPairCmd(&Deps{JSONOutput: func() bool { return asJSON }})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -133,6 +137,82 @@ func TestExtensionPairOpenFallsBackToTheToken(t *testing.T) {
 		token, _ := extension.CurrentToken()
 		if !strings.Contains(out, "older") || !strings.Contains(out, token) {
 			t.Errorf("output:\n%s", out)
+		}
+	})
+}
+
+func startPairTestBridge(t *testing.T, port string) string {
+	t.Helper()
+	srv := extension.NewServer("127.0.0.1:"+port, zerolog.Nop())
+	srv.StartAsync(context.Background())
+	t.Cleanup(func() { _ = srv.Close() })
+	base := "http://127.0.0.1:" + port
+	for deadline := time.Now().Add(3 * time.Second); !extension.Probe(base); {
+		if time.Now().After(deadline) {
+			t.Fatal("bridge never came up")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return base
+}
+
+func pairJSON(t *testing.T) (pairReport, string) {
+	t.Helper()
+	out, err := runPairCmdJSON(t, true, "--open")
+	if err != nil {
+		t.Fatalf("pair --open --json: %v\n%s", err, out)
+	}
+	var r pairReport
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	token, _ := extension.CurrentToken()
+	if strings.Contains(out, token) {
+		t.Errorf("the pairing token was printed:\n%s", out)
+	}
+	return r, out
+}
+
+func TestExtensionPairOpenJSON(t *testing.T) {
+	t.Run("opened", func(t *testing.T) {
+		base := startPairTestBridge(t, pairTestHome(t))
+		t.Setenv("BROWSER", "/bin/true")
+		r, out := pairJSON(t)
+		if !r.Opened || !strings.HasPrefix(r.URL, base+"/monoagent/pair?n=") || r.Fallback != "" || r.Error != "" {
+			t.Errorf("report:\n%s", out)
+		}
+	})
+	t.Run("no bridge", func(t *testing.T) {
+		pairTestHome(t)
+		r, out := pairJSON(t)
+		if r.Opened || r.Fallback != "token" || !strings.Contains(r.Hint, "extension pair") || r.Error == "" {
+			t.Errorf("report:\n%s", out)
+		}
+	})
+	t.Run("bridge holds another token", func(t *testing.T) {
+		port := pairTestHome(t)
+		if _, err := extension.CurrentToken(); err != nil {
+			t.Fatal(err)
+		}
+		startPairTestBridge(t, port)
+		// A reset after the bridge started: this client's new token is not the bridge's.
+		if err := extension.ResetToken(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := extension.CurrentToken(); err != nil {
+			t.Fatal(err)
+		}
+		r, out := pairJSON(t)
+		if r.Opened || r.Fallback != "restart_bridge" || r.Error != extension.PairingMismatchHint || !strings.Contains(r.Hint, "Restart the bridge") {
+			t.Errorf("report:\n%s", out)
+		}
+	})
+	t.Run("browser fails", func(t *testing.T) {
+		startPairTestBridge(t, pairTestHome(t))
+		t.Setenv("BROWSER", "/nonexistent/browser")
+		r, out := pairJSON(t)
+		if r.Opened || r.URL == "" || r.Error == "" || r.Fallback != "" {
+			t.Errorf("report:\n%s", out)
 		}
 	})
 }

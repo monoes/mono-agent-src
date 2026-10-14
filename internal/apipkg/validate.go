@@ -392,7 +392,8 @@ func (o *Operation) check(where string, credKeys map[string]bool) []string {
 	}
 	if b := o.Binary; b != nil {
 		for _, f := range []string{b.UploadField, b.PropertyField} {
-			if f != "" && !fields[f] {
+			// A dotted name reads a key of a collection field.
+			if f != "" && !fields[strings.SplitN(f, ".", 2)[0]] {
 				add("binary: %q is not one of the op's fields", f)
 			}
 		}
@@ -417,13 +418,24 @@ func (o *Operation) check(where string, credKeys map[string]bool) []string {
 		probs = append(probs, b.check(where+" bulk", fields, credKeys)...)
 	}
 	for i, st := range o.Before {
-		probs = append(probs, checkTemplates(fmt.Sprintf("%s before[%d]", where, i), []any{st.ErrorWhen, st.ErrorMessage}, fields, credKeys)...)
+		sw := fmt.Sprintf("%s before[%d]", where, i)
+		probs = append(probs, checkTemplates(sw, []any{st.ErrorWhen, st.ErrorMessage}, fields, credKeys)...)
+		probs = append(probs, checkWaits(sw, st.Repeat, st.Stream, fields, credKeys)...)
 	}
 	for i, st := range o.Also {
-		probs = append(probs, checkTemplates(fmt.Sprintf("%s also[%d]", where, i), []any{st.ErrorWhen, st.ErrorMessage}, fields, credKeys)...)
+		sw := fmt.Sprintf("%s also[%d]", where, i)
+		probs = append(probs, checkTemplates(sw, []any{st.ErrorWhen, st.ErrorMessage}, fields, credKeys)...)
+		probs = append(probs, checkWaits(sw, st.Repeat, st.Stream, fields, credKeys)...)
 	}
 	if pl := o.Poll; pl != nil {
-		probs = append(probs, checkTemplates(where+" poll", []any{pl.ErrorWhen, pl.ErrorMessage}, fields, credKeys)...)
+		probs = append(probs, checkTemplates(where+" poll", []any{pl.ErrorWhen, pl.ErrorMessage, pl.MaxWaitSeconds}, fields, credKeys)...)
+	}
+	probs = append(probs, checkWaits(where, nil, o.Stream, fields, credKeys)...)
+	if o.Stream != nil && (o.Pagination != nil || o.Bulk != nil || (o.Binary != nil && (o.Binary.Download || o.Binary.DownloadWhen != ""))) {
+		add("stream does not combine with pagination, bulk or a binary download")
+	}
+	if b := o.Binary; b != nil {
+		probs = append(probs, checkTemplates(where+" binary.upload_url", b.UploadURL, fields, credKeys)...)
 	}
 	for n8n, ours := range o.N8nParamMap {
 		if !fields[ours] {
@@ -438,6 +450,31 @@ func (o *Operation) check(where string, credKeys map[string]bool) []string {
 var validMethods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true, "HEAD": true,
 	// WebDAV (NextCloud, ownCloud)
 	"MKCOL": true, "MOVE": true, "COPY": true, "PROPFIND": true, "PROPPATCH": true}
+
+// checkWaits checks a step's repeat and a stream: until is required and
+// every template must parse and name known fields.
+func checkWaits(where string, rp *Repeat, st *Stream, fields, credKeys map[string]bool) []string {
+	var probs []string
+	if rp != nil {
+		if rp.Until == "" {
+			probs = append(probs, fmt.Sprintf("%s: repeat needs until", where))
+		}
+		if rp.IntervalMs < 0 || rp.MaxWaitMs < 0 {
+			probs = append(probs, fmt.Sprintf("%s: repeat interval_ms and max_wait_ms must not be negative", where))
+		}
+		probs = append(probs, checkTemplates(where+" repeat", []any{rp.Until, rp.MaxWaitSeconds}, fields, credKeys)...)
+	}
+	if st != nil {
+		if st.Until == "" {
+			probs = append(probs, fmt.Sprintf("%s: stream needs until", where))
+		}
+		if st.TimeoutMs < 0 {
+			probs = append(probs, fmt.Sprintf("%s: stream timeout_ms must not be negative", where))
+		}
+		probs = append(probs, checkTemplates(where+" stream", []any{st.Until, st.TimeoutSeconds}, fields, credKeys)...)
+	}
+	return probs
+}
 
 func checkTemplates(where string, v any, fields, credKeys map[string]bool) []string {
 	var probs []string

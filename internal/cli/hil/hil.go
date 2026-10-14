@@ -241,6 +241,33 @@ func storedHILSuggestion(nc map[string]interface{}) (*hilsuggest.Suggestion, boo
 	return &s, true
 }
 
+// fullHILID expands the short id `hil list` prints to the id of the one
+// pending item it starts; anything else is returned as given.
+func (d Deps) fullHILID(id string) string {
+	db, err := d.OpenDB()
+	if err != nil {
+		return id
+	}
+	defer db.Close()
+	rows, err := db.DB.Query(`SELECT id FROM hil_pending WHERE status = 'pending' AND profile_id = ? AND substr(id, 1, ?) = ? LIMIT 2`,
+		d.ProfileID(), len(id), id)
+	if err != nil {
+		return id
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var full string
+		if rows.Scan(&full) == nil {
+			ids = append(ids, full)
+		}
+	}
+	if len(ids) == 1 {
+		return ids[0]
+	}
+	return id
+}
+
 func (d Deps) newHILApproveCmd() *cobra.Command {
 	var editedData string
 	cmd := &cobra.Command{
@@ -251,6 +278,7 @@ func (d Deps) newHILApproveCmd() *cobra.Command {
   monoagentcli hil approve 1a2b3c4d --data '{"caption":"edited text"}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args[0] = d.fullHILID(args[0])
 			if editedData == "" {
 				editedData = "{}"
 			}
@@ -296,6 +324,7 @@ func (d Deps) newHILRejectCmd() *cobra.Command {
 		Example: `  monoagentcli hil reject 1a2b3c4d`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args[0] = d.fullHILID(args[0])
 			if done, err := d.approveIfSend(cmd, args[0], false, ""); done {
 				return err
 			}

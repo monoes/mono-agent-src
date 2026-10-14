@@ -226,7 +226,7 @@ func TestRunOAuthConnectStreamsProgress(t *testing.T) {
 echo '{"message":"Connected as me","kind":"success"}' >&2
 echo '{"id":"o1","platform":"outlook","method":"oauth","label":"Outlook","account_id":"me@x","status":"active","created_at":"","updated_at":""}'
 `)
-	conn, err := a.runOAuthConnect(ok, "outlook", emit)
+	conn, err := runOAuthConnect(a.ctx, ok, oauthConnectArgs("work", "outlook", nil, false), "", emit)
 	if err != nil || conn.AccountID != "me@x" {
 		t.Fatalf("runOAuthConnect = %+v, %v", conn, err)
 	}
@@ -238,7 +238,7 @@ echo '{"id":"o1","platform":"outlook","method":"oauth","label":"Outlook","accoun
 echo 'missing OAuth credentials' >&2
 exit 4
 `)
-	if _, err := a.runOAuthConnect(bad, "outlook", emit); err == nil || err.Error() != "missing OAuth credentials" {
+	if _, err := runOAuthConnect(a.ctx, bad, oauthConnectArgs("work", "outlook", nil, false), "", emit); err == nil || err.Error() != "missing OAuth credentials" {
 		t.Fatalf("failure err = %v", err)
 	}
 }

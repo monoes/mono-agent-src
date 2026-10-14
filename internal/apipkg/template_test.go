@@ -255,3 +255,26 @@ func TestFiltersKVEqOmit(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderObjectForcesEmptyObjectsAndArrays(t *testing.T) {
+	tmpl := map[string]any{
+		"!vars":   map[string]any{"$merge": "{{ p.missing }}"},
+		"!ids":    []any{"{{ p.missing }}"},
+		"!lit":    map[string]any{},
+		"dropped": map[string]any{"$merge": "{{ p.missing }}"},
+		"outer":   map[string]any{"!inner": map[string]any{"a": "{{ p.missing }}"}, "!list": []any{}},
+		"$merge":  map[string]any{"!merged": map[string]any{}, "gone": map[string]any{}},
+	}
+	got, err := renderObject(tmpl, tsc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"vars": map[string]any{}, "ids": []any{}, "lit": map[string]any{},
+		"outer":  map[string]any{"inner": map[string]any{}, "list": []any{}},
+		"merged": map[string]any{},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %#v\nwant %#v", got, want)
+	}
+}

@@ -1,6 +1,7 @@
 package extensioncli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,7 +38,7 @@ func newExtensionCmd(cfg *Deps) *cobra.Command {
 	cmd.AddCommand(
 		newExtensionServeCmd(cfg),
 		newExtensionStatusCmd(cfg),
-		newExtensionPairCmd(),
+		newExtensionPairCmd(cfg),
 		newExtensionResetCmd(),
 		newExtensionBrowsersCmd(cfg),
 		newExtensionBindCmd(cfg),
@@ -47,7 +48,7 @@ func newExtensionCmd(cfg *Deps) *cobra.Command {
 	return cmd
 }
 
-func newExtensionPairCmd() *cobra.Command {
+func newExtensionPairCmd(cfg *Deps) *cobra.Command {
 	var open bool
 	cmd := &cobra.Command{
 		Use:   "pair",
@@ -63,9 +64,17 @@ func newExtensionPairCmd() *cobra.Command {
 			"\n" +
 			"--open asks the running bridge for a one-time pairing page and opens it in\n" +
 			"your browser (BROWSER is honored): the extension reads it and pairs itself,\n" +
-			"nothing to paste. The page's code works once, for two minutes.",
-		Example: "  monoagentcli extension pair --open\n  monoagentcli extension pair",
+			"nothing to paste. The page's code works once, for two minutes.\n" +
+			"\n" +
+			"With --json, --open reports what happened instead (and exits 0 either way):\n" +
+			"{opened, url?, fallback?, hint?, error?}. fallback is \"token\" when the\n" +
+			"token has to be pasted instead (the token itself is never printed), or\n" +
+			"\"restart_bridge\" when the running bridge holds a different token.",
+		Example: "  monoagentcli extension pair --open\n  monoagentcli extension pair\n  monoagentcli extension pair --open --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if open && cfg.JSONOutput() {
+				return writePairJSON(cmd.OutOrStdout(), pairingPageReport())
+			}
 			if open {
 				return openPairingPage(cmd.OutOrStdout())
 			}
@@ -109,6 +118,50 @@ func openPairingPage(out io.Writer) error {
 	fmt.Fprintln(out, "Opened the pairing page in your browser. The extension pairs itself; the page says when it is done.")
 	fmt.Fprintf(out, "If it opened in a browser without the extension, open this there instead (it works once, for two minutes):\n  %s\n", url)
 	return nil
+}
+
+// pairReport is `extension pair --open --json`. It never carries the token:
+// Hint says where to get it and where it goes.
+type pairReport struct {
+	Opened   bool   `json:"opened"`
+	URL      string `json:"url,omitempty"`
+	Fallback string `json:"fallback,omitempty"`
+	Hint     string `json:"hint,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+const pasteTokenHint = "Run `monoagentcli extension pair` and paste the token it prints into the extension side panel (Connection settings → Pairing token)."
+
+// pairingPageReport is openPairingPage's outcomes as data.
+func pairingPageReport() pairReport {
+	_, base, ok := findRunningBridge()
+	if !ok {
+		return pairReport{Fallback: "token", Error: "no bridge is running",
+			Hint: "Start the bridge with `monoagentcli extension serve`, then pair again. Or: " + pasteTokenHint}
+	}
+	url, err := extension.RequestPairingURL(base)
+	switch {
+	case err == nil:
+	case errors.Is(err, extension.ErrPairingTokenRefused):
+		return pairReport{Fallback: "restart_bridge", Error: extension.PairingMismatchHint,
+			Hint: "The running bridge was started with a different pairing token than this one (the token was reset, or the bridge runs under another HOME). Restart the bridge (`systemctl --user restart monoagent-bridge` if it runs as a service, otherwise stop and start `monoagentcli extension serve`), then pair again."}
+	case errors.Is(err, extension.ErrPairingPageUnsupported):
+		return pairReport{Fallback: "token", Error: "the running bridge is older and cannot open a pairing page", Hint: pasteTokenHint}
+	default:
+		return pairReport{Fallback: "token", Error: fmt.Sprintf("could not get a pairing page from the bridge: %v", err), Hint: pasteTokenHint}
+	}
+	if err := openInBrowser(url); err != nil {
+		return pairReport{URL: url, Error: fmt.Sprintf("could not open a browser: %v", err),
+			Hint: "Open this page in the browser with the extension (it works once, for two minutes)."}
+	}
+	return pairReport{Opened: true, URL: url,
+		Hint: "The extension pairs itself; the page says when it is done. If it opened in a browser without the extension, open the page there instead (it works once, for two minutes)."}
+}
+
+func writePairJSON(out io.Writer, r pairReport) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
 }
 
 func printPairingToken(out io.Writer) error {

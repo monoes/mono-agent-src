@@ -10,8 +10,7 @@
     "n8n-nodes-base.facebookGraphApi"
   ],
   "n8n_trigger_types": [
-    "n8n-nodes-base.facebookTrigger",
-    "n8n-nodes-base.facebookLeadAdsTrigger"
+    "n8n-nodes-base.facebookTrigger"
   ],
   "n8n_operation_param": "httpRequestMethod",
   "base_url": "https://graph.facebook.com",
@@ -46,6 +45,38 @@
           "scope": "public_profile,pages_show_list,pages_read_engagement,pages_manage_posts"
         }
       },
+      "inject": {
+        "query": {
+          "access_token": "{{ cred.access_token }}"
+        }
+      }
+    },
+    {
+      "platform": "facebook_graph_app",
+      "name": "Facebook Graph API (app)",
+      "n8n_credential": "facebookGraphAppApi",
+      "n8n_field_map": {
+        "accessToken": "access_token",
+        "appSecret": "app_secret"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "App access token",
+          "secret": true,
+          "required": true,
+          "help": "\"<app id>|<app secret>\", or a token from the app dashboard"
+        },
+        {
+          "key": "app_secret",
+          "label": "App secret",
+          "secret": true,
+          "help": "Checks the deliveries' X-Hub-Signature-256"
+        }
+      ],
       "inject": {
         "query": {
           "access_token": "{{ cred.access_token }}"
@@ -273,5 +304,64 @@
         ]
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "appId",
+        "label": "App ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "object",
+        "label": "Object",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "fields",
+        "label": "Fields",
+        "type": "array",
+        "default": [
+          "*"
+        ]
+      },
+      {
+        "key": "options",
+        "label": "Options",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v23.0/{{ p.appId }}/subscriptions",
+        "body": {
+          "object": "{{ p.object | snake }}",
+          "callback_url": "{{ hook.url }}",
+          "verify_token": "{{ hook.node_id }}",
+          "fields": "{{ (p.fields | join:',' | matches:'(^|,)\\*(,|$)' | then:(p.object | map:'adAccount=in_process_ad_objects;with_issues_ad_objects,page=affiliation;attire;awards;bio;birthday;category;company_overview;culinary_team;current_location;description;email;feed;founded;general_info;general_manager;hometown;hours;leadgen;live_videos;location;members;mention;merchant_review;mission;name;page_about_story;page_change_proposal;page_upcoming_change;parking;payment_options;personal_info;personal_interests;phone;picture;price_range;product_review;products;public_transit;ratings;videos;website,application=ad_account;ads_rules_engine;async_requests;async_sessions;group_install;oe_reseller_onboarding_request_created;plugin_comment;plugin_comment_reply;plugin_comment_reply,certificateTransparency=certificate;phishing,instagram=comments;messaging_handover;mentions;messages;messaging_seen;standby;story_insights,permissions=bookmarked;connected;user_birthday;user_hometown;user_location;user_likes;user_managed_groups;user_events;user_photos;user_videos;user_friends;user_posts;user_gender;user_link;user_age_range;email;read_insights;read_page_mailboxes;pages_show_list;pages_manage_cta;business_management;pages_messaging;pages_messaging_phone_number;pages_messaging_subscriptions;read_audience_network_insights;pages_manage_instant_articles;publish_video;openid;catalog_management;gaming_user_locale;groups_show_list;instagram_basic;instagram_manage_comments;instagram_manage_insights;instagram_content_publish;publish_to_groups;groups_access_member_info;leads_retrieval;whatsapp_business_management;instagram_manage_messages;attribution_read;page_events;ads_management;ads_read;pages_read_engagement;pages_manage_metadata;pages_read_user_content;pages_manage_ads;pages_manage_posts;pages_manage_engagement;public_search;social_ads,users=about;birthday;books;email;feed;first_name;friends;gender;hometown;last_name;likes;live_videos;location;music;name;photos;pic_big_https;pic_https;pic_small_https;pic_square_https;platform;quotes;status;television;videos,whatsappBusinessAccount=message_template_status_update;phone_number_name_update;phone_number_quality_update;account_review_update;account_update' | split:';') | default:p.fields) | join:',' }}",
+          "include_values": "{{ p.options.includeValues }}"
+        },
+        "body_type": "form"
+      }
+    ],
+    "id": "{{ p.appId }}:{{ p.object | snake }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v23.0/{{ p.appId }}/subscriptions",
+        "query": {
+          "object": "{{ p.object | snake }}"
+        }
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Hub-Signature-256 }}",
+      "prefix": "sha256=",
+      "secret": "{{ cred.app_secret }}"
+    }
+  }
 }

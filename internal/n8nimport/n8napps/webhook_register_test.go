@@ -45,7 +45,7 @@ func TestWebhookTriggersRegisterWithTheirApp(t *testing.T) {
 			}
 		}
 	}
-	if n < 45 {
+	if n < 62 {
 		t.Errorf("only %d webhook triggers register themselves", n)
 	}
 }
@@ -80,5 +80,32 @@ func TestManualWebhookTriggerKeepsNote(t *testing.T) {
 	}
 	if !strings.Contains(rep.Text(), "mono-agent does not") {
 		t.Errorf("report: %s", rep.Text())
+	}
+}
+
+// App-level credentials of the Meta and HubSpot triggers map to their own
+// connection platforms; the triggers register with their packages.
+func TestAppCredentialTriggers(t *testing.T) {
+	apipkg.Reload()
+	for typ, want := range map[string][3]string{
+		"hubspotTrigger":         {"hubspotDeveloperApi", "hubspot", "hubspot_developer"},
+		"whatsAppTrigger":        {"whatsAppTriggerApi", "whats_app", "whatsapp_trigger"},
+		"facebookTrigger":        {"facebookGraphAppApi", "facebook_graph_api", "facebook_graph_app"},
+		"facebookLeadAdsTrigger": {"facebookLeadAdsOAuth2Api", "facebook_lead_ads", "facebook_lead_ads"},
+		"formstackTrigger":       {"formstackApi", "formstack", "formstack"},
+		"stravaTrigger":          {"stravaOAuth2Api", "strava", "strava"},
+	} {
+		wf, rep, err := n8nimport.Convert([]byte(`{"name":"t","nodes":[{"name":"T","type":"n8n-nodes-base.` + typ +
+			`","typeVersion":1,"position":[0,0],"webhookId":"w","credentials":{"` + want[0] + `":{"id":"1","name":"C"}},"parameters":{}}],"connections":{}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := triggerNode(t, wf)
+		if cfg["register_with"] != want[1] || cfg["credential_id"] != want[2] {
+			t.Errorf("%s: register_with=%v credential_id=%v, want %s / %s", typ, cfg["register_with"], cfg["credential_id"], want[1], want[2])
+		}
+		if strings.Contains(rep.Text(), "does not verify") {
+			t.Errorf("%s report: %s", typ, rep.Text())
+		}
 	}
 }

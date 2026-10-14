@@ -18,13 +18,14 @@ import (
 // globals Init changes when the test ends.
 func initFor(t *testing.T, args []string, env map[string]string) *bytes.Buffer {
 	t.Helper()
-	prevDefault, prevOut, prevFlags, prevLevel := slog.Default(), log.Writer(), log.Flags(), Level()
+	prevDefault, prevOut, prevFlags, prevLevel, prevChosen := slog.Default(), log.Writer(), log.Flags(), Level(), LevelChosen()
 	prevEnvLevel, hadEnvLevel := os.LookupEnv(EnvLevel)
 	t.Cleanup(func() {
 		slog.SetDefault(prevDefault)
 		log.SetOutput(prevOut)
 		log.SetFlags(prevFlags)
 		SetLevel(prevLevel)
+		levelChosen.Store(prevChosen)
 		if hadEnvLevel {
 			os.Setenv(EnvLevel, prevEnvLevel)
 		} else {
@@ -81,6 +82,51 @@ func TestInitLevelFlagBeatsEnvironment(t *testing.T) {
 	initFor(t, nil, map[string]string{EnvLevel: "debug"})
 	if Level() != slog.LevelDebug {
 		t.Fatalf("level = %v, want DEBUG from the environment", Level())
+	}
+}
+
+func TestLevelChosen(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		env  map[string]string
+		want bool
+	}{
+		{nil, nil, false},
+		{[]string{"--log-level=warn"}, nil, true},
+		{nil, map[string]string{EnvLevel: "warn"}, true},
+		{[]string{"--log-level=loud"}, nil, false},
+	} {
+		initFor(t, tc.args, tc.env)
+		if LevelChosen() != tc.want {
+			t.Errorf("args %v env %v: LevelChosen = %v, want %v", tc.args, tc.env, LevelChosen(), tc.want)
+		}
+	}
+}
+
+func TestInitLogFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.log")
+	if err := os.WriteFile(path, []byte("earlier\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	buf := initFor(t, []string{"workflow", "run", "x", "--log-file", path}, nil)
+	slog.Info("hidden at the default level")
+	slog.Warn("to the file")
+	if buf.Len() != 0 {
+		t.Errorf("--log-file still wrote to stderr: %q", buf.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); !strings.HasPrefix(got, "earlier\n") || !strings.Contains(got, `level=WARN msg="to the file"`) || strings.Contains(got, "hidden") {
+		t.Errorf("log file = %q", got)
+	}
+
+	// A file that cannot be opened: stderr, with a warning.
+	buf = initFor(t, []string{"--log-file=" + filepath.Join(t.TempDir(), "no", "such", "dir", "x.log")}, nil)
+	slog.Warn("still logged")
+	if out := buf.String(); !strings.Contains(out, "--log-file:") || !strings.Contains(out, "still logged") {
+		t.Errorf("unopenable --log-file: %q", out)
 	}
 }
 
@@ -184,6 +230,29 @@ func TestZerologBridge(t *testing.T) {
 	vl.Debug().Msg("verbose")
 	if !strings.Contains(buf.String(), "level=DEBUG msg=verbose") {
 		t.Errorf("lowered zerolog level dropped: %q", buf.String())
+	}
+}
+
+// Demoted events drop to their new level and follow the root level; other
+// events keep theirs.
+func TestZerologDemote(t *testing.T) {
+	t.Cleanup(Demote(slog.LevelInfo, "node failed"))
+	buf := initFor(t, nil, nil)
+	zl := Zerolog()
+	zl.Error().Str("node_id", "a").Msg("node failed")
+	if buf.Len() != 0 {
+		t.Fatalf("demoted event shown at the default level: %q", buf.String())
+	}
+	zl.Error().Msg("other failure")
+	if !strings.Contains(buf.String(), `level=ERROR msg="other failure"`) {
+		t.Errorf("undemoted event lost: %q", buf.String())
+	}
+
+	buf = initFor(t, []string{"--log-level=info"}, nil)
+	zl = Zerolog()
+	zl.Error().Msg("node failed")
+	if !strings.Contains(buf.String(), `level=INFO msg="node failed"`) {
+		t.Errorf("demoted event not shown at info: %q", buf.String())
 	}
 }
 

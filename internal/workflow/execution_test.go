@@ -624,3 +624,28 @@ func TestExtractPerItemFields_AbsentFieldsAreNoop(t *testing.T) {
 		t.Fatalf("config = %v, want untouched", config)
 	}
 }
+
+func TestErrorHandleMessage_HTTPStatus(t *testing.T) {
+	long := strings.Repeat("x ", 200)
+	cases := []struct {
+		name string
+		item map[string]interface{}
+		want string
+	}{
+		{"error field wins", map[string]interface{}{"error": "boom", "status": 500}, "boom"},
+		{"status and object body", map[string]interface{}{"status": 404, "body": map[string]interface{}{}}, "HTTP 404 Not Found: {}"},
+		{"statusCode float, text body on one line", map[string]interface{}{"statusCode": float64(502), "body": "bad\n  gateway"}, "HTTP 502 Bad Gateway: bad gateway"},
+		{"status_code, no body", map[string]interface{}{"status_code": 418}, "HTTP 418 I'm a teapot"},
+		{"no status", map[string]interface{}{"exit_code": 1}, ""},
+	}
+	for _, c := range cases {
+		if got := errorHandleMessage([]Item{{JSON: c.item}}); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+	got := errorHandleMessage([]Item{{JSON: map[string]interface{}{"status": 500, "body": long}}})
+	snippet := strings.TrimPrefix(got, "HTTP 500 Internal Server Error: ")
+	if n := len([]rune(snippet)); n != 120 || !strings.HasSuffix(snippet, "…") {
+		t.Errorf("long body snippet = %q (%d runes), want 120 runes ending in …", snippet, n)
+	}
+}

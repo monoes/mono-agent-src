@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/openaiapi"
 )
 
 // fakeAPIMonomind points monomind at a script that lists three runtimes (the
@@ -171,65 +170,5 @@ func TestAPIModelsHumanTable(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}
-	}
-}
-
-func TestEffectiveContextMaxPrecedence(t *testing.T) {
-	env := func(v string) func(string) string { return func(string) string { return v } }
-	for _, c := range []struct {
-		flag, env string
-		want      openaiapi.Class
-	}{
-		{"", "", openaiapi.ChatOnly}, // nothing set: chat-only
-		{"", "sandboxed", openaiapi.Sandboxed},
-		{"any", "chat-only", openaiapi.Unconfined}, // the flag beats the environment
-	} {
-		got, err := effectiveContextMax(c.flag, env(c.env))
-		if err != nil || got != c.want {
-			t.Errorf("effectiveContextMax(%q, env=%q) = %v, %v; want %v", c.flag, c.env, got, err, c.want)
-		}
-	}
-	if _, err := effectiveContextMax("nope", env("")); exitCode(err) != 3 {
-		t.Errorf("a bad value must be invalid input, got exit %d", exitCode(err))
-	}
-}
-
-func TestEffectiveAutoMaxPrecedence(t *testing.T) {
-	env := func(v string) func(string) string { return func(string) string { return v } }
-	for _, c := range []struct {
-		flag, env string
-		want      openaiapi.Class
-	}{
-		{"", "", openaiapi.ChatOnly}, // nothing set: chat-only
-		{"", "sandboxed", openaiapi.Sandboxed},
-		{"any", "chat-only", openaiapi.Unconfined}, // the flag beats the environment
-	} {
-		got, err := effectiveAutoMax(c.flag, env(c.env))
-		if err != nil || got != c.want {
-			t.Errorf("effectiveAutoMax(%q, env=%q) = %v, %v; want %v", c.flag, c.env, got, err, c.want)
-		}
-	}
-	if _, err := effectiveAutoMax("nope", env("")); exitCode(err) != 3 {
-		t.Errorf("a bad value must be invalid input, got exit %d", exitCode(err))
-	}
-}
-
-func TestEffectivePolicyPrecedence(t *testing.T) {
-	env := func(v string) func(string) string { return func(string) string { return v } }
-	for _, c := range []struct {
-		addr, flag, env, want string
-	}{
-		{"127.0.0.1:1", "", "", "any"},
-		{"0.0.0.0:1", "", "", "chat-only"},
-		{"127.0.0.1:1", "", "chat-only", "chat-only"},
-		{"0.0.0.0:1", "any", "chat-only", "any"}, // the flag beats the environment
-	} {
-		got, err := effectivePolicy(c.addr, c.flag, env(c.env))
-		if err != nil || got.String() != c.want {
-			t.Errorf("effectivePolicy(%q, %q, env=%q) = %s, %v; want %s", c.addr, c.flag, c.env, got, err, c.want)
-		}
-	}
-	if _, err := effectivePolicy("127.0.0.1:1", "nope", env("")); exitCode(err) != 3 {
-		t.Errorf("a bad value must be invalid input, got exit %d", exitCode(err))
 	}
 }

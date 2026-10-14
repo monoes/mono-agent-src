@@ -1,0 +1,60 @@
+{
+  "credential": {
+    "api_key": "cal_live",
+    "host": "https://api.cal.com/"
+  },
+  "params": {
+    "events": [
+      "BOOKING_CREATED"
+    ],
+    "options": {
+      "eventTypeId": 12
+    }
+  },
+  "create_responses": [
+    {
+      "data": {
+        "id": "wh1"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v2/event-types/12/webhooks",
+      "body": {
+        "subscriberUrl": "https://hooks.example.test/webhook/wh-path",
+        "triggers": [
+          "BOOKING_CREATED"
+        ],
+        "active": true,
+        "secret": "test-secret"
+      }
+    }
+  ],
+  "hook_id": "wh1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v2/event-types/12/webhooks/wh1"
+    }
+  ],
+  "check": {
+    "response": {
+      "data": {
+        "id": "wh1"
+      }
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v2/event-types/12/webhooks/wh1"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-Cal-Signature-256": "5a452edb473f00d1eb8e1a9ff15e07898a67a0d9427c70cf0e9829c08cc8e33d"
+    },
+    "body": "{\"triggerEvent\":\"BOOKING_CREATED\"}"
+  }
+}

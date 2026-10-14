@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { GetBrowsers, BindBrowser, GetProfiles } from '../../wailsjs/go/main/App'
+import { useTranslation } from 'react-i18next'
+import { GetBrowsers, BindBrowser, GetProfiles, GetExtensionStatus } from '../../wailsjs/go/main/App'
+import { bridgeState } from '../../pages/dashboard/getStarted.js'
+import { usePairExtension, PairButton, PairResult } from './PairBrowser.jsx'
 
 // Which browser each profile's automations run in. Everything goes through
 // `monoagentcli extension browsers|bind|unbind` (app_browsers.go). The
@@ -24,11 +27,25 @@ export const BROWSERS_POLL_MS = 10000
 
 const errMsg = (e) => String(e?.message || e || 'unknown error')
 
+// unpaired: whether `extension status` says the bridge turns this client or
+// the extension away. Asked only when the browser list failed or came back
+// empty, so a working setup costs no extra CLI call.
+async function readUnpaired() {
+  try {
+    return bridgeState(null, JSON.parse(await GetExtensionStatus())) === 'unpaired'
+  } catch {
+    return false
+  }
+}
+
 export default function BrowserBindingsSection() {
   const [report, setReport] = useState(null)
   const [profiles, setProfiles] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  const [unpaired, setUnpaired] = useState(false)
+  const { t } = useTranslation()
+  const pairing = usePairExtension()
 
   const load = useCallback(async () => {
     try {
@@ -36,8 +53,10 @@ export default function BrowserBindingsSection() {
       setReport(r)
       setProfiles(p || [])
       setError('')
+      setUnpaired(r?.running && !(r.browsers || []).length ? await readUnpaired() : false)
     } catch (e) {
       setError(errMsg(e))
+      setUnpaired(await readUnpaired())
     }
   }, [])
   useEffect(() => { load() }, [load])
@@ -74,10 +93,28 @@ export default function BrowserBindingsSection() {
         Each browser profile with the MonoAgent Bridge extension can run one profile's automations,
         signed in as that browser's accounts. Profiles bound to different browsers run side by side.
       </div>
-      {error && <div style={errText} role="alert">{error}</div>}
+      {unpaired && (
+        <div data-testid="browser-unpaired" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={name}>{t('settings.browsers.notPaired')}</div>
+              <div style={hint}>{t('settings.browsers.notPairedWhy')}</div>
+            </div>
+            <PairButton pair={pairing.pair} busy={pairing.busy} />
+          </div>
+          <PairResult result={pairing.result} />
+          {error && (
+            <details style={hint}>
+              <summary style={{ cursor: 'pointer' }}>{t('settings.browsers.details')}</summary>
+              <span style={{ fontFamily: mono }}>{error}</span>
+            </details>
+          )}
+        </div>
+      )}
+      {error && !unpaired && <div style={errText} role="alert">{error}</div>}
       {report && !report.running && <div style={hint}>{report.hint || 'No bridge is running.'}</div>}
       {report?.running && report.hint && <div style={warnText}>{report.hint}</div>}
-      {report?.running && !report.hint && browsers.length === 0 && (
+      {report?.running && !report.hint && !unpaired && browsers.length === 0 && (
         <div style={hint}>No browser is attached. Open a browser that has the MonoAgent Bridge extension.</div>
       )}
       {browsers.map((b) => {

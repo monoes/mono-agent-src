@@ -191,8 +191,20 @@ func buildNodeRegistry(_ bool, db *sql.DB) *workflow.NodeTypeRegistry {
 }
 
 // `node` lives in internal/cli/node; this is its adapter: the CLI's globals and helpers handed
-// over as nodecli.Deps, and the browser connection `node run` drives. `node palette`
-// (node_palette.go) stays here and is added to the group.
+// over as nodecli.Deps, and the browser connection `node run` drives.
+
+// The node palette (`node palette`, which the desktop app reads) is internal/cli/node's.
+type paletteNode = nodecli.PaletteNode
+
+const (
+	paletteSectionWebAutomation = nodecli.PaletteSectionWebAutomation
+	paletteSectionNodes         = nodecli.PaletteSectionNodes
+)
+
+// nodePalette is the palette: the catalog reconciled against the registry.
+func nodePalette(db *sql.DB, includeDeprecated bool) map[string][]paletteNode {
+	return nodecli.Palette(db, includeDeprecated)
+}
 
 // connectNodeBridge is the bridge to profileID's browser: when the extension is not attached,
 // the user's real Chrome is launched (same mechanism as `login`) and waited for.
@@ -224,9 +236,7 @@ func nodeDeps(cfg *globalConfig) nodecli.Deps {
 
 // newNodeCmd returns the `node` command with subcommands.
 func newNodeCmd(cfg *globalConfig) *cobra.Command {
-	cmd := nodecli.NewCommand(nodeDeps(cfg))
-	cmd.AddCommand(newNodePaletteCmd(cfg))
-	return cmd
+	return nodecli.NewCommand(nodeDeps(cfg))
 }
 
 // newNodeRunCmd runs a single node type with provided config and input items.

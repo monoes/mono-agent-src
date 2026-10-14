@@ -9,14 +9,15 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/cli/librarycli"
 	"github.com/monoes/mono-agent/internal/library/libraryfake"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
 type libList struct {
-	Items []libItem `json:"items"`
-	Total int       `json:"total"`
+	Items []librarycli.Item `json:"items"`
+	Total int               `json:"total"`
 }
 
 type libPublished struct {
@@ -34,7 +35,7 @@ func TestLibraryWorkflowInstallAndUpdate(t *testing.T) {
 		readRepo(t, "internal/workflow/templates/gemimg.json"), map[string]any{"required_automations": []any{"gemini"}})
 	f.login()
 
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "library", "install", "workflow", "gemimg", "--dry-run")
 	if res.Installed || !res.DryRun {
 		t.Fatalf("dry run = %+v", res)
@@ -53,7 +54,7 @@ func TestLibraryWorkflowInstallAndUpdate(t *testing.T) {
 	// A new version replaces the earlier import in place.
 	f.fake.SetArtifact(id, "1.1.0", bytes.Replace(readRepo(t, "internal/workflow/templates/gemimg.json"),
 		[]byte(`"name"`), []byte(`"description": "v2", "name"`), 1))
-	var up struct{ Updates []libUpdate }
+	var up struct{ Updates []librarycli.Update }
 	f.must(&up, "library", "update", "--dry-run")
 	if len(up.Updates) != 1 || up.Updates[0].Status != "available" || up.Updates[0].To != "1.1.0" {
 		t.Fatalf("dry-run update = %+v", up)
@@ -81,7 +82,7 @@ func TestLibraryOrgInstallCollision(t *testing.T) {
 	f.fake.Add("monoes", "org", "research-team", "Research team", "official", "1.0.0", readRepo(t, "orgtemplates/research-team.json"), nil)
 	f.login()
 
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "library", "install", "org", "research-team")
 	if !res.Installed || res.LocalID != "research-team" {
 		t.Fatalf("install = %+v", res)
@@ -173,7 +174,7 @@ func TestLibraryPublishRoundTrips(t *testing.T) {
 	// Round trip: the published workflow installs into a fresh profile.
 	f.must(nil, "profile", "create", "fresh")
 	f.login("--profile", "fresh")
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "--profile", "fresh", "library", "install", "workflow", wfItem)
 	if !res.Installed {
 		t.Fatalf("install published workflow = %+v", res)
@@ -185,7 +186,7 @@ func TestLibraryAdoptsSeededBuiltins(t *testing.T) {
 	id := f.fake.Add("monoes", "automation", "hackernews", "Hacker News", "official", "1.1.0", pack(t, "hackernews", ""),
 		map[string]any{"automation_id": "hackernews"})
 	f.login()
-	var up struct{ Updates []libUpdate }
+	var up struct{ Updates []librarycli.Update }
 	f.must(&up, "library", "update", "--dry-run")
 	if len(up.Updates) != 1 || up.Updates[0].LocalID != "hackernews" || up.Updates[0].Status != "up_to_date" {
 		t.Fatalf("adopted = %+v", up)
@@ -227,7 +228,7 @@ func TestLibraryForkIsNotAdoptedOrSilentlyReplaced(t *testing.T) {
 	if exitCodeFor(err) != 3 || !strings.Contains(out, "--replace") {
 		t.Fatalf("fork over the built-in: %v %s", err, out)
 	}
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "library", "install", "automations/hackernews-2", "--replace")
 	if res.LocalID != "hackernews" || res.Trust != automation.TrustImported {
 		t.Fatalf("fork install = %+v", res)

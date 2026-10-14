@@ -36,17 +36,67 @@
         "list",
         "download",
         "upload",
-        "delete"
+        "delete",
+        "rename"
       ],
       "required": true,
       "type": "select"
     },
     {
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "list",
+          "download",
+          "upload",
+          "delete"
+        ]
+      },
       "key": "remote_path",
       "label": "Remote Path",
       "placeholder": "/remote/dir/file.csv",
       "required": true,
       "type": "text"
+    },
+    {
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "rename"
+        ]
+      },
+      "key": "old_path",
+      "label": "Old Path",
+      "placeholder": "/remote/dir/old.csv",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "rename"
+        ]
+      },
+      "key": "new_path",
+      "label": "New Path",
+      "placeholder": "/remote/archive/new.csv",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "default": false,
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "rename"
+        ]
+      },
+      "help": "Create the missing parent directories of new_path before renaming.",
+      "key": "create_directories",
+      "label": "Create Directories",
+      "required": false,
+      "type": "boolean"
     },
     {
       "depends_on": {

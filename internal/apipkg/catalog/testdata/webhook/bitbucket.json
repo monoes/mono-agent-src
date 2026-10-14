@@ -1,0 +1,57 @@
+{
+  "credential": {
+    "username": "u",
+    "app_password": "ap"
+  },
+  "params": {
+    "resource": "repository",
+    "workspace": "acme",
+    "repository": "web",
+    "events": [
+      "repo:push"
+    ]
+  },
+  "create_responses": [
+    {
+      "uuid": "{abc-1}"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/2.0/repositories/acme/web/hooks",
+      "body": {
+        "description": "mono-agent webhook",
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "active": true,
+        "events": [
+          "repo:push"
+        ],
+        "secret": "test-secret"
+      }
+    }
+  ],
+  "hook_id": "abc-1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/2.0/repositories/acme/web/hooks/abc-1"
+    }
+  ],
+  "check": {
+    "response": {
+      "uuid": "{abc-1}"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/2.0/repositories/acme/web/hooks/abc-1"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-Hub-Signature": "sha256=1790ed8d5ea0bde6977964f9b81ada84d0fbf10ef0e43ae63435ccf766b047a2"
+    },
+    "body": "{\"push\":{}}"
+  }
+}

@@ -58,7 +58,7 @@ var errorHints = map[ErrorClass]string{
 	ClassTimeout:            "The step took too long. Raise the node's timeout, reduce its input, or check that the service is reachable.",
 	ClassRejected:           "A reviewer rejected the item. Wire the Human-in-Loop node's `rejected` output to handle rejections without failing the run.",
 	ClassCancelled:          "The run was cancelled before it finished.",
-	ClassUnknown:            "Read the error message and the node's input; `monoagentcli workflow status <execution-id>` shows the whole run.",
+	ClassUnknown:            "Read the error message and the node's input; `monoagentcli workflow execution <execution-id>` shows the whole run.",
 }
 
 // ErrorHint returns a one-line suggestion for fixing a failure of class c,

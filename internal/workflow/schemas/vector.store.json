@@ -16,6 +16,9 @@
         "mongodb_atlas",
         "redis",
         "chroma",
+        "azure_ai_search",
+        "databricks",
+        "oracle",
         "memory"
       ],
       "default": "qdrant"
@@ -25,7 +28,7 @@
       "label": "Connection",
       "type": "credential_picker",
       "required": false,
-      "help": "qdrant, pinecone, pgvector → postgresql, supabase, weaviate, milvus, mongodb_atlas → mongodb, redis, chroma. Not needed for memory."
+      "help": "qdrant, pinecone, pgvector → postgresql, supabase, weaviate, milvus, mongodb_atlas → mongodb, redis, chroma, azure_ai_search, databricks (or databricks_sp), oracle. Not needed for memory."
     },
     {
       "key": "mode",
@@ -45,7 +48,7 @@
       "label": "Collection / Index / Table",
       "type": "text",
       "required": false,
-      "help": "Qdrant/Milvus/Chroma collection, Pinecone index, pgvector/Supabase table, Weaviate class, MongoDB collection, Redis index. Not used by memory."
+      "help": "Qdrant/Milvus/Chroma collection, Pinecone index, pgvector/Supabase/Oracle table, Weaviate class, MongoDB collection, Redis index, Azure AI Search index, Databricks index (catalog.schema.index). Not used by memory."
     },
     {
       "key": "memory_key",
@@ -141,7 +144,7 @@
       "required": false,
       "language": "json",
       "rows": 3,
-      "help": "Provider-native: Qdrant/Pinecone/Chroma filter object; pgvector/Supabase/memory metadata object; MongoDB pre-filter; Milvus expression; Redis query; Weaviate GraphQL where text (search) or where object (delete)."
+      "help": "Provider-native: Qdrant/Pinecone/Chroma filter object; pgvector/Supabase/memory metadata object; MongoDB pre-filter; Milvus expression; Redis query; Weaviate GraphQL where text (search) or where object (delete). Azure AI Search: OData text (metadata/source eq 'a.pdf'); Databricks: filters_json object; Oracle: metadata object (equality)."
     },
     {
       "key": "embedding",
@@ -291,7 +294,8 @@
         "values": [
           "pgvector",
           "mongodb_atlas",
-          "redis"
+          "redis",
+          "oracle"
         ]
       },
       "help": "Usually from the connection."
@@ -317,15 +321,21 @@
       "options": [
         "cosine",
         "euclidean",
-        "inner_product"
+        "inner_product",
+        "dot",
+        "manhattan",
+        "euclidean_squared",
+        "hamming"
       ],
       "default": "cosine",
       "depends_on": {
         "key": "provider",
         "values": [
-          "pgvector"
+          "pgvector",
+          "oracle"
         ]
-      }
+      },
+      "help": "pgvector: cosine, euclidean or inner_product. Oracle: any (VECTOR_DISTANCE metric)."
     },
     {
       "key": "query_name",
@@ -362,7 +372,8 @@
       "depends_on": {
         "key": "provider",
         "values": [
-          "weaviate"
+          "weaviate",
+          "azure_ai_search"
         ]
       },
       "placeholder": "source,page",
@@ -443,6 +454,122 @@
         "key": "provider",
         "values": [
           "chroma"
+        ]
+      }
+    },
+    {
+      "key": "endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "azure_ai_search"
+        ]
+      },
+      "help": "https://<service>.search.windows.net. Usually from the connection."
+    },
+    {
+      "key": "query_type",
+      "label": "Query Type",
+      "type": "select",
+      "required": false,
+      "options": [
+        "vector",
+        "hybrid",
+        "semantic_hybrid"
+      ],
+      "default": "hybrid",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "azure_ai_search"
+        ]
+      },
+      "help": "hybrid and semantic_hybrid also send the query text for keyword ranking."
+    },
+    {
+      "key": "semantic_configuration",
+      "label": "Semantic Configuration",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "azure_ai_search"
+        ]
+      },
+      "help": "Semantic ranking configuration name, for semantic_hybrid."
+    },
+    {
+      "key": "api_version",
+      "label": "API Version",
+      "type": "text",
+      "required": false,
+      "default": "2024-07-01",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "azure_ai_search"
+        ]
+      }
+    },
+    {
+      "key": "host",
+      "label": "Workspace URL",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "databricks"
+        ]
+      },
+      "help": "Usually from the connection."
+    },
+    {
+      "key": "content_column",
+      "label": "Content Column",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "databricks",
+          "oracle",
+          "pgvector"
+        ]
+      },
+      "help": "Databricks: column holding the document text (default: the index's embedding source column). pgvector/Oracle: default text."
+    },
+    {
+      "key": "metadata_columns",
+      "label": "Metadata Columns",
+      "type": "text",
+      "required": false,
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "databricks"
+        ]
+      },
+      "help": "Comma-separated columns returned as metadata; default every column but the key, content and vector."
+    },
+    {
+      "key": "search_mode",
+      "label": "Search Mode",
+      "type": "select",
+      "required": false,
+      "options": [
+        "ANN",
+        "HYBRID"
+      ],
+      "default": "ANN",
+      "depends_on": {
+        "key": "provider",
+        "values": [
+          "databricks"
         ]
       }
     }

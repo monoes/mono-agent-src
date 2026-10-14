@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -134,8 +136,10 @@ func extractOnError(config map[string]interface{}) string {
 
 // errorHandleMessage extracts a human-readable failure message from the
 // items a node routed to its "error" output. The convention is an "error"
-// JSON field (http.request, system.execute_command emit it); items without
-// one yield "" so the caller can fall back to a generic message.
+// JSON field (http.request, system.execute_command emit it); failing that,
+// an HTTP-style status ("status"/"statusCode"/"status_code") becomes
+// "HTTP 404 Not Found: <body snippet>". Items with neither yield "" so the
+// caller can fall back to a generic message.
 func errorHandleMessage(items []Item) string {
 	for _, it := range items {
 		if it.JSON == nil {
@@ -145,7 +149,66 @@ func errorHandleMessage(items []Item) string {
 			return msg
 		}
 	}
+	for _, it := range items {
+		if msg := httpStatusMessage(it.JSON); msg != "" {
+			return msg
+		}
+	}
 	return ""
+}
+
+// errorBodySnippetLen bounds the response body quoted in an HTTP failure
+// message.
+const errorBodySnippetLen = 120
+
+// httpStatusMessage renders an HTTP-like error item as "HTTP <code> <text>"
+// plus a one-line body snippet, or "" when the item has no status code.
+func httpStatusMessage(js map[string]interface{}) string {
+	code := 0
+	for _, k := range []string{"status", "statusCode", "status_code"} {
+		switch v := js[k].(type) {
+		case int:
+			code = v
+		case int64:
+			code = int(v)
+		case float64:
+			code = int(v)
+		case json.Number:
+			if n, err := v.Int64(); err == nil {
+				code = int(n)
+			}
+		}
+		if code != 0 {
+			break
+		}
+	}
+	if code < 100 || code > 999 {
+		return ""
+	}
+	msg := fmt.Sprintf("HTTP %d", code)
+	if text := http.StatusText(code); text != "" {
+		msg += " " + text
+	}
+	body, ok := js["body"]
+	if !ok || body == nil {
+		return msg
+	}
+	snippet, isString := body.(string)
+	if !isString {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return msg
+		}
+		snippet = string(raw)
+	}
+	snippet = strings.Join(strings.Fields(snippet), " ")
+	if snippet == "" {
+		return msg
+	}
+	if r := []rune(snippet); len(r) > errorBodySnippetLen {
+		snippet = string(r[:errorBodySnippetLen-1]) + "…"
+	}
+	return msg + ": " + snippet
 }
 
 // perItemFieldState is the token extractPerItemFields returns, holding the

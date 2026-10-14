@@ -138,6 +138,12 @@ export function fieldIsVisible(field, config, fields) {
   return (dep.values || []).map(String).includes(valueOf(dep.key ?? dep.field))
 }
 
+// isFormFieldsField: the inspector edits a schema field keyed formFields
+// with the form builder (FormFieldsEditor), whatever node it is on.
+export function isFormFieldsField(field) {
+  return field?.key === 'formFields'
+}
+
 // A collection field (n8n "additional fields") holds an object of optional
 // settings; the inspector edits it as JSON text.
 export function collectionText(value) {

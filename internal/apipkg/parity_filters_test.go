@@ -3,6 +3,7 @@ package apipkg
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,23 @@ func TestBase64ChunksFilter(t *testing.T) {
 	}
 	if _, err := renderString("{{ p.b | base64_chunks:0 }}", sc); err == nil {
 		t.Error("a zero chunk size is an error")
+	}
+	sc.P["files"] = []any{map[string]any{"base64": sc.P["b"], "file_name": "a"}, base64.StdEncoding.EncodeToString([]byte("xy"))}
+	v, err = renderString("{{ p.files | base64_chunks:4 }}", sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var segs []string
+	for _, s := range v.([]any) {
+		m := s.(map[string]any)
+		b, _ := base64.StdEncoding.DecodeString(m["data"].(string))
+		segs = append(segs, fmt.Sprintf("%v.%v=%s", m["item"], m["segment"], b))
+	}
+	if strings.Join(segs, " ") != "0.0=abcd 0.1=efg 1.0=xy" {
+		t.Errorf("list segments %v", segs)
+	}
+	if m := v.([]any)[1].(map[string]any); m["file"].(map[string]any)["file_name"] != "a" {
+		t.Errorf("segment file %v", m["file"])
 	}
 }
 

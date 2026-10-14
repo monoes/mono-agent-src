@@ -267,13 +267,7 @@ func resolveItemFields(ctx context.Context, engine *workflow.ExpressionEngine, b
 		}
 	}
 
-	exprCtx := workflow.ExpressionContext{
-		JSON:        item.JSON,
-		Node:        input.NodeOutputs,
-		WorkflowID:  input.WorkflowID,
-		ExecutionID: input.ExecutionID,
-	}
-	resolved, err := engine.ResolveConfig(overlay, exprCtx)
+	resolved, err := engine.ResolveConfig(overlay, input.ItemContext(item.JSON))
 	if err != nil {
 		return nil, fmt.Errorf("%s: resolve per-item config: %w", node, err)
 	}

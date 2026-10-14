@@ -144,7 +144,7 @@ func (a *App) CreateWorkflowFromTemplate(templateID string) (*WorkflowSummary, e
 		idMap[n.ID] = uuid.New().String()
 	}
 
-	req := SaveWorkflowRequest{Name: tmpl.Name, Description: tmpl.Description, IsActive: false}
+	req := SaveWorkflowRequest{Name: tmpl.Name, Description: workflow.SavedTemplateDescription(templateID), IsActive: false}
 	for _, n := range tmpl.Nodes {
 		config := n.Config
 		if config == nil {

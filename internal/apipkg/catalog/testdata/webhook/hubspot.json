@@ -1,0 +1,84 @@
+{
+  "credential": {
+    "developer_api_key": "dk",
+    "app_id": "42",
+    "client_secret": "hs-secret"
+  },
+  "params": {
+    "eventsUi": {
+      "eventValues": [
+        {
+          "name": "contact.creation"
+        },
+        {
+          "name": "deal.propertyChange",
+          "property": "amount"
+        }
+      ]
+    }
+  },
+  "create_responses": [
+    {},
+    {
+      "id": 1
+    },
+    {
+      "id": 2
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "PUT",
+      "path": "/webhooks/v3/42/settings",
+      "body": {
+        "targetUrl": "https://hooks.example.test/webhook/wh-path",
+        "maxConcurrentRequests": 5
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/v3/42/subscriptions",
+      "body": {
+        "eventType": "contact.creation",
+        "active": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/v3/42/subscriptions",
+      "body": {
+        "eventType": "deal.propertyChange",
+        "active": true,
+        "propertyName": "amount"
+      }
+    }
+  ],
+  "hook_id": "1,2",
+  "extra": {
+    "ids": [
+      1,
+      2
+    ]
+  },
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/webhooks/v3/42/subscriptions/1"
+    },
+    {
+      "method": "DELETE",
+      "path": "/webhooks/v3/42/subscriptions/2"
+    },
+    {
+      "method": "DELETE",
+      "path": "/webhooks/v3/42/settings"
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-HubSpot-Signature-v3": "XMGmPvOz87yJnR43Mb6elhWdrx1lfwShFYeof20WLyg=",
+      "X-HubSpot-Request-Timestamp": "1700000000000"
+    },
+    "body": "[{\"eventId\":1}]"
+  }
+}

@@ -163,3 +163,23 @@ func addTaskProfileRow(t *testing.T, dbPath, id, name string) {
 		t.Fatal(err)
 	}
 }
+
+func TestEveryTaskOSCommandHasAReferenceEntry(t *testing.T) {
+	have := map[string]bool{}
+	for _, d := range cliDocs {
+		have[d.Name] = true
+	}
+	names := []string{"task os"}
+	osCmd, _, err := newTaskCmd(&globalConfig{}).Find([]string{"os"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sub := range osCmd.Commands() {
+		names = append(names, "task os "+sub.Name())
+	}
+	for _, n := range names {
+		if !have[n] {
+			t.Errorf("`ref commands` has no entry for `%s`", n)
+		}
+	}
+}

@@ -184,6 +184,11 @@ func TestTemplatesUseAndSearch(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &created) != nil || created.ID == "" || created.IsActive || len(created.Nodes) == 0 {
 		t.Fatalf("use = %q, %v", out, err)
 	}
+	// The saved copy reads as plain text in the app: the template's summary,
+	// not its "Run with: workflow templates run …" description.
+	if tmpl.Summary == "" || created.Description != tmpl.Summary {
+		t.Errorf("saved description = %q, want the summary %q", created.Description, tmpl.Summary)
+	}
 
 	out, err = run(t, testDeps(cfg), "search")
 	var hits []struct {

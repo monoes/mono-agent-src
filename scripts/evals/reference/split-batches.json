@@ -89,7 +89,7 @@
     {
       "id": "c3",
       "source": "split",
-      "source_handle": "batch",
+      "source_handle": "loop",
       "target": "mark",
       "target_handle": "main"
     },
@@ -97,6 +97,13 @@
       "id": "c4",
       "source": "mark",
       "source_handle": "main",
+      "target": "split",
+      "target_handle": "main"
+    },
+    {
+      "id": "c5",
+      "source": "split",
+      "source_handle": "done",
       "target": "count",
       "target_handle": "main"
     }

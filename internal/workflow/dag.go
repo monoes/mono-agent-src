@@ -33,8 +33,9 @@ func BuildDAG(nodes []WorkflowNode, connections []WorkflowConnection) (*DAG, err
 	}
 
 	copy(d.connections, connections)
+	NormalizeConnectionHandles(d.connections)
 
-	for _, c := range connections {
+	for _, c := range d.connections {
 		d.outEdges[c.SourceNodeID] = append(d.outEdges[c.SourceNodeID], c)
 		d.inEdges[c.TargetNodeID] = append(d.inEdges[c.TargetNodeID], c)
 	}

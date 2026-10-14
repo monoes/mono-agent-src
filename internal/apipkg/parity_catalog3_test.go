@@ -154,7 +154,8 @@ func TestNotionKeyCase(t *testing.T) {
 }
 
 // n8n v1 tweet attachments are binary property names: each is uploaded
-// (an image in one call, other media by INIT/APPEND/FINALIZE) and the
+// (an image in one call, other media by INIT/APPEND/FINALIZE in 5 MiB
+// segments) and the
 // tweet carries every media id in order. As media IDs (v2) they pass as is.
 func TestTwitterTweetAttachmentUploads(t *testing.T) {
 	p := catalogPkg(t, "twitter")
@@ -172,12 +173,13 @@ func TestTwitterTweetAttachmentUploads(t *testing.T) {
 		}
 		return `{"data":{"id":"9"}}`
 	})
+	vid := []byte(strings.Repeat("v", 5242880) + "end")
 	item := workflow.Item{
 		JSON: map[string]any{"binary": map[string]any{
 			"pic":  map[string]any{"mimeType": "image/png", "fileName": "a.png"},
 			"vid":  map[string]any{"mimeType": "video/mp4", "fileName": "b.mp4"},
 			"pic2": map[string]any{"mimeType": "image/jpeg", "fileName": "c.jpg"}}},
-		Binary: map[string][]byte{"pic": []byte("p1"), "vid": []byte("v"), "pic2": []byte("p2")},
+		Binary: map[string][]byte{"pic": []byte("p1"), "vid": vid, "pic2": []byte("p2")},
 	}
 	cfg := map[string]any{"resource": "tweet", "operation": "create", "text": "hi", "attachmentsAre": "binaryProperties",
 		"additionalFields": map[string]any{"attachments": "pic, vid,pic2"}, "credential": map[string]any{"access_token": "t"}}
@@ -190,12 +192,23 @@ func TestTwitterTweetAttachmentUploads(t *testing.T) {
 		if c == "" {
 			c = "image"
 		}
-		if c == "APPEND" && (f.Get("media_id") != "VID" || f.Get("segment_index") != "0") {
-			t.Errorf("APPEND %v", f)
+		if c == "APPEND" {
+			seg := f.Get("segment_index")
+			want := vid[:5242880]
+			if seg == "1" {
+				want = vid[5242880:]
+			}
+			if f.Get("media_id") != "VID" || f.Get("name") != "b.mp4" || f.Get("media_data") != base64.StdEncoding.EncodeToString(want) {
+				t.Errorf("APPEND segment %s: media_id %q name %q, %d base64 bytes", seg, f.Get("media_id"), f.Get("name"), len(f.Get("media_data")))
+			}
+			c += seg
+		}
+		if c == "INIT" && f.Get("total_bytes") != "5242883" {
+			t.Errorf("INIT %v", f)
 		}
 		cmds = append(cmds, c)
 	}
-	if strings.Join(cmds, " ") != "image image INIT APPEND FINALIZE" {
+	if strings.Join(cmds, " ") != "image image INIT APPEND0 APPEND1 FINALIZE" {
 		t.Errorf("uploads %v", cmds)
 	}
 	tw := (*reqs)[len(*reqs)-1]

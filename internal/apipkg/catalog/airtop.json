@@ -64,6 +64,10 @@
     {
       "value": "file",
       "label": "File"
+    },
+    {
+      "value": "agent",
+      "label": "Agent"
     }
   ],
   "operations": [
@@ -186,6 +190,49 @@
           "type": "text",
           "default": "",
           "help": "Defaults to the input item's sessionId."
+        }
+      ]
+    },
+    {
+      "resource": "session",
+      "operation": "waitForDownload",
+      "title": "Wait for a download",
+      "description": "Waits on the session's event stream until a downloaded file is available, and returns its ID and download URL.",
+      "method": "GET",
+      "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/events",
+      "query": {
+        "all": "true"
+      },
+      "stream": {
+        "until": "{{ res.event | eq:'file_status' | then:(res.status | eq:'available') }}",
+        "timeout_seconds": "{{ p.additionalFields.timeout | default:30 }}"
+      },
+      "output": {
+        "to": {
+          "sessionId": "{{ p.sessionId | default:item.sessionId }}",
+          "data": {
+            "fileId": "{{ res.fileId }}",
+            "downloadUrl": "{{ res.downloadUrl }}"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "timeout"
+          ],
+          "help": "timeout: seconds to wait for the download (default 30)."
         }
       ]
     },
@@ -958,6 +1005,329 @@
           "type": "boolean",
           "default": false,
           "help": "Accepted for n8n compatibility; use data.downloadUrl."
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "load",
+      "title": "Load a file into a session",
+      "description": "Pushes an existing Airtop file to the session, waits until it is available there and opens the window's file input with it.",
+      "method": "POST",
+      "path": "/files/{{ p.fileId }}/push",
+      "body": {
+        "sessionIds": [
+          "{{ p.sessionId | default:item.sessionId }}"
+        ]
+      },
+      "also": [
+        {
+          "method": "GET",
+          "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/events",
+          "query": {
+            "all": "true"
+          },
+          "stream": {
+            "until": "{{ res.fileId | eq:p.fileId | then:(res.event | eq:'file_upload_status') | then:(res.status | in:'available,upload_failed') }}",
+            "timeout_ms": 300000
+          },
+          "error_when": "{{ res.status | eq:'upload_failed' }}",
+          "error_message": "{{ res.eventData.error | default:'the file upload failed' }}"
+        },
+        {
+          "method": "POST",
+          "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/file-input",
+          "body": {
+            "fileId": "{{ p.fileId }}",
+            "elementDescription": "{{ p.elementDescription }}",
+            "includeHiddenElements": "{{ p.includeHiddenElements | bool }}"
+          }
+        }
+      ],
+      "output": {
+        "to": {
+          "sessionId": "{{ p.sessionId | default:item.sessionId }}",
+          "windowId": "{{ p.windowId | default:item.windowId }}",
+          "data": {
+            "message": "File loaded successfully"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "elementDescription",
+          "label": "Element description",
+          "type": "text",
+          "default": "",
+          "help": "Optional description of the file input to use, e.g. the file upload selection box."
+        },
+        {
+          "key": "includeHiddenElements",
+          "label": "Include hidden elements",
+          "type": "boolean",
+          "default": true
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "upload",
+      "title": "Upload a file into a session",
+      "description": "Creates the file in Airtop, uploads it, waits until it is available, pushes it to the session and (by default) opens the window's file input with it.",
+      "method": "POST",
+      "path": "/files/{{ pres.0.data.id }}/push",
+      "body": {
+        "sessionIds": [
+          "{{ p.sessionId | default:item.sessionId }}"
+        ]
+      },
+      "before": [
+        {
+          "method": "POST",
+          "path": "/files",
+          "body": {
+            "fileName": "{{ p.fileName }}",
+            "fileType": "{{ p.fileType }}"
+          }
+        },
+        {
+          "upload": true,
+          "auth": false,
+          "method": "PUT",
+          "path": "{{ pres.0.data.uploadUrl }}",
+          "headers": {
+            "Content-Type": "application/octet-stream"
+          },
+          "error_when": "false"
+        },
+        {
+          "method": "GET",
+          "path": "/files/{{ pres.0.data.id }}",
+          "repeat": {
+            "until": "{{ res.data.status | eq:'available' }}",
+            "interval_ms": 1000,
+            "max_wait_ms": 300000
+          }
+        }
+      ],
+      "also": [
+        {
+          "method": "GET",
+          "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/events",
+          "query": {
+            "all": "true"
+          },
+          "stream": {
+            "until": "{{ res.fileId | eq:pres.0.data.id | then:(res.event | eq:'file_upload_status') | then:(res.status | in:'available,upload_failed') }}",
+            "timeout_ms": 300000
+          },
+          "error_when": "{{ res.status | eq:'upload_failed' }}",
+          "error_message": "{{ res.eventData.error | default:'the file upload failed' }}"
+        },
+        {
+          "when": "{{ p.triggerFileInputParameter }}",
+          "method": "POST",
+          "path": "/sessions/{{ p.sessionId | default:item.sessionId }}/windows/{{ p.windowId | default:item.windowId }}/file-input",
+          "body": {
+            "fileId": "{{ pres.0.data.id }}",
+            "elementDescription": "{{ p.elementDescription }}",
+            "includeHiddenElements": "{{ p.includeHiddenElements | bool }}"
+          }
+        }
+      ],
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "upload_when": "false",
+        "upload_url": "{{ p.source | ne:'binary' | then:p.url }}"
+      },
+      "output": {
+        "to": {
+          "sessionId": "{{ p.sessionId | default:item.sessionId }}",
+          "windowId": "{{ p.windowId | default:item.windowId }}",
+          "data": {
+            "fileId": "{{ pres.0.data.id }}",
+            "message": "File uploaded successfully"
+          }
+        }
+      },
+      "fields": [
+        {
+          "key": "sessionId",
+          "label": "Session ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's sessionId."
+        },
+        {
+          "key": "windowId",
+          "label": "Window ID",
+          "type": "text",
+          "default": "",
+          "help": "Defaults to the input item's windowId."
+        },
+        {
+          "key": "fileName",
+          "label": "File name",
+          "type": "text",
+          "default": "",
+          "help": "Name of the file in Airtop; files loaded into one session need unique names."
+        },
+        {
+          "key": "fileType",
+          "label": "File type",
+          "type": "select",
+          "default": "customer_upload",
+          "options": [
+            "customer_upload",
+            "browser_download",
+            "screenshot",
+            "video"
+          ]
+        },
+        {
+          "key": "source",
+          "label": "Source",
+          "type": "select",
+          "default": "url",
+          "options": [
+            "url",
+            "binary"
+          ]
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Binary property",
+          "type": "text",
+          "default": "data",
+          "help": "For source binary: the input item's binary property holding the file."
+        },
+        {
+          "key": "url",
+          "label": "URL",
+          "type": "text",
+          "default": "",
+          "help": "For source url: where to fetch the file from."
+        },
+        {
+          "key": "triggerFileInputParameter",
+          "label": "Trigger file input",
+          "type": "boolean",
+          "default": true,
+          "help": "Open the window's file input with the uploaded file; off only pushes the file to the session."
+        },
+        {
+          "key": "elementDescription",
+          "label": "Element description",
+          "type": "text",
+          "default": "",
+          "help": "Optional description of the file input to use, e.g. the file upload selection box."
+        },
+        {
+          "key": "includeHiddenElements",
+          "label": "Include hidden elements",
+          "type": "boolean",
+          "default": true
+        }
+      ]
+    },
+    {
+      "resource": "agent",
+      "operation": "run",
+      "title": "Run an agent",
+      "description": "Invokes an Airtop agent through its webhook and, unless awaitExecution is off, polls until the agent finishes.",
+      "method": "POST",
+      "base_url": "https://api.airtop.ai/api/hooks",
+      "path": "/agents/{{ p.agentId | rl }}/webhooks/{{ pre.webhookId }}",
+      "query": {
+        "profileId": "{{ p.profileName }}"
+      },
+      "body": {
+        "!configVars": {
+          "$merge": "{{ p.agentParameters.value }}"
+        }
+      },
+      "error_when": "{{ res.invocationId | not }}",
+      "error_message": "No 'invocationId' received from the agent webhook response",
+      "before": {
+        "method": "GET",
+        "base_url": "https://api.airtop.ai/api/v2",
+        "path": "/agents/{{ p.agentId | rl }}",
+        "error_when": "{{ res.errors | len }}",
+        "error_message": "{{ res.errors | pluck:'message' | join:'; ' }}"
+      },
+      "poll": {
+        "method": "GET",
+        "base_url": "https://api.airtop.ai/api/hooks",
+        "path": "/agents/{{ p.agentId | rl }}/invocations/{{ main.invocationId }}/result",
+        "until": "{{ p.awaitExecution | not | default:res.output | default:res.error | then:true }}",
+        "interval_ms": 1000,
+        "max_wait_seconds": "{{ p.timeout }}",
+        "error_when": "{{ res.error }}",
+        "error_message": "{{ res.error }}. Agent Invocation ID: {{ main.invocationId }}"
+      },
+      "output": {
+        "to": {
+          "invocationId": "{{ main.invocationId }}",
+          "status": "{{ p.awaitExecution | then:(res.status | default:'Unknown') }}",
+          "output": "{{ p.awaitExecution | then:res.output }}"
+        }
+      },
+      "fields": [
+        {
+          "key": "agentId",
+          "label": "Agent ID",
+          "type": "text",
+          "required": true,
+          "help": "The Airtop agent to run (portal.airtop.ai/agents)."
+        },
+        {
+          "key": "agentParameters",
+          "label": "Agent parameters",
+          "type": "json",
+          "default": {},
+          "help": "n8n resource-mapper shape {\"value\": {param: value}}; value is sent as the agent's configVars."
+        },
+        {
+          "key": "profileName",
+          "label": "Profile ID",
+          "type": "text",
+          "default": "",
+          "help": "Browser profile ID for this run; empty uses the agent's default profile."
+        },
+        {
+          "key": "awaitExecution",
+          "label": "Await agent",
+          "type": "boolean",
+          "default": true,
+          "help": "Wait for the agent to finish; off returns the invocation ID only."
+        },
+        {
+          "key": "timeout",
+          "label": "Timeout (seconds)",
+          "type": "number",
+          "default": 600,
+          "min": 10,
+          "help": "How long to wait for the agent when awaiting it."
         }
       ]
     }

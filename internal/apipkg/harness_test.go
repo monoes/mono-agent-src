@@ -5,6 +5,7 @@ package apipkg
 // from catalog/testdata/<id>.json. See FORMAT.md "Testing a package".
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -79,11 +80,10 @@ func newMockServer(t *testing.T, response any, status int, responses ...any) *mo
 		m.code = 200
 	}
 	if response != nil {
-		m.first, _ = json.Marshal(response)
+		m.first = mockBody(response)
 	}
 	for _, r := range responses {
-		b, _ := json.Marshal(r)
-		m.seq = append(m.seq, b)
+		m.seq = append(m.seq, mockBody(r))
 	}
 	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -98,6 +98,9 @@ func newMockServer(t *testing.T, response any, status int, responses ...any) *mo
 		w.Header().Set("Content-Type", "application/json")
 		if len(m.seq) > 0 {
 			if n <= len(m.seq) {
+				if bytes.HasPrefix(m.seq[n-1], []byte("data: ")) {
+					w.Header().Set("Content-Type", "text/event-stream")
+				}
 				w.Write(m.seq[n-1])
 				return
 			}
@@ -119,6 +122,23 @@ func newMockServer(t *testing.T, response any, status int, responses ...any) *mo
 	httpClient = &http.Client{Transport: rewriteTransport{target: target}}
 	t.Cleanup(func() { httpClient = old })
 	return m
+}
+
+// mockBody encodes a case response: JSON, or for {"$sse": [event, …]} a
+// server-sent-event stream with one "data: <json>" event per element.
+func mockBody(v any) []byte {
+	if m, ok := v.(map[string]any); ok {
+		if evs, ok := m["$sse"].([]any); ok {
+			var b bytes.Buffer
+			for _, ev := range evs {
+				j, _ := json.Marshal(ev)
+				fmt.Fprintf(&b, "data: %s\n\n", j)
+			}
+			return b.Bytes()
+		}
+	}
+	b, _ := json.Marshal(v)
+	return b
 }
 
 // rewriteTransport sends every request to target, keeping path and query.

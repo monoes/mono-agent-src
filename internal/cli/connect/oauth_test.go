@@ -71,6 +71,44 @@ func TestConnectOAuthRunsOAuth1Flow(t *testing.T) {
 	}
 }
 
+// --stdin-json takes field values (the consumer secret) on stdin instead of
+// argv; a --field of the same key wins, and bad stdin never echoes it.
+func TestConnectOAuthStdinJSON(t *testing.T) {
+	const secret = "stdin-consumer-secret"
+	var authz string
+	prov := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authz = r.Header.Get("Authorization")
+		http.Error(w, "rejected", http.StatusUnauthorized)
+	}))
+	defer prov.Close()
+
+	e := newSessionsTestEnv(t)
+	stdin := `{"consumer_key":"ck-stdin","consumer_secret":"` + secret + `","request_token_url":"` + prov.URL + `/request"}`
+	out, errOut, code := e.run(t, stdin, "--json", "connect", "oauth", "generic_oauth1", "--stdin-json",
+		"--field", "consumer_key=ck-flag", "--field", "authorization_url="+prov.URL+"/authorize",
+		"--field", "access_token_url="+prov.URL+"/access")
+	if code != 4 || !strings.Contains(errOut, "oauth1 request token") {
+		t.Fatalf("code %d, stderr %s", code, errOut)
+	}
+	if strings.Contains(out+errOut, secret) {
+		t.Fatalf("the consumer secret was printed:\n%s\n%s", out, errOut)
+	}
+	if !strings.Contains(authz, `oauth_consumer_key="ck-flag"`) {
+		t.Fatalf("request-token Authorization = %q", authz)
+	}
+
+	for _, c := range []struct{ stdin, want string }{
+		{`not json ` + secret, "stdin must be a JSON object"},
+		{`{"client_id":"` + secret + `"}`, "generic_oauth1's OAuth takes"},
+		{`{"":"` + secret + `"}`, "empty key"},
+	} {
+		out, errOut, code := e.run(t, c.stdin, "--json", "connect", "oauth", "generic_oauth1", "--stdin-json")
+		if code != 3 || !strings.Contains(errOut, c.want) || strings.Contains(out+errOut, secret) {
+			t.Errorf("stdin %q: code %d, stderr %s; want 3 and %q without the secret", c.stdin, code, errOut, c.want)
+		}
+	}
+}
+
 // connect show describes a platform's methods, fields and OAuth details.
 func TestConnectShow(t *testing.T) {
 	e := newSessionsTestEnv(t)

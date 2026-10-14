@@ -1,0 +1,113 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "acuity_scheduling",
+  "node_type": "app.acuity_scheduling",
+  "title": "Acuity Scheduling",
+  "description": "Acuity Scheduling appointment and order events (trigger only)",
+  "category": "app",
+  "docs_url": "https://developers.acuityscheduling.com/reference",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.acuitySchedulingTrigger"
+  ],
+  "base_url": "https://acuityscheduling.com/api/v1",
+  "credentials": [
+    {
+      "platform": "acuity_scheduling",
+      "name": "Acuity Scheduling (API key)",
+      "n8n_credential": "acuitySchedulingApi",
+      "n8n_field_map": {
+        "userId": "user_id",
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "user_id",
+          "label": "User ID",
+          "required": true
+        },
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "basic": {
+          "username": "{{ cred.user_id }}",
+          "password": "{{ cred.api_key }}"
+        }
+      }
+    },
+    {
+      "platform": "acuity_scheduling_oauth",
+      "name": "Acuity Scheduling (OAuth2)",
+      "n8n_credential": "acuitySchedulingOAuth2Api",
+      "methods": [
+        "oauth"
+      ],
+      "fields": [],
+      "oauth": {
+        "auth_url": "https://acuityscheduling.com/oauth2/authorize",
+        "token_url": "https://acuityscheduling.com/oauth2/token",
+        "scopes": [
+          "api-v1"
+        ]
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "options": [
+          "appointment.canceled",
+          "appointment.changed",
+          "appointment.rescheduled",
+          "appointment.scheduled",
+          "order.completed"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "target": "{{ hook.url }}",
+          "event": "{{ p.event }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks",
+      "exists_when": "{{ res | find:'id',hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-Acuity-Signature }}",
+      "encoding": "base64",
+      "secret": "{{ cred.api_key }}"
+    }
+  }
+}

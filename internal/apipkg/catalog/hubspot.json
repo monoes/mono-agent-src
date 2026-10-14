@@ -47,6 +47,43 @@
           "Authorization": "Bearer {{ cred.access_token }}"
         }
       }
+    },
+    {
+      "platform": "hubspot_developer",
+      "name": "HubSpot developer app",
+      "n8n_credential": "hubspotDeveloperApi",
+      "n8n_field_map": {
+        "apiKey": "developer_api_key",
+        "appId": "app_id",
+        "clientSecret": "client_secret"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "developer_api_key",
+          "label": "Developer API key",
+          "secret": true,
+          "required": true
+        },
+        {
+          "key": "app_id",
+          "label": "App ID",
+          "required": true
+        },
+        {
+          "key": "client_secret",
+          "label": "App client secret",
+          "secret": true,
+          "help": "Checks the deliveries' X-HubSpot-Signature-v3"
+        }
+      ],
+      "inject": {
+        "query": {
+          "hapikey": "{{ cred.developer_api_key }}"
+        }
+      }
     }
   ],
   "resources": [
@@ -2547,5 +2584,63 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "eventsUi",
+        "label": "Events",
+        "type": "collection",
+        "required": true,
+        "help": "{\"eventValues\": [{\"name\": \"contact.creation\"}, …]}"
+      },
+      {
+        "key": "additionalFields",
+        "label": "Additional fields",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "PUT",
+        "path": "/webhooks/v3/{{ cred.app_id }}/settings",
+        "body": {
+          "targetUrl": "{{ hook.url }}",
+          "maxConcurrentRequests": "{{ p.additionalFields.maxConcurrentRequests | default:5 }}"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/webhooks/v3/{{ cred.app_id }}/subscriptions",
+        "body": {
+          "eventType": "{{ el.name }}",
+          "active": true,
+          "propertyName": "{{ el.name | matches:'propertyChange$' | then:el.property }}"
+        },
+        "for_each": "{{ p.eventsUi.eventValues }}"
+      }
+    ],
+    "id": "{{ res | pluck:'id' | join:',' }}",
+    "extra": {
+      "ids": "{{ res | pluck:'id' }}"
+    },
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/v3/{{ cred.app_id }}/subscriptions/{{ el }}",
+        "for_each": "{{ hook.extra.ids }}"
+      },
+      {
+        "method": "DELETE",
+        "path": "/webhooks/v3/{{ cred.app_id }}/settings"
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-HubSpot-Signature-v3 }}",
+      "encoding": "base64",
+      "secret": "{{ cred.client_secret }}",
+      "message": "POST{{ hook.url }}{{ req.body }}{{ hdr.X-HubSpot-Request-Timestamp }}"
+    }
+  }
 }

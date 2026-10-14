@@ -1,6 +1,8 @@
 // Node config field definitions, extracted from NodeRunner.jsx to keep that file
 // focused on the canvas/editor logic.
 
+import { isAiEdge, mainEdges } from './aiSubNodes.js'
+
 export const NODE_CONFIG_FIELDS = {
   // ── Triggers ──────────────────────────────────────────────────────────────
   'trigger.schedule': [
@@ -750,7 +752,8 @@ const isLoopHandle = h => h === 'loop' || h === 'batch'
 // loop node L is a back-edge when u is reachable from L's loop output
 // without passing through L itself. Returns a Map from each such edge to
 // the ids of the nodes its loop runs through (L and its body).
-export function loopBackEdges(nodes, edges) {
+export function loopBackEdges(nodes, allEdges) {
+  const edges = mainEdges(allEdges)
   const byId = new Map((nodes || []).map(n => [n.id, n]))
   const handleOf = e => e.sourcePortId ?? byId.get(e.source)?.outputs?.[e.sourcePortIdx]?.id
   const out = new Map()
@@ -860,12 +863,13 @@ export function loopEdgePath(sx, sy, tx, ty, runY, off = LOOP_EDGE_OFF, r = 8) {
 }
 
 // hasForbiddenCycle reports whether the graph has a cycle other than a loop
-// back-edge into a loop node — the engine rejects such a workflow.
+// back-edge into a loop node — the engine rejects such a workflow. AI
+// sub-node connections are not part of the flow and never count.
 export function hasForbiddenCycle(nodes, edges) {
   const back = loopBackEdges(nodes, edges)
   const adj = new Map()
   for (const e of edges || []) {
-    if (back.has(e)) continue
+    if (back.has(e) || isAiEdge(e)) continue
     if (!adj.has(e.source)) adj.set(e.source, [])
     adj.get(e.source).push(e.target)
   }

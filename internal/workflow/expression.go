@@ -122,29 +122,7 @@ func (e *ExpressionEngine) buildFuncMap() template.FuncMap {
 				return 0, fmt.Errorf("toInt: cannot convert %T", v)
 			}
 		},
-		"toFloat": func(v interface{}) (float64, error) {
-			switch t := v.(type) {
-			case int:
-				return float64(t), nil
-			case int32:
-				return float64(t), nil
-			case int64:
-				return float64(t), nil
-			case float32:
-				return float64(t), nil
-			case float64:
-				return t, nil
-			case string:
-				return strconv.ParseFloat(strings.TrimSpace(t), 64)
-			case bool:
-				if t {
-					return 1, nil
-				}
-				return 0, nil
-			default:
-				return 0, fmt.Errorf("toFloat: cannot convert %T", v)
-			}
-		},
+		"toFloat": toFloat,
 		"toBool": func(v interface{}) (bool, error) {
 			switch t := v.(type) {
 			case bool:
@@ -196,16 +174,17 @@ func (e *ExpressionEngine) buildFuncMap() template.FuncMap {
 			return time.Now().UTC().Format(time.RFC3339)
 		},
 
-		// Arithmetic (all operate on float64)
-		"add": func(a, b float64) float64 { return a + b },
-		"sub": func(a, b float64) float64 { return a - b },
-		"mul": func(a, b float64) float64 { return a * b },
-		"div": func(a, b float64) (float64, error) {
+		// Arithmetic (all operate on float64; operands convert as toFloat,
+		// so integers from code nodes and $runIndex work too)
+		"add": arith(func(a, b float64) (float64, error) { return a + b, nil }),
+		"sub": arith(func(a, b float64) (float64, error) { return a - b, nil }),
+		"mul": arith(func(a, b float64) (float64, error) { return a * b, nil }),
+		"div": arith(func(a, b float64) (float64, error) {
 			if b == 0 {
 				return 0, fmt.Errorf("div: division by zero")
 			}
 			return a / b, nil
-		},
+		}),
 
 		// Collection helpers
 		"len": func(v interface{}) (int, error) {
@@ -479,4 +458,43 @@ func (e *ExpressionEngine) ResolveItem(item Item, ctx ExpressionContext) (Item, 
 		JSON:   resolved,
 		Binary: item.Binary,
 	}, nil
+}
+
+func toFloat(v interface{}) (float64, error) {
+	switch t := v.(type) {
+	case int:
+		return float64(t), nil
+	case int32:
+		return float64(t), nil
+	case int64:
+		return float64(t), nil
+	case float32:
+		return float64(t), nil
+	case float64:
+		return t, nil
+	case string:
+		return strconv.ParseFloat(strings.TrimSpace(t), 64)
+	case bool:
+		if t {
+			return 1, nil
+		}
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("toFloat: cannot convert %T", v)
+	}
+}
+
+// arith lifts a float64 operation to operands of any number type.
+func arith(op func(a, b float64) (float64, error)) func(a, b interface{}) (float64, error) {
+	return func(a, b interface{}) (float64, error) {
+		x, err := toFloat(a)
+		if err != nil {
+			return 0, err
+		}
+		y, err := toFloat(b)
+		if err != nil {
+			return 0, err
+		}
+		return op(x, y)
+	}
 }

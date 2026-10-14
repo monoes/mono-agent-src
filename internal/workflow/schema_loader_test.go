@@ -1,6 +1,9 @@
 package workflow
 
 import (
+	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -125,5 +128,41 @@ func TestLoadDefaultSchema_AINodes(t *testing.T) {
 				t.Errorf("%s: still has a provider_id field", nodeType)
 			}
 		}
+	}
+}
+
+func TestNodeSchema_SubNodeKeysRoundTrip(t *testing.T) {
+	root := `{"credential_platform":null,"fields":[],"sub_inputs":[{"handle":"ai_languageModel","label":"Chat Model","max":1,"required":true},{"handle":"ai_tool","label":"Tool"}]}`
+	var s NodeSchema
+	if err := json.Unmarshal([]byte(root), &s); err != nil {
+		t.Fatal(err)
+	}
+	want := []NodeSubInput{{Handle: "ai_languageModel", Label: "Chat Model", Max: 1, Required: true}, {Handle: "ai_tool", Label: "Tool"}}
+	if !reflect.DeepEqual(s.SubInputs, want) {
+		t.Fatalf("sub_inputs = %+v, want %+v", s.SubInputs, want)
+	}
+	out, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != root {
+		t.Fatalf("round trip:\n got %s\nwant %s", out, root)
+	}
+
+	sub := `{"credential_platform":null,"fields":[],"sub_output":"ai_tool"}`
+	var ss NodeSchema
+	if err := json.Unmarshal([]byte(sub), &ss); err != nil {
+		t.Fatal(err)
+	}
+	if ss.SubOutput != "ai_tool" {
+		t.Fatalf("sub_output = %q", ss.SubOutput)
+	}
+	if out, _ := json.Marshal(ss); string(out) != sub {
+		t.Fatalf("round trip:\n got %s\nwant %s", out, sub)
+	}
+
+	// Schemas without the keys keep their JSON unchanged.
+	if out, _ := json.Marshal(NodeSchema{Fields: []NodeSchemaField{}}); strings.Contains(string(out), "sub_") {
+		t.Fatalf("empty schema carries sub keys: %s", out)
 	}
 }

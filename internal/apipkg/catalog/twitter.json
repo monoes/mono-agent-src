@@ -213,17 +213,17 @@
           }
         },
         {
-          "for_each": "{{ p.attachmentsAre | eq:'binaryProperties' | then:bin.files }}",
-          "when": "{{ (el.mime_type | matches:'image') | not }}",
+          "for_each": "{{ p.attachmentsAre | eq:'binaryProperties' | then:(bin.files | base64_chunks:5242880) }}",
+          "when": "{{ (el.file.mime_type | matches:'image') | not }}",
           "method": "POST",
           "path": "https://upload.twitter.com/1.1/media/upload.json",
           "body_type": "form",
           "body": {
             "command": "APPEND",
-            "media_id": "{{ pres.1 | get:(idx | string) | get:'media_id_string' }}",
-            "media_data": "{{ el.base64 }}",
-            "segment_index": 0,
-            "name": "{{ el.file_name }}"
+            "media_id": "{{ pres.1 | get:(el.item | string) | get:'media_id_string' }}",
+            "media_data": "{{ el.data }}",
+            "segment_index": "{{ el.segment }}",
+            "name": "{{ el.file.file_name }}"
           }
         },
         {
@@ -241,7 +241,7 @@
       "binary": {
         "properties": "{{ p.attachmentsAre | eq:'binaryProperties' | then:p.additionalFields.attachments }}"
       },
-      "description": "With attachments as binary properties, each file is uploaded first (images in one request, other media by INIT/APPEND/FINALIZE as one segment, at most 5 MiB) and the media IDs attached."
+      "description": "With attachments as binary properties, each file is uploaded first (images in one request, other media by INIT/APPEND/FINALIZE in 5 MiB segments) and the media IDs attached."
     },
     {
       "resource": "tweet",

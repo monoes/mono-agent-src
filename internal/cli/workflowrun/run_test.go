@@ -159,3 +159,23 @@ func TestRunCmdFlags(t *testing.T) {
 		t.Error("execution/cancel Use changed")
 	}
 }
+
+// A wait ended by the command's context (workflow cancel's SIGTERM) reports
+// a cancelled run and still has a live context to read its record with.
+func TestStoppedWaitReportsCancelledRun(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sctx, scancel, err := stoppedWait(ctx, "e1", nil)
+	scancel()
+	if sctx != ctx || err != nil {
+		t.Fatalf("live context: got %v, %v", sctx, err)
+	}
+	cancel()
+	sctx, scancel, err = stoppedWait(ctx, "e1", context.Canceled)
+	defer scancel()
+	if sctx.Err() != nil {
+		t.Errorf("summary context is done: %v", sctx.Err())
+	}
+	if err == nil || err.Error() != "execution e1 was cancelled" {
+		t.Errorf("err = %v, want the run reported cancelled", err)
+	}
+}

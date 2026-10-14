@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/autostart"
@@ -8,6 +10,12 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
+
+// The workflow-run memory starts with `monoagentcli daemon` itself (internal/cli/daemon), once
+// cobra has initialized.
+func init() {
+	cobra.OnInitialize(func() { daemon.StartRunMemory(os.Args[1:], openWorkflowStore) })
+}
 
 // newDaemonCmd is `daemon` (internal/cli/daemon), behind the account gate.
 func newDaemonCmd(cfg *globalConfig) *cobra.Command {

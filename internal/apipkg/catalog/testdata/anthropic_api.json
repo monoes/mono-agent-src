@@ -1,0 +1,398 @@
+{
+  "file.upload": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "inputType": "binary",
+      "binaryPropertyName": "doc",
+      "options": {
+        "fileName": "report.pdf"
+      }
+    },
+    "input": {
+      "binary": {
+        "doc": {
+          "data": "UERGREFUQQ==",
+          "mimeType": "application/pdf",
+          "fileName": "r.pdf"
+        }
+      }
+    },
+    "response": {
+      "id": "file_1",
+      "type": "file",
+      "filename": "report.pdf"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/files",
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14",
+        "X-Proxy": "pv"
+      },
+      "body": {
+        "file": "file:report.pdf:PDFDATA"
+      },
+      "items": 1
+    }
+  },
+  "file.get": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "fileId": "file_1"
+    },
+    "response": {
+      "id": "file_1",
+      "type": "file"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/files/file_1",
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14",
+        "X-Proxy": "pv"
+      },
+      "items": 1
+    }
+  },
+  "file.list": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "limit": 20
+    },
+    "response": {
+      "data": [
+        {
+          "id": "file_1"
+        },
+        {
+          "id": "file_2"
+        }
+      ],
+      "has_more": false,
+      "last_id": "file_2"
+    },
+    "expect": {
+      "method": "GET",
+      "path": "/v1/files",
+      "query": {
+        "limit": "20"
+      },
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14",
+        "X-Proxy": "pv"
+      },
+      "items": 2
+    }
+  },
+  "file.deleteFile": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "fileId": "file_1"
+    },
+    "response": {
+      "id": "file_1",
+      "type": "file_deleted"
+    },
+    "expect": {
+      "method": "DELETE",
+      "path": "/v1/files/file_1",
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14",
+        "X-Proxy": "pv"
+      },
+      "items": 1
+    }
+  },
+  "image.analyze": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "modelId": {
+        "__rl": true,
+        "mode": "list",
+        "value": "claude-sonnet-4-5"
+      },
+      "text": "Describe",
+      "imageUrls": "https://example.com/a.png, https://api.anthropic.com/v1/files/file_9",
+      "options": {
+        "maxTokens": 500
+      }
+    },
+    "response": {
+      "id": "msg_1",
+      "content": [
+        {
+          "type": "text",
+          "text": "a cat"
+        }
+      ],
+      "usage": {}
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14",
+        "X-Proxy": "pv"
+      },
+      "body": {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 500,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "url": "https://example.com/a.png"
+                }
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "file",
+                  "file_id": "file_9"
+                }
+              },
+              {
+                "type": "text",
+                "text": "Describe"
+              }
+            ]
+          }
+        ]
+      },
+      "items": 1
+    }
+  },
+  "document.analyze": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "modelId": "claude-haiku-4-5",
+      "inputType": "binary",
+      "binaryPropertyName": "a, b"
+    },
+    "input": {
+      "binary": {
+        "a": {
+          "data": "UERGMQ==",
+          "mimeType": "application/pdf",
+          "fileName": "a.pdf"
+        },
+        "b": {
+          "data": "UERGMg==",
+          "mimeType": "application/pdf",
+          "fileName": "b.pdf"
+        }
+      }
+    },
+    "response": {
+      "id": "msg_2",
+      "content": [
+        {
+          "type": "text",
+          "text": "two reports"
+        }
+      ]
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "body": {
+        "model": "claude-haiku-4-5",
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "document",
+                "source": {
+                  "type": "base64",
+                  "media_type": "application/pdf",
+                  "data": "UERGMQ=="
+                }
+              },
+              {
+                "type": "document",
+                "source": {
+                  "type": "base64",
+                  "media_type": "application/pdf",
+                  "data": "UERGMg=="
+                }
+              },
+              {
+                "type": "text",
+                "text": "What's in this document?"
+              }
+            ]
+          }
+        ]
+      },
+      "items": 1
+    }
+  },
+  "prompt.generate": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "task": "a chef assistant"
+    },
+    "response": {
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "..."
+            }
+          ]
+        }
+      ],
+      "system": "",
+      "usage": {}
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/experimental/generate_prompt",
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14,prompt-tools-2025-04-02",
+        "X-Proxy": "pv"
+      },
+      "body": {
+        "task": "a chef assistant"
+      },
+      "items": 1
+    }
+  },
+  "prompt.improve": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "messages": {
+        "values": [
+          {
+            "content": "Summarise the report",
+            "role": "user"
+          }
+        ]
+      },
+      "options": {
+        "system": "You are terse",
+        "feedback": "make it clearer"
+      }
+    },
+    "response": {
+      "messages": [],
+      "system": "You are terse"
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/experimental/improve_prompt",
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14,prompt-tools-2025-04-02",
+        "X-Proxy": "pv"
+      },
+      "body": {
+        "messages": [
+          {
+            "content": "Summarise the report",
+            "role": "user"
+          }
+        ],
+        "system": "You are terse",
+        "feedback": "make it clearer"
+      },
+      "items": 1
+    }
+  },
+  "prompt.templatize": {
+    "credential": {
+      "api_key": "sk-ant",
+      "header_name": "X-Proxy",
+      "header_value": "pv"
+    },
+    "params": {
+      "messages": {
+        "values": [
+          {
+            "content": "Translate hello to German",
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "response": {
+      "messages": [],
+      "system": "",
+      "variable_values": {
+        "WORD": "hello"
+      }
+    },
+    "expect": {
+      "method": "POST",
+      "path": "/v1/experimental/templatize_prompt",
+      "headers": {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "files-api-2025-04-14,prompt-tools-2025-04-02",
+        "X-Proxy": "pv"
+      },
+      "body": {
+        "messages": [
+          {
+            "content": "Translate hello to German",
+            "role": "user"
+          }
+        ]
+      },
+      "items": 1
+    }
+  }
+}

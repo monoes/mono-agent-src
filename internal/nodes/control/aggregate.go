@@ -41,7 +41,9 @@ func parseAggregateOps(config map[string]interface{}) ([]aggOp, error) {
 	if !ok || len(opsRaw) == 0 {
 		operation, _ := config["operation"].(string)
 		if operation == "" {
-			return nil, fmt.Errorf("aggregate: 'operation' or 'operations' config is required")
+			// The schema's default: `workflow validate` treats a required
+			// field with a default as set, so the run must apply it too.
+			operation = "count"
 		}
 		if alias, ok := collectOpAliases[operation]; ok {
 			operation = alias

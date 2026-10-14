@@ -17,18 +17,6 @@ import (
 // used to run only inside the desktop app. The app runs it once at startup, so
 // one binary (the CLI) owns the schema and there is one schema version.
 
-func init() {
-	cliDocs = append(cliDocs, cmdDoc{
-		Name:  "db migrate",
-		Short: "Apply pending database migrations and bring every profile's folder layout and vault files up to date (idempotent)",
-		Usage: "monoagentcli db migrate [--json]",
-		Examples: []string{
-			"monoagentcli db migrate",
-			"monoagentcli --json db migrate",
-		},
-	})
-}
-
 // dbMigrateResult is `db migrate --json`.
 type dbMigrateResult struct {
 	SchemaVersion int      `json:"schema_version"` // highest applied migration

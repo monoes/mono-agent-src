@@ -68,7 +68,7 @@ func nodeTypeToPlatform(nodeType string) string {
 	return nodeType
 }
 
-// NewCommand returns the `node` command with subcommands; the CLI adds `node palette`.
+// NewCommand returns the `node` command with subcommands.
 func NewCommand(d Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "node",
@@ -79,6 +79,7 @@ func NewCommand(d Deps) *cobra.Command {
 		d.newNodeRunCmd(),
 		d.newNodeSchemaCmd(),
 		d.newNodeCurlCmd(),
+		d.newNodePaletteCmd(),
 	)
 	return cmd
 }

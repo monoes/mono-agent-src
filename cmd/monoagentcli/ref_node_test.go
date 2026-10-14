@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	refcli "github.com/monoes/mono-agent/internal/cli/ref"
+	"github.com/monoes/mono-agent/internal/cli/ref/catalog"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -133,15 +134,15 @@ func TestRefNodeCommandJSONAndAlias(t *testing.T) {
 // as schema-only.
 func TestRefNodeWithoutHandProse(t *testing.T) {
 	reg := refNodeRegistry()
-	saved := nodeDocs
-	t.Cleanup(func() { nodeDocs = saved })
+	saved := catalog.NodeDocs
+	t.Cleanup(func() { catalog.NodeDocs = saved })
 	var kept []nodeDoc
-	for _, d := range nodeDocs {
+	for _, d := range catalog.NodeDocs {
 		if d.Type != "service.github" {
 			kept = append(kept, d)
 		}
 	}
-	nodeDocs = kept
+	catalog.NodeDocs = kept
 
 	page, err := refDeps().BuildNodeRefPage(reg, "service.github")
 	if err != nil {
@@ -187,27 +188,11 @@ func TestRefNodesHidesDeprecatedByDefault(t *testing.T) {
 	}
 }
 
-func TestNodePaletteHidesDeprecatedByDefault(t *testing.T) {
-	has := func(p map[string][]paletteNode, typ string) bool {
-		for _, list := range p {
-			for _, n := range list {
-				if n.Type == typ {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	def, all := nodePalette(nil, false), nodePalette(nil, true)
-	for typ := range workflow.DeprecatedNodeTypes {
-		if has(def, typ) {
-			t.Errorf("palette offers deprecated %s by default", typ)
-		}
-		if !has(all, typ) {
-			t.Errorf("palette --all is missing %s", typ)
+func contains(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
 		}
 	}
-	if !has(def, "agent.ask") {
-		t.Error("palette lost agent.ask")
-	}
+	return false
 }

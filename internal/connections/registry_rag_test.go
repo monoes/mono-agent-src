@@ -6,7 +6,7 @@ import "testing"
 // the vector.* nodes use.
 var ragPlatformIDs = []string{
 	"openai", "azure_openai", "ollama", "cohere", "mistral", "gemini_api", "aws",
-	"qdrant", "pinecone", "supabase", "weaviate", "milvus", "chroma",
+	"qdrant", "pinecone", "supabase", "weaviate", "milvus", "chroma", "azure_ai_search",
 }
 
 func TestRegistryHasRAGPlatforms(t *testing.T) {

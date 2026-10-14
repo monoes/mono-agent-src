@@ -179,6 +179,13 @@ func (mt *MonoagentTools) deleteWorkflow(args string) (string, error) {
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("commit: %w", err)
 	}
+	// Remove the workflow file too: otherwise the store still lists the
+	// workflow (its file wins) after its rows are gone.
+	if st := mt.workflowStore(); st != nil {
+		if err := st.DeleteWorkflow(context.Background(), a.WorkflowID); err != nil {
+			return "", fmt.Errorf("delete workflow file: %w", err)
+		}
+	}
 	return marshalJSON(map[string]interface{}{"deleted_workflow_id": a.WorkflowID, "backup_path": backupPath})
 }
 
@@ -195,7 +202,13 @@ func (mt *MonoagentTools) setWorkflowActive(args string) (string, error) {
 	if err := mt.checkWorkflowOwnership(a.WorkflowID); err != nil {
 		return "", err
 	}
-	if _, err := mt.db.Exec(
+	if st := mt.workflowStore(); st != nil {
+		// The workflow file is the definition the engine reads; the
+		// store updates it and its SQLite mirror together.
+		if err := st.SetWorkflowActive(context.Background(), a.WorkflowID, a.Active); err != nil {
+			return "", fmt.Errorf("update workflow: %w", err)
+		}
+	} else if _, err := mt.db.Exec(
 		`UPDATE workflows SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		a.Active, a.WorkflowID); err != nil {
 		return "", fmt.Errorf("update workflow: %w", err)

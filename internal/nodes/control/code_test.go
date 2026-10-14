@@ -158,3 +158,21 @@ func TestCodeNode_InputItemsExposed(t *testing.T) {
 		t.Errorf("count = %v (%T), want 1", got["count"], got["count"])
 	}
 }
+
+// TestCodeNode_ExecutionAndWorkflow: the Code node reads $execution (with the
+// resume URL a core.wait webhook or form answers) and $workflow, as in n8n.
+func TestCodeNode_ExecutionAndWorkflow(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MONOAGENT_PUBLIC_URL", "https://hooks.example.com")
+	n := &CodeNode{}
+	out, err := n.Execute(context.Background(), workflow.NodeInput{ExecutionID: "e1", WorkflowID: "w1"},
+		map[string]interface{}{"code": `[{ id: $execution.id, url: $execution.resumeUrl, wf: $workflow.id }]`})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want, _ := workflow.ExecutionResumeURL("e1")
+	got := out[0].Items[0].JSON
+	if got["id"] != "e1" || got["url"] != want || got["wf"] != "w1" {
+		t.Fatalf("got %v, want id e1, url %s, wf w1", got, want)
+	}
+}

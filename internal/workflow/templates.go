@@ -3,7 +3,6 @@ package workflow
 import (
 	"embed"
 	"encoding/json"
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -32,68 +31,28 @@ type templateMeta struct {
 	Order int `json:"order"`
 }
 
-// triggerInputPattern matches references to trigger data in node configs —
-// {{ $json.prompt }} and the ($node["Trigger"].json.prompts) form the
-// multi-node templates use.
-var triggerInputPattern = regexp.MustCompile(`\$(?:json|node\[[^\]]*\])\.json\.([A-Za-z_][A-Za-z0-9_]*)|\$json\.([A-Za-z_][A-Za-z0-9_]*)`)
-
 // templateInputs returns the trigger-data keys a template reads, sorted and
 // deduplicated. These are exactly the keys that belong in
 // `workflow templates run <id> --input '{...}'`, derived from the template
-// itself so the docs can never drift from the definition.
-//
-// $json is the trigger data only in a node the trigger feeds directly; further
-// down it is the previous node's output (e.g. an HTTP response's "body"), so
-// those nodes count only through the $node["<trigger>"] form.
+// itself so the docs can never drift from the definition. The rule is
+// TriggerInputs': $json counts only in a node the trigger feeds directly.
 func templateInputs(wf WorkflowFile) []string {
-	triggers := map[string]bool{}
+	nodes := make([]WorkflowNode, 0, len(wf.Nodes))
 	for _, n := range wf.Nodes {
-		if strings.HasPrefix(n.Type, "trigger.") {
-			triggers[n.ID] = true
-			triggers[n.Name] = true
-		}
+		nodes = append(nodes, WorkflowNode{ID: n.ID, Type: n.Type, Name: n.Name, Config: n.Config})
 	}
-	fedByTrigger := map[string]bool{}
+	conns := make([]WorkflowConnection, 0, len(wf.Connections))
 	for _, c := range wf.Connections {
-		if triggers[c.Source] {
-			fedByTrigger[c.Target] = true
-		}
+		conns = append(conns, WorkflowConnection{SourceNodeID: c.Source, TargetNodeID: c.Target})
 	}
-	seen := map[string]bool{}
-	for _, n := range wf.Nodes {
-		raw, err := json.Marshal(n.Config)
-		if err != nil {
-			continue
-		}
-		for _, m := range triggerInputPattern.FindAllStringSubmatch(string(raw), -1) {
-			switch {
-			case m[1] != "" && triggers[nodeRefName(m[0])]:
-				seen[m[1]] = true
-			case m[2] != "" && fedByTrigger[n.ID]:
-				seen[m[2]] = true
-			}
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
+	noSchemas := func(string) (*NodeSchema, error) { return nil, nil }
+	fields := TriggerInputs(nodes, conns, noSchemas)
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		out = append(out, f.Name)
 	}
 	sort.Strings(out)
 	return out
-}
-
-// nodeRefPattern extracts the node name from a $node["Name"] reference as it
-// appears in JSON-encoded config (quotes escaped or not).
-var nodeRefPattern = regexp.MustCompile(`\$node\[\s*\\?["']([^"'\\]*)\\?["']\s*\]`)
-
-// nodeRefName returns the node name a $node["Name"].json.x reference names,
-// or "" when ref is not of that form.
-func nodeRefName(ref string) string {
-	m := nodeRefPattern.FindStringSubmatch(ref)
-	if m == nil {
-		return ""
-	}
-	return m[1]
 }
 
 var templateFiles, templateMetas = loadTemplateFiles()
@@ -152,6 +111,17 @@ func ListTemplates() []Template {
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+// SavedTemplateDescription is the description a workflow made from template
+// templateID is saved with: the template's Summary, which reads as plain
+// text in the app, else its CLI-oriented Description ("Run with: workflow
+// templates run …" means nothing on a saved copy). "" for an unknown id.
+func SavedTemplateDescription(templateID string) string {
+	if s := templateMetas[templateID].Summary; s != "" {
+		return s
+	}
+	return templateFiles[templateID].Description
 }
 
 // GetTemplate returns the workflow definition for a bundled template, keyed by

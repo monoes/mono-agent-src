@@ -64,3 +64,11 @@ func (a *App) BindBrowser(instance, profileID string) (*BrowserRow, error) {
 func (a *App) GetExtensionStatus() string {
 	return a.rawCLI(profileCLITimeout, "extension", "status")
 }
+
+// PairExtension returns `monoagentcli extension pair --open --json`
+// verbatim: it opens the running bridge's one-time pairing page and says
+// whether it did, or what to do instead ({opened, url, fallback, hint,
+// error}; never the token itself).
+func (a *App) PairExtension() string {
+	return a.rawCLI(profileCLITimeout, "extension", "pair", "--open")
+}

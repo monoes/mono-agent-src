@@ -69,20 +69,48 @@ func setKey(v, arg any) (any, error) {
 
 // base64Chunks is the base64_chunks filter: base64 data → the list of its
 // n-byte pieces, each base64 again (chunked media uploads: X/Twitter
-// APPEND sends each 5 MiB segment). Empty data → nil.
+// APPEND sends each 5 MiB segment). Empty data → nil. A list (bin.files)
+// gives one flat list of segments across its elements, each
+// {"item": element index, "segment": index within it, "data": piece,
+// "file": the element}; an element is base64 text or an object with a
+// "base64" key.
 func base64Chunks(v, arg any) (any, error) {
 	n, err := toInt(arg)
 	if err != nil || n == nil || n.(int64) <= 0 {
 		return nil, fmt.Errorf("base64_chunks: the argument must be a positive byte count")
 	}
+	size := int(n.(int64))
+	list, ok := v.([]any)
+	if !ok {
+		chunks, err := splitBase64(v, size)
+		if err != nil || len(chunks) == 0 {
+			return nil, err
+		}
+		return chunks, nil
+	}
+	var out []any
+	for i, el := range list {
+		data := el
+		if m, ok := el.(map[string]any); ok {
+			data = m["base64"]
+		}
+		chunks, err := splitBase64(data, size)
+		if err != nil {
+			return nil, fmt.Errorf("element %d: %w", i, err)
+		}
+		for s, c := range chunks {
+			out = append(out, map[string]any{"item": i, "segment": s, "data": c, "file": el})
+		}
+	}
+	return out, nil
+}
+
+// splitBase64 decodes base64 text and re-encodes it in size-byte pieces.
+func splitBase64(v any, size int) ([]any, error) {
 	data, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(stringify(v)), ""))
 	if err != nil {
 		return nil, fmt.Errorf("base64_chunks: value is not base64: %w", err)
 	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	size := int(n.(int64))
 	var out []any
 	for start := 0; start < len(data); start += size {
 		end := min(start+size, len(data))

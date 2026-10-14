@@ -1,60 +1,33 @@
 package main
 
 import (
-	"strings"
-
 	"github.com/spf13/cobra"
 
 	refcli "github.com/monoes/mono-agent/internal/cli/ref"
+	"github.com/monoes/mono-agent/internal/cli/ref/catalog"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// `ref` lives in internal/cli/ref; the catalogues it renders stay here: the
-// node catalogue (nodeDocs, ref_nodes_*.go) and the commands catalogue
-// (cliDocs, ref_commands.go and the init() of other files), and so does the
-// node registry it documents.
+// `ref` lives in internal/cli/ref and the catalogues it renders in
+// internal/cli/ref/catalog; the node registry it documents stays here.
 
-// ── node catalogue ────────────────────────────────────────────────────────────
-
-// nodeDoc is one hand-written entry of the node catalogue.
-type nodeDoc = refcli.NodeDoc
-
-// nodeDocs is the hand-written prose for node types. Each category lives in
-// its own ref_nodes_<group>.go file; ref_nodes_more.go appends the rest at
-// init. `ref node` layers this prose over the type's schema, so a type with
-// no entry here still gets a generated page.
-var nodeDocs = joinNodeDocs(
-	nodeDocsPublication, nodeDocsTrigger, nodeDocsSystem, nodeDocsCore,
-	nodeDocsHttp, nodeDocsData, nodeDocsImage, nodeDocsVault, nodeDocsDb,
-	nodeDocsComm, nodeDocsService, nodeDocsAi, nodeDocsGemini,
-	nodeDocsInstagram, nodeDocsLinkedin, nodeDocsX, nodeDocsTiktok,
-	nodeDocsApplications, nodeDocsPeople,
+// nodeDoc is one entry of the node catalogue; cmdDoc one of `ref commands`.
+type (
+	nodeDoc = refcli.NodeDoc
+	cmdDoc  = refcli.CmdDoc
 )
 
-func joinNodeDocs(parts ...[]nodeDoc) []nodeDoc {
-	var all []nodeDoc
-	for _, p := range parts {
-		all = append(all, p...)
-	}
-	return all
-}
+// cliDocs is the `ref commands` catalogue.
+var cliDocs = catalog.CommandDocs
 
 // findNodeDoc returns nil when not found.
-func findNodeDoc(typ string) *nodeDoc {
-	for i := range nodeDocs {
-		if strings.EqualFold(nodeDocs[i].Type, typ) {
-			return &nodeDocs[i]
-		}
-	}
-	return appNodeDoc(typ) // API package nodes (app.*) are documented from their package
-}
+func findNodeDoc(typ string) *nodeDoc { return catalog.FindNodeDoc(typ) }
 
-// refDeps hands internal/cli/ref the catalogues and the node registry. They are
-// read when a command runs, so the init() appends are in.
+// refDeps hands internal/cli/ref the catalogues and the node registry.
 func refDeps() refcli.Deps {
 	return refcli.Deps{
 		Registry:    refNodeRegistry,
-		NodeDocs:    func() []nodeDoc { return nodeDocs },
+		NodeDocs:    func() []nodeDoc { return catalog.NodeDocs },
 		FindNodeDoc: findNodeDoc,
 		CommandDocs: func() []cmdDoc { return cliDocs },
 	}

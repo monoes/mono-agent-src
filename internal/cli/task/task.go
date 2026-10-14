@@ -64,6 +64,7 @@ monoagentcli ref tasks`,
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
+	cmd.AddCommand(d.newTaskOSCmd()) // it wraps its own subcommands
 	return cmd
 }
 

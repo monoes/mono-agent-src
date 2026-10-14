@@ -27,9 +27,12 @@ func mapExecuteCommand(c *MapContext) Mapping {
 func mapSSH(c *MapContext) Mapping {
 	cred := c.Credential("ssh", "sshPassword", "sshPrivateKey")
 	c.Ignore("authentication")
-	if res := c.Literal("resource", "command"); res != "command" {
-		c.Ignore("path", "binaryPropertyName", "options")
-		return c.OperationUnsupported(res, c.Literal("operation", "upload"))
+	switch res := c.Literal("resource", "command"); res {
+	case "command":
+	case "file":
+		return mapSSHFile(c, cred)
+	default:
+		return c.OperationUnsupported(res, c.Literal("operation", ""))
 	}
 	c.Ignore("operation")
 	cmd := c.Str("command", "")
@@ -38,6 +41,20 @@ func mapSSH(c *MapContext) Mapping {
 	}
 	return Mapping{Type: "http.ssh", Config: map[string]interface{}{"credential_id": cred, "command": cmd},
 		EntrySuffix: " (run)", Chain: []ChainStep{exitCodeStep}}
+}
+
+// mapSSHFile maps the SFTP upload/download of n8n's file resource.
+func mapSSHFile(c *MapContext, cred string) Mapping {
+	op := c.Literal("operation", "upload")
+	if op != "upload" && op != "download" {
+		return c.OperationUnsupported("file", op)
+	}
+	cfg := map[string]interface{}{"credential_id": cred, "resource": "file", "operation": op,
+		"path": c.Str("path", ""), "binary_property": c.Str("binaryPropertyName", "data")}
+	if c.Has("options.fileName") {
+		cfg["file_name"] = c.Str("options.fileName", "")
+	}
+	return Mapping{Type: "http.ssh", Config: cfg}
 }
 
 func mapFTP(c *MapContext) Mapping {
@@ -66,8 +83,13 @@ func mapFTP(c *MapContext) Mapping {
 			c.Warn("fileContent", c.Raw("fileContent"), "http.ftp uploads a local file; write the content to local_path first")
 		}
 		cfg["local_path"] = ""
+	case "rename":
+		delete(cfg, "remote_path")
+		cfg["old_path"], cfg["new_path"] = c.Str("oldPath", ""), c.Str("newPath", "")
+		if c.Bool("options.createDirectories", false) {
+			cfg["create_directories"] = true
+		}
 	default:
-		c.Ignore("oldPath", "newPath", "options.createDirectories")
 		return c.OperationUnsupported("", op)
 	}
 	c.Ignore("options.timeout")

@@ -1,0 +1,61 @@
+{
+  "credential": {
+    "access_token": "u",
+    "client_id": "5",
+    "client_secret": "cs"
+  },
+  "params": {},
+  "create_responses": [
+    {
+      "id": 1201
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v3/push_subscriptions",
+      "body": {
+        "client_id": "5",
+        "client_secret": "cs",
+        "callback_url": "https://hooks.example.test/webhook/wh-path",
+        "verify_token": "test-secret"
+      },
+      "headers": {
+        "Authorization": ""
+      }
+    }
+  ],
+  "hook_id": "1201",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v3/push_subscriptions/1201",
+      "query": {
+        "client_id": "5",
+        "client_secret": "cs"
+      },
+      "headers": {
+        "Authorization": ""
+      }
+    }
+  ],
+  "check": {
+    "response": [
+      {
+        "id": 1201
+      }
+    ],
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/api/v3/push_subscriptions",
+      "query": {
+        "client_id": "5",
+        "client_secret": "cs"
+      },
+      "headers": {
+        "Authorization": ""
+      }
+    }
+  }
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // chatFlags are the chat command's flag values (newChatCmd registers them).
@@ -217,6 +219,13 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 			selfBin, _ := os.Executable()
 			monoTools = aichat.NewMonoagentTools(db.DB, selfBin)
 			monoTools.SetProfileID(profileID)
+			// Workflows the editor or `workflow save` wrote live as files:
+			// activate and delete must reach those, not only the rows.
+			if home, err := os.UserHomeDir(); err == nil {
+				if fs, err := workflow.NewWorkflowFileStore(filepath.Join(home, ".monoagent", "workflows")); err == nil {
+					monoTools.SetWorkflowStore(workflow.NewHybridWorkflowStore(fs, workflow.NewSQLiteWorkflowStore(db.DB)))
+				}
+			}
 			// Mechanical run gate: run_workflow executes
 			// only when the session was started with runs explicitly
 			// enabled (--tools monoagent,runs). A model-supplied

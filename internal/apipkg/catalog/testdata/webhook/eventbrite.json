@@ -1,0 +1,42 @@
+{
+  "params": {
+    "organization": "org1",
+    "event": "all",
+    "actions": [
+      "order.placed",
+      "attendee.updated"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": "555"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v3/organizations/org1/webhooks/",
+      "body": {
+        "endpoint_url": "https://hooks.example.test/webhook/wh-path",
+        "actions": "order.placed,attendee.updated"
+      }
+    }
+  ],
+  "hook_id": "555",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v3/webhooks/555/"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "555"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v3/webhooks/555/"
+    }
+  }
+}

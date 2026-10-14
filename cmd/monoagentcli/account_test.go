@@ -112,37 +112,3 @@ func TestAccountStatusFollowsMonoesMe(t *testing.T) {
 		t.Fatalf("after the unblock: %+v", st)
 	}
 }
-
-// A24: after a refresh whose answer never arrived this machine has dropped its refresh token. The status
-// does not call that an outage: it says what happened, until when the login still works, and the way out.
-func TestDescribeStatusNamesARefreshWhoseAnswerNeverArrived(t *testing.T) {
-	until := time.Date(2026, 10, 6, 9, 0, 0, 0, time.UTC)
-	grace := describeStatus(account.Status{State: account.StateGrace, Reason: account.ReasonUnconfirmed, GraceUntil: until, User: &account.User{Username: "ada"}})
-	locked := describeStatus(account.Status{State: account.StateLocked, Reason: account.ReasonUnconfirmed})
-	for name, got := range map[string]string{"grace": grace, "locked": locked} {
-		if !strings.Contains(got, "answer never arrived") || !strings.Contains(got, "monoagentcli account login") || strings.Contains(got, "could not be reached") {
-			t.Errorf("%s: %q", name, got)
-		}
-	}
-	if !strings.Contains(grace, until.Local().Format(time.RFC3339)) || !strings.Contains(grace, " as ada") {
-		t.Errorf("grace: %q must say who is logged in and until when", grace)
-	}
-}
-
-// Index §3.4: the text of every locked reason is B1a's, frozen word for word. `account status` says what
-// a refused command says after its first line; only a machine that is simply not logged in, which has
-// no such line, gets a sentence of its own.
-func TestDescribeStatusOfALockedSessionIsTheRefusalsReasonLine(t *testing.T) {
-	for _, r := range []account.Reason{account.ReasonExpired, account.ReasonRefused, account.ReasonClockRollback,
-		account.ReasonClockSkew, account.ReasonKeyUnknown, account.ReasonInvalid, account.ReasonUnconfirmed} {
-		st := account.Status{State: account.StateLocked, Reason: r}
-		_, want, _ := strings.Cut((&account.LoginRequiredError{Status: st}).Error(), "\n")
-		if got := describeStatus(st); want == "" || got != want {
-			t.Errorf("%s: %q, want the refusal's reason line %q", r, got, want)
-		}
-	}
-	st := account.Status{State: account.StateLocked, Reason: account.ReasonNotLoggedIn}
-	if got := describeStatus(st); got != "Not logged in to monoes.me. Run: monoagentcli account login" {
-		t.Errorf("not_logged_in: %q", got)
-	}
-}

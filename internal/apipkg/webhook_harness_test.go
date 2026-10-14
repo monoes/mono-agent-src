@@ -182,8 +182,27 @@ func checkHookRequests(t *testing.T, where string, reqs []captured, want []expec
 				t.Errorf("%s: header %s: got %q, want %q", w, k, g, v)
 			}
 		}
-		if _, pinned := e.Headers["Authorization"]; !pinned {
+		if !authPinned(e, c) {
 			checkAuth(t, w, got, c, cred, params, nil, nil)
 		}
 	}
+}
+
+// authPinned reports whether the case lists the auth header itself (a step
+// with auth: false, or a token from an earlier step), so the credential
+// injection is not checked against it.
+func authPinned(e expectReq, c *Credential) bool {
+	for k := range e.Headers {
+		if strings.EqualFold(k, "Authorization") {
+			return true
+		}
+		if c != nil {
+			for ik := range c.Inject.Headers {
+				if strings.EqualFold(k, ik) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

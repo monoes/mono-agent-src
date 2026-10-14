@@ -174,3 +174,22 @@ func TestMapFilter(t *testing.T) {
 		}
 	}
 }
+
+// \{{ and \}} are literal braces (Zendesk's own placeholders in a body).
+func TestTemplateBraceEscapes(t *testing.T) {
+	sc := Scope{P: map[string]any{"f": "ticket.id"}}
+	for tmpl, want := range map[string]string{
+		`\{{ticket.id\}}`:             "{{ticket.id}}",
+		`\{{{{ p.f }}\}}`:             "{{ticket.id}}",
+		`a \{{x\}} {{ p.f }} \{{y\}}`: "a {{x}} ticket.id {{y}}",
+		`only \}} closes`:             "only }} closes",
+	} {
+		got, err := renderText(tmpl, sc)
+		if err != nil || got != want {
+			t.Errorf("%s = %q (%v), want %q", tmpl, got, err, want)
+		}
+	}
+	if _, err := parseTemplate(`\{{ {{ p.f `); err == nil {
+		t.Error("an unescaped {{ still needs its }}")
+	}
+}

@@ -65,6 +65,9 @@ func (rt *runtime) chatTools() *aichat.MonoagentTools {
 	if rt.chat == nil {
 		rt.chat = aichat.NewMonoagentTools(rt.db.DB, "")
 		rt.chat.SetProfileID(rt.profileID)
+		if rt.store != nil {
+			rt.chat.SetWorkflowStore(rt.store)
+		}
 	}
 	return rt.chat
 }

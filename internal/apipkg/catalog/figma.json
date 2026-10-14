@@ -1,0 +1,114 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "figma",
+  "node_type": "app.figma",
+  "title": "Figma",
+  "description": "Figma file, comment and library events (trigger only)",
+  "category": "app",
+  "docs_url": "https://www.figma.com/developers/api#webhooks_v2",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.figmaTrigger"
+  ],
+  "base_url": "https://api.figma.com",
+  "credentials": [
+    {
+      "platform": "figma",
+      "name": "Figma (personal access token)",
+      "n8n_credential": "figmaApi",
+      "n8n_field_map": {
+        "accessToken": "access_token"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "Personal access token",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "headers": {
+          "X-FIGMA-TOKEN": "{{ cred.access_token }}"
+        }
+      }
+    },
+    {
+      "platform": "figma_oauth",
+      "name": "Figma (OAuth2)",
+      "n8n_credential": "figmaOAuth2Api",
+      "methods": [
+        "oauth"
+      ],
+      "fields": [],
+      "oauth": {
+        "auth_url": "https://www.figma.com/oauth",
+        "token_url": "https://api.figma.com/v1/oauth/token",
+        "scopes": [
+          "webhooks:read",
+          "webhooks:write"
+        ]
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "teamId",
+        "label": "Team ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "triggerOn",
+        "label": "Trigger on",
+        "type": "select",
+        "required": true,
+        "options": [
+          "fileComment",
+          "fileDelete",
+          "fileUpdate",
+          "fileVersionUpdate",
+          "libraryPublish"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v2/webhooks",
+        "body": {
+          "event_type": "{{ p.triggerOn | snake | upper }}",
+          "team_id": "{{ p.teamId }}",
+          "description": "mono-agent-webhook:{{ hook.url }}",
+          "endpoint": "{{ hook.url }}",
+          "passcode": "{{ hook.secret }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v2/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/v2/webhooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ req.body | fromjson | get:'passcode' }}",
+      "alg": "token"
+    }
+  }
+}

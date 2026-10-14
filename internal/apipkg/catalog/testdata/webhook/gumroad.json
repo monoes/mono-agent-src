@@ -1,0 +1,30 @@
+{
+  "params": {
+    "resource": "sale"
+  },
+  "create_responses": [
+    {
+      "success": true,
+      "resource_subscription": {
+        "id": "rs1"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "PUT",
+      "path": "/v2/resource_subscriptions",
+      "body": {
+        "post_url": "https://hooks.example.test/webhook/wh-path",
+        "resource_name": "sale"
+      }
+    }
+  ],
+  "hook_id": "rs1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v2/resource_subscriptions/rs1"
+    }
+  ]
+}

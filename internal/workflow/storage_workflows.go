@@ -367,6 +367,7 @@ func saveConnectionsTx(ctx context.Context, tx *sql.Tx, workflowID string, conns
 			c.ID = newID()
 		}
 		c.WorkflowID = workflowID
+		NormalizeConnectionHandles(conns[i : i+1])
 
 		if _, err := stmt.ExecContext(ctx,
 			c.ID, c.WorkflowID, c.SourceNodeID, c.SourceHandle,

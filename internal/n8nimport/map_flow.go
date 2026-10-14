@@ -2,7 +2,6 @@ package n8nimport
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -23,13 +22,13 @@ func mapSplitInBatches(c *MapContext) Mapping {
 	if c.version(3) {
 		def = 1
 	}
-	if c.Bool("options.reset", false) {
-		c.Note("reset has no effect: the loop body runs once over all items in mono-agent")
-	}
 	cfg := map[string]interface{}{"batch_size": c.Float("batchSize", def)}
+	if c.Bool("options.reset", false) {
+		cfg["reset"] = true
+	}
 	switch {
 	case c.version(3):
-		return Mapping{Type: "core.split_in_batches", Config: cfg, Outputs: []string{"done", "batch"}}
+		return Mapping{Type: "core.split_in_batches", Config: cfg, Outputs: []string{"done", "loop"}}
 	case c.version(2):
 		return Mapping{Type: "core.split_in_batches", Config: cfg, Outputs: []string{"batch", "done"}}
 	}
@@ -123,8 +122,6 @@ func mapRespondToWebhook(c *MapContext) Mapping {
 	return Mapping{Type: "core.respond_webhook", Config: cfg}
 }
 
-var awaitKeyword = regexp.MustCompile(`\bawait\s+`)
-
 // importCode prepares n8n JavaScript for core.code and reports what mono's
 // code runtime cannot provide.
 func importCode(c *MapContext, param, code string) string {
@@ -132,12 +129,8 @@ func importCode(c *MapContext, param, code string) string {
 		c.Warn(param, code, "code set by an expression cannot be imported")
 		return "throw new Error(\"the n8n code was set by an expression\");"
 	}
-	if awaitKeyword.MatchString(code) {
-		c.Warn(param, nil, "'await' was removed: mono-agent code runs synchronously, so awaited helpers must return plain values")
-		code = awaitKeyword.ReplaceAllString(code, "")
-	}
-	if m := unavailableInCode.FindString(code); m != "" {
-		c.Warn(param, nil, "uses %q, which mono-agent code nodes do not provide (only this node's input items); it fails when that line runs", strings.TrimSpace(m))
+	if m := unavailableInCodeNode.FindString(code); m != "" {
+		c.Warn(param, nil, "uses %q, which mono-agent code nodes do not provide; it fails when that line runs", strings.TrimSpace(m))
 	}
 	return code
 }
@@ -178,6 +171,6 @@ func mapFunction(c *MapContext) Mapping {
 // JSON; the code returns the new JSON.
 func mapFunctionItem(c *MapContext) Mapping {
 	code := importCode(c, "functionCode", fmt.Sprint(c.Raw("functionCode")))
-	body := "var item = $json;\nvar __r = (function () {\n" + indentJS(code) + "})();\nreturn __r === undefined ? item : __r;\n"
+	body := "var item = $json;\nvar __r = await (async function () {\n" + indentJS(code) + "})();\nreturn __r === undefined ? item : __r;\n"
 	return Mapping{Type: "core.code", Config: codeConfig(wrapPerItem(body))}
 }

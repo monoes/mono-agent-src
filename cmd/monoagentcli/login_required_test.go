@@ -38,7 +38,7 @@ func TestLoginRequiredErrorCarriesTheAccountState(t *testing.T) {
 func TestEveryLoginRequiredShapeExitsFour(t *testing.T) {
 	for name, err := range map[string]error{
 		"the library's own":      libraryLoginRequired(),
-		"library.ErrNotLoggedIn": libErr(library.ErrNotLoggedIn),
+		"library.ErrNotLoggedIn": libraryDeps(&globalConfig{}).Err(library.ErrNotLoggedIn),
 		"an account refusal":     newLoginRequiredError(account.Status{V: 1, State: account.StateLocked, Reason: account.ReasonNotLoggedIn}),
 	} {
 		if exitCodeFor(err) != 4 || !isLoginRequired(err) {

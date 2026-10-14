@@ -71,13 +71,7 @@ func (n *SetNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 		}
 
 		// Build the expression context for this item.
-		exprCtx := workflow.ExpressionContext{
-			JSON:        item.JSON,
-			Node:        input.NodeOutputs,
-			WorkflowID:  input.WorkflowID,
-			ExecutionID: input.ExecutionID,
-			Location:    input.Location,
-		}
+		exprCtx := input.ItemContext(item.JSON)
 
 		for i, rawAssign := range assignments {
 			assign, ok := rawAssign.(map[string]interface{})

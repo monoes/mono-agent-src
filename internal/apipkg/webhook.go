@@ -208,6 +208,7 @@ func (r *opRun) runSteps(ctx context.Context, steps []Step, tolerateGone bool) (
 		}
 		r.scope.Pres = append(r.scope.Pres, last)
 		r.scope.Pre = last
+		r.scope.Hdr = hdr // a login step's token header (Form.io x-jwt-token)
 	}
 	return last, hdr, errors.Join(errs...)
 }

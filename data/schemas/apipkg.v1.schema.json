@@ -31,6 +31,27 @@
     "webhook": { "$ref": "#/$defs/webhook" }
   },
   "$defs": {
+    "repeat": {
+      "type": "object",
+      "required": ["until"],
+      "additionalProperties": false,
+      "properties": {
+        "until": { "type": "string", "minLength": 1 },
+        "interval_ms": { "type": "integer" },
+        "max_wait_ms": { "type": "integer" },
+        "max_wait_seconds": { "type": "string" }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "required": ["until"],
+      "additionalProperties": false,
+      "properties": {
+        "until": { "type": "string", "minLength": 1 },
+        "timeout_ms": { "type": "integer" },
+        "timeout_seconds": { "type": "string" }
+      }
+    },
     "stringMap": { "type": "object", "additionalProperties": { "type": "string" } },
     "walkStep": {
       "type": "object",
@@ -272,9 +293,11 @@
             "upload_when": { "type": "string" },
             "fallback_body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none", "ndjson"] },
             "download_base64": { "type": "string" },
+            "download_each": { "type": "string" },
             "property": { "type": "string" },
             "properties": { "type": "string" },
             "upload_text": { "type": "string" },
+            "upload_url": { "type": "string" },
             "upload_session": {
               "type": "object",
               "required": ["create"],
@@ -327,6 +350,7 @@
         "error_when": { "type": "string" },
         "error_message": { "type": "string" },
         "query_style": { "type": "string", "enum": ["", "brackets"] },
+        "stream": { "$ref": "#/$defs/stream" },
         "poll": {
           "type": "object",
           "required": ["method", "path", "until"],
@@ -341,6 +365,7 @@
               "until": { "type": "string" },
               "interval_ms": { "type": "integer" },
               "max_wait_ms": { "type": "integer" },
+              "max_wait_seconds": { "type": "string" },
             "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
             "path": { "type": "string", "minLength": 1 },
             "base_url": { "type": "string" },
@@ -361,6 +386,8 @@
               "auth": { "type": "boolean" },
               "error_when": { "type": "string" },
               "error_message": { "type": "string" },
+              "repeat": { "$ref": "#/$defs/repeat" },
+              "stream": { "$ref": "#/$defs/stream" },
             "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
             "path": { "type": "string", "minLength": 1 },
             "base_url": { "type": "string" },
@@ -380,6 +407,8 @@
               "auth": { "type": "boolean" },
               "error_when": { "type": "string" },
               "error_message": { "type": "string" },
+              "repeat": { "$ref": "#/$defs/repeat" },
+              "stream": { "$ref": "#/$defs/stream" },
             "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
             "path": { "type": "string", "minLength": 1 },
             "base_url": { "type": "string" },
@@ -402,6 +431,8 @@
               "auth": { "type": "boolean" },
               "error_when": { "type": "string" },
               "error_message": { "type": "string" },
+              "repeat": { "$ref": "#/$defs/repeat" },
+              "stream": { "$ref": "#/$defs/stream" },
               "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
               "path": { "type": "string", "minLength": 1 },
               "base_url": { "type": "string" },

@@ -200,6 +200,10 @@ type Env struct {
 	ExtensionInstalled func() (found, checked bool)
 	ExtensionDir       func() string
 	Bridge             func(ctx context.Context) (BridgeInfo, bool)
+	// ClientPairing asks the bridge at baseURL whether it accepts this app's
+	// pairing token: ClientPairingOK, ClientPairingMismatch, or "unknown"
+	// (an older bridge, or no answer). It only asks; it never pairs.
+	ClientPairing func(ctx context.Context, baseURL string) string
 	// BridgeService names the user service that owns the bridge pid, or "".
 	// It is separate from Bridge because resolving it runs systemctl.
 	BridgeService func(ctx context.Context, pid int) string
@@ -266,7 +270,9 @@ type SessionInfo struct {
 
 // BridgeInfo is what the running extension bridge reports about itself.
 type BridgeInfo struct {
-	Addr      string
+	Addr string
+	// URL is the base URL it answered on, for ClientPairing.
+	URL       string
 	Status    string // connected | waiting | unpaired
 	PID       int
 	Version   string

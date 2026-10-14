@@ -84,9 +84,13 @@ var (
 // opening "{{" that still reads like an expression ("{ $json.x }}"): the
 // engine passes such a string through literally.
 func looksLikeBrokenExpression(s string) bool {
-	return !strings.Contains(s, "{{") && strings.Contains(s, "}}") &&
-		(strings.Contains(s, "$json") || strings.Contains(s, "$node"))
+	return !strings.Contains(s, "{{") && brokenExpression.MatchString(s)
 }
+
+// brokenExpression is "{ $json…}}" / "{ $node…}}": an expression that lost
+// one of its opening braces. A "}}" elsewhere (JavaScript or JSON in a Code
+// node) is plain text to the engine and fine.
+var brokenExpression = regexp.MustCompile(`\{\s*\$(json|node)\b[^{}]*\}\}`)
 
 func expressionIssues(nodeID, field, s string, names map[string]bool) []ValidationIssue {
 	var out []ValidationIssue

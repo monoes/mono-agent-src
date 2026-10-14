@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -151,6 +149,9 @@ func run(ctx context.Context, pkg *Package, input workflow.NodeInput, config map
 		}
 		r := &opRun{pkg: pkg, op: op, params: params, item: it, credDef: credDef,
 			scope: Scope{P: params, Cred: cred, Item: it.JSON}}
+		if err := r.fetchUploadURL(ctx); err != nil {
+			return nil, err
+		}
 		if op.Binary != nil && (op.Binary.UploadField != "" || op.Binary.Properties != "") {
 			// Filled for every step: a before step that requests an upload
 			// slot needs the file's name and type (Pushbullet, S3 presigned).
@@ -482,6 +483,9 @@ type response struct {
 
 // send builds and sends one request; non-2xx responses are errors.
 func (r *opRun) send(ctx context.Context, pp pageParams) (*response, error) {
+	if r.op.Stream != nil {
+		return r.sendStream(ctx, pp)
+	}
 	b, err := r.buildRequest(ctx, pp)
 	if err != nil {
 		return nil, err
@@ -525,21 +529,21 @@ func errorBodyEcho(b []byte) string {
 
 // downloadItem stores a file response on the item's binary data.
 func (r *opRun) downloadItem(resp *response) workflow.Item {
-	prop := "data"
-	if t := r.op.Binary.Property; t != "" {
-		if s, err := renderText(t, r.scope); err == nil && s != "" {
-			prop = s
-		}
-	}
-	if f := r.op.Binary.PropertyField; f != "" {
-		if s := stringify(r.params[f]); s != "" {
-			prop = s
-		}
-	}
+	prop := r.downloadProperty()
 	ct := resp.header.Get("Content-Type")
 	name := ""
 	if _, params, err := mime.ParseMediaType(resp.header.Get("Content-Disposition")); err == nil {
 		name = params["filename"]
+	}
+	// An op that uploads nothing may name the file it downloads
+	// (binary.file_name / mime_type) for responses that don't.
+	if b := r.op.Binary; b.UploadField == "" && b.Properties == "" {
+		if name == "" {
+			name, _ = renderText(b.FileName, r.scope)
+		}
+		if ct == "" {
+			ct, _ = renderText(b.MimeType, r.scope)
+		}
 	}
 	return workflow.Item{
 		JSON: map[string]any{
@@ -643,7 +647,7 @@ func (r *opRun) sendStep(ctx context.Context, st Step, sc Scope) (*response, err
 	op := *r.op
 	op.Method, op.Path, op.BaseURL = st.Method, st.Path, st.BaseURL
 	op.Query, op.Body, op.BodyType, op.Headers = st.Query, st.Body, st.BodyType, st.Headers
-	op.Pagination, op.Also, op.Before = nil, nil, nil
+	op.Pagination, op.Also, op.Before, op.Stream = nil, nil, nil, st.Stream
 	if st.ErrorWhen != "" {
 		op.ErrorWhen, op.ErrorMessage = st.ErrorWhen, st.ErrorMessage
 	}
@@ -667,7 +671,11 @@ func (r *opRun) sendStep(ctx context.Context, st Step, sc Scope) (*response, err
 	if st.Auth != nil && !*st.Auth {
 		step.credDef = nil
 	}
-	return step.send(ctx, pageParams{})
+	resp, err := step.send(ctx, pageParams{})
+	if err != nil || st.Repeat == nil {
+		return resp, err
+	}
+	return r.repeatStep(ctx, st, sc, resp)
 }
 
 // shapeOutput applies output.each, output.expand and output.match to a
@@ -866,12 +874,13 @@ func (r *opRun) poll(ctx context.Context, resp *response) (*response, error) {
 	if interval <= 0 {
 		interval = time.Second
 	}
-	maxWait := time.Duration(pl.MaxWaitMs) * time.Millisecond
-	if maxWait <= 0 {
-		maxWait = 5 * time.Minute
+	maxWait, err := r.waitFor(pl.MaxWaitMs, pl.MaxWaitSeconds, r.scope, "poll.max_wait_seconds")
+	if err != nil {
+		return nil, err
 	}
 	deadline := time.Now().Add(maxWait)
 	first := decodeBody(resp.body)
+	r.scope.Main = first // output templates read the first reply as main
 	for {
 		sc := r.scope
 		sc.Main = first
@@ -963,40 +972,6 @@ func schemaCell(v any, f map[string]any, nums bool) any {
 		}
 	}
 	return v
-}
-
-// downloadBase64Item decodes a base64 file from the JSON response
-// (binary.download_base64) onto the item, keeping the JSON as the item.
-func (r *opRun) downloadBase64Item(resp *response) ([]workflow.Item, error) {
-	b := r.op.Binary
-	doc := decodeBody(resp.body)
-	sc := r.scope
-	sc.Res = doc
-	enc, err := renderText(b.DownloadBase64, sc)
-	if err != nil {
-		return nil, r.errf("binary.download_base64: %w", err)
-	}
-	data, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(enc), ""))
-	if err != nil {
-		return nil, r.errf("binary.download_base64: not base64: %w", err)
-	}
-	prop := "data"
-	if f := b.PropertyField; f != "" {
-		if s := stringify(r.params[f]); s != "" {
-			prop = s
-		}
-	}
-	obj, _ := doc.(map[string]any)
-	if obj == nil {
-		obj = map[string]any{}
-	}
-	name, _ := renderText(b.FileName, sc)
-	mt, _ := renderText(b.MimeType, sc)
-	if mt == "" {
-		mt = mime.TypeByExtension(path.Ext(name))
-	}
-	obj["binary_property"], obj["file_name"], obj["mime_type"], obj["size"] = prop, name, mt, len(data)
-	return []workflow.Item{{JSON: obj, Binary: map[string][]byte{prop: data}}}, nil
 }
 
 // clientLimit honours the op's returnAll/limit params on a list the API
