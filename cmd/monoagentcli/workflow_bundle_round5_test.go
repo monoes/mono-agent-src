@@ -68,19 +68,6 @@ func TestWorkflowBundleLocalOnlyPackage(t *testing.T) {
 	}
 }
 
-func TestIsLocalAddress(t *testing.T) {
-	for _, h := range []string{"localhost", "localhost:8099", "127.0.0.1:8099", "[::1]:80", "dev.localhost", "printer.local", "192.168.1.10", "10.0.0.1:3000"} {
-		if !isLocalAddress(h) {
-			t.Errorf("%q should be local", h)
-		}
-	}
-	for _, h := range []string{"example.com", "*.example.com", "8.8.8.8", "localhost.example.com"} {
-		if isLocalAddress(h) {
-			t.Errorf("%q should not be local", h)
-		}
-	}
-}
-
 // N2: a bundled package with the installed id and version but other
 // content is reported "differs" with the review diff and never installed
 // silently; --replace-automations (+ --yes) replaces it after the review.
@@ -154,8 +141,10 @@ func TestWorkflowBundleDiffersSameVersion(t *testing.T) {
 	if got := domains(); got != "example.com" {
 		t.Fatalf("installed copy changed without --replace-automations: %s", got)
 	}
-	// --replace-automations without --yes, non-interactive: refused.
-	if it := item("--replace-automations"); it.Status != "differs" || !strings.Contains(it.Error, "confirmation required") {
+	// --replace-automations without --yes, non-interactive: refused, with
+	// errConfirmationRequired's hint.
+	if it := item("--replace-automations"); it.Status != "differs" || !strings.Contains(it.Error, "confirmation required") ||
+		!strings.HasPrefix(it.Hint, "Add --yes") {
 		t.Fatalf("replace without confirmation = %+v", it)
 	}
 	// Explicit opt-in plus confirmation: replaced, then identical.

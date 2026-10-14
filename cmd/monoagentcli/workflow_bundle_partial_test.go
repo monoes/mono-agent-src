@@ -198,18 +198,6 @@ func TestWorkflowExportMissingWorkflowWritesNothing(t *testing.T) {
 	}
 }
 
-func TestParseAutomationDomains(t *testing.T) {
-	got, err := parseAutomationDomains([]string{"a=x.com, *.x.com", "b=y.org", "a=z.net"})
-	if err != nil || strings.Join(got["a"], ",") != "x.com,*.x.com,z.net" || strings.Join(got["b"], ",") != "y.org" {
-		t.Fatalf("parse = %v, %v", got, err)
-	}
-	for _, bad := range []string{"a", "=x.com", "a="} {
-		if _, err := parseAutomationDomains([]string{bad}); err == nil {
-			t.Fatalf("%q should be rejected", bad)
-		}
-	}
-}
-
 // --use-suggested-domains exports a legacy package with the domains derived
 // from its navigate URLs (the exported copy only), and names them in a
 // notice; a package that opens a local host is never given them.

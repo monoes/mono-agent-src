@@ -31,6 +31,18 @@ func TestValidateWorkflowUpstreamFields(t *testing.T) {
 			valid: true,
 		},
 		{
+			name: "SQL rows are an open key set even when the columns field is set",
+			w: vwf(trig, vnode("q", "db.postgres", "Query", map[string]interface{}{"operation": "insert", "table": "t", "columns": "id,name", "connection_string": "postgres://x"}),
+				vnode("s", "core.set", "Set", map[string]interface{}{"assignments": assigns("a", "{{ $json.anything }}")})),
+			valid: true,
+		},
+		{
+			name: "a list of names in a config-named key is an open set",
+			w: vwf(trig, vnode("g", "core.aggregate", "Agg", map[string]interface{}{"group_by": "a, b"}),
+				vnode("s", "core.set", "Set", map[string]interface{}{"assignments": assigns("a", "{{ $json.a }}{{ $json.b }}")})),
+			valid: true,
+		},
+		{
 			name: "config-named key: <output_key> resolves to the config value or its default",
 			w: vwf(trig, vnode("c", "system.execute_command", "Cmd", map[string]interface{}{"command": "ls"}),
 				vnode("a", "agent.ask", "Ask", map[string]interface{}{"prompt": "hi", "runtime": "claude"}),

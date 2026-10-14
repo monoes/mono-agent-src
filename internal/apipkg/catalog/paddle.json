@@ -9,6 +9,8 @@
     "n8n-nodes-base.paddle"
   ],
   "base_url": "{{ cred.sandbox | eq:'true' | then:'https://sandbox-vendors.paddle.com/api' | default:'https://vendors.paddle.com/api' }}",
+  "error_when": "{{ res.success | ne:'true' }}",
+  "error_message": "{{ res.error.message }}",
   "credentials": [
     {
       "platform": "paddle",

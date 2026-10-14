@@ -228,20 +228,79 @@
       "additionalFields": {
         "recipients": [
           1
-        ]
+        ],
+        "binaryProperties": "data, data2"
       }
     },
     "expect": {
-      "method": "POST",
-      "path": "/api/v3/comments/add",
-      "body": {
-        "thread_id": "4",
-        "content": "yo",
-        "recipients": [
-          1
-        ]
+      "items": 1
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "aGk=",
+          "fileName": "a.txt",
+          "mimeType": "text/plain"
+        },
+        "data2": {
+          "data": "eW8=",
+          "fileName": "b.png",
+          "mimeType": "image/png"
+        }
       }
-    }
+    },
+    "responses": [
+      {
+        "attachment_id": "u1",
+        "file_name": "a.txt"
+      },
+      {
+        "attachment_id": "u2",
+        "file_name": "b.png"
+      },
+      {
+        "id": 9
+      }
+    ],
+    "expect_requests": [
+      {
+        "method": "POST",
+        "path": "/api/v3/attachments/upload",
+        "body": {
+          "attachment_id": "<any>",
+          "file_name": "file:a.txt:hi"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v3/attachments/upload",
+        "body": {
+          "attachment_id": "<any>",
+          "file_name": "file:b.png:yo"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v3/comments/add",
+        "body": {
+          "thread_id": "4",
+          "content": "yo",
+          "recipients": [
+            1
+          ],
+          "attachments": [
+            {
+              "attachment_id": "u1",
+              "file_name": "a.txt"
+            },
+            {
+              "attachment_id": "u2",
+              "file_name": "b.png"
+            }
+          ]
+        }
+      }
+    ]
   },
   "comment.delete": {
     "params": {

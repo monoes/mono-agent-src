@@ -1,21 +1,11 @@
 package main
 
-import (
-	"fmt"
-	"strings"
-
-	"github.com/spf13/cobra"
-)
+import refcli "github.com/monoes/mono-agent/internal/cli/ref"
 
 // ── commands catalogue ────────────────────────────────────────────────────────
 
-type cmdDoc struct {
-	Name     string
-	Short    string
-	Usage    string
-	Flags    string
-	Examples []string
-}
+// cmdDoc is one entry of `ref commands`.
+type cmdDoc = refcli.CmdDoc
 
 var cliDocs = []cmdDoc{
 	{Name: "publication", Short: "List and register published content in the active profile", Usage: "monoagentcli publication list|get|register|stats", Flags: "  list: --search --platform --kind --workflow --agent --since --until --limit --offset\n  register: --stdin-json", Examples: []string{"monoagentcli --json publication list", "monoagentcli --json publication register --stdin-json < publication.json", "monoagentcli ref publication"}},
@@ -361,36 +351,4 @@ generations at once) without the runs interfering.`,
 			"monoagentcli ref crawling",
 		},
 	},
-}
-
-// ── ref commands ──────────────────────────────────────────────────────────────
-
-func refCommandsCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "commands",
-		Short: "List all CLI commands with flags and examples",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("╔══════════════════════════════════════════════════════╗")
-			fmt.Println("║             monoagentcli — CLI command reference           ║")
-			fmt.Println("╚══════════════════════════════════════════════════════╝")
-			fmt.Println()
-			for _, d := range cliDocs {
-				fmt.Printf("  %-22s  %s\n", d.Name, d.Short)
-				fmt.Printf("  Usage: %s\n", d.Usage)
-				if d.Flags != "" {
-					fmt.Println("  Flags:")
-					for _, line := range strings.Split(d.Flags, "\n") {
-						fmt.Println(" " + line)
-					}
-				}
-				if len(d.Examples) > 0 {
-					fmt.Println("  Examples:")
-					for _, ex := range d.Examples {
-						fmt.Printf("    $ %s\n", ex)
-					}
-				}
-				fmt.Println(strings.Repeat("─", 60))
-			}
-		},
-	}
 }

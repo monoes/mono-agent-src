@@ -20,7 +20,8 @@
       "n8n_field_map": {
         "url": "url",
         "username": "username",
-        "password": "password"
+        "password": "password",
+        "allowUnauthorizedCerts": "allow_unauthorized_certs"
       },
       "methods": [
         "basic"
@@ -42,6 +43,11 @@
           "label": "Application password",
           "secret": true,
           "required": true
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {

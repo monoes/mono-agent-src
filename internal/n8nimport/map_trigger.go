@@ -201,13 +201,10 @@ func mapInterval(c *MapContext) Mapping {
 	return schedules([]string{cr})
 }
 
-// mapWebhook keeps n8n's item shape: a core.code step after the trigger
-// wraps the request body as {body, headers, query, params}, so
-// expressions such as $json.body.email keep working.
+// mapWebhook: mono-agent's webhook item carries the request the way n8n's
+// does ({body, query, headers, …}), so expressions such as
+// $json.body.email keep working, and its response modes are n8n's.
 func mapWebhook(c *MapContext) Mapping {
-	c.Ignore("options.rawBody", "options.ignoreBots", "responseCode", "options.responseCode", "responseMode",
-		"responseData", "responseBinaryPropertyName", "options.responseData", "options.responseHeaders",
-		"options.responseContentType", "options.responsePropertyName", "options.noResponseBody")
 	path := strings.Trim(c.Literal("path", ""), "/")
 	if path == "" {
 		path = strings.ToLower(nonIDChars.ReplaceAllString(c.NodeName, "-"))
@@ -227,6 +224,10 @@ func mapWebhook(c *MapContext) Mapping {
 			c.Warn("httpMethod", v, "one trigger listens for one method; only %s is kept", method)
 		}
 	}
+	if method == "HEAD" {
+		c.Warn("httpMethod", method, "mono-agent webhooks do not answer HEAD; it listens for GET")
+		method = "GET"
+	}
 	c.Ignore("multipleMethods")
 	cfg := map[string]interface{}{"path": path, "method": method}
 	switch auth := c.Literal("authentication", "none"); auth {
@@ -238,20 +239,69 @@ func mapWebhook(c *MapContext) Mapping {
 	default:
 		c.Warn("authentication", auth, "has no mono-agent equivalent; the webhook accepts any caller until you set auth_header/auth_token")
 	}
+	c.webhookResponse(cfg)
 	if c.Has("options.ipWhitelist") {
 		c.Unsupported("options.ipWhitelist")
 	}
-	if c.Has("options.binaryPropertyName") || c.Bool("options.binaryData", false) {
-		c.Warn("options.binaryData", nil, "binary uploads are not supported: mono-agent webhooks accept JSON bodies")
-		c.Ignore("options.binaryPropertyName", "options.binaryData")
+	for _, p := range []string{"options.ignoreBots", "options.rawBody"} {
+		if c.Bool(p, false) {
+			c.Unsupported(p)
+		}
 	}
-	c.Note("mono-agent passes the JSON body only: headers, query and params are empty objects")
-	if method == "GET" {
-		c.Note("query string parameters are not passed to the run; send JSON bodies instead")
+	if c.Has("options.onlyRunIf") {
+		c.Unsupported("options.onlyRunIf")
 	}
-	body := "return items.map(function (it) { return { headers: {}, params: {}, query: {}, body: it.json }; });\n"
-	return Mapping{Type: "trigger.webhook", Config: cfg, EntrySuffix: " (receive)",
-		Chain: []ChainStep{{Type: "core.code", Config: codeConfig(wrapCode(body))}}}
+	// Multipart files arrive as the item's binary data without settings.
+	c.Ignore("options.binaryData", "options.binaryPropertyName", "options.oauthClient", "requireExecuteAccess")
+	return Mapping{Type: "trigger.webhook", Config: cfg}
+}
+
+// webhookResponse carries n8n's Respond setting (responseMode,
+// responseCode, responseData) over to the trigger's response options.
+func (c *MapContext) webhookResponse(cfg map[string]interface{}) {
+	switch mode := c.Literal("responseMode", "onReceived"); mode {
+	case "onReceived":
+		code := c.Float("responseCode", 200)
+		if c.Has("options.responseCode") {
+			code = c.Float("options.responseCode.values.responseCode", 200)
+			if c.Literal("options.responseCode.values.responseCode", "") == "customCode" {
+				code = c.Float("options.responseCode.values.customCode", 200)
+			}
+		}
+		if code < 200 || code > 299 {
+			c.Warn("responseCode", code, "mono-agent answers a received request with a 2xx status; 200 is used")
+		} else if code != 200 {
+			cfg["response_code"] = code
+		}
+		if c.Has("options.responseData") || c.Bool("options.noResponseBody", false) {
+			c.Warn("options.responseData", c.Raw("options.responseData"), "the immediate answer is mono-agent's {execution_id} JSON")
+			c.Ignore("options.noResponseBody")
+		}
+	case "lastNode":
+		cfg["response_mode"] = "lastNode"
+		switch data := c.Literal("responseData", "firstEntryJson"); data {
+		case "firstEntryJson", "allEntries", "noData":
+			if data != "firstEntryJson" {
+				cfg["response_data"] = data
+			}
+		default:
+			c.Warn("responseData", data, "only firstEntryJson, allEntries and noData answers are supported; the first item's JSON is sent")
+			c.Ignore("responseBinaryPropertyName")
+		}
+		if c.Has("options.responsePropertyName") {
+			c.Unsupported("options.responsePropertyName")
+		}
+	case "responseNode":
+		cfg["response_mode"] = "responseNode"
+	default:
+		c.Warn("responseMode", mode, "is not supported; the request is answered at once")
+	}
+	c.Ignore("responseCode")
+	for _, p := range []string{"options.responseHeaders", "options.responseContentType"} {
+		if c.Has(p) {
+			c.Warn(p, c.Raw(p), "the trigger's own answer has no custom headers; answer from a Respond to Webhook node (response mode responseNode) instead")
+		}
+	}
 }
 
 // pollTrigger returns the poll schedule of an n8n polling trigger.

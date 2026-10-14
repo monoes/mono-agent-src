@@ -2,7 +2,7 @@
   "$schema": "apipkg.v1",
   "id": "jot_form",
   "title": "Jotform",
-  "description": "Jotform form submissions (trigger only; recorded for the importer)",
+  "description": "Jotform forms, questions and submissions (the n8n Jotform trigger imports as a webhook trigger)",
   "category": "app",
   "docs_url": "https://api.jotform.com/docs/",
   "n8n_types": [],
@@ -45,5 +45,169 @@
       }
     }
   ],
-  "operations": []
+  "operations": [
+    {
+      "resource": "form",
+      "operation": "getAll",
+      "title": "Get many forms",
+      "method": "GET",
+      "path": "/user/forms",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "filter",
+            "orderby"
+          ],
+          "help": "filter: an object of conditions, e.g. {\"created_at:gt\": \"2026-01-01 00:00:00\"} or {\"status\": \"ENABLED\"}. orderby: the field to sort by (created_at, updated_at, id, …)."
+        }
+      ],
+      "query": {
+        "filter": "{{ p.options.filter | fromjson | json }}",
+        "orderby": "{{ p.options.orderby }}"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 1000,
+        "results_path": "content"
+      }
+    },
+    {
+      "resource": "form",
+      "operation": "get",
+      "title": "Get a form",
+      "method": "GET",
+      "path": "/form/{{ p.formId }}",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true,
+          "help": "The number in the form's URL: https://form.jotform.com/<formId>"
+        }
+      ],
+      "output": {
+        "path": "content"
+      }
+    },
+    {
+      "resource": "form",
+      "operation": "getQuestions",
+      "title": "Get the form's questions",
+      "description": "One item per question (qid, name, text, type, order, …), in question order.",
+      "method": "GET",
+      "path": "/form/{{ p.formId }}/questions",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true,
+          "help": "The number in the form's URL: https://form.jotform.com/<formId>"
+        }
+      ],
+      "output": {
+        "from": "{{ res.content | values }}"
+      }
+    },
+    {
+      "resource": "submission",
+      "operation": "getAll",
+      "title": "Get many submissions",
+      "method": "GET",
+      "path": "/form/{{ p.formId }}/submissions",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true,
+          "help": "The number in the form's URL: https://form.jotform.com/<formId>"
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "filter",
+            "orderby"
+          ],
+          "help": "filter: an object of conditions, e.g. {\"created_at:gt\": \"2026-01-01 00:00:00\"} or {\"status\": \"ENABLED\"}. orderby: the field to sort by (created_at, updated_at, id, …)."
+        }
+      ],
+      "query": {
+        "filter": "{{ p.options.filter | fromjson | json }}",
+        "orderby": "{{ p.options.orderby }}"
+      },
+      "pagination": {
+        "type": "offset",
+        "offset_param": "offset",
+        "limit_param": "limit",
+        "page_size": 1000,
+        "results_path": "content"
+      }
+    },
+    {
+      "resource": "submission",
+      "operation": "get",
+      "title": "Get a submission",
+      "method": "GET",
+      "path": "/submission/{{ p.submissionId }}",
+      "fields": [
+        {
+          "key": "submissionId",
+          "label": "Submission ID",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "output": {
+        "path": "content"
+      }
+    }
+  ],
+  "node_type": "app.jot_form",
+  "resources": [
+    {
+      "value": "form",
+      "label": "Form"
+    },
+    {
+      "value": "submission",
+      "label": "Submission"
+    }
+  ]
 }

@@ -145,13 +145,14 @@
             "accessLevel",
             "metadata"
           ],
-          "help": "accessLevel: blob or container for public read access (empty = private). Custom metadata headers are not sent yet."
+          "help": "accessLevel: blob or container for public read access (empty = private); metadata: {\"metadataValues\": [{\"fieldName\": \"owner\", \"fieldValue\": \"ada\"}]} sent as x-ms-meta-* headers."
         }
       ],
       "query": {
         "restype": "container"
       },
       "headers": {
+        "$merge": "{{ p.options.metadata | kv:'fieldName,fieldValue,x-ms-meta-' }}",
         "x-ms-blob-public-access": "{{ p.options.accessLevel }}"
       },
       "output": {
@@ -355,10 +356,11 @@
             "origin",
             "tags"
           ],
-          "help": "Blob properties sent as x-ms-* headers. Custom metadata and tags are not sent yet."
+          "help": "Blob properties sent as x-ms-* headers; metadata ({\"metadataValues\": [{\"fieldName\", \"fieldValue\"}]}) as x-ms-meta-<name>, tags ({\"tagValues\": [{\"tagName\", \"tagValue\"}]}) as x-ms-tags."
         }
       ],
       "headers": {
+        "$merge": "{{ p.options.metadata | kv:'fieldName,fieldValue,x-ms-meta-' }}",
         "x-ms-blob-type": "{{ p.options.blobType | default:'BlockBlob' }}",
         "x-ms-copy-source": "{{ p.from | eq:'url' | then:p.url }}",
         "x-ms-blob-content-disposition": "{{ p.options.filename | default:(p.from | ne:'url' | then:bin.file_name) | prefix:'attachment; filename=\"' | suffix:'\"' }}",
@@ -377,7 +379,8 @@
         "x-ms-immutability-policy-mode": "{{ p.options.immutabilityPolicyMode }}",
         "x-ms-lease-id": "{{ p.options.leaseId }}",
         "x-ms-legal-hold": "{{ p.options.legalHold | string }}",
-        "Origin": "{{ p.options.origin }}"
+        "Origin": "{{ p.options.origin }}",
+        "x-ms-tags": "{{ p.options.tags | kv:'tagName,tagValue' | urlencode }}"
       },
       "binary": {
         "upload_field": "binaryPropertyName",

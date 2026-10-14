@@ -1,0 +1,64 @@
+{
+  "name": "App triggers",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Typeform Trigger",
+      "type": "n8n-nodes-base.typeformTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "webhookId": "5f1c2d9e-7a3b-4c11-9d2e-1b2c3d4e5f60",
+      "parameters": { "formId": "u6nXL7" },
+      "credentials": { "typeformApi": { "id": "1", "name": "Typeform account" } }
+    },
+    {
+      "id": "t2",
+      "name": "Sheets Trigger",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "parameters": {
+        "pollTimes": { "item": [ { "mode": "everyX", "value": 5, "unit": "minutes" } ] },
+        "documentId": { "__rl": true, "value": "1AbCdEf", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Leads" },
+        "event": "rowAdded"
+      },
+      "credentials": { "googleSheetsTriggerOAuth2Api": { "id": "2", "name": "Google" } }
+    },
+    {
+      "id": "t3",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 600],
+      "parameters": {
+        "pollTimes": { "item": [ { "mode": "everyMinute" } ] },
+        "simple": false,
+        "filters": { "labelIds": ["INBOX"], "readStatus": "unread" }
+      },
+      "credentials": { "gmailOAuth2": { "id": "3", "name": "Gmail" } }
+    },
+    {
+      "id": "t4",
+      "name": "Toggl Trigger",
+      "type": "n8n-nodes-base.togglTrigger",
+      "typeVersion": 1,
+      "position": [0, 900],
+      "parameters": { "event": "newTimeEntry" }
+    },
+    {
+      "id": "n1",
+      "name": "Log",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [400, 0],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Typeform Trigger": { "main": [[{ "node": "Log", "type": "main", "index": 0 }]] },
+    "Sheets Trigger": { "main": [[{ "node": "Log", "type": "main", "index": 0 }]] },
+    "Gmail Trigger": { "main": [[{ "node": "Log", "type": "main", "index": 0 }]] },
+    "Toggl Trigger": { "main": [[{ "node": "Log", "type": "main", "index": 0 }]] }
+  }
+}

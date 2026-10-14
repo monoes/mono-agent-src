@@ -54,7 +54,7 @@
       "resource": "",
       "operation": "send",
       "title": "Send an email",
-      "description": "Attachments: the first binary property named in attachments is sent",
+      "description": "Attachments: every binary property named in attachments (comma-separated) is sent",
       "method": "POST",
       "path": "/messages",
       "body_type": "multipart",
@@ -131,7 +131,7 @@
           "label": "Attachment binary properties",
           "type": "text",
           "default": "",
-          "help": "Binary property holding the file to attach"
+          "help": "Binary properties holding the files to attach, comma-separated (e.g. data,data2)"
         }
       ],
       "body": {
@@ -152,10 +152,10 @@
       },
       "binary": {
         "upload_field": "attachments",
-        "property": "{{ p.attachments | split | get:'0' }}",
         "upload_when": "{{ p.attachments }}",
         "multipart_field": "attachment",
-        "fallback_body_type": "multipart"
+        "fallback_body_type": "multipart",
+        "properties": "{{ p.attachments }}"
       }
     }
   ]

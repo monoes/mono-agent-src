@@ -42,7 +42,8 @@
       "domain": "https://tpp.example.com",
       "client_id": "cid",
       "username": "u",
-      "password": "p"
+      "password": "p",
+      "allow_unauthorized_certs": true
     }
   },
   "certificate.delete": {
@@ -127,6 +128,10 @@
           "Issuer",
           "KeySize"
         ]
+      },
+      "filters": {
+        "ValidToGreater": "2024-01-01T00:00:00Z",
+        "ValidToLess": "2024-01-03T00:00:00Z"
       }
     },
     "responses": [
@@ -149,7 +154,9 @@
       "path": "/vedsdk/Certificates",
       "query": {
         "OptionalFields": "Issuer,KeySize",
-        "Limit": "5"
+        "Limit": "5",
+        "ValidToGreater": "2024-01-01T00:00:00Z",
+        "ValidToLess": "2024-01-03T00:00:00Z"
       },
       "items": 2
     },

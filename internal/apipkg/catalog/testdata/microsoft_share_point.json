@@ -60,5 +60,13 @@
   "file.update": {
     "params": { "site": "S1", "file": "F1", "fileName": "b.txt" },
     "expect": { "method": "PATCH", "path": "/v1.0/sites/S1/drive/items/F1", "body": { "name": "b.txt" } }
+  },
+  "file.getChanges": {
+    "params": { "site": "S1", "drive": { "__rl": true, "mode": "id", "value": "b!x1" } },
+    "response": { "value": [
+      { "id": "r", "root": {}, "folder": { "childCount": 2 } },
+      { "id": "f1", "file": { "mimeType": "text/plain" }, "lastModifiedDateTime": "2026-10-13T08:00:00Z" },
+      { "id": "d", "folder": { "childCount": 1 } } ] },
+    "expect": { "method": "GET", "path": "/v1.0/sites/S1/drives/b%21x1/root/delta", "query": {}, "items": 1 }
   }
 }

@@ -66,12 +66,16 @@
           "a": 2
         }
       ],
-      "remove": []
+      "remove": [
+        {
+          "_id": "r1"
+        }
+      ]
     },
     "expect": {
       "method": "GET",
       "path": "/api/v1/subscriptions.get",
-      "items": 2
+      "items": 3
     }
   },
   "subscriptions.read": {

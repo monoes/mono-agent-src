@@ -74,7 +74,8 @@
       "binary": {
         "upload_field": "binaryPropertyName",
         "multipart_field": "file",
-        "file_name": "{{ p.fileName }}"
+        "file_name": "{{ p.fileName }}",
+        "upload_text": "{{ p.binaryData | ne:'true' | then:p.fileContent }}"
       },
       "output": {
         "path": "entries"
@@ -98,7 +99,7 @@
           "label": "File content",
           "type": "textarea",
           "default": "",
-          "help": "Not supported; send the content as a binary property."
+          "help": "Text uploaded as the file when Binary data is off"
         },
         {
           "key": "binaryPropertyName",

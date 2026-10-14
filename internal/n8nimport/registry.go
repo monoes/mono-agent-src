@@ -257,6 +257,17 @@ func mapApp(a AppMapper, c *MapContext) Mapping {
 		}
 		cfg[dst] = c.Value(k)
 	}
+	if id := a.credential(c); id != "" {
+		cfg["credential_id"] = id
+	}
+	return Mapping{Type: nodeType, Config: cfg}
+}
+
+// credential records the connection the package node needs: the platform
+// of the n8n credential the node uses (else the package's first one). It
+// returns the credential_id placeholder, or "" when the package has no
+// credential.
+func (a AppMapper) credential(c *MapContext) string {
 	credTypes := make([]string, 0, len(a.CredentialPlatform))
 	for t := range a.CredentialPlatform {
 		credTypes = append(credTypes, t)
@@ -272,15 +283,17 @@ func mapApp(a AppMapper, c *MapContext) Mapping {
 	if used == "" && len(credTypes) > 0 {
 		used = credTypes[0]
 	}
-	if used != "" {
-		if _, inNode := c.Credentials[used]; inNode {
-			cfg["credential_id"] = c.Credential(a.CredentialPlatform[used], used)
-		} else {
-			cfg["credential_id"] = c.Credential(a.CredentialPlatform[used])
-		}
-		if h := a.CredentialHints[used]; h != "" {
-			c.creds[len(c.creds)-1].Hint = h
-		}
+	if used == "" {
+		return ""
 	}
-	return Mapping{Type: nodeType, Config: cfg}
+	var id string
+	if _, inNode := c.Credentials[used]; inNode {
+		id = c.Credential(a.CredentialPlatform[used], used)
+	} else {
+		id = c.Credential(a.CredentialPlatform[used])
+	}
+	if h := a.CredentialHints[used]; h != "" {
+		c.creds[len(c.creds)-1].Hint = h
+	}
+	return id
 }

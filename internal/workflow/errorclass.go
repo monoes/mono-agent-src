@@ -75,6 +75,9 @@ func ClassifyError(err error) ErrorClass {
 	switch {
 	case errors.Is(err, ErrRejected):
 		return ClassRejected
+	case errors.Is(err, ErrExecutionTimeout):
+		// Before the cancel check: a run its executionTimeout ended is both.
+		return ClassTimeout
 	case errors.Is(err, ErrExecutionCancelled), errors.Is(err, context.Canceled):
 		return ClassCancelled
 	case errors.Is(err, ErrInvalidConfig), errors.Is(err, ErrNodeTypeUnknown),
@@ -85,7 +88,7 @@ func ClassifyError(err error) ErrorClass {
 		return ClassNotSetup
 	case account.IsLoginRequired(err):
 		return ClassAuth
-	case errors.Is(err, ErrExecutionTimeout), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded):
 		return ClassTimeout
 	}
 	return ClassifyMessage(err.Error())

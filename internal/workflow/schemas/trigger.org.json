@@ -7,5 +7,12 @@
     { "key": "role", "label": "Role", "type": "text", "required": false, "help": "Only events from or to this role." },
     { "key": "subject_match", "label": "Subject Contains", "type": "text", "required": false, "help": "Only messages whose subject (or gates whose name) contains this text." },
     { "key": "question_kind", "label": "Question Kind", "type": "select", "required": false, "default": "ask_human", "options": ["ask_human", "approval", "any"], "help": "For question events: ask_human questions only (default), tool approvals only, or both." }
+  ],
+  "outputs": [
+    {
+      "description": "the org event or message that fired the trigger",
+      "key": "<event>",
+      "type": "any"
+    }
   ]
 }

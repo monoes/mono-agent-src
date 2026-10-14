@@ -20,7 +20,7 @@ const (
 func integrationChecks() []Check {
 	return []Check{
 		{ID: CheckClaudeSkills, Group: GroupIntegrations, Title: "Claude Code skills", Features: []string{"Claude Code knows monoagent"}, Run: checkClaudeSkills},
-		{ID: CheckMCP, Group: GroupIntegrations, Title: "MCP in Claude Code", Features: []string{"monoagent tools inside Claude Code"}, Run: checkMCP},
+		{ID: CheckMCP, Group: GroupIntegrations, Title: "MCP in coding agents", Features: []string{"monoagent tools inside Claude Code, Codex, Gemini CLI and opencode"}, Run: checkMCP},
 	}
 }
 
@@ -62,7 +62,10 @@ func checkClaudeSkills(_ context.Context, env *Env) Result {
 	return Result{Status: StatusOK, Summary: "installed and current"}
 }
 
-func checkMCP(_ context.Context, env *Env) Result {
+func checkMCP(ctx context.Context, env *Env) Result {
+	if env.MCPRuntimes != nil {
+		return checkMCPRuntimes(env.MCPRuntimes())
+	}
 	if env.MCPRegistration == nil {
 		return Result{Status: StatusSkip, Summary: "not available"}
 	}
@@ -74,4 +77,44 @@ func checkMCP(_ context.Context, env *Env) Result {
 		return Result{Status: StatusOK, Summary: where}
 	}
 	return Result{Status: StatusInfo, Summary: "not registered (optional)", FixID: FixMCPRegister}
+}
+
+// checkMCPRuntimes reports one row per installed coding agent: registered
+// with --allow-mutations (ok), registered without it (outdated), not
+// registered (optional) or a config that cannot be read. The register fix,
+// which covers every agent, is on the parent row.
+func checkMCPRuntimes(rts []MCPRuntime) Result {
+	if len(rts) == 0 {
+		return Result{Status: StatusSkip, Summary: "no coding agent installed"}
+	}
+	res := Result{}
+	var outdated, missing, broken []string
+	for _, rt := range rts {
+		child := Result{ID: CheckMCP + "." + rowID(rt.ID), Title: rt.Label}
+		switch {
+		case rt.Err != "":
+			broken = append(broken, rt.Label)
+			child.Status, child.Summary = StatusWarn, "config cannot be read: "+rt.Err
+		case rt.Current:
+			child.Status, child.Summary = StatusOK, rt.Where
+		case rt.Registered:
+			outdated = append(outdated, rt.Label)
+			child.Status, child.Summary = StatusWarn, "outdated: registered without --allow-mutations ("+rt.Where+")"
+		default:
+			missing = append(missing, rt.Label)
+			child.Status, child.Summary = StatusInfo, "not registered (optional)"
+		}
+		res.Children = append(res.Children, child)
+	}
+	switch {
+	case len(outdated) > 0:
+		res.Status, res.Summary, res.FixID = StatusWarn, "outdated: "+strings.Join(outdated, ", "), FixMCPRegister
+	case len(broken) > 0:
+		res.Status, res.Summary = StatusWarn, "config cannot be read: "+strings.Join(broken, ", ")
+	case len(missing) > 0:
+		res.Status, res.Summary, res.FixID = StatusInfo, "not registered with "+strings.Join(missing, ", ")+" (optional)", FixMCPRegister
+	default:
+		res.Status, res.Summary = StatusOK, fmt.Sprintf("registered with %d coding agent(s)", len(rts))
+	}
+	return res
 }

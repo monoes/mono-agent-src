@@ -11,10 +11,10 @@
     }
   },
   "container.create": {
-    "params": { "containerCreate": "invoices", "options": { "accessLevel": "blob" } },
+    "params": { "containerCreate": "invoices", "options": { "accessLevel": "blob", "metadata": { "metadataValues": [ { "fieldName": "owner", "fieldValue": "ada" } ] } } },
     "credential": { "account": "acct", "key": "c2VjcmV0LWtleQ==" },
     "response_status": 201,
-    "expect": { "method": "PUT", "path": "/invoices", "query": { "restype": "container" }, "headers": { "x-ms-blob-public-access": "blob" }, "items": 1 }
+    "expect": { "method": "PUT", "path": "/invoices", "query": { "restype": "container" }, "headers": { "x-ms-blob-public-access": "blob", "x-ms-meta-owner": "ada" }, "items": 1 }
   },
   "container.delete": {
     "params": { "container": { "__rl": true, "mode": "list", "value": "invoices" } },
@@ -37,13 +37,13 @@
     }
   },
   "blob.create": {
-    "params": { "container": "invoices", "blobCreate": "a.txt", "options": { "accessTier": "Cool" } },
+    "params": { "container": "invoices", "blobCreate": "a.txt", "options": { "accessTier": "Cool", "metadata": { "metadataValues": [ { "fieldName": "source", "fieldValue": "n8n" } ] }, "tags": { "tagValues": [ { "tagName": "project", "tagValue": "q 3" }, { "tagName": "env", "tagValue": "prod" } ] } } },
     "credential": { "account": "acct", "key": "c2VjcmV0LWtleQ==" },
     "input": { "data": "aGVsbG8=" },
     "response_status": 201,
     "expect": {
       "method": "PUT", "path": "/invoices/a.txt", "body": "hello",
-      "headers": { "x-ms-blob-type": "BlockBlob", "x-ms-access-tier": "Cool", "x-ms-version": "2021-12-02" }
+      "headers": { "x-ms-blob-type": "BlockBlob", "x-ms-access-tier": "Cool", "x-ms-version": "2021-12-02", "x-ms-meta-source": "n8n", "x-ms-tags": "env=prod&project=q%203" }
     }
   },
   "blob.delete": {

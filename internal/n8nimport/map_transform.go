@@ -125,7 +125,13 @@ func mapLimit(c *MapContext) Mapping {
 
 func mapRemoveDuplicates(c *MapContext) Mapping {
 	if c.version(2) {
-		if op := c.Literal("operation", "removeDuplicateInputItems"); op != "removeDuplicateInputItems" {
+		switch op := c.Literal("operation", "removeDuplicateInputItems"); op {
+		case "removeDuplicateInputItems":
+		case "removeItemsSeenInPreviousExecutions", "removeItemsRepeatedWithinPreviousExecutions":
+			return mapRemoveSeenBefore(c)
+		case "clearDeduplicationHistory":
+			return mapClearDedupeHistory(c)
+		default:
 			c.Ignore("logic", "dedupeValue", "incrementalDedupeValue", "dateDedupeValue", "mode", "options.scope", "options.historySize")
 			return c.OperationUnsupported("", op)
 		}
@@ -159,6 +165,56 @@ items.forEach(function (it) {
 });
 return out;
 `, jsQuote(compare), jsValue(fields), jsValue(removeOther)))
+}
+
+// mapRemoveSeenBefore maps "Remove Items Processed in Previous Executions"
+// onto core.remove_duplicates' persisted history. Only n8n's "value is
+// new" logic has a counterpart; the high-water-mark logics (incremental
+// number, later date) do not.
+func mapRemoveSeenBefore(c *MapContext) Mapping {
+	c.Ignore("compare", "fieldsToCompare", "fieldsToExclude", "options.disableDotNotation", "options.removeOtherFields")
+	if logic := c.Literal("logic", "removeItemsWithAlreadySeenKeyValues"); logic != "removeItemsWithAlreadySeenKeyValues" {
+		c.Ignore("dedupeValue", "incrementalDedupeValue", "dateDedupeValue", "options.scope", "options.historySize")
+		return c.OperationUnsupported("", "removeItemsSeenInPreviousExecutions with logic "+logic)
+	}
+	c.Ignore("incrementalDedupeValue", "dateDedupeValue")
+	cfg := map[string]interface{}{"operation": "removeItemsRepeatedWithinPreviousExecutions"}
+	raw, _ := c.Raw("dedupeValue").(string)
+	switch {
+	case raw == "":
+		c.Warn("dedupeValue", nil, "is empty: whole items are compared")
+	case !strings.HasPrefix(raw, "="):
+		c.Warn("dedupeValue", raw, "is plain text, the same value for every item in n8n; mono-agent reads it as a field path")
+		cfg["dedupeValue"] = raw
+	default:
+		cfg["dedupeValue"] = c.Str("dedupeValue", "")
+	}
+	dedupeHistoryOptions(c, cfg)
+	if c.Has("options.historySize") {
+		cfg["historySize"] = c.Float("options.historySize", 10000)
+	}
+	return Mapping{Type: "core.remove_duplicates", Config: cfg}
+}
+
+// mapClearDedupeHistory maps "Clear Deduplication History" (n8n's only
+// mode, cleanDatabase, forgets every stored value of the scope).
+func mapClearDedupeHistory(c *MapContext) Mapping {
+	c.Ignore("compare", "fieldsToCompare", "fieldsToExclude", "logic", "dedupeValue", "incrementalDedupeValue", "dateDedupeValue",
+		"options.disableDotNotation", "options.removeOtherFields", "options.historySize")
+	if mode := c.Literal("mode", "cleanDatabase"); mode != "cleanDatabase" {
+		return c.OperationUnsupported("", "clearDeduplicationHistory with mode "+mode)
+	}
+	cfg := map[string]interface{}{"operation": "clearDeduplicationHistory"}
+	dedupeHistoryOptions(c, cfg)
+	return Mapping{Type: "core.remove_duplicates", Config: cfg}
+}
+
+// dedupeHistoryOptions copies the history scope ("node", n8n's default,
+// or "workflow").
+func dedupeHistoryOptions(c *MapContext, cfg map[string]interface{}) {
+	if scope := c.Literal("options.scope", "node"); scope != "node" {
+		cfg["scope"] = scope
+	}
 }
 
 // mapItemLists dispatches the legacy Item Lists node to the standalone

@@ -1,41 +1,10 @@
 package main
 
 import (
-	"context"
-	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/monoes/mono-agent/internal/agentinstall"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
-
-func TestKiloInstallUsesScanRecipe(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "kilo")
-	entry := monomind.ScanEntry{ID: "kilo", InstallHint: "npm install -g @kilocode/cli",
-		Install: &monomind.InstallRecipe{Kind: "npm", Packages: []string{"@kilocode/cli"}}, LoginHint: sp("kilo auth login")}
-	after := entry
-	after.Installed, after.Binary = true, sp(bin)
-	f := &fakeMachine{binDir: dir, before: monomind.ScanResult{Agents: []monomind.ScanEntry{entry}},
-		after: monomind.ScanResult{Agents: []monomind.ScanEntry{after}}}
-	var lines []string
-	_, err := installRuntime(context.Background(), f.machine(), "kilo", false, yesScript, func(l string) { lines = append(lines, l) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(f.installed) != 1 || f.installed[0].Kind != agentinstall.KindNpm || len(f.installed[0].Packages) != 1 || f.installed[0].Packages[0] != "@kilocode/cli" {
-		t.Fatalf("wrong recipe: %+v", f.installed)
-	}
-	if log := strings.Join(lines, "\n"); !strings.Contains(log, "kilo auth login") {
-		t.Fatalf("missing scan login hint: %s", log)
-	}
-	old := &fakeMachine{before: monomind.ScanResult{Agents: []monomind.ScanEntry{npmEntry("codex", true, "", "")}}}
-	_, err = installRuntime(context.Background(), old.machine(), "kilo", false, yesScript, func(string) {})
-	if exitCodeFor(err) != 2 || len(old.installed) != 0 {
-		t.Fatalf("unknown Kilo installed: %v, %+v", err, old.installed)
-	}
-}
 
 func TestKiloCoderReadinessUsesCapabilities(t *testing.T) {
 	for _, tc := range []struct {

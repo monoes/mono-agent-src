@@ -52,6 +52,55 @@
           "Authorization": "Bearer {{ cred.access_token }}"
         }
       }
+    },
+    {
+      "platform": "twitter_oauth1",
+      "name": "X / Twitter (OAuth 1.0a)",
+      "n8n_credential": "twitterOAuth1Api",
+      "n8n_field_map": {
+        "consumerKey": "consumer_key",
+        "consumerSecret": "consumer_secret"
+      },
+      "methods": [
+        "oauth1"
+      ],
+      "fields": [
+        {
+          "key": "consumer_key",
+          "label": "API key (consumer key)",
+          "required": true,
+          "help": "developer.x.com → your app → Keys and tokens"
+        },
+        {
+          "key": "consumer_secret",
+          "label": "API key secret (consumer secret)",
+          "secret": true,
+          "required": true,
+          "help": "Next to the API key"
+        },
+        {
+          "key": "oauth_token",
+          "label": "Access token",
+          "secret": true,
+          "required": true,
+          "help": "Filled by `monoagentcli connect` (OAuth 1.0a); paste one only when you have it already"
+        },
+        {
+          "key": "oauth_token_secret",
+          "label": "Access token secret",
+          "secret": true,
+          "required": true,
+          "help": "Filled by `monoagentcli connect` together with the access token"
+        }
+      ],
+      "oauth": {
+        "request_token_url": "https://api.x.com/oauth/request_token",
+        "auth_url": "https://api.x.com/oauth/authorize",
+        "token_url": "https://api.x.com/oauth/access_token"
+      },
+      "inject": {
+        "oauth1": {}
+      }
     }
   ],
   "resources": [
@@ -135,7 +184,10 @@
           "type": "text",
           "required": true
         }
-      ]
+      ],
+      "n8n_param_map": {
+        "tweetId": "tweetDeleteId"
+      }
     },
     {
       "resource": "tweet",
@@ -308,7 +360,7 @@
       "method": "POST",
       "path": "/dm_conversations/with/{{ pre.data.id | default:(p.user | rl) }}/messages",
       "before": {
-        "when": "{{ p.user.mode | default:'username' | eq:'username' }}",
+        "when": "{{ p.user.mode | default:(p.user | rl | replace:'@','' | matches:'^[0-9]+$' | then:'id') | default:'username' | eq:'username' }}",
         "method": "GET",
         "path": "/users/by/username/{{ p.user | rl | replace:'@','' }}"
       },
@@ -329,7 +381,7 @@
           "label": "User",
           "type": "text",
           "required": true,
-          "help": "Username, or a user ID in an n8n id-mode locator"
+          "help": "Username, a numeric user ID, or n8n's locator (mode id or username)"
         },
         {
           "key": "text",
@@ -347,7 +399,10 @@
           ],
           "help": "attachments: a media ID"
         }
-      ]
+      ],
+      "n8n_param_map": {
+        "userId": "user"
+      }
     }
   ]
 }

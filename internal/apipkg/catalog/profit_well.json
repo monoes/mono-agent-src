@@ -76,7 +76,7 @@
           "label": "Simplify",
           "type": "boolean",
           "default": true,
-          "help": "Monthly: one object with the latest value of each metric and its date"
+          "help": "Monthly: one object with the latest value of each metric and its date; daily: one item per day with every metric"
         },
         {
           "key": "options",
@@ -98,15 +98,18 @@
       },
       "output": {
         "path": "data",
-        "split": false,
-        "to_when": "{{ p.simple | bool | eq:'true' | then:(p.type | eq:'monthly') }}",
+        "to_when": "{{ p.simple | bool | eq:'true' }}",
         "to": {
-          "$merge": {
-            "$entries": "{{ el | entries }}",
-            "$key": "{{ el.key }}",
-            "$value": "{{ el.value.-1.value }}"
+          "$map": {
+            "$concat": [
+              "{{ p.type | eq:'monthly' | then:(el | values | get:'0' | get:'-1') }}",
+              "{{ p.type | eq:'daily' | then:(el | values | get:'0') }}"
+            ]
           },
-          "date": "{{ res.data | values | get:'0' | get:'-1' | get:'date' }}"
+          "$to": {
+            "date": "{{ el.date }}",
+            "$merge": "{{ res.data | entries | zip:(res.data | entries),'key',(p.type | eq:'monthly' | then:'-1' | default:(idx | string) | prefix:'value.' | suffix:'.value') }}"
+          }
         }
       }
     },

@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/automation"
-	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // bundleTestWorkflow is a workflow using the acme-test automation.
@@ -24,20 +23,6 @@ const bundleTestWorkflow = `{
   ],
   "connections": [{"id": "t-a", "source": "t", "target": "a"}]
 }`
-
-func TestWorkflowAutomationIDs(t *testing.T) {
-	// "foo" is an alias of the package local-foo; "core" is no automation.
-	resolve := func(prefix, _ string) string {
-		return map[string]string{"a": "a", "b": "b", "foo": "local-foo", "local-foo": "local-foo"}[prefix]
-	}
-	got := workflowAutomationIDs([]workflow.WorkflowFileNode{
-		{Type: "b.x"}, {Type: "a.y"}, {Type: "b.z"}, {Type: "nodot"}, {Type: ".x"},
-		{Type: "core.set"}, {Type: "foo.bar"}, {Type: "local-foo.baz"},
-	}, resolve)
-	if strings.Join(got, ",") != "a,b,local-foo" {
-		t.Fatalf("workflowAutomationIDs = %v", got)
-	}
-}
 
 // TestWorkflowBundleRoundTrip: export with --bundle-automations on one
 // machine, import into a fresh HOME: --json without --yes reports the

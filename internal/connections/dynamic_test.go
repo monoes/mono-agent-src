@@ -55,8 +55,8 @@ func TestDynamicPlatformLookups(t *testing.T) {
 		}
 		return false
 	}
-	if !in(All()) || !in(ByCategory("app")) || !in(ByConnectVia("API")) || in(ByCategory("social")) {
-		t.Error("All/ByCategory/ByConnectVia must include run-time platforms")
+	if !in(All()) || !in(ByConnectVia("API")) {
+		t.Error("All/ByConnectVia must include run-time platforms")
 	}
 	if g, _ := Get("github"); g.Name == "" {
 		t.Error("built-ins still resolve")

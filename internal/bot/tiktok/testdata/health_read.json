@@ -1,0 +1,75 @@
+{
+  "videos_round1": {
+    "grid": true,
+    "items": [
+      {"url": "https://www.tiktok.com/@synth.ada/video/111", "id": "111", "thumbnail": "https://cdn.example/111.jpg", "description": "First clip", "views": "1.2K"},
+      {"url": "https://www.tiktok.com/@synth.ada/photo/222", "id": "222", "thumbnail": "", "description": "", "views": "87"}
+    ]
+  },
+  "videos_round2": {
+    "grid": true,
+    "items": [
+      {"url": "https://www.tiktok.com/@synth.ada/video/111", "id": "111", "thumbnail": "https://cdn.example/111.jpg", "description": "First clip", "views": "1.2K"},
+      {"url": "https://www.tiktok.com/@synth.ada/photo/222", "id": "222", "thumbnail": "", "description": "", "views": "87"},
+      {"url": "https://www.tiktok.com/@synth.ada/video/333", "id": "333", "thumbnail": "", "description": "Third", "views": "5"}
+    ]
+  },
+  "videos_none": {"grid": false, "items": []},
+  "videos_empty_grid": {"grid": true, "items": []},
+  "comments": [
+    {"id": "7300000000001", "username": "c.alice", "displayName": "Alice", "text": "Love this", "likes": "12", "liked": false},
+    {"id": "tth-00abc", "username": "c.bob", "displayName": "Bob", "text": "So good", "likes": "0", "liked": true}
+  ],
+  "search": [
+    {"url": "https://www.tiktok.com/@maker.one/video/901", "id": "901", "author": "maker.one", "author_name": "Maker One", "description": "Cats", "thumbnail": "https://cdn.example/901.jpg"},
+    {"url": "https://www.tiktok.com/@maker.two/video/902", "id": "902", "author": "maker.two", "author_name": "", "description": "More cats", "thumbnail": ""}
+  ],
+  "followers_round1": {
+    "open": true,
+    "items": [
+      {"username": "fan.one", "url": "https://www.tiktok.com/@fan.one", "displayName": "Fan One", "followState": "Follow back"},
+      {"username": "fan.two", "url": "https://www.tiktok.com/@fan.two", "displayName": "", "followState": "Friends"}
+    ]
+  },
+  "followers_round2": {
+    "open": true,
+    "items": [
+      {"username": "fan.one", "url": "https://www.tiktok.com/@fan.one", "displayName": "Fan One", "followState": "Follow back"},
+      {"username": "fan.two", "url": "https://www.tiktok.com/@fan.two", "displayName": "", "followState": "Friends"},
+      {"username": "fan.three", "url": "https://www.tiktok.com/@fan.three", "displayName": "Fan Three", "followState": "Following"}
+    ]
+  },
+  "profile_header": {
+    "found": true,
+    "title": "synth.ada",
+    "subtitle": "Ada Synth",
+    "bio": "No bio yet",
+    "following_count": "12",
+    "follower_count": "3.4K",
+    "likes_count": "99K",
+    "profile_picture_url": "https://cdn.example/ada.jpg",
+    "website": "https://www.tiktok.com/link/v2?aid=1&target=ada.example%2Fshop",
+    "is_verified": false
+  },
+  "universal": {
+    "user": {
+      "id": "6800000000000000001",
+      "uniqueId": "synth.ada",
+      "nickname": "Ada S.",
+      "signature": "Makes synthetic clips",
+      "avatarLarger": "https://cdn.example/ada_large.jpg",
+      "verified": true,
+      "privateAccount": false,
+      "language": "en",
+      "isOrganization": 0,
+      "bioLink": {"link": "ada.example"},
+      "commerceUserInfo": {"commerceUser": true, "category": "Education"}
+    },
+    "stats": {"followerCount": 3456, "followingCount": "12", "heartCount": 99000, "videoCount": 42, "friendCount": 3}
+  },
+  "conversations": [
+    {"name": "Alice", "lastMessage": "hey", "time": "2h", "unread": true},
+    {"name": "Bob", "lastMessage": "ok", "time": "1d", "unread": false},
+    {"name": "Cara", "lastMessage": "new", "time": "3d", "unread": true}
+  ]
+}

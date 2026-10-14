@@ -4,6 +4,7 @@
   "fields": [
     {
       "default": 10,
+      "help": "Loop Over Items: the loop output sends one batch per iteration; wire the end of the loop body back into this node to continue. The done output sends all items once after the last batch.",
       "key": "batch_size",
       "label": "Batch Size",
       "max": 1000,

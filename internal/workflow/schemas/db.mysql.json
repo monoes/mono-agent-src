@@ -333,7 +333,7 @@
   "outputs": [
     {
       "description": "query: one item per row, keyed by column",
-      "key": "<columns>",
+      "key": "<row_columns>",
       "type": "any"
     },
     {

@@ -1,0 +1,489 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "google_forms",
+  "node_type": "app.google_forms",
+  "title": "Google Forms",
+  "description": "Read and edit Google Forms, list their responses and manage response watches",
+  "category": "app",
+  "docs_url": "https://developers.google.com/workspace/forms/api/reference/rest",
+  "base_url": "https://forms.googleapis.com/v1",
+  "credentials": [
+    {
+      "platform": "google",
+      "name": "Google (Forms scope group)",
+      "methods": [
+        "oauth"
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      },
+      "reuse_platform": "google",
+      "scope_group": "forms"
+    }
+  ],
+  "resources": [
+    {
+      "value": "form",
+      "label": "Form"
+    },
+    {
+      "value": "response",
+      "label": "Response"
+    },
+    {
+      "value": "watch",
+      "label": "Watch",
+      "description": "Cloud Pub/Sub notifications when a form changes or gets a response"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "form",
+      "operation": "get",
+      "title": "Get a form",
+      "description": "The form's settings, items and questions.",
+      "method": "GET",
+      "path": "/forms/{{ p.formId | rl }}",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true,
+          "help": "The ID in the form's edit URL: https://docs.google.com/forms/d/<formId>/edit"
+        }
+      ]
+    },
+    {
+      "resource": "form",
+      "operation": "create",
+      "title": "Create a form",
+      "description": "Creates an empty form with a title. Add questions with Add an item. Needs the formsedit scope group: monoagentcli connect google --scopes forms,formsedit.",
+      "method": "POST",
+      "path": "/forms",
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true,
+          "help": "Shown to people filling in the form."
+        },
+        {
+          "key": "documentTitle",
+          "label": "Document title",
+          "type": "text",
+          "help": "The file name in Google Drive. Defaults to the title."
+        }
+      ],
+      "body": {
+        "info": {
+          "title": "{{ p.title }}",
+          "documentTitle": "{{ p.documentTitle }}"
+        }
+      }
+    },
+    {
+      "resource": "form",
+      "operation": "updateInfo",
+      "title": "Update title and description",
+      "description": "Changes the form's title and/or description. Needs the formsedit scope group: monoagentcli connect google --scopes forms,formsedit.",
+      "method": "POST",
+      "path": "/forms/{{ p.formId | rl }}:batchUpdate",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "updateFields",
+          "label": "Update fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "title",
+            "description"
+          ],
+          "help": "title and/or description; only the keys you set are changed."
+        },
+        {
+          "key": "includeFormInResponse",
+          "label": "Return the updated form",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "body": {
+        "includeFormInResponse": "{{ p.includeFormInResponse }}",
+        "requests": [
+          {
+            "updateFormInfo": {
+              "info": {
+                "title": "{{ p.updateFields.title }}",
+                "description": "{{ p.updateFields.description }}"
+              },
+              "updateMask": {
+                "$join": [
+                  "{{ p.updateFields.title | then:'title' }}",
+                  "{{ p.updateFields.description | then:'description' }}"
+                ],
+                "$sep": ","
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "resource": "form",
+      "operation": "addItem",
+      "title": "Add an item",
+      "description": "Adds a question (or a text block) at a position. Needs the formsedit scope group: monoagentcli connect google --scopes forms,formsedit.",
+      "method": "POST",
+      "path": "/forms/{{ p.formId | rl }}:batchUpdate",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "title",
+          "label": "Question",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "questionType",
+          "label": "Type",
+          "type": "select",
+          "default": "TEXT",
+          "options": [
+            "TEXT",
+            "PARAGRAPH",
+            "RADIO",
+            "CHECKBOX",
+            "DROP_DOWN",
+            "SCALE",
+            "DATE",
+            "TIME",
+            "TEXT_ITEM"
+          ],
+          "help": "TEXT: short answer. PARAGRAPH: long answer. RADIO/CHECKBOX/DROP_DOWN: choices. SCALE: linear scale. TEXT_ITEM: a text block, not a question."
+        },
+        {
+          "key": "index",
+          "label": "Position",
+          "type": "number",
+          "default": 0,
+          "min": 0,
+          "help": "0 puts the item first."
+        },
+        {
+          "key": "additionalFields",
+          "label": "Additional fields",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "description",
+            "required",
+            "choices",
+            "shuffle",
+            "scaleLow",
+            "scaleHigh",
+            "lowLabel",
+            "highLabel",
+            "includeTime",
+            "includeYear"
+          ],
+          "help": "choices: a list or comma-separated text (RADIO/CHECKBOX/DROP_DOWN). scaleLow (0 or 1) / scaleHigh (2-10), lowLabel, highLabel: SCALE. includeTime, includeYear: DATE."
+        }
+      ],
+      "body": {
+        "requests": [
+          {
+            "createItem": {
+              "item": {
+                "title": "{{ p.title }}",
+                "description": "{{ p.additionalFields.description }}",
+                "textItem": {
+                  "$when": "{{ p.questionType | eq:'TEXT_ITEM' }}"
+                },
+                "questionItem": {
+                  "$when": "{{ p.questionType | ne:'TEXT_ITEM' }}",
+                  "question": {
+                    "required": "{{ p.additionalFields.required | bool }}",
+                    "textQuestion": {
+                      "$when": "{{ p.questionType | in:'TEXT,PARAGRAPH' }}",
+                      "paragraph": "{{ p.questionType | eq:'PARAGRAPH' }}"
+                    },
+                    "choiceQuestion": {
+                      "$when": "{{ p.questionType | in:'RADIO,CHECKBOX,DROP_DOWN' }}",
+                      "type": "{{ p.questionType }}",
+                      "shuffle": "{{ p.additionalFields.shuffle | bool }}",
+                      "options": {
+                        "$map": "{{ p.additionalFields.choices | split }}",
+                        "$to": {
+                          "value": "{{ el }}"
+                        }
+                      }
+                    },
+                    "scaleQuestion": {
+                      "$when": "{{ p.questionType | eq:'SCALE' }}",
+                      "low": "{{ p.additionalFields.scaleLow | default:1 | int }}",
+                      "high": "{{ p.additionalFields.scaleHigh | default:5 | int }}",
+                      "lowLabel": "{{ p.additionalFields.lowLabel }}",
+                      "highLabel": "{{ p.additionalFields.highLabel }}"
+                    },
+                    "dateQuestion": {
+                      "$when": "{{ p.questionType | eq:'DATE' }}",
+                      "includeTime": "{{ p.additionalFields.includeTime | bool }}",
+                      "includeYear": "{{ p.additionalFields.includeYear | bool }}"
+                    },
+                    "timeQuestion": {
+                      "$when": "{{ p.questionType | eq:'TIME' }}"
+                    }
+                  }
+                }
+              },
+              "location": {
+                "index": "{{ p.index | int }}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "resource": "form",
+      "operation": "batchUpdate",
+      "title": "Batch update",
+      "description": "Sends your own list of update requests (createItem, updateItem, moveItem, deleteItem, updateSettings, …). Needs the formsedit scope group: monoagentcli connect google --scopes forms,formsedit.",
+      "method": "POST",
+      "path": "/forms/{{ p.formId | rl }}:batchUpdate",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "requests",
+          "label": "Requests",
+          "type": "json",
+          "required": true,
+          "help": "A list of Forms API Request objects, e.g. [{\"deleteItem\": {\"location\": {\"index\": 0}}}]."
+        },
+        {
+          "key": "includeFormInResponse",
+          "label": "Return the updated form",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "requiredRevisionId",
+          "label": "Required revision ID",
+          "type": "text",
+          "help": "Fail unless the form is still at this revision."
+        }
+      ],
+      "body": {
+        "includeFormInResponse": "{{ p.includeFormInResponse }}",
+        "requests": "{{ p.requests | fromjson }}",
+        "writeControl": {
+          "requiredRevisionId": "{{ p.requiredRevisionId }}"
+        }
+      }
+    },
+    {
+      "resource": "response",
+      "operation": "getAll",
+      "title": "Get many responses",
+      "method": "GET",
+      "path": "/forms/{{ p.formId | rl }}/responses",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "submittedAfter"
+          ],
+          "help": "submittedAfter: only responses submitted (or last edited) after this date-time."
+        }
+      ],
+      "query": {
+        "filter": "{{ p.filters.submittedAfter | date:'YYYY-MM-DDTHH:mm:ssZ' | prefix:'timestamp > ' }}"
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "pageToken",
+        "cursor_path": "nextPageToken",
+        "limit_param": "pageSize",
+        "page_size": 5000,
+        "results_path": "responses"
+      }
+    },
+    {
+      "resource": "response",
+      "operation": "get",
+      "title": "Get a response",
+      "method": "GET",
+      "path": "/forms/{{ p.formId | rl }}/responses/{{ p.responseId }}",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "responseId",
+          "label": "Response ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "watch",
+      "operation": "create",
+      "title": "Create a watch",
+      "description": "Sends a Cloud Pub/Sub message on every new response (or form change). Watches expire after 7 days unless renewed.",
+      "method": "POST",
+      "path": "/forms/{{ p.formId | rl }}/watches",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "eventType",
+          "label": "Event",
+          "type": "select",
+          "default": "RESPONSES",
+          "options": [
+            "RESPONSES",
+            "SCHEMA"
+          ],
+          "help": "RESPONSES: a response was submitted. SCHEMA: the form's content or settings changed."
+        },
+        {
+          "key": "topicName",
+          "label": "Pub/Sub topic",
+          "type": "text",
+          "required": true,
+          "placeholder": "projects/my-project/topics/forms",
+          "help": "Full topic name; forms-notifications@system.gserviceaccount.com needs publish rights on it."
+        },
+        {
+          "key": "watchId",
+          "label": "Watch ID",
+          "type": "text",
+          "help": "Optional id of your own (4-63 lowercase letters, digits or dashes)."
+        }
+      ],
+      "body": {
+        "watch": {
+          "eventType": "{{ p.eventType }}",
+          "target": {
+            "topic": {
+              "topicName": "{{ p.topicName }}"
+            }
+          }
+        },
+        "watchId": "{{ p.watchId }}"
+      }
+    },
+    {
+      "resource": "watch",
+      "operation": "getAll",
+      "title": "List watches",
+      "description": "The watches this project created on the form.",
+      "method": "GET",
+      "path": "/forms/{{ p.formId | rl }}/watches",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "output": {
+        "path": "watches"
+      }
+    },
+    {
+      "resource": "watch",
+      "operation": "renew",
+      "title": "Renew a watch",
+      "description": "Extends the watch for another 7 days.",
+      "method": "POST",
+      "path": "/forms/{{ p.formId | rl }}/watches/{{ p.watchId }}:renew",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "watchId",
+          "label": "Watch ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "resource": "watch",
+      "operation": "delete",
+      "title": "Delete a watch",
+      "method": "DELETE",
+      "path": "/forms/{{ p.formId | rl }}/watches/{{ p.watchId }}",
+      "fields": [
+        {
+          "key": "formId",
+          "label": "Form ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "watchId",
+          "label": "Watch ID",
+          "type": "text",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

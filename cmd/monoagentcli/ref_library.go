@@ -24,10 +24,11 @@ func init() {
 		cmdDoc{
 			Name:  "library list",
 			Short: "Browse monoes.me: official, public (community) and your own items (needs a login; exit 4 without)",
-			Usage: "monoagentcli library list [--kind workflow|automation|org] [--scope public|official|mine] [--search q] [--tag t]",
+			Usage: "monoagentcli library list [--kind workflow|automation|org|api] [--scope public|official|mine] [--search q] [--tag t]",
 			Examples: []string{
 				"monoagentcli library login",
 				"monoagentcli library list --kind automation --scope official",
+				"monoagentcli library list --kind api",
 				"monoagentcli --json library list --scope mine",
 				"monoagentcli library show automation/instagram",
 				"monoagentcli library installed",
@@ -35,23 +36,26 @@ func init() {
 		},
 		cmdDoc{
 			Name:  "library install",
-			Short: "Download a library item, verify its sha256 and install it (needs a login; exit 4 without)",
-			Usage: "monoagentcli library install <workflow|automation|org> <id|slug> [--yes] [--dry-run] [--replace] [--rename <name>]",
+			Short: "Download a library item, verify its sha256 and install it (needs a login; exit 4 without). An API package is validated, then written to ~/.monoagent/apipkgs/<id>/package.json: its app.<id> node is available to the next command",
+			Usage: "monoagentcli library install <workflow|automation|org|api> <id|slug> [--yes] [--dry-run] [--replace] [--rename <name>]",
 			Examples: []string{
 				"monoagentcli library install automation hackernews",
 				"monoagentcli library install workflow gemini-generate-one-image",
 				"monoagentcli library install org research-team --rename research-2",
+				"monoagentcli library install api trello",
 				"monoagentcli library update --dry-run",
 			},
 		},
 		cmdDoc{
 			Name:  "library publish",
-			Short: "Upload a workflow, automation or org to your monoes.me library (private unless --public)",
-			Usage: "monoagentcli library publish <workflow|automation|org> <local id> [--public] [--name] [--description] [--tags a,b] [--version v] [--no-bundle] [--new]",
+			Short: "Upload a workflow, automation, org or API package to your monoes.me library (private unless --public)",
+			Usage: "monoagentcli library publish <workflow|automation|org|api> <local id | API package file> [--public] [--name] [--description] [--tags a,b] [--version v] [--no-bundle] [--new]",
 			Examples: []string{
 				"monoagentcli library publish workflow 3f1c… --public --tags email,crm",
 				"monoagentcli library publish org growth-team",
 				"monoagentcli library publish automation my-site",
+				"monoagentcli library publish api acme            # the installed ~/.monoagent/apipkgs/acme",
+				"monoagentcli library publish api ./acme/package.json --public",
 			},
 		},
 	)

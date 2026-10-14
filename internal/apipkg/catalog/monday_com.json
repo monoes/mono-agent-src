@@ -10,6 +10,8 @@
     "n8n-nodes-base.mondayCom"
   ],
   "base_url": "https://api.monday.com",
+  "error_when": "{{ res.errors | len | then:(res.data | then:'' | default:true) }}",
+  "error_message": "{{ res.errors | pluck:'message' | join:'; ' }}",
   "headers": {
     "API-Version": "2026-07"
   },

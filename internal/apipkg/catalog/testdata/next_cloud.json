@@ -160,12 +160,51 @@
       "path": "/remote.php/webdav/docs",
       "headers": {
         "Depth": "1"
-      }
+      },
+      "items": 2
     },
     "credential": {
       "web_dav_url": "https://cloud.example.com/remote.php/webdav",
       "user": "u",
       "password": "p"
+    },
+    "response": {
+      "multistatus": {
+        "response": [
+          {
+            "href": "/remote.php/webdav/docs/",
+            "propstat": {
+              "prop": {
+                "resourcetype": {
+                  "collection": ""
+                },
+                "getetag": "\"d1\""
+              }
+            }
+          },
+          {
+            "href": "/remote.php/webdav/docs/a.txt",
+            "propstat": {
+              "prop": {
+                "resourcetype": "",
+                "getetag": "\"e1\"",
+                "getcontentlength": "3"
+              }
+            }
+          },
+          {
+            "href": "/remote.php/webdav/docs/sub/",
+            "propstat": {
+              "prop": {
+                "resourcetype": {
+                  "collection": ""
+                },
+                "getetag": "\"e2\""
+              }
+            }
+          }
+        ]
+      }
     }
   },
   "folder.move": {

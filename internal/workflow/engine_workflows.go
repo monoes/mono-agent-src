@@ -260,15 +260,6 @@ func (e *WorkflowEngine) GetWorkflow(ctx context.Context, id string) (*Workflow,
 	return wf, nil
 }
 
-// ListWorkflows returns all workflows.
-func (e *WorkflowEngine) ListWorkflows(ctx context.Context) ([]Workflow, error) {
-	workflows, err := e.store.ListWorkflows(ctx, e.profileID)
-	if err != nil {
-		return nil, fmt.Errorf("engine: list workflows: %w", err)
-	}
-	return workflows, nil
-}
-
 // GetExecution loads a workflow execution with all node results.
 func (e *WorkflowEngine) GetExecution(ctx context.Context, id string) (*WorkflowExecution, error) {
 	exec, err := e.store.GetExecution(ctx, id)
@@ -279,13 +270,4 @@ func (e *WorkflowEngine) GetExecution(ctx context.Context, id string) (*Workflow
 		return nil, fmt.Errorf("engine: get execution: %w", ErrExecutionNotFound)
 	}
 	return exec, nil
-}
-
-// ListExecutions returns recent executions for a workflow.
-func (e *WorkflowEngine) ListExecutions(ctx context.Context, workflowID string, limit int) ([]WorkflowExecution, error) {
-	executions, err := e.store.ListExecutions(ctx, workflowID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("engine: list executions: %w", err)
-	}
-	return executions, nil
 }

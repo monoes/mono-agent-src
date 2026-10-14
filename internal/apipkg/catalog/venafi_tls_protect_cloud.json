@@ -221,11 +221,11 @@
     {
       "resource": "certificate",
       "operation": "download",
-      "title": "Download a certificate",
-      "method": "GET",
-      "path": "/outagedetection/v1/certificates/{{ p.certificateId }}/contents",
+      "title": "Download a certificate or keystore",
+      "method": "{{ p.downloadItem | eq:'keystore' | then:'POST' | default:'GET' }}",
+      "path": "/outagedetection/v1/certificates/{{ p.certificateId }}/{{ p.downloadItem | eq:'keystore' | then:'keystore' | default:'contents' }}",
       "query": {
-        "$merge": "{{ p.options }}"
+        "$merge": "{{ p.downloadItem | ne:'keystore' | then:p.options }}"
       },
       "headers": {
         "Accept": "*/*"
@@ -248,9 +248,39 @@
           "type": "select",
           "default": "certificate",
           "options": [
-            "certificate"
-          ],
-          "help": "Keystore downloads are not supported yet"
+            "certificate",
+            "keystore"
+          ]
+        },
+        {
+          "key": "keystoreType",
+          "label": "Keystore type",
+          "type": "select",
+          "default": "PEM",
+          "options": [
+            "JKS",
+            "PKCS12",
+            "PEM"
+          ]
+        },
+        {
+          "key": "certificateLabel",
+          "label": "Certificate label",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "privateKeyPassphrase",
+          "label": "Private key passphrase",
+          "type": "password",
+          "default": ""
+        },
+        {
+          "key": "keystorePassphrase",
+          "label": "Keystore passphrase",
+          "type": "password",
+          "default": "",
+          "help": "JKS keystores only."
         },
         {
           "key": "binaryProperty",
@@ -270,7 +300,27 @@
           ],
           "help": "chainOrder: EE_FIRST, EE_ONLY or ROOT_FIRST; format: PEM or DER"
         }
-      ]
+      ],
+      "description": "A keystore download first reads the certificate's encryption key and seals the passphrases with it, as Venafi requires.",
+      "before": [
+        {
+          "when": "{{ p.downloadItem | eq:'keystore' }}",
+          "method": "GET",
+          "path": "/outagedetection/v1/certificates/{{ p.certificateId }}"
+        },
+        {
+          "when": "{{ p.downloadItem | eq:'keystore' }}",
+          "method": "GET",
+          "path": "/v1/edgeencryptionkeys/{{ pres.0.dekHash }}"
+        }
+      ],
+      "body": {
+        "$when": "{{ p.downloadItem | eq:'keystore' }}",
+        "exportFormat": "{{ p.keystoreType }}",
+        "certificateLabel": "{{ p.certificateLabel }}",
+        "encryptedPrivateKeyPassphrase": "{{ p.privateKeyPassphrase | sealbox:pres.1.key }}",
+        "encryptedKeystorePassphrase": "{{ p.keystoreType | eq:'JKS' | then:(p.keystorePassphrase | sealbox:pres.1.key) }}"
+      }
     },
     {
       "resource": "certificate",

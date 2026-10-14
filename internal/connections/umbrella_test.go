@@ -189,7 +189,8 @@ func TestCheckCredentialScopes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "monoagentcli connect microsoft --scopes mail,teams") {
 		t.Errorf("missing teams error = %v", err)
 	}
-	full := map[string]interface{}{"oauth_platform": "microsoft", "scope": strings.Join(Registry["microsoft"].OAuth.Scopes, " ")}
+	all, _ := ResolveScopes("microsoft", []string{"all"})
+	full := map[string]interface{}{"oauth_platform": "microsoft", "scope": strings.Join(all, " ")}
 	for _, g := range ScopeGroups("microsoft") {
 		if err := CheckCredentialScopes(full, g.Name); err != nil {
 			t.Errorf("full microsoft grant rejected for %s: %v", g.Name, err)

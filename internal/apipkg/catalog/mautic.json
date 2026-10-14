@@ -54,12 +54,13 @@
     },
     {
       "platform": "mautic_oauth",
-      "name": "Mautic (OAuth2 token)",
+      "name": "Mautic (OAuth2)",
       "n8n_credential": "mauticOAuth2Api",
       "n8n_field_map": {
         "url": "url"
       },
       "methods": [
+        "oauth",
         "bearer"
       ],
       "fields": [
@@ -73,13 +74,20 @@
           "label": "Access token",
           "secret": true,
           "required": true,
-          "help": "An OAuth2 access token issued by your Mautic instance"
+          "help": "Filled by `monoagentcli connect mautic_oauth`; or paste a token issued by your Mautic instance"
         }
       ],
       "inject": {
         "headers": {
           "Authorization": "Bearer {{ cred.access_token }}"
         }
+      },
+      "oauth": {
+        "auth_url": "{{ cred.url | re:'^(.*?)/*$' }}/oauth/v2/authorize",
+        "token_url": "{{ cred.url | re:'^(.*?)/*$' }}/oauth/v2/token",
+        "connect_fields": [
+          "url"
+        ]
       }
     }
   ],
@@ -445,7 +453,9 @@
         "path": "contacts",
         "to": "{{ el.fields.all }}",
         "to_when": "{{ p.options.rawData | eq:'false' }}"
-      }
+      },
+      "error_when": "{{ res.errors }}",
+      "error_message": "{{ res.errors | pluck:'message' | join:'; ' }}"
     },
     {
       "resource": "contact",
@@ -752,7 +762,9 @@
         "path": "companies",
         "to": "{{ el.fields.all }}",
         "to_when": "{{ p.simple }}"
-      }
+      },
+      "error_when": "{{ res.errors }}",
+      "error_message": "{{ res.errors | pluck:'message' | join:'; ' }}"
     },
     {
       "resource": "company",

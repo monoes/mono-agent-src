@@ -1,0 +1,54 @@
+{
+  "credential_platform": "amqp",
+  "fields": [
+    {
+      "key": "sink",
+      "label": "Queue / Topic",
+      "type": "text",
+      "required": true,
+      "placeholder": "topic://orders"
+    },
+    {
+      "key": "client_name",
+      "label": "Client Name",
+      "type": "text",
+      "required": false,
+      "help": "Container ID used when Container ID is empty."
+    },
+    {
+      "key": "container_id",
+      "label": "Container ID",
+      "type": "text",
+      "required": false
+    },
+    {
+      "key": "subscription",
+      "label": "Subscription",
+      "type": "text",
+      "required": false,
+      "help": "A durable subscription name; messages wait while the trigger is stopped."
+    },
+    {
+      "key": "pull_messages_number",
+      "label": "Messages to Pull",
+      "type": "number",
+      "required": false,
+      "default": 100,
+      "min": 1
+    },
+    {
+      "key": "json_parse_body",
+      "label": "Parse Body as JSON",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "only_body",
+      "label": "Only Body",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    }
+  ]
+}

@@ -9,19 +9,29 @@
     "n8n-nodes-base.zohoCrm"
   ],
   "base_url": "{{ cred.api_domain | default:'https://www.zohoapis.com' }}/crm/v2",
+  "error_when": "{{ res.data.0.status | eq:'error' }}",
+  "error_message": "{{ res.data.0.message }}",
   "credentials": [
     {
       "platform": "zoho_crm",
       "name": "Zoho CRM",
       "n8n_credential": "zohoOAuth2Api",
-      "n8n_field_map": {},
+      "n8n_field_map": {
+        "accessTokenUrl": "access_token_url"
+      },
       "methods": [
         "oauth"
       ],
-      "fields": [],
+      "fields": [
+        {
+          "key": "access_token_url",
+          "label": "Accounts token URL",
+          "help": "Your Zoho data centre's token URL, e.g. https://accounts.zoho.eu/oauth/v2/token (default .com)"
+        }
+      ],
       "oauth": {
-        "auth_url": "https://accounts.zoho.com/oauth/v2/auth",
-        "token_url": "https://accounts.zoho.com/oauth/v2/token",
+        "auth_url": "{{ cred.access_token_url | default:'https://accounts.zoho.com/oauth/v2/token' | replace:'/oauth/v2/token','/oauth/v2/auth' }}",
+        "token_url": "{{ cred.access_token_url | default:'https://accounts.zoho.com/oauth/v2/token' }}",
         "scopes": [],
         "extra_params": {
           "scope": "ZohoCRM.modules.ALL,ZohoCRM.settings.all,ZohoCRM.users.all",
@@ -30,6 +40,9 @@
         },
         "token_fields": [
           "api_domain"
+        ],
+        "connect_fields": [
+          "access_token_url"
         ]
       },
       "inject": {

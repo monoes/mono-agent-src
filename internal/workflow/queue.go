@@ -289,9 +289,6 @@ func (q *ExecutionQueue) RunningIDs() []string {
 	return ids
 }
 
-// Cancel signals cancellation for a specific execution.
-func (q *ExecutionQueue) Cancel(executionID string) { q.CancelWithCause(executionID, nil) }
-
 // CancelWithCause cancels an execution and records why in its context, where
 // context.Cause reads it. A nil cause is a plain cancel.
 func (q *ExecutionQueue) CancelWithCause(executionID string, cause error) {
@@ -303,9 +300,4 @@ func (q *ExecutionQueue) CancelWithCause(executionID string, cause error) {
 				Msg("execution cancellation signalled")
 		}
 	}
-}
-
-// Len returns the current number of items waiting in the queue.
-func (q *ExecutionQueue) Len() int {
-	return len(q.ch)
 }

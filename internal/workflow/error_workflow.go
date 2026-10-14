@@ -26,7 +26,13 @@ func (e *WorkflowEngine) afterExecutionFinished(log zerolog.Logger, executionID,
 	case StatusRejected:
 		setExecutionErrorClass(ctx, db, executionID, ClassRejected, true)
 	case "CANCELLED":
-		setExecutionErrorClass(ctx, db, executionID, ClassCancelled, false)
+		// A run its executionTimeout ended is a timeout, whatever class the
+		// node interrupted by it recorded.
+		if ClassifyMessage(errMsg) == ClassTimeout {
+			setExecutionErrorClass(ctx, db, executionID, ClassTimeout, true)
+		} else {
+			setExecutionErrorClass(ctx, db, executionID, ClassCancelled, false)
+		}
 	case "FAILED":
 		setExecutionErrorClass(ctx, db, executionID, ClassifyMessage(errMsg), false)
 		if id, err := e.fireErrorWorkflow(ctx, executionID, errMsg); err != nil {

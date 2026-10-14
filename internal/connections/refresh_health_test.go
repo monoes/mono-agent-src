@@ -505,14 +505,14 @@ func TestHealthManagerRefresh(t *testing.T) {
 		t.Errorf("missing connection err = %v", err)
 	}
 	apiKey := &Connection{Platform: "github", Method: MethodAPIKey, Data: map[string]interface{}{"token": "t"}}
-	if err := mgr.Save(ctx, apiKey); err != nil {
+	if err := mgr.store.Save(ctx, apiKey); err != nil {
 		t.Fatal(err)
 	}
 	if err := mgr.Refresh(ctx, apiKey.ID, time.Second); err == nil || !strings.Contains(err.Error(), "only OAuth") {
 		t.Errorf("non-OAuth refresh err = %v", err)
 	}
 	unknown := &Connection{Platform: "health-gone", Method: MethodOAuth, Data: map[string]interface{}{"refresh_token": "r"}}
-	if err := mgr.Save(ctx, unknown); err != nil {
+	if err := mgr.store.Save(ctx, unknown); err != nil {
 		t.Fatal(err)
 	}
 	if err := mgr.Refresh(ctx, unknown.ID, time.Second); err == nil || !strings.Contains(err.Error(), "unknown platform") {
@@ -520,7 +520,7 @@ func TestHealthManagerRefresh(t *testing.T) {
 	}
 
 	c := &Connection{Platform: "health-mgr", Method: MethodOAuth, Label: "before", Status: "expired", Data: map[string]interface{}{"refresh_token": "r0"}}
-	if err := mgr.Save(ctx, c); err != nil {
+	if err := mgr.store.Save(ctx, c); err != nil {
 		t.Fatal(err)
 	}
 	if err := mgr.Refresh(ctx, c.ID, time.Second); err != nil {
@@ -538,8 +538,8 @@ func TestHealthManagerRefresh(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 		return true
 	}
-	if err := mgr.RefreshToken(ctx, got); err == nil {
-		t.Error("Manager.RefreshToken should surface the provider's rejection")
+	if err := mgr.store.RefreshToken(ctx, got); err == nil {
+		t.Error("RefreshToken should surface the provider's rejection")
 	}
 }
 
@@ -662,24 +662,6 @@ func TestHealthRegistryLookups(t *testing.T) {
 			t.Errorf("duplicate platform %s", p.ID)
 		}
 		seen[p.ID] = true
-	}
-	var cat string
-	for _, p := range all {
-		if p.Category != "" {
-			cat = p.Category
-			break
-		}
-	}
-	if cat == "" {
-		t.Skip("no categorised platforms")
-	}
-	for _, p := range ByCategory(cat) {
-		if p.Category != cat {
-			t.Errorf("ByCategory(%q) returned %s in %q", cat, p.ID, p.Category)
-		}
-	}
-	if len(ByCategory("health-no-such-category")) != 0 {
-		t.Error("unknown category should be empty")
 	}
 }
 

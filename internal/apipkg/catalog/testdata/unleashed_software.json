@@ -1,0 +1,46 @@
+{
+  "salesOrder.getAll": {
+    "params": {
+      "limit": 5,
+      "filters": {
+        "customerCode": "C1",
+        "startDate": "2024-01-01T10:00:00Z",
+        "endDate": "2024-02-01T00:00:00Z",
+        "orderStatus": ["Placed", "Parked"]
+      }
+    },
+    "response": { "Pagination": { "PageNumber": 1, "NumberOfPages": 1 }, "Items": [ { "OrderNumber": "SO-1" }, { "OrderNumber": "SO-2" } ] },
+    "expect": {
+      "method": "GET",
+      "path": "/SalesOrders/1",
+      "query": { "customerCode": "C1", "startDate": "2024-01-01", "endDate": "2024-02-01", "orderStatus": "Placed,Parked", "pageSize": "5" },
+      "headers": { "api-auth-id": "test-api_id", "api-auth-signature": "ExOY8/6NPpIojQ+R+a8K6TLBL0fplVdmRmb4EQgoAds=" },
+      "items": 2
+    }
+  },
+  "stockOnHand.getAll": {
+    "params": {
+      "returnAll": false,
+      "filters": { "IsAssembled": true, "orderBy": " ProductCode ", "warehouseCode": "W1" }
+    },
+    "response": { "Items": [ { "ProductCode": "P1" } ] },
+    "expect": {
+      "method": "GET",
+      "path": "/StockOnHand/1",
+      "query": { "IsAssembled": "true", "orderBy": "ProductCode", "pageSize": "100", "warehouseCode": "W1" },
+      "headers": { "api-auth-signature": "8+R33O3VF7Js7j6x5r8Kf0Y9Njl6KWX5WrMlvM+9kpU=" },
+      "items": 1
+    }
+  },
+  "stockOnHand.get": {
+    "params": { "productId": "9a4b0c4e-1111-2222-3333-444455556666" },
+    "response": { "ProductCode": "P1", "QtyOnHand": 4 },
+    "expect": {
+      "method": "GET",
+      "path": "/StockOnHand/9a4b0c4e-1111-2222-3333-444455556666",
+      "query": {},
+      "headers": { "api-auth-signature": "KqOo2/knB3MU2AsG76Cv5OIfN2oiIh5jVR/Qxhy+xKk=" },
+      "items": 1
+    }
+  }
+}

@@ -1,5 +1,7 @@
 package connections
 
+import "context"
+
 // AuthMethod represents the authentication method for a platform.
 type AuthMethod string
 
@@ -39,6 +41,18 @@ type OAuthConfig struct {
 	// (postForm) apply a provider's required client-auth style — most
 	// providers are unaffected; see usesBasicClientAuth/postForm in oauth.go.
 	PlatformID string
+	// ConnectFields are asked before the browser flow (a tenant subdomain,
+	// a Salesforce environment) and stored on the connection, where Tailor
+	// reads them.
+	ConnectFields []CredentialField
+	// Tailor, when set, returns the config for a connection's data, at
+	// connect and at every refresh: per-tenant auth/token URLs, scopes and
+	// extra params (Zendesk subdomain, Microsoft tenant, Salesforce sandbox).
+	Tailor func(cfg OAuthConfig, data map[string]interface{}) (OAuthConfig, error) `json:"-"`
+	// AfterToken runs once a connect flow has a token and may add keys to
+	// the connection's data (Mailchimp: the data centre from its metadata
+	// endpoint).
+	AfterToken func(ctx context.Context, data map[string]interface{}) error `json:"-"`
 }
 
 // PlatformDef defines a platform's connection capabilities.
@@ -50,6 +64,7 @@ type PlatformDef struct {
 	Methods    []AuthMethod
 	Fields     map[AuthMethod][]CredentialField
 	OAuth      *OAuthConfig
+	OAuth1     *OAuth1Config // OAuth 1.0a (MethodOAuth1)
 	IconEmoji  string
 }
 
@@ -413,6 +428,9 @@ var Registry = map[string]PlatformDef{
 			TokenURL:     "https://login.salesforce.com/services/oauth2/token",
 			Scopes:       []string{"api", "refresh_token"},
 			CallbackPort: 9876,
+			ConnectFields: []CredentialField{{Key: "environment", Label: "Environment",
+				HelpText: "production (default) or sandbox — a sandbox signs in at test.salesforce.com"}},
+			Tailor: salesforceEnvironment,
 		},
 		IconEmoji: "☁️",
 	},
@@ -861,7 +879,10 @@ var Registry = map[string]PlatformDef{
 		CredentialField{Key: "access_key_id", Label: "Access Key ID", Required: true},
 		CredentialField{Key: "secret_access_key", Label: "Secret Access Key", Secret: true, Required: true},
 		CredentialField{Key: "region", Label: "Region", HelpText: "Defaults to us-east-1."},
-		CredentialField{Key: "session_token", Label: "Session Token", Secret: true, HelpText: "Only for temporary credentials."}),
+		CredentialField{Key: "session_token", Label: "Session Token", Secret: true, HelpText: "Only for temporary credentials."},
+		CredentialField{Key: "role_arn", Label: "Role ARN", HelpText: "Optional: assume this IAM role (STS AssumeRole) with the keys above and sign with its temporary credentials."},
+		CredentialField{Key: "external_id", Label: "External ID", HelpText: "Optional: the external ID the role's trust policy requires."},
+		CredentialField{Key: "role_session_name", Label: "Role Session Name", HelpText: "Optional: defaults to mono-agent."}),
 	"qdrant": apiKeyPlatform("qdrant", "Qdrant", "database", "🧭",
 		CredentialField{Key: "url", Label: "URL", Required: true, HelpText: "e.g. http://localhost:6333 or your Qdrant Cloud cluster URL"},
 		CredentialField{Key: "api_key", Label: "API Key", Secret: true}),
@@ -952,17 +973,6 @@ func All() []PlatformDef {
 		out = append(out, p)
 	}
 	return append(out, dynamicAll()...)
-}
-
-// ByCategory returns all platforms in the given category.
-func ByCategory(category string) []PlatformDef {
-	var out []PlatformDef
-	for _, p := range All() {
-		if p.Category == category {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 // ByConnectVia returns all platforms with the given ConnectVia value.

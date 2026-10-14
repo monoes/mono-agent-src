@@ -24,27 +24,6 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db.DB
 }
 
-// Regression test: initTables' migration step used to run every
-// ALTER TABLE via a bare db.Exec(...) with both return values discarded,
-// silently swallowing any error -- not just the expected "duplicate column
-// name" one. addColumnIfMissing must still tolerate the expected case but
-// propagate a genuine failure.
-func TestAddColumnIfMissing_PropagatesRealErrorsButToleratesDuplicateColumn(t *testing.T) {
-	db := openTestDB(t)
-	if err := addColumnIfMissing(db, `ALTER TABLE no_such_table ADD COLUMN x TEXT`); err == nil {
-		t.Fatal("addColumnIfMissing against a nonexistent table unexpectedly succeeded")
-	}
-	if _, err := db.Exec(`CREATE TABLE probe (id TEXT PRIMARY KEY)`); err != nil {
-		t.Fatalf("create probe table: %v", err)
-	}
-	if err := addColumnIfMissing(db, `ALTER TABLE probe ADD COLUMN extra TEXT NOT NULL DEFAULT ''`); err != nil {
-		t.Fatalf("first ADD COLUMN: %v", err)
-	}
-	if err := addColumnIfMissing(db, `ALTER TABLE probe ADD COLUMN extra TEXT NOT NULL DEFAULT ''`); err != nil {
-		t.Errorf("second ADD COLUMN (duplicate) should be tolerated, got: %v", err)
-	}
-}
-
 func TestStoreInitTables(t *testing.T) {
 	db := openTestDB(t)
 	store, err := NewAIStore(db)
@@ -63,7 +42,7 @@ func TestStoreInitTables(t *testing.T) {
 		t.Error("NewAIStore created ai_providers")
 	}
 
-	// Verify ai_chat_messages table exists by inserting a raw row.
+	// Verify ai_chat_messages (migration 095) exists by inserting a raw row.
 	_, err = db.Exec(`INSERT INTO ai_chat_messages (id, workflow_id, role, content, created_at)
 		VALUES ('msg1', 'wf1', 'user', 'hello', '2025-01-01T00:00:00Z')`)
 	if err != nil {

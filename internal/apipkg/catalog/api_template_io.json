@@ -10,6 +10,8 @@
     "n8n-nodes-base.apiTemplateIo"
   ],
   "base_url": "https://api.apitemplate.io/v1",
+  "error_when": "{{ res.status | eq:'error' }}",
+  "error_message": "{{ res.message }}",
   "headers": {
     "Accept": "application/json"
   },

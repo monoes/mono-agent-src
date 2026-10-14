@@ -59,6 +59,7 @@ type n8nNode struct {
 	ContinueOnFail   bool                        `json:"continueOnFail"`
 	AlwaysOutputData bool                        `json:"alwaysOutputData"`
 	ExecuteOnce      bool                        `json:"executeOnce"`
+	WebhookID        string                      `json:"webhookId"`
 	RetryOnFail      bool                        `json:"retryOnFail"`
 	MaxTries         float64                     `json:"maxTries"`
 	WaitBetweenTries float64                     `json:"waitBetweenTries"`

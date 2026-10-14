@@ -21,7 +21,8 @@
       "n8n_field_map": {
         "appApiToken": "app_token",
         "clientApiToken": "client_token",
-        "url": "url"
+        "url": "url",
+        "ignoreSSLIssues": "allow_unauthorized_certs"
       },
       "methods": [
         "api_key"
@@ -44,6 +45,11 @@
           "label": "Client token",
           "secret": true,
           "help": "Used to list and delete messages"
+        },
+        {
+          "key": "allow_unauthorized_certs",
+          "label": "Ignore SSL issues",
+          "help": "true to accept self-signed or invalid TLS certificates (self-hosted servers)"
         }
       ],
       "inject": {

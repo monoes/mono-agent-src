@@ -53,14 +53,20 @@ const (
 )
 
 type Asset struct {
-	OS     string `json:"os"`
-	Arch   string `json:"arch"`
+	OS     string `json:"os,omitempty"`   // empty for the extension, which runs on every platform
+	Arch   string `json:"arch,omitempty"` // empty for the extension
 	Name   string `json:"name"`
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
 	Kind   string `json:"kind"`
 }
+
+// extensionAsset is the browser extension zip release.yml builds. It is a
+// manifest asset of kind "extension" with no os/arch, so `monoagentcli
+// extension install` can check it against the signed manifest. Clients that
+// pick by os/arch/kind never select it.
+const extensionAsset = "monoagent-chrome-extension.zip"
 
 type Manifest struct {
 	Schema     int     `json:"schema"`
@@ -79,9 +85,13 @@ var (
 )
 
 // classify maps a release artifact name (as named by release.yml) to its
-// platform. ok is false for files that are not per-platform downloads, such as
-// the Chrome extension zip or the checksum files.
+// platform. The Chrome extension zip is kind "extension" with no platform. ok
+// is false for files that are not downloads, such as NOTICE or the checksum
+// files.
 func classify(name string) (osName, arch, kind string, ok bool) {
+	if name == extensionAsset {
+		return "", "", "extension", true
+	}
 	if m := cliRe.FindStringSubmatch(name); m != nil {
 		return m[1], m[2], "cli", true
 	}

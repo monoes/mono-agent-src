@@ -604,5 +604,122 @@
       "required": false,
       "type": "text"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the input item's fields, passed through",
+      "key": "*",
+      "type": "object"
+    },
+    {
+      "description": "binary mode: the edited image, base64-encoded (default: the data_property_name property)",
+      "key": "<destination_key>",
+      "type": "string"
+    },
+    {
+      "description": "binary mode: the edited image's file name",
+      "key": "file_name",
+      "type": "string"
+    },
+    {
+      "description": "binary mode and information: the image's media type",
+      "key": "mime_type",
+      "type": "string"
+    },
+    {
+      "description": "binary mode: the edited image's extension",
+      "key": "file_extension",
+      "type": "string"
+    },
+    {
+      "description": "binary mode and information: the image's size in bytes",
+      "key": "file_size",
+      "type": "number"
+    },
+    {
+      "description": "path mode: the path of the edited image file (default key \"image_path\")",
+      "key": "<output_field>",
+      "type": "string"
+    },
+    {
+      "description": "path mode: edited image width in pixels",
+      "key": "image_width",
+      "type": "number"
+    },
+    {
+      "description": "path mode: edited image height in pixels",
+      "key": "image_height",
+      "type": "number"
+    },
+    {
+      "description": "path mode: edited image format",
+      "key": "image_format",
+      "type": "string"
+    },
+    {
+      "description": "path mode: edited image size in bytes",
+      "key": "image_size_bytes",
+      "type": "number"
+    },
+    {
+      "description": "a note when the requested format could not be used",
+      "key": "image_edit_warning",
+      "type": "string"
+    },
+    {
+      "description": "information: image format (e.g. PNG)",
+      "key": "format",
+      "type": "string"
+    },
+    {
+      "description": "information: width in pixels",
+      "key": "width",
+      "type": "number"
+    },
+    {
+      "description": "information: height in pixels",
+      "key": "height",
+      "type": "number"
+    },
+    {
+      "description": "information: {width, height}",
+      "key": "size",
+      "type": "object"
+    },
+    {
+      "description": "information: WIDTHxHEIGHT",
+      "key": "geometry",
+      "type": "string"
+    },
+    {
+      "description": "information: width / height",
+      "key": "aspect_ratio",
+      "type": "number"
+    },
+    {
+      "description": "information: color model",
+      "key": "color_model",
+      "type": "string"
+    },
+    {
+      "description": "information: bit depth",
+      "key": "depth",
+      "type": "number"
+    },
+    {
+      "description": "information: whether any pixel is not fully opaque",
+      "key": "has_alpha",
+      "type": "boolean"
+    },
+    {
+      "description": "information: EXIF orientation, when set",
+      "key": "orientation",
+      "type": "number"
+    },
+    {
+      "description": "information: palette size, for paletted images",
+      "key": "palette_colors",
+      "type": "number"
+    }
   ]
 }

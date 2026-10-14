@@ -13,6 +13,8 @@
     "n8n-nodes-base.slackTrigger"
   ],
   "base_url": "https://slack.com/api",
+  "error_when": "{{ res.ok | eq:'false' }}",
+  "error_message": "{{ res.error }}",
   "credentials": [
     {
       "platform": "slack",

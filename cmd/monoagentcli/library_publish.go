@@ -28,20 +28,22 @@ type libPublishOptions struct {
 func newLibraryPublishCmd(e *libEnv) *cobra.Command {
 	var o libPublishOptions
 	cmd := &cobra.Command{
-		Use:   "publish <workflow|automation|org> <workflow id | automation id | org name>",
-		Short: "Upload a workflow, automation or org to your monoes.me library (private unless --public)",
+		Use:   "publish <workflow|automation|org|api> <workflow id | automation id | org name | API package id or file>",
+		Short: "Upload a workflow, automation, org or API package to your monoes.me library (private unless --public)",
 		Long: "Packs or exports the local item and uploads it:\n" +
 			"  automation  the package as a .mpkg (as `automation export` writes it)\n" +
 			"  workflow    the workflow JSON with the automations it uses bundled, except built-in and\n" +
 			"              official monoes.me ones (the library installs those itself); --no-bundle for none\n" +
-			"  org         the org document\n\n" +
+			"  org         the org document\n" +
+			"  api         an API package (apipkg.v1): an installed one by id, or a package.json file or its folder,\n" +
+			"              validated first\n\n" +
 			"Publishing something you published (or installed from your own library item) before uploads a new " +
 			"version of that item; --new always creates a new item. Items are private unless --public.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kind, local := library.NormalizeKind(args[0]), args[1]
 			if !library.ValidKind(kind) {
-				return errInvalidInput("kind must be workflow, automation or org, not %q", kind)
+				return errInvalidInput("kind must be workflow, automation, org or api, not %q", kind)
 			}
 			c, err := e.open()
 			if err != nil {
@@ -51,6 +53,9 @@ func newLibraryPublishCmd(e *libEnv) *cobra.Command {
 			up, err := e.pack(ctx, kind, local, o)
 			if err != nil {
 				return err
+			}
+			if kind == library.KindAPI {
+				local = strings.TrimSuffix(up.Filename, ".json") // a file publishes as its package id
 			}
 			me, err := c.Me(ctx)
 			if err != nil {
@@ -129,7 +134,8 @@ func (e *libEnv) syncListing(ctx context.Context, c *library.Client, it *library
 	return c.Patch(ctx, it.ID, patch)
 }
 
-// pack builds the upload for a local workflow, automation or org.
+// pack builds the upload for a local workflow, automation, org or API
+// package.
 func (e *libEnv) pack(ctx context.Context, kind, local string, o libPublishOptions) (library.Upload, error) {
 	up := library.Upload{Kind: kind, Visibility: library.VisibilityPrivate, Tags: splitCSV(o.tags), Version: o.vv}
 	if o.public {
@@ -187,6 +193,13 @@ func (e *libEnv) pack(ctx context.Context, kind, local string, o libPublishOptio
 		}
 		up.Data, up.Filename, up.ContentType = data, local+".json", "application/json"
 		name, desc, version = d.Name, d.Goal, "1.0.0"
+	case library.KindAPI:
+		data, p, err := readAPIPackage(local)
+		if err != nil {
+			return up, err
+		}
+		up.Data, up.Filename, up.ContentType = data, p.ID+".json", "application/json"
+		name, desc, version = p.Title, p.Description, "1.0.0"
 	}
 	up.Name, up.Description = nonEmptyStr(o.name, name), nonEmptyStr(o.description, desc)
 	up.Version = nonEmptyStr(up.Version, version)
@@ -246,10 +259,10 @@ func (e *libEnv) recordedItemID(kind, local string) string {
 
 // recordPublished links the local thing to the item it was published as.
 // An automation's own package keeps its source and trust; the link lives
-// in the provenance file.
+// in the provenance file. Automations and API packages belong to no profile.
 func (e *libEnv) recordPublished(it *library.Item, kind, local string) error {
 	profile := e.cfg.ProfileID
-	if kind == library.KindAutomation {
+	if kind == library.KindAutomation || kind == library.KindAPI {
 		profile = ""
 	}
 	prov, err := e.provenance()

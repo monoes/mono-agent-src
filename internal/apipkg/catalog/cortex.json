@@ -71,9 +71,21 @@
         "force": "{{ p.additionalFields.force | eq:'true' | default:false }}"
       },
       "body": {
-        "dataType": "{{ p.observableType }}",
-        "tlp": "{{ p.tlp | int }}",
-        "data": "{{ p.observableValue }}"
+        "_json": {
+          "$json": {
+            "$when": "{{ p.observableType | eq:'file' }}",
+            "dataType": "{{ p.observableType }}",
+            "tlp": "{{ p.tlp | int }}"
+          }
+        },
+        "$merge": [
+          {
+            "$when": "{{ p.observableType | ne:'file' }}",
+            "dataType": "{{ p.observableType }}",
+            "tlp": "{{ p.tlp | int }}",
+            "data": "{{ p.observableValue }}"
+          }
+        ]
       },
       "fields": [
         {
@@ -88,7 +100,7 @@
           "label": "Observable type",
           "type": "text",
           "required": true,
-          "help": "e.g. ip, domain, url, hash, mail. File observables are not supported yet."
+          "help": "e.g. ip, domain, url, hash, mail, or file (uploads the input binary)"
         },
         {
           "key": "observableValue",
@@ -100,7 +112,7 @@
           "label": "Binary property",
           "type": "text",
           "default": "data",
-          "help": "Kept for n8n imports; file observables are not supported yet."
+          "help": "Input binary property to analyse when the observable type is file"
         },
         {
           "key": "tlp",
@@ -122,7 +134,14 @@
           ],
           "help": "timeout is not applied yet: the item is the created job."
         }
-      ]
+      ],
+      "body_type": "multipart",
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "upload_when": "{{ p.observableType | eq:'file' }}",
+        "multipart_field": "data",
+        "fallback_body_type": "json"
+      }
     },
     {
       "resource": "job",
@@ -169,7 +188,7 @@
         "data": {
           "$merge": [
             "{{ p.jsonObject | eq:'true' | then:p.objectData | fromjson }}",
-            "{{ p.parameters.values | omit:'tags,startDate,date,artifacts' }}"
+            "{{ p.parameters.values | omit:'tags,startDate,date,artifacts,binaryPropertyName' }}"
           ],
           "_type": "{{ p.jsonObject | ne:'true' | then:p.entityType }}",
           "tags": "{{ p.parameters.values.tags | split }}",
@@ -181,8 +200,22 @@
               "message": "{{ el.message }}",
               "tags": "{{ el.tags | split }}",
               "dataType": "{{ el.dataType }}",
-              "data": "{{ el.data }}"
+              "data": "{{ el.dataType | ne:'file' | then:el.data }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'file_name' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | then:';' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'mime_type' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | then:';' }}{{ (el.dataType | eq:'file' | then:(bin.files | find:'property',(el.binaryProperty | default:'data'))) | get:'base64' }}"
             }
+          },
+          "attachment": {
+            "$when": "{{ p.entityType | eq:'case_artifact' | then:(p.parameters.values.dataType | eq:'file') }}",
+            "name": "{{ (bin.files | find:'property',(p.parameters.values.binaryPropertyName | default:'data')) | get:'file_name' }}",
+            "hashes": {
+              "$list": [
+                "{{ (bin.files | find:'property',(p.parameters.values.binaryPropertyName | default:'data')) | get:'base64' | sha256:'base64' }}",
+                "{{ (bin.files | find:'property',(p.parameters.values.binaryPropertyName | default:'data')) | get:'base64' | sha1:'base64' }}",
+                "{{ (bin.files | find:'property',(p.parameters.values.binaryPropertyName | default:'data')) | get:'base64' | md5:'base64' }}"
+              ]
+            },
+            "size": "{{ (bin.files | find:'property',(p.parameters.values.binaryPropertyName | default:'data')) | get:'file_size' }}",
+            "contentType": "{{ (bin.files | find:'property',(p.parameters.values.binaryPropertyName | default:'data')) | get:'mime_type' }}",
+            "id": "{{ (bin.files | find:'property',(p.parameters.values.binaryPropertyName | default:'data')) | get:'base64' | sha256:'base64' }}"
           }
         }
       },
@@ -223,9 +256,16 @@
           "options": [
             "values"
           ],
-          "help": "{\"values\": {\"title\": \"x\", \"description\": \"y\", \"tags\": \"a,b\", \"startDate\": \"2024-01-01T00:00:00Z\", \"artifacts\": {\"artifactValues\": [{\"dataType\": \"ip\", \"data\": \"1.2.3.4\", \"message\": \"\", \"tags\": \"\"}]}}}. File artifacts are not supported yet."
+          "help": "{\"values\": {\"title\": \"x\", \"description\": \"y\", \"tags\": \"a,b\", \"startDate\": \"2024-01-01T00:00:00Z\", \"artifacts\": {\"artifactValues\": [{\"dataType\": \"ip\", \"data\": \"1.2.3.4\", \"message\": \"\", \"tags\": \"\"}]}}}. A file artifact is {\"dataType\": \"file\", \"binaryProperty\": \"data\"} (sent as name;type;base64). A case_artifact file observable is {\"dataType\": \"file\", \"binaryPropertyName\": \"data\"}: the file goes up as an attachment with its SHA-256, SHA-1 and MD5."
         }
-      ]
+      ],
+      "body_type": "json",
+      "binary": {
+        "upload_field": "parameters",
+        "properties": "{{ (p.entityType | eq:'case_artifact' | then:(p.parameters.values.dataType | eq:'file')) | then:(p.parameters.values.binaryPropertyName | default:'data') | default:(p.parameters.values.artifacts.artifactValues | pluck:'binaryProperty') }}",
+        "upload_when": "{{ (p.entityType | eq:'case_artifact' | then:(p.parameters.values.dataType | eq:'file')) | default:(p.parameters.values.artifacts.artifactValues | find:'dataType','file') }}",
+        "fallback_body_type": "json"
+      }
     }
   ]
 }

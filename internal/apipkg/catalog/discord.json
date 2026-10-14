@@ -349,7 +349,7 @@
           "options": [
             "values"
           ],
-          "help": "{\"values\": [{\"inputFieldName\": \"data\"}]}; only the first file is sent"
+          "help": "{\"values\": [{\"inputFieldName\": \"data\"}, {\"inputFieldName\": \"data2\"}]}; every file is sent"
         },
         {
           "key": "filesProperty",
@@ -440,20 +440,21 @@
                 "guild_id": "{{ p.options.message_reference | then:(p.guildId | rl) }}"
               }
             },
-            "attachments": [
-              {
-                "id": 0,
-                "filename": "{{ bin.file_name }}"
+            "attachments": {
+              "$map": "{{ bin.files }}",
+              "$to": {
+                "id": "{{ idx }}",
+                "filename": "{{ el.file_name }}"
               }
-            ]
+            }
           }
         }
       },
       "binary": {
         "upload_field": "filesProperty",
-        "property": "{{ p.files.values.0.inputFieldName }}",
         "upload_when": "{{ p.files.values.0.inputFieldName }}",
-        "multipart_field": "files[0]"
+        "multipart_field": "files[{{ el.index }}]",
+        "properties": "{{ p.files.values | pluck:'inputFieldName' }}"
       }
     },
     {
@@ -1027,7 +1028,7 @@
           "options": [
             "values"
           ],
-          "help": "{\"values\": [{\"inputFieldName\": \"data\"}]}; only the first file is sent"
+          "help": "{\"values\": [{\"inputFieldName\": \"data\"}, {\"inputFieldName\": \"data2\"}]}; every file is sent"
         },
         {
           "key": "filesProperty",
@@ -1109,20 +1110,21 @@
               "avatar_url": "{{ p.options.avatar_url }}",
               "username": "{{ p.options.username }}"
             },
-            "attachments": [
-              {
-                "id": 0,
-                "filename": "{{ bin.file_name }}"
+            "attachments": {
+              "$map": "{{ bin.files }}",
+              "$to": {
+                "id": "{{ idx }}",
+                "filename": "{{ el.file_name }}"
               }
-            ]
+            }
           }
         }
       },
       "binary": {
         "upload_field": "filesProperty",
-        "property": "{{ p.files.values.0.inputFieldName }}",
         "upload_when": "{{ p.files.values.0.inputFieldName }}",
-        "multipart_field": "files[0]"
+        "multipart_field": "files[{{ el.index }}]",
+        "properties": "{{ p.files.values | pluck:'inputFieldName' }}"
       }
     }
   ]

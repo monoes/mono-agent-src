@@ -13,6 +13,8 @@
     "n8n-nodes-base.emeliaTrigger"
   ],
   "base_url": "https://graphql.emelia.io",
+  "error_when": "{{ res.errors }}",
+  "error_message": "{{ res.errors | pluck:'message' | join:'; ' }}",
   "credentials": [
     {
       "platform": "emelia",

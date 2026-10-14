@@ -69,7 +69,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, u *User, scopes 
 		return
 	}
 	kind := f["kind"]
-	if kind == "workflow" || kind == "org" {
+	if kind == "workflow" || kind == "org" || kind == "api" {
 		var v map[string]any
 		if json.Unmarshal(data, &v) != nil {
 			apiErr(w, 400, "invalid_artifact", "not JSON")

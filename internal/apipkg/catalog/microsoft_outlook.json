@@ -305,7 +305,7 @@
             "downloadAttachments",
             "getMimeContent"
           ],
-          "help": "Attachment and MIME downloads are not supported here; use Message attachment > Download."
+          "help": "downloadAttachments puts each attachment on the item as binary <attachmentsPrefix><n> (attachment_0, …); getMimeContent adds the message's MIME source (.eml) under its binaryPropertyName (default data)."
         }
       ],
       "query": {
@@ -322,7 +322,46 @@
           "categories": "{{ el.categories }}",
           "hasAttachments": "{{ el.hasAttachments }}"
         },
-        "to_when": "{{ p.output | eq:'simple' }}"
+        "to_when": "{{ p.output | eq:'simple' }}",
+        "expand": {
+          "when": "{{ p.options.downloadAttachments | then:el.hasAttachments }}",
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "/messages/{{ el.id }}/attachments",
+          "query": {
+            "$select": "id,name,contentType"
+          }
+        },
+        "expand_merge_key": "attachments",
+        "expand_merge_path": "value",
+        "download": {
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "{{ el.path | path }}",
+          "files": {
+            "$concat": [
+              {
+                "$map": "{{ p.options.downloadAttachments | then:el.attachments }}",
+                "$to": {
+                  "path": "/messages/{{ up.id }}/attachments/{{ el.id }}/$value",
+                  "property": "{{ p.options.attachmentsPrefix | default:'attachment_' }}{{ idx }}",
+                  "file_name": "{{ el.name }}",
+                  "mime_type": "{{ el.contentType }}"
+                }
+              },
+              {
+                "$when": "{{ p.options.getMimeContent }}",
+                "path": "/messages/{{ el.id }}/$value",
+                "property": "{{ p.options.getMimeContent.values.binaryPropertyName | default:'data' }}",
+                "file_name": "{{ p.options.getMimeContent.values.outputFileName | default:el.id }}.eml",
+                "mime_type": ""
+              }
+            ]
+          },
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.file_name }}",
+          "mime_type": "{{ el.mime_type }}"
+        }
       }
     },
     {
@@ -390,7 +429,7 @@
             "attachmentsPrefix",
             "downloadAttachments"
           ],
-          "help": "Downloading attachments with the messages is not supported; use Message attachment > Download."
+          "help": "downloadAttachments puts each attachment on the item as binary <attachmentsPrefix><n> (attachment_0, …)."
         }
       ],
       "query": {
@@ -448,7 +487,39 @@
           "categories": "{{ el.categories }}",
           "hasAttachments": "{{ el.hasAttachments }}"
         },
-        "to_when": "{{ p.output | eq:'simple' }}"
+        "to_when": "{{ p.output | eq:'simple' }}",
+        "expand": {
+          "when": "{{ p.options.downloadAttachments | then:el.hasAttachments }}",
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "/messages/{{ el.id }}/attachments",
+          "query": {
+            "$select": "id,name,contentType"
+          }
+        },
+        "expand_merge_key": "attachments",
+        "expand_merge_path": "value",
+        "download": {
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "{{ el.path | path }}",
+          "files": {
+            "$concat": [
+              {
+                "$map": "{{ p.options.downloadAttachments | then:el.attachments }}",
+                "$to": {
+                  "path": "/messages/{{ up.id }}/attachments/{{ el.id }}/$value",
+                  "property": "{{ p.options.attachmentsPrefix | default:'attachment_' }}{{ idx }}",
+                  "file_name": "{{ el.name }}",
+                  "mime_type": "{{ el.contentType }}"
+                }
+              }
+            ]
+          },
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.file_name }}",
+          "mime_type": "{{ el.mime_type }}"
+        }
       }
     },
     {
@@ -1094,7 +1165,7 @@
             "attachmentsPrefix",
             "downloadAttachments"
           ],
-          "help": "Attachment downloads are not supported here; use Message attachment > Download."
+          "help": "downloadAttachments puts each attachment on the item as binary <attachmentsPrefix><n> (attachment_0, …)."
         }
       ],
       "query": {
@@ -1111,7 +1182,39 @@
           "categories": "{{ el.categories }}",
           "hasAttachments": "{{ el.hasAttachments }}"
         },
-        "to_when": "{{ p.output | eq:'simple' }}"
+        "to_when": "{{ p.output | eq:'simple' }}",
+        "expand": {
+          "when": "{{ p.options.downloadAttachments | then:el.hasAttachments }}",
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "/messages/{{ el.id }}/attachments",
+          "query": {
+            "$select": "id,name,contentType"
+          }
+        },
+        "expand_merge_key": "attachments",
+        "expand_merge_path": "value",
+        "download": {
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "{{ el.path | path }}",
+          "files": {
+            "$concat": [
+              {
+                "$map": "{{ p.options.downloadAttachments | then:el.attachments }}",
+                "$to": {
+                  "path": "/messages/{{ up.id }}/attachments/{{ el.id }}/$value",
+                  "property": "{{ p.options.attachmentsPrefix | default:'attachment_' }}{{ idx }}",
+                  "file_name": "{{ el.name }}",
+                  "mime_type": "{{ el.contentType }}"
+                }
+              }
+            ]
+          },
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.file_name }}",
+          "mime_type": "{{ el.mime_type }}"
+        }
       }
     },
     {
@@ -1395,7 +1498,7 @@
             "folderId",
             "includeChildFolders"
           ],
-          "help": "includeChildFolders is not supported (top level only)."
+          "help": "includeChildFolders adds every folder below the listed ones (all levels) after them."
         }
       ],
       "query": {
@@ -1408,6 +1511,26 @@
         "results_path": "value",
         "limit_param": "$top",
         "page_size": 100
+      },
+      "output": {
+        "walk": {
+          "when": "{{ p.options.includeChildFolders }}",
+          "start": {
+            "$map": "{{ res }}",
+            "$to": "{{ el.childFolderCount | ne:'0' | then:el.childFolderCount | then:el.id }}"
+          },
+          "request": {
+            "method": "GET",
+            "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+            "path": "/mailFolders/{{ el }}/childFolders"
+          },
+          "pagination": {
+            "type": "next_url",
+            "next_url_path": "@odata.nextLink"
+          },
+          "results_path": "value",
+          "descend": "{{ el.childFolderCount }}"
+        }
       }
     },
     {
@@ -1512,7 +1635,7 @@
             "attachmentsPrefix",
             "downloadAttachments"
           ],
-          "help": "Downloading attachments with the messages is not supported; use Message attachment > Download."
+          "help": "downloadAttachments puts each attachment on the item as binary <attachmentsPrefix><n> (attachment_0, …)."
         }
       ],
       "query": {
@@ -1570,13 +1693,46 @@
           "categories": "{{ el.categories }}",
           "hasAttachments": "{{ el.hasAttachments }}"
         },
-        "to_when": "{{ p.output | eq:'simple' }}"
+        "to_when": "{{ p.output | eq:'simple' }}",
+        "expand": {
+          "when": "{{ p.options.downloadAttachments | then:el.hasAttachments }}",
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "/messages/{{ el.id }}/attachments",
+          "query": {
+            "$select": "id,name,contentType"
+          }
+        },
+        "expand_merge_key": "attachments",
+        "expand_merge_path": "value",
+        "download": {
+          "method": "GET",
+          "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
+          "path": "{{ el.path | path }}",
+          "files": {
+            "$concat": [
+              {
+                "$map": "{{ p.options.downloadAttachments | then:el.attachments }}",
+                "$to": {
+                  "path": "/messages/{{ up.id }}/attachments/{{ el.id }}/$value",
+                  "property": "{{ p.options.attachmentsPrefix | default:'attachment_' }}{{ idx }}",
+                  "file_name": "{{ el.name }}",
+                  "mime_type": "{{ el.contentType }}"
+                }
+              }
+            ]
+          },
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.file_name }}",
+          "mime_type": "{{ el.mime_type }}"
+        }
       }
     },
     {
       "resource": "calendar",
       "operation": "getAll",
       "title": "Get many calendars",
+      "scope_group": "calendar",
       "method": "GET",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendars",
@@ -1625,6 +1781,7 @@
       "resource": "calendar",
       "operation": "create",
       "title": "Create a calendar",
+      "scope_group": "calendar",
       "method": "POST",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "{{ p.additionalFields.calendarGroup | rl | then:'/calendarGroups/' }}{{ p.additionalFields.calendarGroup | rl }}/calendars",
@@ -1661,6 +1818,7 @@
       "resource": "calendar",
       "operation": "delete",
       "title": "Delete a calendar",
+      "scope_group": "calendar",
       "method": "DELETE",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendars/{{ p.calendarId | rl }}",
@@ -1688,6 +1846,7 @@
       "resource": "calendar",
       "operation": "get",
       "title": "Get a calendar",
+      "scope_group": "calendar",
       "method": "GET",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendars/{{ p.calendarId | rl }}",
@@ -1710,6 +1869,7 @@
       "resource": "calendar",
       "operation": "update",
       "title": "Update a calendar",
+      "scope_group": "calendar",
       "method": "PATCH",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendars/{{ p.calendarId | rl }}",
@@ -1746,6 +1906,7 @@
       "resource": "contact",
       "operation": "getAll",
       "title": "Get many contacts",
+      "scope_group": "contacts",
       "method": "GET",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/contacts",
@@ -1828,6 +1989,7 @@
       "resource": "contact",
       "operation": "create",
       "title": "Create a contact",
+      "scope_group": "contacts",
       "method": "POST",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/contacts",
@@ -1907,6 +2069,7 @@
       "resource": "contact",
       "operation": "delete",
       "title": "Delete a contact",
+      "scope_group": "contacts",
       "method": "DELETE",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/contacts/{{ p.contactId | rl }}",
@@ -1934,6 +2097,7 @@
       "resource": "contact",
       "operation": "get",
       "title": "Get a contact",
+      "scope_group": "contacts",
       "method": "GET",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/contacts/{{ p.contactId | rl }}",
@@ -1978,6 +2142,7 @@
       "resource": "contact",
       "operation": "update",
       "title": "Update a contact",
+      "scope_group": "contacts",
       "method": "PATCH",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/contacts/{{ p.contactId | rl }}",
@@ -2049,6 +2214,7 @@
       "resource": "event",
       "operation": "getAll",
       "title": "Get many events",
+      "scope_group": "calendar",
       "method": "GET",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "{{ p.fromAllCalendars | string | eq:'false' | then:'/calendars/' }}{{ p.fromAllCalendars | string | eq:'false' | then:(p.calendarId | rl) }}{{ p.includeRecurringInstances | then:'/calendarView' | default:'/events' }}",
@@ -2148,6 +2314,7 @@
       "resource": "event",
       "operation": "create",
       "title": "Create an event",
+      "scope_group": "calendar",
       "method": "POST",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendars/{{ p.calendarId | rl }}/events",
@@ -2242,6 +2409,7 @@
       "resource": "event",
       "operation": "delete",
       "title": "Delete an event",
+      "scope_group": "calendar",
       "method": "DELETE",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendar/events/{{ p.eventId | rl }}",
@@ -2269,6 +2437,7 @@
       "resource": "event",
       "operation": "get",
       "title": "Get an event",
+      "scope_group": "calendar",
       "method": "GET",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendar/events/{{ p.eventId | rl }}",
@@ -2313,6 +2482,7 @@
       "resource": "event",
       "operation": "update",
       "title": "Update an event",
+      "scope_group": "calendar",
       "method": "PATCH",
       "base_url": "https://graph.microsoft.com/v1.0{{ p.mailbox | rl | prefix:'/users/' | default:'/me' }}",
       "path": "/calendar/events/{{ p.eventId | rl }}",

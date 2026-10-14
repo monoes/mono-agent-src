@@ -65,10 +65,21 @@ Exit codes: 0 ok, 1 general, 2 not-found, 3 invalid-input/validation, 4 auth/con
 	"nodes": `NODE TYPES (category.type; full schemas via the node_schema tool)
 
 Core/control: core.set, core.if, core.switch, core.filter, core.sort,
-  core.limit, core.aggregate, core.merge, core.code, core.wait,
-  core.human_in_loop (pauses for approval — pair with hil_list/hil_approve)
-Triggers: trigger.schedule (6-field cron: sec min hour day month weekday),
-  trigger.webhook (path config; POST to the daemon's webhook port)
+  core.limit, core.aggregate, core.merge, core.code,
+  core.wait (duration, or resume timeInterval/specificTime),
+  core.remove_duplicates (within a run or across earlier runs),
+  core.split_in_batches (loop: outputs "loop" per batch and "done" at the
+    end; an edge from the loop body back into it continues the loop),
+  core.execute_workflow (run another workflow as a sub-workflow),
+  core.respond_webhook (answer a responseNode webhook),
+  core.human_in_loop (pauses for approval — pair with hil_list/hil_approve;
+    optional "rejected" output)
+Triggers: trigger.schedule (6-field cron: sec min hour day month weekday;
+  overlap, catch_up), trigger.webhook (path config; POST to the daemon's
+  webhook port; response_mode onReceived|lastNode|responseNode),
+  trigger.execute_workflow (called by core.execute_workflow),
+  trigger.error (runs when a workflow naming this one as its error
+  workflow fails)
 HTTP: http.request (method/url/headers/body; auth modes incl. OAuth2)
 System: system.execute_command, system.rss_read, system.read_write_file
 Data: data.datetime, data.crypto, data.html, data.xml, data.markdown,
@@ -97,8 +108,16 @@ Built-in variables:
   $json                 current item's data map
   $json.field           field on the current item
   $node["NodeName"].json.f   first output item of a previous node (by name)
+  $node["NodeName"].all      every output item of that node (.items: same)
+  $items["NodeName"]    same list as $node["NodeName"].all
+  $now / $today         current UTC time / midnight UTC today
+  $trigger.field        the execution's trigger data
+  $vars.name            workflow variables (settings.variables)
+  $runIndex             loop iteration number, 0 outside a loop
+  $prevNode             name of the node that fed this one, when known
   $workflow.id / $execution.id   current run IDs
-  $env.MY_VAR           OS environment variable
+  $env.MY_VAR           OS environment variable (empty unless
+                        MONOAGENT_ALLOW_ENV_TEMPLATES=1)
 
 Encoding:     json <v> | jsonParse <s>
 Conversions:  toString / toInt / toFloat / toBool
@@ -132,7 +151,8 @@ Example: nested access     {{ $node["Fetch"].json.items }}`,
 Rules enforced by validation (workflow_validate / workflow validate):
   - non-empty name; 1-200 nodes; 0-500 connections
   - unique node IDs; every connection references existing nodes
-  - no cycles (DAG required); non-empty source_handle
+  - no cycles, except a loop: an edge from a core.split_in_batches
+    node's loop body back into it; non-empty source_handle
   - activation additionally requires >=1 trigger.* node, and
     trigger.schedule needs "cron", trigger.webhook needs "path"
 

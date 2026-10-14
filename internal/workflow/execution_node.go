@@ -148,7 +148,7 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 	if strings.HasPrefix(node.Type, "trigger.") {
 		// Route outputs to successors.
 		for _, succ := range dag.Successors(node.ID) {
-			r.pendingInputs[succ.ID] = append(r.pendingInputs[succ.ID], inputItems...)
+			r.route(node, succ.ID, inputItems)
 		}
 		// Store outputs for expression access.
 		r.nodeOutputs[node.Name] = inputItems
@@ -190,10 +190,9 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 	if len(inputItems) > 0 {
 		currentItemJSON = inputItems[0].JSON
 	}
-	// PrevNode is not tracked by the runner (inputs may come from several
-	// predecessors).
 	exprCtx := buildExpressionContext(currentItemJSON, r.nodeOutputs, r.wf, r.exec)
 	exprCtx.RunIndex = r.runIndex(node.ID)
+	exprCtx.PrevNode = r.pendingFrom[node.ID]
 
 	// Resolve config templates — but hold back any fields the node
 	// declares via PerItemConfigResolver (e.g. a filter condition, or
@@ -318,7 +317,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 					h = "main"
 				}
 				for _, succ := range dag.SuccessorsOnHandle(node.ID, h) {
-					r.pendingInputs[succ.ID] = append(r.pendingInputs[succ.ID], out.Items...)
+					r.route(node, succ.ID, out.Items)
 				}
 			}
 		}
@@ -349,7 +348,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 			r.nonFatalFailures = append(r.nonFatalFailures, node.Name)
 			successors := dag.SuccessorsOnHandle(node.ID, "main")
 			for _, succ := range successors {
-				r.pendingInputs[succ.ID] = append(r.pendingInputs[succ.ID], t.input.Items...)
+				r.route(node, succ.ID, t.input.Items)
 			}
 			r.nodeOutputs[node.Name] = t.input.Items
 			r.complete(node.ID)
@@ -382,7 +381,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 				}),
 			}
 			for _, succ := range errorSuccessors {
-				r.pendingInputs[succ.ID] = append(r.pendingInputs[succ.ID], errorItems...)
+				r.route(node, succ.ID, errorItems)
 			}
 			r.complete(node.ID)
 			return false, nil
@@ -457,6 +456,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 		// Clear the consumed input first: the body's back-edge refills it
 		// for the next iteration.
 		delete(r.pendingInputs, node.ID)
+		delete(r.pendingFrom, node.ID)
 	}
 
 	// Route outputs to downstream nodes by handle.
@@ -467,7 +467,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 		}
 		successors := dag.SuccessorsOnHandle(node.ID, handle)
 		for _, succ := range successors {
-			r.pendingInputs[succ.ID] = append(r.pendingInputs[succ.ID], out.Items...)
+			r.route(node, succ.ID, out.Items)
 		}
 	}
 

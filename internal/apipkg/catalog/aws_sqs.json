@@ -20,7 +20,13 @@
         "accessKeyId": "access_key_id",
         "secretAccessKey": "secret_access_key",
         "sessionToken": "session_token",
-        "region": "region"
+        "region": "region",
+        "stsAccessKeyId": "access_key_id",
+        "stsSecretAccessKey": "secret_access_key",
+        "stsSessionToken": "session_token",
+        "roleArn": "role_arn",
+        "externalId": "external_id",
+        "roleSessionName": "role_session_name"
       },
       "methods": [
         "api_key"
@@ -54,7 +60,10 @@
           "service": "sqs",
           "region": "{{ cred.region | default:'us-east-1' }}"
         }
-      }
+      },
+      "n8n_credential_alt": [
+        "awsAssumeRole"
+      ]
     }
   ],
   "headers": {
@@ -88,6 +97,14 @@
                   }
                 },
                 {
+                  "$map": "{{ p.options.messageAttributes.binary }}",
+                  "$to": {
+                    "name": "{{ el.name }}",
+                    "binary": "{{ bin.files | find:'property',el.dataPropertyName | get:'base64' }}",
+                    "type": "Binary"
+                  }
+                },
+                {
                   "$map": "{{ p.options.messageAttributes.number }}",
                   "$to": {
                     "name": "{{ el.name }}",
@@ -112,6 +129,14 @@
                   }
                 },
                 {
+                  "$map": "{{ p.options.messageAttributes.binary }}",
+                  "$to": {
+                    "name": "{{ el.name }}",
+                    "binary": "{{ bin.files | find:'property',el.dataPropertyName | get:'base64' }}",
+                    "type": "Binary"
+                  }
+                },
+                {
                   "$map": "{{ p.options.messageAttributes.number }}",
                   "$to": {
                     "name": "{{ el.name }}",
@@ -133,6 +158,46 @@
                     "name": "{{ el.name }}",
                     "value": "{{ el.value | string }}",
                     "type": "String"
+                  }
+                },
+                {
+                  "$map": "{{ p.options.messageAttributes.binary }}",
+                  "$to": {
+                    "name": "{{ el.name }}",
+                    "binary": "{{ bin.files | find:'property',el.dataPropertyName | get:'base64' }}",
+                    "type": "Binary"
+                  }
+                },
+                {
+                  "$map": "{{ p.options.messageAttributes.number }}",
+                  "$to": {
+                    "name": "{{ el.name }}",
+                    "value": "{{ el.value | string }}",
+                    "type": "Number"
+                  }
+                }
+              ]
+            },
+            "$key": "MessageAttribute.{{ idx | add:1 }}.Value.BinaryValue",
+            "$value": "{{ el.binary }}"
+          },
+          {
+            "$entries": {
+              "$concat": [
+                {
+                  "$map": "{{ p.options.messageAttributes.string }}",
+                  "$to": {
+                    "name": "{{ el.name }}",
+                    "value": "{{ el.value | string }}",
+                    "type": "String"
+                  }
+                },
+                {
+                  "$map": "{{ p.options.messageAttributes.binary }}",
+                  "$to": {
+                    "name": "{{ el.name }}",
+                    "binary": "{{ bin.files | find:'property',el.dataPropertyName | get:'base64' }}",
+                    "type": "Binary"
                   }
                 },
                 {
@@ -198,11 +263,14 @@
             "messageAttributes",
             "messageDeduplicationId"
           ],
-          "help": "messageAttributes: {string: [{name, value}], number: [{name, value}]}; binary attributes are not supported"
+          "help": "messageAttributes: {string: [{name, value}], number: [{name, value}], binary: [{name, dataPropertyName}]}; binary values come from the item's binary property, sent base64"
         }
       ],
       "output": {
         "path": "SendMessageResponse.SendMessageResult"
+      },
+      "binary": {
+        "properties": "{{ p.options.messageAttributes.binary | pluck:'dataPropertyName' | join:',' }}"
       }
     }
   ]

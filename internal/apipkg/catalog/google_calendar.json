@@ -505,7 +505,9 @@
       },
       "output": {
         "path": "calendars"
-      }
+      },
+      "error_when": "{{ res.calendars | values | pluck:'errors' }}",
+      "error_message": "{{ res.calendars | values | pluck:'errors' | flatten | pluck:'reason' | join:', ' }}"
     }
   ]
 }

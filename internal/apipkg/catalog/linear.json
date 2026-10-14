@@ -13,6 +13,8 @@
     "n8n-nodes-base.linearTrigger"
   ],
   "base_url": "https://api.linear.app",
+  "error_when": "{{ res.errors }}",
+  "error_message": "{{ res.errors.0.message }}",
   "headers": {
     "Accept": "application/json"
   },

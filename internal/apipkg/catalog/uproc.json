@@ -10,6 +10,7 @@
     "n8n-nodes-base.uproc"
   ],
   "n8n_operation_param": "tool",
+  "n8n_resource_param": "group",
   "base_url": "https://api.uproc.io/api/v2",
   "credentials": [
     {

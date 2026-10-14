@@ -163,5 +163,52 @@
       "required": false,
       "type": "boolean"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the tool's name",
+      "key": "tool",
+      "type": "string"
+    },
+    {
+      "description": "call_tool: the structured result, or the text content (parsed as JSON when it is JSON)",
+      "key": "result",
+      "type": "any"
+    },
+    {
+      "description": "call_tool: the result's content blocks",
+      "key": "content",
+      "type": "array"
+    },
+    {
+      "description": "call_tool: whether the tool reported an error",
+      "key": "is_error",
+      "type": "boolean"
+    },
+    {
+      "description": "list_tools: the tool's title",
+      "key": "title",
+      "type": "string"
+    },
+    {
+      "description": "list_tools: the tool's description",
+      "key": "description",
+      "type": "string"
+    },
+    {
+      "description": "list_tools: the tool's input JSON Schema",
+      "key": "input_schema",
+      "type": "object"
+    },
+    {
+      "description": "list_tools: the tool's output JSON Schema",
+      "key": "output_schema",
+      "type": "object"
+    },
+    {
+      "description": "list_tools: the tool's annotations",
+      "key": "annotations",
+      "type": "object"
+    }
   ]
 }

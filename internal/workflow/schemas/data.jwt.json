@@ -241,5 +241,27 @@
       "required": false,
       "type": "number"
     }
+  ],
+  "outputs": [
+    {
+      "description": "sign: the signed JWT",
+      "key": "token",
+      "type": "string"
+    },
+    {
+      "description": "decode/verify: the token's claims",
+      "key": "payload",
+      "type": "any"
+    },
+    {
+      "description": "decode/verify with complete: the token's header",
+      "key": "header",
+      "type": "object"
+    },
+    {
+      "description": "decode/verify with complete: the token's signature part",
+      "key": "signature",
+      "type": "string"
+    }
   ]
 }

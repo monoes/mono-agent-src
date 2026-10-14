@@ -80,7 +80,8 @@
     "credential": {
       "url": "https://hive.example.com",
       "api_key": "k",
-      "api_version": "v1"
+      "api_version": "v1",
+      "allow_unauthorized_certs": true
     }
   },
   "alert.count": {
@@ -358,7 +359,20 @@
       "id": "a1",
       "updateFields": {
         "title": "N",
-        "customFieldsJson": "{\"x\":{\"string\":\"y\"}}"
+        "customFieldsJson": "{\"x\":{\"string\":\"y\"}}",
+        "artifactUi": {
+          "artifactValues": [
+            {
+              "dataType": "ip",
+              "data": "1.2.3.4"
+            },
+            {
+              "dataType": "file",
+              "binaryProperty": "pcap",
+              "message": "m"
+            }
+          ]
+        }
       }
     },
     "expect": {
@@ -370,13 +384,33 @@
           "x": {
             "string": "y"
           }
-        }
+        },
+        "artifacts": [
+          {
+            "dataType": "ip",
+            "data": "1.2.3.4"
+          },
+          {
+            "dataType": "file",
+            "message": "m",
+            "data": "x.pcap;application/octet-stream;aGk="
+          }
+        ]
       }
     },
     "credential": {
       "url": "https://hive.example.com",
       "api_key": "k",
       "api_version": "v1"
+    },
+    "input": {
+      "binary": {
+        "pcap": {
+          "data": "aGk=",
+          "fileName": "x.pcap",
+          "mimeType": "application/octet-stream"
+        }
+      }
     }
   },
   "case.getAll": {

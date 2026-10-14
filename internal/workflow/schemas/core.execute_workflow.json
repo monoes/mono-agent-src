@@ -30,5 +30,17 @@
       "required": false,
       "type": "boolean"
     }
+  ],
+  "outputs": [
+    {
+      "description": "waitForSubWorkflow true (default): the sub-workflow's output items; false: the input items, passed through",
+      "key": "*",
+      "type": "object"
+    },
+    {
+      "description": "waitForSubWorkflow false: the ID of the sub-workflow execution the item was sent to",
+      "key": "subworkflow_execution_id",
+      "type": "string"
+    }
   ]
 }

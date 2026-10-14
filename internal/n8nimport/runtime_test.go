@@ -185,8 +185,10 @@ func TestRuntimeConditionsAndWebhook(t *testing.T) {
 		t.Errorf("regex condition: %v", got)
 	}
 	hook := convertFixture(t, "webhook_to_sheets.json")
-	body := runNode(t, hook, "Webhook", []map[string]interface{}{{"email": "A@B.C "}})
-	expectJSON(t, "webhook shape", body, `[{"body":{"email":"A@B.C "},"headers":{},"params":{},"query":{}}]`)
+	// The webhook item already carries the body under "body", as in n8n.
+	if n := node(t, hook, "Webhook"); n.Type != "trigger.webhook" {
+		t.Errorf("webhook type %s", n.Type)
+	}
 	norm := runNode(t, hook, "Normalize", []map[string]interface{}{{"body": map[string]interface{}{"email": "A@B.C ", "first_name": "Ada", "last_name": "L", "budget": "12"}}})
 	if norm[0]["email"] != "a@b.c" || norm[0]["name"] != "Ada L" || norm[0]["budget"] != 12.0 {
 		t.Errorf("normalize: %v", norm[0])

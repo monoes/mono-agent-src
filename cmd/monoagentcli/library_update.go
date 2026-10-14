@@ -34,7 +34,7 @@ func newLibraryUpdateCmd(e *libEnv) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update [local id | item id | slug]",
 		Short: "Install newer library versions of what came from monoes.me",
-		Long: "Checks every workflow, org and automation installed from the library (or one of them) " +
+		Long: "Checks every workflow, org, automation and API package installed from the library (or one of them) " +
 			"and installs newer versions. Built-in automations an older MonoAgent installed are matched " +
 			"to their official monoes.me items first. Replacing an org needs --yes. Needs a login " +
 			"(`monoagentcli library login`).",

@@ -386,16 +386,35 @@ func TestChatEvents_ReopenedDatabaseReturnsExactCommittedSequence(t *testing.T) 
 	}
 }
 
-// Schema reinitialization: opening a second AIStore against the same
-// already-initialized DB must not error (CREATE TABLE IF NOT EXISTS /
-// duplicate-column tolerance covers the new tables too).
-func TestChatEvents_SchemaReinitializationIsIdempotent(t *testing.T) {
+// The schema comes from the migrations alone: opening an AIStore (twice,
+// as every CLI command and the GUI do) creates and alters nothing.
+func TestChatEvents_NewAIStoreLeavesTheSchemaAlone(t *testing.T) {
 	db := openTestDB(t)
-	if _, err := NewAIStore(db); err != nil {
-		t.Fatalf("first NewAIStore: %v", err)
+	schema := func() string {
+		t.Helper()
+		var out string
+		rows, err := db.Query(`SELECT type || ' ' || name || ' ' || COALESCE(sql, '') FROM sqlite_master ORDER BY type, name`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var line string
+			if err := rows.Scan(&line); err != nil {
+				t.Fatal(err)
+			}
+			out += line + "\n"
+		}
+		return out
 	}
-	if _, err := NewAIStore(db); err != nil {
-		t.Fatalf("second NewAIStore on the same DB: %v", err)
+	before := schema()
+	for i := 0; i < 2; i++ {
+		if _, err := NewAIStore(db); err != nil {
+			t.Fatalf("NewAIStore #%d: %v", i+1, err)
+		}
+	}
+	if after := schema(); after != before {
+		t.Errorf("NewAIStore changed the schema:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
 

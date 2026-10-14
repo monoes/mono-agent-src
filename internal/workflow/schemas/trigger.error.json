@@ -1,1 +1,16 @@
-{ "credential_platform": null, "fields": [] }
+{
+  "credential_platform": null,
+  "fields": [],
+  "outputs": [
+    {
+      "description": "the failed run: id, error {message, node {id, name, type}}, lastNodeExecuted, mode, trigger_type, error_class, error_hint",
+      "key": "execution",
+      "type": "object"
+    },
+    {
+      "description": "the failed workflow: id, name",
+      "key": "workflow",
+      "type": "object"
+    }
+  ]
+}

@@ -1,0 +1,213 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "unleashed_software",
+  "node_type": "app.unleashed_software",
+  "title": "Unleashed Software",
+  "description": "Sales orders and stock on hand in Unleashed inventory",
+  "category": "app",
+  "docs_url": "https://apidocs.unleashedsoftware.com/",
+  "n8n_types": [
+    "n8n-nodes-base.unleashedSoftware"
+  ],
+  "base_url": "https://api.unleashedsoftware.com",
+  "headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  "credentials": [
+    {
+      "platform": "unleashed_software",
+      "name": "Unleashed Software",
+      "n8n_credential": "unleashedSoftwareApi",
+      "n8n_field_map": {
+        "apiId": "api_id",
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_id",
+          "label": "API ID",
+          "required": true,
+          "help": "Unleashed: Integration → Unleashed API Access → API ID"
+        },
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "Signs every request (HMAC-SHA256 of the query string)"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "api-auth-id": "{{ cred.api_id }}"
+        },
+        "hmac": {
+          "header": "api-auth-signature",
+          "secret": "{{ cred.api_key }}",
+          "message": "{{ req.query }}",
+          "alg": "SHA256",
+          "encoding": "base64"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "salesOrder",
+      "label": "Sales Order"
+    },
+    {
+      "value": "stockOnHand",
+      "label": "Stock On Hand"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "salesOrder",
+      "operation": "getAll",
+      "title": "Get many sales orders",
+      "description": "Dates in the .NET form /Date(ms)/ are returned as the API sends them.",
+      "method": "GET",
+      "path": "/SalesOrders/{{ page.pageNumber }}",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "min": 1,
+          "max": 1000
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "customerId",
+            "customerCode",
+            "endDate",
+            "modifiedSince",
+            "orderNumber",
+            "orderStatus",
+            "startDate"
+          ],
+          "help": "customerId: one or more customer GUIDs, comma-separated; orderStatus: list of Backordered, Completed, Deleted, Parked, Placed (Deleted is excluded unless asked for); orderNumber overrides the other filters"
+        }
+      ],
+      "query": {
+        "customerId": "{{ p.filters.customerId }}",
+        "customerCode": "{{ p.filters.customerCode }}",
+        "endDate": "{{ p.filters.endDate | date:'YYYY-MM-DD' }}",
+        "modifiedSince": "{{ p.filters.modifiedSince | date:'YYYY-MM-DD' }}",
+        "orderNumber": "{{ p.filters.orderNumber }}",
+        "orderStatus": "{{ p.filters.orderStatus | csv }}",
+        "startDate": "{{ p.filters.startDate | date:'YYYY-MM-DD' }}",
+        "pageSize": "{{ page.pageSize }}"
+      },
+      "pagination": {
+        "type": "page",
+        "param_in": "path",
+        "page_param": "pageNumber",
+        "start_page": 1,
+        "limit_param": "pageSize",
+        "page_size": 1000,
+        "results_path": "Items"
+      },
+      "output": {
+        "to": "{{ el | dotnet_date }}"
+      }
+    },
+    {
+      "resource": "stockOnHand",
+      "operation": "getAll",
+      "title": "Get many stock on hand records",
+      "description": "Dates in the .NET form /Date(ms)/ are returned as the API sends them.",
+      "method": "GET",
+      "path": "/StockOnHand/{{ page.pageNumber }}",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 100,
+          "min": 1,
+          "max": 1000
+        },
+        {
+          "key": "filters",
+          "label": "Filters",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "asAtDate",
+            "IsAssembled",
+            "modifiedSince",
+            "orderBy",
+            "productId",
+            "warehouseCode",
+            "warehouseName"
+          ],
+          "help": "IsAssembled: also count what can be assembled in AvailableQty; orderBy: column to sort by (default productCode); productId: one or more product GUIDs, comma-separated"
+        }
+      ],
+      "query": {
+        "asAtDate": "{{ p.filters.asAtDate | date:'YYYY-MM-DD' }}",
+        "IsAssembled": "{{ p.filters.IsAssembled }}",
+        "modifiedSince": "{{ p.filters.modifiedSince | date:'YYYY-MM-DD' }}",
+        "orderBy": "{{ p.filters.orderBy | lines | join:'' }}",
+        "productId": "{{ p.filters.productId }}",
+        "warehouseCode": "{{ p.filters.warehouseCode }}",
+        "warehouseName": "{{ p.filters.warehouseName }}",
+        "pageSize": "{{ page.pageSize }}"
+      },
+      "pagination": {
+        "type": "page",
+        "param_in": "path",
+        "page_param": "pageNumber",
+        "start_page": 1,
+        "limit_param": "pageSize",
+        "page_size": 1000,
+        "results_path": "Items"
+      },
+      "output": {
+        "to": "{{ el | dotnet_date }}"
+      }
+    },
+    {
+      "resource": "stockOnHand",
+      "operation": "get",
+      "title": "Get the stock on hand of a product",
+      "method": "GET",
+      "path": "/StockOnHand/{{ p.productId }}",
+      "fields": [
+        {
+          "key": "productId",
+          "label": "Product ID",
+          "type": "text",
+          "required": true,
+          "help": "Product GUID"
+        }
+      ],
+      "output": {
+        "to": "{{ el | dotnet_date }}"
+      }
+    }
+  ]
+}

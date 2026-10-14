@@ -4,7 +4,13 @@
   "fields": [
     {
       "default": 5,
-      "help": "Used when Resume is not set.",
+      "depends_on": {
+        "key": "resume",
+        "values": [
+          "duration",
+          ""
+        ]
+      },
       "key": "duration",
       "label": "Wait Duration (seconds)",
       "min": 1,
@@ -12,10 +18,12 @@
       "type": "number"
     },
     {
-      "help": "timeInterval waits Amount × Unit; specificTime waits until Date and Time. Leave unset to use Wait Duration.",
+      "default": "duration",
+      "help": "duration waits Wait Duration seconds; timeInterval waits Amount × Unit; specificTime waits until Date and Time.",
       "key": "resume",
       "label": "Resume",
       "options": [
+        "duration",
         "timeInterval",
         "specificTime"
       ],

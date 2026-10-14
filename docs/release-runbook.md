@@ -11,7 +11,12 @@ Releases are hands-free apart from the `release` environment approval.
 
 - the release assets and `SHA256SUMS`
 - `manifest.json` (schema 1: version, release time, notes URL, and per-platform assets with
-  `os`, `arch`, `name`, `url`, `sha256`, `size`, `kind` of `cli` or `app`)
+  `os`, `arch`, `name`, `url`, `sha256`, `size`, `kind` of `cli` or `app`). The browser
+  extension zip, `monoagent-chrome-extension.zip`, is an asset too: `kind` `extension`, with no
+  `os` or `arch`. Installers that pick by os/arch/kind never select it.
+  `monoagentcli extension install` checks the zip against the signed manifest of the CLI's
+  release. It uses that release's `SHA256SUMS.txt` only when the manifest has no extension
+  entry (releases made before the extension was listed), and it says so in its output.
 - `manifest.json.sig`: one line, `<key id> <base64 Ed25519 signature>`, made over the exact
   bytes of `manifest.json`. The key id is the first 8 bytes of the SHA-256 of the public key,
   hex encoded.

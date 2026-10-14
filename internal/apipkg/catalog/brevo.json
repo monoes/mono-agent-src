@@ -123,14 +123,14 @@
             "receipientsCC",
             "emailTags"
           ],
-          "help": "emailAttachments: {\"attachment\": {\"binaryPropertyName\": \"data\"}} (first property is sent); recipientsCC: {\"recipientCc\": {\"cc\": \"a@b.io\"}}; emailTags: {\"tags\": {\"tag\": \"a,b\"}}"
+          "help": "emailAttachments: {\"attachment\": {\"binaryPropertyName\": \"data\"}} (comma-separated properties; every file is sent); recipientsCC: {\"recipientCc\": {\"cc\": \"a@b.io\"}}; emailTags: {\"tags\": {\"tag\": \"a,b\"}}"
         }
       ],
       "binary": {
         "upload_field": "additionalFields",
-        "property": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName | split | get:'0' }}",
         "upload_when": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName }}",
-        "fallback_body_type": "json"
+        "fallback_body_type": "json",
+        "properties": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName }}"
       },
       "body_type": "json",
       "body": {
@@ -164,10 +164,10 @@
         "htmlContent": "{{ p.sendHTML | eq:'true' | then:p.htmlContent }}",
         "tags": "{{ p.additionalFields.emailTags.tags.tag | split }}",
         "attachment": {
-          "$map": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName | then:(bin.file_name) | split }}",
+          "$map": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName | then:bin.files }}",
           "$to": {
-            "content": "{{ bin.base64 }}",
-            "name": "{{ el }}"
+            "content": "{{ el.base64 }}",
+            "name": "{{ el.file_name }}"
           }
         }
       }
@@ -214,9 +214,9 @@
       ],
       "binary": {
         "upload_field": "additionalFields",
-        "property": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName | split | get:'0' }}",
         "upload_when": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName }}",
-        "fallback_body_type": "json"
+        "fallback_body_type": "json",
+        "properties": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName }}"
       },
       "body_type": "json",
       "body": {
@@ -230,10 +230,10 @@
         },
         "tags": "{{ p.additionalFields.emailTags.tags.tag | split }}",
         "attachment": {
-          "$map": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName | then:(bin.file_name) | split }}",
+          "$map": "{{ p.additionalFields.emailAttachments.attachment.binaryPropertyName | then:bin.files }}",
           "$to": {
-            "content": "{{ bin.base64 }}",
-            "name": "{{ el }}"
+            "content": "{{ el.base64 }}",
+            "name": "{{ el.file_name }}"
           }
         },
         "params": {

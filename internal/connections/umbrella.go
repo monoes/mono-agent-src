@@ -15,8 +15,8 @@ type ScopeGroup struct {
 	Scopes      []string
 	// OptIn leaves the group out of a plain `connect` (no --scopes): it is
 	// granted only when named, or with "all". Rarely used APIs whose scopes
-	// Google treats as sensitive are opt-in, so a default connect does not
-	// ask for them.
+	// Google treats as sensitive, and Microsoft scopes that need a tenant
+	// admin's consent, are opt-in, so a default connect does not ask for them.
 	OptIn bool
 }
 
@@ -83,6 +83,7 @@ var umbrellas = map[string]umbrellaDef{
 			{Name: "analytics", Description: "Google Analytics (read reports)", Scopes: gScopes("analytics.readonly"), OptIn: true},
 			{Name: "books", Description: "Google Books (bookshelves)", Scopes: gScopes("books"), OptIn: true},
 			{Name: "businessprofile", Description: "Google Business Profile (locations, posts, reviews)", Scopes: gScopes("business.manage"), OptIn: true},
+			{Name: "formsedit", Description: "Google Forms editing (create forms, add and change questions)", Scopes: gScopes("forms.body"), OptIn: true},
 			{Name: "admin", Description: "Workspace Admin directory (users, groups, ChromeOS devices)", Scopes: gScopes("admin.directory.user", "admin.directory.group", "admin.directory.device.chromeos"), OptIn: true},
 		},
 		Members: []umbrellaMember{
@@ -99,7 +100,14 @@ var umbrellas = map[string]umbrellaDef{
 			{Name: "calendar", Description: "Outlook calendars", Scopes: msScopes("Calendars.ReadWrite")},
 			{Name: "files", Description: "OneDrive files", Scopes: msScopes("Files.ReadWrite.All")},
 			{Name: "sites", Description: "SharePoint sites and Excel workbooks", Scopes: msScopes("Sites.ReadWrite.All")},
-			{Name: "teams", Description: "Teams chats and channel messages", Scopes: msScopes("Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Send", "Chat.ReadWrite")},
+			{Name: "teams", Description: "Teams chats, channel messages, online meetings and activity notifications", Scopes: msScopes("Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Send", "Chat.ReadWrite", "OnlineMeetings.ReadWrite", "TeamsActivity.Send")},
+			{Name: "tasks", Description: "Microsoft To Do and Planner tasks", Scopes: msScopes("Tasks.ReadWrite")},
+			{Name: "contacts", Description: "Outlook contacts", Scopes: msScopes("Contacts.ReadWrite")},
+			// Opt-in: these scopes need a tenant admin's consent, so a plain
+			// connect (and personal accounts) never asks for them.
+			{Name: "teams_admin", Description: "Teams channel management and reading channel messages (admin consent)", Scopes: msScopes("ChannelMessage.Read.All", "Channel.Create", "ChannelSettings.ReadWrite.All", "ChatMember.ReadWrite", "ChannelMessage.ReadWrite", "Channel.Delete.All"), OptIn: true},
+			{Name: "directory", Description: "Entra ID users and groups (admin consent)", Scopes: msScopes("User.ReadWrite.All", "Group.ReadWrite.All"), OptIn: true},
+			{Name: "security", Description: "Microsoft Graph Security secure scores (admin consent)", Scopes: msScopes("SecurityEvents.ReadWrite.All"), OptIn: true},
 		},
 		Members: []umbrellaMember{
 			{Platform: "outlook", Group: "mail"},

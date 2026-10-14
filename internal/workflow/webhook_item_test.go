@@ -179,11 +179,11 @@ func TestWebhookItem_MultipartFieldsAndFiles(t *testing.T) {
 // The size cap covers multipart files too, and max_body_bytes raises it.
 func TestWebhookItem_BodyCap(t *testing.T) {
 	big := []byte(`{"x":"` + strings.Repeat("a", 2<<20) + `"}`)
-	s, fired := itemHook(t, &WebhookRegistration{})
+	s, _ := itemHook(t, &WebhookRegistration{})
 	if rec := send(s, http.MethodPost, "/webhook/hook", "application/json", big); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("default cap: status = %d, want 413", rec.Code)
 	}
-	s, fired = itemHook(t, &WebhookRegistration{MaxBodyBytes: 4 << 20})
+	s, fired := itemHook(t, &WebhookRegistration{MaxBodyBytes: 4 << 20})
 	rec := send(s, http.MethodPost, "/webhook/hook", "application/json", big)
 	firedJSON(t, rec, fired)
 }

@@ -1,1 +1,11 @@
-{ "credential_platform": null, "fields": [] }
+{
+  "credential_platform": null,
+  "fields": [],
+  "outputs": [
+    {
+      "description": "the fields of the run input (`workflow run --input`, API or MCP), none when no input is given",
+      "key": "<input>",
+      "type": "any"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	refcli "github.com/monoes/mono-agent/internal/cli/ref"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -23,12 +24,12 @@ func TestRefNodeGolden(t *testing.T) {
 			if !reg.Has(typ) {
 				t.Skipf("%s is not registered in this build", typ)
 			}
-			page, err := buildNodeRefPage(reg, typ)
+			page, err := refDeps().BuildNodeRefPage(reg, typ)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var buf bytes.Buffer
-			writeNodeRefPage(&buf, page)
+			refcli.WriteNodeRefPage(&buf, page)
 			golden := filepath.Join("testdata", "ref_node", typ+".golden")
 			if *updateRefGolden {
 				if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
@@ -52,7 +53,7 @@ func TestRefNodeGolden(t *testing.T) {
 // The generated reference must list every operation and, under each, the
 // fields whose depends_on names it.
 func TestRefNodeOperationsFromSchema(t *testing.T) {
-	page, err := buildNodeRefPage(refNodeRegistry(), "service.github")
+	page, err := refDeps().BuildNodeRefPage(refNodeRegistry(), "service.github")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,20 +81,20 @@ func TestRefNodeOperationsFromSchema(t *testing.T) {
 // never answers "unknown" for a registered type.
 func TestRefNodeRendersEveryRegisteredType(t *testing.T) {
 	reg := refNodeRegistry()
-	types := refNodeTypes(reg)
+	types := refDeps().NodeTypes(reg)
 	for _, typ := range reg.Types() {
 		if !contains(types, typ) {
 			t.Errorf("%s is registered but not covered by ref", typ)
 		}
 	}
 	for _, typ := range types {
-		page, err := buildNodeRefPage(reg, typ)
+		page, err := refDeps().BuildNodeRefPage(reg, typ)
 		if err != nil {
 			t.Errorf("%s: %v", typ, err)
 			continue
 		}
 		var buf bytes.Buffer
-		writeNodeRefPage(&buf, page)
+		refcli.WriteNodeRefPage(&buf, page)
 		if !strings.Contains(buf.String(), "NODE: "+typ) || !strings.Contains(buf.String(), "Credential platform:") {
 			t.Errorf("%s: page is missing its header or schema section:\n%s", typ, buf.String())
 		}
@@ -111,7 +112,7 @@ func TestRefNodeCommandJSONAndAlias(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	var page nodeRefPage
+	var page refcli.NodeRefPage
 	if err := json.Unmarshal(buf.Bytes(), &page); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, buf.String())
 	}
@@ -142,7 +143,7 @@ func TestRefNodeWithoutHandProse(t *testing.T) {
 	}
 	nodeDocs = kept
 
-	page, err := buildNodeRefPage(reg, "service.github")
+	page, err := refDeps().BuildNodeRefPage(reg, "service.github")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,12 +151,12 @@ func TestRefNodeWithoutHandProse(t *testing.T) {
 		t.Errorf("page = %+v", page)
 	}
 	var buf bytes.Buffer
-	writeNodeRefPage(&buf, page)
+	refcli.WriteNodeRefPage(&buf, page)
 	if !strings.Contains(buf.String(), "No hand-written guide") {
 		t.Errorf("page does not say it is schema-only:\n%s", buf.String())
 	}
 	buf.Reset()
-	writeRefNodes(&buf, reg, false)
+	refDeps().WriteRefNodes(&buf, reg, false)
 	if !strings.Contains(buf.String(), "service.github") || !strings.Contains(buf.String(), "[schema only]") {
 		t.Errorf("ref nodes does not list service.github as schema-only")
 	}
@@ -164,8 +165,8 @@ func TestRefNodeWithoutHandProse(t *testing.T) {
 func TestRefNodesHidesDeprecatedByDefault(t *testing.T) {
 	reg := refNodeRegistry()
 	var def, all bytes.Buffer
-	writeRefNodes(&def, reg, false)
-	writeRefNodes(&all, reg, true)
+	refDeps().WriteRefNodes(&def, reg, false)
+	refDeps().WriteRefNodes(&all, reg, true)
 	for typ := range workflow.DeprecatedNodeTypes {
 		if !reg.Has(typ) {
 			continue // still registered is the point; skip if a build drops it
@@ -181,7 +182,7 @@ func TestRefNodesHidesDeprecatedByDefault(t *testing.T) {
 		t.Error("ref nodes does not say deprecated types are hidden")
 	}
 	// Still documented on request.
-	if _, err := buildNodeRefPage(reg, "ai.chat"); err != nil {
+	if _, err := refDeps().BuildNodeRefPage(reg, "ai.chat"); err != nil {
 		t.Errorf("ref node ai.chat: %v", err)
 	}
 }

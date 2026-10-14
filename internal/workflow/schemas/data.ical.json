@@ -148,5 +148,32 @@
       "required": false,
       "type": "text"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the .ics file, base64-encoded (default property \"data\")",
+      "key": "<binary_property_name>",
+      "type": "string"
+    },
+    {
+      "description": "the file's name",
+      "key": "file_name",
+      "type": "string"
+    },
+    {
+      "description": "the file's media type",
+      "key": "mime_type",
+      "type": "string"
+    },
+    {
+      "description": "the file's extension, without the dot",
+      "key": "file_extension",
+      "type": "string"
+    },
+    {
+      "description": "the file's size in bytes",
+      "key": "file_size",
+      "type": "number"
+    }
   ]
 }

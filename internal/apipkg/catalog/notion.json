@@ -242,7 +242,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
@@ -293,7 +293,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
@@ -421,7 +421,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
@@ -765,7 +765,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
@@ -813,7 +813,7 @@
           "options": [
             "downloadFiles"
           ],
-          "help": "downloadFiles is not supported; file URLs are in the output."
+          "help": "downloadFiles: put each file of the page's file properties on the item (binary <property>_<index>)."
         }
       ],
       "output": {
@@ -823,11 +823,30 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
-        "to_when": "{{ p.simple }}"
+        "to_when": "{{ p.simple }}",
+        "download": {
+          "when": "{{ p.options.downloadFiles }}",
+          "auth": false,
+          "files": {
+            "$map": "{{ el.properties | entries }}",
+            "$to": {
+              "$map": "{{ el.value.type | eq:'files' | then:el.value.files }}",
+              "$to": {
+                "url": "{{ el.file.url | default:el.external.url }}",
+                "property": "{{ up.key }}_{{ idx }}",
+                "name": "{{ el.name }}"
+              }
+            }
+          },
+          "method": "GET",
+          "path": "{{ el.url }}",
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.name }}"
+        }
       }
     },
     {
@@ -952,9 +971,29 @@
                     "$entries": "{{ el | json | split:'\u0001' }}",
                     "$key": "{{ el | fromjson | get:'key' | split:'|' | get:'-1' | eq:'title' | then:'rich_text' | default:(el | fromjson | get:'key' | split:'|' | get:'-1' | eq:'url' | then:'rich_text') | default:(el | fromjson | get:'key' | split:'|' | get:'-1' | eq:'email' | then:'rich_text') | default:(el | fromjson | get:'key' | split:'|' | get:'-1' | eq:'created_by' | then:'people') | default:(el | fromjson | get:'key' | split:'|' | get:'-1' | eq:'last_edited_by' | then:'people') | default:(el | fromjson | get:'key' | split:'|' | get:'-1') }}",
                     "$value": {
-                      "$entries": "{{ el | split:'\u0001' }}",
-                      "$key": "{{ el | fromjson | get:'condition' }}",
-                      "$value": "{{ el | fromjson | get:'condition' | eq:'is_empty' | then:true | default:(el | fromjson | get:'condition' | eq:'is_not_empty' | then:true) | default:(el | fromjson | get:'richTextValue') | default:(el | fromjson | get:'numberValue') | default:(el | fromjson | get:'dateValue') | default:(el | fromjson | get:'optionValue') | default:(el | fromjson | get:'peopleValue') | default:(el | fromjson | get:'relationValue') | default:(el | fromjson | get:'verificationStatus') | default:(el | fromjson | get:'checkboxValue' | bool) }}"
+                      "$merge": {
+                        "$entries": "{{ el | split:'\u0001' }}",
+                        "$key": "{{ el | fromjson | get:'condition' }}",
+                        "$value": "{{ el | fromjson | get:'condition' | eq:'is_empty' | then:true | default:(el | fromjson | get:'condition' | eq:'is_not_empty' | then:true) | default:(el | fromjson | get:'richTextValue') | default:(el | fromjson | get:'numberValue') | default:(el | fromjson | get:'date' | date:'YYYY-MM-DDTHH:mm:ssZ') | default:(el | fromjson | get:'dateValue') | default:(el | fromjson | get:'optionValue') | default:(el | fromjson | get:'peopleValue') | default:(el | fromjson | get:'relationValue') | default:(el | fromjson | get:'verificationStatus') | default:(el | fromjson | get:'checkboxValue' | bool) }}"
+                      },
+                      "past_week": {
+                        "$when": "{{ el | fromjson | get:'condition' | eq:'past_week' }}"
+                      },
+                      "past_month": {
+                        "$when": "{{ el | fromjson | get:'condition' | eq:'past_month' }}"
+                      },
+                      "past_year": {
+                        "$when": "{{ el | fromjson | get:'condition' | eq:'past_year' }}"
+                      },
+                      "next_week": {
+                        "$when": "{{ el | fromjson | get:'condition' | eq:'next_week' }}"
+                      },
+                      "next_month": {
+                        "$when": "{{ el | fromjson | get:'condition' | eq:'next_month' }}"
+                      },
+                      "next_year": {
+                        "$when": "{{ el | fromjson | get:'condition' | eq:'next_year' }}"
+                      }
                     }
                   }
                 }
@@ -988,11 +1027,30 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
-        "to_when": "{{ p.simple }}"
+        "to_when": "{{ p.simple }}",
+        "download": {
+          "when": "{{ p.options.downloadFiles }}",
+          "auth": false,
+          "files": {
+            "$map": "{{ el.properties | entries }}",
+            "$to": {
+              "$map": "{{ el.value.type | eq:'files' | then:el.value.files }}",
+              "$to": {
+                "url": "{{ el.file.url | default:el.external.url }}",
+                "property": "{{ up.key }}_{{ idx }}",
+                "name": "{{ el.name }}"
+              }
+            }
+          },
+          "method": "GET",
+          "path": "{{ el.url }}",
+          "property": "{{ el.property }}",
+          "file_name": "{{ el.name }}"
+        }
       }
     },
     {
@@ -1129,7 +1187,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
@@ -1387,7 +1445,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
@@ -1478,7 +1536,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },
@@ -1526,7 +1584,7 @@
           "url": "{{ el.url }}",
           "$merge": {
             "$entries": "{{ el.properties | entries }}",
-            "$key": "property_{{ el.key | lower | replace:' ','_' }}",
+            "$key": "property_{{ el.key | snake }}",
             "$value": "{{ el.value.title | pluck:'plain_text' | join:'' | default:(el.value.rich_text | pluck:'plain_text' | join:'') | default:el.value.number | default:el.value.select.name | default:el.value.status.name | default:(el.value.multi_select | pluck:'name') | default:(el.value.people | pluck:'person.email') | default:(el.value.relation | pluck:'id') | default:(el.value.files | pluck:'file.url') | default:(el.value.files | pluck:'external.url') | default:el.value.date | default:el.value.url | default:el.value.email | default:el.value.phone_number | default:el.value.created_time | default:el.value.last_edited_time | default:el.value.created_by.name | default:el.value.last_edited_by.name | default:(el.value.formula | get:(el.value.formula.type)) | default:el.value.rollup.number | default:el.value.checkbox }}"
           }
         },

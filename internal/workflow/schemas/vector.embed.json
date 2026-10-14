@@ -148,5 +148,17 @@
       },
       "placeholder": "us-east-1"
     }
+  ],
+  "outputs": [
+    {
+      "description": "the input item passes through",
+      "key": "*",
+      "type": "any"
+    },
+    {
+      "description": "the embedding vector (array of numbers)",
+      "key": "<output_key>",
+      "type": "array"
+    }
   ]
 }

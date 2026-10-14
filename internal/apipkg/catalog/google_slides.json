@@ -195,7 +195,7 @@
       "title": "Get a page thumbnail",
       "method": "GET",
       "path": "/presentations/{{ p.presentationId | gid }}/pages/{{ p.pageObjectId }}/thumbnail",
-      "description": "Returns the thumbnail's contentUrl; download is not supported yet (fetch contentUrl with an HTTP node).",
+      "description": "With Download on, the thumbnail image is added to the item as binary data.",
       "fields": [
         {
           "key": "presentationId",
@@ -222,7 +222,17 @@
           "type": "text",
           "default": "data"
         }
-      ]
+      ],
+      "output": {
+        "download": {
+          "when": "{{ p.download }}",
+          "auth": false,
+          "method": "GET",
+          "path": "{{ el.contentUrl }}",
+          "property": "{{ p.binaryProperty }}",
+          "file_name": "{{ p.pageObjectId }}.png"
+        }
+      }
     }
   ]
 }

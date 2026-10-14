@@ -151,7 +151,9 @@
         "preferUserId": "{{ p.identifier | eq:'userId' | then:p.preferUserId }}",
         "dataFields": "{{ p.additionalFields.dataFieldsUi.dataFieldValues | kv:'key,value' }}",
         "mergeNestedObjects": "{{ p.additionalFields.mergeNestedObjects }}"
-      }
+      },
+      "error_when": "{{ res.code | ne:'Success' }}",
+      "error_message": "{{ res.msg }}"
     },
     {
       "resource": "user",
@@ -182,7 +184,9 @@
           "type": "text",
           "default": ""
         }
-      ]
+      ],
+      "error_when": "{{ res.code | ne:'Success' }}",
+      "error_message": "{{ res.msg }}"
     },
     {
       "resource": "user",

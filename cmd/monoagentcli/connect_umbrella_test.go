@@ -33,9 +33,6 @@ func TestConnectForNodeIncludesUmbrellaConnections(t *testing.T) {
 	e := newSessionsTestEnv(t)
 	store := connections.NewStore(e.db.DB)
 	ctx := context.Background()
-	if err := store.EnsureTable(ctx); err != nil {
-		t.Fatal(err)
-	}
 	legacy := &connections.Connection{Platform: "gmail", Method: connections.MethodOAuth, Label: "Gmail", Data: map[string]interface{}{"access_token": "a"}}
 	google := &connections.Connection{Platform: "google", Method: connections.MethodOAuth, Label: "Google", Data: map[string]interface{}{"access_token": "b", "oauth_platform": "google"}}
 	ms := &connections.Connection{Platform: "microsoft", Method: connections.MethodOAuth, Label: "Microsoft", Data: map[string]interface{}{"access_token": "c", "oauth_platform": "microsoft"}}

@@ -405,6 +405,16 @@
       "options": {
         "username": "bot",
         "wait": true
+      },
+      "files": {
+        "values": [
+          {
+            "inputFieldName": "data"
+          },
+          {
+            "inputFieldName": "data2"
+          }
+        ]
       }
     },
     "credential": {
@@ -418,7 +428,24 @@
       },
       "body": {
         "content": "hello",
-        "username": "bot"
+        "username": "bot",
+        "payload_json": "{\"attachments\":[{\"filename\":\"a.txt\",\"id\":0},{\"filename\":\"b.png\",\"id\":1}],\"content\":\"hello\",\"username\":\"bot\"}",
+        "files[0]": "file:a.txt:hi",
+        "files[1]": "file:b.png:yo"
+      }
+    },
+    "input": {
+      "binary": {
+        "data": {
+          "data": "aGk=",
+          "fileName": "a.txt",
+          "mimeType": "text/plain"
+        },
+        "data2": {
+          "data": "eW8=",
+          "fileName": "b.png",
+          "mimeType": "image/png"
+        }
       }
     }
   }

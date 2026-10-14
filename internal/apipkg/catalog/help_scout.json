@@ -584,13 +584,13 @@
             "attachmentsValues",
             "attachmentsBinary"
           ],
-          "help": "attachmentsValues: [{fileName, mimeType, data (base64)}]; attachmentsBinary: [{property}] (the first binary property is attached)"
+          "help": "attachmentsValues: [{fileName, mimeType, data (base64)}]; attachmentsBinary: [{property}] (every binary property is attached)"
         }
       ],
       "binary": {
         "upload_field": "attachmentsUi",
-        "property": "{{ p.attachmentsUi.attachmentsBinary.0.property }}",
-        "upload_when": "{{ p.attachmentsUi.attachmentsBinary.0.property }}"
+        "upload_when": "{{ p.attachmentsUi.attachmentsBinary.0.property }}",
+        "properties": "{{ p.attachmentsUi.attachmentsBinary | pluck:'property' }}"
       },
       "body": {
         "text": "{{ p.text }}",
@@ -602,14 +602,14 @@
         "!attachments": {
           "$concat": [
             "{{ p.attachmentsUi.attachmentsValues }}",
-            [
-              {
-                "$when": "{{ bin.base64 }}",
-                "fileName": "{{ bin.file_name | default:'unknown' }}",
-                "mimeType": "{{ bin.mime_type }}",
-                "data": "{{ bin.base64 }}"
+            {
+              "$map": "{{ p.attachmentsUi.attachmentsBinary.0.property | then:bin.files }}",
+              "$to": {
+                "fileName": "{{ el.file_name | default:'unknown' }}",
+                "mimeType": "{{ el.mime_type }}",
+                "data": "{{ el.base64 }}"
               }
-            ]
+            }
           ]
         }
       },

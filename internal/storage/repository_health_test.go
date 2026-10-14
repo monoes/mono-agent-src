@@ -164,7 +164,6 @@ func TestHealthBatchUpsertPeople(t *testing.T) {
 // TestUpsertPersonPreservesEnrichmentOnPartialUpsert); the batch variant
 // overwrites every column with whatever the batch carries.
 func TestHealthBatchUpsertPeoplePreservesEnrichment(t *testing.T) {
-	t.Skip("bug: BatchUpsertPeople overwrites enrichment with NULL/0 on a partial re-upsert, unlike UpsertPerson — see PR")
 	db := testdb.Open(t)
 	full := &storage.Person{PlatformUsername: "e", Platform: "x", FullName: "Enriched", JobTitle: "CTO", FollowingCount: 9}
 	if err := db.UpsertPerson(full); err != nil {

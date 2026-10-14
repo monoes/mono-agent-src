@@ -512,6 +512,145 @@
     },
     {
       "resource": "asset",
+      "operation": "upload",
+      "title": "Upload a file to a row",
+      "description": "Uploads the item's file to the base's assets and adds it to the row's file or image column (after the assets already there unless append is off).",
+      "method": "POST",
+      "path": "/seafhttp/upload-api/{{ pres.0.upload_link | split:'seafhttp/upload-api/' | get:'1' }}",
+      "query": {
+        "ret-json": "true"
+      },
+      "before": [
+        {
+          "method": "GET",
+          "path": "/api/v2.1/dtable/app-upload-link/"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v2.1/dtable/app-access-token/"
+        },
+        {
+          "when": "{{ p.options.append | ne:'false' }}",
+          "auth": false,
+          "method": "GET",
+          "path": "/api-gateway/api/v2/dtables/{{ pres.1.dtable_uuid }}/rows/{{ p.rowId }}",
+          "query": {
+            "table_name": "{{ p.tableName }}",
+            "convert_keys": "true"
+          },
+          "headers": {
+            "Authorization": "Token {{ pres.1.access_token }}"
+          }
+        }
+      ],
+      "body_type": "multipart",
+      "body": {
+        "parent_dir": "{{ pres.0.parent_path }}",
+        "replace": "{{ p.options.replace | then:'1' | default:'0' }}",
+        "relative_path": "{{ p.uploadColumn | split:':::' | get:'1' | eq:'image' | then:pres.0.img_relative_path | default:pres.0.file_relative_path }}"
+      },
+      "binary": {
+        "upload_field": "dataPropertyName",
+        "multipart_field": "file"
+      },
+      "also": [
+        {
+          "auth": false,
+          "method": "PUT",
+          "path": "/api-gateway/api/v2/dtables/{{ pres.1.dtable_uuid }}/rows/",
+          "headers": {
+            "Authorization": "Token {{ pres.1.access_token }}"
+          },
+          "body": {
+            "table_name": "{{ p.tableName }}",
+            "updates": [
+              {
+                "row_id": "{{ p.rowId }}",
+                "row": {
+                  "$entries": {
+                    "$concat": [
+                      {
+                        "$when": "{{ p.uploadColumn | split:':::' | get:'1' | eq:'image' }}",
+                        "k": "{{ (p.uploadColumn | split:':::' | get:'0') }}",
+                        "v": {
+                          "$concat": [
+                            "{{ pres.2 | get:(p.uploadColumn | split:':::' | get:'0') }}",
+                            {
+                              "$map": "{{ res }}",
+                              "$to": "{{ cred.environment | eq:'selfHosted' | then:cred.domain | default:'https://cloud.seatable.io' }}/workspace/{{ pres.1.workspace_id }}{{ pres.0.parent_path }}/{{ p.uploadColumn | split:':::' | get:'1' | eq:'image' | then:pres.0.img_relative_path | default:pres.0.file_relative_path }}/{{ el.name }}"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "$when": "{{ p.uploadColumn | split:':::' | get:'1' | eq:'image' | default:'false' | ne:'true' }}",
+                        "k": "{{ (p.uploadColumn | split:':::' | get:'0') }}",
+                        "v": {
+                          "$concat": [
+                            "{{ pres.2 | get:(p.uploadColumn | split:':::' | get:'0') }}",
+                            {
+                              "$map": "{{ res }}",
+                              "$to": {
+                                "$merge": "{{ el }}",
+                                "type": "file",
+                                "url": "{{ cred.environment | eq:'selfHosted' | then:cred.domain | default:'https://cloud.seatable.io' }}/workspace/{{ pres.1.workspace_id }}{{ pres.0.parent_path }}/{{ p.uploadColumn | split:':::' | get:'1' | eq:'image' | then:pres.0.img_relative_path | default:pres.0.file_relative_path }}/{{ el.name }}"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "$key": "{{ el.k }}",
+                  "$value": "{{ el.v }}"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "fields": [
+        {
+          "key": "tableName",
+          "label": "Table",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "uploadColumn",
+          "label": "Column",
+          "type": "text",
+          "required": true,
+          "help": "n8n's value <column name>:::<image|file>"
+        },
+        {
+          "key": "rowId",
+          "label": "Row ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dataPropertyName",
+          "label": "Input binary field",
+          "type": "text",
+          "default": "data",
+          "required": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "replace",
+            "append"
+          ],
+          "help": "replace: overwrite an asset with the same name; append (default on): keep the column's existing assets"
+        }
+      ]
+    },
+    {
+      "resource": "asset",
       "operation": "getPublicURL",
       "title": "Get a public URL",
       "method": "GET",

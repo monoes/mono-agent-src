@@ -69,5 +69,27 @@
       "required": false,
       "type": "number"
     }
+  ],
+  "outputs": [
+    {
+      "description": "true once the record is produced",
+      "key": "success",
+      "type": "boolean"
+    },
+    {
+      "description": "topic the record was written to",
+      "key": "topic",
+      "type": "string"
+    },
+    {
+      "description": "partition the record was written to",
+      "key": "partition",
+      "type": "number"
+    },
+    {
+      "description": "offset of the produced record",
+      "key": "offset",
+      "type": "number"
+    }
   ]
 }

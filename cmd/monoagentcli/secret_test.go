@@ -206,12 +206,6 @@ func TestSecretEncryptConnections_MigratesPlaintextRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDatabase: %v", err)
 	}
-	// The connections table isn't part of the SQL migrations (Store.EnsureTable
-	// creates it lazily on first use by `connect`/the GUI); ensure it exists
-	// here so the raw INSERT below has somewhere to land.
-	if err := connections.NewStore(db.DB).EnsureTable(context.Background()); err != nil {
-		t.Fatalf("EnsureTable: %v", err)
-	}
 	// Insert a connection row the old way: raw plaintext JSON in `data`,
 	// bypassing Store.Save so this test can be sure it starts unencrypted.
 	_, err = db.DB.Exec(`
@@ -581,9 +575,6 @@ func TestSecretImport_RematerializesConnectionOnFreshMachine(t *testing.T) {
 	}
 
 	dst := newLoginTestDB(t)
-	if err := connections.NewStore(dst.DB).EnsureTable(ctx); err != nil {
-		t.Fatalf("EnsureTable on destination: %v", err)
-	}
 	imported, skipped, err := secrets.Import(ctx, dst.DB, "default", passphrase, data,
 		rematerializeConnection, rematerializeSession)
 	if err != nil {

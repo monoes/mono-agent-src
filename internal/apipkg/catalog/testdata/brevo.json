@@ -65,7 +65,7 @@
         },
         "emailAttachments": {
           "attachment": {
-            "binaryPropertyName": "data"
+            "binaryPropertyName": "data, data2"
           }
         }
       }
@@ -76,6 +76,11 @@
           "data": "aGk=",
           "fileName": "a.txt",
           "mimeType": "text/plain"
+        },
+        "data2": {
+          "data": "eW8=",
+          "fileName": "b.pdf",
+          "mimeType": "application/pdf"
         }
       }
     },
@@ -97,6 +102,10 @@
           {
             "content": "aGk=",
             "name": "a.txt"
+          },
+          {
+            "content": "eW8=",
+            "name": "b.pdf"
           }
         ]
       }
