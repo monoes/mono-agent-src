@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/monoes/mono-agent/internal/nodes/aisub"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -51,6 +52,10 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, raw map[st
 	cfg, err := parseConfig(raw)
 	if err != nil {
 		return nil, err
+	}
+	// An attached chat model sub-node runs the model-judged checks.
+	if m, ok := aisub.ModelOf(input); ok {
+		cfg.runtime, cfg.model = m.Runtime, m.Model
 	}
 	var j *judge
 	if len(cfg.llm) > 0 {

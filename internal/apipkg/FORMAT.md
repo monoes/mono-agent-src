@@ -152,7 +152,23 @@ Generated node schema: a `credential_id` picker, a `resource` select, one
 `operation` select per resource (`depends_on` the resource), then every op's
 fields. Fields with the same key, type, label and options are merged into one
 entry. Each field carries `depends_on: {"key": "operation", "values": […]}`
-and an exact `visible_for: [{"resource": …, "operation": …}]`.
+and an exact `visible_for: [{"resource": …, "operation": …}]`. A field may
+declare its own `depends_on: {"key": "legacyEditModel", "values": ["true"]}`:
+the key and value join every `visible_for` entry (one entry per value), so
+the field shows, and is checked, only for those ops while that field holds
+that value. Use it to keep importer-only fields (legacy toggles that
+`n8n_version_defaults` turns on) out of the form for new nodes.
+A required `select` whose `default` is empty or not one of its `options`
+starts on its first option; set `default` when another option is the
+sensible start.
+On a native node a package `extends` with resources, every native field
+but the account picker applies only while no resource is picked: a field
+with no condition (the native `operation` select included) gets
+`depends_on: {"key": "resource", "values": [""]}`; one that depends on
+another key keeps that `depends_on` and gets `visible_for` entries
+`{"resource": "", <key>: <value>}`. Once a resource is picked, its own
+`operation` select (with its own `default`) and fields take over, and
+native required fields are not asked for.
 
 Every field is resolved **per input item** from workflow expressions
 (`{{ $json.id }}` in the node config), so one node run makes one request per

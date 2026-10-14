@@ -482,3 +482,23 @@ func TestRedditNode_ErrorResponsePropagates(t *testing.T) {
 		t.Fatal("expected error on 401 response")
 	}
 }
+
+// kind "auto" (the form's default) picks link when a URL is set.
+func TestRedditNode_SubmitPostAutoKind(t *testing.T) {
+	var gotForm map[string][]string
+	withRedditServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		gotForm = map[string][]string(r.PostForm)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"json": map[string]interface{}{}})
+	})
+	redditExecute(t, map[string]interface{}{
+		"operation": "submit_post", "access_token": "test-token", "subreddit": "golang",
+		"title": "Look", "kind": "auto", "url": "https://example.com",
+	})
+	if gotForm["kind"][0] != "link" {
+		t.Errorf("kind = %v, want link", gotForm["kind"])
+	}
+}

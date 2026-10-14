@@ -103,6 +103,8 @@ var readOnlyNodes = setOf(
 	// discovery.search_jobs reads public job boards with GETs.
 	"people.save", "people.sync_outlook_message",
 	"agent.memory", // the profile's own chat-memory rows (no model turn)
+	// AI sub-nodes: config read by their root, never run as steps.
+	"ai.model", "ai.memory", "ai.output_parser",
 	"applications.create", "applications.list",
 	"applications.prepare", "applications.set_status", "applications.tag",
 	"discovery.search_jobs", "documents.render", "image.vault_save", "publication.register",

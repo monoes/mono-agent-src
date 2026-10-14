@@ -303,7 +303,66 @@ item; its last window messages (default 10, i.e. 5 exchanges; 0 sends the whole
 session) go in front of the prompt as a transcript, and after a successful turn
 the prompt and the answer are added to the session. Items of one session run
 one after another, in input order, even with concurrency above 1. Leave memory
-out, or set "enabled": false, for none.`,
+out, or set "enabled": false, for none.
+
+Sub-nodes (n8n's cluster sub-nodes) can be attached instead of the inline
+settings, each through a connection whose handle names its kind: an ai.model
+(ai_languageModel) sets runtime and model, an ai.memory (ai_memory) the memory
+option, an ai.output_parser (ai_outputParser) output_schema. An attached
+sub-node wins over the inline field; with one attached, runtime need not be
+set. One of each kind is used (the first).`,
+	},
+	{
+		Type:     "ai.model",
+		Category: "agent",
+		Short:    "Sub-node: the agent runtime and model of an Agent Ask or Guardrails node",
+		Description: `A chat model sub-node (n8n's Chat Model nodes). It never runs as a step:
+connect it to the ai_languageModel input of agent.ask or ai.guardrails, which
+then use its runtime and model instead of their own.`,
+		Config: `{
+  "runtime": "claude",   // required; see "agent scan --installed", or "auto" (see agent.ask)
+  "model":   ""          // empty = runtime default
+}`,
+		Inputs:  "none (a sub-node)",
+		Outputs: "ai_languageModel: attaches to agent.ask or ai.guardrails",
+		Notes: `Connection: {"source_node_id": "<this>", "source_handle": "ai_languageModel",
+"target_node_id": "<agent.ask>", "target_handle": "ai_languageModel"}. Run on its
+own it fails: connect it to Agent Ask.`,
+	},
+	{
+		Type:     "ai.memory",
+		Category: "agent",
+		Short:    "Sub-node: conversation memory for Agent Ask (Simple Memory)",
+		Description: `A memory sub-node (n8n's Simple Memory / Window Buffer Memory). It never runs
+as a step: connected to the ai_memory input of agent.ask it is that node's
+memory option; connected to agent.memory it names the session it manages.`,
+		Config: `{
+  "session_key":       "{{ $json.sessionId }}",  // resolved per item of the root
+  "window":            10,                       // earlier messages sent (0 = all)
+  "skip_when_missing": false                     // no session key: a fresh conversation instead of failing
+}`,
+		Inputs:  "none (a sub-node)",
+		Outputs: "ai_memory: attaches to agent.ask or agent.memory",
+		Notes: `The messages live in the profile's chat memory (see agent.ask's memory and
+agent.memory). Run on its own it fails: connect it to Agent Ask.`,
+	},
+	{
+		Type:     "ai.output_parser",
+		Category: "agent",
+		Short:    "Sub-node: the JSON shape Agent Ask answers with (Structured Output Parser)",
+		Description: `An output parser sub-node (n8n's Structured Output Parser). It never runs as a
+step: connected to the ai_outputParser input of agent.ask it becomes that node's
+output_schema, from a JSON example or a JSON Schema.`,
+		Config: `{
+  "schema_type":  "example",                          // example | schema
+  "json_example": "{\"category\": \"lead\", \"score\": 0.9}", // every key required
+  "json_schema":  ""                                  // schema: a JSON Schema object
+}`,
+		Inputs:  "none (a sub-node)",
+		Outputs: "ai_outputParser: attaches to agent.ask",
+		Notes: `From an example, objects get every key as required, numbers "number", arrays
+the schema of their first element. Run on its own it fails: connect it to
+Agent Ask.`,
 	},
 	{
 		Type:     "agent.memory",
@@ -334,7 +393,8 @@ nodes become this node.`,
 restarts; sessions are per profile, shared by every workflow of it. Roles are
 stored as human, ai and system. delete with last_n removes the newest count
 messages, or all of them when the session has fewer. An item whose session_key
-resolves to nothing fails the node.`,
+resolves to nothing fails the node. An ai.memory sub-node attached through an
+ai_memory connection names the session instead of session_key.`,
 	},
 	{
 		Type:     "mcp.call",
@@ -498,7 +558,9 @@ tripped; a pass item lists every check. Check names: keywords, personalData
 (info.analyzerResults [{entityType, text}]), customRegex, secretKeys
 (info.detectedSecrets), urls (info.detected, allowed, blocked, blockedReasons),
 jailbreak, nsfw, topicalAlignment, and each custom guardrail's name.`,
-		Notes: `Order as in n8n: the pattern checks (PII, custom regex, secret keys, URLs) run
+		Notes: `An ai.model sub-node attached through an ai_languageModel connection runs the
+model checks instead of runtime and model.
+Order as in n8n: the pattern checks (PII, custom regex, secret keys, URLs) run
 first; if one trips, the item fails without the keyword and model checks.
 Keywords and model checks only classify. Sanitize placeholders: <EMAIL_ADDRESS>,
 <CREDIT_CARD>, … (the entity name), <SECRET>, <URL>, <custom regex name>.

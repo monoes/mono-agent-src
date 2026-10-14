@@ -12,7 +12,8 @@ import (
 )
 
 // newNodeCurlCmd converts a curl command line into an http.request node
-// config. Flag parsing is off so the curl options reach the parser as is.
+// config. Flag parsing is off so the curl options reach the parser as is;
+// global flags given before the curl words are parsed here.
 func (d Deps) newNodeCurlCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "curl <curl command | ->",
@@ -25,6 +26,10 @@ Things that could not be carried over are listed on stderr.`,
   pbpaste | monoagentcli node curl -`,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := parseLeadingGlobalFlags(cmd, args)
+			if err != nil {
+				return d.InvalidInput("%v", err)
+			}
 			if len(args) == 0 || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
 				return cmd.Help()
 			}
@@ -47,6 +52,45 @@ Things that could not be carried over are listed on stderr.`,
 			return nil
 		},
 	}
+}
+
+// parseLeadingGlobalFlags parses the global flags at the front of args and
+// returns the rest. With flag parsing off, cobra hands this command every
+// flag of the line, so `--profile p --json node curl -` arrives as
+// "--profile p --json -". Parsing stops at the first word that is not a
+// global flag ("curl", "-", a URL or a curl option).
+func parseLeadingGlobalFlags(cmd *cobra.Command, args []string) ([]string, error) {
+	fs := cmd.InheritedFlags()
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if a == "-" || !strings.HasPrefix(a, "-") {
+			break
+		}
+		name, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		f := fs.Lookup(name)
+		if !strings.HasPrefix(a, "--") {
+			f = nil
+			if len(name) == 1 {
+				f = fs.ShorthandLookup(name)
+			}
+		}
+		if f == nil {
+			break
+		}
+		n := 1
+		if !hasValue && f.NoOptDefVal == "" {
+			n = 2
+		}
+		if i+n > len(args) {
+			break
+		}
+		i += n
+	}
+	if err := fs.Parse(args[:i]); err != nil {
+		return nil, err
+	}
+	return args[i:], nil
 }
 
 // curlCommandFromArgs returns the curl command: stdin for "-", the single

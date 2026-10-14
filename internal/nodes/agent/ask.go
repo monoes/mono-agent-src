@@ -15,6 +15,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agentusage"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/nodes/aisub"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -70,6 +71,10 @@ func (n *AskNode) PerItemConfigFields() []string {
 }
 
 func (n *AskNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
+	config, err := withSubNodes(input, config)
+	if err != nil {
+		return nil, err
+	}
 	runtime := configString(config, "runtime", "")
 	if runtime == "" {
 		return nil, fmt.Errorf("%w: agent.ask node requires \"runtime\" (see `monoagentcli agent scan --installed`, or use \"auto\")", workflow.ErrInvalidConfig)
@@ -145,6 +150,36 @@ func (n *AskNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 	return []workflow.NodeOutput{
 		{Handle: "main", Items: items},
 	}, nil
+}
+
+// withSubNodes applies the AI sub-nodes attached to the node over its own
+// config: a chat model sets runtime and model, a memory the memory option,
+// an output parser output_schema. Without any the config is returned as is.
+func withSubNodes(input workflow.NodeInput, config map[string]interface{}) (map[string]interface{}, error) {
+	if len(input.SubNodes) == 0 {
+		return config, nil
+	}
+	out := make(map[string]interface{}, len(config)+3)
+	for k, v := range config {
+		out[k] = v
+	}
+	if m, ok := aisub.ModelOf(input); ok {
+		if m.Runtime == "" {
+			return nil, fmt.Errorf("%w: agent.ask: the attached chat model %q has no runtime (see `monoagentcli agent scan --installed`, or use \"auto\")", workflow.ErrInvalidConfig, m.Name)
+		}
+		out["runtime"], out["model"] = m.Runtime, m.Model
+	}
+	if mem, ok := aisub.MemoryOf(input); ok {
+		out["memory"] = mem
+	}
+	schema, ok, err := aisub.OutputSchemaOf(input)
+	if err != nil {
+		return nil, fmt.Errorf("%w: agent.ask: %v", workflow.ErrInvalidConfig, err)
+	}
+	if ok {
+		out["output_schema"] = schema
+	}
+	return out, nil
 }
 
 // asker runs one node execution's turns.

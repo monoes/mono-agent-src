@@ -154,5 +154,13 @@
       "key": "success",
       "type": "boolean"
     }
+  ],
+  "sub_inputs": [
+    {
+      "handle": "ai_memory",
+      "label": "Memory",
+      "max": 1,
+      "required": false
+    }
   ]
 }

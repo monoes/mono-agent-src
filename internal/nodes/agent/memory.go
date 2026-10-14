@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/aimemory"
+	"github.com/monoes/mono-agent/internal/nodes/aisub"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -46,6 +47,11 @@ func (n *MemoryNode) Execute(ctx context.Context, input workflow.NodeInput, conf
 	}
 	profile := vault.ProfileIDFromContext(ctx)
 	sessionTmpl := configString(config, "session_key", DefaultSessionKey)
+	// An attached memory sub-node names the session (n8n's Chat Memory
+	// Manager takes its memory this way).
+	if mem, ok := aisub.MemoryOf(input); ok {
+		sessionTmpl, _ = mem["session_key"].(string)
+	}
 
 	var (
 		messages           []map[string]interface{}

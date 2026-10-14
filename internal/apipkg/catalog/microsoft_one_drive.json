@@ -592,6 +592,7 @@
           "label": "Link scope",
           "type": "select",
           "required": true,
+          "default": "organization",
           "options": [
             "anonymous",
             "organization"
@@ -955,6 +956,7 @@
           "label": "Link scope",
           "type": "select",
           "required": true,
+          "default": "organization",
           "options": [
             "anonymous",
             "organization"

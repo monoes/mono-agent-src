@@ -305,5 +305,13 @@
       "required": false,
       "type": "number"
     }
+  ],
+  "sub_inputs": [
+    {
+      "handle": "ai_languageModel",
+      "label": "Chat Model",
+      "max": 1,
+      "required": false
+    }
   ]
 }

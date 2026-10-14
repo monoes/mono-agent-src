@@ -132,6 +132,7 @@ func schemaIssues(w *Workflow, opts ValidateOptions) []ValidationIssue {
 		}
 	}
 	g := newOutputGraph(nodes, w.Connections)
+	attached := attachedSubKinds(nodes, w.Connections)
 
 	for _, n := range nodes {
 		if n.Type == "" {
@@ -151,7 +152,7 @@ func schemaIssues(w *Workflow, opts ValidateOptions) []ValidationIssue {
 		}
 		schema, ok := checkedSchema(n.Type)
 		if ok {
-			out = append(out, fieldIssues(n, schema)...)
+			out = append(out, fieldIssues(n, schema, attached[n.ID])...)
 		}
 		var fieldTypes map[string]string
 		if ok {
@@ -199,7 +200,51 @@ func isExpression(v interface{}) bool {
 	return ok && strings.Contains(s, "{{")
 }
 
-func fieldIssues(n WorkflowNode, s *NodeSchema) []ValidationIssue {
+// subSuppliedFields are the config fields of a root node that an attached
+// AI sub-node of a kind supplies: a root with that sub-node attached need
+// not set them.
+var subSuppliedFields = map[string]map[string][]string{
+	"agent.ask":     {"ai_languageModel": {"runtime", "model"}},
+	"ai.guardrails": {"ai_languageModel": {"runtime", "model"}},
+}
+
+// attachedSubKinds returns, per root node id, the kinds of the enabled AI
+// sub-nodes attached to it.
+func attachedSubKinds(nodes []WorkflowNode, conns []WorkflowConnection) map[string]map[string]bool {
+	disabled := map[string]bool{}
+	for _, n := range nodes {
+		if n.Disabled {
+			disabled[n.ID] = true
+		}
+	}
+	out := map[string]map[string]bool{}
+	for _, c := range conns {
+		kind := c.SourceHandle
+		if !IsSubNodeHandle(kind) {
+			kind = c.TargetHandle
+		}
+		if !IsSubNodeHandle(kind) || disabled[c.SourceNodeID] {
+			continue
+		}
+		if out[c.TargetNodeID] == nil {
+			out[c.TargetNodeID] = map[string]bool{}
+		}
+		out[c.TargetNodeID][kind] = true
+	}
+	return out
+}
+
+// fieldIssues checks n's config against its schema. subKinds are the kinds
+// of the AI sub-nodes attached to n (nil for none).
+func fieldIssues(n WorkflowNode, s *NodeSchema, subKinds map[string]bool) []ValidationIssue {
+	supplied := map[string]bool{}
+	for kind, fields := range subSuppliedFields[n.Type] {
+		if subKinds[kind] {
+			for _, f := range fields {
+				supplied[f] = true
+			}
+		}
+	}
 	var out []ValidationIssue
 	known := map[string]bool{}
 	for _, f := range s.Fields {
@@ -212,7 +257,7 @@ func fieldIssues(n WorkflowNode, s *NodeSchema) []ValidationIssue {
 	for i := range s.Fields {
 		f := &s.Fields[i]
 		v, present := n.Config[f.Key]
-		if f.Required && (!present || isEmptyValue(v)) && f.Default == nil && !reported[f.Key] {
+		if f.Required && (!present || isEmptyValue(v)) && f.Default == nil && !reported[f.Key] && !supplied[f.Key] {
 			if applies, ok := fieldApplies(n, s, f); applies && ok {
 				reported[f.Key] = true
 				is := ValidationIssue{

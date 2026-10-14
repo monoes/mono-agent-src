@@ -49,16 +49,18 @@
       "type": "text"
     },
     {
+      "default": "auto",
       "depends_on": {
         "key": "operation",
         "values": [
           "submit_post"
         ]
       },
-      "help": "self is a text post; link is a URL post (requires url). Empty: link when a URL is set, else self.",
+      "help": "auto posts a link when a URL is set and a text post otherwise; self is a text post; link is a URL post (requires url).",
       "key": "kind",
       "label": "Post Kind",
       "options": [
+        "auto",
         "self",
         "link"
       ],

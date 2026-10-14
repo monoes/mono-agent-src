@@ -503,7 +503,10 @@
           "options": [
             "values"
           ],
-          "help": "values: [{role: user|assistant, content}]"
+          "help": "The conversation so far, oldest first: each message has a role (user or assistant) and its content.",
+          "examples": [
+            "{\"values\": [{\"role\": \"user\", \"content\": \"Summarize this thread\"}]}"
+          ]
         },
         {
           "key": "simplify",
@@ -560,7 +563,10 @@
           "options": [
             "values"
           ],
-          "help": "values: [{role: user|assistant, content}]"
+          "help": "The conversation so far, oldest first: each message has a role (user or assistant) and its content.",
+          "examples": [
+            "{\"values\": [{\"role\": \"user\", \"content\": \"Summarize this thread\"}]}"
+          ]
         },
         {
           "key": "simplify",

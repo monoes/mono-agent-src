@@ -1,0 +1,49 @@
+{
+  "_generated": true,
+  "credential_platform": null,
+  "fields": [
+    {
+      "default": "example",
+      "help": "example: generate the schema from a JSON example (every key required). schema: write the JSON Schema yourself.",
+      "key": "schema_type",
+      "label": "Schema Type",
+      "options": [
+        "example",
+        "schema"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "depends_on": {
+        "key": "schema_type",
+        "values": [
+          "example"
+        ]
+      },
+      "key": "json_example",
+      "label": "JSON Example",
+      "language": "json",
+      "placeholder": "{\"category\": \"lead\", \"score\": 0.9}",
+      "required": false,
+      "rows": 5,
+      "type": "code"
+    },
+    {
+      "depends_on": {
+        "key": "schema_type",
+        "values": [
+          "schema"
+        ]
+      },
+      "key": "json_schema",
+      "label": "JSON Schema",
+      "language": "json",
+      "placeholder": "{\"type\": \"object\", \"required\": [\"category\"], \"properties\": {\"category\": {\"type\": \"string\"}}}",
+      "required": false,
+      "rows": 6,
+      "type": "code"
+    }
+  ],
+  "sub_output": "ai_outputParser"
+}

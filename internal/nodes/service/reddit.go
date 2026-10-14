@@ -25,7 +25,7 @@ import (
 //	"user_agent"    (string, optional, default "mono-agent/1.0"): Reddit requires a descriptive User-Agent
 //	"subreddit"     (string, required for submit_post and get_hot)
 //	"title"         (string, required for submit_post)
-//	"kind"          (string, optional): "self" | "link" for submit_post; defaults to
+//	"kind"          (string, optional): "auto" | "self" | "link" for submit_post; "auto" (or empty) is
 //	                "link" when "url" is set, else "self"
 //	"text"          (string, optional self-post body for submit_post; required for comment)
 //	"url"           (string, required for submit_post when kind="link")
@@ -87,7 +87,7 @@ func (n *RedditNode) submitPost(ctx context.Context, accessToken, userAgent stri
 		return nil, fmt.Errorf("service.reddit: 'subreddit' and 'title' are required for submit_post")
 	}
 	kind := strVal(config, "kind")
-	if kind == "" {
+	if kind == "" || kind == "auto" {
 		kind = "self"
 		if strVal(config, "url") != "" {
 			kind = "link"

@@ -15,7 +15,7 @@ type RedditNodeSchema struct {
 
 	Title string `json:"title" schema:"label=Post Title,type=text,depends_on_key=operation,depends_on_values=submit_post"`
 
-	Kind string `json:"kind" schema:"label=Post Kind,type=select,options=self|link,help=self is a text post; link is a URL post (requires url). Empty: link when a URL is set， else self.,depends_on_key=operation,depends_on_values=submit_post"`
+	Kind string `json:"kind" schema:"label=Post Kind,type=select,options=auto|self|link,default=auto,help=auto posts a link when a URL is set and a text post otherwise; self is a text post; link is a URL post (requires url).,depends_on_key=operation,depends_on_values=submit_post"`
 
 	Text string `json:"text" schema:"label=Text,type=textarea,rows=4,help=Post body (submit_post with kind=self) or comment text.,depends_on_key=operation,depends_on_values=submit_post|comment"`
 

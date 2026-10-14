@@ -74,3 +74,31 @@ func TestNodePaletteHidesDeprecatedByDefault(t *testing.T) {
 		t.Error("palette lost agent.ask")
 	}
 }
+
+// Names and acronyms keep their owners' spelling, curated or derived.
+func TestNodePaletteBrandLabels(t *testing.T) {
+	t.Parallel()
+	want := map[string]string{
+		"http.graphql": "GraphQL", "service.youtube": "YouTube", "service.github": "GitHub",
+		"service.hubspot": "HubSpot", "data.jwt": "JWT", "db.ldap": "LDAP",
+	}
+	got := map[string]PaletteNode{}
+	for _, list := range Palette(nil, false) {
+		for _, n := range list {
+			got[n.Type] = n
+		}
+	}
+	for typ, label := range want {
+		n, ok := got[typ]
+		if !ok {
+			t.Errorf("%s missing from the palette", typ)
+			continue
+		}
+		if n.Label != label {
+			t.Errorf("%s label = %q, want %q", typ, n.Label, label)
+		}
+	}
+	if d := got["http.graphql"].Description; d == "" {
+		t.Error("http.graphql has no description")
+	}
+}

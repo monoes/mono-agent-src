@@ -478,7 +478,16 @@
         "rows": { "type": "integer" },
         "min": { "type": "number" },
         "max": { "type": "number" },
-        "item_type": { "type": "string" }
+        "item_type": { "type": "string" },
+        "depends_on": {
+          "type": "object",
+          "required": ["key", "values"],
+          "additionalProperties": false,
+          "properties": {
+            "key": { "type": "string", "minLength": 1 },
+            "values": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          }
+        }
       }
     },
     "step": {

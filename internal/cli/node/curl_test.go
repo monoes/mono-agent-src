@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func runNodeCurl(t *testing.T, stdin string, args ...string) (map[string]interface{}, string, error) {
@@ -64,5 +66,48 @@ func TestNodeCurlStdin(t *testing.T) {
 	}
 	if _, _, err := runNodeCurl(t, "", "curl -H 'X: 1'"); err == nil || !strings.Contains(err.Error(), "no URL") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Global flags before `node curl` are the CLI's, not curl's: they must not
+// reach the curl parser (`--profile default` once became the URL).
+func TestNodeCurlGlobalFlagsBeforeCommand(t *testing.T) {
+	t.Parallel()
+	var profile string
+	var asJSON bool
+	root := &cobra.Command{Use: "monoagentcli", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().StringVar(&profile, "profile", "", "")
+	root.PersistentFlags().BoolVar(&asJSON, "json", false, "")
+	root.AddCommand(NewCommand(testDeps("", "", false)))
+	var out strings.Builder
+	root.SetArgs([]string{"--profile", "default", "--json", "node", "curl", "-"})
+	root.SetOut(&out)
+	root.SetErr(&strings.Builder{})
+	root.SetIn(strings.NewReader("curl https://api.example.com/a -H 'Accept: text/csv'"))
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal([]byte(out.String()), &cfg); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if cfg["url"] != "https://api.example.com/a" {
+		t.Fatalf("url = %v", cfg["url"])
+	}
+	if profile != "default" || !asJSON {
+		t.Fatalf("global flags not applied: profile=%q json=%v", profile, asJSON)
+	}
+
+	// After the command name too, and with curl's own words left intact.
+	out.Reset()
+	root.SetArgs([]string{"node", "curl", "--profile=p2", "curl", "-v", "https://api.example.com/b"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(out.String()), &cfg); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if cfg["url"] != "https://api.example.com/b" || profile != "p2" {
+		t.Fatalf("url = %v profile = %q", cfg["url"], profile)
 	}
 }

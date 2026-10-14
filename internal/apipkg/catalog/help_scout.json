@@ -92,7 +92,7 @@
           "label": "Type",
           "type": "select",
           "required": true,
-          "default": "",
+          "default": "email",
           "options": [
             "chat",
             "email",
@@ -546,7 +546,7 @@
           "label": "Type",
           "type": "select",
           "required": true,
-          "default": "",
+          "default": "reply",
           "options": [
             "chat",
             "customer",

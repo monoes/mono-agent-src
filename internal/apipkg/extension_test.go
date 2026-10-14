@@ -114,6 +114,12 @@ func TestExtendSchemaMergesIntoNative(t *testing.T) {
 	if doc.Fields[1]["default"] != "" || doc.Fields[1]["options"].([]any)[0] != "" {
 		t.Errorf("an extension's resource select must default to the native ops: %v", doc.Fields[1])
 	}
+	// The native operation select shows only while no resource is picked;
+	// the resource's own operation select takes over once one is.
+	if dep, _ := doc.Fields[0]["depends_on"].(map[string]any); dep == nil || dep["key"] != "resource" ||
+		len(dep["values"].([]any)) != 1 || dep["values"].([]any)[0] != "" {
+		t.Errorf("native operation select must depend on an empty resource: %v", doc.Fields[0])
+	}
 
 	// Without resources, package ops join the native operation select.
 	p2 := mustParse(t, `{"$schema":"apipkg.v1","id":"x","extends":"service.fakenative","title":"X","base_url":"https://x.test",

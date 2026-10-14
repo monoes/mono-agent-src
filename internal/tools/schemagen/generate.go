@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // marshalNoEscape renders v as JSON without HTML-escaping '<', '>', and '&'
@@ -71,13 +72,16 @@ func RenderJSON(repoRoot string, entry ManifestEntry) ([]byte, error) {
 		return nil, fmt.Errorf("schemagen: re-decode %s: %w", entry.NodeType, err)
 	}
 	m[generatedMarker] = true
-	// Outputs aren't derived from the struct tags: keep the hand-written
-	// "outputs" of the committed file.
+	// Outputs and AI sub-node connections aren't derived from the struct
+	// tags: keep the hand-written "outputs", "sub_inputs" and "sub_output"
+	// of the committed file.
 	if existing, err := os.ReadFile(SchemaPath(repoRoot, entry)); err == nil {
 		var prev map[string]interface{}
 		if json.Unmarshal(existing, &prev) == nil {
-			if outputs, ok := prev["outputs"]; ok {
-				m["outputs"] = outputs
+			for _, k := range []string{"outputs", "sub_inputs", "sub_output"} {
+				if v, ok := prev[k]; ok {
+					m[k] = v
+				}
 			}
 		}
 	}
@@ -134,10 +138,14 @@ func marshalOrdered(m map[string]interface{}) ([]byte, error) {
 			return nil, err
 		}
 	}
+	rest := make([]string, 0, len(m))
 	for k := range m {
-		if seen[k] {
-			continue
+		if !seen[k] {
+			rest = append(rest, k)
 		}
+	}
+	sort.Strings(rest)
+	for _, k := range rest {
 		if err := writeKey(k); err != nil {
 			return nil, err
 		}

@@ -28,6 +28,15 @@ type PaletteNode struct {
 	CategoryLabel string `json:"category_label,omitempty"`
 }
 
+// brandWords spells the words of derived labels that are names or
+// acronyms the way their owners do ("youtube" reads "YouTube", not "Youtube").
+var brandWords = map[string]string{
+	"amqp": "AMQP", "cratedb": "CrateDB", "devto": "Dev.to", "graphql": "GraphQL",
+	"ical": "iCal", "jwt": "JWT", "ldap": "LDAP", "mqtt": "MQTT", "mssql": "Microsoft SQL",
+	"producthunt": "Product Hunt", "questdb": "QuestDB", "rabbitmq": "RabbitMQ",
+	"timescaledb": "TimescaleDB", "totp": "TOTP", "youtube": "YouTube",
+}
+
 // Palette sections (PaletteNode.Section).
 const (
 	PaletteSectionWebAutomation = "web_automation"
@@ -116,6 +125,7 @@ func Palette(db *sql.DB, includeDeprecated bool) map[string][]PaletteNode {
 		},
 		"http": []PaletteNode{
 			mkNode("http.request", "HTTP Request", "http", "Make an HTTP/S request"),
+			mkNode("http.graphql", "GraphQL", "http", "Send a GraphQL query or mutation"),
 			mkNode("http.ftp", "FTP", "http", "Transfer files via FTP/SFTP"),
 			mkNode("http.ssh", "SSH", "http", "Execute commands over SSH"),
 		},
@@ -158,6 +168,9 @@ func Palette(db *sql.DB, includeDeprecated bool) map[string][]PaletteNode {
 		},
 		"ai": []PaletteNode{
 			mkNode("agent.ask", "Agent Ask", "ai", "Ask a locally-installed AI agent (claude, codex, …) one turn via the monomind engine"),
+			mkNode("ai.model", "Chat Model", "ai", "Sub-node: the agent runtime and model an Agent Ask (or Guardrails) uses — connect it to their Chat Model input"),
+			mkNode("ai.memory", "Simple Memory", "ai", "Sub-node: conversation memory for Agent Ask (or the session of Agent Memory) — connect it to their Memory input"),
+			mkNode("ai.output_parser", "Structured Output Parser", "ai", "Sub-node: the JSON shape Agent Ask answers with, from an example or a JSON Schema"),
 			mkNode("mcp.call", "MCP Call", "ai", "List or call the tools of an MCP server (stdio or Streamable HTTP) — Zapier, Pipedream, vendor servers, or monoagent's own"),
 			mkNode("agent.memory", "Agent Memory", "ai", "Read, add or clear the messages of a conversation that agent.ask remembers (memory option)"),
 			mkNode("ai.guardrails", "Guardrails", "ai", "Check text for PII, secrets, URLs, keywords, jailbreaks and off-topic content; pass/fail or sanitize"),
@@ -292,7 +305,9 @@ func Palette(db *sql.DB, includeDeprecated bool) map[string][]PaletteNode {
 	title := func(s string) string {
 		words := strings.Split(strings.ReplaceAll(s, "_", " "), " ")
 		for i, w := range words {
-			if w != "" {
+			if b, ok := brandWords[w]; ok {
+				words[i] = b
+			} else if w != "" {
 				words[i] = strings.ToUpper(w[:1]) + w[1:]
 			}
 		}

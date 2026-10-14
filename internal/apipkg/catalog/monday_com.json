@@ -90,7 +90,7 @@
           "label": "Kind",
           "type": "select",
           "required": true,
-          "default": "",
+          "default": "public",
           "options": [
             "share",
             "public",
@@ -231,7 +231,7 @@
           "label": "Column type",
           "type": "select",
           "required": true,
-          "default": "",
+          "default": "text",
           "options": [
             "checkbox",
             "country",

@@ -574,10 +574,10 @@
         },
         {
           "key": "databaseId",
-          "label": "Database (n8n v2)",
+          "label": "Database",
           "type": "text",
           "default": "",
-          "help": "Used to look up the first data source when Data source is empty (older n8n workflows)."
+          "help": "Database ID; its first data source is used when Data source is empty."
         },
         {
           "key": "title",
@@ -941,10 +941,10 @@
         },
         {
           "key": "databaseId",
-          "label": "Database (n8n v2)",
+          "label": "Database",
           "type": "text",
           "default": "",
-          "help": "Used to look up the first data source when Data source is empty (older n8n workflows)."
+          "help": "Database ID; its first data source is used when Data source is empty."
         },
         {
           "key": "returnAll",

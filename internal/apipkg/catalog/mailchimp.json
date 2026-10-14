@@ -112,7 +112,7 @@
           "label": "Status",
           "type": "select",
           "required": true,
-          "default": "",
+          "default": "subscribed",
           "options": [
             "cleaned",
             "pending",

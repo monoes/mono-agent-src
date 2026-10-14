@@ -249,14 +249,14 @@ func TestOptionIssuesFollowDependsOn(t *testing.T) {
 		{Key: "credential_id", Type: "credential_picker", Required: true},
 	}}
 	ok := vnode("a", "x.y", "A", map[string]interface{}{"resource": "record", "operation": "create"})
-	for _, is := range fieldIssues(ok, s) {
+	for _, is := range fieldIssues(ok, s, nil) {
 		if is.Code == IssueInvalidOption {
 			t.Fatalf("valid operation for its resource reported: %+v", is)
 		}
 	}
 	bad := vnode("b", "x.y", "B", map[string]interface{}{"resource": "base", "operation": "create"})
 	var opts, setup int
-	for _, is := range fieldIssues(bad, s) {
+	for _, is := range fieldIssues(bad, s, nil) {
 		switch is.Code {
 		case IssueInvalidOption:
 			opts++
@@ -311,7 +311,7 @@ func TestFieldIssuesHonourDependsOnAndVisibleFor(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := map[string]int{}
-			for _, is := range fieldIssues(vnode("n", "x.y", "N", tc.config), s) {
+			for _, is := range fieldIssues(vnode("n", "x.y", "N", tc.config), s, nil) {
 				got[is.Code]++
 				if is.Code == IssueInvalidOption && tc.wantHint != "" && is.Hint != "use one of: "+tc.wantHint {
 					t.Errorf("hint = %q, want the applicable options %q", is.Hint, tc.wantHint)

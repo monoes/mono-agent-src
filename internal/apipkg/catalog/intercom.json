@@ -187,7 +187,7 @@
             "id",
             "userId"
           ],
-          "default": ""
+          "default": "id"
         },
         {
           "key": "value",
@@ -485,7 +485,7 @@
             "userId",
             "phone"
           ],
-          "default": ""
+          "default": "id"
         },
         {
           "key": "value",
@@ -733,7 +733,7 @@
             "id",
             "name"
           ],
-          "default": ""
+          "default": "id"
         },
         {
           "key": "value",

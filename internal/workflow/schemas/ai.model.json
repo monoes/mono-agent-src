@@ -1,0 +1,21 @@
+{
+  "_generated": true,
+  "credential_platform": null,
+  "fields": [
+    {
+      "help": "Locally-installed agent runtime id — claude, codex, kimicode, qwen, … (list: monoagentcli agent scan --installed), or auto to pick a validated one from the agent roster (monoagentcli agent validate).",
+      "key": "runtime",
+      "label": "Agent Runtime",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "help": "Falls back to the runtime's default model.",
+      "key": "model",
+      "label": "Model",
+      "required": false,
+      "type": "text"
+    }
+  ],
+  "sub_output": "ai_languageModel"
+}

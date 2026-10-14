@@ -1,6 +1,11 @@
 package schemagen
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestGenerateSchema_CoreFilter(t *testing.T) {
 	schema, err := GenerateSchema("../../nodes/control/filter_schema.go", "FilterNodeSchema")
@@ -93,5 +98,45 @@ func TestManifest_AllEntriesGenerate(t *testing.T) {
 		if len(out) == 0 {
 			t.Fatalf("%s: empty output", entry.NodeType)
 		}
+	}
+}
+
+func TestRenderJSON_KeepsHandWrittenKeys(t *testing.T) {
+	root := t.TempDir()
+	goDir := filepath.Join(root, "pkg")
+	schemaDir := filepath.Join(root, "internal", "workflow", "schemas")
+	for _, d := range []string{goDir, schemaDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := "package pkg\n\ntype S struct {\n\tName string `json:\"name\" label:\"Name\"`\n}\n"
+	if err := os.WriteFile(filepath.Join(goDir, "s.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := `{"fields":[],"outputs":[{"name":"main"}],"sub_inputs":[{"handle":"ai_languageModel","label":"Chat Model","max":1}],"sub_output":"ai_memory"}`
+	if err := os.WriteFile(filepath.Join(schemaDir, "x.node.json"), []byte(prev), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entry := ManifestEntry{NodeType: "x.node", GoFile: "pkg/s.go", StructName: "S"}
+	out, err := RenderJSON(root, entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"outputs", "sub_inputs", "sub_output"} {
+		if _, ok := m[k]; !ok {
+			t.Errorf("%q dropped on regeneration:\n%s", k, out)
+		}
+	}
+	if m["sub_output"] != "ai_memory" {
+		t.Errorf("sub_output = %v", m["sub_output"])
+	}
+	again, err := RenderJSON(root, entry)
+	if err != nil || string(again) != string(out) {
+		t.Errorf("rendering is not stable")
 	}
 }

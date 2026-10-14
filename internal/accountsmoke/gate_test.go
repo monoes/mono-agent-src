@@ -143,7 +143,11 @@ func TestBlockedAccountLocksAndCancelsWorkInFlight(t *testing.T) {
 	d := r.startDaemon()
 	r.waitFor("the daemon to report a signed-in account", 30*time.Second, func() bool { return r.accountState() == "ok" })
 	pid, _, _ := r.heartbeat()
-	fast, slow := r.workflow(waitWorkflow("smoke-fast", 1), true), r.workflow(waitWorkflow("smoke-slow", 300), true)
+	// The slow run must stay RUNNING (work in flight) until the refusal
+	// cancels it: core.wait holds waits up to 60s in memory and pauses longer
+	// ones durably as WAITING, which frees the run's slot and is not in flight.
+	// 55s outlasts the 15s token's refusal by far.
+	fast, slow := r.workflow(waitWorkflow("smoke-fast", 1), true), r.workflow(waitWorkflow("smoke-slow", 55), true)
 	id := r.enqueue(slow)
 	r.waitFor("the slow run to be running in the daemon", 60*time.Second, func() bool {
 		e := r.execution(id)

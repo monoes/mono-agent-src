@@ -105,5 +105,25 @@
       "key": "_agent_sandbox",
       "type": "string"
     }
+  ],
+  "sub_inputs": [
+    {
+      "handle": "ai_languageModel",
+      "label": "Chat Model",
+      "max": 1,
+      "required": false
+    },
+    {
+      "handle": "ai_memory",
+      "label": "Memory",
+      "max": 1,
+      "required": false
+    },
+    {
+      "handle": "ai_outputParser",
+      "label": "Output Parser",
+      "max": 1,
+      "required": false
+    }
   ]
 }

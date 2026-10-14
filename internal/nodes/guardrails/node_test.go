@@ -235,3 +235,28 @@ func TestNoChecksPasses(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+// An attached ai.model sub-node runs the model checks instead of the
+// node's own runtime and model.
+func TestModelSubNodeRunsChecks(t *testing.T) {
+	seen := fakeTurns(t, func(string, string) string { return `{"flagged": false, "confidenceScore": 0}` })
+	in := workflow.NodeInput{
+		Items: []workflow.Item{{JSON: map[string]interface{}{"chatInput": "hi"}}},
+		SubNodes: []workflow.SubNode{{ID: "m", Name: "Model", Type: "ai.model", Kind: "ai_languageModel",
+			Config: map[string]interface{}{"runtime": "opencode", "model": "sub-model"}}},
+	}
+	_, err := (&Node{}).Execute(context.Background(), in, map[string]interface{}{
+		"text": "{{ $json.chatInput }}", "jailbreak": true, "runtime": "claude", "model": "inline"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*seen) != 1 || (*seen)[0].Runtime != "opencode" || (*seen)[0].Model != "sub-model" {
+		t.Fatalf("turns %+v", *seen)
+	}
+	// No runtime anywhere but a sub-node: the sub-node's is enough.
+	*seen = nil
+	if _, err := (&Node{}).Execute(context.Background(), in, map[string]interface{}{
+		"text": "{{ $json.chatInput }}", "jailbreak": true}); err != nil || len(*seen) != 1 {
+		t.Fatalf("err %v, turns %d", err, len(*seen))
+	}
+}

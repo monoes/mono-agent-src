@@ -109,6 +109,7 @@
           "label": "Type",
           "type": "select",
           "required": true,
+          "default": "ACCREC",
           "options": [
             "ACCPAY",
             "ACCREC"

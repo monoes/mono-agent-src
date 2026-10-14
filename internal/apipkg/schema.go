@@ -3,6 +3,7 @@ package apipkg
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -157,6 +158,9 @@ func (p *Package) opFields(extension ...bool) []map[string]any {
 	for _, o := range p.Operations {
 		for _, f := range o.Fields {
 			id := f.Key + "\x00" + f.Type + "\x00" + f.Label + "\x00" + strings.Join(f.Options, ",")
+			if f.DependsOn != nil {
+				id += "\x00" + f.DependsOn.Key + "=" + strings.Join(f.DependsOn.Values, ",")
+			}
 			g, ok := groups[id]
 			if !ok {
 				g = &group{field: f, required: f.Required}
@@ -186,8 +190,24 @@ func (p *Package) opFields(extension ...bool) []map[string]any {
 			f.Required = g.required && len(g.ops) == p.opsIn(g.resNames)
 		}
 		m := toMap(f)
-		m["visible_for"] = g.ops
+		m["visible_for"] = visibleFor(g.ops, g.field.DependsOn)
 		out = append(out, m)
+	}
+	return out
+}
+
+// visibleFor lists the configs a field shows for: its ops, each narrowed
+// by the field's own depends_on (one entry per value), e.g. a field read
+// only while a legacy toggle is on.
+func visibleFor(ops []opRef, own *workflow.FieldDependency) any {
+	if own == nil || own.Key == "" {
+		return ops
+	}
+	var out []map[string]string
+	for _, o := range ops {
+		for _, v := range own.Values {
+			out = append(out, map[string]string{"resource": o.Resource, "operation": o.Operation, own.Key: v})
+		}
 	}
 	return out
 }
@@ -266,6 +286,7 @@ func (p *Package) extendSchema(base []byte) ([]byte, bool) {
 			}
 		}
 	} else {
+		hideNativeFields(fields)
 		for _, f := range p.selectorFields(true) {
 			fields = append(fields, f)
 		}
@@ -278,6 +299,50 @@ func (p *Package) extendSchema(base []byte) ([]byte, bool) {
 	exts, _ := doc["extended_by"].([]any)
 	doc["extended_by"] = append(exts, p.ID)
 	return marshalSchema(doc)
+}
+
+// hideNativeFields limits the native fields to configs with no resource:
+// a resource brings its own operation select and fields, and native ones
+// beside them read as a second form (and would impose native required
+// fields on package ops). The account picker stays shared. A field with no
+// condition gets depends_on {resource: [""]}; one with depends_on on
+// another key keeps it (the validator needs both to hold) and gets
+// visible_for entries {resource: "", key: value} (the editor reads
+// visible_for first); an existing visible_for gains resource "".
+// Native configs carry no resource, so they validate as before.
+func hideNativeFields(fields []any) {
+	for _, f := range fields {
+		m, ok := f.(map[string]any)
+		if !ok || m["key"] == "resource" || m["type"] == "credential_picker" ||
+			m["key"] == "credential_id" || m["key"] == "credential" {
+			continue
+		}
+		if vf, ok := m["visible_for"].([]any); ok && len(vf) > 0 {
+			for _, e := range vf {
+				if em, ok := e.(map[string]any); ok {
+					if _, has := em["resource"]; !has {
+						em["resource"] = ""
+					}
+				}
+			}
+			continue
+		}
+		dep, _ := m["depends_on"].(map[string]any)
+		if dep == nil {
+			m["depends_on"] = map[string]any{"key": "resource", "values": []string{""}}
+			continue
+		}
+		key, _ := dep["key"].(string)
+		vals, _ := dep["values"].([]any)
+		if key == "" || key == "resource" {
+			continue
+		}
+		var vf []map[string]string
+		for _, v := range vals {
+			vf = append(vf, map[string]string{"resource": "", key: fmt.Sprint(v)})
+		}
+		m["visible_for"] = vf
+	}
 }
 
 func containsAny(xs []any, s string) bool {
@@ -308,4 +373,25 @@ func (p *Package) opsIn(resources []string) int {
 		}
 	}
 	return n
+}
+
+// defaultRequiredSelects starts every required select whose default is
+// empty (or not one of its options) on its first option. n8n leaves many
+// of these at "", which the editor shows as an unanswered "— choose —"
+// and the API rejects; a package that wants another start value sets it.
+func (p *Package) defaultRequiredSelects() {
+	for i := range p.Operations {
+		for j := range p.Operations[i].Fields {
+			f := &p.Operations[i].Fields[j]
+			if f.Type != "select" || !f.Required || len(f.Options) == 0 {
+				continue
+			}
+			if f.Default != nil {
+				if s := fmt.Sprint(f.Default); contains(f.Options, s) || hasTemplate(s) {
+					continue
+				}
+			}
+			f.Default = f.Options[0]
+		}
+	}
 }

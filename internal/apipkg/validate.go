@@ -48,6 +48,7 @@ func Parse(b []byte, source string) (*Package, error) {
 		return nil, &ValidationError{Source: source, Problems: probs}
 	}
 	p.Source = source
+	p.defaultRequiredSelects()
 	return &p, nil
 }
 

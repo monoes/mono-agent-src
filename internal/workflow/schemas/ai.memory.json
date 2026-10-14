@@ -1,0 +1,32 @@
+{
+  "_generated": true,
+  "credential_platform": null,
+  "fields": [
+    {
+      "default": "{{ $json.sessionId }}",
+      "help": "The conversation to use, resolved per item. The default reads the sessionId field a chat trigger puts on its items.",
+      "key": "session_key",
+      "label": "Session Key",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "default": 10,
+      "help": "How many earlier messages each turn sees (10 = 5 exchanges; 0 = the whole session).",
+      "key": "window",
+      "label": "Context Window (messages)",
+      "min": 0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": false,
+      "help": "Run an item whose session key resolves to nothing as a fresh conversation instead of failing it.",
+      "key": "skip_when_missing",
+      "label": "Skip When No Session Key",
+      "required": false,
+      "type": "boolean"
+    }
+  ],
+  "sub_output": "ai_memory"
+}

@@ -125,7 +125,13 @@
           "label": "Legacy moderation models",
           "type": "boolean",
           "default": false,
-          "help": "Use text-moderation-* instead of omni-moderation-latest (n8n node versions before 2.1)."
+          "depends_on": {
+            "key": "legacyModeration",
+            "values": [
+              "true"
+            ]
+          },
+          "help": "On for workflows imported with the older moderation models: checks with text-moderation-latest (or -stable) instead of omni-moderation-latest. Turn it off to use the current model."
         }
       ],
       "body": {
@@ -156,10 +162,16 @@
         },
         {
           "key": "model",
-          "label": "Model (before n8n 2.2)",
+          "label": "Legacy model id",
           "type": "text",
           "default": "",
-          "help": "Used instead of Model when Legacy model is on; empty means dall-e-3."
+          "depends_on": {
+            "key": "legacyImageModel",
+            "values": [
+              "true"
+            ]
+          },
+          "help": "Used instead of Model while Legacy model is on; empty means dall-e-3."
         },
         {
           "key": "prompt",
@@ -189,7 +201,13 @@
           "label": "Legacy model",
           "type": "boolean",
           "default": false,
-          "help": "Read the Model (before n8n 2.2) field."
+          "depends_on": {
+            "key": "legacyImageModel",
+            "values": [
+              "true"
+            ]
+          },
+          "help": "On for workflows imported with the older model setting: the image model comes from Legacy model id. Turn it off to use Model."
         }
       ],
       "body": {
@@ -335,10 +353,16 @@
         },
         {
           "key": "model",
-          "label": "Model (before n8n 2.3)",
+          "label": "Legacy model id",
           "type": "text",
           "default": "",
-          "help": "Used instead of Model when Legacy model is on; empty means gpt-image-1."
+          "depends_on": {
+            "key": "legacyEditModel",
+            "values": [
+              "true"
+            ]
+          },
+          "help": "Used instead of Model while Legacy model is on; empty means gpt-image-1."
         },
         {
           "key": "prompt",
@@ -361,7 +385,10 @@
           "options": [
             "values"
           ],
-          "help": "values: [{binaryPropertyName}] — up to 16 input images."
+          "help": "The images to edit, up to 16 (GPT Image models). Name each by the binary property of the input item that holds it; data is the usual one.",
+          "examples": [
+            "{\"values\": [{\"binaryPropertyName\": \"data\"}, {\"binaryPropertyName\": \"data_1\"}]}"
+          ]
         },
         {
           "key": "binaryPropertyName",
@@ -451,7 +478,13 @@
           "label": "Legacy model",
           "type": "boolean",
           "default": false,
-          "help": "Read the Model (before n8n 2.3) field."
+          "depends_on": {
+            "key": "legacyEditModel",
+            "values": [
+              "true"
+            ]
+          },
+          "help": "On for workflows imported with the older model setting: the image model comes from Legacy model id. Turn it off to use Model."
         }
       ],
       "body": {
