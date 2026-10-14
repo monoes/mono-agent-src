@@ -14,6 +14,7 @@ at the step budget, or at the time budget.
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -78,12 +79,37 @@ def _clip(text):
     return text[:half] + "\n...[%d chars cut]...\n" % (len(text) - 2 * half) + text[-half:]
 
 
+def _fetch(req, deadline):
+    """The response body of req. urlopen's timeout bounds each socket read,
+    not the request: a slow model behind keep-alive bytes never trips it. The
+    request runs in a worker thread and is abandoned at the deadline (and
+    after at most 180 s)."""
+    out = {}
+
+    def work():
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                out["body"] = r.read()
+        except BaseException as e:  # handed to the caller
+            out["err"] = e
+
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    wait = 180.0 if deadline is None else max(1.0, min(180.0, deadline - time.time()))
+    t.join(wait)
+    if t.is_alive():
+        raise TimeoutError("model request took longer than %.0f s" % wait)
+    if "err" in out:
+        raise out["err"]
+    return out["body"]
+
+
 class Agent:
     def __init__(self, model, api_key, max_steps=30, max_seconds=600):
         self.model, self.api_key = model, api_key
         self.max_steps, self.max_seconds = max_steps, max_seconds
 
-    def _chat(self, messages, tools):
+    def _chat(self, messages, tools, deadline=None):
         body = json.dumps({"model": self.model, "messages": messages, "tools": tools,
                            "temperature": 0}).encode()
         delay = 5
@@ -92,8 +118,7 @@ class Agent:
                 "Authorization": "Bearer " + self.api_key, "Content-Type": "application/json",
                 "X-Title": "monoagent-evals"})
             try:
-                with urllib.request.urlopen(req, timeout=180) as r:
-                    data = json.loads(r.read())
+                data = json.loads(_fetch(req, deadline))
                 if data.get("choices"):
                     return data
                 err = data.get("error") or data
@@ -105,6 +130,8 @@ class Agent:
                 err = str(e)
             if attempt == 5:
                 raise RuntimeError("openrouter: %s" % err)
+            if deadline is not None and time.time() + delay >= deadline:
+                raise RuntimeError("openrouter: %s (no time left to retry)" % err)
             time.sleep(delay)
             delay = min(delay * 2, 60)
 
@@ -127,7 +154,7 @@ class Agent:
         try:
             while steps < self.max_steps and time.time() - start < self.max_seconds and not finished:
                 steps += 1
-                msg = self._chat(messages, tools)["choices"][0]["message"]
+                msg = self._chat(messages, tools, start + self.max_seconds)["choices"][0]["message"]
                 calls = msg.get("tool_calls") or []
                 messages.append({"role": "assistant", "content": msg.get("content") or "",
                                  **({"tool_calls": calls} if calls else {})})
