@@ -11,7 +11,8 @@ import (
 )
 
 func TestNodePaletteGroupsRunnableTypes(t *testing.T) {
-	t.Parallel()
+	// Not parallel: Palette builds the node registry, which sets package-level
+	// node dependencies (people, matching, documents, apply, applications).
 	var buf strings.Builder
 	cmd := NewCommand(testDeps(filepath.Join(t.TempDir(), "m.db"), "default", true))
 	cmd.SetArgs([]string{"palette"})
@@ -50,7 +51,8 @@ func TestNodePaletteGroupsRunnableTypes(t *testing.T) {
 }
 
 func TestNodePaletteHidesDeprecatedByDefault(t *testing.T) {
-	t.Parallel()
+	// Not parallel: Palette builds the node registry, which sets package-level
+	// node dependencies (people, matching, documents, apply, applications).
 	has := func(p map[string][]PaletteNode, typ string) bool {
 		for _, list := range p {
 			for _, n := range list {
@@ -77,7 +79,8 @@ func TestNodePaletteHidesDeprecatedByDefault(t *testing.T) {
 
 // Names and acronyms keep their owners' spelling, curated or derived.
 func TestNodePaletteBrandLabels(t *testing.T) {
-	t.Parallel()
+	// Not parallel: Palette builds the node registry, which sets package-level
+	// node dependencies (people, matching, documents, apply, applications).
 	want := map[string]string{
 		"http.graphql": "GraphQL", "service.youtube": "YouTube", "service.github": "GitHub",
 		"service.hubspot": "HubSpot", "data.jwt": "JWT", "db.ldap": "LDAP",
