@@ -3,10 +3,14 @@ package connect
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/connections"
 )
@@ -106,6 +110,74 @@ func TestConnectOAuthStdinJSON(t *testing.T) {
 		if code != 3 || !strings.Contains(errOut, c.want) || strings.Contains(out+errOut, secret) {
 			t.Errorf("stdin %q: code %d, stderr %s; want 3 and %q without the secret", c.stdin, code, errOut, c.want)
 		}
+	}
+}
+
+// A completed `connect oauth --json` prints exactly one JSON document on
+// stdout (process stdout included); the authorize URL is a progress line on
+// stderr.
+func TestConnectOAuthJSONStdoutIsOneDocument(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no browser opener: the "user" below answers the callback
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	prov := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/request":
+			go func() { // the user approves in the browser, which redirects to the callback
+				for i := 0; i < 100; i++ {
+					resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/callback?oauth_token=tmp&oauth_verifier=v", port))
+					if err == nil {
+						resp.Body.Close()
+						return
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+			}()
+			fmt.Fprint(w, "oauth_token=tmp&oauth_token_secret=tmps&oauth_callback_confirmed=true")
+		case "/access":
+			fmt.Fprint(w, "oauth_token=acc&oauth_token_secret=accs")
+		}
+	}))
+	defer prov.Close()
+	connections.Registry["oauth1-json-test"] = connections.PlatformDef{
+		ID: "oauth1-json-test", Name: "OAuth1 JSON Test", Methods: []connections.AuthMethod{connections.MethodOAuth1},
+		Fields: map[connections.AuthMethod][]connections.CredentialField{connections.MethodOAuth1: {
+			{Key: connections.OAuth1ConsumerKey, Label: "Key", Required: true},
+			{Key: connections.OAuth1ConsumerSecret, Label: "Secret", Secret: true, Required: true},
+		}},
+		OAuth1: &connections.OAuth1Config{RequestTokenURL: prov.URL + "/request", AuthURL: prov.URL + "/authorize",
+			AccessTokenURL: prov.URL + "/access", CallbackPort: port},
+	}
+	t.Cleanup(func() { delete(connections.Registry, "oauth1-json-test") })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOut := os.Stdout
+	os.Stdout = w
+	e := newSessionsTestEnv(t)
+	out, errOut, code := e.run(t, `{"consumer_secret":"cs-1"}`, "--json", "connect", "oauth", "oauth1-json-test", "--field", "consumer_key=ck-1", "--stdin-json")
+	w.Close()
+	os.Stdout = oldOut
+	printed, _ := io.ReadAll(r)
+	if code != 0 {
+		t.Fatalf("code %d, stderr %s", code, errOut)
+	}
+	if len(printed) != 0 {
+		t.Errorf("the flow wrote to process stdout: %q", printed)
+	}
+	dec := json.NewDecoder(strings.NewReader(out))
+	var conn map[string]any
+	if err := dec.Decode(&conn); err != nil || conn["platform"] != "oauth1-json-test" || dec.More() {
+		t.Fatalf("stdout is not one connection document: %q (%v)", out, err)
+	}
+	if !strings.Contains(errOut, `{"message":"Opening browser: `+prov.URL+`/authorize?oauth_token=tmp","kind":"info"}`) {
+		t.Errorf("stderr lacks the authorize URL progress line:\n%s", errOut)
 	}
 }
 

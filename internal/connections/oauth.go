@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -137,11 +138,11 @@ func RunOAuthFlow(ctx context.Context, cfg OAuthConfig, timeout time.Duration, p
 		}
 	}()
 
-	fmt.Printf("→ Opening browser: %s\n", authURL)
-	fmt.Printf("→ Waiting for authorization on http://localhost:%d/callback\n", port)
+	flowNote(progress, "Opening browser: "+authURL)
+	flowNote(progress, fmt.Sprintf("Waiting for authorization on http://localhost:%d/callback", port))
 
 	if err := openBrowser(authURL); err != nil {
-		fmt.Printf("→ Could not open browser automatically. Please open this URL manually:\n  %s\n", authURL)
+		flowNote(progress, "Could not open browser automatically. Please open this URL manually: "+authURL)
 	}
 	if progress != nil {
 		progress("Waiting for you to authorize in the browser…", "info")
@@ -389,6 +390,17 @@ func generateCodeVerifier() (string, error) {
 func computeCodeChallenge(verifier string) string {
 	h := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(h[:])
+}
+
+// flowNote reports a step of the browser flow (the URL to open) through
+// progress, or on stderr without one: stdout carries only the command's
+// result, which is one JSON document under --json.
+func flowNote(progress func(msg, kind string), msg string) {
+	if progress != nil {
+		progress(msg, "info")
+		return
+	}
+	fmt.Fprintln(os.Stderr, "→ "+msg)
 }
 
 // openBrowser opens the URL in the default browser using `open` (macOS).

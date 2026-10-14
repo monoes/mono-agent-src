@@ -3,10 +3,12 @@ package connections
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -197,6 +199,44 @@ func TestRunOAuth1Flow(t *testing.T) {
 	}
 	if h := prov.headers[0]; h["oauth_callback"] != fmt.Sprintf("http://localhost:%d/callback", port) || h["oauth_consumer_key"] != "ck" {
 		t.Errorf("request-token header = %v", h)
+	}
+}
+
+// The browser step's lines (the authorize URL) go through progress, or to
+// stderr without it — never stdout, which carries `connect oauth --json`'s
+// connection JSON.
+func TestRunOAuth1FlowKeepsStdoutClean(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOut := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = oldOut }()
+
+	prov := newFakeOAuth1Provider(t)
+	port := freePort(t)
+	stubOAuth1Browser(t, port, func(u *url.URL) string { return "oauth_token=" + u.Query().Get("oauth_token") + "&oauth_verifier=v123" })
+	cfg := OAuth1Config{RequestTokenURL: prov.URL + "/request", AuthURL: prov.URL + "/authorize", AccessTokenURL: prov.URL + "/access", CallbackPort: port}
+	var notes []string
+	progress := func(msg, kind string) { notes = append(notes, kind+":"+msg) }
+	if _, err := RunOAuth1Flow(context.Background(), cfg, "ck", "cs", 10*time.Second, progress); err != nil {
+		t.Fatal(err)
+	}
+	port2 := freePort(t)
+	stubOAuth1Browser(t, port2, func(u *url.URL) string { return "oauth_token=" + u.Query().Get("oauth_token") + "&oauth_verifier=v123" })
+	cfg.CallbackPort = port2
+	if _, err := RunOAuth1Flow(context.Background(), cfg, "ck", "cs", 10*time.Second, nil); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	os.Stdout = oldOut
+	printed, _ := io.ReadAll(r)
+	if len(printed) != 0 {
+		t.Errorf("the flow wrote to stdout: %q", printed)
+	}
+	if len(notes) == 0 || !strings.HasPrefix(notes[0], "info:Opening browser: "+prov.URL+"/authorize?oauth_token=temp") {
+		t.Errorf("progress = %v", notes)
 	}
 }
 

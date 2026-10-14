@@ -89,9 +89,9 @@ func RunOAuth1Flow(ctx context.Context, cfg OAuth1Config, consumerKey, consumerS
 	}()
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
-	fmt.Printf("→ Opening browser: %s\n", authURL)
+	flowNote(progress, "Opening browser: "+authURL.String())
 	if err := oauth1Browser(authURL.String()); err != nil {
-		fmt.Printf("→ Could not open browser automatically. Please open this URL manually:\n  %s\n", authURL)
+		flowNote(progress, "Could not open browser automatically. Please open this URL manually: "+authURL.String())
 	}
 	if progress != nil {
 		progress("Waiting for you to authorize in the browser…", "info")
