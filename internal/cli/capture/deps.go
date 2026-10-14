@@ -1,9 +1,8 @@
 // Package capturecli is `monoagentcli capture` (list, classify, export, import): the browser
 // captures in the monomind inbox (the store is internal/capture's), and the capture helpers the
-// extension bridge shares. Everything the commands need from the CLI around them comes in
-// through Deps, so they can be tested in isolation. `capture page` (the extension bridge) and
-// `capture task` (the org boards) stay in the CLI, which adds them to the group NewCommand
-// returns.
+// extension bridge shares, plus `capture page` (through the extension bridge) and `capture task`
+// (onto an org's board). Everything the commands need from the CLI around them comes in through
+// Deps, so they can be tested in isolation.
 package capturecli
 
 import (
@@ -12,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
+	browserpkg "github.com/monoes/mono-agent/internal/browser"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -34,11 +35,32 @@ type Deps struct {
 	NotFound func(format string, a ...interface{}) error
 	// InvalidInput builds the CLI's invalid-input error (exit code 3).
 	InvalidInput func(format string, a ...interface{}) error
+	// AuthConnection builds the CLI's auth/connection error (exit code 4).
+	AuthConnection func(format string, a ...interface{}) error
 	// NewTable is the CLI's borderless table with these headers.
 	NewTable func(w io.Writer, headers []string) *tablewriter.Table
+	// Page is the extension bridge `capture page` captures through.
+	Page PageDeps
+	// OrgRoot resolves the project root holding .monomind/orgs for `capture task`'s --project
+	// (empty: the active profile's root); closeEnv releases what resolving it opened.
+	OrgRoot func(project string) (root string, closeEnv func())
 }
 
-// NewCommand returns the `capture` command group, without `page` and `task`.
+// PageDeps is what `capture page` takes from the CLI: the extension bridge.
+type PageDeps struct {
+	// Bridge returns the extension bridge to the browser of the profile this invocation runs as.
+	Bridge func() browserpkg.ExtensionBridge
+	// EnsureConnected returns once the bridge's extension is connected, else why it is not.
+	EnsureConnected func(b browserpkg.ExtensionBridge, timeout time.Duration) error
+	// Advice says how to keep a bridge running.
+	Advice string
+	// LifetimeHint is Advice, but only for a bridge this process owns.
+	LifetimeHint func(b browserpkg.ExtensionBridge) string
+	// CheckSummaryChoice validates --summary-runtime and --summary-model against --mode.
+	CheckSummaryChoice func(mode, runtime, model string) error
+}
+
+// NewCommand returns the `capture` command group.
 func NewCommand(d Deps) *cobra.Command { return d.newCaptureCmd() }
 
 // DefaultDBPath mirrors the --db-path flag default.

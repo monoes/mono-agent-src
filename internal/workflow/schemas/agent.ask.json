@@ -72,6 +72,16 @@
       "min": 1,
       "required": false,
       "type": "number"
+    },
+    {
+      "help": "Remember the conversation: each item's turn sees the last window messages (default 10; 0 = all) of its session (session_key, resolved per item, default {{ $json.sessionId }}) and is added to it afterwards. Read or edit a session with the agent.memory node. Leave empty (or set \"enabled\": false) for no memory.",
+      "key": "memory",
+      "label": "Conversation Memory",
+      "language": "json",
+      "placeholder": "{\"session_key\": \"{{ $json.sessionId }}\", \"window\": 10}",
+      "required": false,
+      "rows": 3,
+      "type": "code"
     }
   ],
   "outputs": [

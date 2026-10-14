@@ -1,4 +1,4 @@
-package main
+package capturecli
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ import (
 // dashboard renders. There is no monotask client in this repo and no other
 // task store, so wiring to that file is wiring to what exists; a second
 // place for tasks would only be a second place to lose them.
-func newCaptureTaskCmd(cfg *globalConfig) *cobra.Command {
+func (d Deps) newCaptureTaskCmd() *cobra.Command {
 	var (
 		boardFlag   string
 		title       string
@@ -48,11 +48,10 @@ func newCaptureTaskCmd(cfg *globalConfig) *cobra.Command {
 			"  monoagentcli capture task ./capture --board acme --assignee alice --json",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			env := &orgEnv{cfg: cfg, projectFlag: project}
-			defer env.Close()
-			root := env.Root()
+			root, closeEnv := d.OrgRoot(project)
+			defer closeEnv()
 
-			board, err := resolveBoard(root, boardFlag)
+			board, err := d.resolveBoard(root, boardFlag)
 			if err != nil {
 				return err
 			}
@@ -68,10 +67,10 @@ func newCaptureTaskCmd(cfg *globalConfig) *cobra.Command {
 				Parent:       parent,
 			})
 			if err != nil {
-				return errInvalidInput("%s", err.Error())
+				return d.InvalidInput("%s", err.Error())
 			}
 
-			if cfg != nil && cfg.JSONOutput {
+			if d.JSONOutput() {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				return enc.Encode(res)
@@ -97,11 +96,11 @@ func newCaptureTaskCmd(cfg *globalConfig) *cobra.Command {
 // resolveBoard picks the org to file on. Naming one is the normal case;
 // leaving it out works only when there is exactly one, because guessing
 // between two boards is how a task lands somewhere nobody looks.
-func resolveBoard(root, named string) (string, error) {
+func (d Deps) resolveBoard(root, named string) (string, error) {
 	named = strings.TrimSpace(named)
 	if named != "" {
 		if !orgdesign.ValidOrgName(named) {
-			return "", errInvalidInput("invalid org name %q", named)
+			return "", d.InvalidInput("invalid org name %q", named)
 		}
 		return named, nil
 	}
@@ -111,10 +110,10 @@ func resolveBoard(root, named string) (string, error) {
 	}
 	switch len(boards) {
 	case 0:
-		return "", errNotFound("no board to file on: %s holds no orgs — create one with `monoagentcli org create`, or pass --board", orgdesign.OrgsDir(root))
+		return "", d.NotFound("no board to file on: %s holds no orgs — create one with `monoagentcli org create`, or pass --board", orgdesign.OrgsDir(root))
 	case 1:
 		return boards[0], nil
 	}
-	return "", errInvalidInput("--board is required: %s holds %d orgs (%s)",
+	return "", d.InvalidInput("--board is required: %s holds %d orgs (%s)",
 		orgdesign.OrgsDir(root), len(boards), strings.Join(boards, ", "))
 }

@@ -469,7 +469,8 @@ type Binary struct {
 	// to send (n8n's "binaryPropertyName").
 	UploadField string `json:"upload_field,omitempty"`
 	// PropertyField is the op param naming the output binary property for a
-	// download (default property "data").
+	// download (default property "data"). UploadField and PropertyField may
+	// be dotted ("options.binaryPropertyOutput") to read a collection key.
 	PropertyField string `json:"property_field,omitempty"`
 	// MultipartField is the form field of the file part (default "file").
 	MultipartField string `json:"multipart_field,omitempty"`
@@ -507,6 +508,10 @@ type Binary struct {
 	// file base64-encoded in JSON (GitHub contents), decode it onto the
 	// item's binary and keep the JSON response as the item's json.
 	DownloadBase64 string `json:"download_base64,omitempty"`
+	// DownloadEach is a response path to a list of base64 files: each
+	// element (el in download_base64, file_name, mime_type) becomes one
+	// item (OpenAI image generations with n > 1).
+	DownloadEach string `json:"download_each,omitempty"`
 }
 
 // NodeTypeOf is the node type a package registers ("" for extends).

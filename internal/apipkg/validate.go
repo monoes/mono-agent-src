@@ -392,7 +392,8 @@ func (o *Operation) check(where string, credKeys map[string]bool) []string {
 	}
 	if b := o.Binary; b != nil {
 		for _, f := range []string{b.UploadField, b.PropertyField} {
-			if f != "" && !fields[f] {
+			// A dotted name reads a key of a collection field.
+			if f != "" && !fields[strings.SplitN(f, ".", 2)[0]] {
 				add("binary: %q is not one of the op's fields", f)
 			}
 		}

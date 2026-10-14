@@ -30,7 +30,8 @@ func (d Deps) newCaptureCmd() *cobra.Command {
 		d.newCaptureListCmd(),
 		d.newCaptureClassifyCmd(), // classify.go
 	)
-	cmd.AddCommand(d.captureGlueCmds()...) // export, import — see archive.go
+	cmd.AddCommand(d.captureGlueCmds()...)                       // export, import — see archive.go
+	cmd.AddCommand(d.newCapturePageCmd(), d.newCaptureTaskCmd()) // page.go, task.go
 	return cmd
 }
 

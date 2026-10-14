@@ -22,4 +22,6 @@ type AskNodeSchema struct {
 	MergeOutput bool `json:"merge_output" schema:"label=Merge Output Into Item,type=boolean,default=false,help=With an output schema and an object answer， also copy its fields onto the item."`
 
 	Concurrency float64 `json:"concurrency" schema:"label=Concurrency,type=number,default=1,min=1,help=How many items run at once. Output keeps the input order."`
+
+	Memory string `json:"memory" schema:"label=Conversation Memory,type=code,language=json,rows=3,placeholder={\"session_key\": \"{{ $json.sessionId }}\"， \"window\": 10},help=Remember the conversation: each item's turn sees the last window messages (default 10; 0 = all) of its session (session_key， resolved per item， default {{ $json.sessionId }}) and is added to it afterwards. Read or edit a session with the agent.memory node. Leave empty (or set \"enabled\": false) for no memory."`
 }

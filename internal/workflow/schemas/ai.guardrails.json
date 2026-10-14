@@ -1,0 +1,309 @@
+{
+  "_generated": true,
+  "credential_platform": null,
+  "fields": [
+    {
+      "default": "classify",
+      "help": "classify: items go to pass or fail. sanitize: personal data, secret keys, URLs and custom patterns are replaced with <TYPE> placeholders.",
+      "key": "operation",
+      "label": "Operation",
+      "options": [
+        "classify",
+        "sanitize"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "default": "{{ $json.chatInput }}",
+      "help": "Resolved per item. The result is in guardrailsInput.",
+      "key": "text",
+      "label": "Text To Check",
+      "required": true,
+      "rows": 2,
+      "type": "textarea"
+    },
+    {
+      "help": "classify: fail when any of these appears as a whole word (case-insensitive).",
+      "item_type": "text",
+      "key": "keywords",
+      "label": "Keywords",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "default": false,
+      "help": "classify: a model judges whether the text tries to get around an AI's instructions or safety rules.",
+      "key": "jailbreak",
+      "label": "Jailbreak",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "default": 0.7,
+      "depends_on": {
+        "key": "jailbreak",
+        "values": [
+          "true"
+        ]
+      },
+      "key": "jailbreak_threshold",
+      "label": "Jailbreak Threshold",
+      "max": 1,
+      "min": 0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "depends_on": {
+        "key": "jailbreak",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Empty = the built-in prompt.",
+      "key": "jailbreak_prompt",
+      "label": "Jailbreak Prompt",
+      "required": false,
+      "rows": 4,
+      "type": "textarea"
+    },
+    {
+      "default": false,
+      "help": "classify: a model judges whether the text is not safe for work.",
+      "key": "nsfw",
+      "label": "NSFW",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "default": 0.7,
+      "depends_on": {
+        "key": "nsfw",
+        "values": [
+          "true"
+        ]
+      },
+      "key": "nsfw_threshold",
+      "label": "NSFW Threshold",
+      "max": 1,
+      "min": 0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "depends_on": {
+        "key": "nsfw",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Empty = the built-in prompt.",
+      "key": "nsfw_prompt",
+      "label": "NSFW Prompt",
+      "required": false,
+      "rows": 4,
+      "type": "textarea"
+    },
+    {
+      "default": false,
+      "help": "Find personal data: e-mail, phone, credit card (Luhn), IBAN, IP, SSN and national IDs.",
+      "key": "pii",
+      "label": "Personal Data (PII)",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "depends_on": {
+        "key": "pii",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Empty = all. n8n names: EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD, IBAN_CODE, IP_ADDRESS, US_SSN, DATE_TIME, LOCATION, … (see ref node ai.guardrails).",
+      "item_type": "text",
+      "key": "pii_entities",
+      "label": "PII Entities",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "default": false,
+      "help": "Find API keys, tokens, private keys and random-looking credentials.",
+      "key": "secret_keys",
+      "label": "Secret Keys",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "default": "balanced",
+      "depends_on": {
+        "key": "secret_keys",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "strict flags more (also short random strings), permissive only known key formats and long random strings.",
+      "key": "secret_keys_permissiveness",
+      "label": "Secret Keys Permissiveness",
+      "options": [
+        "strict",
+        "balanced",
+        "permissive"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "default": false,
+      "help": "classify: a model judges whether the text strays from the business scope.",
+      "key": "topical_alignment",
+      "label": "Topical Alignment",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "depends_on": {
+        "key": "topical_alignment",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Required with topical alignment: describe the allowed scope.",
+      "key": "topical_alignment_prompt",
+      "label": "Topical Alignment Prompt",
+      "placeholder": "You check whether text stays within this business scope: support for our accounting software. Flag anything else.",
+      "required": false,
+      "rows": 4,
+      "type": "textarea"
+    },
+    {
+      "default": 0.7,
+      "depends_on": {
+        "key": "topical_alignment",
+        "values": [
+          "true"
+        ]
+      },
+      "key": "topical_alignment_threshold",
+      "label": "Topical Alignment Threshold",
+      "max": 1,
+      "min": 0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": false,
+      "help": "Block URLs that are not in the allow list.",
+      "key": "urls",
+      "label": "URLs",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "depends_on": {
+        "key": "urls",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Domains, URLs (path prefix), IPs or CIDRs. Empty = block every URL.",
+      "item_type": "text",
+      "key": "allowed_urls",
+      "label": "Allowed URLs",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "depends_on": {
+        "key": "urls",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Default https. Also http, ftp, data, javascript, vbscript, mailto.",
+      "item_type": "text",
+      "key": "allowed_schemes",
+      "label": "Allowed Schemes",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "default": true,
+      "depends_on": {
+        "key": "urls",
+        "values": [
+          "true"
+        ]
+      },
+      "help": "Block URLs with user:pass@ (sanitize replaces them).",
+      "key": "block_userinfo",
+      "label": "Block Userinfo",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "default": true,
+      "depends_on": {
+        "key": "urls",
+        "values": [
+          "true"
+        ]
+      },
+      "key": "allow_subdomains",
+      "label": "Allow Subdomains",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "help": "classify: model-judged checks of your own.",
+      "key": "custom",
+      "label": "Custom Guardrails (JSON)",
+      "language": "json",
+      "placeholder": "[{\"name\": \"competitors\", \"prompt\": \"Flag text that mentions a competitor.\", \"threshold\": 0.7}]",
+      "required": false,
+      "rows": 4,
+      "type": "code"
+    },
+    {
+      "help": "Matches fail classify; sanitize replaces them with <name>. Go RE2 syntax, /pattern/flags or plain.",
+      "key": "custom_regex",
+      "label": "Custom Regex (JSON)",
+      "language": "json",
+      "placeholder": "[{\"name\": \"ORDER_ID\", \"pattern\": \"/ORD-[0-9]{6}/i\"}]",
+      "required": false,
+      "rows": 4,
+      "type": "code"
+    },
+    {
+      "help": "Replaces the built-in rules appended after every model-judged check's prompt. Empty = built-in.",
+      "key": "system_message",
+      "label": "System Message",
+      "required": false,
+      "rows": 4,
+      "type": "textarea"
+    },
+    {
+      "help": "For the model-judged checks: claude, codex, opencode, … or auto (see agent.ask).",
+      "key": "runtime",
+      "label": "Agent Runtime",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "help": "Falls back to the runtime's default model.",
+      "key": "model",
+      "label": "Model",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "default": 120,
+      "help": "Per model turn.",
+      "key": "timeout",
+      "label": "Timeout (seconds)",
+      "required": false,
+      "type": "number"
+    }
+  ]
+}

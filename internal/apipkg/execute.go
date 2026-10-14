@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -531,21 +529,21 @@ func errorBodyEcho(b []byte) string {
 
 // downloadItem stores a file response on the item's binary data.
 func (r *opRun) downloadItem(resp *response) workflow.Item {
-	prop := "data"
-	if t := r.op.Binary.Property; t != "" {
-		if s, err := renderText(t, r.scope); err == nil && s != "" {
-			prop = s
-		}
-	}
-	if f := r.op.Binary.PropertyField; f != "" {
-		if s := stringify(r.params[f]); s != "" {
-			prop = s
-		}
-	}
+	prop := r.downloadProperty()
 	ct := resp.header.Get("Content-Type")
 	name := ""
 	if _, params, err := mime.ParseMediaType(resp.header.Get("Content-Disposition")); err == nil {
 		name = params["filename"]
+	}
+	// An op that uploads nothing may name the file it downloads
+	// (binary.file_name / mime_type) for responses that don't.
+	if b := r.op.Binary; b.UploadField == "" && b.Properties == "" {
+		if name == "" {
+			name, _ = renderText(b.FileName, r.scope)
+		}
+		if ct == "" {
+			ct, _ = renderText(b.MimeType, r.scope)
+		}
 	}
 	return workflow.Item{
 		JSON: map[string]any{
@@ -974,40 +972,6 @@ func schemaCell(v any, f map[string]any, nums bool) any {
 		}
 	}
 	return v
-}
-
-// downloadBase64Item decodes a base64 file from the JSON response
-// (binary.download_base64) onto the item, keeping the JSON as the item.
-func (r *opRun) downloadBase64Item(resp *response) ([]workflow.Item, error) {
-	b := r.op.Binary
-	doc := decodeBody(resp.body)
-	sc := r.scope
-	sc.Res = doc
-	enc, err := renderText(b.DownloadBase64, sc)
-	if err != nil {
-		return nil, r.errf("binary.download_base64: %w", err)
-	}
-	data, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(enc), ""))
-	if err != nil {
-		return nil, r.errf("binary.download_base64: not base64: %w", err)
-	}
-	prop := "data"
-	if f := b.PropertyField; f != "" {
-		if s := stringify(r.params[f]); s != "" {
-			prop = s
-		}
-	}
-	obj, _ := doc.(map[string]any)
-	if obj == nil {
-		obj = map[string]any{}
-	}
-	name, _ := renderText(b.FileName, sc)
-	mt, _ := renderText(b.MimeType, sc)
-	if mt == "" {
-		mt = mime.TypeByExtension(path.Ext(name))
-	}
-	obj["binary_property"], obj["file_name"], obj["mime_type"], obj["size"] = prop, name, mt, len(data)
-	return []workflow.Item{{JSON: obj, Binary: map[string][]byte{prop: data}}}, nil
 }
 
 // clientLimit honours the op's returnAll/limit params on a list the API

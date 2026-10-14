@@ -1,4 +1,4 @@
-package main
+package capturecli
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ import (
 
 // `capture task` through the CLI: the board it picks, the issue it writes
 // into monomind's own file, and the refusals. The archive half of the glue
-// lives in capture_glue_test.go.
+// lives in glue_test.go.
 
 // glueOrgRoot makes a project root with the named orgs configured.
 func glueOrgRoot(t *testing.T, orgs ...string) string {
@@ -49,7 +49,7 @@ func TestCaptureTaskFilesOnTheBoard(t *testing.T) {
 		entries[0].Path = real
 	}
 
-	stdout, stderr, err := runGlueCmd(t, &globalConfig{JSONOutput: true},
+	stdout, stderr, err := runGlueCmd(t, &testConfig{JSONOutput: true},
 		"task", entries[0].Path, "--project", root, "--board", "acme",
 		"--title", "Answer this", "--priority", "high")
 	if err != nil {

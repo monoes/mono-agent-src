@@ -10,6 +10,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/zalando/go-keyring"
 
+	browserpkg "github.com/monoes/mono-agent/internal/browser"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/testhome"
 )
@@ -44,7 +45,8 @@ func errorOf(code int) func(format string, a ...interface{}) error {
 	}
 }
 
-// exitCodeFor is the exit code the CLI gives err: 2 not found, 3 invalid input, 1 any other.
+// exitCodeFor is the exit code the CLI gives err: 2 not found, 3 invalid input, 4 auth or
+// connection, 1 any other.
 func exitCodeFor(err error) int {
 	var ce *cliError
 	switch {
@@ -100,5 +102,13 @@ func testDeps(cfg *testConfig) Deps {
 			table.Header(headers)
 			return table
 		},
+		AuthConnection: errorOf(4),
+		Page: PageDeps{
+			Bridge: func() browserpkg.ExtensionBridge {
+				panic("capture page reached for the extension bridge")
+			},
+		},
+		// --project is the root as given; the CLI resolves an empty one to the active profile's.
+		OrgRoot: func(project string) (string, func()) { return project, func() {} },
 	}
 }

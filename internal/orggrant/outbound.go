@@ -94,6 +94,9 @@ var readOnlyNodes = setOf(
 	// input goes to TypeSafe's API). The other ai.* are deprecated stubs
 	// that fail without doing anything (ai.agent is left out regardless).
 	"ai.choose",
+	// ai.guardrails: local pattern checks, plus model-judged checks whose
+	// turns only judge the text and answer with a JSON verdict.
+	"ai.guardrails",
 	"ai.chat", "ai.classify", "ai.embed", "ai.extract", "ai.transform",
 	// Bookkeeping in mono-agent's own stores: nothing leaves the machine
 	// and nothing is overwritten beyond the rows the node owns.

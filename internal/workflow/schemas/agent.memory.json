@@ -1,0 +1,158 @@
+{
+  "_generated": true,
+  "credential_platform": null,
+  "fields": [
+    {
+      "default": "get",
+      "help": "get reads a session's messages; insert adds messages; delete removes the last N or all.",
+      "key": "operation",
+      "label": "Operation",
+      "options": [
+        "get",
+        "insert",
+        "delete"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "default": "{{ $json.sessionId }}",
+      "help": "The conversation to use, resolved per item. The default reads the sessionId field a chat trigger puts on its items.",
+      "key": "session_key",
+      "label": "Session Key",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "default": "simple",
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "get"
+        ]
+      },
+      "help": "simple: [{role, content}]. pairs: {human, ai} groups (n8n's simplified output). raw: also seq and created_at.",
+      "key": "format",
+      "label": "Format",
+      "options": [
+        "simple",
+        "pairs",
+        "raw"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "default": true,
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "get"
+        ]
+      },
+      "help": "One item per input item with messages and messagesCount (input fields kept), or one item per message.",
+      "key": "group",
+      "label": "Group Messages",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "default": "append",
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "insert"
+        ]
+      },
+      "help": "append adds after the existing messages; override replaces the session with these.",
+      "key": "insert_mode",
+      "label": "Insert Mode",
+      "options": [
+        "append",
+        "override"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "insert"
+        ]
+      },
+      "help": "A list of {role, content}; role is human, ai or system (user and assistant are accepted). Both are resolved per item.",
+      "key": "messages",
+      "label": "Messages (JSON)",
+      "language": "json",
+      "placeholder": "[{\"role\": \"human\", \"content\": \"{{ $json.chatInput }}\"}]",
+      "required": false,
+      "rows": 4,
+      "type": "code"
+    },
+    {
+      "default": "last_n",
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "delete"
+        ]
+      },
+      "key": "delete_mode",
+      "label": "Delete Mode",
+      "options": [
+        "last_n",
+        "all"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "default": 2,
+      "depends_on": {
+        "key": "delete_mode",
+        "values": [
+          "last_n"
+        ]
+      },
+      "help": "How many of the newest messages delete removes (all of them when there are fewer).",
+      "key": "count",
+      "label": "Messages to Delete",
+      "min": 1,
+      "required": false,
+      "type": "number"
+    }
+  ],
+  "outputs": [
+    {
+      "description": "get (grouped): the input item's fields, passed through",
+      "key": "*",
+      "type": "object"
+    },
+    {
+      "description": "get (grouped): the session's messages in the chosen format",
+      "key": "messages",
+      "type": "array"
+    },
+    {
+      "description": "get (grouped): how many entries messages holds",
+      "key": "messagesCount",
+      "type": "number"
+    },
+    {
+      "description": "get (one item per message, simple/raw): human, ai or system",
+      "key": "role",
+      "type": "string"
+    },
+    {
+      "description": "get (one item per message, simple/raw): the message text",
+      "key": "content",
+      "type": "string"
+    },
+    {
+      "description": "insert and delete: true",
+      "key": "success",
+      "type": "boolean"
+    }
+  ]
+}

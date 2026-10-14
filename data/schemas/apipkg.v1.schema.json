@@ -293,6 +293,7 @@
             "upload_when": { "type": "string" },
             "fallback_body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none", "ndjson"] },
             "download_base64": { "type": "string" },
+            "download_each": { "type": "string" },
             "property": { "type": "string" },
             "properties": { "type": "string" },
             "upload_text": { "type": "string" },

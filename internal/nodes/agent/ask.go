@@ -41,6 +41,8 @@ var templatePattern = regexp.MustCompile(`\{\{\$json\.(\w+)\}\}`)
 //	"merge_output" (bool): with output_schema and an object answer, also
 //	  merge its fields into the item.
 //	"concurrency" (number): items run in parallel, up to this many (default 1).
+//	"memory" (object): conversation memory {session_key, window, enabled} —
+//	  see ask_memory.go.
 type AskNode struct{}
 
 // Seams for tests.
@@ -55,6 +57,7 @@ type askConfig struct {
 	timeout                                                 time.Duration
 	schema                                                  map[string]interface{}
 	merge, auto                                             bool
+	memory                                                  *memoryOption
 }
 
 func (n *AskNode) Type() string { return "agent.ask" }
@@ -62,7 +65,9 @@ func (n *AskNode) Type() string { return "agent.ask" }
 // PerItemConfigFields holds the prompts back from the engine's one-pass
 // config resolution, which uses only the first item: each item's prompt is
 // resolved against that item in ask.
-func (n *AskNode) PerItemConfigFields() []string { return []string{"prompt", "system_prompt"} }
+func (n *AskNode) PerItemConfigFields() []string {
+	return []string{"prompt", "system_prompt", "memory"}
+}
 
 func (n *AskNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	runtime := configString(config, "runtime", "")
@@ -82,6 +87,10 @@ func (n *AskNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 		return nil, fmt.Errorf("%w: agent.ask: %v", workflow.ErrInvalidConfig, err)
 	}
 	merge, _ := config["merge_output"].(bool)
+	memory, err := parseMemoryOption(config["memory"])
+	if err != nil {
+		return nil, fmt.Errorf("%w: agent.ask: %v", workflow.ErrInvalidConfig, err)
+	}
 	cfg := askConfig{
 		runtime:        runtime,
 		model:          configString(config, "model", ""),
@@ -91,6 +100,7 @@ func (n *AskNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 		timeout:        time.Duration(timeoutSec) * time.Second,
 		schema:         schema,
 		merge:          merge,
+		memory:         memory,
 	}
 	concurrency := configInt(config, "concurrency", 1)
 	if concurrency < 1 {
@@ -156,6 +166,7 @@ func (t *asker) askAll(ctx context.Context, items, out []workflow.Item, n int) e
 		firstErr error
 		sem      = make(chan struct{}, n)
 	)
+	waits, dones := t.sessionOrder(items)
 	for i, item := range items {
 		select {
 		case sem <- struct{}{}:
@@ -168,6 +179,16 @@ func (t *asker) askAll(ctx context.Context, items, out []workflow.Item, n int) e
 		go func(i int, item workflow.Item) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			if dones != nil {
+				defer close(dones[i])
+				if waits[i] != nil {
+					select {
+					case <-waits[i]:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
 			res, err := t.ask(ctx, item)
 			if err != nil {
 				once.Do(func() { firstErr = err; cancel() })
@@ -194,6 +215,15 @@ func (t *asker) ask(ctx context.Context, item workflow.Item) (workflow.Item, err
 	if err != nil {
 		return workflow.Item{}, fmt.Errorf("agent.ask: system_prompt: %w", err)
 	}
+	userPrompt := prompt
+	var mem *memoryTurn
+	if cfg.memory != nil {
+		if mem, err = t.memoryStart(ctx, item); err != nil {
+			return workflow.Item{}, err
+		}
+		defer mem.release()
+		prompt = mem.wrap(prompt)
+	}
 	if cfg.schema != nil {
 		prompt += schemaInstruction(cfg.schema)
 	}
@@ -218,6 +248,11 @@ func (t *asker) ask(ctx context.Context, item workflow.Item) (workflow.Item, err
 			for k, v := range obj {
 				outJSON[k] = v
 			}
+		}
+	}
+	if mem != nil {
+		if err := mem.finish(ctx, t.db, userPrompt, outJSON[cfg.outputKey]); err != nil {
+			return workflow.Item{}, fmt.Errorf("agent.ask: %w", err)
 		}
 	}
 	outJSON["_agent_session_id"] = res.SessionID
@@ -329,6 +364,7 @@ func (t *asker) record(ctx context.Context, model string, res *monomind.TurnResu
 // RegisterAll registers the agent node types into the given registry.
 func RegisterAll(r *workflow.NodeTypeRegistry) {
 	r.Register("agent.ask", func() workflow.NodeExecutor { return &AskNode{} })
+	r.Register("agent.memory", func() workflow.NodeExecutor { return &MemoryNode{} })
 }
 
 // expandTemplate replaces {{$json.KEY}} placeholders in template with values from item.JSON.

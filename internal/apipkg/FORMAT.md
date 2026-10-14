@@ -671,6 +671,10 @@ Workflow items carry files in `item.binary[<property>]` (n8n's
 
 **Files inside JSON.** Upload: `bin.base64` is the upload's bytes base64-encoded, for APIs that take file content in a JSON body (GitHub/GitLab `"content": "{{ p.binaryData | then:bin.base64 | default:(p.fileContent | base64) }}"` with `upload_when: "{{ p.binaryData }}"`). Download: `binary.download_base64` (template over `res`, e.g. `"{{ res.content }}"`) decodes a base64 file from the JSON response onto the item's binary (property from `property_field`, name from the `file_name` template, MIME type from `mime_type` or the name) and keeps the JSON as the item; gate it with `download_when`.
 
+**Several base64 files in one response (`download_each`).** `"download_each": "data"` (a response path to a list) turns each element into one item: `download_base64`, `file_name` and `mime_type` render with `el` = the element, the item's JSON is the element without the key that held the base64 text, plus `binary_property`, `file_name`, `mime_type` and `size` (OpenAI image generations: `"download_base64": "{{ el.b64_json }}"`). A file download (`download`) of an op that uploads nothing takes its name and type from `file_name`/`mime_type` when the response's headers give none.
+
+**Fields inside collections.** `upload_field` and `property_field` may be dotted to read a key of a collection field (`"upload_field": "options.binaryPropertyNameReference"`); `binary.property` (a template) also names a download's output property (`"{{ p.options.binaryPropertyOutput | default:'data' }}"`).
+
 `binary.fallback_body_type` (json/form/multipart/raw/none) is the body type when `upload_when` turns the upload off (LINE Notify stays a form without an image).
 
 **Large files in chunks (`upload_session`).** `"binary": {"upload_field": "binaryPropertyName", "upload_session": {"create": {"method": "POST", "path": "/items/{{ p.parentId }}:/{{ p.fileName }}:/createUploadSession", "body": {"item": {"@microsoft.graph.conflictBehavior": "replace"}}}}}` — when the upload is larger than `min_size` bytes (default 4 MiB) the engine sends `create` (a step, with auth), reads the upload URL at `url_path` (default `uploadUrl`) of its response, and PUTs the file there in `chunk_size` pieces (default 10 MiB; Graph wants multiples of 320 KiB) with `Content-Range: bytes a-b/total` and no credential (the URL is pre-authorised). The last chunk's response is the op's response. Smaller files go in the op's single request as before (OneDrive / SharePoint upload).
@@ -912,6 +916,7 @@ Optional keys the engine added (the design's keys are unchanged):
 | operation, steps | `stream` (read server-sent events until one matches); step `repeat`; poll `max_wait_seconds`; binary `upload_url` | §9, §10 |
 | package | `webhook` (app trigger registration: `fields`, `create`, `id`, `extra`, `delete`, `check`, `verify`); root `hook`; filter `map` | §17 |
 | templates | literal braces `\{{` / `\}}`; `hdr` = the previous webhook step's response headers | §5, §17 |
+| binary | `download_each` (one item per base64 file in a list); dotted `upload_field`/`property_field`; `property` for downloads; download `file_name`/`mime_type` fallback | §10 |
 
 ## 17. App webhooks (`webhook`)
 

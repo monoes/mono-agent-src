@@ -271,7 +271,9 @@ ask for JSON, a category, or a rewrite in the prompt itself.`,
                     "required": ["category"],
                     "properties": {"category": {"type": "string", "enum": ["lead", "spam"]}}},
   "merge_output":  false,                          // with output_schema: copy an object's fields onto the item
-  "concurrency":   1                               // items run at once; output keeps input order
+  "concurrency":   1,                              // items run at once; output keeps input order
+  "memory":        {"session_key": "{{ $json.sessionId }}", // optional: conversation memory
+                    "window": 10}                  // earlier messages sent (0 = all)
 }`,
 		Inputs:  "any items (prompt placeholders read from $json)",
 		Outputs: "input item + <output_key> with the agent's answer (the parsed JSON value with output_schema)",
@@ -293,7 +295,46 @@ runtime can't resume); a second mismatch fails the node, which follows
 on_error.
 
 Every turn's tokens and cost, when the runtime reports them, are recorded in
-the agent_usage table with the profile, workflow, execution and node ids.`,
+the agent_usage table with the profile, workflow, execution and node ids.
+
+memory keeps a conversation in the profile's local chat memory (the same one
+agent.memory reads and edits). Each item's session_key is resolved against that
+item; its last window messages (default 10, i.e. 5 exchanges; 0 sends the whole
+session) go in front of the prompt as a transcript, and after a successful turn
+the prompt and the answer are added to the session. Items of one session run
+one after another, in input order, even with concurrency above 1. Leave memory
+out, or set "enabled": false, for none.`,
+	},
+	{
+		Type:     "agent.memory",
+		Category: "agent",
+		Short:    "Read, add or delete the messages of a chat memory session",
+		Description: `Manages the profile's local chat memory: the conversations agent.ask keeps with
+its memory option. Each input item names a session (session_key, resolved per
+item; default its sessionId field) and the node gets, inserts or deletes that
+session's messages. Imported n8n Chat Memory Manager and Chat Messages Retriever
+nodes become this node.`,
+		Config: `{
+  "operation":   "get",                    // get | insert | delete
+  "session_key": "{{ $json.sessionId }}",
+  // get
+  "format":      "simple",                 // simple [{role, content}] | pairs [{human, ai}] | raw (+ seq, created_at)
+  "group":       true,                     // one item {…input, messages, messagesCount}, or one item per message
+  // insert
+  "messages":    [{"role": "human", "content": "{{ $json.chatInput }}"},
+                  {"role": "ai", "content": "Hello!"}],   // role: human | ai | system (user/assistant accepted)
+  "insert_mode": "append",                 // append | override (replace the session)
+  // delete
+  "delete_mode": "last_n",                 // last_n | all
+  "count":       2                         // last_n: newest messages removed
+}`,
+		Inputs:  "any items (one session per item)",
+		Outputs: "get: the input item + messages and messagesCount (or one item per message); insert/delete: {success: true}",
+		Notes: `Messages live in the profile database (table chat_memory_messages) and survive
+restarts; sessions are per profile, shared by every workflow of it. Roles are
+stored as human, ai and system. delete with last_n removes the newest count
+messages, or all of them when the session has fewer. An item whose session_key
+resolves to nothing fails the node.`,
 	},
 	{
 		Type:     "mcp.call",
@@ -417,6 +458,67 @@ extra: {name: {noul} | {choice, probabilities, confidence} | {score, probabiliti
 No key => invalid-config error naming the missing vault secret. Get a key at
 console.typesafe.ai: "monoagentcli jev key set".
 Jev is weak at arithmetic, counting and date comparison — compute those first.`,
+	},
+	{
+		Type:     "ai.guardrails",
+		Category: "agent",
+		Short:    "Check text against guardrails (pass/fail) or sanitize it (n8n Guardrails)",
+		Description: `classify sends each item to "pass" or "fail"; sanitize replaces what it finds
+with <TYPE> placeholders and sends the item to "main". Keywords, personal data
+(PII), secret keys, URLs and custom regexes run locally. Jailbreak, NSFW,
+topical alignment and custom guardrails are judged by a local agent runtime
+through monomind: one turn per check per item (checks run in parallel), which
+answers {"flagged", "confidenceScore"}; a check trips when flagged and the
+score is at or above its threshold. Imported from n8n's Guardrails node.`,
+		Config: `{
+  "operation": "classify",               // classify | sanitize
+  "text":      "{{ $json.chatInput }}",  // required, resolved per item
+  "keywords":  ["refund", "lawsuit"],    // classify; whole words, any case
+  "jailbreak": true,  "jailbreak_threshold": 0.7,  "jailbreak_prompt": "",
+  "nsfw":      false, "nsfw_threshold": 0.7,       "nsfw_prompt": "",
+  "topical_alignment": false,            // needs topical_alignment_prompt (the scope)
+  "topical_alignment_prompt": "", "topical_alignment_threshold": 0.7,
+  "custom":   [{"name": "competitors", "prompt": "Flag mentions of ACME.", "threshold": 0.7}],
+  "pii":      true, "pii_entities": ["EMAIL_ADDRESS", "CREDIT_CARD"],  // empty = all
+  "secret_keys": true, "secret_keys_permissiveness": "balanced",      // strict | balanced | permissive
+  "urls": true, "allowed_urls": ["example.com", "10.0.0.0/8"],        // empty = block every URL
+  "allowed_schemes": ["https"], "block_userinfo": true, "allow_subdomains": true,
+  "custom_regex": [{"name": "ORDER_ID", "pattern": "/ORD-\\d{6}/i"}],  // Go RE2
+  "system_message": "",                  // replaces the rules after each model prompt
+  "runtime": "claude",                   // model checks only; or "auto" (see agent.ask)
+  "model":   "",
+  "timeout": 120                         // seconds per model turn
+}`,
+		Inputs: "any items",
+		Outputs: `classify: "pass" and "fail"; sanitize: "main". Like n8n, each item is
+{guardrailsInput, checks}: guardrailsInput is the text (sanitized for
+sanitize), checks[] is {name, triggered, info} plus confidenceScore and
+executionFailed for model checks. A fail item lists only the checks that
+tripped; a pass item lists every check. Check names: keywords, personalData
+(info.analyzerResults [{entityType, text}]), customRegex, secretKeys
+(info.detectedSecrets), urls (info.detected, allowed, blocked, blockedReasons),
+jailbreak, nsfw, topicalAlignment, and each custom guardrail's name.`,
+		Notes: `Order as in n8n: the pattern checks (PII, custom regex, secret keys, URLs) run
+first; if one trips, the item fails without the keyword and model checks.
+Keywords and model checks only classify. Sanitize placeholders: <EMAIL_ADDRESS>,
+<CREDIT_CARD>, … (the entity name), <SECRET>, <URL>, <custom regex name>.
+PII entities (n8n names): CREDIT_CARD (Luhn), CRYPTO, DATE_TIME, EMAIL_ADDRESS,
+IBAN_CODE (mod 97), IP_ADDRESS (v4/v6), LOCATION (street address),
+PHONE_NUMBER, MEDICAL_LICENSE, US_BANK_NUMBER, US_DRIVER_LICENSE, US_ITIN,
+US_PASSPORT, US_SSN, UK_NHS (checksum), UK_NINO, ES_NIF, ES_NIE (check letter),
+IT_FISCAL_CODE, IT_DRIVER_LICENSE, IT_VAT_CODE, IT_PASSPORT, IT_IDENTITY_CARD,
+PL_PESEL, SG_NRIC_FIN, SG_UEN, AU_ABN, AU_ACN, AU_TFN, AU_MEDICARE (checksums),
+IN_PAN, IN_AADHAAR, IN_VEHICLE_REGISTRATION, IN_VOTER, IN_PASSPORT,
+FI_PERSONAL_IDENTITY_CODE. A span is reported once, by the most specific type.
+Secret keys: known formats (AWS, GitHub, GitLab, Slack, Stripe, OpenAI-style
+sk-, Google, SendGrid, Hugging Face, npm, Shopify, JWTs, private key blocks)
+always count; strict and balanced add name=value credentials; random-looking
+tokens count from 10 (strict), 16 (balanced) or 32 (permissive) characters.
+A model check whose reply is not the JSON verdict is asked once more, then
+fails the node (on_error applies), as does a turn that fails. The text is
+sent as data between markers, never as instructions. Turns run in the turn
+sandbox in ~/.monoagent/workspaces/guardrails; usage goes to agent_usage
+with source ai.guardrails.`,
 	},
 	{
 		Type:     "org.run",
