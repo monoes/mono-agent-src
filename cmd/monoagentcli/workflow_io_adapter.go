@@ -58,7 +58,12 @@ const (
 	importUnchanged = workflowio.ImportUnchanged
 )
 
+// syncMarkerName sits next to the file store directory (workflowio.SyncMarkerName).
+const syncMarkerName = workflowio.SyncMarkerName
+
 var (
+	// syncFileWorkflowsToSQL mirrors file-store workflows into SQLite (workflowio.SyncFileWorkflowsToSQL).
+	syncFileWorkflowsToSQL      = workflowio.SyncFileWorkflowsToSQL
 	normalizeLegacyWorkflowJSON = workflowio.NormalizeLegacyWorkflowJSON
 	workflowFileFromWorkflow    = workflowio.WorkflowFileFromWorkflow
 	ownedWorkflow               = workflowio.OwnedWorkflow

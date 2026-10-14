@@ -109,6 +109,11 @@ func TestValidateWorkflowIssues(t *testing.T) {
 			want: []wantIssue{{"s", "assignments[0].value", IssueBadExpression, "error"}},
 		},
 		{
+			name:  "JavaScript with }} is not an expression",
+			w:     vwf(trig, vnode("c", "core.code", "Code", map[string]interface{}{"code": "var q = {\"a\":{\"b\":1}}; return [{json: $json}];"})),
+			valid: true,
+		},
+		{
 			name: "n8n $('X') syntax",
 			w:    vwf(trig, vnode("s", "core.set", "Set", map[string]interface{}{"assignments": assigns("a", "{{ $('Gone').json.x }}")})),
 			want: []wantIssue{

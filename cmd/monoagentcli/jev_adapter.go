@@ -18,6 +18,3 @@ func newJevCmd(cfg *globalConfig) *cobra.Command {
 		StdinIsTerminal: stdinIsTerminal,
 	})
 }
-
-// redactRetryError strips credentials from an error message (jevcli.RedactRetryError).
-var redactRetryError = jevcli.RedactRetryError

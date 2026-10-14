@@ -1,4 +1,4 @@
-package main
+package bridge
 
 import (
 	"fmt"
@@ -13,16 +13,16 @@ import (
 	"github.com/monoes/mono-agent/internal/extension"
 )
 
-// connChecker is the minimal slice of browser.ExtensionBridge that
-// ensureExtensionConnected needs.
-type connChecker interface {
+// ConnChecker is the minimal slice of browser.ExtensionBridge that
+// EnsureConnected needs.
+type ConnChecker interface {
 	IsConnected() bool
 }
 
 // pairingURLProvider is implemented only by *extension.ServerBridge (not
 // the relay-through-another-process bridge) — see its doc comment for why.
 // A plain interface here (rather than importing *extension.ServerBridge)
-// keeps ensureExtensionConnected working against the bridge.ExtensionBridge
+// keeps EnsureConnected working against the bridge.ExtensionBridge
 // abstraction it already takes.
 type pairingURLProvider interface {
 	PairingURL() (string, bool)
@@ -34,7 +34,7 @@ type addrProvider interface {
 	Addr() (string, bool)
 }
 
-// fallbackPortHint explains a bridge that had to take the fallback port.
+// FallbackPortHint explains a bridge that had to take the fallback port.
 // Without it "make sure the extension is enabled in chrome://extensions"
 // sends people to the one place that has nothing wrong with it: the usual
 // cause is another program holding 9222 — commonly a Chrome or Chromium
@@ -42,7 +42,7 @@ type addrProvider interface {
 // handshake (with an HTTP 403) instead of refusing it, so the extension sits
 // on the wrong port. Returns "" when the bridge is on the expected port, or
 // when it can't say.
-func fallbackPortHint(bridge connChecker) string {
+func FallbackPortHint(bridge ConnChecker) string {
 	p, ok := bridge.(addrProvider)
 	if !ok {
 		return ""
@@ -78,7 +78,7 @@ var openURLInBrowser = clicore.OpenURLInBrowser
 // port and can mint a nonce (see PairingURL). Failures are non-fatal —
 // falling back to the popup's manual "Pairing token" field always works —
 // so this only logs, never returns an error.
-func tryOpenPairingPage(bridge connChecker, opened *bool) {
+func tryOpenPairingPage(bridge ConnChecker, opened *bool) {
 	if *opened {
 		return
 	}
@@ -109,17 +109,30 @@ func getExtensionDir() string     { return browserdetect.ExtensionDir() }
 // scan couldn't tell (e.g. a profile directory is unreadable — see
 // browserdetect.ExtensionInstalled), this returns true so the caller doesn't
 // block on a claim it can't back up; the real answer is whichever way
-// ensureExtensionConnected's own connect-and-wait below actually goes.
+// EnsureConnected's own connect-and-wait below actually goes.
 func isExtensionInstalled() bool {
 	found, checked := browserdetect.ExtensionInstalled()
 	return found || !checked
 }
 
-// ensureExtensionConnected returns once the extension bridge is connected.
+// Hints are what EnsureConnected appends to a bridge that did not connect, from the CLI
+// around it.
+type Hints struct {
+	// Route explains, for a bridge narrowed to a profile, why no browser may run it ("" when
+	// none applies).
+	Route func(bridge ConnChecker) string
+	// RouteWaitPoll is how often EnsureConnected re-checks while it waits for a profile's
+	// browser.
+	RouteWaitPoll time.Duration
+	// Lifetime explains a bridge that lives only as long as this command ("" when none applies).
+	Lifetime func(bridge ConnChecker) string
+}
+
+// EnsureConnected returns once the extension bridge is connected.
 // If the extension is not installed, it returns an immediate error without launching Chrome.
 // If Chrome is already running, it waits for the extension connection without spawning extra instances.
 // If Chrome is not running, it launches Chrome once and waits up to timeout for the extension to connect.
-func ensureExtensionConnected(bridge connChecker, timeout time.Duration) error {
+func EnsureConnected(bridge ConnChecker, timeout time.Duration, h Hints) error {
 	if bridge.IsConnected() {
 		return nil
 	}
@@ -129,15 +142,15 @@ func ensureExtensionConnected(bridge connChecker, timeout time.Duration) error {
 	// neither check below applies, and launching another browser would not
 	// pick the right one. Wait for this profile's browser (its service
 	// worker may be asleep), then say how to bind one.
-	if hint := routeHint(bridge); hint != "" {
+	if hint := h.Route(bridge); hint != "" {
 		deadline := time.Now().Add(timeout)
 		for !bridge.IsConnected() && time.Now().Before(deadline) {
-			time.Sleep(routeWaitPoll)
+			time.Sleep(h.RouteWaitPoll)
 		}
 		if bridge.IsConnected() {
 			return nil
 		}
-		return fmt.Errorf("no browser for this profile connected within %s%s", timeout, routeHint(bridge))
+		return fmt.Errorf("no browser for this profile connected within %s%s", timeout, h.Route(bridge))
 	}
 
 	// 1. Check if the extension is installed
@@ -162,7 +175,7 @@ func ensureExtensionConnected(bridge connChecker, timeout time.Duration) error {
 			time.Sleep(500 * time.Millisecond)
 		}
 		if !bridge.IsConnected() {
-			return fmt.Errorf("Chrome is running, but the MonoAgent extension did not connect within %s — make sure the extension is enabled in chrome://extensions and reload it if necessary%s%s%s", timeout, fallbackPortHint(bridge), bridgeLifetimeHint(bridge), routeHint(bridge))
+			return fmt.Errorf("Chrome is running, but the MonoAgent extension did not connect within %s — make sure the extension is enabled in chrome://extensions and reload it if necessary%s%s%s", timeout, FallbackPortHint(bridge), h.Lifetime(bridge), h.Route(bridge))
 		}
 		return nil
 	}
@@ -187,7 +200,7 @@ func ensureExtensionConnected(bridge connChecker, timeout time.Duration) error {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if !bridge.IsConnected() {
-		return fmt.Errorf("Chrome was opened, but the MonoAgent extension did not connect within %s — make sure it is enabled in chrome://extensions and reload it if necessary%s%s%s", timeout, fallbackPortHint(bridge), bridgeLifetimeHint(bridge), routeHint(bridge))
+		return fmt.Errorf("Chrome was opened, but the MonoAgent extension did not connect within %s — make sure it is enabled in chrome://extensions and reload it if necessary%s%s%s", timeout, FallbackPortHint(bridge), h.Lifetime(bridge), h.Route(bridge))
 	}
 	return nil
 }

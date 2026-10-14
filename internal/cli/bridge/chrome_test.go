@@ -1,11 +1,17 @@
-package main
+package bridge
 
 import (
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/extension"
 )
+
+// noHints is a CLI around EnsureConnected with nothing to add.
+var noHints = Hints{Route: func(ConnChecker) string { return "" }, RouteWaitPoll: 5 * time.Millisecond,
+	Lifetime: func(ConnChecker) string { return "" }}
 
 type mockBridge struct {
 	connected bool
@@ -27,7 +33,7 @@ func TestFindLocalChromePath(t *testing.T) {
 
 func TestEnsureExtensionConnected_AlreadyConnected(t *testing.T) {
 	bridge := &mockBridge{connected: true}
-	err := ensureExtensionConnected(bridge, 100*time.Millisecond)
+	err := EnsureConnected(bridge, 100*time.Millisecond, noHints)
 	if err != nil {
 		t.Errorf("expected nil error when bridge is already connected, got: %v", err)
 	}
@@ -43,7 +49,7 @@ func TestEnsureExtensionConnected_NotInstalled(t *testing.T) {
 	t.Setenv("USERPROFILE", emptyUserDataDir)
 
 	bridge := &mockBridge{connected: false}
-	err := ensureExtensionConnected(bridge, 100*time.Millisecond)
+	err := EnsureConnected(bridge, 100*time.Millisecond, noHints)
 	if err == nil {
 		t.Fatal("expected error when extension is not installed, got nil")
 	}
@@ -53,7 +59,7 @@ func TestEnsureExtensionConnected_NotInstalled(t *testing.T) {
 	}
 }
 
-// fakePairingBridge implements both connChecker and pairingURLProvider so
+// fakePairingBridge implements both ConnChecker and pairingURLProvider so
 // tryOpenPairingPage's retry/give-up logic can be exercised without a real
 // extension.Server.
 type fakePairingBridge struct {
@@ -149,7 +155,7 @@ func (a *addrBridge) Addr() (string, bool) { return a.addr, a.bound }
 // refusal — never turns up. "Enable it in chrome://extensions" is then advice
 // about the one thing that isn't broken, so the failure has to name the port.
 func TestFallbackPortHint(t *testing.T) {
-	hint := fallbackPortHint(&addrBridge{addr: "127.0.0.1:9323", bound: true})
+	hint := FallbackPortHint(&addrBridge{addr: "127.0.0.1:9323", bound: true})
 	for _, want := range []string{"127.0.0.1:9323", "9222", "--remote-debugging-port", "ws://127.0.0.1:9323/monoagent"} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("hint %q missing %q", hint, want)
@@ -158,13 +164,29 @@ func TestFallbackPortHint(t *testing.T) {
 
 	// Nothing to explain when the bridge got the port everyone expects,
 	// before it has bound at all, or for a relay bridge with no address.
-	if got := fallbackPortHint(&addrBridge{addr: "127.0.0.1:9222", bound: true}); got != "" {
+	if got := FallbackPortHint(&addrBridge{addr: "127.0.0.1:9222", bound: true}); got != "" {
 		t.Fatalf("default port should produce no hint, got %q", got)
 	}
-	if got := fallbackPortHint(&addrBridge{addr: "", bound: false}); got != "" {
+	if got := FallbackPortHint(&addrBridge{addr: "", bound: false}); got != "" {
 		t.Fatalf("unbound bridge should produce no hint, got %q", got)
 	}
-	if got := fallbackPortHint(&mockBridge{}); got != "" {
+	if got := FallbackPortHint(&mockBridge{}); got != "" {
 		t.Fatalf("relay bridge should produce no hint, got %q", got)
+	}
+}
+
+// TestFallbackPortHint_SilentOnAnExplicitPort: the "another program holds
+// 9222" note is only true when the server fell back on its own. Someone
+// who set the port deliberately is not looking at a conflict.
+func TestFallbackPortHint_SilentOnAnExplicitPort(t *testing.T) {
+	bridge := &addrBridge{addr: "127.0.0.1:9400", bound: true}
+
+	t.Setenv(extension.ExtensionPortEnv, "")
+	if got := FallbackPortHint(bridge); got == "" {
+		t.Error("no note on a non-default port that nobody asked for")
+	}
+	t.Setenv(extension.ExtensionPortEnv, "9400")
+	if got := FallbackPortHint(bridge); got != "" {
+		t.Errorf("blamed another program for a port the operator chose:\n%s", got)
 	}
 }

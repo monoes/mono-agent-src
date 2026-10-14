@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/account"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/librarycli"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -49,6 +50,9 @@ func printLib(cfg *globalConfig, cmd *cobra.Command, v any, human func(w io.Writ
 	human(cmd.OutOrStdout())
 	return nil
 }
+
+// openURLInBrowser opens url in the system's default browser; a var, so tests can stub it out.
+var openURLInBrowser = clicore.OpenURLInBrowser
 
 // openLoginURL opens the authorize URL in the default browser. Windows'
 // `start` would split the URL at its '&'s, so it goes through

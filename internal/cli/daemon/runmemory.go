@@ -1,4 +1,4 @@
-package main
+package daemon
 
 // Workflow-run memory (#38): feeds workflow outcomes into the profile
 // knowledge graph (internal/monomind RunMemory). Inside `monoagentcli daemon`
@@ -17,16 +17,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/jevcli"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
-
-func init() {
-	cobra.OnInitialize(startRunMemoryForDaemon)
-}
 
 const (
 	// runMemoryFirstSweep lets the daemon finish start-up (migrations,
@@ -37,20 +33,25 @@ const (
 
 var runMemoryOnce sync.Once
 
-// startRunMemoryForDaemon starts the sweeper when this process is
-// `monoagentcli daemon` (not its install/uninstall/restart subcommands). It
-// opens its own handle on the database the daemon uses and lives as long as
-// the process.
-func startRunMemoryForDaemon() {
+// runMemoryStore opens the workflow store the run memory reads definitions from (the CLI's
+// openWorkflowStore), set by StartRunMemory.
+var runMemoryStore func(*storage.Database) *workflow.HybridWorkflowStore
+
+// StartRunMemory starts the sweeper when args (the process's arguments without its name) run
+// `monoagentcli daemon` (not its install/uninstall/restart subcommands). It opens its own
+// handle on the database the daemon uses and lives as long as the process. openStore opens
+// the workflow store. The CLI calls it once cobra has initialized.
+func StartRunMemory(args []string, openStore func(*storage.Database) *workflow.HybridWorkflowStore) {
 	runMemoryOnce.Do(func() {
-		dbPath, ok := daemonInvocation(os.Args[1:])
+		dbPath, ok := daemonInvocation(args)
 		if !ok {
 			return
 		}
+		runMemoryStore = openStore
 		// Live updates from the daemon's engine; the sweeper catches up on
 		// runs finished by other processes (one-shot `workflow run`).
 		workflow.OnExecutionFinished = runMemoryExecutionFinished
-		go runMemorySweeper(context.Background(), expandPath(dbPath))
+		go runMemorySweeper(context.Background(), clicore.ExpandPath(dbPath))
 	})
 }
 
@@ -105,9 +106,9 @@ func runMemoryFor(db *sql.DB) *monomind.RunMemory {
 	}
 	m := &monomind.RunMemory{
 		DB:     db,
-		Source: newRunMemorySource(db, openWorkflowStore(&storage.Database{DB: db})),
+		Source: newRunMemorySource(db, runMemoryStore(&storage.Database{DB: db})),
 		// The same redaction the CLI applies to node errors it sends to Jev.
-		Redact: redactRetryError,
+		Redact: jevcli.RedactRetryError,
 	}
 	actual, _ := runMemories.LoadOrStore(db, m)
 	return actual.(*monomind.RunMemory)

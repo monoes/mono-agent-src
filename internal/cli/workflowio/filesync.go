@@ -1,4 +1,4 @@
-package main
+package workflowio
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// syncMarkerName sits next to the file store directory (never inside it:
+// SyncMarkerName sits next to the file store directory (never inside it:
 // every *.json there is read as a workflow).
-const syncMarkerName = "workflows-sqlite-sync.json"
+const SyncMarkerName = "workflows-sqlite-sync.json"
 
-// syncFileWorkflowsToSQL mirrors file-store workflows into SQLite (workflow
+// SyncFileWorkflowsToSQL mirrors file-store workflows into SQLite (workflow
 // row, nodes, connections) when their SQLite copy is missing or older than
 // the file. Readers that only look at SQLite — `workflow run --json` node
 // types, executions — then see what the editor saved. A marker records each
@@ -25,7 +25,7 @@ const syncMarkerName = "workflows-sqlite-sync.json"
 // per file. A workflow whose node or connection ids are owned by another
 // workflow in SQLite is skipped (an upsert would move them) and retried on
 // the next call. Returns the ids synced.
-func syncFileWorkflowsToSQL(ctx context.Context, db *sql.DB, dir string) ([]string, error) {
+func SyncFileWorkflowsToSQL(ctx context.Context, db *sql.DB, dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -33,7 +33,7 @@ func syncFileWorkflowsToSQL(ctx context.Context, db *sql.DB, dir string) ([]stri
 		}
 		return nil, err
 	}
-	markerPath := filepath.Join(filepath.Dir(dir), syncMarkerName)
+	markerPath := filepath.Join(filepath.Dir(dir), SyncMarkerName)
 	marker := map[string]string{}
 	if b, err := os.ReadFile(markerPath); err == nil {
 		_ = json.Unmarshal(b, &marker)

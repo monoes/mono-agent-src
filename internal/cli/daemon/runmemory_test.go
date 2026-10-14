@@ -1,4 +1,4 @@
-package main
+package daemon
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/jevcli"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -64,7 +65,7 @@ func TestRunMemorySweepOverStore(t *testing.T) {
 	m := &monomind.RunMemory{
 		DB:     db.DB,
 		Source: newRunMemorySource(db.DB, store),
-		Redact: redactRetryError,
+		Redact: jevcli.RedactRetryError,
 		Sync: func(_ context.Context, _ *sql.DB, pid string, n []monomind.KGNode, e []monomind.KGEdge, _ string) error {
 			calls = append(calls, memSyncCall{pid, n, e})
 			return nil
