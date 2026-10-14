@@ -37,5 +37,66 @@
       }
     }
   ],
-  "operations": []
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "firstOpen",
+        "label": "First open only",
+        "type": "boolean",
+        "default": false
+      },
+      {
+        "key": "includeContent",
+        "label": "Include content",
+        "type": "boolean",
+        "default": false
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "Url": "{{ hook.url }}",
+          "Triggers": {
+            "Open": {
+              "Enabled": "{{ p.events | join:',' | matches:'(^|,)open(,|$)' | default:false }}",
+              "PostFirstOpenOnly": "{{ p.firstOpen | bool }}"
+            },
+            "Click": {
+              "Enabled": "{{ p.events | join:',' | matches:'(^|,)click(,|$)' | default:false }}"
+            },
+            "Delivery": {
+              "Enabled": "{{ p.events | join:',' | matches:'(^|,)delivery(,|$)' | default:false }}"
+            },
+            "Bounce": {
+              "Enabled": "{{ p.events | join:',' | matches:'(^|,)bounce(,|$)' | default:false }}",
+              "IncludeContent": "{{ p.includeContent | bool }}"
+            },
+            "SpamComplaint": {
+              "Enabled": "{{ p.events | join:',' | matches:'(^|,)spamComplaint(,|$)' | default:false }}",
+              "IncludeContent": "{{ p.includeContent | bool }}"
+            },
+            "SubscriptionChange": {
+              "Enabled": "{{ p.events | join:',' | matches:'(^|,)subscriptionChange(,|$)' | default:false }}"
+            }
+          }
+        }
+      }
+    ],
+    "id": "{{ res.ID }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

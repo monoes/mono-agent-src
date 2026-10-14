@@ -1,0 +1,53 @@
+{
+  "credential": {
+    "api_key": "abc-us6"
+  },
+  "params": {
+    "list": "L1",
+    "events": [
+      "subscribe"
+    ],
+    "sources": [
+      "user",
+      "admin"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": "mw1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/3.0/lists/L1/webhooks",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "events": {
+          "subscribe": true
+        },
+        "sources": {
+          "user": true,
+          "admin": true
+        }
+      }
+    }
+  ],
+  "hook_id": "mw1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/3.0/lists/L1/webhooks/mw1"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "mw1"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/3.0/lists/L1/webhooks/mw1"
+    }
+  }
+}

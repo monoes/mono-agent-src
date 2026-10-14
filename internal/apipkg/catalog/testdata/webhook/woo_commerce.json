@@ -1,0 +1,42 @@
+{
+  "credential": {
+    "url": "https://shop.test",
+    "consumer_key": "ck",
+    "consumer_secret": "cs"
+  },
+  "params": {
+    "event": "order.created"
+  },
+  "create_responses": [
+    {
+      "id": 15
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/wp-json/wc/v3/webhooks",
+      "body": {
+        "delivery_url": "https://hooks.example.test/webhook/wh-path",
+        "topic": "order.created",
+        "secret": "test-secret"
+      }
+    }
+  ],
+  "hook_id": "15",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/wp-json/wc/v3/webhooks/15",
+      "query": {
+        "force": "true"
+      }
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-WC-Webhook-Signature": "H19jdkTt0bdVHJbmH87mtfSa7ud+merMEAWsvbbRGkY="
+    },
+    "body": "{\"id\":1}"
+  }
+}

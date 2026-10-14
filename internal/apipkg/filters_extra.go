@@ -149,3 +149,25 @@ func sealBox(v, arg any) (any, error) {
 	}
 	return base64.StdEncoding.EncodeToString(sealed), nil
 }
+
+// mapThrough replaces a value found in table ("from=to,from2=to2") by its
+// replacement; other values pass unchanged. A list is mapped element by
+// element (n8n trigger event names → the vendor's: Wise
+// "balanceCredit=balances#credit", Invoice Ninja "create_client=1").
+func mapThrough(v any, table string) any {
+	if l, ok := v.([]any); ok {
+		out := make([]any, len(l))
+		for i, el := range l {
+			out[i] = mapThrough(el, table)
+		}
+		return out
+	}
+	s := stringify(v)
+	for _, pair := range strings.Split(table, ",") {
+		from, to, ok := strings.Cut(pair, "=")
+		if ok && strings.TrimSpace(from) == s {
+			return strings.TrimSpace(to)
+		}
+	}
+	return v
+}

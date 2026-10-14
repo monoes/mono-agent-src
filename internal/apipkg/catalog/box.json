@@ -670,5 +670,56 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "targetType",
+        "label": "Target type",
+        "type": "select",
+        "required": true,
+        "options": [
+          "file",
+          "folder"
+        ]
+      },
+      {
+        "key": "targetId",
+        "label": "Target ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "address": "{{ hook.url }}",
+          "triggers": "{{ p.events }}",
+          "target": {
+            "id": "{{ p.targetId }}",
+            "type": "{{ p.targetType }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks/{{ hook.id }}"
+    }
+  }
 }

@@ -1,0 +1,27 @@
+{
+  "params": {
+    "eventId": "contact.add"
+  },
+  "create_responses": [
+    {
+      "key": 66
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/crm/rest/v1/hooks",
+      "body": {
+        "eventKey": "contact.add",
+        "hookUrl": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "66",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/crm/rest/v1/hooks/66"
+    }
+  ]
+}

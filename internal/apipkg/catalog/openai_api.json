@@ -1,0 +1,905 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "openai_api",
+  "node_type": "app.openai_api",
+  "title": "OpenAI API",
+  "description": "Images, speech, transcription, files, moderation, conversations and video through the OpenAI API with your own key",
+  "category": "app",
+  "docs_url": "https://platform.openai.com/docs/api-reference",
+  "n8n_types": [
+    "@n8n/n8n-nodes-langchain.openAi"
+  ],
+  "n8n_version_defaults": {
+    "<2.1": {
+      "legacyModeration": true
+    },
+    "<2.2": {
+      "legacyImageModel": true
+    },
+    "<2.3": {
+      "legacyEditModel": true
+    }
+  },
+  "base_url": "{{ cred.base_url | default:'https://api.openai.com/v1' }}",
+  "credentials": [
+    {
+      "platform": "openai",
+      "reuse_platform": "openai",
+      "name": "OpenAI",
+      "n8n_credential": "openAiApi",
+      "n8n_field_map": {
+        "apiKey": "api_key",
+        "url": "base_url",
+        "organizationId": "organization_id"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true
+        },
+        {
+          "key": "base_url",
+          "label": "Base URL",
+          "help": "Defaults to https://api.openai.com/v1"
+        },
+        {
+          "key": "organization_id",
+          "label": "Organization ID"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.api_key }}",
+          "OpenAI-Organization": "{{ cred.organization_id }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "text",
+      "label": "Text",
+      "description": "Moderation; text answers run on the local agent (agent.ask)"
+    },
+    {
+      "value": "image",
+      "label": "Image"
+    },
+    {
+      "value": "audio",
+      "label": "Audio"
+    },
+    {
+      "value": "file",
+      "label": "File"
+    },
+    {
+      "value": "conversation",
+      "label": "Conversation"
+    },
+    {
+      "value": "video",
+      "label": "Video"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "text",
+      "operation": "classify",
+      "title": "Classify text for policy violations",
+      "description": "OpenAI moderation endpoint; the first result is the item",
+      "method": "POST",
+      "path": "/moderations",
+      "fields": [
+        {
+          "key": "input",
+          "label": "Text",
+          "type": "textarea",
+          "required": true,
+          "default": ""
+        },
+        {
+          "key": "simplify",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": false,
+          "help": "Only return whether the text was flagged."
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "useStableModel"
+          ],
+          "help": "useStableModel: text-moderation-stable instead of -latest (legacy models only)."
+        },
+        {
+          "key": "legacyModeration",
+          "label": "Legacy moderation models",
+          "type": "boolean",
+          "default": false,
+          "help": "Use text-moderation-* instead of omni-moderation-latest (n8n node versions before 2.1)."
+        }
+      ],
+      "body": {
+        "input": "{{ p.input }}",
+        "model": "{{ p.legacyModeration | then:(p.options.useStableModel | then:'text-moderation-stable' | default:'text-moderation-latest') | default:'omni-moderation-latest' }}"
+      },
+      "output": {
+        "path": "results.0",
+        "to_when": "{{ p.simplify }}",
+        "to": {
+          "!flagged": "{{ el.flagged }}"
+        }
+      }
+    },
+    {
+      "resource": "image",
+      "operation": "generate",
+      "title": "Generate an image",
+      "method": "POST",
+      "path": "/images/generations",
+      "fields": [
+        {
+          "key": "modelId",
+          "label": "Model",
+          "type": "text",
+          "default": "gpt-image-1-mini",
+          "help": "Image model (gpt-image-1, dall-e-3, …). Plain id or n8n model locator."
+        },
+        {
+          "key": "model",
+          "label": "Model (before n8n 2.2)",
+          "type": "text",
+          "default": "",
+          "help": "Used instead of Model when Legacy model is on; empty means dall-e-3."
+        },
+        {
+          "key": "prompt",
+          "label": "Prompt",
+          "type": "textarea",
+          "required": true,
+          "default": ""
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "n",
+            "dalleQuality",
+            "quality",
+            "size",
+            "style",
+            "returnImageUrls",
+            "binaryPropertyOutput"
+          ],
+          "help": "returnImageUrls: answer with URLs (DALL·E only); binaryPropertyOutput: output binary property (default data)."
+        },
+        {
+          "key": "legacyImageModel",
+          "label": "Legacy model",
+          "type": "boolean",
+          "default": false,
+          "help": "Read the Model (before n8n 2.2) field."
+        }
+      ],
+      "body": {
+        "prompt": "{{ p.prompt }}",
+        "model": "{{ (p.legacyImageModel | then:(p.model | default:'dall-e-3') | default:(p.modelId | rl | default:'gpt-image-1-mini')) }}",
+        "response_format": "{{ (p.legacyImageModel | then:(p.model | default:'dall-e-3') | default:(p.modelId | rl | default:'gpt-image-1-mini')) | matches:'^gpt-image' | not | then:(p.options.returnImageUrls | then:'url' | default:'b64_json') }}",
+        "n": "{{ p.options.n }}",
+        "quality": "{{ p.options.dalleQuality | default:p.options.quality }}",
+        "size": "{{ p.options.size }}",
+        "style": "{{ p.options.style }}"
+      },
+      "binary": {
+        "download_when": "{{ p.options.returnImageUrls | not | default:((p.legacyImageModel | then:(p.model | default:'dall-e-3') | default:(p.modelId | rl | default:'gpt-image-1-mini')) | matches:'^gpt-image') }}",
+        "download_base64": "{{ el.b64_json }}",
+        "download_each": "data",
+        "property": "{{ p.options.binaryPropertyOutput | default:'data' }}",
+        "file_name": "data.png",
+        "mime_type": "image/png"
+      },
+      "output": {
+        "path": "data"
+      }
+    },
+    {
+      "resource": "image",
+      "operation": "analyze",
+      "title": "Analyze images",
+      "description": "Responses API with the images as input; with Simplify each output entry is an item",
+      "method": "POST",
+      "path": "/responses",
+      "fields": [
+        {
+          "key": "modelId",
+          "label": "Model",
+          "type": "text",
+          "default": "gpt-4o",
+          "help": "Vision-capable model. Plain id or n8n model locator."
+        },
+        {
+          "key": "text",
+          "label": "Question",
+          "type": "textarea",
+          "required": true,
+          "default": "What's in this image?"
+        },
+        {
+          "key": "inputType",
+          "label": "Input",
+          "type": "select",
+          "default": "url",
+          "options": [
+            "url",
+            "base64"
+          ]
+        },
+        {
+          "key": "imageUrls",
+          "label": "Image URLs",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated image URLs."
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary properties",
+          "type": "text",
+          "default": "data",
+          "help": "Comma-separated binary properties holding the images."
+        },
+        {
+          "key": "simplify",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "detail",
+            "maxTokens"
+          ]
+        }
+      ],
+      "body": {
+        "model": "{{ p.modelId | rl }}",
+        "input": [
+          {
+            "role": "user",
+            "content": {
+              "$concat": [
+                [
+                  {
+                    "type": "input_text",
+                    "text": "{{ p.text }}"
+                  }
+                ],
+                {
+                  "$map": "{{ p.inputType | ne:'base64' | then:(p.imageUrls | split) }}",
+                  "$to": {
+                    "type": "input_image",
+                    "detail": "{{ p.options.detail | default:'auto' }}",
+                    "image_url": "{{ el }}"
+                  }
+                },
+                {
+                  "$map": "{{ bin.files }}",
+                  "$to": {
+                    "type": "input_image",
+                    "detail": "{{ p.options.detail | default:'auto' }}",
+                    "image_url": "data:{{ el.mime_type }};base64,{{ el.base64 }}"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "max_output_tokens": "{{ p.options.maxTokens | default:300 }}"
+      },
+      "binary": {
+        "properties": "{{ p.inputType | eq:'base64' | then:p.binaryPropertyName }}"
+      },
+      "output": {
+        "path": "{{ p.simplify | ne:'false' | then:'output' }}"
+      }
+    },
+    {
+      "resource": "image",
+      "operation": "edit",
+      "title": "Edit an image",
+      "method": "POST",
+      "path": "/images/edits",
+      "body_type": "multipart",
+      "fields": [
+        {
+          "key": "modelId",
+          "label": "Model",
+          "type": "text",
+          "default": "gpt-image-1",
+          "help": "gpt-image-1 or dall-e-2. Plain id or n8n model locator."
+        },
+        {
+          "key": "model",
+          "label": "Model (before n8n 2.3)",
+          "type": "text",
+          "default": "",
+          "help": "Used instead of Model when Legacy model is on; empty means gpt-image-1."
+        },
+        {
+          "key": "prompt",
+          "label": "Prompt",
+          "type": "textarea",
+          "required": true,
+          "default": ""
+        },
+        {
+          "key": "images",
+          "label": "Images (GPT Image)",
+          "type": "collection",
+          "default": {
+            "values": [
+              {
+                "binaryPropertyName": "data"
+              }
+            ]
+          },
+          "options": [
+            "values"
+          ],
+          "help": "values: [{binaryPropertyName}] — up to 16 input images."
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Image binary property (DALL·E)",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "n",
+          "label": "Number of images",
+          "type": "number",
+          "default": 1,
+          "min": 1,
+          "max": 10
+        },
+        {
+          "key": "size",
+          "label": "Size",
+          "type": "select",
+          "default": "1024x1024",
+          "options": [
+            "256x256",
+            "512x512",
+            "1024x1024",
+            "1024x1536",
+            "1536x1024",
+            "auto"
+          ]
+        },
+        {
+          "key": "quality",
+          "label": "Quality (GPT Image)",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            "auto",
+            "high",
+            "medium",
+            "low",
+            "standard"
+          ]
+        },
+        {
+          "key": "responseFormat",
+          "label": "Response format (DALL·E)",
+          "type": "select",
+          "default": "url",
+          "options": [
+            "url",
+            "b64_json"
+          ]
+        },
+        {
+          "key": "outputFormat",
+          "label": "Output format (GPT Image)",
+          "type": "select",
+          "default": "png",
+          "options": [
+            "png",
+            "jpeg",
+            "webp"
+          ]
+        },
+        {
+          "key": "outputCompression",
+          "label": "Output compression (jpeg/webp)",
+          "type": "number",
+          "default": 100,
+          "min": 0,
+          "max": 100
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "user",
+            "background",
+            "inputFidelity",
+            "imageMask"
+          ],
+          "help": "imageMask: binary property of a PNG mask."
+        },
+        {
+          "key": "legacyEditModel",
+          "label": "Legacy model",
+          "type": "boolean",
+          "default": false,
+          "help": "Read the Model (before n8n 2.3) field."
+        }
+      ],
+      "body": {
+        "prompt": "{{ p.prompt }}",
+        "model": "{{ (p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) }}",
+        "n": "{{ p.n }}",
+        "size": "{{ p.size }}",
+        "response_format": "{{ (p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'dall-e' | then:(p.responseFormat | default:'url') }}",
+        "user": "{{ p.options.user }}",
+        "background": "{{ ((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:p.options.background }}",
+        "input_fidelity": "{{ ((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:p.options.inputFidelity }}",
+        "output_format": "{{ ((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:p.outputFormat }}",
+        "output_compression": "{{ ((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:(p.outputFormat | in:'jpeg,webp') | then:p.outputCompression }}",
+        "quality": "{{ ((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:(p.quality | default:'auto') }}"
+      },
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "properties": "{{ p.options.imageMask }},{{ ((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:(p.images.values | pluck:'binaryPropertyName' | join:',') | default:p.binaryPropertyName }}",
+        "multipart_field": "{{ el.index | eq:'0' | then:(p.options.imageMask | then:'mask') | default:(((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:'image[]' | default:'image') }}",
+        "download_when": "{{ ((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'dall-e' | then:(p.responseFormat | default:'url' | eq:'url')) | not }}",
+        "download_base64": "{{ el.b64_json }}",
+        "download_each": "data",
+        "file_name": "{{ el.b64_json | then:'data.' }}{{ el.b64_json | then:(((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:(p.outputFormat | default:'png') | default:'png') }}",
+        "mime_type": "{{ el.b64_json | then:'image/' }}{{ el.b64_json | then:(((p.legacyEditModel | then:(p.model | default:'gpt-image-1') | default:(p.modelId | rl | default:'gpt-image-1')) | matches:'gpt-image') | then:(p.outputFormat | default:'png') | default:'png') }}"
+      },
+      "output": {
+        "path": "data"
+      }
+    },
+    {
+      "resource": "audio",
+      "operation": "generate",
+      "title": "Generate speech",
+      "method": "POST",
+      "path": "/audio/speech",
+      "fields": [
+        {
+          "key": "model",
+          "label": "Model",
+          "type": "select",
+          "default": "tts-1",
+          "options": [
+            "tts-1",
+            "tts-1-hd",
+            "gpt-4o-mini-tts"
+          ]
+        },
+        {
+          "key": "input",
+          "label": "Text",
+          "type": "textarea",
+          "required": true,
+          "default": ""
+        },
+        {
+          "key": "voice",
+          "label": "Voice",
+          "type": "select",
+          "default": "alloy",
+          "options": [
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "nova",
+            "onyx",
+            "sage",
+            "shimmer"
+          ]
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "response_format",
+            "speed",
+            "binaryPropertyOutput"
+          ],
+          "help": "response_format: mp3 (default), opus, aac, flac; speed 0.25–4; binaryPropertyOutput: output binary property (default data)."
+        }
+      ],
+      "body": {
+        "model": "{{ p.model }}",
+        "input": "{{ p.input }}",
+        "voice": "{{ p.voice }}",
+        "response_format": "{{ p.options.response_format | default:'mp3' }}",
+        "speed": "{{ p.options.speed | default:1 }}"
+      },
+      "binary": {
+        "download": true,
+        "property": "{{ p.options.binaryPropertyOutput | default:'data' }}",
+        "file_name": "audio.{{ p.options.response_format | default:'mp3' }}",
+        "mime_type": "audio/{{ p.options.response_format | default:'mp3' }}"
+      }
+    },
+    {
+      "resource": "audio",
+      "operation": "transcribe",
+      "title": "Transcribe a recording",
+      "method": "POST",
+      "path": "/audio/transcriptions",
+      "body_type": "multipart",
+      "fields": [
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary property",
+          "type": "text",
+          "default": "data",
+          "help": "Item binary property holding the file."
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "language",
+            "temperature"
+          ]
+        }
+      ],
+      "body": {
+        "model": "whisper-1",
+        "temperature": "{{ p.options.temperature | ne:'0' | then:p.options.temperature }}",
+        "language": "{{ p.options.language }}"
+      },
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "multipart_field": "file"
+      }
+    },
+    {
+      "resource": "audio",
+      "operation": "translate",
+      "title": "Translate a recording into English",
+      "method": "POST",
+      "path": "/audio/translations",
+      "body_type": "multipart",
+      "fields": [
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary property",
+          "type": "text",
+          "default": "data",
+          "help": "Item binary property holding the file."
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "temperature"
+          ]
+        }
+      ],
+      "body": {
+        "model": "whisper-1",
+        "temperature": "{{ p.options.temperature | ne:'0' | then:p.options.temperature }}"
+      },
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "multipart_field": "file"
+      }
+    },
+    {
+      "resource": "file",
+      "operation": "upload",
+      "title": "Upload a file",
+      "method": "POST",
+      "path": "/files",
+      "body_type": "multipart",
+      "fields": [
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary property",
+          "type": "text",
+          "default": "data",
+          "help": "Item binary property holding the file."
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "purpose"
+          ],
+          "help": "purpose: user_data (default), assistants, fine-tune, vision."
+        }
+      ],
+      "body": {
+        "purpose": "{{ p.options.purpose | default:'user_data' }}"
+      },
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "multipart_field": "file"
+      }
+    },
+    {
+      "resource": "file",
+      "operation": "deleteFile",
+      "title": "Delete a file",
+      "method": "DELETE",
+      "path": "/files/{{ p.fileId | rl }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true,
+          "default": ""
+        }
+      ]
+    },
+    {
+      "resource": "file",
+      "operation": "list",
+      "title": "List files",
+      "method": "GET",
+      "path": "/files",
+      "fields": [
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "purpose"
+          ],
+          "help": "purpose: any (default), assistants, fine-tune, vision, user_data."
+        }
+      ],
+      "query": {
+        "purpose": "{{ p.options.purpose | ne:'any' | then:p.options.purpose }}"
+      },
+      "output": {
+        "path": "data"
+      }
+    },
+    {
+      "resource": "conversation",
+      "operation": "create",
+      "title": "Create a conversation",
+      "method": "POST",
+      "path": "/conversations",
+      "fields": [
+        {
+          "key": "messages",
+          "label": "Messages",
+          "type": "collection",
+          "default": {
+            "values": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          "options": [
+            "values"
+          ],
+          "help": "values: [{role: user|assistant|system, content}]"
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "metadata"
+          ],
+          "help": "metadata: JSON object of up to 16 key/value pairs."
+        }
+      ],
+      "body": {
+        "items": {
+          "$map": "{{ p.messages.values }}",
+          "$to": {
+            "role": "{{ el.role | default:'user' }}",
+            "content": {
+              "$concat": [
+                {
+                  "$when": "{{ el.role | ne:'assistant' }}",
+                  "type": "input_text",
+                  "!text": "{{ el.content }}"
+                },
+                {
+                  "$when": "{{ el.role | eq:'assistant' }}",
+                  "type": "output_text",
+                  "!text": "{{ el.content }}",
+                  "!annotations": []
+                }
+              ]
+            }
+          }
+        },
+        "metadata": "{{ p.options.metadata | fromjson }}"
+      }
+    },
+    {
+      "resource": "conversation",
+      "operation": "get",
+      "title": "Get a conversation",
+      "method": "GET",
+      "path": "/conversations/{{ p.conversationId }}",
+      "fields": [
+        {
+          "key": "conversationId",
+          "label": "Conversation ID",
+          "type": "text",
+          "required": true,
+          "default": ""
+        }
+      ]
+    },
+    {
+      "resource": "conversation",
+      "operation": "remove",
+      "title": "Delete a conversation",
+      "method": "DELETE",
+      "path": "/conversations/{{ p.conversationId }}",
+      "fields": [
+        {
+          "key": "conversationId",
+          "label": "Conversation ID",
+          "type": "text",
+          "required": true,
+          "default": ""
+        }
+      ]
+    },
+    {
+      "resource": "conversation",
+      "operation": "update",
+      "title": "Update a conversation's metadata",
+      "method": "POST",
+      "path": "/conversations/{{ p.conversationId }}",
+      "fields": [
+        {
+          "key": "conversationId",
+          "label": "Conversation ID",
+          "type": "text",
+          "required": true,
+          "default": ""
+        },
+        {
+          "key": "metadata",
+          "label": "Metadata",
+          "type": "json",
+          "required": true,
+          "default": "{}",
+          "help": "JSON object of up to 16 key/value pairs."
+        }
+      ],
+      "body": {
+        "!metadata": "{{ p.metadata | fromjson }}"
+      }
+    },
+    {
+      "resource": "video",
+      "operation": "generate",
+      "title": "Generate a video",
+      "description": "Creates a Sora video job, waits until it completes and downloads the video",
+      "method": "POST",
+      "path": "/videos",
+      "body_type": "multipart",
+      "fields": [
+        {
+          "key": "modelId",
+          "label": "Model",
+          "type": "text",
+          "default": "",
+          "help": "Video model (sora-2, sora-2-pro). Plain id or n8n model locator."
+        },
+        {
+          "key": "prompt",
+          "label": "Prompt",
+          "type": "textarea",
+          "required": true,
+          "default": "A video of a cat playing with a ball"
+        },
+        {
+          "key": "seconds",
+          "label": "Seconds",
+          "type": "number",
+          "required": true,
+          "default": 4
+        },
+        {
+          "key": "size",
+          "label": "Size",
+          "type": "select",
+          "default": "1280x720",
+          "options": [
+            "720x1280",
+            "1280x720",
+            "1024x1792",
+            "1792x1024"
+          ]
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "binaryPropertyNameReference",
+            "waitTime",
+            "fileName"
+          ],
+          "help": "binaryPropertyNameReference: binary property of a reference image; waitTime: seconds to wait (default 300); fileName: output file name."
+        }
+      ],
+      "body": {
+        "model": "{{ p.modelId | rl }}",
+        "prompt": "{{ p.prompt }}",
+        "seconds": "{{ p.seconds }}",
+        "size": "{{ p.size }}"
+      },
+      "binary": {
+        "upload_field": "options.binaryPropertyNameReference",
+        "upload_when": "{{ p.options.binaryPropertyNameReference }}",
+        "multipart_field": "input_reference",
+        "fallback_body_type": "multipart"
+      },
+      "error_when": "{{ res.error }}",
+      "error_message": "{{ res.error.message | default:'the video job failed' }}",
+      "poll": {
+        "method": "GET",
+        "path": "/videos/{{ main.id }}",
+        "until": "{{ res.status | eq:'completed' }}",
+        "interval_ms": 10000,
+        "max_wait_seconds": "{{ p.options.waitTime | default:300 }}",
+        "error_when": "{{ res.error }}",
+        "error_message": "{{ res.error.message | default:'the video job failed' }}"
+      },
+      "output": {
+        "download": {
+          "method": "GET",
+          "path": "/videos/{{ el.id }}/content",
+          "property": "data",
+          "file_name": "{{ p.options.fileName | default:'data' }}"
+        }
+      }
+    }
+  ]
+}

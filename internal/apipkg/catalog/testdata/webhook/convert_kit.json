@@ -1,0 +1,34 @@
+{
+  "params": {
+    "event": "tagAdd",
+    "tagId": "31",
+    "formId": "ignored"
+  },
+  "create_responses": [
+    {
+      "rule": {
+        "id": 8
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v3/automations/hooks",
+      "body": {
+        "target_url": "https://hooks.example.test/webhook/wh-path",
+        "event": {
+          "name": "subscriber.tag_add",
+          "tag_id": "31"
+        }
+      }
+    }
+  ],
+  "hook_id": "8",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v3/automations/hooks/8"
+    }
+  ]
+}

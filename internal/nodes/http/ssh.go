@@ -15,7 +15,8 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// SSHNode runs a remote shell command over SSH.
+// SSHNode runs a remote shell command over SSH, or (resource "file")
+// uploads and downloads files over SFTP.
 // Type: "http.ssh"
 type SSHNode struct{}
 
@@ -37,9 +38,19 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 		return nil, fmt.Errorf("http.ssh: 'username' is required")
 	}
 
+	resource, _ := config["resource"].(string)
 	command, _ := config["command"].(string)
-	if command == "" {
-		return nil, fmt.Errorf("http.ssh: 'command' is required")
+	switch resource {
+	case "", "command":
+		if command == "" {
+			return nil, fmt.Errorf("http.ssh: 'command' is required")
+		}
+	case "file":
+		if err := checkSFTPConfig(config); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("http.ssh: unknown resource %q (want command or file)", resource)
 	}
 
 	timeoutSecs := 30
@@ -117,6 +128,10 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
 	defer client.Close()
+
+	if resource == "file" {
+		return sftpFiles(ctx, client, input, config)
+	}
 
 	session, err := client.NewSession()
 	if err != nil {

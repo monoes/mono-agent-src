@@ -382,5 +382,46 @@
         "ids": "{{ p.customerIds | split }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/reporting_webhooks",
+        "body": {
+          "name": "mono-agent webhook - {{ hook.url }}",
+          "endpoint": "{{ hook.url }}",
+          "events": {
+            "$map": "{{ p.events }}",
+            "$to": "{{ el | replace:'.','_' }}"
+          }
+        },
+        "base_url": "https://{{ cred.region | matches:'eu' | then:'api-eu.customer.io' | default:'api.customer.io' }}/v1",
+        "auth": false,
+        "headers": {
+          "Authorization": "Bearer {{ cred.app_api_key }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/reporting_webhooks/{{ hook.id }}",
+        "base_url": "https://{{ cred.region | matches:'eu' | then:'api-eu.customer.io' | default:'api.customer.io' }}/v1",
+        "auth": false,
+        "headers": {
+          "Authorization": "Bearer {{ cred.app_api_key }}"
+        }
+      }
+    ]
+  }
 }

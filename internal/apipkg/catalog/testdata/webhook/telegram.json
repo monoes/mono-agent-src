@@ -1,0 +1,57 @@
+{
+  "credential": {
+    "bot_token": "123:ABC"
+  },
+  "params": {
+    "updates": [
+      "message",
+      "callback_query"
+    ]
+  },
+  "create_responses": [
+    {
+      "ok": true
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/bot123:ABC/setWebhook",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "secret_token": "test-secret",
+        "drop_pending_updates": true,
+        "allowed_updates": [
+          "message",
+          "callback_query"
+        ]
+      }
+    }
+  ],
+  "hook_id": "123",
+  "expect_delete": [
+    {
+      "method": "POST",
+      "path": "/bot123:ABC/deleteWebhook"
+    }
+  ],
+  "check": {
+    "response": {
+      "ok": true,
+      "result": {
+        "url": "https://hooks.example.test/webhook/wh-path"
+      }
+    },
+    "exists": true,
+    "expect": {
+      "method": "POST",
+      "path": "/bot123:ABC/getWebhookInfo"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-Telegram-Bot-Api-Secret-Token": "test-secret"
+    },
+    "body": "{}"
+  }
+}

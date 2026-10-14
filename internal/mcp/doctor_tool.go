@@ -37,9 +37,9 @@ func doctorTool() tool {
 // status 1 (a required check failed) still has the report on stdout.
 func toolDoctor(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
 	var a struct {
-		Group     []string `json:"group"`
-		SkipGroup []string `json:"skip_group"`
-		Check     []string `json:"check"`
+		Group     stringList `json:"group"`
+		SkipGroup stringList `json:"skip_group"`
+		Check     stringList `json:"check"`
 	}
 	if err := decodeArgs(args, &a); err != nil {
 		return nil, err
@@ -82,4 +82,24 @@ func toolDoctor(ctx context.Context, s *Server, args json.RawMessage) (interface
 		return nil, fmt.Errorf("doctor failed: %w", runErr)
 	}
 	return nil, fmt.Errorf("doctor printed no report")
+}
+
+// stringList decodes a JSON array of strings or a single string, which models
+// often pass for a one-element list.
+type stringList []string
+
+func (l *stringList) UnmarshalJSON(b []byte) error {
+	var one string
+	if err := json.Unmarshal(b, &one); err == nil {
+		if one != "" {
+			*l = stringList{one}
+		}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(b, &many); err != nil {
+		return err
+	}
+	*l = many
+	return nil
 }

@@ -101,6 +101,13 @@ type AppMapper struct {
 	// or "operation" when there is no resource). A node selecting another
 	// one becomes a placeholder; nil skips the check.
 	Operations map[string]bool
+	// RegisterWith (webhook trigger types) is the app's webhook registrar:
+	// the imported trigger.webhook registers itself with it on activation.
+	// RegisterParams are the n8n trigger params copied into its
+	// register_config; RegisterRequired those it cannot do without.
+	RegisterWith     string
+	RegisterParams   []string
+	RegisterRequired []string
 }
 
 var (

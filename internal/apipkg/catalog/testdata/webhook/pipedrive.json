@@ -1,0 +1,32 @@
+{
+  "params": {
+    "action": "added",
+    "entity": "deal"
+  },
+  "create_responses": [
+    {
+      "success": true,
+      "data": {
+        "id": 71
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/webhooks",
+      "body": {
+        "event_action": "added",
+        "event_object": "deal",
+        "subscription_url": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "71",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/webhooks/71"
+    }
+  ]
+}

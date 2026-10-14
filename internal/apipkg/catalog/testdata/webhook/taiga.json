@@ -1,0 +1,73 @@
+{
+  "credential": {
+    "username": "u",
+    "password": "pw",
+    "url": ""
+  },
+  "params": {
+    "projectId": "7"
+  },
+  "create_responses": [
+    {
+      "auth_token": "tok"
+    },
+    {
+      "id": 31
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v1/auth",
+      "body": {
+        "type": "normal",
+        "username": "u",
+        "password": "pw"
+      },
+      "headers": {
+        "Authorization": ""
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks",
+      "body": {
+        "name": "mono-agent:https://hooks.example.test/webhook/wh-path",
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "key": "test-secret",
+        "project": "7"
+      },
+      "headers": {
+        "Authorization": "Bearer tok"
+      }
+    }
+  ],
+  "hook_id": "31",
+  "expect_delete": [
+    {
+      "method": "POST",
+      "path": "/api/v1/auth",
+      "body": {
+        "type": "normal",
+        "username": "u",
+        "password": "pw"
+      },
+      "headers": {
+        "Authorization": ""
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/webhooks/31",
+      "headers": {
+        "Authorization": ""
+      }
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Taiga-Webhook-Signature": "5f3e84ccaec37aefb18bd946d1160c413fa63b04"
+    },
+    "body": "{\"action\":\"create\",\"type\":\"issue\"}"
+  }
+}

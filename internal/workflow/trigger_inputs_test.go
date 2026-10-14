@@ -39,7 +39,7 @@ func TestTriggerInputsFindsWhatAWorkflowReads(t *testing.T) {
 		}},
 	})
 
-	fields := TriggerInputs(nodes, schemas)
+	fields := TriggerInputs(nodes, nil, schemas)
 
 	if len(fields) != 1 {
 		t.Fatalf("want one field, got %+v", fields)
@@ -71,7 +71,7 @@ func TestTriggerInputsShapesAndReferences(t *testing.T) {
 		}),
 	}
 
-	fields := TriggerInputs(nodes, stubSchemas(nil))
+	fields := TriggerInputs(nodes, nil, stubSchemas(nil))
 
 	shape := map[string]bool{}
 	for _, f := range fields {
@@ -84,11 +84,11 @@ func TestTriggerInputsShapesAndReferences(t *testing.T) {
 }
 
 func TestTriggerInputsEmptyCases(t *testing.T) {
-	if got := TriggerInputs(nil, stubSchemas(nil)); len(got) != 0 {
+	if got := TriggerInputs(nil, nil, stubSchemas(nil)); len(got) != 0 {
 		t.Errorf("no nodes: %+v", got)
 	}
 	plain := []WorkflowNode{node("A", "http.request", map[string]interface{}{"url": "https://example.com"})}
-	if got := TriggerInputs(plain, stubSchemas(nil)); len(got) != 0 {
+	if got := TriggerInputs(plain, nil, stubSchemas(nil)); len(got) != 0 {
 		t.Errorf("no trigger references: %+v", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestTriggerInputsMergesRepeatedReads(t *testing.T) {
 		node("First", "x.y", map[string]interface{}{"a": "{{ $json.items }}"}),
 		node("Second", "x.y", map[string]interface{}{"a": "{{ json $json.items }}"}),
 	}
-	fields := TriggerInputs(nodes, stubSchemas(nil))
+	fields := TriggerInputs(nodes, nil, stubSchemas(nil))
 	if len(fields) != 1 {
 		t.Fatalf("want one merged field, got %+v", fields)
 	}
@@ -140,9 +140,9 @@ func TestTriggerInputsIsDeterministic(t *testing.T) {
 			"zeta": "{{ $json.z }}", "alpha": "{{ $json.a }}", "mid": "{{ $json.m }}",
 		}),
 	}
-	first := TriggerInputs(nodes, stubSchemas(nil))
+	first := TriggerInputs(nodes, nil, stubSchemas(nil))
 	for i := 0; i < 20; i++ {
-		if got := TriggerInputs(nodes, stubSchemas(nil)); !reflect.DeepEqual(got, first) {
+		if got := TriggerInputs(nodes, nil, stubSchemas(nil)); !reflect.DeepEqual(got, first) {
 			t.Fatalf("run %d differs:\n got %+v\nwant %+v", i, got, first)
 		}
 	}
@@ -156,8 +156,53 @@ func TestTriggerInputsUsesTheShippedSchema(t *testing.T) {
 			"prompts": "{{ json $json.prompts }}",
 		}),
 	}
-	fields := TriggerInputs(nodes, LoadDefaultSchema)
+	fields := TriggerInputs(nodes, nil, LoadDefaultSchema)
 	if len(fields) != 1 || len(fields[0].Examples) == 0 {
 		t.Fatalf("expected examples from the shipped schema, got %+v", fields)
 	}
+}
+
+// QA Q2: the hello template saved as a workflow (manual → http.request →
+// core.set reading $json.body) asked for a "body" trigger field. $json in a
+// node the trigger does not feed is the previous node's output.
+func TestTriggerInputsOnlyCountsNodesTheTriggerFeeds(t *testing.T) {
+	tmpl, ok := GetTemplate("hello")
+	if !ok {
+		t.Fatal("hello template not bundled")
+	}
+	wf, err := ParseWorkflowFileBytes(mustJSON(t, tmpl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := TriggerInputs(wf.Nodes, wf.Connections, stubSchemas(nil)); len(got) != 0 {
+		t.Errorf("hello reads no trigger input, got %+v", got)
+	}
+
+	nodes := []WorkflowNode{
+		{ID: "t", Name: "Start", Type: "trigger.manual"},
+		{ID: "a", Name: "Ask", Type: "x.y", Config: map[string]interface{}{"q": "{{ $json.prompt }}"}},
+		{ID: "b", Name: "Use", Type: "x.y", Config: map[string]interface{}{
+			"r": "{{ $json.answer }}", "s": `{{ $node["Start"].json.style }}`,
+		}},
+	}
+	conns := []WorkflowConnection{
+		{SourceNodeID: "t", TargetNodeID: "a"},
+		{SourceNodeID: "a", TargetNodeID: "b"},
+	}
+	var names []string
+	for _, f := range TriggerInputs(nodes, conns, stubSchemas(nil)) {
+		names = append(names, f.Name)
+	}
+	if !reflect.DeepEqual(names, []string{"prompt", "style"}) {
+		t.Errorf("fields = %v, want [prompt style]", names)
+	}
+}
+
+func mustJSON(t *testing.T, v interface{}) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

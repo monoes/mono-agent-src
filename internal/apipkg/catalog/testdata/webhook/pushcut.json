@@ -1,0 +1,27 @@
+{
+  "params": {
+    "actionName": "Open door"
+  },
+  "create_responses": [
+    {
+      "id": "pc1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/subscriptions",
+      "body": {
+        "actionName": "Open door",
+        "url": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "pc1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/subscriptions/pc1"
+    }
+  ]
+}

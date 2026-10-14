@@ -216,3 +216,23 @@ func TestScheduleCatchUp(t *testing.T) {
 		})
 	}
 }
+
+// TestScheduleOverlap_QueueOneTickWhileDeferredPending: a tick that finds the
+// workflow idle while a deferred tick has not started its run yet does not
+// start a second run.
+func TestScheduleOverlap_QueueOneTickWhileDeferredPending(t *testing.T) {
+	old := queueOnePoll
+	queueOnePoll = time.Hour
+	t.Cleanup(func() { queueOnePoll = old })
+	h := newOverlapHarness(t)
+	h.addRun(t, "r", "RUNNING", time.Now())
+	h.activate(t, map[string]interface{}{"cron": "0 * * * * *", "overlap": "queue_one"})
+	h.sched.fireAll() // deferred
+	if _, err := h.store.RawDB().Exec(`UPDATE workflow_executions SET status='SUCCESS'`); err != nil {
+		t.Fatal(err)
+	}
+	h.sched.fireAll() // idle, but the deferred tick goes first
+	if h.fires() != 0 {
+		t.Fatalf("fires = %d while a deferred tick is pending, want 0", h.fires())
+	}
+}

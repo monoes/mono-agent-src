@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"reflect"
@@ -155,4 +156,37 @@ func TestAPIAutoSetRefusesWhatJevEnableRefusesWithoutYes(t *testing.T) {
 	if jevconf.Enabled(openJevDB(t, cfg), "default", jevconf.APIAuto) || jevconf.Enabled(openSideDB(t, toolDB), "default", jevconf.APIAuto) {
 		t.Error("a refused call switched the surface on")
 	}
+}
+
+// runJev runs `jev <args>` against cfg and returns stdout, stderr and the error.
+func runJev(t *testing.T, cfg *globalConfig, stdin string, args ...string) (string, string, error) {
+	t.Helper()
+	cmd := newJevCmd(cfg)
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetIn(strings.NewReader(stdin))
+	cmd.SetArgs(args)
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	err := cmd.Execute()
+	return out.String(), errOut.String(), err
+}
+
+func jevTestCfg(t *testing.T, jsonOut bool) *globalConfig {
+	t.Helper()
+	t.Setenv("TYPESAFE_API_KEY", "")
+	t.Setenv("TYPESAFE_DEFAULT_MODEL", "")
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	return &globalConfig{DBPath: newHILTestDB(t), ProfileID: "default", JSONOutput: jsonOut}
+}
+
+func openJevDB(t *testing.T, cfg *globalConfig) *sql.DB {
+	t.Helper()
+	db, err := storage.NewDatabase(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db.DB
 }

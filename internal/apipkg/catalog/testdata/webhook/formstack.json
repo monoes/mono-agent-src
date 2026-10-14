@@ -1,0 +1,46 @@
+{
+  "params": {
+    "formId": "9"
+  },
+  "create_responses": [
+    {
+      "id": 300
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v2/form/9/webhook.json",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "standardize_field_values": true,
+        "include_field_type": true,
+        "content_type": "json",
+        "hmac_secret": "test-secret"
+      }
+    }
+  ],
+  "hook_id": "300",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v2/webhook/300.json"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": 300
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/api/v2/webhook/300.json"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-FS-Signature": "sha256=d1e5c0c4cc2213c7c5b2b9545a1514164c1499e775b4309076c7219bd72f207e"
+    },
+    "body": "{\"FormID\":\"9\",\"UniqueID\":\"1\"}"
+  }
+}

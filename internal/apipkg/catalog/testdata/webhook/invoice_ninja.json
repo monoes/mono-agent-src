@@ -1,0 +1,34 @@
+{
+  "credential": {
+    "url": "https://inv.example.com",
+    "api_token": "tok",
+    "secret": "sec"
+  },
+  "params": {
+    "event": "create_invoice"
+  },
+  "create_responses": [
+    {
+      "data": {
+        "id": "Wpmbk5ezJn"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks",
+      "body": {
+        "target_url": "https://hooks.example.test/webhook/wh-path",
+        "event_id": "2"
+      }
+    }
+  ],
+  "hook_id": "Wpmbk5ezJn",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/webhooks/Wpmbk5ezJn"
+    }
+  ]
+}

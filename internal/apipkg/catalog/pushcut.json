@@ -78,5 +78,32 @@
         "$merge": "{{ p.additionalFields }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "actionName",
+        "label": "Action name",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/subscriptions",
+        "body": {
+          "actionName": "{{ p.actionName }}",
+          "url": "{{ hook.url }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/subscriptions/{{ hook.id }}"
+      }
+    ]
+  }
 }

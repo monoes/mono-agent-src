@@ -1,0 +1,27 @@
+{
+  "params": {
+    "event": "contactAddedToList"
+  },
+  "create_responses": [
+    {
+      "hook_id": "hook_1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/hook",
+      "body": {
+        "event": "contact_added_to_list",
+        "target_url": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "hook_1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/hook/hook_1"
+    }
+  ]
+}

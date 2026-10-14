@@ -1,0 +1,32 @@
+{
+  "credential": {
+    "url": "https://kf.kobotoolbox.org/",
+    "token": "t"
+  },
+  "params": {
+    "formId": "aBc"
+  },
+  "create_responses": [
+    {
+      "uid": "hX"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v2/assets/aBc/hooks/",
+      "body": {
+        "name": "mono-agent webhook wf-1",
+        "endpoint": "https://hooks.example.test/webhook/wh-path",
+        "email_notification": true
+      }
+    }
+  ],
+  "hook_id": "hX",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v2/assets/aBc/hooks/hX"
+    }
+  ]
+}

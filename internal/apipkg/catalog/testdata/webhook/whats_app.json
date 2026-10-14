@@ -1,0 +1,46 @@
+{
+  "credential": {
+    "client_id": "22",
+    "client_secret": "wa-secret"
+  },
+  "params": {
+    "updates": [
+      "messages",
+      "message_template_status_update"
+    ]
+  },
+  "create_responses": [
+    {
+      "success": true
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v19.0/22/subscriptions",
+      "body": {
+        "object": "whatsapp_business_account",
+        "callback_url": "https://hooks.example.test/webhook/wh-path",
+        "verify_token": "node-1",
+        "fields": "[\"messages\",\"message_template_status_update\"]",
+        "include_values": "true"
+      }
+    }
+  ],
+  "hook_id": "22:whatsapp_business_account",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v19.0/22/subscriptions",
+      "query": {
+        "object": "whatsapp_business_account"
+      }
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Hub-Signature-256": "sha256=150d73bf7ee337325dcad40f35e0c4607691efa4c9ffc9750e9bc6ca88e47615"
+    },
+    "body": "{\"object\":\"whatsapp_business_account\",\"entry\":[]}"
+  }
+}

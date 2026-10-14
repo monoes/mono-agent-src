@@ -1,0 +1,56 @@
+{
+  "credential": {
+    "server": "https://gitlab.test/",
+    "access_token": "t"
+  },
+  "params": {
+    "owner": "group/sub",
+    "repository": "proj",
+    "events": [
+      "issues",
+      "merge_requests"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": 21
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v4/projects/group%2Fsub%2Fproj/hooks",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "enable_ssl_verification": false,
+        "token": "test-secret",
+        "issues_events": true,
+        "merge_requests_events": true,
+        "push_events": false
+      }
+    }
+  ],
+  "hook_id": "21",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v4/projects/group%2Fsub%2Fproj/hooks/21"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": 21
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/api/v4/projects/group%2Fsub%2Fproj/hooks/21"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-Gitlab-Token": "test-secret"
+    },
+    "body": "{}"
+  }
+}

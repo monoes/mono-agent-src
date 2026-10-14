@@ -1,6 +1,9 @@
 package workflow
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestGetTemplate_DoesNotAliasSharedCache is a regression test: GetTemplate
 // must return an independent copy of the cached WorkflowFile, not one that
@@ -35,5 +38,26 @@ func TestGetTemplate_DoesNotAliasSharedCache(t *testing.T) {
 	if got, exists := second.Nodes[0].Config["profile_id"]; exists {
 		t.Errorf("second GetTemplate call saw mutation from first caller: Config[%q] = %v, want key absent — "+
 			"GetTemplate is aliasing the shared cached map instead of returning a deep copy", "profile_id", got)
+	}
+}
+
+// A saved copy of a template gets its summary; templates show and list keep
+// the CLI-oriented description.
+func TestSavedTemplateDescription(t *testing.T) {
+	for _, tmpl := range ListTemplates() {
+		want := tmpl.Summary
+		if want == "" {
+			want = tmpl.Description
+		}
+		if got := SavedTemplateDescription(tmpl.ID); got != want {
+			t.Errorf("%s: saved description = %q, want %q", tmpl.ID, got, want)
+		}
+	}
+	file, _ := GetTemplate("hello")
+	if !strings.Contains(file.Description, "templates run hello") || strings.Contains(SavedTemplateDescription("hello"), "templates run") {
+		t.Errorf("hello: description %q, saved %q", file.Description, SavedTemplateDescription("hello"))
+	}
+	if got := SavedTemplateDescription("no-such"); got != "" {
+		t.Errorf("unknown template = %q", got)
 	}
 }

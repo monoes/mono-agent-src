@@ -5,6 +5,8 @@
 package apiconfig
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +35,11 @@ type Deps struct {
 	AsCLIError func(error) error
 	// WriteJSON writes the --json document.
 	WriteJSON func(w io.Writer, v any) error
+	// ProfileID is the profile in effect; read after OpenDB, which resolves --profile
+	// (`api models`: the auto model's state is the profile's).
+	ProfileID func() string
+	// SavedEnv is the environment with the settings `api config` saved under it.
+	SavedEnv func(ctx context.Context, db *sql.DB) (func(string) string, error)
 }
 
 // NewCommand is the group that shows, changes and removes the settings of the

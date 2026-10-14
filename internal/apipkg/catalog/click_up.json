@@ -2974,5 +2974,55 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "team",
+        "label": "Team ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "filters",
+        "label": "Filters",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/team/{{ p.team }}/webhook",
+        "body": {
+          "endpoint": "{{ hook.url }}",
+          "events": "{{ p.events | join:',' | matches:'(^|,)\\*(,|$)' | then:'*' | default:p.events }}",
+          "list_id": "{{ p.filters.listId | replace:'#','' }}",
+          "task_id": "{{ p.filters.taskId | replace:'#','' }}",
+          "space_id": "{{ p.filters.spaceId | replace:'#','' }}",
+          "folder_id": "{{ p.filters.folderId | replace:'#','' }}"
+        }
+      }
+    ],
+    "id": "{{ res.webhook.id }}",
+    "extra": {
+      "secret": "{{ res.webhook.secret }}"
+    },
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhook/{{ hook.id }}"
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Signature }}",
+      "secret": "{{ hook.extra.secret }}"
+    }
+  }
 }

@@ -1,0 +1,53 @@
+{
+  "params": {
+    "resource": "message",
+    "event": "created",
+    "filters": {
+      "roomId": "R1",
+      "ownedBy": "org"
+    }
+  },
+  "create_responses": [
+    {
+      "id": "wh-1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/webhooks",
+      "body": {
+        "name": "mono-agent:https://hooks.example.test/webhook/wh-path",
+        "targetUrl": "https://hooks.example.test/webhook/wh-path",
+        "event": "created",
+        "resource": "messages",
+        "ownedBy": "org",
+        "secret": "test-secret",
+        "filter": "roomId=R1"
+      }
+    }
+  ],
+  "hook_id": "wh-1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/webhooks/wh-1"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "wh-1"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v1/webhooks/wh-1"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-Spark-Signature": "79cc32e3c95927d19865a0ac0127c495a343836a"
+    },
+    "body": "{\"data\":{\"id\":\"Y2lz\"},\"event\":\"created\"}"
+  }
+}

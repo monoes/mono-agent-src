@@ -23,8 +23,7 @@ func (e *emitter) ident(name string) (val, error) {
 	case "$now", "$today":
 		return val{obj: objDateTime, name: strings.TrimPrefix(name, "$")}, nil
 	case "$runIndex":
-		e.note("$runIndex is always 0 in mono-agent (loops run in one pass)")
-		return numVal(0), nil
+		return val{p: "$runIndex"}, nil
 	}
 	if globalNames[name] {
 		return val{obj: objGlobal, name: name}, nil

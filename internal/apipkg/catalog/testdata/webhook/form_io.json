@@ -1,0 +1,83 @@
+{
+  "credential": {
+    "domain": "https://forms.example.test",
+    "email": "a@b.c",
+    "password": "pw"
+  },
+  "params": {
+    "projectId": "p1",
+    "formId": "f1",
+    "events": [
+      "create"
+    ]
+  },
+  "create_responses": [
+    {},
+    {
+      "_id": "act1"
+    }
+  ],
+  "response_headers": {
+    "X-Jwt-Token": "jwt1"
+  },
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/user/login",
+      "body": {
+        "data": {
+          "email": "a@b.c",
+          "password": "pw"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/project/p1/form/f1/action",
+      "body": {
+        "data": {
+          "name": "webhook",
+          "title": "webhook-mono-agent:https://hooks.example.test/webhook/wh-path",
+          "method": [
+            "create"
+          ],
+          "handler": [
+            "after"
+          ],
+          "priority": 0,
+          "settings": {
+            "method": "post",
+            "block": false,
+            "url": "https://hooks.example.test/webhook/wh-path"
+          },
+          "condition": {
+            "field": "submit"
+          }
+        }
+      },
+      "headers": {
+        "x-jwt-token": "jwt1"
+      }
+    }
+  ],
+  "hook_id": "act1",
+  "expect_delete": [
+    {
+      "method": "POST",
+      "path": "/user/login",
+      "body": {
+        "data": {
+          "email": "a@b.c",
+          "password": "pw"
+        }
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/project/p1/form/f1/action/act1",
+      "headers": {
+        "x-jwt-token": ""
+      }
+    }
+  ]
+}

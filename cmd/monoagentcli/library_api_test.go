@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/apipkg"
+	"github.com/monoes/mono-agent/internal/cli/librarycli"
 	"github.com/monoes/mono-agent/internal/library"
 )
 
@@ -25,6 +26,11 @@ func apiFixture(t *testing.T) *libFixture {
 
 func (f *libFixture) apiPath(id string) string {
 	return filepath.Join(f.home, ".monoagent", "apipkgs", id, "package.json")
+}
+
+func (f *libFixture) apiInstalled(id string) bool {
+	_, err := os.Stat(f.apiPath(id))
+	return err == nil
 }
 
 func (f *libFixture) handInstallAPI(id, body string) {
@@ -77,9 +83,9 @@ func TestLibraryAPIPublishInstallLoadRoundTrip(t *testing.T) {
 	if err := os.RemoveAll(filepath.Dir(f.apiPath("acme"))); err != nil {
 		t.Fatal(err)
 	}
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "library", "install", "api", pub.Item.Slug, "--dry-run")
-	if res.Installed || res.LocalID != "acme" || apiPackageInstalled("acme") {
+	if res.Installed || res.LocalID != "acme" || f.apiInstalled("acme") {
 		t.Fatalf("dry run = %+v", res)
 	}
 	f.must(&res, "library", "install", "api", pub.Item.Slug)
@@ -111,7 +117,7 @@ func TestLibraryAPIPublishInstallLoadRoundTrip(t *testing.T) {
 
 	v2 := strings.Replace(acmePkg, `"Acme widgets"`, `"Acme widgets, v2"`, 1)
 	f.fake.SetArtifact(item, "2.0.0", []byte(v2))
-	var up struct{ Updates []libUpdate }
+	var up struct{ Updates []librarycli.Update }
 	f.must(&up, "library", "update", "acme")
 	if len(up.Updates) != 1 || up.Updates[0].Status != "updated" || up.Updates[0].Kind != "api" {
 		t.Fatalf("update = %+v", up)
@@ -142,16 +148,8 @@ func TestLibraryAPIInstallRejectsInvalidPackages(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.home, "evil")); err == nil {
 		t.Fatal("a traversal id escaped the install dir")
 	}
-	for _, id := range []string{"../x", "a/b", "A", "", ".", "x/../../y"} {
-		if _, err := apiPackagePath(id); err == nil {
-			t.Errorf("apiPackagePath(%q) accepted", id)
-		}
-	}
 	if out, err := f.run("library", "publish", "api", "../../etc"); exitCodeFor(err) != 2 {
 		t.Errorf("publish traversal: %v %s", err, out)
-	}
-	if _, _, err := readAPIPackage(filepath.Join(t.TempDir(), "missing.json")); exitCodeFor(err) != 2 {
-		t.Errorf("missing file: %v", err)
 	}
 	bad := filepath.Join(t.TempDir(), "bad.json")
 	os.WriteFile(bad, []byte(cases["broken"]), 0o644)
@@ -171,7 +169,7 @@ func TestLibraryAPIInstallCollisions(t *testing.T) {
 	if exitCodeFor(err) != 3 || !strings.Contains(out, "--yes") {
 		t.Fatalf("over a hand-installed package: %v %s", err, out)
 	}
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "library", "install", "api", "acme", "--yes")
 	if !res.Installed || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "replaced") {
 		t.Fatalf("--yes = %+v", res)
@@ -183,7 +181,7 @@ func TestLibraryAPIInstallCollisions(t *testing.T) {
 	dup := strings.Replace(acmePkg, `"id":"acme"`, `"id":"acme2","node_type":"app.acme"`, 1)
 	f.fake.Add("eve", "api", "acme2", "Acme 2", "public", "1.0.0", []byte(dup), nil)
 	out, err = f.run("library", "install", "api", "acme2")
-	if exitCodeFor(err) != 3 || !strings.Contains(out, "already provides app.acme") || apiPackageInstalled("acme2") {
+	if exitCodeFor(err) != 3 || !strings.Contains(out, "already provides app.acme") || f.apiInstalled("acme2") {
 		t.Fatalf("claim conflict: %v %s", err, out)
 	}
 

@@ -656,5 +656,33 @@
         "path": "results"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "formId",
+        "label": "Form ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/api/v2/assets/{{ p.formId }}/hooks/",
+        "body": {
+          "name": "mono-agent webhook {{ hook.workflow_id }}",
+          "endpoint": "{{ hook.url }}",
+          "email_notification": true
+        }
+      }
+    ],
+    "id": "{{ res.uid }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/api/v2/assets/{{ p.formId }}/hooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

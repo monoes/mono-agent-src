@@ -920,5 +920,59 @@
         "results_path": ""
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "owner",
+        "label": "Namespace",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "repository",
+        "label": "Project",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/projects/{{ p.owner }}%2F{{ p.repository }}/hooks",
+        "body": {
+          "url": "{{ hook.url }}",
+          "enable_ssl_verification": false,
+          "token": "{{ hook.secret }}",
+          "$merge": {
+            "$entries": "{{ p.events | join:',' | matches:'(^|,)\\*(,|$)' | then:'note,confidential_issues,confidential_note,deployment,issues,job,merge_requests,pipeline,push,releases,tag_push,wiki_page' | default:p.events | split }}",
+            "$key": "{{ el }}_events",
+            "$value": true
+          },
+          "push_events": "{{ (p.events | join:',' | matches:'(^|,)\\*(,|$)' | then:'note,confidential_issues,confidential_note,deployment,issues,job,merge_requests,pipeline,push,releases,tag_push,wiki_page' | default:p.events | split) | join:',' | matches:'(^|,)push(,|$)' | default:false }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/projects/{{ p.owner }}%2F{{ p.repository }}/hooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/projects/{{ p.owner }}%2F{{ p.repository }}/hooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-Gitlab-Token }}",
+      "alg": "token"
+    }
+  }
 }

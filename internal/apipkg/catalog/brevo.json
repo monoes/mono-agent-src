@@ -697,5 +697,49 @@
         "limit": true
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "type",
+        "label": "Webhook type",
+        "type": "select",
+        "required": true,
+        "default": "transactional",
+        "options": [
+          "inbound",
+          "marketing",
+          "transactional"
+        ]
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v3/webhooks",
+        "body": {
+          "events": "{{ p.events }}",
+          "type": "{{ p.type }}",
+          "url": "{{ hook.url }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v3/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/v3/webhooks/{{ hook.id }}"
+    }
+  }
 }

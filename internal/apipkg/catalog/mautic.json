@@ -976,5 +976,55 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "eventsOrder",
+        "label": "Order",
+        "type": "select",
+        "default": "ASC",
+        "options": [
+          "ASC",
+          "DESC"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/hooks/new",
+        "body": {
+          "name": "mono-agent:{{ hook.path }}",
+          "description": "mono-agent webhook",
+          "webhookUrl": "{{ hook.url }}",
+          "secret": "{{ hook.secret }}",
+          "triggers": "{{ p.events }}",
+          "eventsOrderbyDir": "{{ p.eventsOrder }}",
+          "isPublished": true
+        }
+      }
+    ],
+    "id": "{{ res.hook.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/hooks/{{ hook.id }}/delete"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/hooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.Webhook-Signature }}",
+      "encoding": "base64"
+    }
+  }
 }

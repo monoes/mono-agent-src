@@ -209,5 +209,32 @@
       "value": "submission",
       "label": "Submission"
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "form",
+        "label": "Form ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/form/{{ p.form }}/webhooks",
+        "body": {
+          "webhookURL": "{{ hook.url }}"
+        },
+        "body_type": "form"
+      }
+    ],
+    "id": "{{ res.content | entries | find:'value',hook.url | get:'key' }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/form/{{ p.form }}/webhooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

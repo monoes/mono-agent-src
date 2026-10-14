@@ -1,0 +1,129 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "form_io",
+  "node_type": "app.form_io",
+  "title": "Form.io",
+  "description": "Form.io submission events (trigger only)",
+  "category": "app",
+  "docs_url": "https://apidocs.form.io/",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.formIoTrigger"
+  ],
+  "base_url": "{{ cred.domain | default:'https://api.form.io' | re:'^(.*?)/*$' }}",
+  "credentials": [
+    {
+      "platform": "form_io",
+      "name": "Form.io",
+      "n8n_credential": "formIoApi",
+      "n8n_field_map": {
+        "domain": "domain",
+        "email": "email",
+        "password": "password"
+      },
+      "methods": [
+        "basic"
+      ],
+      "fields": [
+        {
+          "key": "domain",
+          "label": "Server",
+          "help": "Self-hosted server URL; default https://api.form.io"
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "required": true
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "headers": {
+          "x-jwt-token": "{{ hdr.X-Jwt-Token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "projectId",
+        "label": "Project ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "formId",
+        "label": "Form ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/user/login",
+        "body": {
+          "data": {
+            "email": "{{ cred.email }}",
+            "password": "{{ cred.password }}"
+          }
+        },
+        "auth": false
+      },
+      {
+        "method": "POST",
+        "path": "/project/{{ p.projectId }}/form/{{ p.formId }}/action",
+        "body": {
+          "data": {
+            "name": "webhook",
+            "title": "webhook-mono-agent:{{ hook.url }}",
+            "method": "{{ p.events }}",
+            "handler": [
+              "after"
+            ],
+            "priority": 0,
+            "settings": {
+              "method": "post",
+              "block": false,
+              "url": "{{ hook.url }}"
+            },
+            "condition": {
+              "field": "submit"
+            }
+          }
+        }
+      }
+    ],
+    "id": "{{ res._id }}",
+    "delete": [
+      {
+        "method": "POST",
+        "path": "/user/login",
+        "body": {
+          "data": {
+            "email": "{{ cred.email }}",
+            "password": "{{ cred.password }}"
+          }
+        },
+        "auth": false
+      },
+      {
+        "method": "DELETE",
+        "path": "/project/{{ p.projectId }}/form/{{ p.formId }}/action/{{ hook.id }}"
+      }
+    ]
+  }
+}

@@ -179,5 +179,67 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "updates",
+        "label": "Event types",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/Sinks",
+        "body": {
+          "Description": "Sink created by mono-agent",
+          "SinkType": "webhook",
+          "SinkConfiguration": {
+            "$json": {
+              "destination": "{{ hook.url }}",
+              "method": "POST"
+            }
+          }
+        },
+        "body_type": "form",
+        "base_url": "https://events.twilio.com/v1"
+      },
+      {
+        "method": "POST",
+        "path": "/Subscriptions",
+        "body": {
+          "Description": "Subscription created by mono-agent",
+          "SinkSid": "{{ pre.sid }}",
+          "Types": {
+            "$map": "{{ p.updates }}",
+            "$to": {
+              "$json": {
+                "type": "{{ el }}"
+              }
+            }
+          }
+        },
+        "body_type": "form",
+        "base_url": "https://events.twilio.com/v1"
+      }
+    ],
+    "id": "{{ res.sid }}",
+    "extra": {
+      "sink": "{{ pres.0.sid }}"
+    },
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/Subscriptions/{{ hook.id }}",
+        "base_url": "https://events.twilio.com/v1"
+      },
+      {
+        "method": "DELETE",
+        "path": "/Sinks/{{ hook.extra.sink }}",
+        "base_url": "https://events.twilio.com/v1"
+      }
+    ]
+  }
 }

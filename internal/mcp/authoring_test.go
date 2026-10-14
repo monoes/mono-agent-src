@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // callNamed calls one tool of s directly (no Serve), so that a test can make
@@ -46,9 +48,10 @@ func wantErr(t *testing.T, s *Server, name string, args interface{}, contains st
 }
 
 type savedWorkflow struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Nodes []struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Nodes       []struct {
 		ID     string                 `json:"id"`
 		Type   string                 `json:"node_type"`
 		Name   string                 `json:"name"`
@@ -231,6 +234,9 @@ func TestWorkflowTemplatesSearchAndInputs(t *testing.T) {
 	}
 	if got := getWorkflow(t, s, wf.ID); len(got.Nodes) != 2 {
 		t.Fatalf("the instantiated workflow is not saved: %+v", got)
+	}
+	if want := workflow.SavedTemplateDescription("gemimg"); want == "" || wf.Description != want || strings.Contains(wf.Description, "templates run") {
+		t.Errorf("instantiated description = %q, want the template's summary %q", wf.Description, want)
 	}
 
 	var inputs struct {

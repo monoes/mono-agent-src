@@ -68,6 +68,23 @@ type NodeSchema struct {
 	Fields             []NodeSchemaField `json:"fields"`
 	// Outputs, when declared, lists the keys of the node's output items.
 	Outputs []NodeSchemaOutput `json:"outputs,omitempty"`
+	// SubInputs are the AI sub-node connections a root node takes (n8n's
+	// ai_languageModel, ai_memory, ai_tool, …), drawn as ports on the
+	// node's bottom edge in the editor.
+	SubInputs []NodeSubInput `json:"sub_inputs,omitempty"`
+	// SubOutput is the kind a sub-node attaches as (e.g. "ai_tool"): the
+	// handle of its connection into a root node's matching sub-input.
+	SubOutput string `json:"sub_output,omitempty"`
+}
+
+// NodeSubInput is one AI sub-node connection a node takes. Handle is the
+// connection kind (also the connection's source and target handle), Max the
+// most sub-nodes it takes (0 = no limit), Required whether the node needs one.
+type NodeSubInput struct {
+	Handle   string `json:"handle"`
+	Label    string `json:"label"`
+	Max      int    `json:"max,omitempty"`
+	Required bool   `json:"required,omitempty"`
 }
 
 // legacyFormPlatforms are the platforms whose nodes without a schema file

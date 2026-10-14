@@ -1,0 +1,46 @@
+{
+  "params": {
+    "resource": "lead",
+    "event": "new"
+  },
+  "create_responses": [
+    {
+      "id": 5
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/developer_api/v1/webhooks",
+      "body": {
+        "target": "https://hooks.example.test/webhook/wh-path",
+        "type": "lead",
+        "event": "new",
+        "secret": {
+          "secret": "test-secret"
+        }
+      }
+    }
+  ],
+  "hook_id": "5",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/developer_api/v1/webhooks/5"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": 5
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/developer_api/v1/webhooks/5"
+    }
+  },
+  "verify": {
+    "headers": {},
+    "body": "{\"secret\":\"test-secret\",\"ids\":[1]}"
+  }
+}

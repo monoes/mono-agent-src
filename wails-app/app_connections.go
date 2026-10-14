@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -61,43 +63,60 @@ type PlatformInfo struct {
 	IconEmoji  string                                   `json:"iconEmoji"`
 }
 
-func toPlatformInfo(p connections.PlatformDef) PlatformInfo {
-	methods := make([]string, len(p.Methods))
-	for i, m := range p.Methods {
-		methods[i] = string(m)
-	}
-	fields := make(map[string][]connections.CredentialField)
-	for method, cfields := range p.Fields {
-		fields[string(method)] = cfields
-	}
-	return PlatformInfo{
-		ID:         p.ID,
-		Name:       p.Name,
-		Category:   p.Category,
-		ConnectVia: p.ConnectVia,
-		Methods:    methods,
-		Fields:     fields,
-		IconEmoji:  p.IconEmoji,
-	}
-}
-
-// ListPlatformsJSON returns all platforms as a JSON string (bypasses Wails type serialization).
+// ListPlatformsJSON returns all platforms as a JSON string (bypasses Wails
+// type serialization), from `connect list --all --json`: the CLI also
+// carries the platforms its API packages register, which this process's
+// registry does not have. A non-empty connectVia keeps only those platforms.
 func (a *App) ListPlatformsJSON(connectVia string) string {
-	var platforms []connections.PlatformDef
-	if connectVia == "" {
-		platforms = connections.All()
-	} else {
-		platforms = connections.ByConnectVia(connectVia)
+	var platforms []struct {
+		ID         string
+		Name       string
+		Category   string
+		ConnectVia string
+		Methods    []string
+		Fields     map[string][]connections.CredentialField
+		IconEmoji  string
 	}
-	result := make([]PlatformInfo, len(platforms))
-	for i, p := range platforms {
-		result[i] = toPlatformInfo(p)
+	if err := a.runConnCLI("", &platforms, "connect", "list", "--all"); err != nil {
+		return "[]"
+	}
+	result := []PlatformInfo{}
+	for _, p := range platforms {
+		if connectVia != "" && p.ConnectVia != connectVia {
+			continue
+		}
+		fields := p.Fields
+		if fields == nil {
+			fields = map[string][]connections.CredentialField{}
+		}
+		result = append(result, PlatformInfo{ID: p.ID, Name: p.Name, Category: p.Category, ConnectVia: p.ConnectVia,
+			Methods: p.Methods, Fields: fields, IconEmoji: p.IconEmoji})
 	}
 	b, err := json.Marshal(result)
 	if err != nil {
 		return "[]"
 	}
 	return string(b)
+}
+
+// PlatformNames maps each platform id to its display name, from
+// `monoagentcli connect list --all --json` ("generic_api" → "Generic API
+// Key"); the credential picker labels its platform groups with it.
+func (a *App) PlatformNames() (map[string]string, error) {
+	var platforms []struct {
+		ID   string
+		Name string
+	}
+	if err := a.runConnCLI("", &platforms, "connect", "list", "--all"); err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(platforms))
+	for _, p := range platforms {
+		if p.ID != "" && p.Name != "" {
+			names[p.ID] = p.Name
+		}
+	}
+	return names, nil
 }
 
 // TestConnection re-validates a connection by ID ("ok" or "error: …").
@@ -185,26 +204,62 @@ func (a *App) SetOAuthCredentials(platformID, clientID, clientSecret string) str
 	return "ok"
 }
 
-// ConnectPlatformOAuth starts an OAuth flow (`connect oauth <platform>`) in
-// a background goroutine; the CLI uses the OAuth client stored for the
-// active profile. Emits "conn:progress" events with {platform, message,
-// kind} and a final "conn:done" event with {platform, success, accountID?,
-// error?}. Returns "started" immediately, or "error: ..." if preconditions
-// fail.
+// ShowPlatform returns `connect show <platform> --json` verbatim: the
+// platform's methods, each method's fields, its OAuth 2.0 connect fields
+// and its OAuth 1.0a endpoints. "" when the CLI fails.
+func (a *App) ShowPlatform(platformID string) string {
+	var view json.RawMessage
+	if err := a.runConnCLI("", &view, "connect", "show", platformID); err != nil {
+		return ""
+	}
+	return string(view)
+}
+
+// ConnectPlatformOAuth starts an OAuth flow with no connect fields; see
+// ConnectPlatformOAuthFields.
 func (a *App) ConnectPlatformOAuth(platformID string) string {
-	p, ok := connections.Get(platformID)
-	if !ok {
-		return fmt.Sprintf("error: unknown platform %q", platformID)
+	return a.ConnectPlatformOAuthFields(platformID, nil, "")
+}
+
+// oauthFlow is a running OAuth flow; oauthFlows maps a platform to its
+// *oauthFlow (a pointer, so a finished flow removes only itself).
+type oauthFlow struct{ cancel context.CancelFunc }
+
+var oauthFlows sync.Map
+
+// trackOAuthFlow registers a new flow for platformID, cancelling the one
+// it replaces, and returns its context and the func that ends it.
+func trackOAuthFlow(parent context.Context, platformID string) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(parent)
+	f := &oauthFlow{cancel: cancel}
+	if prev, loaded := oauthFlows.Swap(platformID, f); loaded {
+		prev.(*oauthFlow).cancel()
 	}
-	if p.OAuth == nil {
-		return "error: platform does not support OAuth"
+	return ctx, func() {
+		oauthFlows.CompareAndDelete(platformID, f)
+		cancel()
 	}
+}
+
+// ConnectPlatformOAuthFields starts an OAuth 2.0 or 1.0a flow (`connect
+// oauth <platform>`) in a background goroutine; an OAuth 2.0 flow uses the
+// OAuth client stored for the active profile. fieldPairs are key=value
+// connect fields passed as --field; secretFieldsJSON, a JSON object of the
+// secret ones, goes on the CLI's stdin (--stdin-json), never its argv.
+// Emits "conn:progress" events with {platform, message, kind} and a final
+// "conn:done" event with {platform, success, accountID?, error?}; the CLI
+// reports an unknown platform or one without OAuth there. Returns
+// "started" immediately, or "error: ..." when the CLI cannot be found.
+func (a *App) ConnectPlatformOAuthFields(platformID string, fieldPairs []string, secretFieldsJSON string) string {
 	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
+	args := oauthConnectArgs(a.getActiveProfileID(), platformID, fieldPairs, secretFieldsJSON != "")
+	ctx, finish := trackOAuthFlow(a.ctx, platformID)
 
 	go func() {
+		defer finish()
 		emit := func(msg, kind string) {
 			runtime.EventsEmit(a.ctx, "conn:progress", map[string]interface{}{
 				"platform": platformID,
@@ -216,8 +271,12 @@ func (a *App) ConnectPlatformOAuth(platformID string) string {
 			fields["platform"] = platformID
 			runtime.EventsEmit(a.ctx, "conn:done", fields)
 		}
-		conn, err := a.runOAuthConnect(cliBin, platformID, emit)
+		conn, err := runOAuthConnect(ctx, cliBin, args, secretFieldsJSON, emit)
 		if err != nil {
+			if ctx.Err() != nil && a.ctx.Err() == nil {
+				done(map[string]interface{}{"success": false, "cancelled": true, "error": "Cancelled"})
+				return
+			}
 			done(map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
@@ -227,13 +286,46 @@ func (a *App) ConnectPlatformOAuth(platformID string) string {
 	return "started"
 }
 
-// runOAuthConnect runs `connect oauth <platform> --json`, forwarding each
-// progress line it writes to stderr, and returns the saved connection.
-func (a *App) runOAuthConnect(cliBin, platformID string, emit func(msg, kind string)) (*connections.SafeConnection, error) {
-	cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.getActiveProfileID(), "--json", "connect", "oauth", platformID)
+// CancelPlatformOAuth stops the platform's running OAuth flow, which then
+// ends with a "conn:done" event marked cancelled. "ok", or "error: ..."
+// when no flow is running.
+func (a *App) CancelPlatformOAuth(platformID string) string {
+	f, ok := oauthFlows.LoadAndDelete(platformID)
+	if !ok {
+		return "error: no OAuth flow is running for " + platformID
+	}
+	f.(*oauthFlow).cancel()
+	return "ok"
+}
+
+// oauthConnectArgs is the argv of `connect oauth`: each key=value pair as
+// a --field, and --stdin-json when secret fields come on stdin.
+func oauthConnectArgs(profileID, platformID string, fieldPairs []string, secretsOnStdin bool) []string {
+	args := []string{"--profile", profileID, "--json", "connect", "oauth", platformID}
+	for _, kv := range fieldPairs {
+		args = append(args, "--field", kv)
+	}
+	if secretsOnStdin {
+		args = append(args, "--stdin-json")
+	}
+	return args
+}
+
+// runOAuthConnect runs `connect oauth` with args (and stdin), forwarding
+// each progress line it writes to stderr, and returns the saved connection.
+// The flow prints its "Opening browser: <url>" lines on stdout ahead of the
+// connection JSON; they are forwarded as progress too, so the URL is in
+// the app when no browser opens.
+func runOAuthConnect(ctx context.Context, cliBin string, args []string, stdin string, emit func(msg, kind string)) (*connections.SafeConnection, error) {
+	cmd := exec.CommandContext(ctx, cliBin, args...)
 	suppressConsole(cmd)
-	var stdout strings.Builder
-	cmd.Stdout = &stdout
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err
@@ -241,6 +333,31 @@ func (a *App) runOAuthConnect(cliBin, platformID string, emit func(msg, kind str
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	var mu sync.Mutex
+	syncEmit := func(msg, kind string) { mu.Lock(); defer mu.Unlock(); emit(msg, kind) }
+	var out strings.Builder
+	outDone := make(chan struct{})
+	go func() {
+		defer close(outDone)
+		scanner := bufio.NewScanner(stdout)
+		var held string // a line ending in ":" waits for the URL on the next
+		for scanner.Scan() {
+			line := scanner.Text()
+			if out.Len() == 0 && !strings.HasPrefix(line, "{") {
+				msg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "→"))
+				if held != "" {
+					msg, held = held+" "+msg, ""
+				}
+				if strings.HasSuffix(msg, ":") {
+					held = msg
+				} else if msg != "" {
+					syncEmit(msg, "info")
+				}
+				continue
+			}
+			out.WriteString(line + "\n")
+		}
+	}()
 	var lastErr string
 	scanner := bufio.NewScanner(stderr)
 	for scanner.Scan() {
@@ -250,11 +367,12 @@ func (a *App) runOAuthConnect(cliBin, platformID string, emit func(msg, kind str
 			Kind    string `json:"kind"`
 		}
 		if json.Unmarshal([]byte(line), &ev) == nil && ev.Message != "" {
-			emit(ev.Message, ev.Kind)
+			syncEmit(ev.Message, ev.Kind)
 		} else if line != "" {
 			lastErr = line
 		}
 	}
+	<-outDone
 	if err := cmd.Wait(); err != nil {
 		if lastErr != "" {
 			return nil, errors.New(lastErr)
@@ -262,7 +380,7 @@ func (a *App) runOAuthConnect(cliBin, platformID string, emit func(msg, kind str
 		return nil, err
 	}
 	var conn connections.SafeConnection
-	if err := json.Unmarshal([]byte(stdout.String()), &conn); err != nil {
+	if err := json.Unmarshal([]byte(out.String()), &conn); err != nil {
 		return nil, fmt.Errorf("reading the saved connection: %w", err)
 	}
 	return &conn, nil

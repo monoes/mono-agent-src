@@ -1,0 +1,46 @@
+{
+  "credential": {
+    "tracking_site_id": "s",
+    "tracking_api_key": "t",
+    "region": "track.customer.io",
+    "app_api_key": "app"
+  },
+  "params": {
+    "events": [
+      "email.opened",
+      "customer.subscribed"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": 3
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/reporting_webhooks",
+      "body": {
+        "name": "mono-agent webhook - https://hooks.example.test/webhook/wh-path",
+        "endpoint": "https://hooks.example.test/webhook/wh-path",
+        "events": [
+          "email_opened",
+          "customer_subscribed"
+        ]
+      },
+      "headers": {
+        "Authorization": "Bearer app"
+      }
+    }
+  ],
+  "hook_id": "3",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/reporting_webhooks/3",
+      "headers": {
+        "Authorization": "Bearer app"
+      }
+    }
+  ]
+}

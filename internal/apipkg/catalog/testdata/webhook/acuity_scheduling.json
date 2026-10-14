@@ -1,0 +1,49 @@
+{
+  "credential": {
+    "user_id": "123",
+    "api_key": "ak"
+  },
+  "params": {
+    "event": "appointment.scheduled"
+  },
+  "create_responses": [
+    {
+      "id": 77
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks",
+      "body": {
+        "target": "https://hooks.example.test/webhook/wh-path",
+        "event": "appointment.scheduled"
+      }
+    }
+  ],
+  "hook_id": "77",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/webhooks/77"
+    }
+  ],
+  "check": {
+    "response": [
+      {
+        "id": 77
+      }
+    ],
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/webhooks"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-Acuity-Signature": "Lsq+Hqk6JI9HLnJ3MXrS6zj7yH4OhypGyuiF17LlGL4="
+    },
+    "body": "{\"action\":\"scheduled\",\"id\":\"1\"}"
+  }
+}

@@ -122,9 +122,8 @@ func (b *builder) tagNode(dst *mappedNode, name string, in int) string {
 	return id
 }
 
-// flattenLoops removes back-edges. A Loop Over Items (splitInBatches v3)
-// back-edge is folded away: the loop body already runs over every item in
-// one pass, so the "done" branch is re-attached to the end of the body.
+// flattenLoops removes back-edges, except those closing a Loop Over Items
+// (splitInBatches v3), which mono runs as a loop.
 func (b *builder) flattenLoops(edges []edge) []edge {
 	adj := map[string][]int{}
 	indeg := map[string]int{}
@@ -203,33 +202,16 @@ func isTriggerType(t string) bool {
 }
 
 func (b *builder) foldBackEdge(e edge, edges []edge) []edge {
-	b.rep.Counts.RemovedLoops++
 	loop := b.byName[e.dst]
+	if loop.Type == splitInBatchesType && loop.TypeVersion >= 3 {
+		return append(edges, e)
+	}
+	b.rep.Counts.RemovedLoops++
 	nr := b.nodeReport(e.dst)
-	if loop.Type != splitInBatchesType || loop.TypeVersion < 3 {
-		nr.Issues = append(nr.Issues, Issue{Severity: SevWarning, Param: "connections",
-			Value:   fmt.Sprintf("%s → %s", e.src, e.dst),
-			Message: "mono-agent workflows cannot loop; this back-edge was removed, so the loop body runs once"})
-		return edges
-	}
-	// The body ends at e.src; whatever followed the loop's "done" output
-	// now follows the body.
-	srcHandle := b.outputHandle(e.src, b.mapped[e.src], e.out)
-	var out []edge
-	moved := 0
-	for _, x := range edges {
-		if x.src == e.dst && x.out == 0 && x.viaOut == "" {
-			x.src, x.out, x.viaOut = e.src, e.out, srcHandle
-			moved++
-		}
-		out = append(out, x)
-	}
-	msg := fmt.Sprintf("loop flattened: mono-agent runs the loop body once over all items; the back-edge from %q was removed", e.src)
-	if moved > 0 {
-		msg += fmt.Sprintf(" and the \"done\" branch now continues from %q", e.src)
-	}
-	nr.Issues = append(nr.Issues, Issue{Severity: SevInfo, Message: msg})
-	return out
+	nr.Issues = append(nr.Issues, Issue{Severity: SevWarning, Param: "connections",
+		Value:   fmt.Sprintf("%s → %s", e.src, e.dst),
+		Message: "mono-agent loops only through a Loop Over Items node; this back-edge was removed, so the loop body runs once"})
+	return edges
 }
 
 // applyNodeSettings carries n8n's per-node settings over.
@@ -278,10 +260,14 @@ func (b *builder) applyNodeSettings(n *n8nNode, m *Mapping, nr *NodeReport) {
 		cfg["retry_policy"] = map[string]interface{}{"max_retries": retries, "backoff_type": "fixed", "initial_delay": delay}
 	}
 	if n.AlwaysOutputData {
-		add(SevWarning, "alwaysOutputData", true, "has no mono-agent equivalent")
+		cfg["always_output_data"] = true
 	}
 	if n.ExecuteOnce {
-		add(SevWarning, "executeOnce", true, "has no mono-agent equivalent; the node runs for every item")
+		// The first node of a chain is the one that receives the items.
+		if m.Config == nil {
+			m.Config = map[string]interface{}{}
+		}
+		m.Config["execute_once"] = true
 	}
 	if strings.TrimSpace(n.Notes) != "" {
 		add(SevInfo, "notes", nil, "node notes are kept in the workflow description")

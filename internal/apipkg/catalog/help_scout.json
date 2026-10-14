@@ -652,5 +652,43 @@
         "results_path": "_embedded.threads"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v2/webhooks",
+        "body": {
+          "url": "{{ hook.url }}",
+          "events": "{{ p.events }}",
+          "secret": "{{ hook.secret | re:'^(.{1,40})' }}"
+        }
+      }
+    ],
+    "id": "{{ hdr.Resource-Id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v2/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/v2/webhooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-HelpScout-Signature }}",
+      "alg": "sha1",
+      "encoding": "base64",
+      "secret": "{{ hook.secret | re:'^(.{1,40})' }}"
+    }
+  }
 }

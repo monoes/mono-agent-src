@@ -549,5 +549,32 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhook/subscribe",
+        "body": {
+          "webhook_url": "{{ hook.url }}",
+          "subscriptions": "{{ p.events }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhook/{{ hook.id }}"
+      }
+    ]
+  }
 }

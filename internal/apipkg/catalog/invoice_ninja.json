@@ -1414,5 +1414,52 @@
         "include": "{{ p.options.include }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "apiVersion",
+        "label": "API version",
+        "type": "select",
+        "default": "v5",
+        "options": [
+          "v4",
+          "v5"
+        ]
+      },
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "options": [
+          "create_client",
+          "create_invoice",
+          "create_payment",
+          "create_quote",
+          "create_vendor"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "{{ p.apiVersion | eq:'v4' | then:'/hooks' | default:'/webhooks' }}",
+        "body": {
+          "target_url": "{{ hook.url }}",
+          "event": "{{ p.apiVersion | eq:'v4' | then:p.event }}",
+          "event_id": "{{ p.apiVersion | ne:'v4' | then:(p.event | map:'create_client=1,create_invoice=2,create_quote=3,create_payment=4,create_vendor=5') }}"
+        },
+        "base_url": "{{ cred.url | default:(p.apiVersion | eq:'v4' | then:'https://app.invoiceninja.com' | default:'https://invoicing.co') | re:'^(.*?)/*$' }}/api/v1"
+      }
+    ],
+    "id": "{{ res.data.id | default:res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "{{ p.apiVersion | eq:'v4' | then:'/hooks/' | default:'/webhooks/' }}{{ hook.id }}",
+        "base_url": "{{ cred.url | default:(p.apiVersion | eq:'v4' | then:'https://app.invoiceninja.com' | default:'https://invoicing.co') | re:'^(.*?)/*$' }}/api/v1"
+      }
+    ]
+  }
 }

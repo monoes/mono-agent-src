@@ -3,10 +3,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { StrictMode } from 'react'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
-import { CollectionField, AnyPlatformConnections, CurlImport } from './NodeInspectorWidgets.jsx'
+import { CollectionField, AnyPlatformConnections, CurlImport, resetPlatformNamesCache } from './NodeInspectorWidgets.jsx'
 import * as WailsApp from '../wailsjs/go/main/App'
 
-vi.mock('../wailsjs/go/main/App', () => ({ NodeConfigFromCurl: vi.fn() }))
+vi.mock('../wailsjs/go/main/App', () => ({ NodeConfigFromCurl: vi.fn(), PlatformNames: vi.fn() }))
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
@@ -33,7 +33,28 @@ describe('CollectionField', () => {
 })
 
 describe('AnyPlatformConnections', () => {
+  const conns = [{ id: 'a', platform: 'stripe', label: 'Live' }, { id: 'b', platform: 'generic_api', label: 'work' }]
+  afterEach(resetPlatformNamesCache)
+
+  it('labels each platform group with its display name, read once', async () => {
+    WailsApp.PlatformNames.mockResolvedValue({ generic_api: 'Generic API Key', stripe: 'Stripe' })
+    render(<select aria-label="cred"><AnyPlatformConnections connections={conns} /></select>)
+    await waitFor(() => expect([...document.querySelectorAll('optgroup')].map(g => g.label)).toEqual(['Generic API Key', 'Stripe']))
+    cleanup()
+    render(<select aria-label="cred"><AnyPlatformConnections connections={conns} /></select>)
+    expect([...document.querySelectorAll('optgroup')].map(g => g.label)).toEqual(['Generic API Key', 'Stripe'])
+    expect(WailsApp.PlatformNames).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to the platform id when there is no name', async () => {
+    WailsApp.PlatformNames.mockRejectedValue(new Error('no CLI'))
+    render(<select aria-label="cred"><AnyPlatformConnections connections={conns} /></select>)
+    await waitFor(() => expect(WailsApp.PlatformNames).toHaveBeenCalled())
+    expect([...document.querySelectorAll('optgroup')].map(g => g.label)).toEqual(['generic_api', 'stripe'])
+  })
+
   it('lists every platform as an option group', () => {
+    WailsApp.PlatformNames.mockResolvedValue({})
     render(<select aria-label="cred"><AnyPlatformConnections connections={[
       { id: 'a', platform: 'stripe', label: 'Live' }, { id: 'b', platform: 'github', label: 'work' },
     ]} /></select>)

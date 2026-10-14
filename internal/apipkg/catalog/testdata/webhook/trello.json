@@ -1,0 +1,38 @@
+{
+  "params": {
+    "id": "board1"
+  },
+  "create_responses": [
+    {
+      "id": "tw1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/1/webhooks",
+      "body": {
+        "description": "mono-agent webhook - board1",
+        "callbackURL": "https://hooks.example.test/webhook/wh-path",
+        "idModel": "board1"
+      }
+    }
+  ],
+  "hook_id": "tw1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/1/webhooks/tw1"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "tw1"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/1/webhooks/tw1"
+    }
+  }
+}

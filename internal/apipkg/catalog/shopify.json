@@ -519,5 +519,39 @@
         "path": "product"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "topic",
+        "label": "Topic",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks.json",
+        "body": {
+          "webhook": {
+            "topic": "{{ p.topic }}",
+            "address": "{{ hook.url }}",
+            "format": "json"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.webhook.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}.json"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks/{{ hook.id }}.json"
+    }
+  }
 }

@@ -281,5 +281,38 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "site",
+        "label": "Site ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "event",
+        "label": "Trigger type",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/sites/{{ p.site }}/webhooks",
+        "body": {
+          "triggerType": "{{ p.event }}",
+          "url": "{{ hook.url }}"
+        }
+      }
+    ],
+    "id": "{{ res.id | default:res._id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

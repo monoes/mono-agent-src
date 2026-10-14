@@ -1,0 +1,90 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "cal",
+  "node_type": "app.cal",
+  "title": "Cal.com",
+  "description": "Cal.com booking events (trigger only)",
+  "category": "app",
+  "docs_url": "https://cal.com/docs/api-reference/v2",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.calTrigger"
+  ],
+  "base_url": "{{ cred.host | default:'https://api.cal.com' | re:'^(.*?)/*$' }}",
+  "credentials": [
+    {
+      "platform": "cal",
+      "name": "Cal.com",
+      "n8n_credential": "calApi",
+      "n8n_field_map": {
+        "apiKey": "api_key",
+        "host": "host"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true
+        },
+        {
+          "key": "host",
+          "label": "API host",
+          "help": "Default https://api.cal.com"
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "options",
+        "label": "Options",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v2{{ p.options.eventTypeId | then:'/event-types/' }}{{ p.options.eventTypeId }}/webhooks",
+        "body": {
+          "subscriberUrl": "{{ hook.url }}",
+          "triggers": "{{ p.events }}",
+          "active": true,
+          "secret": "{{ hook.secret }}",
+          "payloadTemplate": "{{ p.options.payloadTemplate }}"
+        }
+      }
+    ],
+    "id": "{{ res.data.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v2{{ p.options.eventTypeId | then:'/event-types/' }}{{ p.options.eventTypeId }}/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/v2{{ p.options.eventTypeId | then:'/event-types/' }}{{ p.options.eventTypeId }}/webhooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-Cal-Signature-256 }}"
+    }
+  }
+}

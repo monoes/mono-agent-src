@@ -739,5 +739,52 @@
         }
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "apiVersion",
+        "label": "API version",
+        "type": "text"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhook_endpoints",
+        "body": {
+          "url": "{{ hook.url }}",
+          "description": "Created by mono-agent for workflow {{ hook.workflow_id }}",
+          "enabled_events": "{{ p.events }}",
+          "api_version": "{{ p.apiVersion }}"
+        },
+        "body_type": "form"
+      }
+    ],
+    "id": "{{ res.id }}",
+    "extra": {
+      "secret": "{{ res.secret }}"
+    },
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhook_endpoints/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhook_endpoints/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.Stripe-Signature | re:'v1=([0-9a-f]+)' }}",
+      "message": "{{ hdr.Stripe-Signature | re:'t=([0-9]+)' }}.{{ req.body }}",
+      "secret": "{{ hook.extra.secret }}"
+    }
+  }
 }

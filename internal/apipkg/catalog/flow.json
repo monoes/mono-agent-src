@@ -278,5 +278,62 @@
         "results_path": "tasks"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "resource",
+        "label": "Resource",
+        "type": "select",
+        "required": true,
+        "default": "list",
+        "options": [
+          "list",
+          "task"
+        ]
+      },
+      {
+        "key": "listIds",
+        "label": "List IDs",
+        "type": "text",
+        "help": "Comma-separated"
+      },
+      {
+        "key": "taskIds",
+        "label": "Task IDs",
+        "type": "text",
+        "help": "Comma-separated"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/integration_webhooks",
+        "body": {
+          "organization_id": "{{ cred.organization_id | int }}",
+          "integration_webhook": {
+            "name": "mono-agent",
+            "url": "{{ hook.url }}",
+            "resource_type": "{{ p.resource }}",
+            "resource_id": "{{ el | int }}"
+          }
+        },
+        "for_each": "{{ p.resource | eq:'task' | then:p.taskIds | default:p.listIds | split }}"
+      }
+    ],
+    "id": "{{ res | pluck:'integration_webhook.id' | join:',' }}",
+    "extra": {
+      "ids": "{{ res | pluck:'integration_webhook.id' }}"
+    },
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/integration_webhooks/{{ el }}",
+        "for_each": "{{ hook.extra.ids }}",
+        "query": {
+          "organization_id": "{{ cred.organization_id }}"
+        }
+      }
+    ]
+  }
 }

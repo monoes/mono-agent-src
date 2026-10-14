@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -11,8 +10,8 @@ import (
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
-// `task` lives in internal/cli/task; this is its adapter: the CLI's globals and helpers handed
-// over as taskcli.Deps. `task os` (task_os.go) stays here and is added to the group.
+// `task` (with `task os`, the macOS Services menu) lives in internal/cli/task; this is its
+// adapter: the CLI's globals and helpers handed over as taskcli.Deps.
 
 // maxStdinBytes is how much of standard input `task add --stdin` reads.
 const maxStdinBytes = taskcli.MaxStdinBytes
@@ -32,15 +31,19 @@ func taskDeps(cfg *globalConfig) taskcli.Deps {
 	d.WriteJSON = writeJSONTo
 	d.WithJSONErrors = func(cmd *cobra.Command) { withJSONErrors(cfg, cmd) }
 	d.StdinIsTerminal = func() bool { return agentsAllowStdinIsTerminal() }
+	d.DBPath = func() string { return cfg.DBPath }
+	d.OpenDBActive = func() (*storage.Database, string, error) {
+		open := &globalConfig{DBPath: cfg.DBPath}
+		db, err := initDB(open)
+		return db, open.ProfileID, err
+	}
 	return d
 }
 
 // newTaskCmd groups the task board of a profile (spec:
 // docs/mastermind/specs/2026-10-05-task-board-design.md).
 func newTaskCmd(cfg *globalConfig) *cobra.Command {
-	cmd := taskcli.NewCommand(taskDeps(cfg))
-	cmd.AddCommand(newTaskOSCmd(cfg))
-	return cmd
+	return taskcli.NewCommand(taskDeps(cfg))
 }
 
 // taskCaller says who runs a command: the operator, or an AI agent.
@@ -51,14 +54,6 @@ func callerFor(as string) taskCaller { return taskCaller{taskCallerDeps.CallerFo
 
 // operator returns the operator's actor, or the refusal an agent-driven caller gets.
 func (c taskCaller) operator(what string) (tasks.Actor, error) { return c.Operator(what) }
-
-// flagAs reads the --as flag of the task group.
-func flagAs(cmd *cobra.Command) string { return taskcli.FlagAs(cmd) }
-
-// withTasks opens the database and hands fn the store and the resolved profile.
-func withTasks(cfg *globalConfig, cmd *cobra.Command, fn func(ctx context.Context, store *tasks.Store, p tasks.Profile) error) error {
-	return taskDeps(cfg).WithTasks(cmd, fn)
-}
 
 // operatorOnlyError is the refusal of what only the operator may do: exit 3, and
 // the code operator_only in the --json error document.
@@ -72,6 +67,3 @@ func taskErr(err error) error { return taskCallerDeps.TaskErr(err) }
 
 // taskCut shortens s to at most n characters, ending in an ellipsis.
 func taskCut(s string, n int) string { return taskcli.Cut(s, n) }
-
-// cutArg is s cut for an error message that repeats it.
-func cutArg(s string) string { return taskcli.CutArg(s) }

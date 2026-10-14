@@ -113,6 +113,12 @@ func (p *scheduleFirePlan) fire(items []Item) bool {
 		return true
 	}
 	queued, active := p.tm.activeRuns(p.workflowID)
+	// A deferred queue_one tick is about to start its run: this tick is the
+	// second one waiting, not a run of its own (both used to start when the
+	// tick and the deferred tick's poll saw the workflow idle together).
+	if p.pending.Load() {
+		queued++
+	}
 	if queued+active == 0 {
 		p.tm.triggerFn(p.workflowID, p.nodeID, items)
 		return true

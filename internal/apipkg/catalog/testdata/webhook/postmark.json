@@ -1,0 +1,53 @@
+{
+  "params": {
+    "events": [
+      "open",
+      "bounce"
+    ],
+    "firstOpen": true
+  },
+  "create_responses": [
+    {
+      "ID": 9
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/webhooks",
+      "body": {
+        "Url": "https://hooks.example.test/webhook/wh-path",
+        "Triggers": {
+          "Open": {
+            "Enabled": true,
+            "PostFirstOpenOnly": true
+          },
+          "Click": {
+            "Enabled": false
+          },
+          "Delivery": {
+            "Enabled": false
+          },
+          "Bounce": {
+            "Enabled": true,
+            "IncludeContent": false
+          },
+          "SpamComplaint": {
+            "Enabled": false,
+            "IncludeContent": false
+          },
+          "SubscriptionChange": {
+            "Enabled": false
+          }
+        }
+      }
+    }
+  ],
+  "hook_id": "9",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/webhooks/9"
+    }
+  ]
+}

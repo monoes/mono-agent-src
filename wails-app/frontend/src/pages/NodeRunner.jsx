@@ -21,14 +21,17 @@ import {
 import { SaveModal, WorkflowsModal, TriggerInputModal } from './NodeRunnerModals.jsx'
 import WorkflowImportDialog from './WorkflowImportDialog.jsx'
 import PublishToMonoesDialog from '../components/library/PublishToMonoesDialog.jsx'
-import { derivePlatformId, isSessionPicker, isMediaField, automationIdsFrom, credentialPickerMode, connectionLabel, fieldIsVisible, jsonTextError, curlImportConfig } from './nodeInspectorRules.js'
-import { CollectionField, AnyPlatformConnections, CurlImport } from './NodeInspectorWidgets.jsx'
+import { derivePlatformId, isSessionPicker, isMediaField, automationIdsFrom, credentialPickerMode, connectionLabel, fieldIsVisible, jsonTextError, curlImportConfig, isFormFieldsField } from './nodeInspectorRules.js'
+import { CollectionField, AnyPlatformConnections, CurlImport, FormFieldsEditor } from './NodeInspectorWidgets.jsx'
 import { onAutomationsChanged } from '../lib/appEvents.js'
 import { arrangePaletteCategories, DEPRECATED, paletteCategoryLabel, paletteSectionOf, splitPaletteSections } from './paletteSections.js'
 import { runProblem } from '../lib/runFailure.js'
 import RunProblemPanel from '../components/RunProblemPanel.jsx'
 import { rememberTriggerInput, rememberedTriggerInput } from './triggerInput.js'
 import { usePageVisibleRef } from '../lib/usePageVisible.js'
+import { fitCamera, placeAfter, autoConnect, panToShow, placeBelow, autoConnectSub } from './canvasPlacement.js'
+import { withAiPorts, isAiEdge, checkSubConnection, subEdge, missingRequired, aiEdgePath, autoLayout, attachedCount } from './aiSubNodes.js'
+import { AI_GROUP_PREFIX } from './paletteSections.js'
 import { isAgentNotSetup, withoutAgentSetupMarker } from '../lib/agentSetup.js'
 import AgentSetupLink from '../components/AgentSetupLink.jsx'
 
@@ -50,6 +53,8 @@ const HEAD_H   = 44
 const PORT_H   = 28
 const PORT_PAD = 8
 const PORT_R   = 6
+// The band along a root's bottom edge holding its AI sub-node ports' labels.
+const SUB_BAND_H = 22
 
 const CAT_COLOR = {
   triggers:       '#7c3aed',
@@ -69,11 +74,26 @@ const CAT_COLOR = {
   producthunt:    '#da552f',
   org:            '#6366f1',
 }
-const catColor = (cat) => CAT_COLOR[cat] || '#00b4d8'
+const AI_COLOR = '#a78bfa'
+const catColor = (cat) => CAT_COLOR[cat] || (String(cat || '').startsWith(AI_GROUP_PREFIX) ? AI_COLOR : '#00b4d8')
 const LOOP_EDGE_COLOR = '#f59e0b'
 
+// hasMainPorts is false for an AI sub-node, which is drawn compact: its
+// header and the port on its top edge.
+const hasMainPorts = n => n.inputs.length > 0 || n.outputs.length > 0 || !n.subOutput
 function nodeH(n) {
-  return HEAD_H + PORT_PAD + Math.max(n.inputs.length, n.outputs.length, 1) * PORT_H + PORT_PAD
+  const main = hasMainPorts(n) ? PORT_PAD + Math.max(n.inputs.length, n.outputs.length, 1) * PORT_H + PORT_PAD : 0
+  return HEAD_H + main + (n.subInputs?.length ? SUB_BAND_H : 0)
+}
+// AI sub-node ports: a root's sub-inputs spread along its bottom edge, a
+// sub-node's sub_output at the middle of its top edge.
+function subInPortPos(n, handle) {
+  const k = n.subInputs?.length || 0
+  const i = Math.max(0, (n.subInputs || []).findIndex(s => s.handle === handle))
+  return { x: n.x + (k ? NODE_W * (i + 1) / (k + 1) : NODE_W / 2), y: n.y + nodeH(n) }
+}
+function subOutPortPos(n) {
+  return { x: n.x + NODE_W / 2, y: n.y }
 }
 function inPortPos(n, i) {
   return { x: n.x, y: n.y + HEAD_H + PORT_PAD + i * PORT_H + PORT_H / 2 }
@@ -81,6 +101,9 @@ function inPortPos(n, i) {
 function outPortPos(n, i) {
   return { x: n.x + NODE_W, y: n.y + HEAD_H + PORT_PAD + i * PORT_H + PORT_H / 2 }
 }
+
+// fitView is the camera that frames nodes in the canvas element el.
+const fitView = (nodes, el) => fitCamera(nodes, el?.getBoundingClientRect(), { nodeW: NODE_W, nodeH })
 
 // Canvas ids. Loading a workflow advances the counter past its nr<N> ids;
 // taken (a Set) skips any id already on the canvas.
@@ -121,8 +144,53 @@ function NodeStatusBadge({ status, itemCount, durationMs }) {
 }
 
 // ── Single canvas node ────────────────────────────────────────────────────────
-function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouseDown, onInputPortMouseUp, onClick, onDelete, onConfigure }) {
+// AiSubPorts draws a node's AI sub-node ports: diamonds (main ports are
+// circles) on the bottom edge for its sub-inputs, labelled, and one on the
+// top edge for its sub_output. While a sub-node connection is being dragged
+// (dragKind), the inputs of that kind light up.
+function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInputMouseUp }) {
+  const k = node.subInputs?.length || 0
+  const diamond = (active, required) => ({
+    position: 'absolute', width: PORT_R * 2, height: PORT_R * 2,
+    transform: 'rotate(45deg)', background: active ? AI_COLOR : '#1e293b',
+    border: `1.5px solid ${required ? '#f59e0b' : AI_COLOR}`, cursor: 'crosshair', zIndex: 3,
+    boxShadow: active ? `0 0 8px ${AI_COLOR}` : 'none', transition: 'all 100ms',
+  })
+  return <>
+    {(node.subInputs || []).map((s, i) => {
+      const cx = NODE_W * (i + 1) / (k + 1)
+      const n = counts?.[s.handle] || 0
+      const lit = dragKind === s.handle && !(s.max && n >= s.max)
+      return (
+        <div key={s.handle}>
+          <div style={{
+            position: 'absolute', left: cx - 40, width: 80, top: h - SUB_BAND_H, height: SUB_BAND_H - PORT_R,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+            fontFamily: 'var(--font-mono)', fontSize: 9, color: lit ? AI_COLOR : 'var(--text-muted)', whiteSpace: 'nowrap',
+          }}>{s.label}{s.required ? '*' : ''}{n > 1 ? ` ·${n}` : ''}</div>
+          <div
+            data-testid={`sub-in-${node.id}-${s.handle}`}
+            title={`${s.label}${s.required ? ' (required)' : ''}${s.max ? ` · up to ${s.max}` : ''} — drag a ${s.label} node's top port here`}
+            onMouseUp={e => { e.stopPropagation(); onSubInputMouseUp(s.handle) }}
+            style={{ ...diamond(lit, s.required && n === 0), left: cx - PORT_R, top: h - PORT_R }}
+          />
+        </div>
+      )
+    })}
+    {node.subOutput && (
+      <div
+        data-testid={`sub-out-${node.id}`}
+        title={`Drag to connect this ${node.label} to an AI node`}
+        onMouseDown={e => { e.stopPropagation(); onSubOutputMouseDown(e) }}
+        style={{ ...diamond(false, false), left: NODE_W / 2 - PORT_R, top: -PORT_R }}
+      />
+    )}
+  </>
+}
+
+function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouseDown, onInputPortMouseUp, onClick, onDelete, onConfigure, missing, subCounts, dragKind, onSubOutputMouseDown, onSubInputMouseUp }) {
   const h = nodeH(node)
+  const compact = !hasMainPorts(node)
   const color = node.color || catColor(node.category)
   const status = node.runStatus // 'running' | 'ok' | 'error' | null
   const rows = Math.max(node.inputs.length, node.outputs.length, 1)
@@ -150,14 +218,29 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
         itemCount={node.runOutputItems}
         durationMs={node.runDuration}
       />
+      {missing?.length > 0 && (
+        <div
+          role="img"
+          aria-label={`Needs a ${missing.join(', ')} connection`}
+          title={`Needs a ${missing.join(', ')} connection`}
+          data-testid={`missing-sub-${node.id}`}
+          style={{
+            position: 'absolute', top: -9, left: -9, zIndex: 3, width: 18, height: 18, borderRadius: '50%',
+            background: '#f59e0b', color: '#0b0f17', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 0 8px #f59e0b66', cursor: 'help',
+          }}
+        ><AlertCircle size={12} /></div>
+      )}
+      <AiSubPorts node={node} h={h} counts={subCounts} dragKind={dragKind}
+        onSubOutputMouseDown={onSubOutputMouseDown} onSubInputMouseUp={onSubInputMouseUp} />
 
       {/* Header */}
       <div
         style={{
           height: HEAD_H,
           background: `linear-gradient(110deg,${color}1a 0%,${color}0a 100%)`,
-          borderBottom: `1px solid ${color}22`,
-          borderRadius: '9px 9px 0 0',
+          borderBottom: compact ? 'none' : `1px solid ${color}22`,
+          borderRadius: compact ? 9 : '9px 9px 0 0',
           display: 'flex', alignItems: 'center',
           padding: '0 8px 0 10px',
           cursor: 'grab', gap: 6,
@@ -192,7 +275,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
       </div>
 
       {/* Ports */}
-      <div style={{ position: 'relative', padding: `${PORT_PAD}px 0` }}>
+      {!compact && <div style={{ position: 'relative', padding: `${PORT_PAD}px 0` }}>
         {Array.from({ length: rows }).map((_, i) => (
           <div key={i} style={{ height: PORT_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
             {/* Input port */}
@@ -240,7 +323,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
             ) : <div />}
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* Running pulse */}
       {status === 'running' && (
@@ -528,6 +611,10 @@ function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchemas, aut
                 // edited in the textarea fallback) shows as JSON, not "[object Object]".
                 const val = rawVal0 !== null && typeof rawVal0 === 'object' ? JSON.stringify(rawVal0) : rawVal0
                 const onChange = e => onConfigChange(node.id, f.key, e.target.value)
+                if (isFormFieldsField(f)) {
+                  return <FormFieldsEditor key={`${node.id}:${f.key}`} field={f} value={rawVal0} config={node.config}
+                    onCommit={v => onConfigChange(node.id, f.key, v)} inputStyle={inputStyle} />
+                }
                 let inputEl
                 if (f.type === 'boolean') {
                   const checked = Boolean(node.config?.[f.key] ?? f.default ?? false)
@@ -1194,7 +1281,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         setEdges(loadedEdges)
         setSelectedId(null)
         setIsDirty(false)
-        setCamera({ x: 60, y: 60, zoom: 1 })
+        setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
       } catch (e) { console.error('Failed to load workflow from navData', e) }
     })()
     return () => { cancelled = true }
@@ -1246,7 +1333,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             setEdges(loadedEdges)
             setSelectedId(null)
             setIsDirty(false)
-            setCamera({ x: 60, y: 60, zoom: 1 })
+            setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
           }
         }
         if (cancelled) return
@@ -1286,9 +1373,27 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const wrapperRef = useRef(null)
   const dragRef    = useRef(null)
   const nodesRef   = useRef(nodes)
+  const edgesRef   = useRef(edges)
+  const selectedIdRef = useRef(selectedId)
+  const lastAddedRef  = useRef(null)
   const cameraRef  = useRef(camera)
   useEffect(() => { nodesRef.current = nodes }, [nodes])
+  useEffect(() => { edgesRef.current = edges }, [edges])
+  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
   useEffect(() => { cameraRef.current = camera }, [camera])
+
+  // AI sub-node ports come from each node's schema (the catalog's, else the
+  // saved copy), so they are applied here for every way a node gets onto the
+  // canvas: a load, a template, the palette, a catalog reload.
+  useEffect(() => {
+    let changed = false
+    const next = nodes.map(n => {
+      const m = withAiPorts(n, resolveSchema(n, liveSchemas))
+      if (m !== n) changed = true
+      return m
+    })
+    if (changed) setNodes(next)
+  }, [nodes, liveSchemas])
 
   // Load node types (and the installed automations, for the session picker)
   // from the backend. Reloaded when automations change elsewhere — an
@@ -1302,7 +1407,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         id,
         label: (paletteCategoryLabel(nodes) || id).toUpperCase(),
         section: paletteSectionOf(nodes),
-        nodes: Array.isArray(nodes) ? nodes.map(n => ({
+        nodes: Array.isArray(nodes) ? nodes.map(n => withAiPorts({
           subtype: n.type,
           label: n.label,
           category: id,
@@ -1311,7 +1416,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           outputs: deriveOutputs(n.type, schemaDefaults(n.schema?.fields ? n.schema.fields : getConfigFields(n.type))),
           schema: n.schema || { credential_platform: null, fields: [] },
           configFields: n.schema?.fields ? n.schema.fields : getConfigFields(n.type),
-        })) : [],
+        }, n.schema)) : [],
       })).filter(c => c.nodes.length > 0)
       setCategories(cats)
     }).catch(() => {})
@@ -1345,7 +1450,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         const cam = cameraRef.current
         const dx = (e.clientX - d.startX) / cam.zoom, dy = (e.clientY - d.startY) / cam.zoom
         setNodes(prev => prev.map(n => n.id === d.nodeId ? { ...n, x: d.nx + dx, y: d.ny + dy } : n))
-      } else if (d.type === 'edge') {
+      } else if (d.type === 'edge' || d.type === 'subEdge') {
         const w = toWorld(e.clientX, e.clientY)
         setPendingEdge(pe => pe ? { ...pe, tx: w.x, ty: w.y } : null)
       }
@@ -1371,7 +1476,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         }
         return
       }
-      if (dragRef.current?.type === 'edge') setPendingEdge(null)
+      if (dragRef.current?.type === 'edge' || dragRef.current?.type === 'subEdge') setPendingEdge(null)
       dragRef.current = null
     }
     document.addEventListener('mousemove', onMove)
@@ -1408,15 +1513,19 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   }, [selectedId]) // eslint-disable-line
 
   // ── Add node ──────────────────────────────────────────────────────────────
+  // A palette drag drops the node where it was released. A palette click
+  // puts it to the right of the selected (else the last added) node and
+  // wires that node's free main output into it, as n8n does; with neither,
+  // it lands at the centre of the view. An AI sub-node clicked with a node
+  // selected that has a free input of its kind goes in the row under that
+  // node, connected to it.
   const addNode = useCallback((template, worldX, worldY) => {
     const cam = cameraRef.current
     const rect = wrapperRef.current?.getBoundingClientRect() || { width: 900, height: 600 }
-    const x = worldX ?? (rect.width / 2 - cam.x) / cam.zoom - NODE_W / 2 + (Math.random() - .5) * 100
-    const y = worldY ?? (rect.height / 2 - cam.y) / cam.zoom - 60 + (Math.random() - .5) * 80
     const defaults = {}
     template.configFields?.forEach(f => { defaults[f.key] = f.default ?? '' })
     const id = uid(new Set(nodesRef.current.map(n => n.id)))
-    setNodes(prev => [...prev, {
+    const node = withAiPorts({
       id, label: template.label, subtype: template.subtype,
       category: template.category,
       color: template.color || catColor(template.category || template.id),
@@ -1425,9 +1534,22 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       schema: template.schema || { credential_platform: null, fields: [] },
       configFields: template.configFields || [],
       config: defaults,
-      x, y,
       runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null,
-    }])
+    }, template.schema)
+    const dropped = worldX != null && worldY != null
+    const anchor = dropped ? null
+      : nodesRef.current.find(n => n.id === selectedIdRef.current) || nodesRef.current.find(n => n.id === lastAddedRef.current)
+    const subEdgeIn = anchor && autoConnectSub(anchor, node, edgesRef.current)
+    if (dropped) Object.assign(node, { x: worldX, y: worldY })
+    else if (subEdgeIn) Object.assign(node, placeBelow(anchor, nodesRef.current, edgesRef.current, node, { nodeW: NODE_W, nodeH }))
+    else if (anchor) Object.assign(node, placeAfter(anchor, nodesRef.current, node, { nodeW: NODE_W, nodeH }))
+    else Object.assign(node, { x: (rect.width / 2 - cam.x) / cam.zoom - NODE_W / 2, y: (rect.height / 2 - cam.y) / cam.zoom - 60 })
+    setNodes(prev => [...prev, node])
+    // Keep a node placed off-screen in view.
+    if (anchor) setCamera(c => panToShow(c, { x: node.x, y: node.y, w: NODE_W, h: nodeH(node) }, rect))
+    const edge = subEdgeIn || (anchor && autoConnect(anchor, node, edgesRef.current))
+    if (edge) setEdges(prev => [...prev, { id: uid(new Set(prev.map(e => e.id))), ...edge }])
+    lastAddedRef.current = id
     setSelectedId(id)
     setIsDirty(true)
   }, [])
@@ -1472,7 +1594,41 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     setPendingEdge({ sx: pos.x, sy: pos.y, tx: pos.x, ty: pos.y })
   }
 
+  // A sub-node connection is dragged from the sub-node's top port to a root's
+  // bottom port of the same kind.
+  const startSubEdge = (nodeId) => {
+    const node = nodesRef.current.find(n => n.id === nodeId); if (!node?.subOutput) return
+    const pos = subOutPortPos(node)
+    dragRef.current = { type: 'subEdge', sourceNodeId: nodeId, kind: node.subOutput }
+    setPendingEdge({ sx: pos.x, sy: pos.y, tx: pos.x, ty: pos.y, kind: node.subOutput })
+  }
+
+  const completeSubEdge = (targetNodeId, handle) => {
+    const d = dragRef.current
+    dragRef.current = null; setPendingEdge(null)
+    if (!d || (d.type !== 'subEdge' && d.type !== 'edge')) return
+    const tNode = nodesRef.current.find(n => n.id === targetNodeId)
+    const label = (tNode?.subInputs || []).find(x => x.handle === handle)?.label || handle
+    if (d.type === 'edge') {
+      notify('connect nodes', `Connection rejected: the ${label} input takes an AI sub-node; drag from the top port of a ${label} node.`)
+      return
+    }
+    const sNode = nodesRef.current.find(n => n.id === d.sourceNodeId)
+    const check = checkSubConnection(sNode, tNode, handle, edgesRef.current)
+    if (!check.ok) {
+      if (check.reason !== 'duplicate') notify('connect nodes', check.message)
+      return
+    }
+    setEdges(prev => [...prev, { id: uid(new Set(prev.map(e => e.id))), ...subEdge(sNode.id, tNode.id, handle) }])
+    setIsDirty(true)
+  }
+
   const completeEdge = (targetNodeId, targetPortIdx) => {
+    if (dragRef.current?.type === 'subEdge') {
+      dragRef.current = null; setPendingEdge(null)
+      notify('connect nodes', 'Connection rejected: an AI sub-node connects to a matching input on the bottom edge of an AI node, not to a main input.')
+      return
+    }
     if (!dragRef.current || dragRef.current.type !== 'edge') return
     const { sourceNodeId, sourcePortIdx } = dragRef.current
     if (sourceNodeId === targetNodeId) { dragRef.current = null; setPendingEdge(null); return }
@@ -1738,7 +1894,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       setSelectedId(null)
       setGlobalStatus(null)
       setIsDirty(false)
-      setCamera({ x: 60, y: 60, zoom: 1 })
+      setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
       if (!keepModal) setShowWfModal(false)
     } catch (e) {
       console.error('Load failed', e)
@@ -1769,7 +1925,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const resetCanvas = useCallback(() => {
     setWfId(null); setWfName('Untitled Workflow'); setWfActive(false)
     setNodes([]); setEdges([]); setSelectedId(null); setGlobalStatus(null)
-    setIsDirty(false); setCamera({ x: 60, y: 60, zoom: 1 })
+    setIsDirty(false); setCamera({ x: 60, y: 60, zoom: 1 }); lastAddedRef.current = null
     setExecOverlay(null)
   }, [])
 
@@ -1782,52 +1938,16 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   }, [nodes.length, isDirty, resetCanvas]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-layout: topological left-to-right layout ─────────────────────────
+  // AI sub-nodes go in a row under the node they attach to (aiSubNodes.js).
   const handleAutoLayout = useCallback(() => {
     if (nodes.length === 0) return
-    const NODE_W = 180, NODE_H = 80, GAP_X = 80, GAP_Y = 60
-    // Build adjacency: nodeId → list of successor nodeIds
-    const successors = {}
-    const predecessors = {}
-    nodes.forEach(n => { successors[n.id] = []; predecessors[n.id] = [] })
     // Loop back-edges point backwards; following them would never terminate.
-    const back = loopBackEdges(nodes, edges)
-    edges.forEach(e => {
-      if (back.has(e)) return
-      if (successors[e.source]) successors[e.source].push(e.target)
-      if (predecessors[e.target]) predecessors[e.target].push(e.source)
+    const positions = autoLayout(nodes, edges, {
+      nodeW: 180, nodeH: 80, gapX: 80, gapY: 60, boxH: nodeH, skip: loopBackEdges(nodes, edges),
     })
-    // Assign column (depth) via BFS from roots
-    const col = {}
-    const roots = nodes.filter(n => predecessors[n.id].length === 0).map(n => n.id)
-    const queue = roots.map(id => ({ id, depth: 0 }))
-    while (queue.length) {
-      const { id, depth } = queue.shift()
-      if (col[id] !== undefined && col[id] >= depth) continue
-      col[id] = depth
-      successors[id].forEach(sid => queue.push({ id: sid, depth: depth + 1 }))
-    }
-    // Nodes with no column (disconnected) go at the end
-    nodes.forEach(n => { if (col[n.id] === undefined) col[n.id] = 0 })
-    // Group nodes by column, assign row within column
-    const byCol = {}
-    nodes.forEach(n => {
-      const c = col[n.id] || 0
-      if (!byCol[c]) byCol[c] = []
-      byCol[c].push(n.id)
-    })
-    // Calculate positions
-    const positions = {}
-    Object.keys(byCol).forEach(c => {
-      const colNodes = byCol[c]
-      colNodes.forEach((id, row) => {
-        positions[id] = {
-          x: 60 + parseInt(c) * (NODE_W + GAP_X),
-          y: 60 + row * (NODE_H + GAP_Y),
-        }
-      })
-    })
-    setNodes(prev => prev.map(n => ({ ...n, x: positions[n.id]?.x ?? n.x, y: positions[n.id]?.y ?? n.y })))
-    setCamera({ x: 40, y: 40, zoom: 1 })
+    const laidOut = nodes.map(n => ({ ...n, x: positions[n.id]?.x ?? n.x, y: positions[n.id]?.y ?? n.y }))
+    setNodes(laidOut)
+    setCamera(fitView(laidOut, wrapperRef.current))
   }, [nodes, edges])
 
   // ── Edge paths ────────────────────────────────────────────────────────────
@@ -1838,6 +1958,11 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     const sNode = nodes.find(n => n.id === edge.source)
     const tNode = nodes.find(n => n.id === edge.target)
     if (!sNode || !tNode) return null
+    // AI sub-node connections: dashed, from the sub-node's top port.
+    if (isAiEdge(edge)) {
+      const sp = subOutPortPos(sNode), tp = subInPortPos(tNode, edge.targetPortId)
+      return { ...edge, path: aiEdgePath(sp.x, sp.y, tp.x, tp.y), color: AI_COLOR, ai: true }
+    }
     const sp = outPortPos(sNode, edge.sourcePortIdx)
     const tp = inPortPos(tNode, edge.targetPortIdx)
     const loopIds = backEdges.get(edge)
@@ -1847,7 +1972,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       // the route (below or above the loop) keeps clear of them.
       const obstacles = []
       for (const o of edges) {
-        if (o === edge) continue
+        if (o === edge || isAiEdge(o)) continue
         const os = nodes.find(n => n.id === o.source), ot = nodes.find(n => n.id === o.target)
         if (!os || !ot) continue
         const a = outPortPos(os, o.sourcePortIdx), b = inPortPos(ot, o.targetPortIdx)
@@ -1860,7 +1985,9 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     return { ...edge, path: edgePath(sp.x, sp.y, tp.x, tp.y), color: sNode.color || catColor(sNode.category) }
   }).filter(Boolean)
 
-  const pendingPath = pendingEdge ? edgePath(pendingEdge.sx, pendingEdge.sy, pendingEdge.tx, pendingEdge.ty) : null
+  const pendingPath = !pendingEdge ? null
+    : pendingEdge.kind ? aiEdgePath(pendingEdge.sx, pendingEdge.sy, pendingEdge.tx, pendingEdge.ty)
+    : edgePath(pendingEdge.sx, pendingEdge.sy, pendingEdge.tx, pendingEdge.ty)
   const selectedNode = nodes.find(n => n.id === selectedId) || null
   const canRun = nodes.length > 0 && !running
 
@@ -2289,7 +2416,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
                 {edgePaths.map(ep => (
                   <g key={ep.id}>
                     <path d={ep.path} stroke={ep.color} strokeWidth={1.5} fill="none"
-                      strokeOpacity={ep.loop ? 0.85 : 0.5} strokeDasharray={ep.loop ? '6 4' : undefined} />
+                      strokeOpacity={ep.loop || ep.ai ? 0.85 : 0.5} strokeDasharray={ep.loop ? '6 4' : ep.ai ? '4 4' : undefined} />
                     <path d={ep.path} stroke={ep.color} strokeWidth={12} fill="none" strokeOpacity={0}
                       style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                       onClick={() => { setEdges(prev => prev.filter(e => e.id !== ep.id)); setIsDirty(true) }}
@@ -2319,6 +2446,11 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
                   }}
                   onOutputPortMouseDown={(e, portIdx) => startEdge(e, node.id, portIdx)}
                   onInputPortMouseUp={(portIdx) => completeEdge(node.id, portIdx)}
+                  missing={missingRequired(node, edges)}
+                  subCounts={node.subInputs?.length ? Object.fromEntries(node.subInputs.map(x => [x.handle, attachedCount(edges, node.id, x.handle)])) : null}
+                  dragKind={pendingEdge?.kind}
+                  onSubOutputMouseDown={() => startSubEdge(node.id)}
+                  onSubInputMouseUp={(handle) => completeSubEdge(node.id, handle)}
                 />
               ))}
             </div>

@@ -35,11 +35,11 @@ func jsValue(v interface{}) string {
 
 // codePrelude gives generated and imported JavaScript the n8n runtime
 // names mono's core.code lacks: items/$input with n8n's {json} wrapping,
-// a Luxon-like $now/$today/DateTime subset, console, and helpers that fail
-// clearly for $('Node') and $node (mono code nodes cannot read other
-// nodes). It runs inside the function wrapper, so names are local; mono's
-// own $input is read through globalThis because the local declaration
-// shadows it.
+// a Luxon-like $now/$today/DateTime subset, console, and $('Node') and
+// $node over mono's own $('Node') (first() and item are the node's first
+// item: mono keeps no item pairing). It runs inside the function wrapper,
+// so names are local; mono's own $input and $ are read through globalThis
+// because the local declarations shadow them.
 const codePrelude = `var __rawItems = globalThis.$input.all();
 var items = __rawItems.map(function (j) { return { json: j, binary: {} }; });
 var $input = {
@@ -53,9 +53,11 @@ var $json = items.length ? items[0].json : {};
 var $runIndex = 0;
 var $itemIndex = 0;
 var console = { log: function () {}, info: function () {}, warn: function () {}, error: function () {}, debug: function () {} };
-function __n8nNoNode(name) { throw new Error("$('" + name + "') / $node[...] is not available in mono-agent code nodes: pass the data in through a connection"); }
-var $ = function (name) { return { get item() { return __n8nNoNode(name); }, first: function () { return __n8nNoNode(name); }, last: function () { return __n8nNoNode(name); }, all: function () { return __n8nNoNode(name); } }; };
-var $node = typeof Proxy === "function" ? new Proxy({}, { get: function (_, name) { return __n8nNoNode(String(name)); } }) : {};
+var $ = function (name) {
+  var all = globalThis.$(name).all().map(function (j) { return { json: j, binary: {} }; });
+  return { all: function () { return all; }, first: function () { return all[0]; }, last: function () { return all[all.length - 1]; }, item: all[0] };
+};
+var $node = typeof Proxy === "function" ? new Proxy({}, { get: function (_, name) { var f = $(String(name)).first(); return { json: f ? f.json : {} }; } }) : {};
 function __n8nPad(n, w) { n = String(n); while (n.length < w) { n = "0" + n; } return n; }
 function __n8nDate(d) {
   var units = { millisecond: 1, milliseconds: 1, second: 1e3, seconds: 1e3, minute: 6e4, minutes: 6e4, hour: 36e5, hours: 36e5, day: 864e5, days: 864e5, week: 6048e5, weeks: 6048e5 };
@@ -116,16 +118,16 @@ function __n8nOut(r) {
 // whose result is the node output) inside a function so a top-level
 // "return" works as in n8n.
 func wrapCode(body string) string {
-	return "(function () {\n" + indentJS(codePrelude) + "  return __n8nOut((function () {\n" + indentJS(indentJS(body)) + "  })());\n})();\n"
+	return "(async function () {\n" + indentJS(codePrelude) + "  return __n8nOut(await (async function () {\n" + indentJS(indentJS(body)) + "  })());\n})();\n"
 }
 
 // wrapPerItem builds a program running body once per item with $json,
 // $input.item and item bound to that item (n8n's "run once for each item").
 func wrapPerItem(body string) string {
 	loop := "var __out = [];\nvar __base = $input;\nfor (var __i = 0; __i < items.length; __i++) {\n" +
-		"  (function (item, __idx) {\n    var $json = item.json;\n" +
+		"  await (async function (item, __idx) {\n    var $json = item.json;\n" +
 		"    var $input = { item: item, all: __base.all, first: __base.first, last: __base.last, params: {} };\n" +
-		"    $itemIndex = __idx;\n    var __r = (function () {\n" + indentJS(indentJS(indentJS(body))) + "    })();\n" +
+		"    $itemIndex = __idx;\n    var __r = await (async function () {\n" + indentJS(indentJS(indentJS(body))) + "    })();\n" +
 		"    if (__r === undefined || __r === null) { return; }\n" +
 		"    __out = __out.concat(__n8nOut(__r));\n  })(items[__i], __i);\n}\nreturn __out;\n"
 	return wrapCode(loop)

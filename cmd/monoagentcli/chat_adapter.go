@@ -39,9 +39,3 @@ var capabilityProbe = chatcli.CapabilityProbe
 type coderSettings = chatcli.Settings
 
 func loadCoderSettings(db *sql.DB) (coderSettings, error) { return chatcli.LoadSettings(db) }
-
-// terminateProcess and killProcess stop a process (`doctor` stops a stray bridge with them).
-var (
-	terminateProcess = chatcli.TerminateProcess
-	killProcess      = chatcli.KillProcess
-)

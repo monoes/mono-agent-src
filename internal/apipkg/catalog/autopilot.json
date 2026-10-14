@@ -358,5 +358,41 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "options": [
+          "contactAdded",
+          "contactAddedToList",
+          "contactEnteredSegment",
+          "contactLeftSegment",
+          "contactRemovedFromList",
+          "contactUnsubscribed",
+          "contactUpdated"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/hook",
+        "body": {
+          "event": "{{ p.event | snake }}",
+          "target_url": "{{ hook.url }}"
+        }
+      }
+    ],
+    "id": "{{ res.hook_id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/hook/{{ hook.id }}"
+      }
+    ]
+  }
 }

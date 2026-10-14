@@ -1,0 +1,33 @@
+{
+  "params": {
+    "event": "bounce"
+  },
+  "create_responses": [
+    {
+      "Data": [
+        {
+          "ID": 4401
+        }
+      ]
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v3/rest/eventcallbackurl",
+      "body": {
+        "Url": "https://hooks.example.test/webhook/wh-path",
+        "EventType": "bounce",
+        "Status": "alive",
+        "isBackup": "false"
+      }
+    }
+  ],
+  "hook_id": "4401",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v3/rest/eventcallbackurl/4401"
+    }
+  ]
+}

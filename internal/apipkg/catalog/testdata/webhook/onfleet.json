@@ -1,0 +1,38 @@
+{
+  "credential": {
+    "api_key": "k",
+    "signing_secret": "a1b2c3d4"
+  },
+  "params": {
+    "triggerOn": "taskCompleted"
+  },
+  "create_responses": [
+    {
+      "id": "of1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v2/webhooks",
+      "body": {
+        "name": "mono-agent:https://hooks.example.test/webhook/wh-path",
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "trigger": 3
+      }
+    }
+  ],
+  "hook_id": "of1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v2/webhooks/of1"
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Onfleet-Signature": "cd920e44d3ef5e7419c68056137786ca4a13bb8a153053784eeac104be04a6f82a219972a14cd3f71a3a51c214442ebe0c98a8041bb185d4835c46f552720f7e"
+    },
+    "body": "{\"triggerId\":3}"
+  }
+}

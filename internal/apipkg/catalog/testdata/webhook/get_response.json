@@ -1,0 +1,31 @@
+{
+  "params": {
+    "events": [
+      "subscribe",
+      "open"
+    ]
+  },
+  "create_responses": [
+    {}
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v3/accounts/callbacks",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "actions": {
+          "subscribe": true,
+          "open": true
+        }
+      }
+    }
+  ],
+  "hook_id": "account-callback",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v3/accounts/callbacks"
+    }
+  ]
+}

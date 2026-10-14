@@ -1426,5 +1426,45 @@
         "$merge": "{{ p.updateFields }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "triggerOn",
+        "label": "Trigger on",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "additionalFields",
+        "label": "Additional fields",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "name": "mono-agent:{{ p.additionalFields.name | default:hook.url }}",
+          "url": "{{ hook.url }}",
+          "trigger": "{{ p.triggerOn | map:'taskStarted=0,taskEta=1,taskArrival=2,taskCompleted=3,taskFailed=4,workerDuty=5,taskCreated=6,taskUpdated=7,taskDeleted=8,taskAssigned=9,taskUnassigned=10,taskDelayed=12,taskCloned=13,smsRecipientResponseMissed=14,workerCreated=15,workerDeleted=16,SMSRecipientOptOut=17' | int }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Onfleet-Signature }}",
+      "alg": "sha512",
+      "secret": "{{ cred.signing_secret }}",
+      "secret_encoding": "hex"
+    }
+  }
 }

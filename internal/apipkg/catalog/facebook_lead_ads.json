@@ -1,0 +1,132 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "facebook_lead_ads",
+  "node_type": "app.facebook_lead_ads",
+  "title": "Facebook Lead Ads",
+  "description": "New leads from Facebook Lead Ads forms (trigger only)",
+  "category": "app",
+  "docs_url": "https://developers.facebook.com/docs/marketing-api/guides/lead-ads/",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.facebookLeadAdsTrigger"
+  ],
+  "base_url": "https://graph.facebook.com/v21.0",
+  "credentials": [
+    {
+      "platform": "facebook_lead_ads",
+      "name": "Facebook Lead Ads",
+      "n8n_credential": "facebookLeadAdsOAuth2Api",
+      "n8n_field_map": {
+        "clientId": "client_id",
+        "clientSecret": "client_secret"
+      },
+      "methods": [
+        "oauth"
+      ],
+      "fields": [
+        {
+          "key": "client_id",
+          "label": "App ID",
+          "required": true,
+          "help": "The Meta app the OAuth flow uses; registration needs its app token"
+        },
+        {
+          "key": "client_secret",
+          "label": "App secret",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "oauth": {
+        "auth_url": "https://www.facebook.com/v21.0/dialog/oauth",
+        "token_url": "https://graph.facebook.com/v21.0/oauth/access_token",
+        "scopes": [
+          "leads_retrieval",
+          "pages_show_list",
+          "pages_manage_metadata",
+          "pages_manage_ads",
+          "business_management"
+        ],
+        "connect_fields": [
+          "client_id",
+          "client_secret"
+        ]
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "page",
+        "label": "Page ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "form",
+        "label": "Form ID",
+        "type": "text",
+        "help": "Only leads of this form (filtered when received)"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/{{ cred.client_id }}/subscriptions",
+        "body": {
+          "object": "page",
+          "callback_url": "{{ hook.url }}",
+          "verify_token": "{{ hook.node_id }}",
+          "fields": "leadgen",
+          "include_values": "true"
+        },
+        "body_type": "form",
+        "auth": false,
+        "query": {
+          "access_token": "{{ cred.client_id }}|{{ cred.client_secret }}"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/{{ p.page | rl }}",
+        "query": {
+          "fields": "id,name,access_token"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/{{ p.page | rl }}/subscribed_apps",
+        "auth": false,
+        "query": {
+          "subscribed_fields": "leadgen"
+        },
+        "headers": {
+          "Authorization": "Bearer {{ pre.access_token }}"
+        }
+      }
+    ],
+    "id": "{{ p.page | rl }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/{{ cred.client_id }}/subscriptions",
+        "auth": false,
+        "query": {
+          "object": "page",
+          "access_token": "{{ cred.client_id }}|{{ cred.client_secret }}"
+        }
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Hub-Signature-256 }}",
+      "prefix": "sha256=",
+      "secret": "{{ cred.client_secret }}"
+    }
+  }
+}

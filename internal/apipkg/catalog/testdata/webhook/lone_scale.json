@@ -1,0 +1,30 @@
+{
+  "params": {
+    "workflow": "wf9"
+  },
+  "create_responses": [
+    {
+      "webhook_id": "ls1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/workflows/wf9/hook",
+      "body": {
+        "type": "n8n",
+        "target_url": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "ls1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/workflows/wf9/hook",
+      "query": {
+        "type": "n8n"
+      }
+    }
+  ]
+}

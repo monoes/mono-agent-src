@@ -1,0 +1,49 @@
+{
+  "params": {
+    "projectId": {
+      "__rl": true,
+      "mode": "id",
+      "value": "proj1"
+    },
+    "events": [
+      "RUN_FINISH"
+    ]
+  },
+  "create_responses": [
+    {
+      "data": {
+        "hookId": "h1"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/webhooks",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "hookEvents": [
+          "RUN_FINISH"
+        ],
+        "headers": "{\"x-webhook-secret\":\"test-secret\"}",
+        "label": "mono-agent workflow wf-1"
+      },
+      "query": {
+        "projectId": "proj1"
+      }
+    }
+  ],
+  "hook_id": "h1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/webhooks/h1"
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Webhook-Secret": "test-secret"
+    },
+    "body": "{}"
+  }
+}

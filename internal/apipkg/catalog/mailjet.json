@@ -369,5 +369,43 @@
         "Text": "{{ p.text }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "default": "open",
+        "options": [
+          "blocked",
+          "bounce",
+          "open",
+          "sent",
+          "spam",
+          "unsub"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v3/rest/eventcallbackurl",
+        "body": {
+          "Url": "{{ hook.url }}",
+          "EventType": "{{ p.event }}",
+          "Status": "alive",
+          "isBackup": "false"
+        }
+      }
+    ],
+    "id": "{{ res.Data.0.ID }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v3/rest/eventcallbackurl/{{ hook.id }}"
+      }
+    ]
+  }
 }

@@ -961,5 +961,40 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "delivery_url": "{{ hook.url }}",
+          "topic": "{{ p.event }}",
+          "secret": "{{ hook.secret }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}",
+        "query": {
+          "force": "true"
+        }
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-WC-Webhook-Signature }}",
+      "encoding": "base64"
+    }
+  }
 }

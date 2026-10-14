@@ -1,0 +1,96 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "gumroad",
+  "node_type": "app.gumroad",
+  "title": "Gumroad",
+  "description": "Gumroad sale, refund, dispute and cancellation events (trigger only)",
+  "category": "app",
+  "docs_url": "https://app.gumroad.com/api",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.gumroadTrigger"
+  ],
+  "base_url": "https://api.gumroad.com/v2",
+  "credentials": [
+    {
+      "platform": "gumroad",
+      "name": "Gumroad (access token)",
+      "n8n_credential": "gumroadApi",
+      "n8n_field_map": {
+        "accessToken": "access_token"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "Access token",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "query": {
+          "access_token": "{{ cred.access_token }}"
+        }
+      }
+    },
+    {
+      "platform": "gumroad_oauth",
+      "name": "Gumroad (OAuth2)",
+      "n8n_credential": "gumroadOAuth2Api",
+      "methods": [
+        "oauth"
+      ],
+      "fields": [],
+      "oauth": {
+        "auth_url": "https://gumroad.com/oauth/authorize",
+        "token_url": "https://gumroad.com/oauth/token",
+        "scopes": [
+          "view_sales"
+        ]
+      },
+      "inject": {
+        "query": {
+          "access_token": "{{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "resource",
+        "label": "Resource",
+        "type": "select",
+        "required": true,
+        "options": [
+          "cancellation",
+          "dispute",
+          "dispute_won",
+          "refund",
+          "sale"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "PUT",
+        "path": "/resource_subscriptions",
+        "body": {
+          "post_url": "{{ hook.url }}",
+          "resource_name": "{{ p.resource }}"
+        }
+      }
+    ],
+    "id": "{{ res.resource_subscription.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/resource_subscriptions/{{ hook.id }}"
+      }
+    ]
+  }
+}

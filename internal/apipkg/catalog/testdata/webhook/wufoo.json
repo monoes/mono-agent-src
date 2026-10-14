@@ -1,0 +1,38 @@
+{
+  "credential": {
+    "subdomain": "acme",
+    "api_key": "k"
+  },
+  "params": {
+    "form": "z7x4m1"
+  },
+  "create_responses": [
+    {
+      "WebHookPutResult": {
+        "Hash": "wf1"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "PUT",
+      "path": "/api/v3/forms/z7x4m1/webhooks.json",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "handshakeKey": "test-secret",
+        "metadata": "true"
+      }
+    }
+  ],
+  "hook_id": "wf1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v3/forms/z7x4m1/webhooks/wf1.json"
+    }
+  ],
+  "verify": {
+    "headers": {},
+    "body": "Field1=Ada&HandshakeKey=test-secret"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "credential": {
+    "account_sid": "AC1",
+    "auth_token": "tok"
+  },
+  "params": {
+    "updates": [
+      "com.twilio.messaging.inbound-message.received"
+    ]
+  },
+  "create_responses": [
+    {
+      "sid": "DG1"
+    },
+    {
+      "sid": "DF1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/Sinks",
+      "body": {
+        "Description": "Sink created by mono-agent",
+        "SinkType": "webhook",
+        "SinkConfiguration": "{\"destination\":\"https://hooks.example.test/webhook/wh-path\",\"method\":\"POST\"}"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/Subscriptions",
+      "body": {
+        "Description": "Subscription created by mono-agent",
+        "SinkSid": "DG1",
+        "Types": "{\"type\":\"com.twilio.messaging.inbound-message.received\"}"
+      }
+    }
+  ],
+  "hook_id": "DF1",
+  "extra": {
+    "sink": "DG1"
+  },
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/Subscriptions/DF1"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/Sinks/DG1"
+    }
+  ]
+}

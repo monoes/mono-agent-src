@@ -1,0 +1,33 @@
+{
+  "params": {
+    "events": [
+      "list.created",
+      "person.updated"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": 1234
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/webhook/subscribe",
+      "body": {
+        "webhook_url": "https://hooks.example.test/webhook/wh-path",
+        "subscriptions": [
+          "list.created",
+          "person.updated"
+        ]
+      }
+    }
+  ],
+  "hook_id": "1234",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/webhook/1234"
+    }
+  ]
+}

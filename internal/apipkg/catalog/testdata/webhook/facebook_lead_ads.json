@@ -1,0 +1,82 @@
+{
+  "credential": {
+    "access_token": "user-tok",
+    "client_id": "11",
+    "client_secret": "la-secret"
+  },
+  "params": {
+    "page": {
+      "__rl": true,
+      "mode": "id",
+      "value": "P1"
+    }
+  },
+  "create_responses": [
+    {
+      "success": true
+    },
+    {
+      "id": "P1",
+      "access_token": "page-tok"
+    },
+    {
+      "success": true
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v21.0/11/subscriptions",
+      "body": {
+        "object": "page",
+        "callback_url": "https://hooks.example.test/webhook/wh-path",
+        "verify_token": "node-1",
+        "fields": "leadgen",
+        "include_values": "true"
+      },
+      "query": {
+        "access_token": "11|la-secret"
+      },
+      "headers": {
+        "Authorization": ""
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/v21.0/P1",
+      "query": {
+        "fields": "id,name,access_token"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v21.0/P1/subscribed_apps",
+      "query": {
+        "subscribed_fields": "leadgen"
+      },
+      "headers": {
+        "Authorization": "Bearer page-tok"
+      }
+    }
+  ],
+  "hook_id": "P1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v21.0/11/subscriptions",
+      "query": {
+        "object": "page",
+        "access_token": "11|la-secret"
+      },
+      "headers": {
+        "Authorization": ""
+      }
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Hub-Signature-256": "sha256=c432091e692b622ba48c3fde67f7c8092a4281f900c9ff1639955f50a14d5c6f"
+    },
+    "body": "{\"object\":\"page\",\"entry\":[{\"changes\":[{\"field\":\"leadgen\"}]}]}"
+  }
+}

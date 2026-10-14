@@ -66,8 +66,16 @@ func executeWithRetry(
 		for _, observer := range observers {
 			observer(outputs)
 		}
+		// Items on the "error" output are a failed attempt too, as in n8n,
+		// where a node retries before it routes to its error output: retry
+		// while attempts are left, then route the last attempt's items.
+		routed := false
 		if err == nil {
-			return items.succeed(outputs)
+			msg, failed := errorOutputFailure(outputs)
+			if !failed || attempt == maxRetries {
+				return items.succeed(outputs)
+			}
+			err, routed = errors.New(msg), true
 		}
 		lastErr = err
 
@@ -100,6 +108,9 @@ func executeWithRetry(
 		}
 		retry, delay := classifyRetry(ctx, executor.Type(), err, attempt+1, config)
 		if !retry {
+			if routed {
+				return items.succeed(outputs)
+			}
 			break
 		}
 		override = delay
@@ -108,6 +119,21 @@ func executeWithRetry(
 		return items.result()
 	}
 	return nil, lastErr
+}
+
+// errorOutputFailure reports whether an attempt routed items to the "error"
+// output, with the message the node's failure would carry.
+func errorOutputFailure(outputs []NodeOutput) (string, bool) {
+	for _, out := range outputs {
+		if out.Handle == "error" && len(out.Items) > 0 {
+			msg := errorHandleMessage(out.Items)
+			if msg == "" {
+				msg = fmt.Sprintf("routed %d item(s) to the 'error' output", len(out.Items))
+			}
+			return msg, true
+		}
+	}
+	return "", false
 }
 
 // runAttempt runs one attempt of the node, bounded by timeout when > 0.

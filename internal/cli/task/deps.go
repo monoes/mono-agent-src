@@ -1,7 +1,7 @@
 // Package task is `monoagentcli task`: the profile's task board for people and AI agents (the
 // store is internal/tasks'). Everything the commands need from the CLI around them comes in
-// through Deps, so they can be tested in isolation. `task os` (the macOS Services menu) stays
-// in the CLI, which adds it to the group NewCommand returns.
+// through Deps, so they can be tested in isolation. `task os` (os.go) is the macOS Services
+// menu.
 package task
 
 import (
@@ -35,6 +35,12 @@ type Deps struct {
 	Getenv func(key string) string
 	// StdinIsTerminal says whether `task agents allow` runs at a terminal, where it may ask.
 	StdinIsTerminal func() bool
+	// DBPath is --db-path as given: `task os` writes it, made absolute, into a menu.
+	DBPath func() string
+	// OpenDBActive opens (and migrates) the database without resolving --profile and returns
+	// the active profile's id: `task os status` and `uninstall` take their profiles from the
+	// menus, and some may be deleted.
+	OpenDBActive func() (db *storage.Database, active string, err error)
 }
 
 // splitCSV splits a comma-separated list, dropping blank items (the CLI's splitCSV).

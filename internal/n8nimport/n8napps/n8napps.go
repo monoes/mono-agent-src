@@ -49,6 +49,9 @@ func appMapper(m apipkg.N8nMapping) n8nimport.AppMapper {
 		OperationParam:    m.OperationParam,
 		ResourceParam:     m.ResourceParam,
 		VersionDefaults:   m.VersionDefaults,
+		RegisterWith:      m.RegisterWith,
+		RegisterParams:    m.RegisterParams,
+		RegisterRequired:  m.RegisterRequired,
 	}
 	if m.Extends != "" {
 		a.NodeType = ""

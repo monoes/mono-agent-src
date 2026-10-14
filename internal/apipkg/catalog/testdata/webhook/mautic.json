@@ -1,0 +1,61 @@
+{
+  "credential": {
+    "url": "https://m.example",
+    "username": "u",
+    "password": "p"
+  },
+  "params": {
+    "events": [
+      "mautic.lead_post_save_new"
+    ]
+  },
+  "create_responses": [
+    {
+      "hook": {
+        "id": 12
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/hooks/new",
+      "body": {
+        "name": "mono-agent:wh-path",
+        "description": "mono-agent webhook",
+        "webhookUrl": "https://hooks.example.test/webhook/wh-path",
+        "secret": "test-secret",
+        "triggers": [
+          "mautic.lead_post_save_new"
+        ],
+        "eventsOrderbyDir": "ASC",
+        "isPublished": true
+      }
+    }
+  ],
+  "hook_id": "12",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/hooks/12/delete"
+    }
+  ],
+  "check": {
+    "response": {
+      "hook": {
+        "id": 12
+      }
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/api/hooks/12"
+    }
+  },
+  "verify": {
+    "headers": {
+      "Webhook-Signature": "5FoSgOmvCv2AWhpojP4X3XQq6GPk+2NvfqeehZy8wI8="
+    },
+    "body": "{\"mautic.lead_post_save_new\":[]}"
+  }
+}

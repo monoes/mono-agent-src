@@ -1,0 +1,49 @@
+{
+  "credential": {
+    "access_key_id": "AKID",
+    "secret_access_key": "sk",
+    "region": "eu-west-1"
+  },
+  "params": {
+    "topic": {
+      "__rl": true,
+      "mode": "list",
+      "value": "arn:aws:sns:eu-west-1:123:orders"
+    }
+  },
+  "create_responses": [
+    {
+      "SubscribeResponse": {
+        "SubscribeResult": {
+          "SubscriptionArn": "arn:aws:sns:eu-west-1:123:orders:abc"
+        }
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "Action": "Subscribe",
+        "Version": "2010-03-31",
+        "TopicArn": "arn:aws:sns:eu-west-1:123:orders",
+        "Endpoint": "https://hooks.example.test/webhook/wh-path",
+        "Protocol": "https",
+        "ReturnSubscriptionArn": "true"
+      }
+    }
+  ],
+  "hook_id": "arn:aws:sns:eu-west-1:123:orders:abc",
+  "expect_delete": [
+    {
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "Action": "Unsubscribe",
+        "Version": "2010-03-31",
+        "SubscriptionArn": "arn:aws:sns:eu-west-1:123:orders:abc"
+      }
+    }
+  ]
+}

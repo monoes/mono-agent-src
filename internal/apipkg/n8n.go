@@ -28,6 +28,13 @@ type N8nMapping struct {
 	// Operations is keyed "<resource>.<operation>" (just the operation when
 	// the package has no resources), in n8n's values.
 	Operations map[string]N8nOperation `json:"operations,omitempty"`
+	// RegisterWith (trigger types) is the webhook registrar of the
+	// package's webhook block: trigger.webhook's register_with. Its
+	// register config keys are RegisterParams (n8n's trigger param names);
+	// RegisterRequired are the required ones without a default.
+	RegisterWith     string   `json:"register_with,omitempty"`
+	RegisterParams   []string `json:"register_params,omitempty"`
+	RegisterRequired []string `json:"register_required,omitempty"`
 }
 
 // N8nCredential maps an n8n credential type to a connection platform.
@@ -90,6 +97,14 @@ func N8nIndex() map[string]N8nMapping {
 		for _, t := range p.N8nTriggerTypes {
 			m := base
 			m.N8nType, m.Trigger, m.Supported = t, true, false
+			if m.RegisterWith = p.webhookName(); m.RegisterWith != "" {
+				for _, f := range p.Webhook.Fields {
+					m.RegisterParams = append(m.RegisterParams, f.Key)
+					if f.Required && f.Default == nil {
+						m.RegisterRequired = append(m.RegisterRequired, f.Key)
+					}
+				}
+			}
 			out[t] = m
 		}
 	}

@@ -309,5 +309,36 @@
         }
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/accounts/callbacks",
+        "body": {
+          "url": "{{ hook.url }}",
+          "actions": {
+            "$entries": "{{ p.events }}",
+            "$key": "{{ el }}",
+            "$value": true
+          }
+        }
+      }
+    ],
+    "id": "account-callback",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/accounts/callbacks"
+      }
+    ]
+  }
 }

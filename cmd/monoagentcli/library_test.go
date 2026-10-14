@@ -14,6 +14,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/cli/librarycli"
 	"github.com/monoes/mono-agent/internal/library/libraryfake"
 )
 
@@ -81,7 +82,7 @@ func (f *libFixture) must(v any, args ...string) {
 // login logs the default profile in, or another one: login("--profile", "x").
 func (f *libFixture) login(profile ...string) {
 	f.t.Helper()
-	var st libStatus
+	var st librarycli.Status
 	f.must(&st, append(profile, "library", "login")...)
 	if !st.LoggedIn || st.User == nil || st.User.Username != "ada" {
 		f.t.Fatalf("login status = %+v", st)
@@ -142,7 +143,7 @@ func automationRow(t *testing.T, f *libFixture, id string) *automation.Installed
 
 func TestLibraryLoginStatusLogout(t *testing.T) {
 	f := newLibFixture(t)
-	var st libStatus
+	var st librarycli.Status
 	f.must(&st, "library", "status")
 	if st.LoggedIn || st.BaseURL != f.fake.URL {
 		t.Fatalf("before login: %+v", st)
@@ -192,7 +193,7 @@ func TestLibraryEmailLogin(t *testing.T) {
 	if err == nil || exitCodeFor(err) != 4 || !strings.Contains(out, "auth_or_connection") {
 		t.Fatalf("wrong code: %v %s", err, out)
 	}
-	var st libStatus
+	var st librarycli.Status
 	f.must(&st, "library", "login", "--email", "ada@example.com", "--code", "123456")
 	if !st.LoggedIn || st.Method != "session" {
 		t.Fatalf("status = %+v", st)
@@ -243,7 +244,7 @@ func TestLibraryInstallAutomationTrust(t *testing.T) {
 	if automationRow(t, f, "hackernews") != nil {
 		t.Fatal("a fresh install has hackernews")
 	}
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "library", "install", "automation", "hackernews")
 	if !res.Installed || res.LocalID != "hackernews" || res.Trust != automation.TrustBuiltin || res.SHA256 == "" {
 		t.Fatalf("official install = %+v", res)
@@ -345,7 +346,7 @@ func TestLibraryReadsNeedALogin(t *testing.T) {
 		}
 	}
 	// status and the local list still work logged out.
-	var st libStatus
+	var st librarycli.Status
 	f.must(&st, "library", "status")
 	if st.LoggedIn {
 		t.Fatalf("status = %+v", st)
@@ -371,7 +372,7 @@ func TestLibraryReadRenewsTheSessionThenAsksForLogin(t *testing.T) {
 	if list.Total != 1 || f.fake.Refreshes != 1 {
 		t.Fatalf("list on a due session = %+v (refreshes %d)", list, f.fake.Refreshes)
 	}
-	var res libInstallResult
+	var res librarycli.InstallResult
 	f.must(&res, "library", "install", "automation", "hackernews")
 	if !res.Installed {
 		t.Fatalf("install = %+v", res)
@@ -406,4 +407,19 @@ func TestLibraryReadRenewsTheSessionThenAsksForLogin(t *testing.T) {
 	if list.Total != 1 || list.Items[0].Installed == nil {
 		t.Fatalf("list after a new login = %+v", list)
 	}
+}
+
+// lastJSONObject is b when it is one JSON value, else its last line that
+// starts an object (output preceded by notices).
+func lastJSONObject(b []byte) []byte {
+	if t := bytes.TrimSpace(b); json.Valid(t) {
+		return t
+	}
+	lines := bytes.Split(bytes.TrimSpace(b), []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := bytes.TrimSpace(lines[i]); len(l) > 0 && l[0] == '{' {
+			return l
+		}
+	}
+	return bytes.TrimSpace(b)
 }

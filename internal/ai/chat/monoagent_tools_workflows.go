@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/monoes/mono-agent/internal/noderegistry"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // ---------------------------------------------------------------------------
@@ -177,6 +179,13 @@ func (mt *MonoagentTools) deleteWorkflow(args string) (string, error) {
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("commit: %w", err)
 	}
+	// Remove the workflow file too: otherwise the store still lists the
+	// workflow (its file wins) after its rows are gone.
+	if st := mt.workflowStore(); st != nil {
+		if err := st.DeleteWorkflow(context.Background(), a.WorkflowID); err != nil {
+			return "", fmt.Errorf("delete workflow file: %w", err)
+		}
+	}
 	return marshalJSON(map[string]interface{}{"deleted_workflow_id": a.WorkflowID, "backup_path": backupPath})
 }
 
@@ -193,7 +202,13 @@ func (mt *MonoagentTools) setWorkflowActive(args string) (string, error) {
 	if err := mt.checkWorkflowOwnership(a.WorkflowID); err != nil {
 		return "", err
 	}
-	if _, err := mt.db.Exec(
+	if st := mt.workflowStore(); st != nil {
+		// The workflow file is the definition the engine reads; the
+		// store updates it and its SQLite mirror together.
+		if err := st.SetWorkflowActive(context.Background(), a.WorkflowID, a.Active); err != nil {
+			return "", fmt.Errorf("update workflow: %w", err)
+		}
+	} else if _, err := mt.db.Exec(
 		`UPDATE workflows SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		a.Active, a.WorkflowID); err != nil {
 		return "", fmt.Errorf("update workflow: %w", err)
@@ -327,7 +342,7 @@ func (mt *MonoagentTools) listNodeTypes(args string) (string, error) {
 		}
 	}
 	reg := noderegistry.Build(mt.db)
-	types := reg.Types()
+	types := append(reg.Types(), triggerNodeTypes()...)
 	sort.Strings(types)
 	out := make([]string, 0, len(types))
 	for _, t := range types {
@@ -354,8 +369,8 @@ func (mt *MonoagentTools) addWorkflowNode(args string) (string, error) {
 	if err := mt.checkWorkflowOwnership(a.WorkflowID); err != nil {
 		return "", err
 	}
-	if !noderegistry.Build(mt.db).Has(a.NodeType) {
-		return "", fmt.Errorf("unknown node_type %q — call list_node_types to see what's available", a.NodeType)
+	if !noderegistry.Build(mt.db).Has(a.NodeType) && !isTriggerNodeType(a.NodeType) {
+		return "", fmt.Errorf("unknown node_type %q — call list_node_types (MCP: node_list) to see what's available", a.NodeType)
 	}
 	if a.Config == nil {
 		a.Config = map[string]interface{}{}
@@ -396,4 +411,20 @@ func (mt *MonoagentTools) listTemplates(string) (string, error) {
 		out = append(out, t)
 	}
 	return marshalJSON(map[string]interface{}{"templates": out})
+}
+
+// triggerNodeTypes lists the trigger types: they have embedded schemas but
+// run through the trigger manager, so the node registry does not hold them.
+func triggerNodeTypes() []string {
+	var out []string
+	for _, t := range workflow.ListEmbeddedSchemas() {
+		if strings.HasPrefix(t, "trigger.") {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func isTriggerNodeType(t string) bool {
+	return slices.Contains(triggerNodeTypes(), t)
 }

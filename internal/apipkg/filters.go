@@ -31,6 +31,7 @@ var knownFilters = map[string]bool{
 	"md5": true, "sha1": true, "sha256": true, "mod": true, "weekday": true, "dotnet_date": true,
 	"wrap": true, "mime_parts": true, "sealbox": true,
 	"unique": true, "set": true, "not": true, "bind": true, "base64_chunks": true,
+	"map": true,
 }
 
 // applyFilter runs one pipe filter. Filters other than default and then pass
@@ -84,6 +85,8 @@ func applyFilter(name string, v, arg any) (any, error) {
 	switch name {
 	case "len":
 		return lengthOf(v), nil
+	case "map":
+		return mapThrough(v, stringify(arg)), nil
 	case "urlencode":
 		return urlEncode(v), nil
 	case "json":

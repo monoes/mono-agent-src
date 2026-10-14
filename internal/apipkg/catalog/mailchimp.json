@@ -731,5 +731,57 @@
         }
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "list",
+        "label": "Audience ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "sources",
+        "label": "Sources",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/lists/{{ p.list }}/webhooks",
+        "body": {
+          "url": "{{ hook.url }}",
+          "events": {
+            "$entries": "{{ p.events }}",
+            "$key": "{{ el }}",
+            "$value": true
+          },
+          "sources": {
+            "$entries": "{{ p.sources }}",
+            "$key": "{{ el }}",
+            "$value": true
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/lists/{{ p.list }}/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/lists/{{ p.list }}/webhooks/{{ hook.id }}"
+    }
+  }
 }

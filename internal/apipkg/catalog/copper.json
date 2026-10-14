@@ -1041,5 +1041,63 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "resource",
+        "label": "Resource",
+        "type": "select",
+        "required": true,
+        "options": [
+          "company",
+          "lead",
+          "opportunity",
+          "person",
+          "project",
+          "task"
+        ]
+      },
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "options": [
+          "delete",
+          "new",
+          "update"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "target": "{{ hook.url }}",
+          "type": "{{ p.resource }}",
+          "event": "{{ p.event }}",
+          "secret": {
+            "secret": "{{ hook.secret }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ req.body | fromjson | get:'secret' }}",
+      "alg": "token"
+    }
+  }
 }

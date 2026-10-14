@@ -1,0 +1,43 @@
+{
+  "params": {
+    "events": [
+      "PAYMENT.SALE.COMPLETED"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": "WH-1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/notifications/webhooks",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "event_types": [
+          {
+            "name": "PAYMENT.SALE.COMPLETED"
+          }
+        ]
+      }
+    }
+  ],
+  "hook_id": "WH-1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/notifications/webhooks/WH-1"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "WH-1"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v1/notifications/webhooks/WH-1"
+    }
+  }
+}

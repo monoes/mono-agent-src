@@ -1,0 +1,50 @@
+{
+  "params": {
+    "team": "9",
+    "events": [
+      "taskCreated",
+      "taskUpdated"
+    ],
+    "filters": {
+      "listId": "#123"
+    }
+  },
+  "create_responses": [
+    {
+      "webhook": {
+        "id": "cu-1",
+        "secret": "cu-secret"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v2/team/9/webhook",
+      "body": {
+        "endpoint": "https://hooks.example.test/webhook/wh-path",
+        "events": [
+          "taskCreated",
+          "taskUpdated"
+        ],
+        "list_id": "123"
+      }
+    }
+  ],
+  "hook_id": "cu-1",
+  "extra": {
+    "secret": "cu-secret"
+  },
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v2/webhook/cu-1"
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Signature": "97bfab68ce88c5c7096a83c26122c091ed57735925e85bb53683c330b7297432"
+    },
+    "body": "{\"event\":\"taskCreated\",\"task_id\":\"abc\"}"
+  }
+}

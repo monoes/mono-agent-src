@@ -21,13 +21,17 @@ const (
 	StoreMongoDBAtlas = "mongodb_atlas"
 	StoreRedis        = "redis"
 	StoreChroma       = "chroma"
+	StoreAzureSearch  = "azure_ai_search"
+	StoreDatabricks   = "databricks"
+	StoreOracle       = "oracle"
 	StoreMemory       = "memory"
 )
 
 // StoreProviders lists every provider in display order.
 var StoreProviders = []string{
 	StoreQdrant, StorePinecone, StorePGVector, StoreSupabase, StoreWeaviate,
-	StoreMilvus, StoreMongoDBAtlas, StoreRedis, StoreChroma, StoreMemory,
+	StoreMilvus, StoreMongoDBAtlas, StoreRedis, StoreChroma, StoreAzureSearch,
+	StoreDatabricks, StoreOracle, StoreMemory,
 }
 
 // Document is one stored chunk: text, metadata, its vector and — on search
@@ -49,6 +53,14 @@ type backend interface {
 	Search(ctx context.Context, vector []float64, topK int, filter interface{}) ([]Document, error)
 	Delete(ctx context.Context, ids []string, filter interface{}, all bool) (int, error)
 	Close() error
+}
+
+// textSearcher is a backend whose search can use the query text itself:
+// hybrid keyword + vector ranking, or embeddings computed by the provider.
+// vector is nil when the node has no embedding provider; the backend says
+// so in its error when it needs one.
+type textSearcher interface {
+	SearchText(ctx context.Context, text string, vector []float64, topK int, filter interface{}) ([]Document, error)
 }
 
 // storeTarget is what every backend constructor receives.
@@ -78,6 +90,12 @@ func openBackend(ctx context.Context, provider string, t storeTarget) (backend, 
 		return newMongoAtlas(ctx, t)
 	case StoreRedis:
 		return newRedisStore(t)
+	case StoreAzureSearch:
+		return newAzureSearch(t)
+	case StoreDatabricks:
+		return newDatabricks(t)
+	case StoreOracle:
+		return newOracle(t)
 	case StoreMemory:
 		return newMemory(t), nil
 	}
@@ -338,17 +356,23 @@ func (sc *storeConfig) runSearch(ctx context.Context, be backend, input workflow
 		if err != nil {
 			return nil, fmt.Errorf("item %d: %w", i, err)
 		}
-		if vec == nil {
-			if sc.embed == nil {
-				return nil, fmt.Errorf("item %d: a text query needs an embedding provider (set embedding.provider) or pass a vector in %q", i, sc.vectorField)
-			}
+		ts, byText := be.(textSearcher)
+		if vec == nil && sc.embed != nil {
 			vecs, err := sc.embed.embed(ctx, []string{text}, purposeQuery)
 			if err != nil {
 				return nil, err
 			}
 			vec = vecs[0]
 		}
-		hits, err := be.Search(ctx, vec, sc.topK, sc.filter)
+		if vec == nil && !byText {
+			return nil, fmt.Errorf("item %d: a text query needs an embedding provider (set embedding.provider) or pass a vector in %q", i, sc.vectorField)
+		}
+		var hits []Document
+		if byText && text != "" {
+			hits, err = ts.SearchText(ctx, text, vec, sc.topK, sc.filter)
+		} else {
+			hits, err = be.Search(ctx, vec, sc.topK, sc.filter)
+		}
 		if err != nil {
 			return nil, err
 		}

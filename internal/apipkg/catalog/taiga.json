@@ -956,5 +956,58 @@
         "version": "{{ pres.1.version }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "projectId",
+        "label": "Project ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/auth",
+        "body": {
+          "type": "normal",
+          "username": "{{ cred.username }}",
+          "password": "{{ cred.password }}"
+        },
+        "auth": false
+      },
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "name": "mono-agent:{{ hook.url }}",
+          "url": "{{ hook.url }}",
+          "key": "{{ hook.secret }}",
+          "project": "{{ p.projectId }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "POST",
+        "path": "/auth",
+        "body": {
+          "type": "normal",
+          "username": "{{ cred.username }}",
+          "password": "{{ cred.password }}"
+        },
+        "auth": false
+      },
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Taiga-Webhook-Signature }}",
+      "alg": "sha1"
+    }
+  }
 }

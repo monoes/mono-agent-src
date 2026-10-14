@@ -17,6 +17,7 @@ echo "$*" >> '` + argsLog + `'
 case "$*" in
   *" extension browsers"*) echo '{"running":true,"browsers":[{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"p-work","profile_name":"Work","legacy":false,"conflict":false,"version":"1.5.0","connected_at":"2026-09-27T14:02:00Z"}]}';;
   *" extension bind "*) echo '{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"p-home","profile_name":"Personal"}';;
+  *" extension pair --open"*) echo '{"opened":false,"fallback":"restart_bridge","hint":"Restart the bridge","error":"mismatch"}';;
   *" extension unbind "*) echo '{"instance":"3f2a91c0-0000-4000-8000-000000000001","label":"Edge Work","profile_id":"","profile_name":""}';;
   *) echo 'unexpected' >&2; exit 2;;
 esac
@@ -56,5 +57,20 @@ func TestBrowserBindingsShellOutToCLI(t *testing.T) {
 		if !strings.Contains(string(log), want) {
 			t.Errorf("argv log missing %q:\n%s", want, log)
 		}
+	}
+}
+
+func TestPairExtensionShellsOutToCLI(t *testing.T) {
+	argsLog := fakeBrowsersCLI(t)
+	a := newTestApp(t)
+	a.ctx = context.Background()
+
+	out := a.PairExtension()
+	if !strings.Contains(out, `"fallback":"restart_bridge"`) {
+		t.Fatalf("PairExtension = %s", out)
+	}
+	log, _ := os.ReadFile(argsLog)
+	if !strings.Contains(string(log), "--json extension pair --open") {
+		t.Errorf("argv log:\n%s", log)
 	}
 }

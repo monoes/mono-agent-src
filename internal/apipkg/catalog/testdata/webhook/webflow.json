@@ -1,0 +1,28 @@
+{
+  "params": {
+    "site": "site1",
+    "event": "form_submission"
+  },
+  "create_responses": [
+    {
+      "id": "wf_h1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v2/sites/site1/webhooks",
+      "body": {
+        "triggerType": "form_submission",
+        "url": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "wf_h1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v2/webhooks/wf_h1"
+    }
+  ]
+}

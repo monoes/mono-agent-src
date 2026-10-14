@@ -1,0 +1,50 @@
+{
+  "credential": {
+    "access_token": "7|s",
+    "app_secret": "fb-secret"
+  },
+  "params": {
+    "appId": "7",
+    "object": "adAccount",
+    "fields": [
+      "*"
+    ],
+    "options": {
+      "includeValues": true
+    }
+  },
+  "create_responses": [
+    {
+      "success": true
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v23.0/7/subscriptions",
+      "body": {
+        "object": "ad_account",
+        "callback_url": "https://hooks.example.test/webhook/wh-path",
+        "verify_token": "node-1",
+        "fields": "in_process_ad_objects,with_issues_ad_objects",
+        "include_values": "true"
+      }
+    }
+  ],
+  "hook_id": "7:ad_account",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v23.0/7/subscriptions",
+      "query": {
+        "object": "ad_account"
+      }
+    }
+  ],
+  "verify": {
+    "headers": {
+      "X-Hub-Signature-256": "sha256=d8149abe61ca3e0fe8a73768d039189ba616cab57b5a355bf7867ee24e51d1d4"
+    },
+    "body": "{\"object\":\"page\",\"entry\":[]}"
+  }
+}

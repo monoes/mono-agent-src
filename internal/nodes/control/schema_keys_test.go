@@ -118,3 +118,18 @@ func TestAggregateAcceptsFlatSchemaShape(t *testing.T) {
 		t.Errorf("sum = %v, want 15.0 (also checks default output_field == operation name)", got)
 	}
 }
+
+// QA Q5: an aggregate with neither "operation" nor "operations" passed
+// `workflow validate` (the schema's operation defaults to count) and then
+// failed at run time. The run now applies the schema default.
+func TestAggregateDefaultsToCount(t *testing.T) {
+	out, err := (&AggregateNode{}).Execute(context.Background(), workflow.NodeInput{
+		Items: []workflow.Item{{JSON: map[string]interface{}{}}, {JSON: map[string]interface{}{}}, {JSON: map[string]interface{}{}}},
+	}, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := out[0].Items[0].JSON["count"]; got != 3 && got != 3.0 {
+		t.Errorf("count = %v (%T), want 3", got, got)
+	}
+}

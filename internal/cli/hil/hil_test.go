@@ -206,3 +206,35 @@ func TestHILAutoDecideMixedThenCLIApprove(t *testing.T) {
 		t.Fatalf("items = %v", got)
 	}
 }
+
+// `hil list` prints the first 8 characters of each id; approve and reject
+// take that short id for the one pending item it starts, and leave an
+// ambiguous one alone.
+func TestHILShortIDResolvesToPendingItem(t *testing.T) {
+	dbPath := newHILTestDB(t)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, id := range []string{"72f9b394-aaaa", "2ae3a8b0-aaaa", "2ae3a8b0-bbbb"} {
+		if _, err := db.Exec(`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, profile_id) VALUES (?, 'e', 'w', 'n', 'N', 'pending', 'default')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &testConfig{DBPath: dbPath, ProfileID: "default"}
+	cmd := testDeps(cfg).newHILRejectCmd()
+	cmd.SetArgs([]string{"72f9b394"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("reject by short id: %v", err)
+	}
+	var status string
+	if err := db.QueryRow(`SELECT status FROM hil_pending WHERE id = '72f9b394-aaaa'`).Scan(&status); err != nil || status != "rejected" {
+		t.Fatalf("status = %q, %v; want rejected", status, err)
+	}
+	cmd = testDeps(cfg).newHILApproveCmd()
+	cmd.SetArgs([]string{"2ae3a8b0"})
+	if err := cmd.Execute(); exitCodeFor(err) != 2 {
+		t.Fatalf("ambiguous short id: err = %v, want not found", err)
+	}
+}

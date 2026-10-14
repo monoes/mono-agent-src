@@ -1,0 +1,38 @@
+{
+  "credential": {
+    "subdomain": "acme",
+    "access_token": "t"
+  },
+  "params": {
+    "triggerOn": "candidateMoved",
+    "filters": {
+      "stage": "interview"
+    }
+  },
+  "create_responses": [
+    {
+      "id": "wk1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/spi/v3/subscriptions",
+      "body": {
+        "target": "https://hooks.example.test/webhook/wh-path",
+        "event": "candidate_moved",
+        "args": {
+          "account_id": "acme",
+          "stage_slug": "interview"
+        }
+      }
+    }
+  ],
+  "hook_id": "wk1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/spi/v3/subscriptions/wk1"
+    }
+  ]
+}

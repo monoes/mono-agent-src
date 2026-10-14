@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, Circle, Rocket, X } from 'lucide-react'
 import { SignInDialog } from '../../components/account/AccountBanners.jsx'
+import { usePairExtension, PairButton, PairResult } from '../../components/settings/PairBrowser.jsx'
 
 // "Get started": the first-run checklist at the top of the dashboard. Each
 // step shows its state and one action; the steps come from getStartedSteps
@@ -16,6 +17,9 @@ const COPY = {
 export default function GetStartedCard({ steps, bridge, onNavigate, onSignedIn, onDismiss }) {
   const { t } = useTranslation()
   const [signingIn, setSigningIn] = useState(false)
+  // An unpaired bridge is one click from working: pair from here rather
+  // than sending the user to Settings.
+  const pairing = usePairExtension()
   const actions = {
     signIn: () => setSigningIn(true),
     firstRun: () => onNavigate('noderunner', { openTemplates: true }),
@@ -37,7 +41,8 @@ export default function GetStartedCard({ steps, bridge, onNavigate, onSignedIn, 
       <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {steps.map(step => {
           const copy = COPY[step.id]
-          const why = step.id === 'extension' && bridge === 'unpaired' ? t('dashboard.getStarted.extensionWhyUnpaired') : t(copy.why)
+          const pairHere = step.id === 'extension' && bridge === 'unpaired'
+          const why = pairHere ? t('dashboard.getStarted.extensionWhyUnpaired') : t(copy.why)
           return (
             <li key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderTop: '1px solid var(--border-dim)' }}>
               {step.done
@@ -49,10 +54,13 @@ export default function GetStartedCard({ steps, bridge, onNavigate, onSignedIn, 
                   {step.optional && <span style={{ marginLeft: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{t('dashboard.getStarted.optional')}</span>}
                 </div>
                 {!step.done && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{why}</div>}
+                {!step.done && pairHere && <PairResult result={pairing.result} />}
               </div>
               {step.done
                 ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--green-neon)' }}>{t('dashboard.getStarted.done')}</span>
-                : <button className={`btn btn-sm ${step.optional ? 'btn-ghost' : 'btn-secondary'}`} onClick={actions[step.id]}>{t(copy.action)}</button>}
+                : pairHere
+                  ? <PairButton pair={pairing.pair} busy={pairing.busy} />
+                  : <button className={`btn btn-sm ${step.optional ? 'btn-ghost' : 'btn-secondary'}`} onClick={actions[step.id]}>{t(copy.action)}</button>}
             </li>
           )
         })}

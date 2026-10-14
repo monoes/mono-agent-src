@@ -7,9 +7,13 @@ import (
 )
 
 // unavailableInCode matches n8n names a mono core.code node cannot
-// provide: other nodes' data, binary data, workflow/execution metadata and
+// provide: Node's Buffer, other nodes' data, binary data, workflow/execution metadata and
 // variables.
-var unavailableInCode = regexp.MustCompile(`\$\(|\$node\b|\$items\b|\$binary\b|\$execution\b|\$workflow\b|\$env\b|\$vars\b|\$prevNode\b|\$parameter\b|\$jmespath\b|\$evaluateExpression\b|\bthis\.|\$getWorkflowStaticData\b|\brequire\s*\(`)
+var unavailableInCode = regexp.MustCompile(`\bBuffer\b|\$\(|\$node\b|\$items\b|\$binary\b|\$execution\b|\$workflow\b|\$env\b|\$vars\b|\$prevNode\b|\$parameter\b|\$jmespath\b|\$evaluateExpression\b|\bthis\.|\$getWorkflowStaticData\b|\brequire\s*\(`)
+
+// unavailableInCodeNode is unavailableInCode for a Code node's own
+// JavaScript, where $('Node') and $node read other nodes' output.
+var unavailableInCodeNode = regexp.MustCompile(`\bBuffer\b|\$items\b|\$binary\b|\$execution\b|\$workflow\b|\$env\b|\$vars\b|\$prevNode\b|\$parameter\b|\$jmespath\b|\$evaluateExpression\b|\bthis\.|\$getWorkflowStaticData\b|\brequire\s*\(`)
 
 // expressionFails reports whether an n8n value is an expression the
 // template translator cannot express.

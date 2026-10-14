@@ -6,8 +6,8 @@
 import { useState } from 'react'
 import { SectionHeader } from './ui.jsx'
 
-const CATEGORY_ORDER = ['social', 'service', 'communication', 'database', 'infrastructure', 'custom']
-const CATEGORY_LABELS = { social: 'Social', service: 'Services & APIs', communication: 'Communication', database: 'Databases', infrastructure: 'Infrastructure', custom: 'Custom' }
+const CATEGORY_ORDER = ['social', 'service', 'communication', 'database', 'infrastructure', 'ai', 'app', 'custom']
+const CATEGORY_LABELS = { social: 'Social', service: 'Services & APIs', communication: 'Communication', database: 'Databases', infrastructure: 'Infrastructure', ai: 'AI', app: 'Apps', custom: 'Custom' }
 
 // apiPlatforms keeps platforms that can be connected without the browser.
 export function apiPlatforms(platforms) {
@@ -60,10 +60,18 @@ function Tile({ platform, conn, onClick }) {
   )
 }
 
+// matchesQuery: a platform whose name or id contains every word of q.
+export function matchesQuery(platform, q) {
+  const hay = `${platform.name || ''} ${platform.id || ''}`.toLowerCase()
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w))
+}
+
 export default function ApiConnections({ platforms, connections, onSelect }) {
+  const [query, setQuery] = useState('')
   const list = apiPlatforms(platforms)
   const groups = {}
   for (const p of list) {
+    if (!matchesQuery(p, query)) continue
     const cat = (p.category || 'service').toLowerCase()
     if (!groups[cat]) groups[cat] = []
     groups[cat].push(p)
@@ -77,6 +85,8 @@ export default function ApiConnections({ platforms, connections, onSelect }) {
   return (
     <section aria-label="API connections">
       <SectionHeader title="API Connections" hint="OAuth, API keys, connection strings" count={`${total} / ${list.length} connected`} />
+      <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter platforms…" aria-label="Filter API platforms"
+        style={{ width: '100%', maxWidth: 320, marginBottom: 14, fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--surface)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '6px 10px', outline: 'none', boxSizing: 'border-box' }} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
         {cats.map(cat => {
           const items = groups[cat]

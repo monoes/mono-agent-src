@@ -2147,5 +2147,47 @@
         "mime_type": "{{ p.additionalFields.mimeType }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "updates",
+        "label": "Updates",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/setWebhook",
+        "body": {
+          "url": "{{ hook.url }}",
+          "secret_token": "{{ hook.secret }}",
+          "drop_pending_updates": true,
+          "!allowed_updates": {
+            "$concat": [
+              "{{ p.updates | join:',' | matches:'(^|,)\\*(,|$)' | not | then:p.updates }}"
+            ]
+          }
+        }
+      }
+    ],
+    "id": "{{ cred.bot_token | re:'^([0-9]+):' }}",
+    "delete": [
+      {
+        "method": "POST",
+        "path": "/deleteWebhook"
+      }
+    ],
+    "check": {
+      "method": "POST",
+      "path": "/getWebhookInfo",
+      "exists_when": "{{ res.result.url | eq:hook.url }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-Telegram-Bot-Api-Secret-Token }}",
+      "alg": "token"
+    }
+  }
 }

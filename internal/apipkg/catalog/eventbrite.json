@@ -1,0 +1,103 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "eventbrite",
+  "node_type": "app.eventbrite",
+  "title": "Eventbrite",
+  "description": "Eventbrite attendee, event and order events (trigger only)",
+  "category": "app",
+  "docs_url": "https://www.eventbrite.com/platform/api",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.eventbriteTrigger"
+  ],
+  "base_url": "https://www.eventbriteapi.com/v3",
+  "credentials": [
+    {
+      "platform": "eventbrite",
+      "name": "Eventbrite (private token)",
+      "n8n_credential": "eventbriteApi",
+      "n8n_field_map": {
+        "apiKey": "api_key"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "Private token",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.api_key }}"
+        }
+      }
+    },
+    {
+      "platform": "eventbrite_oauth",
+      "name": "Eventbrite (OAuth2)",
+      "n8n_credential": "eventbriteOAuth2Api",
+      "methods": [
+        "oauth"
+      ],
+      "fields": [],
+      "oauth": {
+        "auth_url": "https://www.eventbrite.com/oauth/authorize",
+        "token_url": "https://www.eventbrite.com/oauth/token"
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "organization",
+        "label": "Organization ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "event",
+        "label": "Event ID",
+        "type": "text",
+        "help": "Empty or \"all\": every event"
+      },
+      {
+        "key": "actions",
+        "label": "Actions",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/organizations/{{ p.organization }}/webhooks/",
+        "body": {
+          "endpoint_url": "{{ hook.url }}",
+          "actions": "{{ p.actions | join:',' }}",
+          "event_id": "{{ p.event | ne:'all' | then:p.event }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}/"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks/{{ hook.id }}/"
+    }
+  }
+}

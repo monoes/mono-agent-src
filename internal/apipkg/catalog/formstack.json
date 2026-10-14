@@ -1,0 +1,97 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "formstack",
+  "node_type": "app.formstack",
+  "title": "Formstack",
+  "description": "Formstack form submissions (trigger only)",
+  "category": "app",
+  "docs_url": "https://developers.formstack.com/reference",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.formstackTrigger"
+  ],
+  "base_url": "https://www.formstack.com/api/v2",
+  "credentials": [
+    {
+      "platform": "formstack",
+      "name": "Formstack (access token)",
+      "n8n_credential": "formstackApi",
+      "n8n_field_map": {
+        "accessToken": "access_token"
+      },
+      "methods": [
+        "bearer"
+      ],
+      "fields": [
+        {
+          "key": "access_token",
+          "label": "Access token",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    },
+    {
+      "platform": "formstack_oauth",
+      "name": "Formstack (OAuth2)",
+      "n8n_credential": "formstackOAuth2Api",
+      "methods": [
+        "oauth"
+      ],
+      "fields": [],
+      "oauth": {
+        "auth_url": "https://www.formstack.com/api/v2/oauth2/authorize",
+        "token_url": "https://www.formstack.com/api/v2/oauth2/token"
+      },
+      "inject": {
+        "headers": {
+          "Authorization": "Bearer {{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "formId",
+        "label": "Form ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/form/{{ p.formId }}/webhook.json",
+        "body": {
+          "url": "{{ hook.url }}",
+          "standardize_field_values": true,
+          "include_field_type": true,
+          "content_type": "json",
+          "hmac_secret": "{{ hook.secret }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhook/{{ hook.id }}.json"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhook/{{ hook.id }}.json"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-FS-Signature }}",
+      "prefix": "sha256="
+    }
+  }
+}

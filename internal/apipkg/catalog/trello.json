@@ -1410,5 +1410,38 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "id",
+        "label": "Model ID",
+        "type": "text",
+        "required": true,
+        "help": "The board, list or card to watch"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "description": "mono-agent webhook - {{ p.id }}",
+          "callbackURL": "{{ hook.url }}",
+          "idModel": "{{ p.id }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks/{{ hook.id }}"
+    }
+  }
 }

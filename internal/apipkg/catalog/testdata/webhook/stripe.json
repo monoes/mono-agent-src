@@ -1,0 +1,53 @@
+{
+  "params": {
+    "events": [
+      "charge.succeeded",
+      "charge.failed"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": "we_1",
+      "secret": "whsec_x",
+      "status": "enabled"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/webhook_endpoints",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "description": "Created by mono-agent for workflow wf-1",
+        "enabled_events[0]": "charge.succeeded",
+        "enabled_events[1]": "charge.failed"
+      }
+    }
+  ],
+  "hook_id": "we_1",
+  "extra": {
+    "secret": "whsec_x"
+  },
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/webhook_endpoints/we_1"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "we_1"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v1/webhook_endpoints/we_1"
+    }
+  },
+  "verify": {
+    "headers": {
+      "Stripe-Signature": "t=1700000000,v1=ab13e89be3f2cc3a44bd82ea9d36730553b6fb23eb2912115a0cffe6936c3a2c"
+    },
+    "body": "{\"id\":\"evt_1\",\"type\":\"charge.succeeded\"}"
+  }
+}

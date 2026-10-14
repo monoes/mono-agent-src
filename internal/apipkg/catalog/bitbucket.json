@@ -1,0 +1,139 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "bitbucket",
+  "node_type": "app.bitbucket",
+  "title": "Bitbucket",
+  "description": "Bitbucket repository and workspace events (trigger only)",
+  "category": "app",
+  "docs_url": "https://developer.atlassian.com/cloud/bitbucket/rest/api-group-repositories/",
+  "n8n_types": [],
+  "n8n_trigger_types": [
+    "n8n-nodes-base.bitbucketTrigger"
+  ],
+  "base_url": "https://api.bitbucket.org/2.0",
+  "credentials": [
+    {
+      "platform": "bitbucket",
+      "name": "Bitbucket (app password)",
+      "n8n_credential": "bitbucketApi",
+      "n8n_field_map": {
+        "username": "username",
+        "appPassword": "app_password"
+      },
+      "methods": [
+        "basic"
+      ],
+      "fields": [
+        {
+          "key": "username",
+          "label": "Username",
+          "required": true
+        },
+        {
+          "key": "app_password",
+          "label": "App password",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "basic": {
+          "username": "{{ cred.username }}",
+          "password": "{{ cred.app_password }}"
+        }
+      }
+    },
+    {
+      "platform": "bitbucket_token",
+      "name": "Bitbucket (API token)",
+      "n8n_credential": "bitbucketAccessTokenApi",
+      "n8n_field_map": {
+        "email": "email",
+        "accessToken": "access_token"
+      },
+      "methods": [
+        "basic"
+      ],
+      "fields": [
+        {
+          "key": "email",
+          "label": "Email",
+          "required": true
+        },
+        {
+          "key": "access_token",
+          "label": "API token",
+          "secret": true,
+          "required": true
+        }
+      ],
+      "inject": {
+        "basic": {
+          "username": "{{ cred.email }}",
+          "password": "{{ cred.access_token }}"
+        }
+      }
+    }
+  ],
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "resource",
+        "label": "Resource",
+        "type": "select",
+        "required": true,
+        "default": "workspace",
+        "options": [
+          "repository",
+          "workspace"
+        ]
+      },
+      {
+        "key": "workspace",
+        "label": "Workspace",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "repository",
+        "label": "Repository",
+        "type": "text"
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/{{ p.resource | eq:'repository' | then:'repositories' | default:'workspaces' }}/{{ p.workspace }}{{ p.resource | eq:'repository' | then:'/' }}{{ p.resource | eq:'repository' | then:p.repository }}/hooks",
+        "body": {
+          "description": "mono-agent webhook",
+          "url": "{{ hook.url }}",
+          "active": true,
+          "events": "{{ p.events }}",
+          "secret": "{{ hook.secret }}"
+        }
+      }
+    ],
+    "id": "{{ res.uuid | replace:'{','' | replace:'}','' }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/{{ p.resource | eq:'repository' | then:'repositories' | default:'workspaces' }}/{{ p.workspace }}{{ p.resource | eq:'repository' | then:'/' }}{{ p.resource | eq:'repository' | then:p.repository }}/hooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/{{ p.resource | eq:'repository' | then:'repositories' | default:'workspaces' }}/{{ p.workspace }}{{ p.resource | eq:'repository' | then:'/' }}{{ p.resource | eq:'repository' | then:p.repository }}/hooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-Hub-Signature }}",
+      "prefix": "sha256="
+    }
+  }
+}

@@ -26,6 +26,7 @@ type MonoagentTools struct {
 
 	mu        sync.RWMutex
 	profileID string
+	store     WorkflowStore // nil: workflows only in SQLite (SetWorkflowStore)
 	// allowRuns is the mechanical, session-start gate for run_workflow —
 	// a model-supplied confirm:true argument can never flip
 	// it — only the chat session's explicit opt-in (CLI --tools
@@ -54,6 +55,28 @@ type MonoagentTools struct {
 // in cmd/monoagentcli, not duplicated here) — pass "" to disable it.
 func NewMonoagentTools(db *sql.DB, selfBin string) *MonoagentTools {
 	return &MonoagentTools{db: db, selfBin: selfBin, profileID: "default"}
+}
+
+// WorkflowStore is the part of the workflow store the tools need when
+// workflows are also kept as files (workflow.HybridWorkflowStore): writes that
+// must reach the file, not only the SQLite rows.
+type WorkflowStore interface {
+	SetWorkflowActive(ctx context.Context, id string, active bool) error
+	DeleteWorkflow(ctx context.Context, id string) error
+}
+
+// SetWorkflowStore makes set_workflow_active and delete_workflow go through
+// st, so a workflow saved as a file is activated or removed there too.
+func (mt *MonoagentTools) SetWorkflowStore(st WorkflowStore) {
+	mt.mu.Lock()
+	mt.store = st
+	mt.mu.Unlock()
+}
+
+func (mt *MonoagentTools) workflowStore() WorkflowStore {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+	return mt.store
 }
 
 // SetProfileID sets the active profile every tool call is scoped to.

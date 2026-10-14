@@ -156,42 +156,6 @@ func TestDoctorFixStreamsNDJSON(t *testing.T) {
 	}
 }
 
-func TestClaudeSkillsStateAndMCPRegistration(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	if found, _, _ := claudeSkillsState(); found {
-		t.Fatal("no ~/.claude: want not found")
-	}
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, missing, _ := claudeSkillsState(); len(missing) != len(claudeSkillNames) {
-		t.Fatalf("missing = %v", missing)
-	}
-	if err := installClaudeSkill(false); err != nil {
-		t.Fatal(err)
-	}
-	os.WriteFile(claudeSkillFile(filepath.Join(home, ".claude", "skills"), claudeSkillNames[0]), []byte("old"), 0o644)
-	if _, missing, stale := claudeSkillsState(); len(missing) != 0 || len(stale) != 1 {
-		t.Fatalf("missing %v stale %v", missing, stale)
-	}
-
-	if st := claudeMCPState(home); !st.Installed || st.Registered {
-		t.Fatalf("no ~/.claude.json: want installed, not registered: %+v", st)
-	}
-	os.WriteFile(filepath.Join(home, ".claude.json"),
-		[]byte(`{"mcpServers":{"ma":{"command":"/usr/local/bin/monoagentcli","args":["mcp"]}}}`), 0o644)
-	if st := claudeMCPState(home); !st.Registered || st.Current || st.Entry != "ma" {
-		t.Fatalf("read-only entry should be registered but outdated: %+v", st)
-	}
-	os.WriteFile(filepath.Join(home, ".claude.json"),
-		[]byte(`{"mcpServers":{"ma":{"command":"/usr/local/bin/monoagentcli","args":["mcp","--allow-mutations"]}}}`), 0o644)
-	if st := claudeMCPState(home); !st.Registered || !st.Current {
-		t.Fatalf("current entry not detected: %+v", st)
-	}
-}
-
 // A plain doctor run changes nothing: not the data folder, not Claude's
 // skills folder (the root command's first-run setup is not run for it), so
 // the data-folder check can see the folder missing.

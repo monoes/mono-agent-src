@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	goftp "github.com/jlaffaye/ftp"
@@ -38,7 +40,13 @@ func (n *FTPNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 	username, _ := config["username"].(string)
 	password, _ := config["password"].(string)
 	remotePath, _ := config["remote_path"].(string)
-	if remotePath == "" {
+	oldPath, _ := config["old_path"].(string)
+	newPath, _ := config["new_path"].(string)
+	if operation == "rename" {
+		if oldPath == "" || newPath == "" {
+			return nil, fmt.Errorf("http.ftp: 'old_path' and 'new_path' are required for rename")
+		}
+	} else if remotePath == "" {
 		return nil, fmt.Errorf("http.ftp: 'remote_path' is required")
 	}
 	localPath, _ := config["local_path"].(string)
@@ -145,9 +153,40 @@ func (n *FTPNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 			"path":    remotePath,
 		})
 
+	case "rename":
+		if createDirs, _ := config["create_directories"].(bool); createDirs {
+			makeParentDirs(conn, newPath)
+		}
+		if err := conn.Rename(oldPath, newPath); err != nil {
+			return nil, fmt.Errorf("http.ftp: rename failed: %w", err)
+		}
+		resultItem = workflow.NewItem(map[string]interface{}{
+			"success":  true,
+			"old_path": oldPath,
+			"new_path": newPath,
+		})
+
 	default:
 		return nil, fmt.Errorf("http.ftp: unknown operation %q", operation)
 	}
 
 	return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{resultItem}}}, nil
+}
+
+// makeParentDirs creates the missing parent directories of p, one level at
+// a time. Errors are ignored: a directory that already exists fails MKD,
+// and a real problem surfaces when the operation itself fails.
+func makeParentDirs(conn *goftp.ServerConn, p string) {
+	dir := path.Dir(p)
+	if dir == "." || dir == "/" {
+		return
+	}
+	cur := ""
+	if strings.HasPrefix(dir, "/") {
+		cur = "/"
+	}
+	for _, part := range strings.Split(strings.Trim(dir, "/"), "/") {
+		cur = path.Join(cur, part)
+		_ = conn.MakeDir(cur)
+	}
 }

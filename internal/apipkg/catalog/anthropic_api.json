@@ -1,0 +1,595 @@
+{
+  "$schema": "apipkg.v1",
+  "id": "anthropic_api",
+  "node_type": "app.anthropic_api",
+  "title": "Anthropic API",
+  "description": "Files, image and document analysis and prompt tools through the Anthropic API with your own key",
+  "category": "app",
+  "docs_url": "https://docs.anthropic.com/en/api",
+  "n8n_types": [
+    "@n8n/n8n-nodes-langchain.anthropic"
+  ],
+  "base_url": "{{ (cred.base_url | default:'https://api.anthropic.com') }}",
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "anthropic-beta": "files-api-2025-04-14",
+    "{{ cred.header_name }}": "{{ cred.header_value }}"
+  },
+  "credentials": [
+    {
+      "platform": "anthropic",
+      "name": "Anthropic",
+      "n8n_credential": "anthropicApi",
+      "n8n_field_map": {
+        "apiKey": "api_key",
+        "url": "base_url",
+        "headerName": "header_name",
+        "headerValue": "header_value"
+      },
+      "methods": [
+        "api_key"
+      ],
+      "fields": [
+        {
+          "key": "api_key",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "help": "console.anthropic.com/settings/keys"
+        },
+        {
+          "key": "base_url",
+          "label": "Base URL",
+          "help": "Defaults to https://api.anthropic.com"
+        },
+        {
+          "key": "header_name",
+          "label": "Custom header name",
+          "help": "Optional extra header sent with every request (e.g. for a proxy)."
+        },
+        {
+          "key": "header_value",
+          "label": "Custom header value",
+          "secret": true
+        }
+      ],
+      "inject": {
+        "headers": {
+          "x-api-key": "{{ cred.api_key }}"
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "value": "file",
+      "label": "File"
+    },
+    {
+      "value": "image",
+      "label": "Image"
+    },
+    {
+      "value": "document",
+      "label": "Document"
+    },
+    {
+      "value": "prompt",
+      "label": "Prompt",
+      "description": "Anthropic's experimental prompt tools"
+    }
+  ],
+  "operations": [
+    {
+      "resource": "file",
+      "operation": "upload",
+      "title": "Upload a file",
+      "description": "From a URL (downloaded first) or an input binary; the item gets the file's API url",
+      "method": "POST",
+      "path": "/v1/files",
+      "body_type": "multipart",
+      "fields": [
+        {
+          "key": "inputType",
+          "label": "Input",
+          "type": "select",
+          "default": "url",
+          "options": [
+            "url",
+            "binary"
+          ]
+        },
+        {
+          "key": "fileUrl",
+          "label": "File URL",
+          "type": "text",
+          "default": ""
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary property",
+          "type": "text",
+          "default": "data"
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "fileName"
+          ],
+          "help": "fileName: name given to the uploaded file (default file)."
+        }
+      ],
+      "binary": {
+        "upload_field": "binaryPropertyName",
+        "upload_url": "{{ p.inputType | ne:'binary' | then:p.fileUrl }}",
+        "multipart_field": "file",
+        "file_name": "{{ p.options.fileName | default:'file' }}"
+      },
+      "output": {
+        "to": {
+          "$merge": "{{ el }}",
+          "url": "{{ (cred.base_url | default:'https://api.anthropic.com') }}/v1/files/{{ el.id }}"
+        }
+      }
+    },
+    {
+      "resource": "file",
+      "operation": "get",
+      "title": "Get file metadata",
+      "method": "GET",
+      "path": "/v1/files/{{ p.fileId }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true,
+          "default": ""
+        }
+      ],
+      "output": {
+        "to": {
+          "$merge": "{{ el }}",
+          "url": "{{ (cred.base_url | default:'https://api.anthropic.com') }}/v1/files/{{ el.id }}"
+        }
+      }
+    },
+    {
+      "resource": "file",
+      "operation": "list",
+      "title": "List files",
+      "method": "GET",
+      "path": "/v1/files",
+      "fields": [
+        {
+          "key": "returnAll",
+          "label": "Return all",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "key": "limit",
+          "label": "Limit",
+          "type": "number",
+          "default": 50,
+          "min": 1,
+          "max": 1000
+        }
+      ],
+      "pagination": {
+        "type": "cursor",
+        "cursor_param": "after_id",
+        "cursor_path": "last_id",
+        "has_more_path": "has_more",
+        "limit_param": "limit",
+        "page_size": 1000,
+        "results_path": "data"
+      },
+      "output": {
+        "to": {
+          "$merge": "{{ el }}",
+          "url": "{{ (cred.base_url | default:'https://api.anthropic.com') }}/v1/files/{{ el.id }}"
+        }
+      }
+    },
+    {
+      "resource": "file",
+      "operation": "deleteFile",
+      "title": "Delete a file",
+      "method": "DELETE",
+      "path": "/v1/files/{{ p.fileId }}",
+      "fields": [
+        {
+          "key": "fileId",
+          "label": "File ID",
+          "type": "text",
+          "required": true,
+          "default": ""
+        }
+      ]
+    },
+    {
+      "resource": "image",
+      "operation": "analyze",
+      "title": "Analyze images",
+      "description": "Messages API with the images as content blocks; URLs of files uploaded to Anthropic are sent as file references",
+      "method": "POST",
+      "path": "/v1/messages",
+      "fields": [
+        {
+          "key": "modelId",
+          "label": "Model",
+          "type": "text",
+          "required": true,
+          "default": "",
+          "help": "Claude model id (plain or n8n model locator)."
+        },
+        {
+          "key": "text",
+          "label": "Question",
+          "type": "textarea",
+          "required": true,
+          "default": "What's in this image?"
+        },
+        {
+          "key": "inputType",
+          "label": "Input",
+          "type": "select",
+          "default": "url",
+          "options": [
+            "url",
+            "binary"
+          ]
+        },
+        {
+          "key": "imageUrls",
+          "label": "Image URLs",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated URLs; an Anthropic file URL (…/v1/files/<id>) refers to an uploaded file."
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary properties",
+          "type": "text",
+          "default": "data",
+          "help": "Comma-separated binary properties."
+        },
+        {
+          "key": "simplify",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Only return the answer's content blocks."
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "maxTokens"
+          ],
+          "help": "maxTokens: default 1024."
+        }
+      ],
+      "body": {
+        "model": "{{ p.modelId | rl }}",
+        "max_tokens": "{{ p.options.maxTokens | default:1024 }}",
+        "messages": [
+          {
+            "role": "user",
+            "content": {
+              "$concat": [
+                {
+                  "$map": "{{ p.inputType | ne:'binary' | then:(p.imageUrls | split) }}",
+                  "$to": {
+                    "type": "image",
+                    "source": {
+                      "type": "{{ (el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'' | ne:(el)) | then:'file' | default:'url' }}",
+                      "file_id": "{{ (el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'' | ne:(el)) | then:(el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'') }}",
+                      "url": "{{ (el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'' | ne:(el)) | not | then:el }}"
+                    }
+                  }
+                },
+                {
+                  "$map": "{{ bin.files }}",
+                  "$to": {
+                    "type": "image",
+                    "source": {
+                      "type": "base64",
+                      "media_type": "{{ el.mime_type }}",
+                      "data": "{{ el.base64 }}"
+                    }
+                  }
+                },
+                [
+                  {
+                    "type": "text",
+                    "text": "{{ p.text }}"
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "binary": {
+        "properties": "{{ p.inputType | eq:'binary' | then:p.binaryPropertyName }}"
+      },
+      "output": {
+        "to_when": "{{ p.simplify | ne:'false' }}",
+        "to": {
+          "content": "{{ el.content }}"
+        }
+      }
+    },
+    {
+      "resource": "document",
+      "operation": "analyze",
+      "title": "Analyze documents",
+      "description": "Messages API with the documents as content blocks; URLs of files uploaded to Anthropic are sent as file references",
+      "method": "POST",
+      "path": "/v1/messages",
+      "fields": [
+        {
+          "key": "modelId",
+          "label": "Model",
+          "type": "text",
+          "required": true,
+          "default": "",
+          "help": "Claude model id (plain or n8n model locator)."
+        },
+        {
+          "key": "text",
+          "label": "Question",
+          "type": "textarea",
+          "required": true,
+          "default": "What's in this document?"
+        },
+        {
+          "key": "inputType",
+          "label": "Input",
+          "type": "select",
+          "default": "url",
+          "options": [
+            "url",
+            "binary"
+          ]
+        },
+        {
+          "key": "documentUrls",
+          "label": "Document URLs",
+          "type": "text",
+          "default": "",
+          "help": "Comma-separated URLs; an Anthropic file URL (…/v1/files/<id>) refers to an uploaded file."
+        },
+        {
+          "key": "binaryPropertyName",
+          "label": "Input binary properties",
+          "type": "text",
+          "default": "data",
+          "help": "Comma-separated binary properties."
+        },
+        {
+          "key": "simplify",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true,
+          "help": "Only return the answer's content blocks."
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "maxTokens"
+          ],
+          "help": "maxTokens: default 1024."
+        }
+      ],
+      "body": {
+        "model": "{{ p.modelId | rl }}",
+        "max_tokens": "{{ p.options.maxTokens | default:1024 }}",
+        "messages": [
+          {
+            "role": "user",
+            "content": {
+              "$concat": [
+                {
+                  "$map": "{{ p.inputType | ne:'binary' | then:(p.documentUrls | split) }}",
+                  "$to": {
+                    "type": "document",
+                    "source": {
+                      "type": "{{ (el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'' | ne:(el)) | then:'file' | default:'url' }}",
+                      "file_id": "{{ (el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'' | ne:(el)) | then:(el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'') }}",
+                      "url": "{{ (el | replace:((cred.base_url | default:'https://api.anthropic.com') | suffix:'/v1/files/'),'' | ne:(el)) | not | then:el }}"
+                    }
+                  }
+                },
+                {
+                  "$map": "{{ bin.files }}",
+                  "$to": {
+                    "type": "document",
+                    "source": {
+                      "type": "base64",
+                      "media_type": "{{ el.mime_type }}",
+                      "data": "{{ el.base64 }}"
+                    }
+                  }
+                },
+                [
+                  {
+                    "type": "text",
+                    "text": "{{ p.text }}"
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "binary": {
+        "properties": "{{ p.inputType | eq:'binary' | then:p.binaryPropertyName }}"
+      },
+      "output": {
+        "to_when": "{{ p.simplify | ne:'false' }}",
+        "to": {
+          "content": "{{ el.content }}"
+        }
+      }
+    },
+    {
+      "resource": "prompt",
+      "operation": "generate",
+      "title": "Generate a prompt",
+      "method": "POST",
+      "path": "/v1/experimental/generate_prompt",
+      "headers": {
+        "anthropic-beta": "files-api-2025-04-14,prompt-tools-2025-04-02"
+      },
+      "fields": [
+        {
+          "key": "task",
+          "label": "Task",
+          "type": "textarea",
+          "required": true,
+          "default": ""
+        },
+        {
+          "key": "simplify",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true
+        }
+      ],
+      "body": {
+        "task": "{{ p.task }}"
+      },
+      "output": {
+        "to_when": "{{ p.simplify | ne:'false' }}",
+        "to": {
+          "!messages": "{{ el.messages }}",
+          "!system": "{{ el.system }}"
+        }
+      }
+    },
+    {
+      "resource": "prompt",
+      "operation": "improve",
+      "title": "Improve a prompt",
+      "method": "POST",
+      "path": "/v1/experimental/improve_prompt",
+      "headers": {
+        "anthropic-beta": "files-api-2025-04-14,prompt-tools-2025-04-02"
+      },
+      "fields": [
+        {
+          "key": "messages",
+          "label": "Messages",
+          "type": "collection",
+          "default": {
+            "values": [
+              {
+                "content": "",
+                "role": "user"
+              }
+            ]
+          },
+          "options": [
+            "values"
+          ],
+          "help": "values: [{role: user|assistant, content}]"
+        },
+        {
+          "key": "simplify",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "system",
+            "feedback"
+          ]
+        }
+      ],
+      "body": {
+        "messages": "{{ p.messages.values }}",
+        "system": "{{ p.options.system }}",
+        "feedback": "{{ p.options.feedback }}"
+      },
+      "output": {
+        "to_when": "{{ p.simplify | ne:'false' }}",
+        "to": {
+          "!messages": "{{ el.messages }}",
+          "!system": "{{ el.system }}"
+        }
+      }
+    },
+    {
+      "resource": "prompt",
+      "operation": "templatize",
+      "title": "Templatize a prompt",
+      "method": "POST",
+      "path": "/v1/experimental/templatize_prompt",
+      "headers": {
+        "anthropic-beta": "files-api-2025-04-14,prompt-tools-2025-04-02"
+      },
+      "fields": [
+        {
+          "key": "messages",
+          "label": "Messages",
+          "type": "collection",
+          "default": {
+            "values": [
+              {
+                "content": "",
+                "role": "user"
+              }
+            ]
+          },
+          "options": [
+            "values"
+          ],
+          "help": "values: [{role: user|assistant, content}]"
+        },
+        {
+          "key": "simplify",
+          "label": "Simplify",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "options",
+          "label": "Options",
+          "type": "collection",
+          "default": {},
+          "options": [
+            "system"
+          ]
+        }
+      ],
+      "body": {
+        "messages": "{{ p.messages.values }}",
+        "system": "{{ p.options.system }}"
+      },
+      "output": {
+        "to_when": "{{ p.simplify | ne:'false' }}",
+        "to": {
+          "!messages": "{{ el.messages }}",
+          "!system": "{{ el.system }}",
+          "!variable_values": "{{ el.variable_values }}"
+        }
+      }
+    }
+  ]
+}

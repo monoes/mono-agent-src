@@ -590,5 +590,76 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "options": [
+          "formSubscribe",
+          "linkClick",
+          "productPurchase",
+          "purchaseCreate",
+          "courseComplete",
+          "courseSubscribe",
+          "subscriberActivate",
+          "subscriberUnsubscribe",
+          "tagAdd",
+          "tagRemove"
+        ]
+      },
+      {
+        "key": "formId",
+        "label": "Form ID",
+        "type": "text"
+      },
+      {
+        "key": "courseId",
+        "label": "Sequence ID",
+        "type": "text"
+      },
+      {
+        "key": "link",
+        "label": "Link",
+        "type": "text"
+      },
+      {
+        "key": "productId",
+        "label": "Product ID",
+        "type": "text"
+      },
+      {
+        "key": "tagId",
+        "label": "Tag ID",
+        "type": "text"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/automations/hooks",
+        "body": {
+          "target_url": "{{ hook.url }}",
+          "event": {
+            "name": "{{ p.event | eq:'purchaseCreate' | then:'purchase.purchase_create' | default:(p.event | snake | prefix:'subscriber.') }}",
+            "form_id": "{{ p.event | eq:'formSubscribe' | then:p.formId }}",
+            "sequence_id": "{{ p.event | in:'courseSubscribe,courseComplete' | then:p.courseId }}",
+            "initiator_value": "{{ p.event | eq:'linkClick' | then:p.link }}",
+            "product_id": "{{ p.event | eq:'productPurchase' | then:p.productId }}",
+            "tag_id": "{{ p.event | in:'tagAdd,tagRemove' | then:p.tagId }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.rule.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/automations/hooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

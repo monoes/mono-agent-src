@@ -900,5 +900,123 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "service",
+        "label": "Service",
+        "type": "select",
+        "default": "support",
+        "options": [
+          "support"
+        ]
+      },
+      {
+        "key": "conditions",
+        "label": "Conditions",
+        "type": "collection",
+        "required": true
+      },
+      {
+        "key": "options",
+        "label": "Options",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "webhook": {
+            "name": "mono-agent webhook",
+            "endpoint": "{{ hook.url }}",
+            "http_method": "POST",
+            "status": "active",
+            "request_format": "json",
+            "subscriptions": [
+              "conditional_ticket_events"
+            ]
+          }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/webhooks/{{ pre.webhook.id }}/signing_secret"
+      },
+      {
+        "method": "POST",
+        "path": "/triggers",
+        "body": {
+          "trigger": {
+            "title": "mono-agent-webhook:{{ hook.path }}",
+            "conditions": {
+              "all": {
+                "$map": "{{ p.conditions.all }}",
+                "$to": {
+                  "field": "{{ el.field }}",
+                  "operator": "{{ el.operation }}",
+                  "!value": "{{ el.operation | in:'changed,not_changed' | not | then:el.value }}"
+                }
+              },
+              "any": {
+                "$map": "{{ p.conditions.any }}",
+                "$to": {
+                  "field": "{{ el.field }}",
+                  "operator": "{{ el.operation }}",
+                  "!value": "{{ el.operation | in:'changed,not_changed' | not | then:el.value }}"
+                }
+              }
+            },
+            "actions": [
+              {
+                "field": "notification_webhook",
+                "value": [
+                  "{{ pres.0.webhook.id }}",
+                  {
+                    "$json": {
+                      "$merge": [
+                        {
+                          "$entries": "{{ p.options.fields }}",
+                          "$key": "{{ el }}",
+                          "$value": "\\{{{{ el }}\\}}"
+                        },
+                        {
+                          "$when": "{{ p.options.fields | not }}",
+                          "ticket.id": "\\{{ticket.id\\}}"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "id": "{{ res.trigger.id }}",
+    "extra": {
+      "target": "{{ pres.0.webhook.id }}",
+      "secret": "{{ pres.1.signing_secret.secret }}"
+    },
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/triggers/{{ hook.id }}"
+      },
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.extra.target }}"
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Zendesk-Webhook-Signature }}",
+      "encoding": "base64",
+      "message": "{{ hdr.X-Zendesk-Webhook-Signature-Timestamp }}{{ req.body }}",
+      "secret": "{{ hook.extra.secret }}"
+    }
+  }
 }

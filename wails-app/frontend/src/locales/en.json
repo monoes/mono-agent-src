@@ -252,7 +252,7 @@
       "firstRunAction": "Pick a template",
       "extension": "Connect the browser extension",
       "extensionWhy": "Web automations run in your own browser through the extension.",
-      "extensionWhyUnpaired": "The bridge is running but does not accept this app yet. Pair it by running `monoagentcli extension pair --open` in a terminal.",
+      "extensionWhyUnpaired": "The bridge is running but doesn't accept this app yet. Pair it with the button.",
       "extensionAction": "Set up",
       "daemon": "Keep workflows running in the background",
       "daemonWhy": "Schedules and webhooks need the background service.",
@@ -280,7 +280,17 @@
     "language": {
       "sectionTitle": "Language",
       "label": "UI language",
-      "hint": "Pilot: English and Spanish only — see docs/i18n.md"
+      "hint": "Pilot: English and Spanish only"
+    },
+    "browsers": {
+      "notPaired": "This browser isn't paired with MonoAgent yet.",
+      "notPairedWhy": "Pair it so automations can run in it. The extension pairs itself from a page the button opens.",
+      "pair": "Pair browser",
+      "pairing": "Pairing…",
+      "pairOpened": "Opened the pairing page in your browser.",
+      "pairNotOpened": "Couldn't open the pairing page.",
+      "pairRestart": "The running bridge uses a different pairing token than this app.",
+      "details": "Details"
     },
     "health": {
       "sectionTitle": "System health",

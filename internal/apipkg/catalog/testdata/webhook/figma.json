@@ -1,0 +1,45 @@
+{
+  "params": {
+    "teamId": "t1",
+    "triggerOn": "fileVersionUpdate"
+  },
+  "create_responses": [
+    {
+      "id": "91"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v2/webhooks",
+      "body": {
+        "event_type": "FILE_VERSION_UPDATE",
+        "team_id": "t1",
+        "description": "mono-agent-webhook:https://hooks.example.test/webhook/wh-path",
+        "endpoint": "https://hooks.example.test/webhook/wh-path",
+        "passcode": "test-secret"
+      }
+    }
+  ],
+  "hook_id": "91",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v2/webhooks/91"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "91"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v2/webhooks/91"
+    }
+  },
+  "verify": {
+    "headers": {},
+    "body": "{\"event_type\":\"FILE_UPDATE\",\"passcode\":\"test-secret\"}"
+  }
+}

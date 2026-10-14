@@ -8,10 +8,12 @@ import (
 // recordNodeFailure marks an execution node FAILED with err's message, as
 // SetExecutionNodeFinished always did, and also stores the failure's class
 // and fix hint on the node and, when the execution has none yet, its class
-// on the execution. The class write is best-effort: a database without the
+// on the execution. items (the ones a node routed to an unwired "error"
+// output, or nil) are kept as the row's output so the failure can be
+// inspected. The class write is best-effort: a database without the
 // columns (an old test schema) still records the failure itself.
-func recordNodeFailure(ctx context.Context, store WorkflowStore, en *WorkflowExecutionNode, err error) error {
-	ferr := store.SetExecutionNodeFinished(ctx, en.ID, "FAILED", nil, err.Error())
+func recordNodeFailure(ctx context.Context, store WorkflowStore, en *WorkflowExecutionNode, err error, items []Item) error {
+	ferr := store.SetExecutionNodeFinished(ctx, en.ID, "FAILED", items, err.Error())
 	class := ClassifyError(err)
 	en.ErrorClass, en.ErrorHint = string(class), ErrorHint(class)
 	if db := store.RawDB(); db != nil {

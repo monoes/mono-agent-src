@@ -390,6 +390,9 @@ var registryMore = map[string]PlatformDef{
 		CredentialField{Key: "api_key", Label: "API Key / Token", Secret: true},
 		CredentialField{Key: "tenant", Label: "Tenant", HelpText: "Defaults to default_tenant."},
 		CredentialField{Key: "database", Label: "Database", HelpText: "Defaults to default_database."}),
+	"azure_ai_search": apiKeyPlatform("azure_ai_search", "Azure AI Search", "database", "🔎",
+		CredentialField{Key: "endpoint", Label: "Endpoint", Required: true, HelpText: "https://<service>.search.windows.net"},
+		CredentialField{Key: "api_key", Label: "Admin API Key", Secret: true, Required: true, HelpText: "Search service → Keys"}),
 
 	// ─── More databases, queues and directory (db.* / queue.* nodes) ─────────
 

@@ -51,9 +51,6 @@ const bridgeAdvice = extensioncli.BridgeAdvice
 // bridgeLifetimeHint is bridgeAdvice, but only for a bridge this process owns.
 func bridgeLifetimeHint(bridge connChecker) string { return extensioncli.BridgeLifetimeHint(bridge) }
 
-// bridgeAddr is the address a running bridge answers on.
-var bridgeAddr = extensioncli.BridgeAddr
-
 // captureHooks are the capture summaries and indexing installed into a server.
 type captureHooks = extensioncli.CaptureHooks
 

@@ -178,5 +178,43 @@
         }
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "topic",
+        "label": "Topic ARN",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/",
+        "body": {
+          "Action": "Subscribe",
+          "Version": "2010-03-31",
+          "TopicArn": "{{ p.topic | rl | re:'(arn:aws:sns:[^/#?]+)' }}",
+          "Endpoint": "{{ hook.url }}",
+          "Protocol": "{{ hook.url | re:'^([a-z]+):' }}",
+          "ReturnSubscriptionArn": "true"
+        },
+        "body_type": "form"
+      }
+    ],
+    "id": "{{ res.SubscribeResponse.SubscribeResult.SubscriptionArn }}",
+    "delete": [
+      {
+        "method": "POST",
+        "path": "/",
+        "body": {
+          "Action": "Unsubscribe",
+          "Version": "2010-03-31",
+          "SubscriptionArn": "{{ hook.id }}"
+        },
+        "body_type": "form"
+      }
+    ]
+  }
 }

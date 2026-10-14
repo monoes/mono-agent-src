@@ -48,10 +48,86 @@
       "type": "text"
     },
     {
+      "default": "command",
+      "help": "command runs a shell command; file uploads or downloads a file over SFTP.",
+      "key": "resource",
+      "label": "Resource",
+      "options": [
+        "command",
+        "file"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "depends_on": {
+        "key": "resource",
+        "values": [
+          "command"
+        ]
+      },
       "key": "command",
       "label": "Command",
       "placeholder": "ls -la /var/log",
       "required": true,
+      "type": "text"
+    },
+    {
+      "default": "upload",
+      "depends_on": {
+        "key": "resource",
+        "values": [
+          "file"
+        ]
+      },
+      "key": "operation",
+      "label": "File Operation",
+      "options": [
+        "upload",
+        "download"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "depends_on": {
+        "key": "resource",
+        "values": [
+          "file"
+        ]
+      },
+      "help": "upload: the remote directory the file goes into. download: the full remote file path. A leading ~/ is the login user's home.",
+      "key": "path",
+      "label": "Remote Path",
+      "placeholder": "/home/user/uploads",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "default": "data",
+      "depends_on": {
+        "key": "resource",
+        "values": [
+          "file"
+        ]
+      },
+      "help": "upload: the input item's binary property (or base64 field) to send. download: the property the file is written to.",
+      "key": "binary_property",
+      "label": "Binary Property",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "depends_on": {
+        "key": "resource",
+        "values": [
+          "file"
+        ]
+      },
+      "help": "upload: the remote file name (default the item's file_name, else the binary property name). download: the output file_name (default the remote base name).",
+      "key": "file_name",
+      "label": "File Name",
+      "required": false,
       "type": "text"
     },
     {

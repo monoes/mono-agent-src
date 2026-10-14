@@ -378,5 +378,35 @@
         "path": "results"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "workflow",
+        "label": "Workflow ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/workflows/{{ p.workflow }}/hook",
+        "body": {
+          "type": "n8n",
+          "target_url": "{{ hook.url }}"
+        }
+      }
+    ],
+    "id": "{{ res.webhook_id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/workflows/{{ p.workflow }}/hook",
+        "query": {
+          "type": "n8n"
+        }
+      }
+    ]
+  }
 }

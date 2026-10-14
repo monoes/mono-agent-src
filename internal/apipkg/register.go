@@ -16,7 +16,8 @@ func init() {
 }
 
 // Register adds one node type per package that does not extend a native
-// node. A type already in r is left alone.
+// node (a type already in r is left alone) and the webhook registrar of
+// each package with a webhook block.
 func Register(r *workflow.NodeTypeRegistry) {
 	for _, p := range packages() {
 		t := p.NodeTypeOf()
@@ -26,6 +27,7 @@ func Register(r *workflow.NodeTypeRegistry) {
 		pkg := p
 		r.Register(t, func() workflow.NodeExecutor { return &Node{pkg: pkg} })
 	}
+	registerWebhooks()
 }
 
 // registerPlatforms registers each package credential's connection

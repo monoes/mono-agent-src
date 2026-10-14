@@ -541,5 +541,69 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "resource",
+        "label": "Resource",
+        "type": "select",
+        "required": true,
+        "default": "meeting",
+        "options": [
+          "all",
+          "attachmentAction",
+          "meeting",
+          "membership",
+          "message",
+          "recording",
+          "room",
+          "telephonyCall"
+        ]
+      },
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "text",
+        "required": true,
+        "default": "*"
+      },
+      {
+        "key": "filters",
+        "label": "Filters",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "name": "mono-agent:{{ hook.url }}",
+          "targetUrl": "{{ hook.url }}",
+          "event": "{{ p.event }}",
+          "resource": "{{ p.resource | map:'attachmentAction=attachmentActions,membership=memberships,message=messages,room=rooms,meeting=meetings,recording=recordings,telephonyCall=telephony_calls' }}",
+          "ownedBy": "{{ p.filters.ownedBy }}",
+          "secret": "{{ hook.secret }}",
+          "filter": "{{ p.filters | omit:'ownedBy' | urlencode }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-Spark-Signature }}",
+      "alg": "sha1"
+    }
+  }
 }

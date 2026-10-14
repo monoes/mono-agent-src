@@ -35,6 +35,29 @@ type NodeInput struct {
 	// Location is the workflow's timezone (settings.timezone), for the
 	// $now/$today of expressions a node evaluates itself. Nil means UTC.
 	Location *time.Location
+	// Trigger, Vars, RunIndex and PrevNode are $trigger, $vars, $runIndex
+	// and $prevNode for the expressions a node evaluates itself.
+	Trigger  map[string]interface{}
+	Vars     map[string]interface{}
+	RunIndex int
+	PrevNode string
+}
+
+// ItemContext is the expression context for a node evaluating its own
+// expressions against one item: the same variables the engine resolves
+// config templates with.
+func (in NodeInput) ItemContext(json map[string]interface{}) ExpressionContext {
+	return ExpressionContext{
+		JSON:        json,
+		Node:        in.NodeOutputs,
+		WorkflowID:  in.WorkflowID,
+		ExecutionID: in.ExecutionID,
+		Trigger:     in.Trigger,
+		Vars:        in.Vars,
+		RunIndex:    in.RunIndex,
+		PrevNode:    in.PrevNode,
+		Location:    in.Location,
+	}
 }
 
 // NodeOutput is returned by NodeExecutor.Execute.

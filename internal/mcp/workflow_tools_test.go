@@ -296,3 +296,31 @@ func TestWorkflowToolsRefusedWithNarrowModes(t *testing.T) {
 		})
 	}
 }
+
+// An inactive workflow cannot run, so it is not served (its tool would fail
+// on every call with "workflow is not active").
+func TestWorkflowToolsSkipInactive(t *testing.T) {
+	s := newWorkflowToolsServer(t, "all", true)
+	saveWorkflow(t, s, "wf-on", "On", nil)
+	off := saveWorkflow(t, s, "wf-off", "Off", nil)
+	rt, err := s.runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.store.SetWorkflowActive(context.Background(), off.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	tools := listTools(t, s)
+	if _, ok := tools["wf_on"]; !ok {
+		t.Errorf("active workflow not served: %v", wfToolNames(tools))
+	}
+	if _, ok := tools["wf_off"]; ok {
+		t.Errorf("inactive workflow served: %v", wfToolNames(tools))
+	}
+}
+
+func TestWorkflowToolSuffixSkipsTheWfPrefix(t *testing.T) {
+	if got := idSuffix("wf-3845abcd", 6); got != "3845ab" {
+		t.Errorf("idSuffix = %q, want 3845ab", got)
+	}
+}

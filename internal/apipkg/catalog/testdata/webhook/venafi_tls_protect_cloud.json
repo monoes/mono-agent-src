@@ -1,0 +1,44 @@
+{
+  "credential": {
+    "api_key": "k",
+    "region": "cloud"
+  },
+  "params": {
+    "resource": "Certificates"
+  },
+  "create_responses": [
+    {
+      "id": "vc1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v1/connectors",
+      "body": {
+        "name": "mono-agent-webhook (https://hooks.example.test/webhook/wh-path)",
+        "properties": {
+          "connectorKind": "WEBHOOK",
+          "target": {
+            "type": "generic",
+            "connection": {
+              "url": "https://hooks.example.test/webhook/wh-path"
+            }
+          },
+          "filter": {
+            "activityTypes": [
+              "Certificates"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "hook_id": "vc1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v1/connectors/vc1"
+    }
+  ]
+}

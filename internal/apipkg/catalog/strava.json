@@ -25,7 +25,19 @@
       "methods": [
         "oauth"
       ],
-      "fields": [],
+      "fields": [
+        {
+          "key": "client_id",
+          "label": "API application client ID",
+          "help": "Only for the Strava trigger (push subscriptions)"
+        },
+        {
+          "key": "client_secret",
+          "label": "API application client secret",
+          "secret": true,
+          "help": "Only for the Strava trigger"
+        }
+      ],
       "oauth": {
         "auth_url": "https://www.strava.com/oauth/authorize",
         "token_url": "https://www.strava.com/oauth/token",
@@ -33,7 +45,11 @@
         "pkce": true,
         "extra_params": {
           "scope": "activity:read_all,activity:write"
-        }
+        },
+        "connect_fields": [
+          "client_id",
+          "client_secret"
+        ]
       },
       "inject": {
         "headers": {
@@ -358,5 +374,43 @@
         "$merge": "{{ p.updateFields }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "create": [
+      {
+        "method": "POST",
+        "path": "/push_subscriptions",
+        "body": {
+          "client_id": "{{ cred.client_id }}",
+          "client_secret": "{{ cred.client_secret }}",
+          "callback_url": "{{ hook.url }}",
+          "verify_token": "{{ hook.secret }}"
+        },
+        "body_type": "form",
+        "auth": false
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/push_subscriptions/{{ hook.id }}",
+        "query": {
+          "client_id": "{{ cred.client_id }}",
+          "client_secret": "{{ cred.client_secret }}"
+        },
+        "auth": false
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/push_subscriptions",
+      "query": {
+        "client_id": "{{ cred.client_id }}",
+        "client_secret": "{{ cred.client_secret }}"
+      },
+      "auth": false,
+      "exists_when": "{{ res | find:'id',hook.id }}"
+    }
+  }
 }

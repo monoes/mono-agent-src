@@ -344,6 +344,10 @@ func openReply(ctx context.Context, db *sql.DB, input NodeInput) (*WaitReplyResu
 	return res, nil
 }
 
+// ExecutionData is $execution with its resume URLs, for nodes that bind it
+// themselves (core.code).
+func ExecutionData(id string) map[string]interface{} { return executionData(id, true) }
+
 // executionData is $execution: its id and, when withURLs, the resume URL
 // n8n templates reach as $execution.resumeUrl / resumeFormUrl (one URL
 // serves both a core.wait webhook and form).

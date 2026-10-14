@@ -1,0 +1,60 @@
+{
+  "credential": {
+    "api_url": "https://acme.api-us1.com",
+    "api_key": "k"
+  },
+  "params": {
+    "events": [
+      "subscribe",
+      "update"
+    ],
+    "sources": [
+      "public"
+    ]
+  },
+  "create_responses": [
+    {
+      "webhook": {
+        "id": "17"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/3/webhooks",
+      "body": {
+        "webhook": {
+          "name": "mono-agent:https://hooks.example.test/webhook/wh-path",
+          "url": "https://hooks.example.test/webhook/wh-path",
+          "events": [
+            "subscribe",
+            "update"
+          ],
+          "sources": [
+            "public"
+          ]
+        }
+      }
+    }
+  ],
+  "hook_id": "17",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/3/webhooks/17"
+    }
+  ],
+  "check": {
+    "response": {
+      "webhook": {
+        "id": "17"
+      }
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/api/3/webhooks/17"
+    }
+  }
+}

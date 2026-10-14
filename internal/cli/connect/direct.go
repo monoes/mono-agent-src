@@ -228,11 +228,13 @@ type oauthProgress struct {
 // profile's existing OAuth connection for the platform when there is one.
 // A platform with only OAuth 1.0a runs that flow instead, with the consumer
 // key and secret from --field (asked on a terminal when missing).
-// Progress goes to stderr, one JSON object per line with --json, so the
-// desktop app can stream it; the saved connection (no credentials) goes to
-// stdout.
+// --stdin-json reads more field values as a JSON object on stdin, keeping
+// secrets out of argv. Progress goes to stderr, one JSON object per line
+// with --json, so the desktop app can stream it; the saved connection (no
+// credentials) goes to stdout.
 func (d Deps) newConnectOAuthCmd() *cobra.Command {
 	var scopeGroups, fieldFlags []string
+	var stdinJSON bool
 	cmd := &cobra.Command{
 		Use:   "oauth <platform>",
 		Short: "Connect a platform through its browser OAuth (2.0 or 1.0a) flow, without prompts",
@@ -243,8 +245,9 @@ func (d Deps) newConnectOAuthCmd() *cobra.Command {
 			"consumer_secret and, for generic_oauth1, the request_token_url, authorization_url and " +
 			"access_token_url). An unknown key is an error naming the allowed ones; `connect show <platform>` " +
 			"lists them. On a terminal (without --json) the missing required OAuth 1.0a fields are asked, " +
-			"secrets without echo — prefer that to a --field consumer_secret, which other local users can " +
-			"read in the process list.\n\nExit code 3 for an unknown platform or bad --field, 4 when the flow " +
+			"secrets without echo — prefer that, or --stdin-json, to a --field consumer_secret, which other " +
+			"local users can read in the process list. --stdin-json reads field values as one JSON object on " +
+			"stdin; a --field of the same key wins.\n\nExit code 3 for an unknown platform or bad --field, 4 when the flow " +
 			"or the validation fails.",
 		Example: `  monoagentcli connect oauth salesforce --field environment=sandbox
   monoagentcli connect oauth trello            # asks for the consumer key and secret
@@ -269,12 +272,29 @@ func (d Deps) newConnectOAuthCmd() *cobra.Command {
 			} else {
 				allowed = p.OAuth.ConnectFields
 			}
-			values, err := d.parseOAuthFieldFlags(args[0], fieldFlags, allowed)
+			flags := fieldFlags
+			if stdinJSON {
+				secrets.MarkStdinConsumed()
+				var fromStdin map[string]string
+				if err := json.NewDecoder(cmd.InOrStdin()).Decode(&fromStdin); err != nil {
+					// The decoder's message can quote the payload; keep it out.
+					return d.InvalidInput("stdin must be a JSON object of string field values")
+				}
+				flags = nil
+				for k, v := range fromStdin {
+					if strings.TrimSpace(k) == "" {
+						return d.InvalidInput("stdin has a field with an empty key")
+					}
+					flags = append(flags, k+"="+v)
+				}
+				flags = append(flags, fieldFlags...)
+			}
+			values, err := d.parseOAuthFieldFlags(args[0], flags, allowed)
 			if err != nil {
 				return err
 			}
 			if oauth1 {
-				if !d.JSONOutput() && stdinIsTerminal() {
+				if !stdinJSON && !d.JSONOutput() && stdinIsTerminal() {
 					secrets.MarkStdinConsumed()
 					if err := connections.PromptMissingFields(allowed, values, cmd.InOrStdin()); err != nil {
 						return d.InvalidInput("%v", err)
@@ -330,5 +350,6 @@ func (d Deps) newConnectOAuthCmd() *cobra.Command {
 		"Scope groups to grant an umbrella platform, comma-separated (default: every group not marked opt-in; \"all\" adds the opt-in ones too). "+connections.ScopeGroupsHelp())
 	cmd.Flags().StringArrayVar(&fieldFlags, "field", nil,
 		"A value the flow needs, as key=value (repeatable): an OAuth 2.0 connect field (tenant subdomain, environment) or an OAuth 1.0a form field (consumer_key, consumer_secret, endpoint URLs)")
+	cmd.Flags().BoolVar(&stdinJSON, "stdin-json", false, "Also read field values as a JSON object from stdin (keeps secrets out of the process list)")
 	return cmd
 }

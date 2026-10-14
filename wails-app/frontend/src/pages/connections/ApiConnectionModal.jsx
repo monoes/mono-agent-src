@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, X, CheckCircle, Loader, Trash2, HelpCircle, ArrowLeft, ExternalLink } from 'lucide-react'
 import { api, onConnectionProgress, onConnectionDone } from '../../services/api.js'
 import { HELP_GUIDES } from '../../lib/helpGuides.js'
+import OAuthFields, { oauthFormFields, missingRequired, oauthFieldArgs } from './OAuthFields.jsx'
 
 function fmtDate(s) {
   if (!s) return '—'
@@ -100,6 +101,9 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
   const [oauthCredsLoaded, setOauthCredsLoaded] = useState(false)
   const [oauthCredsSaved, setOauthCredsSaved]   = useState(false)
   const [oauthCredsNeeded, setOauthCredsNeeded] = useState(false)
+  // `connect show --json`, and the OAuth 1.0a form / tenant connect field values.
+  const [view, setView] = useState(null)
+  const [oauthValues, setOauthValues] = useState({})
 
   const pid     = platform.id || ''
   const name    = platform.name || pid
@@ -108,6 +112,14 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
   const methods = (platform.methods || []).filter(m => m !== 'browser')
   const mFields = (platform.fields || {})[selMethod] || []
   const guide   = HELP_GUIDES[pid]?.[selMethod] || null
+  const isOAuth = selMethod === 'oauth' || selMethod === 'oauth1'
+  const oauthFields = oauthFormFields(view, selMethod)
+  const oauthMissing = missingRequired(oauthFields, oauthValues)
+  // A connect field client_id (Strava, Facebook Lead Ads) replaces the stored OAuth client.
+  const needsClient = selMethod === 'oauth' && !oauthFields.some(f => f.key === 'client_id')
+  const canStart = (!needsClient || !!oauthCreds.clientID) && oauthMissing.length === 0
+
+  useEffect(() => { api.showPlatform(pid).then(setView) }, [pid])
 
   // Load stored OAuth credentials when OAuth method selected
   useEffect(() => {
@@ -133,6 +145,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
     })
     const offDone = onConnectionDone(async (data) => {
       if (!data || data.platform !== pid) return
+      if (data.cancelled) { setFlowSteps([]); setFlowRunning(false); return }
       if (data.success) {
         setFlowRunning(false)
         await onRefresh()
@@ -188,12 +201,13 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
     setFlowSteps([])
     setFlowRunning(true)
     setSaveErr(null)
-    const r = await api.connectPlatformOAuth(pid)
+    const { pairs, secretJSON } = oauthFieldArgs(oauthFields, oauthValues)
+    const r = await api.connectPlatformOAuth(pid, pairs, secretJSON)
     if (r && r.startsWith('error:')) {
       setFlowSteps([{ message: r.replace('error:', '').trim(), kind: 'error' }])
       setFlowRunning(false)
     }
-  }, [pid])
+  }, [pid, oauthFields, oauthValues])
 
   const dotColor = (kind) => {
     if (kind === 'success') return 'var(--green-neon)'
@@ -305,7 +319,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
               {methods.length > 1 && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {methods.map(m => (
-                    <button key={m} onClick={() => { setSelMethod(m); setFields({}); setSaveErr(null); setSaveOk(false); setFlowSteps([]); setFlowRunning(false); setShowHelp(false) }}
+                    <button key={m} onClick={() => { setSelMethod(m); setFields({}); setOauthValues({}); setSaveErr(null); setSaveOk(false); setFlowSteps([]); setFlowRunning(false); setShowHelp(false) }}
                       style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '3px 10px', borderRadius: 4, background: selMethod === m ? 'var(--cyan-dim)' : 'var(--surface)', border: selMethod === m ? '1px solid var(--cyan)' : '1px solid var(--border)', color: selMethod === m ? 'var(--bg)' : 'var(--text-muted)', cursor: 'pointer' }}>
                       {m}
                     </button>
@@ -314,10 +328,10 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
               )}
 
               {/* OAuth flow */}
-              {selMethod === 'oauth' ? (
+              {isOAuth ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {/* OAuth app credentials — always shown so user can update them */}
-                  {(oauthCredsNeeded || flowSteps.length === 0) && !flowRunning && (
+                  {needsClient && (oauthCredsNeeded || flowSteps.length === 0) && !flowRunning && (
                     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
@@ -361,20 +375,25 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                     </div>
                   )}
 
+                  {!flowRunning && (
+                    <OAuthFields title={selMethod === 'oauth1' ? 'OAuth 1.0a app' : 'Account details'}
+                      fields={oauthFields} values={oauthValues} onChange={setOauthValues} />
+                  )}
+
                   {flowSteps.length === 0 && !flowRunning && (
                     <>
                       <button
                         className="btn btn-secondary btn-sm"
-                        disabled={!oauthCreds.clientID}
+                        disabled={!canStart}
                         onClick={startOAuthFlow}
                         style={{ gap: 5, alignSelf: 'flex-start' }}
-                        title={!oauthCreds.clientID ? 'Save your OAuth credentials first' : ''}
+                        title={canStart ? '' : (needsClient && !oauthCreds.clientID ? 'Save your OAuth credentials first' : 'Fill in the required fields first')}
                       >
                         <CheckCircle size={11} /> Connect with {name}
                       </button>
-                      {!oauthCreds.clientID && (
+                      {!canStart && (
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-                          Save your OAuth credentials above first
+                          {needsClient && !oauthCreds.clientID ? 'Save your OAuth credentials above first' : 'Fill in the required fields above first'}
                         </span>
                       )}
                     </>
@@ -394,10 +413,13 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Loader size={11} style={{ animation: 'spin .7s linear infinite', color: 'var(--text-muted)' }} />
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>Running…</span>
+                      <button className="btn btn-ghost btn-sm" onClick={() => api.cancelPlatformOAuth(pid)} style={{ gap: 5 }}>
+                        <X size={11} /> Cancel
+                      </button>
                     </div>
                   )}
                   {!flowRunning && flowSteps.some(s => s.kind === 'error') && (
-                    <button className="btn btn-primary btn-sm" onClick={startOAuthFlow} style={{ gap: 5, alignSelf: 'flex-start' }}>
+                    <button className="btn btn-primary btn-sm" onClick={startOAuthFlow} disabled={!canStart} style={{ gap: 5, alignSelf: 'flex-start' }}>
                       <RefreshCw size={11} /> Retry
                     </button>
                   )}
@@ -445,7 +467,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
               {saveOk  && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '7px 12px', borderRadius: 'var(--radius)', background: 'rgba(74,222,128,.08)', border: '1px solid rgba(74,222,128,.25)', color: 'var(--green-neon)' }}>Connected!</div>}
 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {selMethod !== 'oauth' && (mFields.length > 0 || selMethod === 'connstring') && (
+                {!isOAuth && (mFields.length > 0 || selMethod === 'connstring') && (
                   <button className="btn btn-primary btn-sm" onClick={connect} disabled={saving || saveOk} style={{ gap: 5 }}>
                     {saving ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <CheckCircle size={11} />}
                     {saving ? 'Connecting…' : 'Connect'}

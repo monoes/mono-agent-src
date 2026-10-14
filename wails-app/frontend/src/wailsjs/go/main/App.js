@@ -186,6 +186,10 @@ export function CancelHealthRun(arg1) {
   return window['go']['main']['App']['CancelHealthRun'](arg1);
 }
 
+export function CancelPlatformOAuth(arg1) {
+  return window['go']['main']['App']['CancelPlatformOAuth'](arg1);
+}
+
 export function CancelWorkflow(arg1) {
   return window['go']['main']['App']['CancelWorkflow'](arg1);
 }
@@ -260,6 +264,10 @@ export function ConfirmSocialLogin(arg1) {
 
 export function ConnectPlatformOAuth(arg1) {
   return window['go']['main']['App']['ConnectPlatformOAuth'](arg1);
+}
+
+export function ConnectPlatformOAuthFields(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ConnectPlatformOAuthFields'](arg1, arg2, arg3);
 }
 
 export function ControlOrg(arg1, arg2) {
@@ -1030,12 +1038,20 @@ export function OrgSignatureStatus(arg1) {
   return window['go']['main']['App']['OrgSignatureStatus'](arg1);
 }
 
+export function PairExtension() {
+  return window['go']['main']['App']['PairExtension']();
+}
+
 export function PauseOrgAutonomy(arg1, arg2) {
   return window['go']['main']['App']['PauseOrgAutonomy'](arg1, arg2);
 }
 
 export function PickCoderFolder() {
   return window['go']['main']['App']['PickCoderFolder']();
+}
+
+export function PlatformNames() {
+  return window['go']['main']['App']['PlatformNames']();
 }
 
 export function PromoteRoleToRoot(arg1, arg2) {
@@ -1232,6 +1248,10 @@ export function SetWorkflowActive(arg1, arg2) {
 
 export function ShowAutomation(arg1) {
   return window['go']['main']['App']['ShowAutomation'](arg1);
+}
+
+export function ShowPlatform(arg1) {
+  return window['go']['main']['App']['ShowPlatform'](arg1);
 }
 
 export function ShowRecording(arg1) {

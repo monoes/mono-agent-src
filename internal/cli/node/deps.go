@@ -1,7 +1,7 @@
 // Package node is `monoagentcli node`: list the node types, print a type's schema, run one node
-// on its own, and turn a curl command into an http.request config. Everything the commands need
-// from the CLI around them comes in through Deps, so they can be tested in isolation. `node
-// palette` stays in the CLI, which adds it to the group NewCommand returns.
+// on its own, turn a curl command into an http.request config, and print the desktop app's node
+// palette. Everything the commands need from the CLI around them comes in through Deps, so they
+// can be tested in isolation.
 package node
 
 import (

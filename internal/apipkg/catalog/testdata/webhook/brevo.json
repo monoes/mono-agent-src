@@ -1,0 +1,44 @@
+{
+  "params": {
+    "events": [
+      "delivered",
+      "click"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": 77
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v3/webhooks",
+      "body": {
+        "events": [
+          "delivered",
+          "click"
+        ],
+        "type": "transactional",
+        "url": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "77",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v3/webhooks/77"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": 77
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v3/webhooks/77"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "params": {
+    "objectType": "survey",
+    "event": "response_completed",
+    "surveyIds": [
+      "s1",
+      "s2"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": "sm1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v3/webhooks",
+      "body": {
+        "name": "mono-agent - Webhook [response_completed]",
+        "subscription_url": "https://hooks.example.test/webhook/wh-path",
+        "event_type": "response_completed",
+        "object_type": "survey",
+        "object_ids": [
+          "s1",
+          "s2"
+        ]
+      }
+    }
+  ],
+  "hook_id": "sm1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v3/webhooks/sm1"
+    }
+  ]
+}

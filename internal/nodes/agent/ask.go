@@ -59,6 +59,11 @@ type askConfig struct {
 
 func (n *AskNode) Type() string { return "agent.ask" }
 
+// PerItemConfigFields holds the prompts back from the engine's one-pass
+// config resolution, which uses only the first item: each item's prompt is
+// resolved against that item in ask.
+func (n *AskNode) PerItemConfigFields() []string { return []string{"prompt", "system_prompt"} }
+
 func (n *AskNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	runtime := configString(config, "runtime", "")
 	if runtime == "" {
@@ -181,11 +186,18 @@ func (t *asker) askAll(ctx context.Context, items, out []workflow.Item, n int) e
 // ask runs one item: a turn, and with output_schema one re-ask on a mismatch.
 func (t *asker) ask(ctx context.Context, item workflow.Item) (workflow.Item, error) {
 	cfg := t.cfg
-	prompt := expandTemplate(cfg.promptTemplate, item)
+	prompt, err := t.resolve(cfg.promptTemplate, item)
+	if err != nil {
+		return workflow.Item{}, fmt.Errorf("agent.ask: prompt: %w", err)
+	}
+	system, err := t.resolve(cfg.systemPrompt, item)
+	if err != nil {
+		return workflow.Item{}, fmt.Errorf("agent.ask: system_prompt: %w", err)
+	}
 	if cfg.schema != nil {
 		prompt += schemaInstruction(cfg.schema)
 	}
-	res, err := t.turn(ctx, prompt, "")
+	res, err := t.turn(ctx, prompt, system, "")
 	if err != nil {
 		return workflow.Item{}, err
 	}
@@ -196,7 +208,7 @@ func (t *asker) ask(ctx context.Context, item workflow.Item) (workflow.Item, err
 	} else {
 		value, verr := parseAgainst(cfg.schema, res.ResultText)
 		if verr != nil {
-			res, value, err = t.reask(ctx, prompt, res.SessionID, verr)
+			res, value, err = t.reask(ctx, prompt, system, res.SessionID, verr)
 			if err != nil {
 				return workflow.Item{}, err
 			}
@@ -224,10 +236,10 @@ func (t *asker) ask(ctx context.Context, item workflow.Item) (workflow.Item, err
 // reask asks once more after a reply that did not match the schema: in the
 // same session when there is one, else (or when resuming fails) in a fresh
 // turn that carries the original prompt.
-func (t *asker) reask(ctx context.Context, prompt, sessionID string, verr error) (*monomind.TurnResult, interface{}, error) {
+func (t *asker) reask(ctx context.Context, prompt, system, sessionID string, verr error) (*monomind.TurnResult, interface{}, error) {
 	var res *monomind.TurnResult
 	if sessionID != "" {
-		r, err := t.turn(ctx, fmt.Sprintf("Your reply did not match the required JSON Schema: %v.%s", verr, schemaInstruction(t.cfg.schema)), sessionID)
+		r, err := t.turn(ctx, fmt.Sprintf("Your reply did not match the required JSON Schema: %v.%s", verr, schemaInstruction(t.cfg.schema)), system, sessionID)
 		if err == nil {
 			res = r
 		} else if ctx.Err() != nil {
@@ -235,7 +247,7 @@ func (t *asker) reask(ctx context.Context, prompt, sessionID string, verr error)
 		}
 	}
 	if res == nil {
-		r, err := t.turn(ctx, prompt+fmt.Sprintf("\n\nA previous reply was rejected: %v.", verr), "")
+		r, err := t.turn(ctx, prompt+fmt.Sprintf("\n\nA previous reply was rejected: %v.", verr), system, "")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -261,7 +273,7 @@ func parseAgainst(schema map[string]interface{}, reply string) (interface{}, err
 }
 
 // turn runs one agent turn and records its usage.
-func (t *asker) turn(ctx context.Context, prompt, resume string) (*monomind.TurnResult, error) {
+func (t *asker) turn(ctx context.Context, prompt, system, resume string) (*monomind.TurnResult, error) {
 	cfg := t.cfg
 	model := cfg.model
 	// ResultText holds the reply even when the result event has no text:
@@ -271,7 +283,7 @@ func (t *asker) turn(ctx context.Context, prompt, resume string) (*monomind.Turn
 		Runtime:      cfg.runtime,
 		Model:        cfg.model,
 		Prompt:       prompt,
-		SystemPrompt: cfg.systemPrompt,
+		SystemPrompt: system,
 		Resume:       resume,
 		Timeout:      cfg.timeout,
 		// The item travels in the prompt; one shared empty folder
@@ -368,4 +380,21 @@ func copyItemJSON(item workflow.Item) map[string]interface{} {
 		m[k] = v
 	}
 	return m
+}
+
+// resolve evaluates a prompt template ({{ }} expressions, as in any other
+// config field) against one item. The legacy {{$json.FIELD}} form of the
+// deprecated ai.* nodes is expanded first, as before.
+func (t *asker) resolve(tmpl string, item workflow.Item) (string, error) {
+	tmpl = expandTemplate(tmpl, item)
+	if !strings.Contains(tmpl, "{{") {
+		return tmpl, nil
+	}
+	return workflow.NewExpressionEngine().EvaluateString(tmpl, workflow.ExpressionContext{
+		JSON:        item.JSON,
+		Node:        t.input.NodeOutputs,
+		WorkflowID:  t.input.WorkflowID,
+		ExecutionID: t.input.ExecutionID,
+		Location:    t.input.Location,
+	})
 }

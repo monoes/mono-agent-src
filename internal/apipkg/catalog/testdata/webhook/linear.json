@@ -1,0 +1,52 @@
+{
+  "params": {
+    "teamId": "T1",
+    "resources": [
+      "issue",
+      "issueLabel"
+    ]
+  },
+  "create_responses": [
+    {
+      "data": {
+        "webhookCreate": {
+          "success": true,
+          "webhook": {
+            "id": "lw1",
+            "enabled": true
+          }
+        }
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/graphql",
+      "body": {
+        "query": "mutation webhookCreate($url: String!, $teamId: String!, $resources: [String!]!) { webhookCreate(input: {url: $url, teamId: $teamId, resourceTypes: $resources}) { success webhook { id enabled } } }",
+        "variables": {
+          "url": "https://hooks.example.test/webhook/wh-path",
+          "teamId": "T1",
+          "resources": [
+            "Issue",
+            "IssueLabel"
+          ]
+        }
+      }
+    }
+  ],
+  "hook_id": "lw1",
+  "expect_delete": [
+    {
+      "method": "POST",
+      "path": "/graphql",
+      "body": {
+        "query": "mutation webhookDelete($id: String!) { webhookDelete(id: $id) { success } }",
+        "variables": {
+          "id": "lw1"
+        }
+      }
+    }
+  ]
+}

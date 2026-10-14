@@ -293,7 +293,7 @@ func (r *opRun) uploadProperty() string {
 			return p
 		}
 	}
-	prop := stringify(r.params[r.op.Binary.UploadField])
+	prop := stringify(paramAt(r.params, r.op.Binary.UploadField))
 	if prop == "" {
 		prop = "data"
 	}

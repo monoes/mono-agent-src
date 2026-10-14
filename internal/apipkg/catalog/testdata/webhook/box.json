@@ -1,0 +1,47 @@
+{
+  "params": {
+    "events": [
+      "FILE.UPLOADED"
+    ],
+    "targetType": "folder",
+    "targetId": "42"
+  },
+  "create_responses": [
+    {
+      "id": "9001"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/2.0/webhooks",
+      "body": {
+        "address": "https://hooks.example.test/webhook/wh-path",
+        "triggers": [
+          "FILE.UPLOADED"
+        ],
+        "target": {
+          "id": "42",
+          "type": "folder"
+        }
+      }
+    }
+  ],
+  "hook_id": "9001",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/2.0/webhooks/9001"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": "9001"
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/2.0/webhooks/9001"
+    }
+  }
+}

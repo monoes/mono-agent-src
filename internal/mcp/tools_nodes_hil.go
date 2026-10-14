@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -85,7 +86,15 @@ func toolNodeList(ctx context.Context, s *Server, args json.RawMessage) (interfa
 		return nil, err
 	}
 	types := rt.registryOrDefault().Types()
+	// Triggers run through the trigger manager, not the registry: list them
+	// from their embedded schemas so an agent can find one to start with.
+	for _, t := range workflow.ListEmbeddedSchemas() {
+		if strings.HasPrefix(t, "trigger.") {
+			types = append(types, t)
+		}
+	}
 	sort.Strings(types)
+	types = slices.Compact(types)
 	out := []map[string]interface{}{}
 	for _, t := range types {
 		cat := nodeCategory(t)

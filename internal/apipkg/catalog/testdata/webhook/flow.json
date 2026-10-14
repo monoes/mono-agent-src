@@ -1,0 +1,73 @@
+{
+  "credential": {
+    "organization_id": "12",
+    "access_token": "t"
+  },
+  "params": {
+    "resource": "list",
+    "listIds": "4, 5"
+  },
+  "create_responses": [
+    {
+      "integration_webhook": {
+        "id": 101
+      }
+    },
+    {
+      "integration_webhook": {
+        "id": 102
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v2/integration_webhooks",
+      "body": {
+        "organization_id": 12,
+        "integration_webhook": {
+          "name": "mono-agent",
+          "url": "https://hooks.example.test/webhook/wh-path",
+          "resource_type": "list",
+          "resource_id": 4
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v2/integration_webhooks",
+      "body": {
+        "organization_id": 12,
+        "integration_webhook": {
+          "name": "mono-agent",
+          "url": "https://hooks.example.test/webhook/wh-path",
+          "resource_type": "list",
+          "resource_id": 5
+        }
+      }
+    }
+  ],
+  "hook_id": "101,102",
+  "extra": {
+    "ids": [
+      101,
+      102
+    ]
+  },
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v2/integration_webhooks/101",
+      "query": {
+        "organization_id": "12"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/v2/integration_webhooks/102",
+      "query": {
+        "organization_id": "12"
+      }
+    }
+  ]
+}

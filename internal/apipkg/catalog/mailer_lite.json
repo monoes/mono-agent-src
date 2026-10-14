@@ -224,5 +224,50 @@
         }
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "name": "mono-agent",
+          "url": "{{ hook.url }}",
+          "events": "{{ p.events }}"
+        },
+        "base_url": "https://connect.mailerlite.com/api",
+        "auth": false,
+        "headers": {
+          "Authorization": "Bearer {{ cred.api_key }}"
+        }
+      }
+    ],
+    "id": "{{ res.data.id }}",
+    "extra": {
+      "secret": "{{ res.data.secret }}"
+    },
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}",
+        "base_url": "https://connect.mailerlite.com/api",
+        "auth": false,
+        "headers": {
+          "Authorization": "Bearer {{ cred.api_key }}"
+        }
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.Signature }}",
+      "secret": "{{ hook.extra.secret }}"
+    }
+  }
 }

@@ -2070,5 +2070,44 @@
         "path": "data"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "action",
+        "label": "Action",
+        "type": "text",
+        "default": "*"
+      },
+      {
+        "key": "entity",
+        "label": "Entity",
+        "type": "text"
+      },
+      {
+        "key": "object",
+        "label": "Object (node version 1)",
+        "type": "text",
+        "default": "*"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v1/webhooks",
+        "body": {
+          "event_action": "{{ p.action }}",
+          "event_object": "{{ p.entity | default:p.object }}",
+          "subscription_url": "{{ hook.url }}"
+        }
+      }
+    ],
+    "id": "{{ res.data.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v1/webhooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

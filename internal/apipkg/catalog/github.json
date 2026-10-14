@@ -1962,5 +1962,65 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "owner",
+        "label": "Repository owner",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "repository",
+        "label": "Repository name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "options",
+        "label": "Options",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/repos/{{ p.owner | rl }}/{{ p.repository | rl }}/hooks",
+        "body": {
+          "name": "web",
+          "active": true,
+          "events": "{{ p.events }}",
+          "config": {
+            "url": "{{ hook.url }}",
+            "content_type": "json",
+            "secret": "{{ hook.secret }}",
+            "insecure_ssl": "{{ p.options.insecureSSL | then:'1' | default:'0' }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/repos/{{ p.owner | rl }}/{{ p.repository | rl }}/hooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/repos/{{ p.owner | rl }}/{{ p.repository | rl }}/hooks/{{ hook.id }}"
+    },
+    "verify": {
+      "signature": "{{ hdr.X-Hub-Signature-256 }}",
+      "prefix": "sha256="
+    }
+  }
 }

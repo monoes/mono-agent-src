@@ -107,7 +107,9 @@ func workflowToolName(slug, suffix string) string {
 // idSuffix is the lowercase [a-z0-9] characters of a workflow ID, at most n.
 func idSuffix(id string, n int) string {
 	var b strings.Builder
-	for _, r := range strings.ToLower(id) {
+	// Saved workflow IDs start "wf-"; those letters would be the same in
+	// every suffix.
+	for _, r := range strings.TrimPrefix(strings.ToLower(id), "wf-") {
 		if b.Len() == n {
 			break
 		}
@@ -208,7 +210,7 @@ func workflowToolDescription(wf *workflow.Workflow) string {
 		"status WAITING means a Human-in-Loop node paused it (hil_list / hil_approve)."
 }
 
-// workflowTools is the tool of each workflow Options.WorkflowTools selects, or
+// workflowTools is the tool of each active workflow Options.WorkflowTools selects, or
 // none when it is empty. A workflow that cannot be read is left out and said on
 // stderr, as is a store that cannot be listed.
 func (s *Server) workflowTools() []tool {
@@ -229,6 +231,11 @@ func (s *Server) workflowTools() []tool {
 	}
 	selected := make([]workflow.Workflow, 0, len(wfs))
 	for _, wf := range wfs {
+		// Only an active workflow can be run, so only those are tools: an
+		// inactive one would be listed and then fail on every call.
+		if !wf.IsActive {
+			continue
+		}
 		if all || names[wf.ID] || names[wf.Name] || names[strings.ToLower(wf.Name)] {
 			selected = append(selected, wf)
 		}
@@ -249,7 +256,7 @@ func (s *Server) workflowTools() []tool {
 		out = append(out, tool{
 			name:        toolNames[id],
 			description: workflowToolDescription(wf),
-			schema:      workflowInputSchema(workflow.TriggerInputs(wf.Nodes, workflow.LoadDefaultSchema)),
+			schema:      workflowInputSchema(workflow.TriggerInputs(wf.Nodes, wf.Connections, workflow.LoadDefaultSchema)),
 			annotations: map[string]bool{"readOnlyHint": false},
 			mutating:    true,
 			handler: func(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {

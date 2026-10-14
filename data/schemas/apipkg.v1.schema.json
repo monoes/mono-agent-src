@@ -27,9 +27,31 @@
     "headers": { "$ref": "#/$defs/stringMap" },
     "credentials": { "type": "array", "items": { "$ref": "#/$defs/credential" } },
     "resources": { "type": "array", "items": { "$ref": "#/$defs/resource" } },
-    "operations": { "type": "array", "items": { "$ref": "#/$defs/operation" } }
+    "operations": { "type": "array", "items": { "$ref": "#/$defs/operation" } },
+    "webhook": { "$ref": "#/$defs/webhook" }
   },
   "$defs": {
+    "repeat": {
+      "type": "object",
+      "required": ["until"],
+      "additionalProperties": false,
+      "properties": {
+        "until": { "type": "string", "minLength": 1 },
+        "interval_ms": { "type": "integer" },
+        "max_wait_ms": { "type": "integer" },
+        "max_wait_seconds": { "type": "string" }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "required": ["until"],
+      "additionalProperties": false,
+      "properties": {
+        "until": { "type": "string", "minLength": 1 },
+        "timeout_ms": { "type": "integer" },
+        "timeout_seconds": { "type": "string" }
+      }
+    },
     "stringMap": { "type": "object", "additionalProperties": { "type": "string" } },
     "walkStep": {
       "type": "object",
@@ -271,9 +293,11 @@
             "upload_when": { "type": "string" },
             "fallback_body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none", "ndjson"] },
             "download_base64": { "type": "string" },
+            "download_each": { "type": "string" },
             "property": { "type": "string" },
             "properties": { "type": "string" },
             "upload_text": { "type": "string" },
+            "upload_url": { "type": "string" },
             "upload_session": {
               "type": "object",
               "required": ["create"],
@@ -326,6 +350,7 @@
         "error_when": { "type": "string" },
         "error_message": { "type": "string" },
         "query_style": { "type": "string", "enum": ["", "brackets"] },
+        "stream": { "$ref": "#/$defs/stream" },
         "poll": {
           "type": "object",
           "required": ["method", "path", "until"],
@@ -340,6 +365,7 @@
               "until": { "type": "string" },
               "interval_ms": { "type": "integer" },
               "max_wait_ms": { "type": "integer" },
+              "max_wait_seconds": { "type": "string" },
             "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
             "path": { "type": "string", "minLength": 1 },
             "base_url": { "type": "string" },
@@ -360,6 +386,8 @@
               "auth": { "type": "boolean" },
               "error_when": { "type": "string" },
               "error_message": { "type": "string" },
+              "repeat": { "$ref": "#/$defs/repeat" },
+              "stream": { "$ref": "#/$defs/stream" },
             "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
             "path": { "type": "string", "minLength": 1 },
             "base_url": { "type": "string" },
@@ -379,6 +407,8 @@
               "auth": { "type": "boolean" },
               "error_when": { "type": "string" },
               "error_message": { "type": "string" },
+              "repeat": { "$ref": "#/$defs/repeat" },
+              "stream": { "$ref": "#/$defs/stream" },
             "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
             "path": { "type": "string", "minLength": 1 },
             "base_url": { "type": "string" },
@@ -401,6 +431,8 @@
               "auth": { "type": "boolean" },
               "error_when": { "type": "string" },
               "error_message": { "type": "string" },
+              "repeat": { "$ref": "#/$defs/repeat" },
+              "stream": { "$ref": "#/$defs/stream" },
               "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
               "path": { "type": "string", "minLength": 1 },
               "base_url": { "type": "string" },
@@ -479,6 +511,73 @@
         "max_pages": { "type": "integer" },
         "param_in": { "type": "string", "enum": ["query", "body", "path"] },
         "next": { "$ref": "#/$defs/step" }
+      }
+    },
+    "webhookStep": {
+      "type": "object",
+      "required": ["method", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "when": { "type": "string" },
+        "for_each": { "type": "string" },
+        "auth": { "type": "boolean" },
+        "error_when": { "type": "string" },
+        "error_message": { "type": "string" },
+        "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
+        "path": { "type": "string", "minLength": 1 },
+        "base_url": { "type": "string" },
+        "query": { "type": "object" },
+        "body": {},
+        "body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none", "ndjson"] },
+        "headers": { "$ref": "#/$defs/stringMap" }
+      }
+    },
+    "webhookSteps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/webhookStep" } },
+    "webhook": {
+      "type": "object",
+      "description": "Registers the app's webhook trigger with the vendor when a workflow is activated (FORMAT.md section 17).",
+      "required": ["create", "delete"],
+      "additionalProperties": false,
+      "properties": {
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
+        "create": { "$ref": "#/$defs/webhookSteps" },
+        "id": { "type": "string" },
+        "extra": { "$ref": "#/$defs/stringMap" },
+        "delete": { "$ref": "#/$defs/webhookSteps" },
+        "check": {
+          "type": "object",
+          "required": ["method", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "when": { "type": "string" },
+            "for_each": { "type": "string" },
+            "auth": { "type": "boolean" },
+            "error_when": { "type": "string" },
+            "error_message": { "type": "string" },
+            "method": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|MKCOL|MOVE|COPY|PROPFIND|PROPPATCH|.*\\{\\{.*)$" },
+            "path": { "type": "string", "minLength": 1 },
+            "base_url": { "type": "string" },
+            "query": { "type": "object" },
+            "body": {},
+            "body_type": { "type": "string", "enum": ["json", "form", "multipart", "raw", "none", "ndjson"] },
+            "headers": { "$ref": "#/$defs/stringMap" },
+            "exists_when": { "type": "string" }
+          }
+        },
+        "verify": {
+          "type": "object",
+          "required": ["signature"],
+          "additionalProperties": false,
+          "properties": {
+            "signature": { "type": "string", "minLength": 1 },
+            "message": { "type": "string" },
+            "secret": { "type": "string" },
+            "alg": { "type": "string", "enum": ["sha256", "sha1", "sha512", "token"] },
+            "encoding": { "type": "string", "enum": ["hex", "base64"] },
+            "prefix": { "type": "string" },
+            "secret_encoding": { "type": "string", "enum": ["hex", "base64"] }
+          }
+        }
       }
     }
   }

@@ -1356,5 +1356,33 @@
         "upload_when": "{{ p.binaryData }}"
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "eventId",
+        "label": "Event",
+        "type": "text",
+        "required": true,
+        "help": "A Keap event key, e.g. contact.add"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/hooks",
+        "body": {
+          "eventKey": "{{ p.eventId }}",
+          "hookUrl": "{{ hook.url }}"
+        }
+      }
+    ],
+    "id": "{{ res.key }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/hooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

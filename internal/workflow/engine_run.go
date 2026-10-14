@@ -309,18 +309,38 @@ func (e *WorkflowEngine) newManualExecution(ctx context.Context, workflowID stri
 	}
 
 	exec := &WorkflowExecution{
-		WorkflowID:  workflowID,
-		ProfileID:   executionProfileID(wf, e.profileID),
-		Status:      "QUEUED",
-		TriggerType: "trigger.manual",
-		TriggerData: data,
-		PID:         pid,
+		WorkflowID:    workflowID,
+		ProfileID:     executionProfileID(wf, e.profileID),
+		Status:        "QUEUED",
+		TriggerType:   "trigger.manual",
+		TriggerNodeID: manualTriggerNode(wf),
+		TriggerData:   data,
+		PID:           pid,
 	}
 
 	if err := e.store.CreateExecution(ctx, exec); err != nil {
 		return nil, fmt.Errorf("engine: trigger workflow: create execution: %w", err)
 	}
 	return exec, nil
+}
+
+// manualTriggerNode is the trigger a manual run fires: the workflow's one
+// enabled trigger.manual node, so a workflow that also has a webhook or
+// schedule trigger feeding the same nodes runs only its manual branch (as
+// n8n's "Execute workflow" does). "" — every trigger fires — when there is
+// not exactly one.
+func manualTriggerNode(wf *Workflow) string {
+	id := ""
+	for _, n := range wf.Nodes {
+		if n.Type != "trigger.manual" || n.Disabled {
+			continue
+		}
+		if id != "" {
+			return ""
+		}
+		id = n.ID
+	}
+	return id
 }
 
 // CancelExecution signals an in-flight execution to stop.

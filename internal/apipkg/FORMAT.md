@@ -195,11 +195,19 @@ typed value (number, bool, object, array): `"labels": "{{ p.labels }}"` sends
 a JSON array. Anything else is string-interpolated: `"Bearer {{ cred.token }}"`;
 `nil` interpolates as `""`, objects/arrays as JSON.
 
+**Literal braces.** `\{{` and `\}}` stand for a literal `{{` and `}}` (in JSON:
+`"\\{{ticket.id\\}}"` → `{{ticket.id}}`), for APIs whose own placeholders use
+braces. They combine with expressions: `"\\{{{{ el }}\\}}"` → `{{ticket.id}}`
+when `el` is `ticket.id` (Zendesk trigger bodies).
+
 **Omit empty.** In `query` and `body` objects a key whose value resolves to
 `nil`, `""`, `[]` or `{}` is left out. `0` and `false` are kept. A nested
 object that ends up empty is left out too. Array elements that resolve
 empty are dropped. Write `"!key"` to send the value even when empty (a `$map`/`$concat` under `"!key"` sends `[]`)
-(`"!description": "{{ p.description }}"` sends `""`/`null`).
+(`"!description": "{{ p.description }}"` sends `""`/`null`). A forced object or
+array template is sent as `{}`/`[]` when everything inside it is empty
+(`"!configVars": {"$merge": "{{ p.vars }}"}` sends `"configVars": {}`), at any
+depth, and a `"!key"` inside a literal `$merge` object survives the spread.
 
 **`$merge`.** `"$merge": "{{ p.additionalFields }}"` spreads an object into
 the parent (its empty values are dropped). Explicit keys override merged
@@ -274,7 +282,8 @@ through, so an unset param stays unset:
 | `set:key,value` | the object (nil counts as `{}`) with `key` set to `value` (an empty key changes nothing): Excel upsert appends `{{ p.fieldsUi.values \| kv:'column,fieldValue' \| set:p.columnToMatchOn,p.valueToMatchOn }}` |
 | `not` | `true` when the value is unset (as for `then`), else nil: `"/{{ p.pit \| not \| then:p.indexId }}{{ p.pit \| not \| then:'/' }}_search"` |
 | `bind:params` | n8n query parameters: every string value or object key that is exactly `$1`, `$2`, … is replaced by that element of `params` (a list or its JSON text) — a parameter never adds structure. A key placeholder must give a plain name not starting with `$` that the object doesn't already have; a placeholder without a value or an unused parameter is an error; an empty list changes nothing: `{{ p.options.query \| fromjson \| bind:p.options.queryParameters }}` (Elasticsearch) |
-| `base64_chunks:n` | base64 data → list of its `n`-byte pieces, each base64 (chunked uploads: `"for_each": "{{ bin.files.0.base64 \| base64_chunks:5242880 }}"` with `idx` as the segment index) |
+| `base64_chunks:n` | base64 data → list of its `n`-byte pieces, each base64 (chunked uploads: `"for_each": "{{ bin.files.0.base64 \| base64_chunks:5242880 }}"` with `idx` as the segment index); a list such as `bin.files` gives one flat list of `{item, segment, data, file}` segments across its files |
+| `map:'from=to,…'` | a value found in the table → its replacement, others unchanged; a list is mapped per element (n8n event names → the vendor's: `{{ p.event \| map:'balanceCredit=balances#credit' }}`) |
 | `urlencode` | object → `k=v&k2=v2` (keys sorted, each part percent-encoded like `encodeURIComponent`); any other value → its text percent-encoded: Azure `"x-ms-tags": "{{ p.options.tags \| kv:'tagName,tagValue' \| urlencode }}"` |
 
 **n8n `dataToSend` pattern.** `autoMapInputData` sends the input item, `defineBelow` sends the key/value rows:
@@ -618,7 +627,16 @@ no `for_each`) plus `files`, `property`, `file_name`, `mime_type`.
 
 **Header-row output.** `"output": {"path": "values", "header_row": true}` turns `[[h1,h2],[v1,v2],…]` into one item per row keyed by the first row.
 
-**Polling (`poll`).** After the main request, `"poll": {"method": "GET", "path": "/projects/{{ p.projectId }}/queries/{{ res.jobReference.jobId }}", "until": "{{ res.jobComplete }}", "interval_ms": 1000, "max_wait_ms": 300000}` repeats the request (with `res` = the latest response) until `until` is true; the last response becomes the op's response. Defaults: 1 s interval, 5 min max wait.
+**Polling (`poll`).** After the main request, `"poll": {"method": "GET", "path": "/projects/{{ p.projectId }}/queries/{{ res.jobReference.jobId }}", "until": "{{ res.jobComplete }}", "interval_ms": 1000, "max_wait_ms": 300000}` repeats the request (with `res` = the latest response) until `until` is true; the last response becomes the op's response. Defaults: 1 s interval, 5 min max wait. `"max_wait_seconds": "{{ p.timeout }}"` (a template giving seconds) takes the wait from a param instead. `main` stays the main request's reply, also in `output` templates (Airtop agent runs: `"invocationId": "{{ main.invocationId }}"` beside the polled result).
+
+**Waiting steps (`repeat`).** A `before` or `also` step with `"repeat": {"until": "{{ res.data.status | eq:'available' }}", "interval_ms": 1000, "max_wait_ms": 300000}` is resent (with `res` = its latest response) until `until` is true; that response is the step's (`pre`/`pres.<i>`). Same defaults and `max_wait_seconds` as `poll`. Use it when a later step must wait for an earlier one's result (upload a file, wait until it is processed, then attach it).
+
+**Event streams (`stream`).** An operation or a `before`/`also` step with `"stream": {"until": "{{ res.event | eq:'file_status' }}", "timeout_ms": 300000}` reads its response as server-sent events (`text/event-stream`; `Accept` is set to it) instead of one body. Each event's `data:` lines (joined with newlines) are decoded like a body (JSON, else text) and bound to `res`; `event:`, `id:`, `retry:` and comment lines are ignored. The first event for which `until` renders true becomes the response — the op's (for `output`) or the step's (`pre`/`pres.<i>`) — and is checked by `error_when` (so `"error_when": "{{ res.status | eq:'upload_failed' }}"` fails on a failure event). The request fails when the server closes the stream first or after the timeout (default 5 min; `"timeout_seconds": "{{ p.additionalFields.timeout | default:30 }}"` takes it from a param). Not with pagination, `bulk` or a binary download. Airtop waits for a session's file event:
+```json
+"method": "GET", "path": "/sessions/{{ p.sessionId }}/events", "query": { "all": "true" },
+"stream": { "until": "{{ res.event | eq:'file_status' | then:(res.status | eq:'available') }}", "timeout_seconds": "{{ p.additionalFields.timeout | default:30 }}" },
+"output": { "to": { "fileId": "{{ res.fileId }}", "downloadUrl": "{{ res.downloadUrl }}" } }
+```
 
 ## 10. Binary data
 
@@ -647,9 +665,15 @@ Workflow items carry files in `item.binary[<property>]` (n8n's
 
 `binary.download_when` (template) decides per run whether the response is a file (GCS `alt=media`; for a file that a JSON response links to, see `output.download` in §9); it overrides `download`. `binary.upload_text` (template): when it renders non-empty, that text (Content-Type text/plain) is uploaded instead of the item's binary (GCS create from text).
 
+`binary.upload_url` (template): when it renders an http(s) URL, the engine first downloads that file (GET, without the credential) and uses it as the upload instead of the item's binary — name from the URL's last segment, type from the response's Content-Type (n8n's "upload from URL" sources; Airtop `"upload_url": "{{ p.source | ne:'binary' | then:p.url }}"`).
+
 `binary.upload_when` (template) decides per run whether to upload (n8n `sendBinaryData`); without the upload a multipart op sends its `body` as JSON (or nothing). `binary.multipart_field` may be a template, and `binary.property` (template) overrides the property read from `upload_field` — n8n's `"formField:binaryProperty"` values: `"multipart_field": "{{ p.binaryPropertyName | split:':' | get:'-2' | default:'file' }}"`, `"property": "{{ p.binaryPropertyName | split:':' | get:'-1' }}"`.
 
 **Files inside JSON.** Upload: `bin.base64` is the upload's bytes base64-encoded, for APIs that take file content in a JSON body (GitHub/GitLab `"content": "{{ p.binaryData | then:bin.base64 | default:(p.fileContent | base64) }}"` with `upload_when: "{{ p.binaryData }}"`). Download: `binary.download_base64` (template over `res`, e.g. `"{{ res.content }}"`) decodes a base64 file from the JSON response onto the item's binary (property from `property_field`, name from the `file_name` template, MIME type from `mime_type` or the name) and keeps the JSON as the item; gate it with `download_when`.
+
+**Several base64 files in one response (`download_each`).** `"download_each": "data"` (a response path to a list) turns each element into one item: `download_base64`, `file_name` and `mime_type` render with `el` = the element, the item's JSON is the element without the key that held the base64 text, plus `binary_property`, `file_name`, `mime_type` and `size` (OpenAI image generations: `"download_base64": "{{ el.b64_json }}"`). A file download (`download`) of an op that uploads nothing takes its name and type from `file_name`/`mime_type` when the response's headers give none.
+
+**Fields inside collections.** `upload_field` and `property_field` may be dotted to read a key of a collection field (`"upload_field": "options.binaryPropertyNameReference"`); `binary.property` (a template) also names a download's output property (`"{{ p.options.binaryPropertyOutput | default:'data' }}"`).
 
 `binary.fallback_body_type` (json/form/multipart/raw/none) is the body type when `upload_when` turns the upload off (LINE Notify stays a form without an image).
 
@@ -743,7 +767,7 @@ and later ones with `{}`, so paginated ops stop after page one. Failure
 messages name the package, op and what differed, e.g.
 `todoist · task.getAll: query: got {"limit":"50","query":"x"}, want {"query":"x"}`.
 
-**Multi-request ops** (`before`, `also`, `output.expand`, pagination): `"responses": [ {…}, {…} ]` answers the requests in order (later ones get `{}`; overrides `response`). `expect` checks the MAIN request — the first one with the expected method and path (so `before` steps skipped by their `when` don't shift it; otherwise the one after the `before` steps). A path segment `<any>` in an expected `path` matches any non-empty segment (`/send/m.room.message/<any>` for `{{ uuid }}` ids). A value of `"<any>"` in expect `query`/`body` matches any present non-empty value (`{{ uuid }}`, timestamps). To check every request in order use `"expect_requests": [ {method, path, query, body, headers}, … ]`.
+**Multi-request ops** (`before`, `also`, `output.expand`, pagination): `"responses": [ {…}, {…} ]` answers the requests in order (later ones get `{}`; overrides `response`). `expect` checks the MAIN request — the first one with the expected method and path (so `before` steps skipped by their `when` don't shift it; otherwise the one after the `before` steps). A path segment `<any>` in an expected `path` matches any non-empty segment (`/send/m.room.message/<any>` for `{{ uuid }}` ids). A value of `"<any>"` in expect `query`/`body` matches any present non-empty value (`{{ uuid }}`, timestamps). To check every request in order use `"expect_requests": [ {method, path, query, body, headers}, … ]`. A response `{"$sse": [{…}, {…}]}` is sent as a `text/event-stream` with one `data:` event per element (for `stream` ops and steps).
 ```json
 "values.append": {
   "params": { "documentId": "abc", "sheetName": "Main" },
@@ -889,3 +913,121 @@ Optional keys the engine added (the design's keys are unchanged):
 | pagination | `next` (continuation request for pages 2+, `page.cursor`); `also` runs after paging | §8, §9 |
 | steps | `error_when` / `error_message` per step | §6 |
 | package | `n8n_version_defaults` comparison keys (`<3`) | §12 |
+| operation, steps | `stream` (read server-sent events until one matches); step `repeat`; poll `max_wait_seconds`; binary `upload_url` | §9, §10 |
+| package | `webhook` (app trigger registration: `fields`, `create`, `id`, `extra`, `delete`, `check`, `verify`); root `hook`; filter `map` | §17 |
+| templates | literal braces `\{{` / `\}}`; `hdr` = the previous webhook step's response headers | §5, §17 |
+| binary | `download_each` (one item per base64 file in a list); dotted `upload_field`/`property_field`; `property` for downloads; download `file_name`/`mime_type` fallback | §10 |
+
+## 17. App webhooks (`webhook`)
+
+Most n8n app triggers register a webhook with the vendor's API when the
+workflow is activated and remove it when it is deactivated. A package's
+`webhook` block does the same: apipkg registers a `workflow.WebhookRegistrar`
+named after the package id, and a `trigger.webhook` with
+`"register_with": "<id>"` uses it. On activation the engine serves the
+webhook route, then calls `create`; on deactivation, deletion or a trigger
+change it calls `delete`. The hook id and `extra` values are kept in the
+`app_webhooks` table, so any process can remove the hook later. The vendor
+must reach the URL: the node's `public_url` or `MONOAGENT_PUBLIC_URL` is the
+public base (e.g. a tunnel), else activation fails and says so.
+
+The engine's built-in registrars (`typeform`, `calendly`) keep their names:
+a package with one of those ids gets no registrar, so leave its block out.
+A package installed while the app runs is registered on the next start; an
+updated block of an already registered package is used at once.
+
+```jsonc
+"webhook": {
+  "fields": [                                  // the register config keys: n8n's trigger param names
+    { "key": "events", "label": "Events", "type": "array", "required": true },
+    { "key": "scope", "label": "Scope", "type": "text", "default": "team" }
+  ],
+  "create": [                                  // one or more steps, in order (pre/pres see earlier ones)
+    { "method": "POST", "path": "/hooks",
+      "body": { "url": "{{ hook.url }}", "events": "{{ p.events }}", "secret": "{{ hook.secret }}" } }
+  ],
+  "id": "{{ res.id }}",                        // the hook id to keep; empty → create fails
+  "extra": { "secret": "{{ res.secret }}" },   // more values to keep (hook.extra.secret)
+  "delete": [ { "method": "DELETE", "path": "/hooks/{{ hook.id }}" } ],
+  "check": { "method": "GET", "path": "/hooks/{{ hook.id }}" },   // optional
+  "verify": { "signature": "{{ hdr.X-Hub-Signature-256 }}", "prefix": "sha256=" }  // optional
+}
+```
+
+Steps are the operation step shape (§9 `also`): `method`, `path`,
+`base_url`, `query`, `body`, `body_type`, `headers`, `when`, `for_each`,
+`auth` (false: send without the credential, e.g. a login step or an API on
+another host with its own header), `error_when`. They are sent with the
+package's credential injection, so OAuth 2/OAuth 1/basic/SigV4/header
+credentials all work, and client-credentials tokens, assumed roles and
+metadata are fetched first as for operations.
+
+Template roots:
+
+| Root | What |
+|---|---|
+| `p.<key>` | the register config: the trigger node's config with `register_config` merged on top, field defaults filled in; every `p.X` must be one of `fields` |
+| `cred.<key>` | the node's connection (`credential_id`) |
+| `hook.url`, `hook.path`, `hook.secret` | the public URL the vendor calls, its `/webhook/` path, and a random secret, stable per node (give it to vendors that sign deliveries) |
+| `hook.id`, `hook.extra.<key>` | the stored registration (delete, check, verify) |
+| `hook.workflow_id`, `hook.node_id` | the node |
+| `pre`, `pres.<i>`, `el`, `idx` | as in `before` steps: earlier create steps, the `for_each` element |
+| `res`, `hdr` | in `id`/`extra`: the last create response (a list of responses when that step has `for_each`) and its headers (`{{ hdr.Resource-Id }}`); in `check.exists_when`: the check response |
+| `hdr` in a step | the previous step's response headers — a login step's session token: Form.io's `"inject": {"headers": {"x-jwt-token": "{{ hdr.X-Jwt-Token }}"}}` after a `POST /user/login` step with `auth: false` |
+
+- **delete** runs every step; a 404 or 410 counts as already removed, other
+  errors are reported (the engine logs the hook id so it can be removed by
+  hand). One hook per element: `"for_each": "{{ p.listIds | split }}"` on
+  create, `"extra": {"ids": "{{ res | pluck:'id' }}"}`, and
+  `"for_each": "{{ hook.extra.ids }}"` on delete (Flow).
+- **check** (optional) tells whether the stored hook still exists when a
+  workflow is activated again with unchanged settings: 2xx yes (or
+  `exists_when`, a template over `res`), 404/410 no — the engine then
+  registers again. Without `check` the stored hook is reused.
+- **verify** (optional) checks each delivery; a delivery that fails is
+  answered 401 and starts no run:
+
+| Key | Meaning |
+|---|---|
+| `signature` | template over `hdr` (the delivery's headers), `req.body` (its raw body as text), `hook`, `cred`, `p`: the signature to check (`{{ hdr.Stripe-Signature \| re:'v1=([0-9a-f]+)' }}`) |
+| `message` | template for the signed text; default: the raw body (Stripe: `{{ hdr.Stripe-Signature \| re:'t=([0-9]+)' }}.{{ req.body }}`) |
+| `secret` | template; default `{{ hook.secret }}`; `{{ hook.extra.secret }}` for a vendor-issued secret, `{{ cred.signing_secret }}` for an account one. An empty secret skips the check |
+| `alg` | `sha256` (default), `sha1`, `sha512` — HMAC; `token`: the signature must equal the secret (GitLab `X-Gitlab-Token`, Telegram, a secret echoed in the body: `{{ req.body \| fromjson \| get:'secret' }}`) |
+| `encoding` | `hex` (default, case-insensitive) or `base64` |
+| `prefix` | stripped from the signature; a signature without it fails (`sha256=`) |
+| `secret_encoding` | `hex` or `base64`: decode the secret into the HMAC key (Onfleet) |
+
+URL checks some vendors send before delivering (Asana/Keap `X-Hook-Secret`,
+Meta `hub.challenge`, SNS confirmations, …) are answered by the webhook
+server itself; a block needs nothing for them.
+
+**Testing.** `catalog/testdata/webhook/<id>.json` is required for every
+package with a block; `TestCatalogWebhooks/<id>` runs it against the mock
+server:
+
+```jsonc
+{
+  "params": { "events": ["push"] },              // the register config
+  "credential": { "access_token": "t" },         // optional, as in §13
+  "create_responses": [ { "id": 314 } ],         // answers to the create steps, in order
+  "response_headers": { "Resource-ID": "880" },  // optional, sent with every answer
+  "expect_create": [ { "method": "POST", "path": "/repos/o/r/hooks", "body": { … } } ],
+  "hook_id": "314",                              // what Register must return
+  "extra": { "secret": "whsec_x" },              // optional
+  "expect_delete": [ { "method": "DELETE", "path": "/repos/o/r/hooks/314" } ],
+  "check": { "response": { "id": 314 }, "exists": true, "expect": { "method": "GET", "path": "…" } },
+  "verify": { "headers": { "X-Hub-Signature-256": "sha256=…" }, "body": "{…}" }
+}
+```
+
+The hook is `https://hooks.example.test/webhook/wh-path` with secret
+`test-secret`, workflow `wf-1`, node `node-1`. Every request is compared as
+in §13 (method, path, exact query and body, listed headers, credential
+injection — pin `"Authorization"` in `headers` for steps with `auth: false`).
+The harness also checks that a 404 on delete counts as removed, that a 404
+on check means gone, that the signed `verify` sample passes and that the
+same sample with a changed body fails.
+
+The n8n importer sets `register_with`, `register_config` (the trigger's
+params named by `fields`) and `credential_id` on the `trigger.webhook` it
+writes for the package's `n8n_trigger_types`.

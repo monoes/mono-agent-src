@@ -46,6 +46,9 @@ type Scope struct {
 	Up any
 	// Batch lists the chunk's items as {p, item, index} in a bulk request.
 	Batch []any
+	// Hook is the app webhook in a package's webhook block: url, path,
+	// secret, id, workflow_id, node_id and extra (see webhook.go).
+	Hook map[string]any
 }
 
 // headerMap holds response headers; lookupPath matches its keys
@@ -86,6 +89,8 @@ func (s Scope) root(name string) any {
 		return s.Req
 	case "batch":
 		return s.Batch
+	case "hook":
+		return s.Hook
 	case "now":
 		return time.Now().UTC().Format(time.RFC3339)
 	case "uuid":
@@ -149,7 +154,10 @@ func (a *filterArg) argValue(sc Scope) (any, error) {
 var tmplCache sync.Map // string → *tmpl
 
 // hasTemplate reports whether s contains template syntax.
-func hasTemplate(s string) bool { return strings.Contains(s, "{{") }
+func hasTemplate(s string) bool { return strings.Contains(s, "{{") || strings.Contains(s, `\}}`) }
+
+// litUnescape turns the escapes \{{ and \}} of literal text into {{ and }}.
+var litUnescape = strings.NewReplacer(`\{{`, "{{", `\}}`, "}}")
 
 // parseTemplate parses s, caching the result.
 func parseTemplate(s string) (*tmpl, error) {
@@ -158,20 +166,30 @@ func parseTemplate(s string) (*tmpl, error) {
 	}
 	t := &tmpl{src: s}
 	rest := s
+	lit := "" // literal text not yet added, escapes kept
 	for {
 		i := strings.Index(rest, "{{")
+		if i > 0 && rest[i-1] == '\\' {
+			// \{{ is a literal {{ (Zendesk placeholders in a body).
+			lit += rest[:i+2]
+			rest = rest[i+2:]
+			continue
+		}
 		if i < 0 {
-			if rest != "" {
-				t.parts = append(t.parts, tmplPart{lit: rest})
+			if lit+rest != "" {
+				t.parts = append(t.parts, tmplPart{lit: litUnescape.Replace(lit + rest)})
 			}
 			break
 		}
+		rest = lit + rest
+		i += len(lit)
+		lit = ""
 		j := strings.Index(rest[i:], "}}")
 		if j < 0 {
 			return nil, fmt.Errorf("template %q: unclosed {{", s)
 		}
 		if i > 0 {
-			t.parts = append(t.parts, tmplPart{lit: rest[:i]})
+			t.parts = append(t.parts, tmplPart{lit: litUnescape.Replace(rest[:i])})
 		}
 		e, err := parseExpr(strings.TrimSpace(rest[i+2 : i+j]))
 		if err != nil {
@@ -268,9 +286,9 @@ func parsePath(s string) (*expr, error) {
 	}
 	segs := strings.Split(s, ".")
 	switch segs[0] {
-	case "p", "cred", "item", "el", "up", "res", "items", "pre", "pres", "bin", "main", "hdr", "uuid", "now", "idx", "page", "req", "batch":
+	case "p", "cred", "item", "el", "up", "res", "items", "pre", "pres", "bin", "main", "hdr", "uuid", "now", "idx", "page", "req", "batch", "hook":
 	default:
-		return nil, fmt.Errorf("expression %q must start with p., cred., item., items, el., up., res., main., hdr., pre., pres., bin., page., req., batch or be uuid / now / idx", s)
+		return nil, fmt.Errorf("expression %q must start with p., cred., item., items, el., up., res., main., hdr., pre., pres., bin., page., req., batch, hook. or be uuid / now / idx", s)
 	}
 	for _, sg := range segs[1:] {
 		if sg == "" {
@@ -575,8 +593,9 @@ func renderObject(m map[string]any, sc Scope) (map[string]any, error) {
 			if !ok {
 				return nil, fmt.Errorf("$merge: %v is %T, not an object", src, r)
 			}
+			forced := forcedKeys(src)
 			for k, val := range obj {
-				if !isEmpty(val) {
+				if !isEmpty(val) || forced[k] {
 					out[k] = val
 				}
 			}
@@ -611,6 +630,25 @@ func renderObject(m map[string]any, sc Scope) (map[string]any, error) {
 		out[k] = r
 	}
 	return out, nil
+}
+
+// forcedKeys names the "!key" entries of a literal $merge source, so a forced
+// empty value survives the spread like it does as a direct key.
+func forcedKeys(src any) map[string]bool {
+	m, ok := src.(map[string]any)
+	if !ok {
+		return nil
+	}
+	var forced map[string]bool
+	for k := range m {
+		if strings.HasPrefix(k, "!") {
+			if forced == nil {
+				forced = map[string]bool{}
+			}
+			forced[k[1:]] = true
+		}
+	}
+	return forced
 }
 
 // isEmpty: nil, "", and empty arrays/objects are empty. 0 and false are not.

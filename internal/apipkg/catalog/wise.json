@@ -527,5 +527,48 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "profileId",
+        "label": "Profile ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "options": [
+          "balanceCredit",
+          "balanceUpdate",
+          "transferActiveCases",
+          "tranferStateChange"
+        ]
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v3/profiles/{{ p.profileId }}/subscriptions",
+        "body": {
+          "name": "mono-agent webhook",
+          "trigger_on": "{{ p.event | map:'tranferStateChange=transfers#state-change,transferActiveCases=transfers#active-cases,balanceCredit=balances#credit,balanceUpdate=balances#update' }}",
+          "delivery": {
+            "version": "2.0.0",
+            "url": "{{ hook.url }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v3/profiles/{{ p.profileId }}/subscriptions/{{ hook.id }}"
+      }
+    ]
+  }
 }

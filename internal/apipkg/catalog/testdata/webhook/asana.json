@@ -1,0 +1,44 @@
+{
+  "params": {
+    "resource": "1200",
+    "workspace": "99"
+  },
+  "create_responses": [
+    {
+      "data": {
+        "gid": "555"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/1.0/webhooks",
+      "body": {
+        "data": {
+          "resource": "1200",
+          "target": "https://hooks.example.test/webhook/wh-path"
+        }
+      }
+    }
+  ],
+  "hook_id": "555",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/1.0/webhooks/555"
+    }
+  ],
+  "check": {
+    "response": {
+      "data": {
+        "gid": "555"
+      }
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/api/1.0/webhooks/555"
+    }
+  }
+}

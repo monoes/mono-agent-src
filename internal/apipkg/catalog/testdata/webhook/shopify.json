@@ -1,0 +1,48 @@
+{
+  "credential": {
+    "shop_domain": "acme",
+    "access_token": "shpat"
+  },
+  "params": {
+    "topic": "orders/create"
+  },
+  "create_responses": [
+    {
+      "webhook": {
+        "id": 4759306
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/admin/api/2024-07/webhooks.json",
+      "body": {
+        "webhook": {
+          "topic": "orders/create",
+          "address": "https://hooks.example.test/webhook/wh-path",
+          "format": "json"
+        }
+      }
+    }
+  ],
+  "hook_id": "4759306",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/admin/api/2024-07/webhooks/4759306.json"
+    }
+  ],
+  "check": {
+    "response": {
+      "webhook": {
+        "id": 4759306
+      }
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/admin/api/2024-07/webhooks/4759306.json"
+    }
+  }
+}

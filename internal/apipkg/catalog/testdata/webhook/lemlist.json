@@ -1,0 +1,31 @@
+{
+  "params": {
+    "event": "emailsReplied",
+    "options": {
+      "campaignId": "cam_1"
+    }
+  },
+  "create_responses": [
+    {
+      "_id": "hk_1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/hooks",
+      "body": {
+        "targetUrl": "https://hooks.example.test/webhook/wh-path",
+        "type": "emailsReplied",
+        "campaignId": "cam_1"
+      }
+    }
+  ],
+  "hook_id": "hk_1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/hooks/hk_1"
+    }
+  ]
+}

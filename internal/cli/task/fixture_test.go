@@ -202,6 +202,19 @@ func testDeps(t testing.TB, dbPath, profile string, jsonOut bool) Deps {
 			defer envMu.Unlock()
 			return terminals[root]
 		},
+		DBPath: func() string { return dbPath },
+		OpenDBActive: func() (*storage.Database, string, error) {
+			db, err := storage.NewDatabase(dbPath)
+			if err != nil {
+				return nil, "", err
+			}
+			var id string
+			_ = db.DB.QueryRow(`SELECT value FROM settings WHERE key = 'active_profile_id'`).Scan(&id)
+			if id == "" {
+				id = "default"
+			}
+			return db, id, nil
+		},
 	}
 }
 

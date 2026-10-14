@@ -210,5 +210,55 @@
         "page_size": 100
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "siteId",
+        "label": "Site ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "select",
+        "required": true,
+        "options": [
+          "deployBuilding",
+          "deployFailed",
+          "deployCreated",
+          "submissionCreated"
+        ]
+      },
+      {
+        "key": "formId",
+        "label": "Form ID",
+        "type": "text",
+        "default": "*"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/hooks",
+        "body": {
+          "event": "{{ p.event | snake }}",
+          "site_id": "{{ p.siteId }}",
+          "data": {
+            "url": "{{ hook.url }}",
+            "signature_secret": "{{ hook.secret }}"
+          },
+          "form_id": "{{ p.event | eq:'submissionCreated' | then:(p.formId | ne:'*' | then:p.formId) }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/hooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

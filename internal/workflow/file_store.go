@@ -141,6 +141,7 @@ func (s *WorkflowFileStore) SaveWorkflow(ctx context.Context, wf *Workflow) erro
 		wfFile.Nodes = append(wfFile.Nodes, fn)
 	}
 
+	NormalizeConnectionHandles(wf.Connections)
 	for _, c := range wf.Connections {
 		wfFile.Connections = append(wfFile.Connections, WorkflowFileEdge{
 			ID:           c.ID,
@@ -364,5 +365,21 @@ func parseWorkflowFile(data []byte) (*Workflow, error) {
 			TargetHandle: fe.TargetHandle,
 		})
 	}
+	NormalizeConnectionHandles(wf.Connections)
 	return wf, nil
+}
+
+// NormalizeConnectionHandles defaults empty connection handles to "main",
+// the port every node without named outputs reads and writes. A workflow
+// file may leave source_handle/target_handle out; the engine routes only on
+// exact handle names, so an empty one would silently skip its target.
+func NormalizeConnectionHandles(conns []WorkflowConnection) {
+	for i := range conns {
+		if conns[i].SourceHandle == "" {
+			conns[i].SourceHandle = "main"
+		}
+		if conns[i].TargetHandle == "" {
+			conns[i].TargetHandle = "main"
+		}
+	}
 }

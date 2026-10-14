@@ -1,0 +1,49 @@
+{
+  "params": {
+    "events": [
+      "convo.created"
+    ]
+  },
+  "create_responses": [
+    {}
+  ],
+  "response_headers": {
+    "Resource-ID": "880"
+  },
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v2/webhooks",
+      "body": {
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "events": [
+          "convo.created"
+        ],
+        "secret": "test-secret"
+      }
+    }
+  ],
+  "hook_id": "880",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v2/webhooks/880"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": 880
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/v2/webhooks/880"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-HelpScout-Signature": "u2pLP1Hizmg49aBElBWM9nNsysk="
+    },
+    "body": "{\"id\":1,\"type\":\"conversation\"}"
+  }
+}

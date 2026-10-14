@@ -1,0 +1,39 @@
+{
+  "params": {
+    "campaignId": "c1",
+    "events": [
+      "opened",
+      "replied"
+    ]
+  },
+  "create_responses": [
+    {
+      "webhookId": "w9"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/webhook/webhook",
+      "body": {
+        "hookUrl": "https://hooks.example.test/webhook/wh-path",
+        "campaignId": "c1",
+        "events": [
+          "OPENED",
+          "REPLIED"
+        ]
+      }
+    }
+  ],
+  "hook_id": "w9",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/webhook/webhook",
+      "body": {
+        "hookUrl": "https://hooks.example.test/webhook/wh-path",
+        "campaignId": "c1"
+      }
+    }
+  ]
+}

@@ -802,5 +802,44 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "resource",
+        "label": "Resource GID",
+        "type": "text",
+        "required": true,
+        "help": "The project, portfolio or task to watch"
+      },
+      {
+        "key": "workspace",
+        "label": "Workspace GID",
+        "type": "text"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "data": {
+            "resource": "{{ p.resource }}",
+            "target": "{{ hook.url }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.data.gid }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/webhooks/{{ hook.id }}"
+    }
+  }
 }

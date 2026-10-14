@@ -430,5 +430,45 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "resource",
+        "label": "Activity type",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/v1/connectors",
+        "body": {
+          "name": "mono-agent-webhook ({{ hook.url }})",
+          "properties": {
+            "connectorKind": "WEBHOOK",
+            "target": {
+              "type": "generic",
+              "connection": {
+                "url": "{{ hook.url }}"
+              }
+            },
+            "filter": {
+              "activityTypes": [
+                "{{ p.resource }}"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/v1/connectors/{{ hook.id }}"
+      }
+    ]
+  }
 }

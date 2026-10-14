@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -184,4 +185,29 @@ func TestDaemonRestartIsASubcommandOfDaemon(t *testing.T) {
 	if !found {
 		t.Error("`monoagentcli daemon restart` does not exist")
 	}
+}
+
+// fakeAutostart is a service manager that only counts what it is asked to do.
+type fakeAutostart struct {
+	installed  bool
+	started    int
+	restarted  int
+	restartErr error
+	onRestart  func()
+}
+
+func (f *fakeAutostart) Install(context.Context) (autostart.Result, error) {
+	return autostart.Result{}, nil
+}
+func (f *fakeAutostart) Uninstall(context.Context) error { return nil }
+func (f *fakeAutostart) Status(context.Context) (bool, string) {
+	return f.installed, "/x/monoagent-daemon.service"
+}
+func (f *fakeAutostart) Start(context.Context) error { f.started++; return nil }
+func (f *fakeAutostart) Restart(context.Context) error {
+	f.restarted++
+	if f.onRestart != nil && f.restartErr == nil {
+		f.onRestart()
+	}
+	return f.restartErr
 }

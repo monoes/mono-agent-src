@@ -909,5 +909,51 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "projectId",
+        "label": "Project ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "url": "{{ hook.url }}",
+          "hookEvents": "{{ p.events }}",
+          "headers": {
+            "$json": {
+              "x-webhook-secret": "{{ hook.secret }}"
+            }
+          },
+          "label": "mono-agent workflow {{ hook.workflow_id }}"
+        },
+        "query": {
+          "projectId": "{{ p.projectId | rl }}"
+        }
+      }
+    ],
+    "id": "{{ res.data.hookId }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ],
+    "verify": {
+      "signature": "{{ hdr.X-Webhook-Secret }}",
+      "alg": "token"
+    }
+  }
 }

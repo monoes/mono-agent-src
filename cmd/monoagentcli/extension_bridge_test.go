@@ -12,7 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/extension"
 )
 
-// The bridge helpers of main (setupExtensionBridge, fallbackPortHint) against a running bridge
+// The bridge helpers of main (setupExtensionBridge) against a running bridge
 // (`extension` itself is tested in internal/cli/extensioncli).
 
 // isolateBridgeEnv gives one test its own home (so the pairing token is its own) and its own
@@ -54,13 +54,6 @@ func serveInBackground(t *testing.T, base string) {
 	}
 }
 
-type fakeAddrBridge struct {
-	addr string
-}
-
-func (f *fakeAddrBridge) IsConnected() bool    { return false }
-func (f *fakeAddrBridge) Addr() (string, bool) { return f.addr, f.addr != "" }
-
 // TestSetupExtensionBridge_RelaysThroughARunningBridge is the reuse path
 // node.go depends on: a workflow run that starts while the bridge is up
 // must talk through it, not fight it for the port.
@@ -74,21 +67,5 @@ func TestSetupExtensionBridge_RelaysThroughARunningBridge(t *testing.T) {
 	}
 	if _, err := extension.FetchStatus(base); err != nil {
 		t.Errorf("the running bridge stopped answering after a workflow-style setup: %v", err)
-	}
-}
-
-// TestFallbackPortHint_SilentOnAnExplicitPort: the "another program holds
-// 9222" note is only true when the server fell back on its own. Someone
-// who set the port deliberately is not looking at a conflict.
-func TestFallbackPortHint_SilentOnAnExplicitPort(t *testing.T) {
-	bridge := &fakeAddrBridge{addr: "127.0.0.1:9400"}
-
-	t.Setenv(extension.ExtensionPortEnv, "")
-	if got := fallbackPortHint(bridge); got == "" {
-		t.Error("no note on a non-default port that nobody asked for")
-	}
-	t.Setenv(extension.ExtensionPortEnv, "9400")
-	if got := fallbackPortHint(bridge); got != "" {
-		t.Errorf("blamed another program for a port the operator chose:\n%s", got)
 	}
 }

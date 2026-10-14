@@ -435,3 +435,22 @@ func TestAutostartExplainsANotEnabledEntry(t *testing.T) {
 		t.Errorf("%+v", res)
 	}
 }
+
+// A service already running its installed binary gets the same build back
+// from a restart: doctor offers none (it would only cut the browser off),
+// and says what would help instead.
+func TestBridgeServiceRestartNotOfferedWhenItCannotHelp(t *testing.T) {
+	old := bridgeRestartHelps
+	bridgeRestartHelps = func(int) bool { return false }
+	t.Cleanup(func() { bridgeRestartHelps = old })
+	b := BridgeInfo{PID: 7, Version: "v0.134.0", ServiceUnit: "monoagent-bridge.service"}
+	env := &Env{Version: "v0.131.1", Bridge: func(context.Context) (BridgeInfo, bool) { return b, true },
+		RestartBridge: func(context.Context, string, int, func(string)) error {
+			t.Fatal("restart must not be offered")
+			return nil
+		}}
+	res := checkBridge(context.Background(), env)
+	if res.FixID != "" || res.Status != StatusWarn || !strings.Contains(res.Detail, "changes nothing") {
+		t.Fatalf("got %+v, want a warning without a fix", res)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/i18n"
 	"github.com/monoes/mono-agent/internal/logging"
 )
@@ -146,6 +147,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 // validate` on an invalid org, or withJSONErrors' own {"error"}), so nothing
 // is added: stdout stays exactly one document.
 func reportCommandError(args []string, err error, stdout, stderr io.Writer) {
+	// A failure the command's own output showed (a human-mode run's
+	// summary) is not repeated — unless a wrapper added to it (a hint).
+	var shown clicore.Shown
+	if !argsWantJSON(args) && errors.As(err, &shown) && shown.Error() == err.Error() {
+		return
+	}
 	fmt.Fprintln(stderr, err)
 	var reported reportedError
 	if argsWantJSON(args) && !errors.As(err, &reported) {

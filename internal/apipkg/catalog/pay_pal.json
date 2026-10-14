@@ -211,5 +211,41 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/notifications/webhooks",
+        "body": {
+          "url": "{{ hook.url }}",
+          "event_types": {
+            "$map": "{{ p.events }}",
+            "$to": {
+              "name": "{{ el }}"
+            }
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/notifications/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/notifications/webhooks/{{ hook.id }}"
+    }
+  }
 }

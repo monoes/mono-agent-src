@@ -43,5 +43,38 @@
       }
     }
   ],
-  "operations": []
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "form",
+        "label": "Form hash",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "PUT",
+        "path": "/forms/{{ p.form }}/webhooks.json",
+        "body": {
+          "url": "{{ hook.url }}",
+          "handshakeKey": "{{ hook.secret }}",
+          "metadata": "true"
+        },
+        "body_type": "form"
+      }
+    ],
+    "id": "{{ res.WebHookPutResult.Hash }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/forms/{{ p.form }}/webhooks/{{ hook.id }}.json"
+      }
+    ],
+    "verify": {
+      "signature": "{{ req.body | re:'(?:^|&)HandshakeKey=([^&]*)' }}",
+      "alg": "token"
+    }
+  }
 }

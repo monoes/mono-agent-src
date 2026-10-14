@@ -348,5 +348,189 @@
     "expect": {
       "items": 1
     }
+  },
+  "session.waitForDownload": {
+    "params": {
+      "sessionId": "s1",
+      "additionalFields": {
+        "timeout": 5
+      }
+    },
+    "responses": [
+      {
+        "$sse": [
+          {
+            "event": "status",
+            "status": "running"
+          },
+          {
+            "event": "file_status",
+            "status": "available",
+            "fileId": "f1",
+            "downloadUrl": "https://files.example/f1"
+          }
+        ]
+      }
+    ],
+    "expect": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s1/events",
+      "query": {
+        "all": "true"
+      },
+      "items": 1
+    }
+  },
+  "file.load": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "fileId": "f1"
+    },
+    "responses": [
+      {},
+      {
+        "$sse": [
+          {
+            "event": "file_upload_status",
+            "fileId": "f0",
+            "status": "available"
+          },
+          {
+            "event": "file_upload_status",
+            "fileId": "f1",
+            "status": "available"
+          }
+        ]
+      },
+      {}
+    ],
+    "expect_requests": [
+      {
+        "method": "POST",
+        "path": "/api/v1/files/f1/push",
+        "body": {
+          "sessionIds": [
+            "s1"
+          ]
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/sessions/s1/events",
+        "query": {
+          "all": "true"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/sessions/s1/windows/w1/file-input",
+        "body": {
+          "fileId": "f1",
+          "includeHiddenElements": true
+        }
+      }
+    ],
+    "expect": {
+      "items": 1
+    }
+  },
+  "file.upload": {
+    "params": {
+      "sessionId": "s1",
+      "windowId": "w1",
+      "fileName": "a.txt",
+      "url": "https://example.com/a.txt"
+    },
+    "responses": [
+      "file body",
+      {
+        "data": {
+          "id": "f1",
+          "uploadUrl": "https://upload.example/put/f1"
+        }
+      },
+      {},
+      {
+        "data": {
+          "status": "available"
+        }
+      },
+      {},
+      {
+        "$sse": [
+          {
+            "event": "file_upload_status",
+            "fileId": "f1",
+            "status": "available"
+          }
+        ]
+      },
+      {}
+    ],
+    "expect": {
+      "method": "POST",
+      "path": "/api/v1/files/f1/push",
+      "body": {
+        "sessionIds": [
+          "s1"
+        ]
+      },
+      "items": 1
+    }
+  },
+  "agent.run": {
+    "params": {
+      "agentId": "ag1",
+      "agentParameters": {
+        "value": {
+          "query": "x"
+        }
+      },
+      "timeout": 30
+    },
+    "responses": [
+      {
+        "webhookId": "wh1"
+      },
+      {
+        "invocationId": "inv1"
+      },
+      {
+        "status": "Running"
+      },
+      {
+        "status": "Completed",
+        "output": {
+          "answer": 42
+        }
+      }
+    ],
+    "expect_requests": [
+      {
+        "method": "GET",
+        "path": "/api/v2/agents/ag1"
+      },
+      {
+        "method": "POST",
+        "path": "/api/hooks/agents/ag1/webhooks/wh1",
+        "body": {
+          "configVars": {
+            "query": "x"
+          }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/hooks/agents/ag1/invocations/inv1/result"
+      },
+      {
+        "method": "GET",
+        "path": "/api/hooks/agents/ag1/invocations/inv1/result"
+      }
+    ],
+    "expect": {
+      "items": 1
+    }
   }
 }

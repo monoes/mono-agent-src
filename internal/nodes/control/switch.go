@@ -73,13 +73,7 @@ func (n *SwitchNode) Execute(ctx context.Context, input workflow.NodeInput, conf
 	handleItems := make(map[string][]workflow.Item)
 
 	for _, item := range input.Items {
-		exprCtx := workflow.ExpressionContext{
-			JSON:        item.JSON,
-			Node:        input.NodeOutputs,
-			WorkflowID:  input.WorkflowID,
-			ExecutionID: input.ExecutionID,
-			Location:    input.Location,
-		}
+		exprCtx := input.ItemContext(item.JSON)
 
 		val, err := engine.EvaluateString(expression, exprCtx)
 		if err != nil {

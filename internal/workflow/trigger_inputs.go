@@ -3,6 +3,7 @@ package workflow
 import (
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // Trigger-input discovery: which fields of a manual run's `--input` payload a
@@ -22,8 +23,10 @@ var (
 	triggerBracketRef = regexp.MustCompile(`\$json\[\s*["']([^"']+)["']\s*\]`)
 	// A single {{ … }} expression, so a reference's surrounding call is known.
 	triggerExpression = regexp.MustCompile(`\{\{([\s\S]*?)\}\}`)
+	// $node["Trigger name"].json.field
+	triggerNodeRef = regexp.MustCompile(`\$node\[\s*["']([^"']*)["']\s*\]\.json\.([A-Za-z_][A-Za-z0-9_]*)`)
 	// `json $json.x` / `toJson $json.x` — the value is a collection, not a scalar.
-	triggerJSONCall = regexp.MustCompile(`(?i)\bjson\s+\$json[.\[]`)
+	triggerJSONCall = regexp.MustCompile(`(?i)\bjson\s+\$(?:json[.\[]|node\[)`)
 )
 
 // TriggerField is one field a workflow reads from its trigger payload.
@@ -48,18 +51,40 @@ type SchemaLookup func(nodeType string) (*NodeSchema, error)
 // TriggerInputs returns the trigger fields a workflow's nodes read, in
 // first-seen order.
 //
+// $json is the trigger payload only in a node the trigger feeds directly (or
+// a non-trigger node nothing feeds); further down it is the previous node's
+// output, e.g. an HTTP response's "body", so those nodes count only through
+// the $node["<trigger name>"].json.<field> form.
+//
 // Schemas come from the lookup, never from a schema stored alongside the
 // workflow: a saved workflow carries the snapshot taken when it was saved, so
 // a field that has since gained examples would offer none to exactly the
 // workflow whose author needs them.
-func TriggerInputs(nodes []WorkflowNode, lookup SchemaLookup) []TriggerField {
+func TriggerInputs(nodes []WorkflowNode, conns []WorkflowConnection, lookup SchemaLookup) []TriggerField {
 	if lookup == nil {
 		lookup = LoadDefaultSchema
 	}
 	order := []string{}
 	byName := map[string]*TriggerField{}
 
+	triggers := map[string]bool{}
+	for _, n := range nodes {
+		if strings.HasPrefix(n.Type, "trigger.") {
+			triggers[n.ID] = true
+			triggers[n.Name] = true
+		}
+	}
+	fed, fedByTrigger := map[string]bool{}, map[string]bool{}
+	for _, c := range conns {
+		fed[c.TargetNodeID] = true
+		if triggers[c.SourceNodeID] {
+			fedByTrigger[c.TargetNodeID] = true
+		}
+	}
+
 	for _, node := range nodes {
+		readsPayload := fedByTrigger[node.ID] ||
+			(!fed[node.ID] && !strings.HasPrefix(node.Type, "trigger."))
 		examplesFor := schemaExampleLookup(node.Type, lookup)
 		// Sorted, not map order: the field order is part of the output
 		// (it decides how the skeleton reads), so it must not change
@@ -74,7 +99,7 @@ func TriggerInputs(nodes []WorkflowNode, lookup SchemaLookup) []TriggerField {
 				for _, expr := range triggerExpression.FindAllStringSubmatch(text, -1) {
 					body := expr[1]
 					structured := triggerJSONCall.MatchString(body)
-					for _, name := range referencedFields(body) {
+					for _, name := range referencedFields(body, readsPayload, triggers) {
 						field, seen := byName[name]
 						if !seen {
 							field = &TriggerField{Name: name}
@@ -102,20 +127,29 @@ func TriggerInputs(nodes []WorkflowNode, lookup SchemaLookup) []TriggerField {
 }
 
 // referencedFields returns every trigger field named in one expression body,
-// deduplicated and ordered so the result is stable.
-func referencedFields(body string) []string {
+// deduplicated and ordered so the result is stable. $json references count
+// only when readsPayload; $node["<name>"].json references count when name is
+// a trigger node.
+func referencedFields(body string, readsPayload bool, triggers map[string]bool) []string {
 	seen := map[string]bool{}
 	names := []string{}
-	for _, m := range triggerDotRef.FindAllStringSubmatch(body, -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			names = append(names, m[1])
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
 		}
 	}
-	for _, m := range triggerBracketRef.FindAllStringSubmatch(body, -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			names = append(names, m[1])
+	if readsPayload {
+		for _, m := range triggerDotRef.FindAllStringSubmatch(body, -1) {
+			add(m[1])
+		}
+		for _, m := range triggerBracketRef.FindAllStringSubmatch(body, -1) {
+			add(m[1])
+		}
+	}
+	for _, m := range triggerNodeRef.FindAllStringSubmatch(body, -1) {
+		if triggers[m[1]] {
+			add(m[2])
 		}
 	}
 	return names

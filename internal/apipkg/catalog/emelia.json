@@ -388,5 +388,46 @@
         }
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "campaignId",
+        "label": "Campaign ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhook/webhook",
+        "body": {
+          "hookUrl": "{{ hook.url }}",
+          "campaignId": "{{ p.campaignId }}",
+          "events": {
+            "$map": "{{ p.events }}",
+            "$to": "{{ el | upper }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.webhookId | default:'campaign' }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhook/webhook",
+        "body": {
+          "hookUrl": "{{ hook.url }}",
+          "campaignId": "{{ p.campaignId }}"
+        }
+      }
+    ]
+  }
 }

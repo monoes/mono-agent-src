@@ -61,5 +61,55 @@
       }
     }
   ],
-  "operations": []
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "objectType",
+        "label": "Object type",
+        "type": "select",
+        "required": true,
+        "options": [
+          "collector",
+          "survey"
+        ]
+      },
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "surveyIds",
+        "label": "Survey IDs",
+        "type": "array"
+      },
+      {
+        "key": "collectorIds",
+        "label": "Collector IDs",
+        "type": "array"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/webhooks",
+        "body": {
+          "name": "mono-agent - Webhook [{{ p.event }}]",
+          "subscription_url": "{{ hook.url }}",
+          "event_type": "{{ p.event }}",
+          "object_type": "{{ p.event | ne:'survey_created' | then:p.objectType }}",
+          "object_ids": "{{ p.objectType | eq:'collector' | then:p.collectorIds | default:(p.event | ne:'survey_created' | then:p.surveyIds) }}"
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/webhooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

@@ -1683,5 +1683,45 @@
         }
       ]
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "events",
+        "label": "Events",
+        "type": "array",
+        "required": true
+      },
+      {
+        "key": "sources",
+        "label": "Sources",
+        "type": "array"
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/api/3/webhooks",
+        "body": {
+          "webhook": {
+            "name": "mono-agent:{{ hook.url }}",
+            "url": "{{ hook.url }}",
+            "events": "{{ p.events }}",
+            "sources": "{{ p.sources }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.webhook.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/api/3/webhooks/{{ hook.id }}"
+      }
+    ],
+    "check": {
+      "method": "GET",
+      "path": "/api/3/webhooks/{{ hook.id }}"
+    }
+  }
 }

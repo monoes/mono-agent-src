@@ -738,7 +738,7 @@ existing MCP client config that relies on them.
   shell tool, is not stopped by it. Nothing registers it for you.
 
 **Workflows as tools.** `monoagentcli mcp --allow-mutations --workflow-tools`
-(or `MONOAGENT_MCP_WORKFLOW_TOOLS=1`) also serves every saved workflow of the
+(or `MONOAGENT_MCP_WORKFLOW_TOOLS=1`) also serves every active workflow of the
 profile as a tool `wf_<slug>`; `--workflow-tools=<id|name>,...` serves only
 those. A tool's input schema comes from the workflow's trigger fields
 (`workflow inputs`), and a call runs it as `workflow_run` does (same wait,

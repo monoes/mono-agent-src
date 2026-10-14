@@ -1,0 +1,62 @@
+{
+  "params": {
+    "owner": {
+      "__rl": true,
+      "mode": "name",
+      "value": "octo"
+    },
+    "repository": "repo",
+    "events": [
+      "push",
+      "issues"
+    ]
+  },
+  "create_responses": [
+    {
+      "id": 314
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/repos/octo/repo/hooks",
+      "body": {
+        "name": "web",
+        "active": true,
+        "events": [
+          "push",
+          "issues"
+        ],
+        "config": {
+          "url": "https://hooks.example.test/webhook/wh-path",
+          "content_type": "json",
+          "secret": "test-secret",
+          "insecure_ssl": "0"
+        }
+      }
+    }
+  ],
+  "hook_id": "314",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/repos/octo/repo/hooks/314"
+    }
+  ],
+  "check": {
+    "response": {
+      "id": 314
+    },
+    "exists": true,
+    "expect": {
+      "method": "GET",
+      "path": "/repos/octo/repo/hooks/314"
+    }
+  },
+  "verify": {
+    "headers": {
+      "X-Hub-Signature-256": "sha256=8841a03bf73273f3da3575413e9c12fd4a2723e7e7f9cf1e834e2069a460d466"
+    },
+    "body": "{\"action\":\"opened\",\"number\":1}"
+  }
+}

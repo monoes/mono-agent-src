@@ -1,0 +1,32 @@
+{
+  "params": {
+    "profileId": "42",
+    "event": "balanceCredit"
+  },
+  "create_responses": [
+    {
+      "id": "ws1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/v3/profiles/42/subscriptions",
+      "body": {
+        "name": "mono-agent webhook",
+        "trigger_on": "balances#credit",
+        "delivery": {
+          "version": "2.0.0",
+          "url": "https://hooks.example.test/webhook/wh-path"
+        }
+      }
+    }
+  ],
+  "hook_id": "ws1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/v3/profiles/42/subscriptions/ws1"
+    }
+  ]
+}

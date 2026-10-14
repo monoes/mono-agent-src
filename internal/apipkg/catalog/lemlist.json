@@ -489,5 +489,40 @@
         "page_size": 100
       }
     }
-  ]
+  ],
+  "webhook": {
+    "fields": [
+      {
+        "key": "event",
+        "label": "Event",
+        "type": "text",
+        "required": true,
+        "default": "*"
+      },
+      {
+        "key": "options",
+        "label": "Options",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/hooks",
+        "body": {
+          "targetUrl": "{{ hook.url }}",
+          "type": "{{ p.event | ne:'*' | then:p.event }}",
+          "$merge": "{{ p.options }}"
+        }
+      }
+    ],
+    "id": "{{ res._id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/hooks/{{ hook.id }}"
+      }
+    ]
+  }
 }

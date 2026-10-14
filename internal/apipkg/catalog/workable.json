@@ -42,5 +42,47 @@
       }
     }
   ],
-  "operations": []
+  "operations": [],
+  "webhook": {
+    "fields": [
+      {
+        "key": "triggerOn",
+        "label": "Trigger on",
+        "type": "select",
+        "required": true,
+        "options": [
+          "candidateCreated",
+          "candidateMoved"
+        ]
+      },
+      {
+        "key": "filters",
+        "label": "Filters",
+        "type": "collection",
+        "default": {}
+      }
+    ],
+    "create": [
+      {
+        "method": "POST",
+        "path": "/subscriptions",
+        "body": {
+          "target": "{{ hook.url }}",
+          "event": "{{ p.triggerOn | snake | lower }}",
+          "args": {
+            "account_id": "{{ cred.subdomain }}",
+            "job_shortcode": "{{ p.filters.job }}",
+            "stage_slug": "{{ p.filters.stage }}"
+          }
+        }
+      }
+    ],
+    "id": "{{ res.id }}",
+    "delete": [
+      {
+        "method": "DELETE",
+        "path": "/subscriptions/{{ hook.id }}"
+      }
+    ]
+  }
 }

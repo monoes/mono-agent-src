@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/cli/librarycli"
 	"github.com/monoes/mono-agent/internal/library"
 	"github.com/monoes/mono-agent/internal/library/libraryfake"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -38,7 +39,7 @@ func TestAnOlderLibraryLoginKeepsWorkingAndLogoutForgetsIt(t *testing.T) {
 	seedOlderLogin(t, db, f.fake)
 	db.Close()
 
-	var st libStatus
+	var st librarycli.Status
 	f.must(&st, "library", "status")
 	if !st.LoggedIn || st.Method != "pkce" {
 		t.Fatalf("the older login is not seen: %+v", st)

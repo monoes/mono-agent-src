@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -24,6 +25,12 @@ const (
 	FixExtensionPermission  = "browser.extension.permission"
 	FixBridgeRestart        = "browser.bridge.restart"
 	FixBridgeServiceRestart = "browser.bridge.service.restart"
+)
+
+// ClientPairing's answers (extension.PairingState's values).
+const (
+	ClientPairingOK       = "ok"
+	ClientPairingMismatch = "mismatch"
 )
 
 var browserFeatures = []string{"crawling", "page capture", "platform logins"}
@@ -49,7 +56,7 @@ func browserFixes() []Fix {
 		{FixInfo: FixInfo{ID: FixExtensionInstall, Label: "Load the MonoAgent extension", Safety: SafetyManual,
 			Command: "open chrome://extensions → enable Developer mode → Load unpacked → the chrome-extension folder"}, Apply: manual},
 		{FixInfo: FixInfo{ID: FixExtensionPair, Label: "Pair the extension", Safety: SafetyManual,
-			Command: "monoagentcli extension pair"}, Apply: manual},
+			Command: "monoagentcli extension pair --open"}, Apply: manual},
 		{FixInfo: FixInfo{ID: FixExtensionPermission, Label: "Grant Full Disk Access", Safety: SafetyManual,
 			Command: "System Settings → Privacy & Security → Full Disk Access → enable your terminal app, then re-run doctor"}, Apply: manual},
 		{FixInfo: FixInfo{ID: FixBridgeRestart, Label: "Restart the daemon (it runs the extension bridge)", Safety: SafetyConfirm,
@@ -122,7 +129,13 @@ func checkBridge(ctx context.Context, env *Env) Result {
 		if env.RestartBridge != nil && !isDaemonOwned(ctx, env, b) {
 			unit = bridgeServiceUnit(ctx, env, b)
 		}
-		if unit != "" {
+		if unit != "" && !bridgeRestartHelps(b.PID) {
+			// The service's binary is the one already running: a restart
+			// brings back the same version (it would only interrupt the
+			// browser), so none is offered.
+			res.FixID = ""
+			res.Detail = fmt.Sprintf("the bridge runs %s but this CLI is %s — the %s service already runs its installed binary, so restarting it changes nothing; update one of the two binaries to match", b.Version, env.Version, unit)
+		} else if unit != "" {
 			res.FixID = FixBridgeServiceRestart
 			res.Detail = fmt.Sprintf("the bridge runs %s but this CLI is %s — restart its service: systemctl --user restart %s", b.Version, env.Version, unit)
 			res.FixCommand = "systemctl --user restart " + unit
@@ -304,6 +317,15 @@ func checkPaired(ctx context.Context, env *Env) Result {
 	if !ok {
 		return Result{Status: StatusSkip, Summary: "bridge not running"}
 	}
+	// The bridge's status is about the extension; whether it serves THIS app
+	// is a separate question, asked with this app's token (`extension status`
+	// asks it the same way).
+	if env.ClientPairing != nil && b.URL != "" && env.ClientPairing(ctx, b.URL) == ClientPairingMismatch {
+		return Result{Status: StatusWarn, Summary: "the bridge doesn't accept this app's pairing token",
+			Detail: "the bridge on " + b.Addr + " was started with another token (another HOME, or the token was reset since) — " +
+				"restart the bridge from this install, then pair the extension",
+			FixID: FixExtensionPair}
+	}
 	switch b.Status {
 	case "connected":
 		return Result{Status: StatusOK, Summary: "extension connected"}
@@ -312,4 +334,19 @@ func checkPaired(ctx context.Context, env *Env) Result {
 	default:
 		return Result{Status: StatusInfo, Summary: "extension not connected right now — the browser may be closed or idle"}
 	}
+}
+
+// bridgeRestartHelps reports whether restarting the bridge's process would
+// start a different build: on Linux, the binary it runs was replaced on disk
+// since it started (/proc/<pid>/exe reads "... (deleted)"). Where that cannot
+// be told it says true, as before. A variable so tests can set it.
+var bridgeRestartHelps = func(pid int) bool {
+	if runtime.GOOS != "linux" || pid <= 0 {
+		return true
+	}
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return true
+	}
+	return strings.HasSuffix(exe, " (deleted)")
 }

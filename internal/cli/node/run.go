@@ -371,6 +371,11 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				}
 			}
 
+			// The global --json asks for machine-readable output, as on
+			// every other command; an explicit --output still wins.
+			if d.JSONOutput != nil && d.JSONOutput() && !cmd.Flags().Changed("output") {
+				outputFmt = "json"
+			}
 			return renderNodeOutputs(outputFmt, outputs)
 		},
 	}

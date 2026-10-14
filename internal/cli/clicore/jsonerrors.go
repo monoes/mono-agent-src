@@ -85,6 +85,14 @@ type Reported struct{ Err error }
 func (e Reported) Error() string { return e.Err.Error() }
 func (e Reported) Unwrap() error { return e.Err }
 
+// Shown is a failure the command's human-mode output already showed (a run's
+// "Status: FAILED / Error: …" summary): main exits with its code but does
+// not print it again. With --json it is reported as any other error.
+type Shown struct{ Err error }
+
+func (e Shown) Error() string { return e.Err.Error() }
+func (e Shown) Unwrap() error { return e.Err }
+
 // InstallResultError is an Install/AddAction failure that still carries the
 // result (review + issues). With --json the error object adds "issues" and
 // "result"; without, the issues are printed on stderr.

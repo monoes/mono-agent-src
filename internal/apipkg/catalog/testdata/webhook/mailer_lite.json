@@ -1,0 +1,54 @@
+{
+  "credential": {
+    "api_key": "mlk",
+    "classic_api": "false"
+  },
+  "params": {
+    "events": [
+      "subscriber.created"
+    ]
+  },
+  "create_responses": [
+    {
+      "data": {
+        "id": "501",
+        "secret": "ml-secret"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/webhooks",
+      "body": {
+        "name": "mono-agent",
+        "url": "https://hooks.example.test/webhook/wh-path",
+        "events": [
+          "subscriber.created"
+        ]
+      },
+      "headers": {
+        "Authorization": "Bearer mlk"
+      }
+    }
+  ],
+  "hook_id": "501",
+  "extra": {
+    "secret": "ml-secret"
+  },
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/webhooks/501",
+      "headers": {
+        "Authorization": "Bearer mlk"
+      }
+    }
+  ],
+  "verify": {
+    "headers": {
+      "Signature": "bab0eea4f3261824eb4890fa8dbe1c5ba46566be048f11a8e5f201c46f916886"
+    },
+    "body": "{\"type\":\"subscriber.created\"}"
+  }
+}

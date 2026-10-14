@@ -1,0 +1,29 @@
+{
+  "params": {
+    "form": "2101"
+  },
+  "create_responses": [
+    {
+      "content": {
+        "0": "https://other.example/x",
+        "1": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/form/2101/webhooks",
+      "body": {
+        "webhookURL": "https://hooks.example.test/webhook/wh-path"
+      }
+    }
+  ],
+  "hook_id": "1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/form/2101/webhooks/1"
+    }
+  ]
+}

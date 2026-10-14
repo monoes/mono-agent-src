@@ -1,0 +1,34 @@
+{
+  "params": {
+    "siteId": "s1",
+    "event": "submissionCreated",
+    "formId": "f1"
+  },
+  "create_responses": [
+    {
+      "id": "nh1"
+    }
+  ],
+  "expect_create": [
+    {
+      "method": "POST",
+      "path": "/api/v1/hooks",
+      "body": {
+        "event": "submission_created",
+        "site_id": "s1",
+        "data": {
+          "url": "https://hooks.example.test/webhook/wh-path",
+          "signature_secret": "test-secret"
+        },
+        "form_id": "f1"
+      }
+    }
+  ],
+  "hook_id": "nh1",
+  "expect_delete": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hooks/nh1"
+    }
+  ]
+}

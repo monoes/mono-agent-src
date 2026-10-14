@@ -130,7 +130,6 @@ var newHandshakeKey = func() string {
 // submission by its value (Simplify, default on); off, the body passes
 // unchanged and no step is needed.
 func shapeFormstack(c *MapContext) *ChainStep {
-	c.Note("Formstack signs each post with X-FS-Signature (sha256=<HMAC-SHA256 of the raw body>); the imported webhook does not verify it yet")
 	if !c.Bool("simple", true) {
 		return nil
 	}

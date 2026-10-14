@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -41,6 +42,14 @@ var levelVar = func() *slog.LevelVar {
 	v.Set(DefaultLevel)
 	return v
 }()
+
+// levelChosen records whether Init found a level given by --log-level or
+// EnvLevel, rather than DefaultLevel.
+var levelChosen atomic.Bool
+
+// LevelChosen reports whether the user chose the root level (--log-level or
+// MONOAGENT_LOG_LEVEL) instead of leaving the default.
+func LevelChosen() bool { return levelChosen.Load() }
 
 // Level is the current root level.
 func Level() slog.Level { return levelVar.Level() }
@@ -70,23 +79,31 @@ func ParseLevel(s string) (slog.Level, error) {
 // `--log-level=X`), and whether it was given. Init reads it before cobra
 // parses the command line, so that what runs before a command's own code
 // (migrations on opening the database) is already filtered.
-func LevelFlag(args []string) (string, bool) {
+func LevelFlag(args []string) (string, bool) { return flagValue(args, "--log-level") }
+
+// FileFlag returns the value of --log-file in args, and whether it was given.
+func FileFlag(args []string) (string, bool) { return flagValue(args, "--log-file") }
+
+// flagValue returns the value of flag in args (`flag X` or `flag=X`).
+func flagValue(args []string, flag string) (string, bool) {
 	for i, a := range args {
 		if a == "--" {
 			break
 		}
-		if v, ok := strings.CutPrefix(a, "--log-level="); ok {
+		if v, ok := strings.CutPrefix(a, flag+"="); ok {
 			return v, true
 		}
-		if a == "--log-level" && i+1 < len(args) {
+		if a == flag && i+1 < len(args) {
 			return args[i+1], true
 		}
 	}
 	return "", false
 }
 
-// Init installs the root logger writing to w: the level from args'
-// --log-level, else getenv(EnvLevel), else DefaultLevel; the format from
+// Init installs the root logger writing to w — or to the file args'
+// --log-file names (appended to, created 0600; when it cannot be opened the
+// logger stays on w and says so): the level from args' --log-level, else
+// getenv(EnvLevel), else DefaultLevel; the format from
 // getenv(EnvFormat) ("json", else text). An unknown level is reported as a
 // warning and the default is kept. A level given by flag is also exported as
 // EnvLevel, so child processes (a daemon started by doctor, CLI subprocesses)
@@ -99,8 +116,19 @@ func Init(args []string, getenv func(string) string, w io.Writer) {
 	}
 	level, levelErr := ParseLevel(raw)
 	levelVar.Set(level)
+	levelChosen.Store(levelErr == nil && strings.TrimSpace(raw) != "")
 	if fromFlag && levelErr == nil {
 		_ = os.Setenv(EnvLevel, raw)
+	}
+
+	var fileErr error
+	if path, ok := FileFlag(args); ok && strings.TrimSpace(path) != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			fileErr = fmt.Errorf("--log-file: %w — logging to stderr", err)
+		} else {
+			w = f // open for the life of the process
+		}
 	}
 
 	opts := &slog.HandlerOptions{Level: levelVar}
@@ -122,6 +150,9 @@ func Init(args []string, getenv func(string) string, w io.Writer) {
 
 	if levelErr != nil {
 		slog.Warn(levelErr.Error())
+	}
+	if fileErr != nil {
+		slog.Warn(fileErr.Error())
 	}
 }
 
