@@ -10,7 +10,7 @@ import (
 // (Registered types without an entry get a schema-generated page; see
 // TestRefNodeRendersEveryRegisteredType.)
 func TestRefDocsCoverEveryTrigger(t *testing.T) {
-	for _, typ := range []string{"trigger.manual", "trigger.schedule", "trigger.webhook", "trigger.org"} {
+	for _, typ := range []string{"trigger.manual", "trigger.schedule", "trigger.webhook", "trigger.org", "trigger.sse"} {
 		if findNodeDoc(typ) == nil {
 			t.Errorf("trigger %q has no `ref node` entry", typ)
 		}

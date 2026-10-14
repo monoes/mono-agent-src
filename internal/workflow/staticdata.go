@@ -232,3 +232,109 @@ func DeleteWorkflowState(ctx context.Context, db *sql.DB, workflowID string) err
 	}
 	return nil
 }
+
+// DefaultPollCursorMaxIDs bounds the entry ids a PollCursor keeps when
+// PollCursorOptions.MaxIDs is 0 (a poll's page is usually far below it).
+const DefaultPollCursorMaxIDs = 1000
+
+// PollCursorOptions configures OpenPollCursor.
+type PollCursorOptions struct {
+	// Baseline makes a run with no stored cursor (the first run, or the first
+	// after the key changed) only record what it saw and report nothing as
+	// new: n8n's polling behaviour. Off (the default), that run reports
+	// every entry as new. Nodes read it from config with PollBaseline.
+	Baseline bool
+	// MaxIDs is the most entry ids kept, the first offered kept first.
+	// 0 means DefaultPollCursorMaxIDs.
+	MaxIDs int
+}
+
+// PollBaseline reads a poller's opt-in "baseline" config key (boolean,
+// default false). Nodes that take a PollCursor use this key and help text:
+// "First run only records what is there and emits nothing; later runs emit
+// what is new (n8n's behaviour)."
+func PollBaseline(config map[string]interface{}) bool {
+	b, _ := config["baseline"].(bool)
+	return b
+}
+
+// pollCursorState is what a PollCursor stores: the newest entry date seen
+// and the ids of the latest run's entries. The shape is system.rss_read's
+// original cursor, so its stored cursors keep working.
+type pollCursorState struct {
+	Newest time.Time `json:"newest"`
+	IDs    []string  `json:"ids"`
+}
+
+// PollCursor remembers, under one static-data key, which entries a polling
+// node has already passed on, so a run emits only new ones:
+//
+//	cur, err := workflow.OpenPollCursor(ctx, input, workflow.StateScopeNode, "cursor:"+url,
+//		workflow.PollCursorOptions{Baseline: workflow.PollBaseline(config)})
+//	for _, e := range entries {
+//		if cur.IsNew(e.ID, e.Date) { // e.Date: *time.Time, nil when the entry has none
+//			out = append(out, e)
+//		}
+//	}
+//	err = cur.Save(ctx)
+//
+// An entry is new when its id was not among the previous run's entries and
+// it is not dated before the newest entry seen so far. The ids kept are those
+// of the latest run (offer every entry of the poll, not only the new ones),
+// and an entry that drops out of the source and comes back counts as new
+// unless its date is older than the newest seen. Keying the cursor by the
+// source (URL, folder, query) starts over when the user changes it.
+type PollCursor struct {
+	sd    *StaticData
+	key   string
+	opts  PollCursorOptions
+	found bool
+	prev  pollCursorState
+	seen  map[string]bool
+	next  pollCursorState
+}
+
+// OpenPollCursor loads the cursor stored under key in input's node or
+// workflow static data.
+func OpenPollCursor(ctx context.Context, input NodeInput, scope StateScope, key string, opts PollCursorOptions) (*PollCursor, error) {
+	sd, err := StaticDataFor(ctx, input, scope)
+	if err != nil {
+		return nil, err
+	}
+	if opts.MaxIDs == 0 {
+		opts.MaxIDs = DefaultPollCursorMaxIDs
+	}
+	c := &PollCursor{sd: sd, key: key, opts: opts}
+	if c.found, err = sd.Get(ctx, key, &c.prev); err != nil {
+		return nil, err
+	}
+	c.seen = make(map[string]bool, len(c.prev.IDs))
+	for _, id := range c.prev.IDs {
+		c.seen[id] = true
+	}
+	c.next.Newest = c.prev.Newest
+	return c, nil
+}
+
+// First reports whether no earlier run stored this cursor.
+func (c *PollCursor) First() bool { return !c.found }
+
+// IsNew records the entry for Save and reports whether to emit it. date is
+// nil for an undated entry, which only its id decides.
+func (c *PollCursor) IsNew(id string, date *time.Time) bool {
+	if len(c.next.IDs) < c.opts.MaxIDs {
+		c.next.IDs = append(c.next.IDs, id)
+	}
+	if date != nil && date.After(c.next.Newest) {
+		c.next.Newest = *date
+	}
+	if !c.found {
+		return !c.opts.Baseline
+	}
+	return !c.seen[id] && (date == nil || !date.Before(c.prev.Newest))
+}
+
+// Save stores what this run saw for the next one.
+func (c *PollCursor) Save(ctx context.Context) error {
+	return c.sd.Set(ctx, c.key, c.next)
+}

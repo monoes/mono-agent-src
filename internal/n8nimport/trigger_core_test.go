@@ -117,7 +117,7 @@ func TestLocalFileTriggerListsFolder(t *testing.T) {
 // Queue and database triggers become mono's streaming triggers with
 // internal/nodes/db's parameter names and the n8n credential's platform.
 func TestQueueTriggersImportAsStreamingTriggers(t *testing.T) {
-	wf, rep := convertNode(t, "n8n-nodes-base.kafkaTrigger", 1.1, map[string]interface{}{
+	wf, _ := convertNode(t, "n8n-nodes-base.kafkaTrigger", 1.1, map[string]interface{}{
 		"topic": "orders", "groupId": "mono", "options": map[string]interface{}{"jsonParseMessage": true},
 	})
 	n := node(t, wf, "Trigger")
@@ -126,7 +126,6 @@ func TestQueueTriggersImportAsStreamingTriggers(t *testing.T) {
 	}
 	wantConfig(t, n, map[string]interface{}{"topic": "orders", "group_id": "mono", "json_parse_message": true,
 		"from_beginning": true, "credential_id": "kafka"})
-	wantIssue(t, rep, "does not start these consumers yet")
 
 	wf, _ = convertNode(t, "n8n-nodes-base.postgresTrigger", 1, map[string]interface{}{
 		"tableName": map[string]interface{}{"__rl": true, "mode": "list", "value": "orders"}, "firesOn": "UPDATE",

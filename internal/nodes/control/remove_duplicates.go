@@ -18,7 +18,9 @@ import (
 //	"keep"  (string, optional): "first" (default) or "last" (removeDuplicateInputItems only)
 //
 // removeItemsRepeatedWithinPreviousExecutions and clearDeduplicationHistory
-// (remove_duplicates_history.go) also read "dedupeValue", "scope" and "historySize".
+// (remove_duplicates_history.go) also read "dedupeValue", "scope" and "historySize";
+// removeItemsRepeatedWithinPreviousExecutions reads "logic" too
+// (remove_duplicates_watermark.go).
 type RemoveDuplicatesNode struct{}
 
 func (n *RemoveDuplicatesNode) Type() string { return "core.remove_duplicates" }

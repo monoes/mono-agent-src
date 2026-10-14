@@ -1,8 +1,12 @@
 package workflow
 
 import (
+	"context"
 	"strings"
 
+	"github.com/rs/zerolog"
+
+	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
@@ -12,6 +16,24 @@ import (
 // execution's profile so a workflow under profile B never resolves profile
 // A's credentials.
 func (r *runner) injectCredential(node WorkflowNode, config map[string]interface{}) {
+	mergeCredential(r.ctx, r.connStore, r.logger, node.Type, config)
+}
+
+// ResolveCredentials returns a copy of cfg with its credential_id merged in
+// the way a run does before Execute (connection fields at the top level and
+// under "credential"), scoped to the profile on ctx. Long-running trigger
+// sources (queue/DB consumers) use it when they activate. A credential that
+// does not resolve is logged and cfg is returned as it is.
+func (e *WorkflowEngine) ResolveCredentials(ctx context.Context, nodeType string, cfg map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(cfg))
+	for k, v := range cfg {
+		out[k] = v
+	}
+	mergeCredential(ctx, e.connStore, e.logger, nodeType, out)
+	return out
+}
+
+func mergeCredential(ctx context.Context, connStore *connections.Store, logger zerolog.Logger, nodeType string, config map[string]interface{}) {
 	credIDRaw, ok := config["credential_id"]
 	if !ok {
 		return
@@ -20,13 +42,12 @@ func (r *runner) injectCredential(node WorkflowNode, config map[string]interface
 	if !ok || credID == "" {
 		return
 	}
-	ctx := r.ctx
 	injected := false
 
-	if r.connStore != nil {
-		conn, err := r.connStore.GetOrResolve(ctx, credID, vault.ProfileIDFromContext(ctx))
+	if connStore != nil {
+		conn, err := connStore.GetOrResolve(ctx, credID, vault.ProfileIDFromContext(ctx))
 		if err != nil {
-			r.logger.Warn().Err(err).
+			logger.Warn().Err(err).
 				Str("credential_id", credID).
 				Msg("connections lookup failed")
 			// conn is nil; injected stays false, miss handling below runs
@@ -48,7 +69,7 @@ func (r *runner) injectCredential(node WorkflowNode, config map[string]interface
 			"instagram": true, "gemini": true, "linkedin": true,
 			"x": true, "tiktok": true, "telegram": true,
 		}
-		parts := strings.SplitN(node.Type, ".", 2)
+		parts := strings.SplitN(nodeType, ".", 2)
 		if len(parts) == 2 && browserPlatforms[parts[0]] {
 			config["username"] = credID
 			injected = true
@@ -59,7 +80,7 @@ func (r *runner) injectCredential(node WorkflowNode, config map[string]interface
 		// Miss on every path. Include the execution's profile in
 		// the log so cross-profile resolution failures are
 		// diagnosable.
-		r.logger.Warn().
+		logger.Warn().
 			Str("credential_id", credID).
 			Str("profile", vault.ProfileIDFromContext(ctx)).
 			Msg("credential not resolved for profile")

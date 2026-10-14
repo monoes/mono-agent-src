@@ -58,6 +58,26 @@ core.respond_webhook node sends; a failed run answers 500. A duplicate
 delivery answers {"success":true,"duplicate":true,"execution_id":<first run>}.`,
 	},
 	{
+		Type:     "trigger.sse",
+		Category: "trigger",
+		Short:    "Run workflow on each Server-Sent Event from a URL",
+		Description: `While "monoagentcli daemon" runs and the workflow is active, keeps a
+text/event-stream connection open to url and starts one run per event. A
+dropped connection is retried after the server's retry: time (3s until it sends
+one), doubling while it keeps failing up to a minute, and resumes with
+Last-Event-ID. A 204 answer stops the trigger until the workflow is activated
+again.`,
+		Config: `{
+  "url":     "https://example.com/events",              // required, http(s)
+  "headers": {"Authorization": "Bearer @secret:feed"}   // optional; object or JSON text
+}`,
+		Inputs: "none",
+		Outputs: `one item per event: event ("message" when the stream names none), data (the
+parsed JSON value when the event's data is JSON, else the text; multi-line data
+joined with newlines) and id (the last event id).`,
+		Notes: "Only the daemon opens the stream; `workflow activate` alone does not.",
+	},
+	{
 		Type:     "trigger.execute_workflow",
 		Category: "trigger",
 		Short:    "Start this workflow when another workflow calls it (core.execute_workflow)",

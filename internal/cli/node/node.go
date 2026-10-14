@@ -125,7 +125,7 @@ func nodeTypeCategory(t string) string {
 // triggerNodeTypes are the trigger types the engine handles itself: they are
 // never in the node registry (execution.go passes them through), so `node
 // list` adds them to the registered types.
-var triggerNodeTypes = []string{"trigger.manual", "trigger.org", "trigger.schedule", "trigger.webhook"}
+var triggerNodeTypes = []string{"trigger.manual", "trigger.org", "trigger.schedule", "trigger.sse", "trigger.webhook"}
 
 // newNodeListCmd lists all registered node types and the engine's triggers.
 func (d Deps) newNodeListCmd() *cobra.Command {

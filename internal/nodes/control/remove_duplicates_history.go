@@ -23,13 +23,9 @@ const (
 //	"historySize" (number, optional): values kept, least recently seen dropped
 //	                                  first (default workflow.DefaultSeenHistorySize)
 func dedupeHistory(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) (*workflow.SeenKeys, error) {
-	scope, _ := config["scope"].(string)
-	switch scope {
-	case "":
-		scope = string(workflow.StateScopeNode)
-	case string(workflow.StateScopeNode), string(workflow.StateScopeWorkflow):
-	default:
-		return nil, fmt.Errorf("%w: remove_duplicates: 'scope' must be \"node\" or \"workflow\", got %q", workflow.ErrInvalidConfig, scope)
+	scope, err := dedupeScope(config)
+	if err != nil {
+		return nil, err
 	}
 	var size int
 	switch v := config["historySize"].(type) {
@@ -41,11 +37,24 @@ func dedupeHistory(ctx context.Context, input workflow.NodeInput, config map[str
 	if size < 0 {
 		return nil, fmt.Errorf("%w: remove_duplicates: 'historySize' must not be negative", workflow.ErrInvalidConfig)
 	}
-	seen, err := workflow.SeenKeysFor(ctx, input, workflow.StateScope(scope), workflow.SeenOptions{HistorySize: size})
+	seen, err := workflow.SeenKeysFor(ctx, input, scope, workflow.SeenOptions{HistorySize: size})
 	if err != nil {
 		return nil, fmt.Errorf("remove_duplicates: %w", err)
 	}
 	return seen, nil
+}
+
+// dedupeScope reads "scope": "node" (default) or "workflow".
+func dedupeScope(config map[string]interface{}) (workflow.StateScope, error) {
+	scope, _ := config["scope"].(string)
+	switch scope {
+	case "":
+		return workflow.StateScopeNode, nil
+	case string(workflow.StateScopeNode), string(workflow.StateScopeWorkflow):
+		return workflow.StateScope(scope), nil
+	default:
+		return "", fmt.Errorf("%w: remove_duplicates: 'scope' must be \"node\" or \"workflow\", got %q", workflow.ErrInvalidConfig, scope)
+	}
 }
 
 // removeSeenInPreviousRuns keeps the items whose dedupe value no earlier run
@@ -53,6 +62,14 @@ func dedupeHistory(ctx context.Context, input workflow.NodeInput, config map[str
 // "dedupeValue" is an expression ({{ $json.id }}) or a dot-path field; when it
 // is empty "field" is used, and when both are empty the whole item.
 func removeSeenInPreviousRuns(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
+	switch logic, _ := config["logic"].(string); logic {
+	case "", logicSeenValues:
+	case logicIncremental, logicDate:
+		return removeUpToStored(ctx, input, config, logic)
+	default:
+		return nil, fmt.Errorf("%w: remove_duplicates: unknown logic %q (want %q, %q or %q)", workflow.ErrInvalidConfig,
+			logic, logicSeenValues, logicIncremental, logicDate)
+	}
 	seen, err := dedupeHistory(ctx, input, config)
 	if err != nil {
 		return nil, err
@@ -119,13 +136,18 @@ func dedupeValueOf(engine *workflow.ExpressionEngine, expr string, item workflow
 	}
 }
 
-// clearDedupeHistory forgets the scope's seen values and passes the items through.
+// clearDedupeHistory forgets the scope's seen values and stored maximums
+// and passes the items through.
 func clearDedupeHistory(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	seen, err := dedupeHistory(ctx, input, config)
 	if err != nil {
 		return nil, err
 	}
 	if err := seen.Clear(ctx); err != nil {
+		return nil, fmt.Errorf("remove_duplicates: %w", err)
+	}
+	scope, _ := dedupeScope(config) // dedupeHistory has checked it
+	if err := clearWatermarks(ctx, input, scope); err != nil {
 		return nil, fmt.Errorf("remove_duplicates: %w", err)
 	}
 	return []workflow.NodeOutput{{Handle: "main", Items: input.Items}}, nil

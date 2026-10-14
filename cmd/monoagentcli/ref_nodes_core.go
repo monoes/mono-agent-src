@@ -31,7 +31,8 @@ Commonly used to pull news, blog posts, or podcast episodes.`,
 		Config: `{
   "url":            "https://rss.dw.com/rdf/rss-en-all",
   "limit":          15,
-  "since_last_run": false   // true: emit only entries newer than the previous run saw
+  "since_last_run": false,  // true: emit only entries newer than the previous run saw
+  "baseline":       false   // with since_last_run: the first run records the feed and emits nothing
 }`,
 		Inputs:  "none (URL comes from config)",
 		Outputs: "title, description, link, pubDate, guid, author, categories",
@@ -144,14 +145,20 @@ Use to build prompts, format strings, or reshape data before the next node.`,
 		Category: "core",
 		Short:    "Deduplicate items by a field, within a run or across runs",
 		Description: `operation "removeDuplicateInputItems" (default) drops duplicates within this
-run's input. "removeItemsRepeatedWithinPreviousExecutions" keeps only items
-whose dedupeValue no earlier run of this workflow saw (history stored per node,
-or per workflow with scope "workflow"; historySize caps the stored values).
-"clearDeduplicationHistory" empties that history and passes items through.`,
+run's input. "removeItemsRepeatedWithinPreviousExecutions" compares with earlier
+runs of this workflow (state stored per node, or per workflow with scope
+"workflow"), by logic: "removeItemsWithAlreadySeenKeyValues" (default) keeps
+items whose dedupeValue no earlier run saw (historySize caps the stored values);
+"removeItemsUpToStoredIncrementalKey" keeps items whose dedupeValue is a number
+higher than any earlier run's; "removeItemsUpToStoredDate" keeps items whose
+dedupeValue is a date later than any earlier run's (those two store only the
+maximum; the first run keeps everything). "clearDeduplicationHistory" empties
+the history and maximums and passes items through.`,
 		Config: `{
   "field":       "url",                                          // within-run key
   "operation":   "removeItemsRepeatedWithinPreviousExecutions",  // optional
-  "dedupeValue": "{{ $json.url }}",                              // across runs: value to remember
+  "logic":       "removeItemsWithAlreadySeenKeyValues",          // | removeItemsUpToStoredIncrementalKey | removeItemsUpToStoredDate
+  "dedupeValue": "{{ $json.url }}",                              // across runs: value to remember / compare
   "scope":       "node",                                         // node | workflow
   "historySize": 10000
 }`,

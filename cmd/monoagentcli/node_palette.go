@@ -78,6 +78,7 @@ func nodePalette(db *sql.DB, includeDeprecated bool) map[string][]paletteNode {
 			mkNode("trigger.manual", "Manual Trigger", "triggers", "Start a workflow run manually"),
 			mkNode("trigger.schedule", "Schedule", "triggers", "Run workflow on a cron or interval schedule"),
 			mkNode("trigger.webhook", "Webhook", "triggers", "Start workflow on incoming HTTP request"),
+			mkNode("trigger.sse", "SSE Trigger", "triggers", "Start workflow on each Server-Sent Event from a URL"),
 			mkNode("trigger.execute_workflow", "When Called by Another Workflow", "triggers", "Start this workflow from an Execute Workflow node"),
 			mkNode("trigger.error", "Error Trigger", "triggers", "Run when a workflow that names this one as its error workflow fails"),
 		},

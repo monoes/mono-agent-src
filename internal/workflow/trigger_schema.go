@@ -62,3 +62,11 @@ type WebhookTriggerSchema struct {
 
 	MaxBodyBytes float64 `json:"max_body_bytes" schema:"label=Max Body Size (bytes),type=number,default=1048576,min=1,max=33554432,help=Largest request body accepted， multipart files included."`
 }
+
+// SSETriggerSchema documents the config keys SSETriggerSource.Activate
+// reads (trigger_sse.go).
+type SSETriggerSchema struct {
+	URL string `json:"url" schema:"label=URL,type=text,required,placeholder=https://example.com/events,help=The text/event-stream endpoint. Every event starts one run with {event， data， id}."`
+
+	Headers string `json:"headers" schema:"label=Headers (JSON),type=textarea,placeholder={ \"Authorization\": \"Bearer @secret:feed_token\" },help=Request headers as a JSON object. A value that is an @secret:<name> reference is read from the vault."`
+}

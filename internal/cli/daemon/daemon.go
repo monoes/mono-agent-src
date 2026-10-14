@@ -120,6 +120,8 @@ func NewCommand(d Deps) *cobra.Command {
 			}
 			defer db.Close()
 			orgs := orgsvc.New(db, engine, d.OpenWorkflowStore)
+			registerQueueTriggers(engine, orgs.Logf)
+			engine.RegisterTriggerSource(workflow.TriggerNodeTypeSSE, workflow.NewSSETriggerSource(db.DB, orgs.Logf))
 			apiRT, err := apiruntime.NewForDaemon(db.DB, api, func(format string, args ...any) { orgs.Logf("api: "+format, args...) }, d.API)
 			if err != nil {
 				return err

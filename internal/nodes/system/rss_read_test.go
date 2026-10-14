@@ -131,3 +131,21 @@ func TestRSSRead_SinceLastRunNeedsWorkflowState(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoWorkflowState", err)
 	}
 }
+
+// baseline: the first since_last_run run records the feed and emits nothing.
+func TestRSSRead_SinceLastRunBaseline(t *testing.T) {
+	feed := &feedServer{}
+	srv := httptest.NewServer(feed)
+	defer srv.Close()
+	ctx := newRSSContext(t)
+	cfg := map[string]interface{}{"url": srv.URL, "since_last_run": true, "baseline": true}
+
+	feed.set(rssEntry{"b", tue}, rssEntry{"a", mon})
+	if got := readTitles(t, ctx, cfg); got != "" {
+		t.Fatalf("first run = %q, want nothing", got)
+	}
+	feed.set(rssEntry{"c", wed}, rssEntry{"b", tue}, rssEntry{"a", mon})
+	if got := readTitles(t, ctx, cfg); got != "c" {
+		t.Fatalf("second run = %q, want c", got)
+	}
+}

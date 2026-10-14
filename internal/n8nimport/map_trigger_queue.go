@@ -43,8 +43,6 @@ func mapQueueTrigger(c *MapContext) Mapping {
 	}
 	cred := queueTriggerCredentials[c.Type]
 	m.Config["credential_id"] = c.Credential(cred[0], cred[1])
-	c.Warn("trigger", spec.MonoType, "%s keeps a consumer open while the workflow is active; the daemon does not start "+
-		"these consumers yet, so the trigger does not fire until it does", spec.MonoType)
 	return m
 }
 

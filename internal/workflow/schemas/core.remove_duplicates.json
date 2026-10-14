@@ -4,7 +4,7 @@
   "fields": [
     {
       "default": "removeDuplicateInputItems",
-      "help": "removeDuplicateInputItems: drop repeats within this run. removeItemsRepeatedWithinPreviousExecutions: keep only items whose dedupe value no earlier run of this workflow produced (e.g. new feed entries on a schedule). clearDeduplicationHistory: forget the stored values and pass items through.",
+      "help": "removeDuplicateInputItems: drop repeats within this run. removeItemsRepeatedWithinPreviousExecutions: keep only items that are new compared with earlier runs of this workflow (see Keep Items Where; e.g. new feed entries on a schedule). clearDeduplicationHistory: forget the stored values and maximums and pass items through.",
       "key": "operation",
       "label": "Operation",
       "options": [
@@ -37,6 +37,25 @@
       "options": [
         "first",
         "last"
+      ],
+      "required": false,
+      "type": "select"
+    },
+    {
+      "default": "removeItemsWithAlreadySeenKeyValues",
+      "depends_on": {
+        "key": "operation",
+        "values": [
+          "removeItemsRepeatedWithinPreviousExecutions"
+        ]
+      },
+      "help": "removeItemsWithAlreadySeenKeyValues: the value is new (not in the history). removeItemsUpToStoredIncrementalKey: the value is a number higher than any earlier run's. removeItemsUpToStoredDate: the value is a date later than any earlier run's. The last two store only the maximum.",
+      "key": "logic",
+      "label": "Keep Items Where",
+      "options": [
+        "removeItemsWithAlreadySeenKeyValues",
+        "removeItemsUpToStoredIncrementalKey",
+        "removeItemsUpToStoredDate"
       ],
       "required": false,
       "type": "select"
@@ -82,7 +101,7 @@
           "removeItemsRepeatedWithinPreviousExecutions"
         ]
       },
-      "help": "Most values remembered; the least recently seen are forgotten first (and could pass again).",
+      "help": "Most values remembered (removeItemsWithAlreadySeenKeyValues only); the least recently seen are forgotten first (and could pass again).",
       "key": "historySize",
       "label": "History Size",
       "min": 1,

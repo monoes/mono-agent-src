@@ -12,7 +12,8 @@ import (
 // Type: "system.rss_read"
 //
 // With "since_last_run" set it emits only the entries newer than the ones an
-// earlier run of the same node saw (rss_cursor.go).
+// earlier run of the same node saw (rss_cursor.go); "baseline" makes the
+// first such run emit nothing.
 type RSSReadNode struct{}
 
 func (n *RSSReadNode) Type() string { return "system.rss_read" }
@@ -36,7 +37,7 @@ func (n *RSSReadNode) Execute(ctx context.Context, input workflow.NodeInput, con
 
 	items := feed.Items
 	if sinceLastRun, _ := config["since_last_run"].(bool); sinceLastRun {
-		items, err = itemsSinceLastRun(ctx, input, feedURL, items)
+		items, err = itemsSinceLastRun(ctx, input, feedURL, items, workflow.PollBaseline(config))
 		if err != nil {
 			return nil, fmt.Errorf("system.rss_read: since_last_run: %w", err)
 		}
