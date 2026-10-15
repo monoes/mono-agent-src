@@ -94,6 +94,12 @@ func Palette(db *sql.DB, includeDeprecated bool) map[string][]PaletteNode {
 			mkNode("trigger.error", "Error Trigger", "triggers", "Run when a workflow that names this one as its error workflow fails"),
 			mkNode("trigger.evaluation", "When Fetching a Dataset Row", "triggers", "Run the workflow once per dataset row in an evaluation (workflow evaluate)"),
 			mkNode("trigger.local_file", "Local File Trigger", "triggers", "Run when a file in a watched path is added, changed or removed"),
+			mkNode("trigger.kafka", "Kafka Trigger", "triggers", "Start a run for each message on a Kafka topic (daemon)"),
+			mkNode("trigger.rabbitmq", "RabbitMQ Trigger", "triggers", "Start a run for each message on a RabbitMQ queue (daemon)"),
+			mkNode("trigger.amqp", "AMQP Trigger", "triggers", "Start a run for each message from an AMQP 1.0 source (daemon)"),
+			mkNode("trigger.mqtt", "MQTT Trigger", "triggers", "Start a run for each message on an MQTT topic (daemon)"),
+			mkNode("trigger.redis", "Redis Trigger", "triggers", "Start a run for each message on a Redis channel (daemon)"),
+			mkNode("trigger.postgres", "Postgres Trigger", "triggers", "Start a run for each Postgres LISTEN/NOTIFY event (daemon)"),
 		},
 		"control": []PaletteNode{
 			mkNode("core.if", "If", "control", "Branch execution based on a condition"),
