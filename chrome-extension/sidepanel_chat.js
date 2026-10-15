@@ -35,12 +35,16 @@
   const sendBtn = el("chat-send");
   const stopBtn = el("chat-stop");
   const newBtn = el("chat-new");
+  const fillBtn = el("chat-fill");
   const summarizeBtn = el("chat-summarize");
   const pageChip = el("chat-page");
   const notice = el("chat-notice");
   const stateEl = el("chat-state");
 
   const SUMMARIZE_PROMPT = "Summarize this page.";
+  // "fill the form" typed in the box does what the Fill form button does: the
+  // chat's own model has no access to the profile, so it would only refuse.
+  const FILL_INTENT = /^\s*(please\s+)?(auto-?)?fill(\s+(in|out|up))?\s+(the|this|my)?\s*(form|page|application)\b/i;
   const POLL_MS = 1500;
   const NOTICES = {
     offline: "MonoAgent isn't connected, so chat is unavailable. It comes back when the bridge does.",
@@ -166,6 +170,7 @@
     stopBtn.hidden = !busy();
     stopBtn.disabled = !chat.conversation && !active;
     summarizeBtn.disabled = !ready || busy() || !pageShareable();
+    fillBtn.disabled = !ready || busy() || filling || !pageShareable();
     newBtn.disabled = busy() || (!chat.messages.length && !chat.conversation);
     const shareable = pageShareable();
     pageChip.disabled = !shareable;
@@ -265,9 +270,38 @@
     return { context: p && pageShareable() ? Core.buildContext({ url: p.url, title: p.title, text: "", selection: "" }) : null };
   }
 
+  let filling = false;
+
+  /** Fills the active tab's form from the profile; the result is told in the notice line. */
+  async function fillForm() {
+    if (filling || busy() || availability !== "ready") return;
+    filling = true;
+    refusal = "Filling the form…";
+    drawControls();
+    try {
+      const r = await ask({ type: "form_fill", profile: currentProfile(), windowId: typeof here !== "undefined" ? here.windowId : undefined });
+      if (!r.ok) refusal = r.error || "The form could not be filled.";
+      else if (r.none) refusal = "No empty fields to fill on this page.";
+      else if (!r.filled) refusal = "Nothing in this profile's documents answers this form.";
+      else {
+        const from = r.sources && r.sources.length ? ` from ${r.sources.slice(0, 3).join(", ")}` : "";
+        refusal = `Filled ${r.filled} of ${r.found} fields${from}. Check them, then submit yourself.`;
+      }
+    } catch (err) {
+      refusal = (err && err.message) || "The form could not be filled.";
+    } finally {
+      filling = false;
+      drawControls();
+    }
+  }
+
   async function send(text, forcePage) {
     const message = Core.checkMessage(text);
     if (!message || busy() || availability !== "ready") return;
+    if (FILL_INTENT.test(message)) {
+      input.value = "";
+      return fillForm();
+    }
     const sharing = pageShareable() && (forcePage || usePage);
     const tag = `c${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const sentFrom = profile;
@@ -359,6 +393,7 @@
   sendBtn.addEventListener("click", () => send(input.value, false));
   stopBtn.addEventListener("click", stop);
   newBtn.addEventListener("click", newChat);
+  fillBtn.addEventListener("click", fillForm);
   summarizeBtn.addEventListener("click", () => send(SUMMARIZE_PROMPT, true));
   pageChip.addEventListener("click", () => {
     usePage = !usePage;

@@ -38,7 +38,7 @@ class Node_ {
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(""); }
 }
 
-const IDS = ["chat-log", "chat-empty", "chat-input", "chat-send", "chat-stop", "chat-new", "chat-summarize", "chat-page", "chat-notice", "chat-state"];
+const IDS = ["chat-log", "chat-empty", "chat-input", "chat-send", "chat-stop", "chat-new", "chat-fill", "chat-summarize", "chat-page", "chat-notice", "chat-state"];
 
 function setup({ replies = {}, stored = {}, pageNow = { tabId: 5, url: "https://a.example/p", title: "A page" }, profile = "p-work" } = {}) {
   const els = {};
@@ -370,4 +370,22 @@ test("the section is in the panel, first and open by default", () => {
   for (const f of ["chat_core.js", "chat_render.js", "sidepanel_chat.js", "sidepanel_chat.css"]) assert.ok(html.includes(f), f);
   assert.ok(html.indexOf("sidepanel.js") < html.indexOf("sidepanel_chat.js"), "after sidepanel.js, which it leans on");
   assert.match(html, /<label for="chat-input" class="sr-only">/);
+});
+
+test("Fill form, or typing 'fill the form', fills from the profile instead of chatting", async () => {
+  const t = setup({ replies: { ...READY, form_fill: { ok: true, filled: 7, found: 9, sources: ["passport.pdf"] } } });
+  await settle();
+  t.els["chat-fill"].fire("click");
+  await settle(30);
+  const f = lastOf(t.sent, "form_fill");
+  assert.equal(f.profile, "p-work");
+  assert.equal(f.windowId, 1);
+  assert.match(t.els["chat-notice"].textContent, /Filled 7 of 9 fields from passport\.pdf/);
+
+  t.type("Please fill the form with my information");
+  t.enter();
+  await settle(30);
+  assert.equal(t.sent.filter((m) => m.type === "form_fill").length, 2);
+  assert.equal(t.sent.some((m) => m.type === "chat_send"), false, "the chat model is never asked");
+  assert.equal(t.els["chat-input"].value, "");
 });

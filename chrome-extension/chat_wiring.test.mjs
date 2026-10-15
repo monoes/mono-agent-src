@@ -24,3 +24,8 @@ test("the worker installs chat once, after the recall group installed ask.js", (
   assert.equal(count("MonoChat.install("), 1);
   assert.ok(background.indexOf("MonoChat.install(") > background.indexOf("MonoRecall.install("));
 });
+
+test("the worker loads and installs the form filler after chat", () => {
+  assert.ok(background.indexOf('importScripts("form_bridge.js")') > background.indexOf('importScripts("chat_core.js", "chat_bridge.js")'));
+  assert.equal(count("MonoForm.install("), 1);
+});

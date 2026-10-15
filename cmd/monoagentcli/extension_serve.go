@@ -75,6 +75,9 @@ func newExtensionServer(logger zerolog.Logger) *extension.Server {
 	// same `chat --conversation --turn` child the desktop app runs
 	// (internal/extension/chat.go). Read-mostly tools only, never runs.
 	srv.SetChatBackend(extension.NewCLIChatBackend())
+	// form.fill: fill the page's form from the profile's own documents
+	// (extension_formfill.go).
+	srv.SetFormFiller(extensionFormFiller(defaultDBPath, configuredSummaryRuntime()))
 	srv.SetVersion(getVersion())
 	// Every bridge that owns the connection writes the summaries its
 	// captures ask for. `extension serve` re-installs this with its own
