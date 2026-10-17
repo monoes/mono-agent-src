@@ -114,13 +114,8 @@
       "resource": "user",
       "operation": "create",
       "title": "Create a user",
-      "sends": {
-        "action": "invite",
-        "to": [
-          "additionalFields.email"
-        ],
-        "if": "additionalFields.customFieldsUi.customFieldPairs.name=invite"
-      },
+      "sends": false,
+      "sends_reason": "Create a user: changes Zammad data, not a message",
       "method": "POST",
       "path": "/users",
       "body": {
@@ -128,7 +123,7 @@
         "lastname": "{{ p.lastname }}",
         "$merge": [
           "{{ p.additionalFields.addressUi.addressDetails }}",
-          "{{ p.additionalFields.customFieldsUi | kv:'name,value' }}",
+          "{{ p.additionalFields.customFieldsUi | kv:'name,value' | omit:'invite' }}",
           "{{ p.additionalFields | omit:'addressUi,customFieldsUi' }}"
         ]
       },
@@ -271,7 +266,7 @@
       "body": {
         "$merge": [
           "{{ p.updateFields.addressUi.addressDetails }}",
-          "{{ p.updateFields.customFieldsUi | kv:'name,value' }}",
+          "{{ p.updateFields.customFieldsUi | kv:'name,value' | omit:'invite' }}",
           "{{ p.updateFields | omit:'addressUi,customFieldsUi' }}"
         ]
       },
@@ -602,8 +597,7 @@
         "if": [
           "article.articleDetails.type not in note|web|phone",
           "article.articleDetails.to",
-          "article.articleDetails.cc",
-          "additionalFields.customFieldsUi.customFieldPairs.name=articles"
+          "article.articleDetails.cc"
         ]
       },
       "subfields": {
@@ -625,7 +619,7 @@
         "group": "{{ p.group }}",
         "customer": "{{ p.customer }}",
         "$merge": [
-          "{{ p.additionalFields.customFieldsUi | kv:'name,value' }}",
+          "{{ p.additionalFields.customFieldsUi | kv:'name,value' | omit:'article,articles' }}",
           "{{ p.additionalFields | omit:'customFieldsUi' }}"
         ],
         "article": {
@@ -763,17 +757,13 @@
         "text": [
           "updateFields.note"
         ],
-        "if": [
-          "updateFields.note",
-          "updateFields.customFieldsUi.customFieldPairs.name=article",
-          "updateFields.customFieldsUi.customFieldPairs.name=articles"
-        ]
+        "if": "updateFields.note"
       },
       "method": "PUT",
       "path": "/tickets/{{ p.id }}",
       "body": {
         "$merge": [
-          "{{ p.updateFields.customFieldsUi | kv:'name,value' }}",
+          "{{ p.updateFields.customFieldsUi | kv:'name,value' | omit:'article,articles' }}",
           "{{ p.updateFields | omit:'note,customFieldsUi' }}"
         ],
         "article": {

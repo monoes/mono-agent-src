@@ -301,14 +301,13 @@ func TestTheReviewedSendsStayDecided(t *testing.T) {
 		{"app.onfleet", cfg{"resource": "task", "operation": "create", "additionalFields": cfg{"recipient": cfg{"recipientProperties": cfg{
 			"recipientName": "Ada"}}}}, "Ada"},
 		{"app.onfleet", cfg{"resource": "task", "operation": "create"}, "the task's recipient"},
-		// A custom field Zammad reads as a send of its own: an article on a
-		// ticket update, an invite on a new user. Another custom field is
-		// data.
+		// A custom field Zammad reads as a send of its own (an article on a
+		// ticket update, an invite on a new user) is left out of the request,
+		// so it holds nothing; another custom field is data.
 		{"app.zammad", cfg{"resource": "ticket", "operation": "update", "id": "5", "updateFields": cfg{"customFieldsUi": cfg{
-			"customFieldPairs": []interface{}{cfg{"name": "article", "value": cfg{"type": "email", "to": "v@example.test"}}}}}}, "5"},
+			"customFieldPairs": []interface{}{cfg{"name": "article", "value": cfg{"type": "email", "to": "v@example.test"}}}}}}, "-"},
 		{"app.zammad", cfg{"resource": "user", "operation": "create", "firstname": "Ada", "lastname": "L", "additionalFields": cfg{
-			"email": "ada@example.test", "customFieldsUi": cfg{"customFieldPairs": []interface{}{cfg{"name": "invite", "value": true}}}}},
-			"ada@example.test"},
+			"email": "ada@example.test", "customFieldsUi": cfg{"customFieldPairs": []interface{}{cfg{"name": "invite", "value": true}}}}}, "-"},
 		{"app.zammad", cfg{"resource": "user", "operation": "create", "firstname": "Ada", "lastname": "L", "additionalFields": cfg{
 			"email": "ada@example.test", "customFieldsUi": cfg{"customFieldPairs": []interface{}{cfg{"name": "shoe", "value": "42"}}}}}, "-"},
 		// Zammad files an article with no type as a note (its API's default),

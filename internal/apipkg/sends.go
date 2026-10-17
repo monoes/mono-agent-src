@@ -36,12 +36,11 @@ type Sends struct {
 	// If names the params the op only sends with: it sends when one of them
 	// is set (true, or any value but false, "" or an empty list), a param's
 	// field default included; a list on a param's path is set when one of
-	// its elements is, and has a value when one of them does.
-	// "param=value" sends when the param has that value, "param!=value"
-	// when it is unset or has another, and "param not in a|b|c" when it is
-	// set to none of those. Sendy creates a campaign and sends it only with
-	// sendCampaign; a Google Calendar event invites only with
-	// additionalFields.attendees; Home Assistant notifies only with
+	// its elements is. "param=value" sends when the param has that value,
+	// "param!=value" when it is unset or has another, and "param not in
+	// a|b|c" when it is set to none of those. Sendy creates a campaign and
+	// sends it only with sendCampaign; a Google Calendar event invites only
+	// with additionalFields.attendees; Home Assistant notifies only with
 	// "domain=notify"; Onfleet texts a task's recipient unless
 	// recipientSkipSMSNotifications is true; a Zammad article goes out
 	// unless it is a note, web or phone one.
@@ -163,10 +162,7 @@ type Send struct {
 func SendOf(nodeType string, config map[string]any) (Send, bool) {
 	if pkg, ok := ForNodeType(nodeType); ok {
 		op, err := pkg.resolveOp(config)
-		if err != nil {
-			return Send{}, false
-		}
-		if !op.sends(config) {
+		if err != nil || !op.sends(config) {
 			return Send{}, false
 		}
 		s := op.Sends
@@ -258,10 +254,7 @@ func (o *Operation) sends(config map[string]any) bool {
 			if v == nil || !strings.EqualFold(got, want) {
 				return true
 			}
-		case slices.ContainsFunc(condValues(params, name), func(x any) bool {
-			got := strings.TrimSpace(fmt.Sprint(x))
-			return x != nil && (hasTemplate(got) || strings.EqualFold(got, want))
-		}):
+		case v != nil && strings.EqualFold(got, want):
 			return true
 		}
 	}

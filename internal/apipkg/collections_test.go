@@ -166,3 +166,44 @@ func TestSubfieldsAreChecked(t *testing.T) {
 		}
 	}
 }
+
+// Zammad merges custom fields at the top of its request, where a field
+// named article or articles is a ticket's article (an email, a tweet) and
+// invite emails a new user an invitation: those names are left out of the
+// request, and other custom fields go as before.
+func TestZammadCustomFieldsThatSendAreLeftOut(t *testing.T) {
+	zammad := catalogPkg(t, "zammad")
+	pairs := func(names ...string) map[string]any {
+		var ps []any
+		for _, n := range names {
+			ps = append(ps, map[string]any{"name": n, "value": map[string]any{"type": "email", "to": "v@example.test"}})
+		}
+		return map[string]any{"customFieldsUi": map[string]any{"customFieldPairs": append(ps, map[string]any{"name": "shoe", "value": "42"})}}
+	}
+	for name, c := range map[string]struct {
+		params map[string]any
+		left   []string
+	}{
+		"a ticket update": {map[string]any{"resource": "ticket", "operation": "update", "id": "5",
+			"updateFields": pairs("article", "articles")}, []string{`"article"`, `"articles"`}},
+		"a ticket create": {map[string]any{"resource": "ticket", "operation": "create", "title": "T", "group": "Users",
+			"customer": "a@example.test", "article": map[string]any{"articleDetails": map[string]any{"body": "x"}},
+			"additionalFields": pairs("articles")}, []string{`"articles"`, `"to":"v@example.test"`}},
+		"a new user": {map[string]any{"resource": "user", "operation": "create", "firstname": "Ada", "lastname": "L",
+			"additionalFields": pairs("invite")}, []string{`"invite"`}},
+	} {
+		srv := newMockServer(t, map[string]any{"id": 1}, 200)
+		if _, err := runPackageOp(zammad, c.params, credFor(zammad), nil); err != nil || len(srv.requests()) == 0 {
+			t.Fatalf("%s: %v", name, err)
+		}
+		body := string(srv.requests()[0].body)
+		if !strings.Contains(body, `"shoe":"42"`) {
+			t.Errorf("%s: body %s; want the shoe custom field kept", name, body)
+		}
+		for _, l := range c.left {
+			if strings.Contains(body, l) {
+				t.Errorf("%s: body %s; want %s left out", name, body, l)
+			}
+		}
+	}
+}
