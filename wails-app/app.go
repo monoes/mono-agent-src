@@ -47,9 +47,12 @@ type App struct {
 	// orgSignSupport caches whether monomind requires signed orgs (#288).
 	orgSignSupport orgSignSupport
 
-	docWatchMu sync.Mutex
-	docWatcher *docscan.Watcher     // polls the active profile's whole folder (minus .monomind/) for document changes; see restartDocumentWatcher
-	capWatcher *capturedocs.Watcher // polls the active profile's browser-capture inbox; see restartDocumentWatcher
+	docWatchMu   sync.Mutex
+	pickedDocsMu sync.Mutex
+	pickedDocs   map[string]bool      // paths a picker handed out; the next batch may upload only these
+	docBatchBusy atomic.Bool          // an UploadProfileDocuments batch is running
+	docWatcher   *docscan.Watcher     // polls the active profile's whole folder (minus .monomind/) for document changes; see restartDocumentWatcher
+	capWatcher   *capturedocs.Watcher // polls the active profile's browser-capture inbox; see restartDocumentWatcher
 
 	imgWatchMu sync.Mutex
 	imgWatcher *imagescan.Watcher // polls the active profile's whole folder for images; see restartImageWatcher

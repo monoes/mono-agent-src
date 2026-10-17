@@ -515,6 +515,10 @@ export function NodeConfigFromCurl(arg1:string):Promise<main.CurlImport>;
 
 export function OpenAnyFilePicker(arg1:string):Promise<string>;
 
+export function OpenAnyFilesPicker(arg1:string):Promise<Array<string>>;
+
+export function OpenFolderFilesPicker(arg1:string):Promise<Array<string>>;
+
 export function OpenJSONFilePicker(arg1:string):Promise<string>;
 
 export function OpenPathWithOS(arg1:string):Promise<void>;
@@ -739,6 +743,8 @@ export function UpdateSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg
 export function UpdateTagColor(arg1:string,arg2:string):Promise<boolean>;
 
 export function UpdateVaultImageLabel(arg1:string,arg2:string):Promise<void>;
+
+export function UploadProfileDocuments(arg1:Array<string>):Promise<main.BatchUploadResult>;
 
 export function UploadProfileDocument(arg1:string,arg2:string):Promise<main.UploadResult>;
 

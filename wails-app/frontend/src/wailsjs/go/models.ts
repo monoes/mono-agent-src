@@ -2106,6 +2106,22 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class BatchUploadResult {
+	    uploaded: number;
+	    unindexed: number;
+	    failed: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new BatchUploadResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uploaded = source["uploaded"];
+	        this.unindexed = source["unindexed"];
+	        this.failed = source["failed"];
+	    }
+	}
 	export class UploadResult {
 	    id: string;
 	    indexed: boolean;

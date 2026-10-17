@@ -37,13 +37,18 @@ func (a *App) runGlobalCLI(stdin string, result interface{}, args ...string) err
 
 // runCLIArgs runs monoagentcli with the finished argv fullArgs.
 func (a *App) runCLIArgs(stdin string, result interface{}, fullArgs []string) error {
-	cliBin, err := findMonoAgentCLI()
-	if err != nil {
-		return err
-	}
 	ctx := a.ctx
 	if ctx == nil { // before startup, and in tests (which keep ctx nil so emitLog skips the Wails runtime)
 		ctx = context.Background()
+	}
+	return a.runCLIArgsCtx(ctx, stdin, result, fullArgs)
+}
+
+// runCLIArgsCtx is runCLIArgs under ctx, for callers that need a deadline.
+func (a *App) runCLIArgsCtx(ctx context.Context, stdin string, result interface{}, fullArgs []string) error {
+	cliBin, err := findMonoAgentCLI()
+	if err != nil {
+		return err
 	}
 	cmd := exec.CommandContext(ctx, cliBin, fullArgs...)
 	suppressConsole(cmd)
