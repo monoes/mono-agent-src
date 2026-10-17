@@ -134,14 +134,22 @@ describe('Info masked fields', () => {
     expect(screen.getByLabelText('Passport number')).toHaveValue('•••• 4567')
   })
 
-  it('Reveal shows the value, then re-masks after 10 seconds', async () => {
+  it('the eye shows the value, the same button hides it again, and it hides itself after a minute', async () => {
     WailsApp.RevealProfileInfo.mockResolvedValue('P1234567')
     await loaded()
     vi.useFakeTimers({ shouldAdvanceTime: true })
     fireEvent.click(screen.getByRole('button', { name: 'Reveal: Passport number' }))
     await waitFor(() => expect(screen.getByLabelText('Passport number')).toHaveValue('P1234567'))
     expect(WailsApp.RevealProfileInfo).toHaveBeenCalledWith('ids.passport')
-    await act(async () => { vi.advanceTimersByTime(10100) })
+    expect(screen.getByLabelText('Passport number')).not.toHaveClass('is-blurred')
+    fireEvent.click(screen.getByRole('button', { name: 'Hide: Passport number' }))
+    expect(screen.getByLabelText('Passport number')).toHaveValue('•••• 4567')
+    expect(screen.getByLabelText('Passport number')).toHaveClass('is-blurred')
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal: Passport number' }))
+    await waitFor(() => expect(screen.getByLabelText('Passport number')).toHaveValue('P1234567'))
+    await act(async () => { vi.advanceTimersByTime(59000) })
+    expect(screen.getByLabelText('Passport number')).toHaveValue('P1234567')
+    await act(async () => { vi.advanceTimersByTime(1100) })
     expect(screen.getByLabelText('Passport number')).toHaveValue('•••• 4567')
   })
 

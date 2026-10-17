@@ -32,6 +32,10 @@ textarea.info-input { min-height: 140px; resize: vertical; line-height: 1.5; fon
 .info-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px; background: var(--elevated); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; cursor: pointer; white-space: nowrap; }
 .info-btn:hover:not(:disabled) { color: var(--cyan); border-color: var(--border-bright); }
 .info-btn:disabled { opacity: 0.5; cursor: default; }
+.info-secret.is-shown { flex-wrap: wrap; }
+.info-secret.is-shown .info-secret-value { flex: 1 1 100%; }
+.info-secret-value.is-blurred { filter: blur(4px); user-select: none; }
+.info-eye { padding: 5px 8px; }
 .info-photo { display: flex; align-items: center; gap: 8px; }
 .info-photo-box { width: 56px; height: 56px; flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--base); display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--text-muted); font-size: 10px; font-family: var(--font-mono); }
 .info-photo-box img { width: 100%; height: 100%; object-fit: cover; }
