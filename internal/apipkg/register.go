@@ -13,6 +13,8 @@ func init() {
 	// looked up.
 	workflow.RegisterSchemaProvider(schemaProvider)
 	connections.AddPlatformSource(registerPlatforms)
+	// validate, activation and the n8n import see what a run would refuse.
+	workflow.SetNodeConfigCheck(CheckConfig)
 }
 
 // Register adds one node type per package that does not extend a native

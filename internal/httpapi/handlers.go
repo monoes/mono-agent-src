@@ -176,6 +176,9 @@ func (s *Server) handleWorkflowValidate(w http.ResponseWriter, r *http.Request) 
 	} else if err := workflow.ValidateForActivation(&wf); err != nil {
 		errs = append(errs, err.Error())
 	}
+	for _, is := range workflow.NodeConfigIssues(wf.Nodes) {
+		errs = append(errs, fmt.Sprintf("node %q: %s", is.NodeID, is.Message))
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"valid":  len(errs) == 0,
 		"errors": errs,

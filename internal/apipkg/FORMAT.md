@@ -237,8 +237,10 @@ Same shape as the workflow editor's `NodeSchemaField`:
   send the key as is. An option whose value is an object (or a list of
   them) passes only the keys the op lists for it in `"subfields":
   {"article.articleDetails": ["subject", "body", "type", "to", …]}`; an
-  option with no entry there is not checked. Raw JSON goes through the
-  params an op declares for it (`jsonParameters` with
+  option with no entry there is not checked. `workflow validate`,
+  activation and the n8n import report the same keys ahead of a run (a
+  collection given as an expression is the run's to check). Raw JSON goes
+  through the params an op declares for it (`jsonParameters` with
   `additionalFieldsJson` and the like); without one, `http.request`.
 - n8n `resourceLocator` → `text`; read it with `| rl` (§5), which accepts
   both a plain value and n8n's `{"__rl":true,"mode":"id","value":"x"}`.

@@ -37,7 +37,7 @@ func TestAppMapperIsNearIdentity(t *testing.T) {
 	wf, rep := convertString(t, `{"name":"t","nodes":[
 	 {"name":"M","type":"n8n-nodes-base.manualTrigger","typeVersion":1,"position":[0,0],"parameters":{}},
 	 {"name":"T","type":"n8n-nodes-base.testTrello","typeVersion":1,"position":[200,0],
-	  "parameters":{"listId":"L1","name":"={{ $json.title }}","additionalFields":{"desc":"plain"}},
+	  "parameters":{"listId":"L1","name":"={{ $json.title }}","additionalFields":{"pos":"top"}},
 	  "credentials":{"trelloApi":{"id":"1","name":"My Trello"}}}],
 	 "connections":{"M":{"main":[[{"node":"T","type":"main","index":0}]]}}}`)
 	n := nodeByName(wf, "T")
@@ -51,7 +51,7 @@ func TestAppMapperIsNearIdentity(t *testing.T) {
 			t.Errorf("config[%s] = %v, want %v", k, n.Config[k], v)
 		}
 	}
-	if add, _ := n.Config["additionalFields"].(map[string]interface{}); add["desc"] != "plain" {
+	if add, _ := n.Config["additionalFields"].(map[string]interface{}); add["pos"] != "top" {
 		t.Errorf("additionalFields = %v", n.Config["additionalFields"])
 	}
 	if len(rep.Credentials) != 1 || rep.Credentials[0].Platform != "trello" || rep.Credentials[0].N8nName != "My Trello" {

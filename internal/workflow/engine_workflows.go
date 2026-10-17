@@ -200,6 +200,10 @@ func (e *WorkflowEngine) ActivateWorkflow(ctx context.Context, id string) error 
 	if err := e.checkWorkflowProfile(wf); err != nil {
 		return fmt.Errorf("engine: activate workflow: %w", err)
 	}
+	// A config a run would refuse is refused now, not first at 3am.
+	if err := nodeConfigError(wf.Nodes); err != nil {
+		return fmt.Errorf("engine: activate workflow: %w", err)
+	}
 
 	if err := e.store.SetWorkflowActive(ctx, id, true); err != nil {
 		return fmt.Errorf("engine: activate workflow: %w", err)
