@@ -44,6 +44,9 @@ func (r *opRun) runBulk(ctx context.Context, engine *workflow.ExpressionEngine, 
 		if err := checkRequired(r.pkg, r.op, ps); err != nil {
 			return nil, err
 		}
+		if err := checkCollections(r.pkg, r.op, ps); err != nil {
+			return nil, err
+		}
 		params[i], jsons[i] = ps, it.JSON
 		rows[i] = map[string]any{"p": ps, "item": it.JSON, "index": i}
 	}

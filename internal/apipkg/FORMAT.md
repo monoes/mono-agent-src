@@ -231,17 +231,17 @@ Same shape as the workflow editor's `NodeSchemaField`:
 - `default` is applied when the config lacks the key.
 - n8n `collection`/`fixedCollection` → `collection` (same key, e.g.
   `additionalFields`), with `options` = the inner n8n names.
-- A request that merges a collection whole (`"$merge": "{{ p.additionalFields }}"`)
-  sends whatever keys it holds, so a key the collection's `options` don't
-  list may send, whatever the op's `sends` says: an agent's run, or an
-  unapproved workflow's, waits for approval, with a card that names the
-  keys ("whoever its undeclared fields (article) reach"); everyone else's
-  runs as before. So does a key of an option object the op doesn't list in
-  `"subfields": {"article.articleDetails": ["subject", "body", "type", "to",
-  …]}` (an option with no entry there isn't judged), and such a collection
-  or option given as an expression. Raw JSON goes through the params an op
-  declares for it (`jsonParameters` with `additionalFieldsJson` and the
-  like), and its `sends` says what they do.
+- A collection passes only its `options` into the request: a key it
+  doesn't list is refused per item, before any request, naming the key and
+  what the collection declares: `apipkg zammad ticket.update: updateFields
+  has no option "article" (its options: …)`. A request that merges the
+  collection whole (`"$merge": "{{ p.additionalFields }}"`) would otherwise
+  send the key as is. An option whose value is an object (or a list of
+  them) passes only the keys the op lists for it in `"subfields":
+  {"article.articleDetails": ["subject", "body", "type", "to", …]}`; an
+  option with no entry there is not checked. Raw JSON goes through the
+  params an op declares for it (`jsonParameters` with
+  `additionalFieldsJson` and the like); without one, `http.request`.
 - n8n `resourceLocator` → `text`; read it with `| rl` (§5), which accepts
   both a plain value and n8n's `{"__rl":true,"mode":"id","value":"x"}`.
 - n8n `options` with values loaded from the API (`loadOptionsMethod`) →

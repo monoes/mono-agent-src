@@ -157,23 +157,19 @@ type Send struct {
 // SendOf reports whether running nodeType with config would send, as the
 // op that config selects is annotated: an app node's package op (its
 // default op when config names none), or the op a package adds to a native
-// node. A config with a key the op doesn't declare in a collection its
-// request merges whole (collections.go) may send too, whatever the op's
-// annotation. Anything else is not a send.
+// node. An op without a sends annotation, or one the config doesn't select,
+// is not one. (A key the op doesn't declare never reaches a request:
+// collections.go.)
 func SendOf(nodeType string, config map[string]any) (Send, bool) {
 	if pkg, ok := ForNodeType(nodeType); ok {
 		op, err := pkg.resolveOp(config)
 		if err != nil {
 			return Send{}, false
 		}
-		s := op.Sends
 		if !op.sends(config) {
-			keys := op.undeclared(config)
-			if len(keys) == 0 {
-				return Send{}, false
-			}
-			s = op.undeclaredSend(keys)
+			return Send{}, false
 		}
+		s := op.Sends
 		perItem := pkg.fieldKeys()
 		if op.Batch {
 			perItem = nil // one request for every item: one card
@@ -187,17 +183,10 @@ func SendOf(nodeType string, config map[string]any) (Send, bool) {
 			return Send{}, false
 		}
 		op, ok := pkg.Op(strings.TrimSpace(str(config["resource"])), opName)
-		if !ok {
+		if !ok || !op.sends(config) {
 			return Send{}, false
 		}
 		s := op.Sends
-		if !op.sends(config) {
-			keys := op.undeclared(config)
-			if len(keys) == 0 {
-				return Send{}, false
-			}
-			s = op.undeclaredSend(keys)
-		}
 		return Send{Action: s.Action, To: s.To, Text: s.Text, Subject: s.Subject, ToLabel: s.ToLabel, ToUnset: s.ToUnset}, true
 	}
 	return Send{}, false

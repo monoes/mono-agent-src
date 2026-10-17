@@ -38,7 +38,7 @@
       "accountId": "123",
       "name": "v",
       "additionalFields": {
-        "notes": "x"
+        "is_default": true
       }
     },
     "response": {
@@ -52,7 +52,7 @@
       },
       "body": {
         "name": "v",
-        "notes": "x"
+        "is_default": true
       }
     },
     "credential": {
@@ -102,7 +102,7 @@
       "accountId": "123",
       "id": "7",
       "updateFields": {
-        "notes": "n"
+        "name": "n"
       }
     },
     "response": {
@@ -115,7 +115,7 @@
         "Harvest-Account-Id": "123"
       },
       "body": {
-        "notes": "n"
+        "name": "n"
       }
     },
     "credential": {
@@ -127,8 +127,7 @@
       "accountId": "123",
       "limit": 5,
       "filters": {
-        "updated_since": "2024-01-01T00:00:00Z",
-        "page": 3
+        "updated_since": "2024-01-01T00:00:00Z"
       }
     },
     "response": {
@@ -161,7 +160,7 @@
       "accountId": "123",
       "name": "v",
       "additionalFields": {
-        "notes": "x"
+        "currency": "EUR"
       }
     },
     "response": {
@@ -175,7 +174,7 @@
       },
       "body": {
         "name": "v",
-        "notes": "x"
+        "currency": "EUR"
       }
     },
     "credential": {
@@ -225,7 +224,7 @@
       "accountId": "123",
       "id": "7",
       "updateFields": {
-        "notes": "n"
+        "name": "n"
       }
     },
     "response": {
@@ -238,7 +237,7 @@
         "Harvest-Account-Id": "123"
       },
       "body": {
-        "notes": "n"
+        "name": "n"
       }
     },
     "credential": {
@@ -268,8 +267,7 @@
       "accountId": "123",
       "limit": 5,
       "filters": {
-        "updated_since": "2024-01-01T00:00:00Z",
-        "page": 3
+        "updated_since": "2024-01-01T00:00:00Z"
       }
     },
     "response": {
@@ -303,7 +301,7 @@
       "firstName": "v",
       "clientId": "v",
       "additionalFields": {
-        "notes": "x"
+        "title": "Dr"
       }
     },
     "response": {
@@ -318,7 +316,7 @@
       "body": {
         "first_name": "v",
         "client_id": "v",
-        "notes": "x"
+        "title": "Dr"
       }
     },
     "credential": {
@@ -368,7 +366,7 @@
       "accountId": "123",
       "id": "7",
       "updateFields": {
-        "notes": "n"
+        "title": "n"
       }
     },
     "response": {
@@ -381,7 +379,7 @@
         "Harvest-Account-Id": "123"
       },
       "body": {
-        "notes": "n"
+        "title": "n"
       }
     },
     "credential": {
@@ -1167,7 +1165,7 @@
       "lastName": "v",
       "email": "v",
       "additionalFields": {
-        "notes": "x"
+        "is_admin": true
       }
     },
     "response": {
@@ -1183,7 +1181,7 @@
         "first_name": "v",
         "last_name": "v",
         "email": "v",
-        "notes": "x"
+        "is_admin": true
       }
     },
     "credential": {
@@ -1233,7 +1231,7 @@
       "accountId": "123",
       "id": "7",
       "updateFields": {
-        "notes": "n"
+        "is_admin": true
       }
     },
     "response": {
@@ -1246,7 +1244,7 @@
         "Harvest-Account-Id": "123"
       },
       "body": {
-        "notes": "n"
+        "is_admin": true
       }
     },
     "credential": {

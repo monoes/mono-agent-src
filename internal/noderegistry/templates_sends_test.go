@@ -14,8 +14,7 @@ import (
 
 // The workflows the repo ships (examples/, and the n8n workflows the
 // importer is tested on) use only keys their API package declares: a key
-// it doesn't would hold an agent's run of them for approval for nothing
-// (apipkg.Undeclared).
+// it doesn't would be refused when they run (apipkg.CheckConfig).
 func TestShippedWorkflowsDeclareTheirKeys(t *testing.T) {
 	Build(nil)
 	type source struct {
@@ -60,8 +59,8 @@ func TestShippedWorkflowsDeclareTheirKeys(t *testing.T) {
 			if _, ok := apipkg.ForNodeType(n.Type); ok || apipkg.SendsSome(n.Type) {
 				served++
 			}
-			if keys := apipkg.Undeclared(n.Type, n.Config); len(keys) > 0 {
-				t.Errorf("%s, node %q (%s): undeclared %v would hold an agent's run of it", s.name, n.Name, n.Type, keys)
+			if err := apipkg.CheckConfig(n.Type, n.Config); err != nil {
+				t.Errorf("%s, node %q: %v", s.name, n.Name, err)
 			}
 		}
 	}

@@ -142,6 +142,9 @@ func run(ctx context.Context, pkg *Package, input workflow.NodeInput, config map
 		if err := checkRequired(pkg, op, params); err != nil {
 			return nil, err
 		}
+		if err := checkCollections(pkg, op, params); err != nil {
+			return nil, err
+		}
 		r := &opRun{pkg: pkg, op: op, params: params, item: it, credDef: credDef,
 			scope: Scope{P: params, Cred: cred, Item: it.JSON}}
 		if op.Wait != nil {

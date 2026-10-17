@@ -124,7 +124,7 @@
     "params": {
       "agentId": "7",
       "updateFields": {
-        "description": "d"
+        "job_title": "d"
       }
     },
     "response": {
@@ -136,7 +136,7 @@
       "method": "PUT",
       "path": "/api/v2/agents/7",
       "body": {
-        "description": "d"
+        "job_title": "d"
       },
       "items": 1
     },
@@ -392,7 +392,7 @@
     "params": {
       "announcementId": "7",
       "updateFields": {
-        "description": "d"
+        "title": "d"
       }
     },
     "response": {
@@ -404,7 +404,7 @@
       "method": "PUT",
       "path": "/api/v2/announcements/7",
       "body": {
-        "description": "d"
+        "title": "d"
       },
       "items": 1
     },
@@ -967,7 +967,7 @@
     "params": {
       "locationId": "7",
       "updateFields": {
-        "description": "d"
+        "name": "d"
       }
     },
     "response": {
@@ -979,7 +979,7 @@
       "method": "PUT",
       "path": "/api/v2/locations/7",
       "body": {
-        "description": "d"
+        "name": "d"
       },
       "items": 1
     },
@@ -1417,7 +1417,7 @@
     "params": {
       "requesterId": "7",
       "updateFields": {
-        "description": "d"
+        "job_title": "d"
       }
     },
     "response": {
@@ -1429,7 +1429,7 @@
       "method": "PUT",
       "path": "/api/v2/requesters/7",
       "body": {
-        "description": "d"
+        "job_title": "d"
       },
       "items": 1
     },

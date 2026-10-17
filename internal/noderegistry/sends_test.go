@@ -350,68 +350,28 @@ func TestTheReviewedSendsStayDecided(t *testing.T) {
 	}
 }
 
-// A key an op doesn't declare, in a collection its request merges whole,
-// may send whatever the op's annotation says: an agent's run and an
-// unapproved workflow's wait for approval, with a card that names the keys
-// as a label (nothing to always allow, no person). The operator's own run
-// goes through as before, and a declared config is as it was.
-func TestUndeclaredKeysWaitOnlyInAGatedRun(t *testing.T) {
+// A key an op doesn't declare is refused when the step runs (apipkg
+// checkCollections), so the send gate queues no card for it: approving one
+// would only fail. An agent's run of these configs goes on to the refusal.
+func TestUndeclaredKeysQueueNoCard(t *testing.T) {
+	asOperator(t)
+	t.Setenv(hilsend.EnvAgentContext, "coder")
 	Build(nil)
 	db := sendsDB(t)
-	st := hilsend.Store{DB: db, Profile: "default"}
 	type cfg = map[string]interface{}
 	for name, c := range map[string]struct {
 		nodeType string
 		config   cfg
-		to       string // the card's recipient; "-" when no run waits
 	}{
 		"a raw article on a Zammad ticket update": {"app.zammad", cfg{"resource": "ticket", "operation": "update", "id": "5",
-			"updateFields": cfg{"article": cfg{"type": "email", "to": "v@example.test", "body": "x"}}},
-			"whoever its undeclared fields (article) reach"},
+			"updateFields": cfg{"article": cfg{"type": "email", "to": "v@example.test", "body": "x"}}}},
 		"raw articles on a Zammad ticket update": {"app.zammad", cfg{"resource": "ticket", "operation": "update", "id": "5",
-			"updateFields": cfg{"articles": []interface{}{cfg{"type": "twitter status", "body": "tweet"}}}},
-			"whoever its undeclared fields (articles) reach"},
+			"updateFields": cfg{"articles": []interface{}{cfg{"type": "twitter status", "body": "tweet"}}}}},
 		"a raw bcc_emails on a Freshservice ticket": {"app.freshservice", cfg{"resource": "ticket", "operation": "create",
-			"email": "a@example.test", "subject": "S", "description": "D", "additionalFields": cfg{"bcc_emails": []interface{}{"v@example.test"}}},
-			"whoever its undeclared fields (bcc_emails) reach"},
-		"a declared Zammad update": {"app.zammad", cfg{"resource": "ticket", "operation": "update", "id": "5",
-			"updateFields": cfg{"state_id": 2}}, "-"},
-		"a type_id on a Zammad ticket's article": {"app.zammad", cfg{"resource": "ticket", "operation": "create", "title": "T",
-			"group": "Users", "customer": "a@example.test", "article": cfg{"articleDetails": cfg{"type_id": 6, "body": "tweet"}}},
-			"whoever its undeclared fields (articleDetails.type_id) reach"},
-		"a note with a type_id": {"app.zammad", cfg{"resource": "ticket", "operation": "create", "title": "T", "group": "Users",
-			"customer": "a@example.test", "article": cfg{"articleDetails": cfg{"type": "note", "type_id": 6, "body": "tweet"}}},
-			"whoever its undeclared fields (articleDetails.type_id) reach"},
+			"email": "a@example.test", "subject": "S", "description": "D", "additionalFields": cfg{"bcc_emails": []interface{}{"v@example.test"}}}},
 	} {
-		asOperator(t)
 		if _, handled, err := hilsend.Guard(sendsCtx(db), c.nodeType, workflow.NodeInput{}, c.config); handled || err != nil {
-			t.Errorf("%s, the operator's run: handled=%v err=%v; want it to go through", name, handled, err)
-		}
-		unapproved := vault.ContextWithExecIDs(workflow.WithAIAuthored(sendsCtx(db)), "wf1", "ex1")
-		for run, ctx := range map[string]context.Context{"an agent's run": sendsCtx(db), "an unapproved workflow's run": unapproved} {
-			if run == "an agent's run" {
-				t.Setenv(hilsend.EnvAgentContext, "coder")
-			} else {
-				asOperator(t)
-			}
-			out, handled, err := hilsend.Guard(ctx, c.nodeType, workflow.NodeInput{}, c.config)
-			if err != nil {
-				t.Fatalf("%s, %s: %v", name, run, err)
-			}
-			if c.to == "-" {
-				if handled {
-					t.Errorf("%s, %s: held", name, run)
-				}
-				continue
-			}
-			if !handled {
-				t.Errorf("%s, %s: went through, want it to wait", name, run)
-				continue
-			}
-			p, err := st.Get(context.Background(), out[0].Items[0].JSON["hil_id"].(string))
-			if err != nil || p.Recipient.Name != c.to || !p.Recipient.Label || p.Action != hilsend.ActionEmail {
-				t.Errorf("%s, %s: card %+v, %v; want an email to the label %q", name, run, p.Recipient, err, c.to)
-			}
+			t.Errorf("%s: handled=%v err=%v; want no card (the run refuses it)", name, handled, err)
 		}
 	}
 }

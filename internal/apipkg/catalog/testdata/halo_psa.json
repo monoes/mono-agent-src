@@ -387,7 +387,7 @@
     "params": {
       "ticketId": "5",
       "updateFields": {
-        "notes": "n"
+        "summary": "n"
       }
     },
     "response": [
@@ -401,7 +401,7 @@
       "body": [
         {
           "id": "5",
-          "notes": "n"
+          "summary": "n"
         }
       ],
       "items": 1
