@@ -35,7 +35,18 @@ var allow = []struct {
 	path   string
 	rules  []string
 	reason string
-}{}
+}{
+	{"internal/cli/chat/coder_workspace.go", []string{defaultLiteralRule},
+		"the `coder workspace default` subcommand's name (Use), not a profile"},
+	{"internal/cli/connect/connect.go", []string{defaultLiteralRule},
+		"a legacy profile named \"default\" gets no account/name mismatch hint; nothing falls back to it"},
+	{"internal/cli/profile/names.go", []string{defaultLiteralRule},
+		"refuses \"default\" as a new profile's name"},
+	{"internal/nodes/nodeprofile/nodeprofile.go", []string{defaultLiteralRule},
+		"ignores the legacy profile_id \"default\" saved in old workflows, keeping the run's own profile"},
+	{"internal/storage/profile.go", []string{defaultLiteralRule},
+		"LegacyOwnerProfile: a stored profile whose id is \"default\" owns ownerless legacy rows"},
+}
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -71,7 +82,7 @@ func allowed(rel, ruleName string) (int, bool) {
 }
 
 func skipDir(name string) bool {
-	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "migrations"
+	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "migrations" || name == "testdata"
 }
 
 func TestNoImplicitDefaultProfile(t *testing.T) {
@@ -120,6 +131,13 @@ func TestNoImplicitDefaultProfile(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, h := range scanDefaultLiterals(t, root) {
+		if i, ok := allowed(h.rel, h.rule); ok {
+			used[i] = true
+			continue
+		}
+		violations = append(violations, fmt.Sprintf("%s:%d: %s: %s", h.rel, h.line, h.rule, h.text))
 	}
 	sort.Strings(violations)
 	for _, v := range violations {
