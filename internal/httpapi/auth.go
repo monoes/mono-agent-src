@@ -52,7 +52,9 @@ func (s *Server) profileAuth(h http.HandlerFunc) http.Handler {
 			return
 		}
 		ctx := r.Context()
-		candidates, err := profiledir.Candidates(ctx, s.rt.db.DB, r.PathValue("profile"))
+		// One query whatever the path names (an id, a name, nothing that
+		// exists), so the lookup's cost does not tell them apart either.
+		candidates, decoy, err := profiledir.AuthCandidates(ctx, s.rt.db.DB, r.PathValue("profile"))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "resolve profile: "+err.Error())
 			return
@@ -62,8 +64,8 @@ func (s *Server) profileAuth(h http.HandlerFunc) http.Handler {
 			// token-store read (listing the vault and decrypting the token of an
 			// existing profile, which is discarded) and the same comparison, so
 			// the latency does not tell unknown from wrong.
-			if ids, err := allProfileIDs(ctx, s.rt.db.DB); err == nil && len(ids) > 0 {
-				_, _ = s.readToken(ctx, ids[0])
+			if decoy != "" {
+				_, _ = s.readToken(ctx, decoy)
 			}
 			constantTimeEqual(got, s.decoyToken)
 			writeUnauthorized(w)

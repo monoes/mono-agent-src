@@ -77,6 +77,65 @@ func Candidates(ctx context.Context, db *sql.DB, nameOrID string) ([]string, err
 	return ids, nil
 }
 
+// AuthCandidates is Candidates done with the same database work whatever
+// nameOrID names, for a caller whose latency must not tell which profiles exist
+// (the HTTP API's bearer check): one query reads every profile and the match is
+// made here, by Candidates' rule. decoy is a profile that exists (the lowest
+// id; "" when there are none), so that a caller answering an unknown name can
+// spend on it the work a real candidate costs.
+func AuthCandidates(ctx context.Context, db *sql.DB, nameOrID string) (ids []string, decoy string, err error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, name, created_at FROM profiles ORDER BY id`)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	var byID string
+	var named []createdRow
+	want := sqliteLower(nameOrID)
+	for rows.Next() {
+		var id string
+		var name, created sql.NullString
+		if err := rows.Scan(&id, &name, &created); err != nil {
+			return nil, "", err
+		}
+		if decoy == "" {
+			decoy = id
+		}
+		if nameOrID == "" {
+			continue
+		}
+		if id == nameOrID && nameOrID != MachineProfileID {
+			byID = id
+		}
+		if name.Valid && sqliteLower(name.String) == want {
+			named = append(named, createdRow{id: id, created: created.String})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if byID != "" {
+		return []string{byID}, decoy, nil
+	}
+	profileorder.Sort(named, func(r createdRow) string { return r.created }, func(r createdRow) string { return r.id })
+	for _, r := range named {
+		ids = append(ids, r.id)
+	}
+	return ids, decoy, nil
+}
+
+// sqliteLower is SQLite's LOWER(): ASCII letters only, as Candidates' query
+// compares names.
+func sqliteLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
+}
+
 // createdRow is a profile id with its stored created_at, read to be ordered
 // by profileorder (created_at has two stored formats, so SQL cannot order it).
 type createdRow struct{ id, created string }

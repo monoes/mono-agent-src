@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -65,5 +66,43 @@ func TestResolve(t *testing.T) {
 	}
 	if got := Describe(ctx, db); got != "Work (a1), Home (b2), home (c3), Machine (_machine), work (d4)" {
 		t.Errorf("Describe = %q", got)
+	}
+}
+
+// AuthCandidates answers what Candidates answers, for every kind of input,
+// with one query; its decoy is the lowest id.
+func TestAuthCandidatesAgreesWithCandidates(t *testing.T) {
+	ctx := context.Background()
+	db := resolveFixture(t,
+		[3]string{"a1", "Work", "2026-01-01"},
+		[3]string{"b2", "Home", "2026-01-02 00:00:00"},
+		[3]string{"c3", "home", "2026-01-01T00:00:00Z"},
+		[3]string{"_machine", "Machine", "2026-01-04"},
+		[3]string{"d4", "work", "2026-01-05"},
+		[3]string{"e5", "Ünï", "2026-01-06"},
+	)
+	if _, err := db.Exec(`INSERT INTO profiles (id, name, created_at) VALUES ('f6', NULL, NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"", "a1", "d4", "work", "WORK", "home", "HOME", "_machine", "machine", "MACHINE",
+		"nope", "Ünï", "üNï", "ünï", "f6", "%", "a%"} {
+		want, err := Candidates(ctx, db, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, decoy, err := AuthCandidates(ctx, db, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%q: AuthCandidates = %v, Candidates = %v", ref, got, want)
+		}
+		if decoy != "_machine" {
+			t.Errorf("%q: decoy = %q, want the lowest id", ref, decoy)
+		}
+	}
+	empty := resolveFixture(t)
+	if ids, decoy, err := AuthCandidates(ctx, empty, "x"); err != nil || ids != nil || decoy != "" {
+		t.Errorf("no profiles: %v %q %v", ids, decoy, err)
 	}
 }
