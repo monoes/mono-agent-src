@@ -209,9 +209,16 @@ func TestRefresherSettledIsExactlyWhatTheClientCanKnow(t *testing.T) {
 			}).URL)
 		}, account.ReasonUnreachable, false},
 		{"a timeout while monoes.me has the request", func(t *testing.T) error {
-			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-			defer cancel()
-			return refreshAt(ctx, tokenServer(t, held).URL)
+			// The deadline passes once the server holds the whole request, not
+			// after a fixed time that a loaded machine can use up before the
+			// request is even written (which is a different, settled, case).
+			ctx := passedOnSignal{Context: context.Background(), signal: make(chan struct{})}
+			srv := tokenServer(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body) // the whole request has arrived, so it was written
+				close(ctx.signal)
+				held(w, r)
+			})
+			return refreshAt(ctx, srv.URL)
 		}, account.ReasonUnreachable, false},
 		{"the caller gives up while monoes.me has the request", func(t *testing.T) error {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -328,5 +335,24 @@ func TestRefresherNeverReturnsATypedNilError(t *testing.T) {
 		if ts != nil || err == nil || isRefused == isTransient || (isRefused && refused == nil) || (isTransient && transient == nil) {
 			t.Errorf("%s: token set %v, error %T (refusal %v, transient %v)", p.name, ts != nil, err, isRefused, isTransient)
 		}
+	}
+}
+
+// passedOnSignal is a context whose deadline passes when signal is closed
+// rather than at a time, so that a test makes it pass at the moment that
+// matters, however slow the machine is.
+type passedOnSignal struct {
+	context.Context
+	signal chan struct{}
+}
+
+func (c passedOnSignal) Done() <-chan struct{} { return c.signal }
+
+func (c passedOnSignal) Err() error {
+	select {
+	case <-c.signal:
+		return context.DeadlineExceeded
+	default:
+		return nil
 	}
 }
