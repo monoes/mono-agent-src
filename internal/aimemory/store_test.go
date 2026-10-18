@@ -89,14 +89,9 @@ func TestSessionsAndProfilesAreIsolated(t *testing.T) {
 	_ = Append(ctx, db, "p1", "a", "human", "a1")
 	_ = Append(ctx, db, "p1", "b", "human", "b1")
 	_ = Append(ctx, db, "p2", "a", "human", "other profile")
-	_ = Append(ctx, db, "", "a", "human", "default profile")
 	got, _ := Recent(ctx, db, "p1", "a", 0)
 	if want := []string{"human:a1"}; !equal(contents(got), want) {
 		t.Fatalf("p1/a = %v", contents(got))
-	}
-	got, _ = Recent(ctx, db, "default", "a", 0)
-	if want := []string{"human:default profile"}; !equal(contents(got), want) {
-		t.Fatalf("default/a = %v", contents(got))
 	}
 	sessions, err := Sessions(ctx, db, "p1")
 	if err != nil || len(sessions) != 2 {
@@ -190,5 +185,30 @@ func TestLockSessionSerialises(t *testing.T) {
 	defer sessionLocks.Unlock()
 	if len(sessionLocks.m) != 0 {
 		t.Fatalf("locks left behind: %d", len(sessionLocks.m))
+	}
+}
+
+// Memory always belongs to a named profile: no call falls back to "default".
+func TestNoProfileIsRefused(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.Open(t).DB
+	if err := Append(ctx, db, "", "a", "human", "x"); err == nil {
+		t.Error("Append without a profile was accepted")
+	}
+	if _, err := Recent(ctx, db, "", "a", 0); err == nil {
+		t.Error("Recent without a profile was accepted")
+	}
+	if _, err := Clear(ctx, db, "", "a"); err == nil {
+		t.Error("Clear without a profile was accepted")
+	}
+	if _, err := Delete(ctx, db, "", "a", 1); err == nil {
+		t.Error("Delete without a profile was accepted")
+	}
+	if _, err := Sessions(ctx, db, ""); err == nil {
+		t.Error("Sessions without a profile was accepted")
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM chat_memory_messages`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("rows = %d (%v), want none", n, err)
 	}
 }
