@@ -118,7 +118,8 @@ def node_items(run, node_type=None):
     return [it.get("json") for it in (cands[-1].get("output_items") or [])]
 
 
-# MCP tools that take no profile argument (internal/mcp/profile_required_test.go).
+# MCP tools that take no profile argument: globalToolsExpected in
+# internal/mcp/profile_required_test.go, kept equal by scorer_global_tools_test.go there.
 MCP_GLOBAL_TOOLS = frozenset([
     "api_config_apply", "api_config_get", "api_config_set", "docs", "node_list", "node_schema",
     "template_list", "workflow_template_list", "workflow_template_show",
