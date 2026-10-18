@@ -1,0 +1,115 @@
+{
+  "credential_platform": null,
+  "fields": [
+    {
+      "key": "platform",
+      "label": "Platform or destination",
+      "type": "text",
+      "required": true,
+      "help": "May also be supplied by the upstream item."
+    },
+    {
+      "key": "kind",
+      "label": "Publication kind",
+      "type": "select",
+      "required": true,
+      "help": "May also be supplied by the upstream item.",
+      "options": [
+        "post",
+        "comment",
+        "reply",
+        "article",
+        "video",
+        "other"
+      ],
+      "default": "post"
+    },
+    {
+      "key": "title",
+      "label": "Title",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "body",
+      "label": "Published content",
+      "type": "textarea",
+      "required": false,
+      "help": "Optional when supplied by the upstream item.",
+      "rows": 5
+    },
+    {
+      "key": "url",
+      "label": "Live URL",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "remote_id",
+      "label": "Remote ID",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "parent_url",
+      "label": "Parent URL or ID",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "account",
+      "label": "Account label",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "media",
+      "label": "Media references",
+      "type": "code",
+      "required": false,
+      "help": "Optional when supplied by the upstream item.",
+      "language": "json",
+      "placeholder": "[\"https://example.com/image.png\"]"
+    },
+    {
+      "key": "agent_id",
+      "label": "Agent ID",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "org_id",
+      "label": "Organization ID",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "role_id",
+      "label": "Role ID",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "published_at",
+      "label": "Published at (RFC3339)",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    },
+    {
+      "key": "idempotency_key",
+      "label": "Registration key",
+      "type": "text",
+      "required": false,
+      "help": "Optional when supplied by the upstream item."
+    }
+  ]
+}
