@@ -111,12 +111,25 @@ func NewDatabase(dbPath string) (*Database, error) {
 	// Verify the connection is usable.
 	// The first open of a fresh file switches it to WAL, which needs an
 	// exclusive lock the busy timeout does not cover; a concurrent first
-	// start can hit SQLITE_BUSY here, so retry briefly.
+	// start can hit SQLITE_BUSY here, so retry briefly. The deadline is wall
+	// clock: a ping still waiting when it passes is abandoned, not awaited
+	// (opening a connection applies the DSN pragmas without the context and
+	// can sit out the whole busy_timeout).
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), pingDeadline)
 	defer cancelPing()
+	ping := func() error {
+		done := make(chan error, 1)
+		go func() { done <- pingContext(pingCtx, db) }()
+		select {
+		case err := <-done:
+			return err
+		case <-pingCtx.Done():
+			return pingCtx.Err()
+		}
+	}
 	var pingErr error
 	for {
-		pingErr = pingContext(pingCtx, db)
+		pingErr = ping()
 		if pingErr == nil {
 			break
 		}
