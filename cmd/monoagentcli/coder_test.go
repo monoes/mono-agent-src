@@ -356,7 +356,11 @@ func TestCoderRootIsOneSharedFolder(t *testing.T) {
 	dbPath := newChatCLITestDB(t)
 	_, argsLog := writeCoderMonomind(t, "")
 	withCoderCaps(t, monomind.CoderCapabilities...)
-	root := filepath.Join(t.TempDir(), "coder root")
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "coder root")
 	setCoderSettings(t, dbPath, coderSettings{Enabled: true, WorkspaceRoot: root})
 
 	out, code := runCoderCLI(t, dbPath, "workspace", "root")

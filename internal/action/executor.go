@@ -400,6 +400,9 @@ type StepHandler func(ctx context.Context, step StepDef) (*StepResult, error)
 // ActionExecutor orchestrates the execution of a loaded action definition
 // against a browser page.
 type ActionExecutor struct {
+	// SuccessfulStep observes confirmed steps without changing execution or retry behavior.
+	SuccessfulStep func(StepDef, *StepResult)
+
 	ctx          context.Context
 	page         browser.PageInterface
 	db           StorageInterface
@@ -938,6 +941,9 @@ func (ae *ActionExecutor) executeSteps(ctx context.Context, steps []StepDef) err
 		})
 
 		result, err := handler(ctx, resolved)
+		if err == nil && result != nil && result.Success && result.Error == nil && !result.Skip && !result.Abort && ae.SuccessfulStep != nil {
+			ae.SuccessfulStep(resolved, result)
+		}
 		result, err = ae.applyUntil(ctx, resolved, result, err)
 		result, err = ae.redactStep(result, err)
 		if herr := ae.afterStep(resolved, result, err); herr != nil {

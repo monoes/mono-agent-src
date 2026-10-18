@@ -225,7 +225,7 @@ func TestCoderPromptCommandsExist(t *testing.T) {
 // no mechanical run gate like chat's --tools monoagent,runs, so the prompt is
 // the only gate.
 func TestCoderPromptTeachesOnlyTheAutomationSurface(t *testing.T) {
-	allowed := []string{"workflow search", "workflow templates use", "workflow validate", "workflow import", "workflow run", "node schema"}
+	allowed := []string{"workflow search", "workflow templates use", "workflow validate", "workflow import", "workflow run", "node schema", "publication register"}
 	for _, c := range coderPromptCommands(coderSystemPrompt("/w", "monoagentcli")) {
 		path := strings.Join(c.path, " ")
 		if len(c.path) == 0 || c.path[0] != "ref" && !slices.Contains(allowed, path) {

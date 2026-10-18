@@ -577,6 +577,7 @@ func (mt *MonoagentTools) ToolDefs() []ToolDef {
 		}, []string{"org_name"}),
 	}
 	defs = append(defs, orgUnificationToolDefs(def)...)
+	defs = append(defs, publicationToolDefs()...)
 	return defs
 }
 
@@ -670,6 +671,9 @@ func (mt *MonoagentTools) ExecuteContext(ctx context.Context, name string, args 
 	case "reload_org":
 		return mt.reloadOrg(args)
 	default:
+		if out, ok, err := mt.executePublication(ctx, name, args); ok {
+			return out, err
+		}
 		if out, ok, err := mt.executeOrgUnification(ctx, name, args); ok {
 			return out, err
 		}

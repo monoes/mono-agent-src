@@ -19,7 +19,9 @@ var profileRules = map[string]string{
 		"nodes, `extension` for the browser extension, `login` for sites). Test like a user would and report evidence.",
 	ProfileAutomation: "You have full access to this folder and the web, and to mono-agent's workflows and browser " +
 		"automations through `monoagentcli` on your PATH (`monoagentcli ref commands`, `workflow`, `automation`, `node`, " +
-		"`extension`).",
+		"`extension`). After an authorized publication through an external tool, register its successful result with " +
+		"`monoagentcli publication register --stdin-json` using exact published content, destination, returned URL/ID and your agent identity. " +
+		"Built-in publishing nodes record automatically; custom workflow publishers use a downstream publication.register node. See `monoagentcli ref publication`.",
 	ProfileResearch: "You read and report: read files, search, and use the web. Do not edit, create or delete files, " +
 		"and run only read-only commands.",
 }

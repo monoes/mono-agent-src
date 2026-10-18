@@ -153,7 +153,7 @@ func snapshotTrigger(data map[string]interface{}) map[string]interface{} {
 	}
 	out := make(map[string]interface{}, len(data))
 	for k, v := range data {
-		if m, ok := v.(map[string]interface{}); ok && (k == "trace" || k == WebhookTraceKey) {
+		if m, ok := v.(map[string]interface{}); ok && (k == "trace" || k == WebhookTraceKey || k == "org" || k == "event") {
 			cp := make(map[string]interface{}, len(m))
 			for mk, mv := range m {
 				cp[mk] = mv

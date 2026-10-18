@@ -40,7 +40,8 @@ const agentGenBudgetUSD = 2.0
 
 // AgentGenerator generates field-extraction configs with a local agent.
 type AgentGenerator struct {
-	logger zerolog.Logger
+	logger         zerolog.Logger
+	ensureMonomind func(context.Context) (string, *monomind.VersionInfo, error)
 
 	mu              sync.Mutex
 	resolvedRuntime string // resolved once, cached
@@ -49,7 +50,7 @@ type AgentGenerator struct {
 
 // NewAgentGenerator creates a generator using the given logger.
 func NewAgentGenerator(logger zerolog.Logger) *AgentGenerator {
-	return &AgentGenerator{logger: logger}
+	return &AgentGenerator{logger: logger, ensureMonomind: monomind.Ensure}
 }
 
 // resolve determines the monomind binary and agent runtime: handshake first
@@ -64,7 +65,7 @@ func (g *AgentGenerator) resolve(ctx context.Context) (bin, runtime string, err 
 	}
 	handshakeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	resolvedBin, _, err := monomind.Ensure(handshakeCtx)
+	resolvedBin, _, err := g.ensureMonomind(handshakeCtx)
 	if err != nil {
 		return "", "", fmt.Errorf("cache-only mode: %w", err)
 	}

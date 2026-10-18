@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   LayoutDashboard, Users,
   Terminal, PlayCircle, Settings, Image, Mail, KeyRound,
-  ChevronDown, Plus, Check, Building2, FolderOpen, FolderCog, Loader2, Briefcase, FileText
+  ChevronDown, Plus, Check, Building2, FolderOpen, FolderCog, Loader2, Briefcase, FileText, Send
 } from 'lucide-react'
 import { GetVersion } from '../wailsjs/go/main/App'
 import * as WailsApp from '../wailsjs/go/main/App'
@@ -25,6 +25,7 @@ const NAV_ITEMS = [
   { id: 'noderunner',  labelKey: 'noderunner',  icon: PlayCircle,      section: 'MAIN' },
   { id: 'orgs',        labelKey: 'orgs',        icon: Building2,       section: 'MAIN' },
   { id: 'people',      labelKey: 'people',      icon: Users,           section: 'DATA' },
+  { id: 'publication', labelKey: 'publication', icon: Send, section: 'DATA' },
   { id: 'communications', labelKey: 'communications', icon: Mail,      section: 'DATA' },
   { id: 'vault',       labelKey: 'vault',       icon: Image,           section: 'DATA' },
   { id: 'secretsVault', labelKey: 'secretsVault', icon: KeyRound,      section: 'DATA' },

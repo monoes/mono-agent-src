@@ -75,6 +75,10 @@ func TestDiscordNode_SendMessage(t *testing.T) {
 	var gotBody map[string]interface{}
 
 	withDiscordServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/channels/123" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"type": 0, "guild_id": "guild"})
+			return
+		}
 		seenAuth = r.Header.Get("Authorization")
 		gotPath = r.URL.Path
 		if r.Method != http.MethodPost {
@@ -109,6 +113,9 @@ func TestDiscordNode_SendMessage(t *testing.T) {
 	items := discordMainItems(out)
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].JSON["guild_id"] != "guild" || items[0].JSON["channel_type"] != float64(0) {
+		t.Fatalf("missing destination metadata: %+v", items[0].JSON)
 	}
 	if items[0].JSON["id"] != "111" {
 		t.Errorf("id = %v, want 111", items[0].JSON["id"])

@@ -1,5 +1,8 @@
 {
   "dependencies": {
-    "@monoes/monograph": "^1.4.0"
+    "@monoes/monograph": "^1.6.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
   }
 }

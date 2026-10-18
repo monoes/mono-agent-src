@@ -233,6 +233,32 @@ The desktop app does everything through these commands; they are equally usable 
   - `org chat answer <org> <questionId> -- <answer>` and `org chat approve|deny <org> <gate-id|request-id|role:action> [-- note]` are idempotent. An item already resolved returns `"already": true` with how it ended, and nothing is sent. While the org is not running they refuse with exit 3 and send nothing, so the item stays pending.
   - `org stop|pause|resume <org>` are the bubble's controls.
 
+## Publication history
+
+Publication is the active profile's local history of successful posts, comments,
+replies, articles, videos, and shared channel publications. Built-in publishing
+nodes register automatically from workflows and direct node runs, including
+agent-granted workflow execution. Private mail/DMs stay in Communications.
+
+```bash
+monoagentcli ref publication
+monoagentcli --json publication list --platform reddit --kind comment
+monoagentcli --json publication get <id>
+monoagentcli --json publication stats
+monoagentcli --json publication register --stdin-json < publication.json
+```
+
+**Agents publishing through external tools must register each success.** Include
+`platform`, `kind`, the exact `title`/`body`, `media` references if applicable,
+returned `url`/`remote_id`, and available `agent_id`, `org_id`, `role_id`. Use an
+`idempotency_key` when retrying registration. Never include credentials. A custom
+workflow publisher should use a downstream `publication.register` node. This
+records the result; it does not publish. Failed/draft/unsent content is excluded.
+
+MCP exposes `publication_list`, `publication_get`, `publication_stats` read-only,
+and `publication_register` behind `--allow-mutations`. Records are profile-scoped;
+history starts with feature installation, with no automatic historical fetch.
+
 ## monoes.me library
 
 monoes.me keeps workflows, orgs and web automations: **official** ones

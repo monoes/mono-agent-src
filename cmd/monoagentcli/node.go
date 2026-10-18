@@ -31,6 +31,7 @@ import (
 	"github.com/monoes/mono-agent/internal/nodes"
 	peoplenodes "github.com/monoes/mono-agent/internal/nodes/people"
 	"github.com/monoes/mono-agent/internal/personitem"
+	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -631,7 +632,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				Items:       inputItems,
 				NodeOutputs: map[string][]workflow.Item{},
 				WorkflowID:  "cli",
-				ExecutionID: "cli",
+				ExecutionID: "cli-" + uuid.NewString(),
 				NodeID:      "cli-node",
 				NodeName:    nodeType,
 			}
@@ -647,7 +648,26 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				ctx = vault.ContextWithDB(ctx, rawDB)
 				ctx = vault.ContextWithProfileID(ctx, cfg.ProfileID)
 			}
+			// These environment fields are set by monomind for an org role's
+			// local tool process; they are not read from the user's node payload.
+			if org, role := os.Getenv("MONOMIND_ORG_NAME"), os.Getenv("MONOMIND_ORG_ROLE"); org != "" && role != "" {
+				ctx = workflow.WithTrigger(ctx, workflow.TriggerTypeOrgTool, map[string]interface{}{"org": map[string]interface{}{"name": org, "role": role}})
+			}
 			outputs, err := executor.Execute(ctx, input, config)
+			if rawDB != nil {
+				pubOutputs := make([]publication.Output, 0, len(outputs))
+				for _, out := range outputs {
+					items := make([]map[string]interface{}, 0, len(out.Items))
+					for _, item := range out.Items {
+						items = append(items, item.JSON)
+					}
+					pubOutputs = append(pubOutputs, publication.Output{Handle: out.Handle, Items: items})
+				}
+				entries := publication.Normalize(publication.CaptureInput{NodeType: nodeType, Config: config, Outputs: pubOutputs,
+					Source: workflow.PublicationSource(ctx, input)})
+				publication.Record(ctx, publication.NewStore(rawDB, cfg.ProfileID), entries, func(msg string) { fmt.Fprintln(os.Stderr, "Warning:", msg) })
+			}
+
 			if err != nil {
 				return fmt.Errorf("node %s failed: %w", nodeType, err)
 			}

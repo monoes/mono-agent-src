@@ -27,7 +27,11 @@ func seedCapture(t *testing.T, meta capture.Meta) string {
 	if err != nil {
 		t.Fatalf("seed capture: %v", err)
 	}
-	return res.Path
+	real, err := filepath.EvalSymlinks(res.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return real
 }
 
 // orgRoot makes a project root with one org config in it.

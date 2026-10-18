@@ -78,7 +78,7 @@ func TestWorkflowExecutionDetail(t *testing.T) {
 	}
 }
 
-// startMonoagentLookalike runs a copy of sleep whose command line contains
+// startMonoagentLookalike runs a symlink to sleep whose command line contains
 // "monoagent", so signalWorkflowPID accepts it as one of ours.
 func startMonoagentLookalike(t *testing.T) *exec.Cmd {
 	t.Helper()
@@ -86,12 +86,10 @@ func startMonoagentLookalike(t *testing.T) *exec.Cmd {
 	if err != nil {
 		t.Skip("no sleep binary")
 	}
-	raw, err := os.ReadFile(sleepBin)
-	if err != nil {
-		t.Skip(err)
-	}
 	bin := filepath.Join(t.TempDir(), "monoagentcli-lookalike")
-	if err := os.WriteFile(bin, raw, 0o755); err != nil {
+	// Keep the system binary intact: copying a signed executable can be
+	// rejected by macOS while a symlink retains our identifying command line.
+	if err := os.Symlink(sleepBin, bin); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bin, "30")

@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
+	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 	"github.com/rs/zerolog"
@@ -265,6 +266,43 @@ func (b *BrowserNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		botAdapter,
 		logger,
 	)
+	// Record each confirmed publishing step immediately: later waits or other
+	// targets can fail, and merged output cannot preserve per-target text.
+	sequence := 0
+	publicationAttempt := uuid.NewString()
+	if storage.db != nil {
+		executor.SuccessfulStep = func(step action.StepDef, result *action.StepResult) {
+			if step.Type != "call_bot_method" {
+				return
+			}
+			data, ok := result.Data.(map[string]interface{})
+			if !ok {
+				return
+			}
+			method := step.MethodName
+			if method == "" {
+				method = step.Method
+			}
+			source := workflow.PublicationSource(ctx, input)
+			entry := publication.BrowserPublication(b.platform, method, step.Args, data, source, username, sequence)
+			if entry == nil {
+				return
+			}
+			sequence++
+			if entry.RemoteID == "" && entry.URL == "" {
+				entry.IdempotencyKey += ":" + publicationAttempt
+			}
+			if b.platform == "tiktok" && method == "publish_uploaded_video" {
+				if path, ok := config["media"].(string); ok && path != "" {
+					entry.Media = []string{path}
+				}
+			}
+			publication.Record(ctx, publication.NewStore(storage.db, storage.profileID), []publication.Entry{*entry}, func(msg string) {
+				logger.Warn().Msg(msg)
+				fmt.Fprintln(os.Stderr, "Warning:", msg)
+			})
+		}
+	}
 	attachPackage(executor, b.platform, storage.db)
 	if storage.db != nil {
 		executor.SetSecretLookup(ScopedSecretLookup(ctx, storage.db, storage.profileID, strings.ToLower(b.platform)))

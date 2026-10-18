@@ -62,6 +62,10 @@ export function AnalyzeRecording(arg1, arg2, arg3) {
   return window['go']['main']['App']['AnalyzeRecording'](arg1, arg2, arg3);
 }
 
+export function AnswerAgentQuestion(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['AnswerAgentQuestion'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function AnswerOrgChat(arg1, arg2, arg3) {
   return window['go']['main']['App']['AnswerOrgChat'](arg1, arg2, arg3);
 }
@@ -1006,6 +1010,10 @@ export function SetAutomationTrust(arg1, arg2) {
   return window['go']['main']['App']['SetAutomationTrust'](arg1, arg2);
 }
 
+export function SetChatOrgMode(arg1, arg2) {
+  return window['go']['main']['App']['SetChatOrgMode'](arg1, arg2);
+}
+
 export function SetOAuthCredentials(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetOAuthCredentials'](arg1, arg2, arg3);
 }
@@ -1134,10 +1142,14 @@ export function VerifyDraft(arg1, arg2, arg3) {
   return window['go']['main']['App']['VerifyDraft'](arg1, arg2, arg3);
 }
 
-export function SetChatOrgMode(arg1, arg2) {
-  return window['go']['main']['App']['SetChatOrgMode'](arg1, arg2);
+export function ListPublications(search, platform, kind, workflow, agent, since, until, limit, offset) {
+  return window['go']['main']['App']['ListPublications'](search, platform, kind, workflow, agent, since, until, limit, offset);
 }
 
-export function AnswerAgentQuestion(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['AnswerAgentQuestion'](arg1, arg2, arg3, arg4, arg5);
+export function GetPublication(id) {
+  return window['go']['main']['App']['GetPublication'](id);
+}
+
+export function GetPublicationStats() {
+  return window['go']['main']['App']['GetPublicationStats']();
 }

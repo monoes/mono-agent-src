@@ -35,6 +35,8 @@ export function AgentValidatePlan(arg1:Array<string>,arg2:Array<string>,arg3:boo
 
 export function AnalyzeRecording(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
+export function AnswerAgentQuestion(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
+
 export function AnswerOrgChat(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function AnswerOrgQuestion(arg1:string,arg2:string,arg3:string):Promise<string>;
@@ -507,6 +509,8 @@ export function SetApplicationStatus(arg1:string,arg2:string,arg3:string):Promis
 
 export function SetAutomationTrust(arg1:string,arg2:string):Promise<string>;
 
+export function SetChatOrgMode(arg1:string,arg2:string):Promise<string>;
+
 export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetOrgAutonomy(arg1:string,arg2:string):Promise<string>;
@@ -571,6 +575,6 @@ export function ValidateOrgReport(arg1:string):Promise<string>;
 
 export function VerifyDraft(arg1:string,arg2:boolean,arg3:string):Promise<string>;
 
-export function SetChatOrgMode(arg1:string,arg2:string):Promise<string>;
-
-export function AnswerAgentQuestion(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
+export function ListPublications(search:string, platform:string, kind:string, workflow:string, agent:string, since:string, until:string, limit:number, offset:number):Promise<string>;
+export function GetPublication(id:string):Promise<string>;
+export function GetPublicationStats():Promise<string>;

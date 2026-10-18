@@ -28,6 +28,7 @@ import (
 	matchingnodes "github.com/monoes/mono-agent/internal/nodes/matching"
 	orgnodes "github.com/monoes/mono-agent/internal/nodes/org"
 	peoplenodes "github.com/monoes/mono-agent/internal/nodes/people"
+	publicationnodes "github.com/monoes/mono-agent/internal/nodes/publication"
 	"github.com/monoes/mono-agent/internal/nodes/service"
 	"github.com/monoes/mono-agent/internal/nodes/system"
 	vaultnodes "github.com/monoes/mono-agent/internal/nodes/vault"
@@ -72,6 +73,7 @@ func Build(db *sql.DB) *workflow.NodeTypeRegistry {
 
 	// Credential vault nodes (vault.secret_save / vault.secret_get)
 	vaultnodes.RegisterAll(registry)
+	publicationnodes.RegisterAll(registry)
 
 	// AI crawl nodes (natural extraction runs on a local agent)
 	crawlnodes.RegisterAll(registry, cfgpkg.NewAgentGenerator(zerolog.Nop()))

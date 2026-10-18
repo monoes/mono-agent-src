@@ -35,7 +35,11 @@ func runGlueCmd(t *testing.T, cfg *globalConfig, args ...string) (string, string
 // seedGlueInbox writes captures and returns the inbox holding them.
 func seedGlueInbox(t *testing.T, metas ...capture.Meta) string {
 	t.Helper()
-	inbox := filepath.Join(t.TempDir(), "inbox")
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox := filepath.Join(base, "inbox")
 	for _, meta := range metas {
 		w := &capture.Writer{Inbox: inbox}
 		if _, err := w.Write(&capture.Envelope{

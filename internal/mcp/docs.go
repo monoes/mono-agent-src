@@ -4,6 +4,28 @@ package mcp
 // command covers. It is deliberately hardcoded here so internal/mcp never
 // imports the cmd package.
 var docsTopics = map[string]string{
+	"publication": `PUBLICATION HISTORY
+
+The active profile's local history of successful posts, comments, replies,
+articles, videos and shared channel posts. Built-in publishing operations register
+success automatically from workflows, direct node runs and agent automations.
+Reads, likes, follows, drafts and private messages are excluded.
+
+Read: publication_list (search/platform/kind/workflow_id/agent_id/since/until/limit/offset),
+publication_get (id), publication_stats. Registration requires --allow-mutations:
+publication_register (platform, kind, title/body/url/media, remote_id, parent_url,
+account, published_at, workflow_id/execution_id/node_id, agent_id/org_id/role_id,
+idempotency_key). It records already-published content; it never publishes.
+
+Agents using external tools must register each successful publication, with exact
+published content and returned identity. Custom workflow publishers can attach a
+publication.register node downstream. Stable idempotency keys prevent repeated
+registration; a genuinely new publication needs a new key. Do not include secrets.
+
+CLI: monoagentcli --json publication list|get|stats;
+monoagentcli --json publication register --stdin-json < publication.json.
+History starts when installed; external publishing bypassing mono-agent requires
+explicit registration. Tracking failures must not trigger another remote publish.`,
 	"commands": `KEY COMMANDS (binary: monoagentcli; add --json for machine-readable output)
 
 Discovery:
@@ -25,6 +47,10 @@ Nodes:
   node list [--filter s]     All registered node types
   node schema <type>         Embedded JSON schema for a node type (exit 2 unknown)
   node run <type> --config '{...}' [--input '[...]'|--stdin]
+
+Publication history:
+  publication list | get <id> | stats
+  publication register --stdin-json < publication.json (already published content)
 
 Human-in-the-loop:
   hil list | hil approve <id> [--data '{...}'] | hil reject <id>

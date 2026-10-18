@@ -3,6 +3,7 @@ package comm
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -66,7 +67,16 @@ func (n *DiscordNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		result := workflow.NewItem(map[string]interface{}{
 			"message_id": msg.ID,
 			"channel_id": msg.ChannelID,
+			"guild_id":   msg.GuildID,
 		})
+		// A message response does not always include its guild. Channel type
+		// distinguishes shared destinations from private direct messages.
+		if ch, lookupErr := dg.Channel(channelID, discordgo.WithContext(ctx)); lookupErr == nil {
+			result.JSON["channel_type"] = int(ch.Type)
+			result.JSON["guild_id"] = ch.GuildID
+		} else if msg.GuildID == "" {
+			fmt.Fprintln(os.Stderr, "Warning: publication history skipped because Discord channel visibility could not be verified; the message was sent successfully.")
+		}
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{result}}}, nil
 
 	case "send_embed":
@@ -98,7 +108,16 @@ func (n *DiscordNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		result := workflow.NewItem(map[string]interface{}{
 			"message_id": msg.ID,
 			"channel_id": msg.ChannelID,
+			"guild_id":   msg.GuildID,
 		})
+		// A message response does not always include its guild. Channel type
+		// distinguishes shared destinations from private direct messages.
+		if ch, lookupErr := dg.Channel(channelID, discordgo.WithContext(ctx)); lookupErr == nil {
+			result.JSON["channel_type"] = int(ch.Type)
+			result.JSON["guild_id"] = ch.GuildID
+		} else if msg.GuildID == "" {
+			fmt.Fprintln(os.Stderr, "Warning: publication history skipped because Discord channel visibility could not be verified; the message was sent successfully.")
+		}
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{result}}}, nil
 
 	case "get_channels":

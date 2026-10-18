@@ -127,8 +127,20 @@ func TestFindAll_ListsShadowedCopies(t *testing.T) {
 	t.Setenv("PATH", sys)
 
 	all := FindAll()
-	if len(all) != 2 || all[0] != old || all[1] != managed {
+	// System fallback locations may contain additional real installations.
+	if len(all) < 2 || all[0] != old || all[1] != managed {
 		t.Fatalf("FindAll() = %v, want [%s %s]", all, old, managed)
+	}
+	seen := make(map[string]bool)
+	for _, path := range all {
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seen[real] {
+			t.Fatalf("FindAll lists the same binary twice: %v", all)
+		}
+		seen[real] = true
 	}
 	if got, _ := Find(); got != all[0] {
 		t.Fatalf("Find() = %s, want FindAll's first %s", got, all[0])

@@ -25,6 +25,7 @@ type nodeDoc struct {
 }
 
 var nodeDocs = []nodeDoc{
+	{Type: "publication.register", Category: "publication", Short: "Record a successful publication from a custom publisher", Description: "Registers already-published content in this profile; it does not publish. Use after custom HTTP/code/shell publishers. Built-in publishers record automatically.", Config: `{ "platform": "my-blog", "kind": "article", "body": "{{ $json.text }}", "url": "{{ $json.url }}" }`, Inputs: "items with publication fields (error/success:false items are skipped)", Outputs: "registered publication records", Notes: "Use a stable idempotency_key to retry registration safely. See ref publication."},
 	// ── Triggers ──────────────────────────────────────────────────────────────
 	{
 		Type:     "trigger.schedule",
@@ -1610,6 +1611,7 @@ type cmdDoc struct {
 }
 
 var cliDocs = []cmdDoc{
+	{Name: "publication", Short: "List and register published content in the active profile", Usage: "monoagentcli publication list|get|register|stats", Flags: "  list: --search --platform --kind --workflow --agent --since --until --limit --offset\n  register: --stdin-json", Examples: []string{"monoagentcli --json publication list", "monoagentcli --json publication register --stdin-json < publication.json", "monoagentcli ref publication"}},
 	{
 		Name:  "login",
 		Short: "Log in to a social platform (opens browser for cookie capture)",
@@ -1961,7 +1963,8 @@ Subcommands:
   examples              Common workflow patterns and use cases
   crawling              How to automate scraping on new/custom platforms
   api                   HTTP/REST API surface (monoagentcli httpapi) — endpoints, auth, status codes
-  org                   Orgs, automations, grants, automation roles, autonomy, holding orgs`,
+  org                   Orgs, automations, grants, automation roles, autonomy, holding orgs
+  publication           Published content history and automatic registration`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("monoagentcli ref — built-in reference")
 			fmt.Println()
@@ -1978,6 +1981,7 @@ Subcommands:
 			fmt.Fprintln(w, "  crawling\tAutomate sites with no built-in node type (custom XPath configs or an AI agent)")
 			fmt.Fprintln(w, "  api\tHTTP/REST API surface (monoagentcli httpapi) — endpoints, auth, status codes")
 			fmt.Fprintln(w, "  org\tOrgs, automations, grants, automation roles, autonomy, holding orgs")
+			fmt.Fprintln(w, "  publication\tPublished content history and automatic registration")
 			w.Flush()
 			fmt.Println()
 			fmt.Println("Example:  monoagentcli ref templates")
@@ -2001,6 +2005,7 @@ Subcommands:
 		refCrawlingCmd(),
 		refAPICmd(),
 		refOrgCmd(),
+		refPublicationCmd(),
 	)
 	return root
 }

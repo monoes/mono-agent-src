@@ -640,6 +640,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	export class KeyringPassphraseFile {
 	    source: string;
 	    configured: boolean;
@@ -1414,6 +1415,7 @@ export namespace main {
 	}
 	export class UpdateResult {
 	    success: boolean;
+	    up_to_date?: boolean;
 	    new_version?: string;
 	    error?: string;
 	
@@ -1424,6 +1426,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
+	        this.up_to_date = source["up_to_date"];
 	        this.new_version = source["new_version"];
 	        this.error = source["error"];
 	    }

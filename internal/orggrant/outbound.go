@@ -90,7 +90,7 @@ var readOnlyNodes = setOf(
 	"people.save", "people.sync_outlook_message",
 	"applications.create", "applications.list",
 	"applications.prepare", "applications.set_status", "applications.tag",
-	"discovery.search_jobs", "documents.render", "image.vault_save",
+	"discovery.search_jobs", "documents.render", "image.vault_save", "publication.register",
 	// Legacy unprefixed names (noderegistry.Build's aliases) of the above.
 	"aggregate", "code", "filter", "if", "limit", "merge", "set", "sort",
 	"switch", "wait", "compression", "crypto", "datetime", "html",

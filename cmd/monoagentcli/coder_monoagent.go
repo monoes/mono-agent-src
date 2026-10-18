@@ -58,6 +58,9 @@ func monoagentPrompt(cli string) string {
 		"3. Gaps: where no node fits, write the smallest code that does it in this folder and call it from a " +
 		"core.code or system.execute_command node, so the result is still a mono-agent workflow.\n" +
 		"Say what you reused. A task with no automation angle, like fixing a bug or editing code, needs none of this.\n\n" +
+		"After any authorized publication through an external tool, register the successful result with `<cli> publication register --stdin-json` " +
+		"using exact published content, destination, returned URL/ID and your agent identity; see `<cli> ref publication`. Built-in publishing nodes record automatically. " +
+		"For custom workflow publishers, add a downstream publication.register node. Registration is local tracking and does not publish.\n\n" +
 		"Before a real workflow run, activating a workflow, or anything that acts on a real account (posting, sending, " +
 		"following), say what it will do and wait for a yes in chat; a --dry-run needs no ask. `node run` really executes a " +
 		"node, so the same rule covers any node that sends, posts or changes something; a plain lookup or local computation " +

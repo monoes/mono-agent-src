@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -64,6 +65,15 @@ func (n *DiscordNode) sendMessage(ctx context.Context, botToken string, config m
 	result, err := discordRequest(ctx, "POST", endpoint, botToken, body)
 	if err != nil {
 		return nil, fmt.Errorf("service.discord send_message: %w", err)
+	}
+	// Discord message responses may omit guild_id. Resolve channel metadata
+	// after success so private messages never enter publication history. A
+	// metadata failure cannot turn a sent message into a retryable failure.
+	if ch, lookupErr := discordRequest(ctx, "GET", discordBaseURL+"/channels/"+url.PathEscape(channelID), botToken, nil); lookupErr == nil {
+		result["channel_type"] = ch["type"]
+		result["guild_id"] = ch["guild_id"]
+	} else if guild, _ := result["guild_id"].(string); guild == "" {
+		fmt.Fprintln(os.Stderr, "Warning: publication history skipped because Discord channel visibility could not be verified; the message was sent successfully.")
 	}
 	return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{workflow.NewItem(result)}}}, nil
 }

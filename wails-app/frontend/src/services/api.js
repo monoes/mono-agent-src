@@ -62,6 +62,10 @@ const parseCLIJSON = (label) => (raw) => {
 }
 
 export const api = {
+  // Preserve failures so Publication can distinguish an unavailable history from an empty one.
+  listPublications: (f = {}) => GoApp.ListPublications(f.search || '', f.platform || '', f.kind || '', f.workflow || '', f.agent || '', f.since || '', f.until || '', f.limit ?? 51, f.offset ?? 0).then(parseCLIJSON('publication list')),
+  getPublication: (id) => GoApp.GetPublication(id).then(parseCLIJSON('publication')),
+  getPublicationStats: () => GoApp.GetPublicationStats().then(parseCLIJSON('publication stats')),
   getDashboardStats:    () => GoApp.GetDashboardStats().catch(guard('dashboard stats', null)),
   getSummary:           () => GoApp.GetSummary().then(parseCLIJSON('summary')).catch(guard('summary', null)),
   getSummarySections:   (csv) => GoApp.GetSummarySections(csv).then(parseCLIJSON('summary')).catch(guard('summary', null)),

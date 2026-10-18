@@ -198,7 +198,7 @@ func allTools() []tool {
 		},
 		{
 			name:        "docs",
-			description: "Built-in reference docs (same facts as the `monoagentcli ref` command). Topics: commands, nodes, expressions, workflow, templates, connections, org. Omit topic for the index.",
+			description: "Built-in reference docs (same facts as the `monoagentcli ref` command). Topics: commands, nodes, expressions, workflow, templates, connections, org, publication. Omit topic for the index.",
 			schema: objSchema(map[string]interface{}{
 				"topic": strParam("Topic name (optional)"),
 			}),
@@ -206,7 +206,7 @@ func allTools() []tool {
 			handler:     toolDocs,
 		},
 	}
-	return append(native, monoagentAdaptedTools()...)
+	return append(append(native, monoagentAdaptedTools()...), publicationTools()...)
 }
 
 func decodeArgs(args json.RawMessage, dst interface{}) error {

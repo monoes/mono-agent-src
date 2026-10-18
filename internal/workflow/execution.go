@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/fsconfine"
 	"github.com/monoes/mono-agent/internal/imagescan"
+	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/rs/zerolog"
@@ -80,6 +82,11 @@ func RunExecution(
 	// Org nodes continue the chain trace of whatever started the run, even
 	// when a node between the trigger and them drops the `trace` field.
 	ctx = WithTrigger(ctx, exec.TriggerType, snapshotTrigger(exec.TriggerData))
+	// The execution owns its profile even if a multi-profile daemon's caller
+	// context still holds a process-wide profile.
+	if exec.ProfileID != "" {
+		ctx = vault.ContextWithProfileID(ctx, exec.ProfileID)
+	}
 
 	// Phase 2: BFS execution loop — process nodes in topological order.
 	order, err := dag.TopologicalSort()
@@ -400,7 +407,24 @@ func RunExecution(
 		}
 
 		// Execute with retry.
-		outputs, execErr := executeWithRetry(ctx, executor, nodeInput, resolvedConfig, retryPolicy)
+		outputs, execErr := executeWithRetry(ctx, executor, nodeInput, resolvedConfig, retryPolicy, func(outputs []NodeOutput) {
+			// Capture returned successful items even when another item failed. Tracking
+			// errors never change the publisher's outcome or retry decisions.
+			if db := vault.DBFromContext(ctx); db != nil {
+				pubOutputs := make([]publication.Output, 0, len(outputs))
+				for _, out := range outputs {
+					items := make([]map[string]interface{}, 0, len(out.Items))
+					for _, item := range out.Items {
+						items = append(items, item.JSON)
+					}
+					pubOutputs = append(pubOutputs, publication.Output{Handle: out.Handle, Items: items})
+				}
+				entries := publication.Normalize(publication.CaptureInput{NodeType: node.Type, Config: resolvedConfig, Outputs: pubOutputs, AttemptID: uuid.NewString(),
+					Source: PublicationSource(ctx, nodeInput)})
+				publication.Record(ctx, publication.NewStore(db, vault.ProfileIDFromContext(ctx)), entries, func(msg string) { logger.Warn().Msg(msg) })
+			}
+
+		})
 
 		// A node can pause the run (Human-in-Loop awaiting approval). Persist the
 		// working state and suspend as WAITING rather than failing — resume picks
@@ -628,6 +652,7 @@ func executeWithRetry(
 	input NodeInput,
 	config map[string]interface{},
 	policy RetryPolicy,
+	observers ...func([]NodeOutput),
 ) (outputs []NodeOutput, err error) {
 	maxRetries := policy.MaxRetries
 	if maxRetries < 0 {
@@ -658,6 +683,9 @@ func executeWithRetry(
 			}()
 			return executor.Execute(ctx, input, config)
 		}()
+		for _, observer := range observers {
+			observer(outputs)
+		}
 		if err == nil {
 			return outputs, nil
 		}

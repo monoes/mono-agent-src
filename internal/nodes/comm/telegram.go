@@ -83,6 +83,7 @@ func (n *TelegramNode) Execute(ctx context.Context, input workflow.NodeInput, co
 		result := workflow.NewItem(map[string]interface{}{
 			"message_id": sent.MessageID,
 			"chat_id":    sent.Chat.ID,
+			"chat_type":  sent.Chat.Type,
 		})
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{result}}}, nil
 
@@ -114,6 +115,7 @@ func (n *TelegramNode) Execute(ctx context.Context, input workflow.NodeInput, co
 		result := workflow.NewItem(map[string]interface{}{
 			"message_id": sent.MessageID,
 			"chat_id":    sent.Chat.ID,
+			"chat_type":  sent.Chat.Type,
 		})
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{result}}}, nil
 
