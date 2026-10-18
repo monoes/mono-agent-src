@@ -175,6 +175,7 @@ func runJev(t *testing.T, cfg *globalConfig, stdin string, args ...string) (stri
 
 func jevTestCfg(t *testing.T, jsonOut bool) *globalConfig {
 	t.Helper()
+	asOperatorProcess(t) // `jev enable` is the user's own
 	t.Setenv("TYPESAFE_API_KEY", "")
 	t.Setenv("TYPESAFE_DEFAULT_MODEL", "")
 	t.Setenv("TYPESAFE_BASE_URL", "")

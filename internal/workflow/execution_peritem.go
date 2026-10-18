@@ -108,13 +108,20 @@ func (r *runner) resolveFor(t *nodeTask, item Item) (map[string]interface{}, err
 		return nil, fmt.Errorf("resolve config: %w", err)
 	}
 	restorePerItemFields(resolved, state)
+	if err := checkStoredFields(t.executor, t.perItem.config, resolved); err != nil {
+		return nil, fmt.Errorf("resolve config: %w", err)
+	}
 	if vaultDB := vault.DBFromContext(t.ctx); vaultDB != nil {
 		profile, perr := vault.ProfileIDFromContext(t.ctx)
 		if perr != nil {
 			return nil, fmt.Errorf("resolve config: ran without a profile: %w", perr)
 		}
-		_ = vault.ResolveConfig(t.ctx, vaultDB, resolved)
-		_ = secrets.ResolveConfig(t.ctx, vaultDB, profile, resolved)
+		if err := vault.ResolveConfig(t.ctx, vaultDB, t.perItem.config, resolved); err != nil {
+			return nil, fmt.Errorf("resolve config: %w", err)
+		}
+		if err := secrets.ResolveConfig(t.ctx, vaultDB, profile, t.perItem.config, resolved); err != nil {
+			return nil, fmt.Errorf("resolve config: %w", err)
+		}
 	}
 	return resolved, nil
 }

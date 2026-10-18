@@ -277,8 +277,12 @@ func resolveItemFields(ctx context.Context, engine *workflow.ExpressionEngine, b
 		if perr != nil {
 			return nil, fmt.Errorf("%s: ran without a profile: %w", node, perr)
 		}
-		_ = vault.ResolveConfig(ctx, vaultDB, resolved)
-		_ = secrets.ResolveConfig(ctx, vaultDB, profile, resolved)
+		if err := vault.ResolveConfig(ctx, vaultDB, overlay, resolved); err != nil {
+			return nil, fmt.Errorf("%s: %w", node, err)
+		}
+		if err := secrets.ResolveConfig(ctx, vaultDB, profile, overlay, resolved); err != nil {
+			return nil, fmt.Errorf("%s: %w", node, err)
+		}
 	}
 
 	itemConfig := make(map[string]interface{}, len(base))

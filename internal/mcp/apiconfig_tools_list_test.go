@@ -72,7 +72,7 @@ func TestAPIConfigMutatingToolsAreGatedAndAnnotated(t *testing.T) {
 }
 
 // What decides whether a key created with context may be served tool calling, or models that are
-// not chat-only, is a setting now, and a model that creates the key is told which, and where to see it.
+// not chat-only, is a setting now, and a model a user asks about a key is told which, and where to see it.
 func TestAPIKeyCreateDescriptionPointsAtTheSettingsThatDecideWhatAContextKeyMayUse(t *testing.T) {
 	var d string
 	for _, tl := range apiTools() {

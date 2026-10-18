@@ -11,6 +11,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/zalando/go-keyring"
 
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -58,6 +59,7 @@ func testDeps(dbPath, profile string, jsonOut bool) Deps {
 
 func newSecretCLITestDB(t *testing.T) string {
 	t.Helper()
+	asTheOperator(t)
 	keyring.MockInit()
 	dbPath := filepath.Join(t.TempDir(), "cli-secret-test.db")
 	db, err := storage.NewDatabase(dbPath)
@@ -82,4 +84,14 @@ func runSecretCmd(t *testing.T, dbPath string, args ...string) (string, error) {
 	cmd.SetOut(&out)
 	err := cmd.Execute()
 	return out.String(), err
+}
+
+// asTheOperator clears what makes this process not the operator's own
+// terminal: a test started from an agent's shell inherits its markers, and
+// the commands that print secrets refuse those (internal/cli/revealgate).
+func asTheOperator(t *testing.T) {
+	t.Helper()
+	for _, k := range operator.MarkerEnv() {
+		t.Setenv(k, "")
+	}
 }

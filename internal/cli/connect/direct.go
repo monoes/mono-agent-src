@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/spf13/cobra"
@@ -100,6 +101,11 @@ func (d Deps) newConnectGetOAuthClientCmd() *cobra.Command {
 			"nothing is stored.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if reveal {
+				if err := revealgate.Refuse("connect get-oauth-client --reveal"); err != nil {
+					return err
+				}
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("open database: %w", err)
@@ -133,7 +139,7 @@ func (d Deps) newConnectGetOAuthClientCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&reveal, "reveal", false, "Also print the client secret")
+	cmd.Flags().BoolVar(&reveal, "reveal", false, "Also print the client secret (the user's own: an agent, the chat or a workflow is refused)")
 	return cmd
 }
 

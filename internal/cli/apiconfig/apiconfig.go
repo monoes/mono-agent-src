@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/apiconfig"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -40,6 +41,9 @@ type Deps struct {
 	ProfileID func() string
 	// SavedEnv is the environment with the settings `api config` saved under it.
 	SavedEnv func(ctx context.Context, db *sql.DB) (func(string) string, error)
+	// Refusal says why this process may not change the saved settings (operator.Refusal):
+	// an agent, the chat or a workflow runs it. "" for the user.
+	Refusal func() string
 }
 
 // NewCommand is the group that shows, changes and removes the settings of the
@@ -180,6 +184,10 @@ func FlagOf(key string) string { return strings.ReplaceAll(key, "_", "-") }
 // that says what changed, what a restart is needed for and what is overridden. verb is how the
 // text names a change that was applied.
 func (d Deps) runConfigChange(cmd *cobra.Command, ch apiconfig.Change, verb string) error {
+	if why := d.Refusal(); why != "" && !ch.DryRun {
+		return clicore.OperatorOnly("api config %s changes where the OpenAI-compatible API's server listens and what it serves, which only the user does: %s; "+
+			"run it yourself in your terminal or the app (--dry-run says what it would do)", cmd.Name(), why)
+	}
 	db, err := d.OpenDB()
 	if err != nil {
 		return fmt.Errorf("initializing database: %w", err)

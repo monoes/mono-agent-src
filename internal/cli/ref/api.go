@@ -79,9 +79,10 @@ AUTH
   Every request needs "Authorization: Bearer <credential>" except GET
   /health. Each profile has its own credential, stored in that profile's
   secrets vault (monoagentcli --profile <p> secret list, name
-  "httpapi-token"; monoagentcli --profile <p> secret reveal httpapi-token
-  --reveal to print it); the server creates it for every profile when it
-  starts. A credential authorizes only the profile it belongs to: the one
+  "httpapi-token"); the user prints it with monoagentcli --profile <p>
+  secret reveal httpapi-token --reveal in their own terminal (an agent, the
+  chat or a workflow is refused); the server creates it for every profile
+  when it starts. A credential authorizes only the profile it belongs to: the one
   in the request path. A credential of another profile, a profile that does
   not exist and a missing credential all get the same 401, so a caller
   cannot find out which profiles exist. /nodes* takes the credential of any
@@ -258,9 +259,12 @@ OPENAI-COMPATIBLE API (/v1)
   monoagentcli mcp has the same management as tools, for the profile each call names (a
   required "profile" argument; api_config_get, api_config_set and api_config_apply take none):
   api_key_list, api_models_list, api_status and api_config_get, and with
-  --allow-mutations api_key_create (it returns the key once, in its result,
-  which puts it in the MCP host's transcript), api_key_update, api_key_revoke,
-  api_config_set, api_config_apply and api_auto_set (see "Server settings").
+  --allow-mutations api_config_set, api_config_apply and api_auto_set (see
+  "Server settings"). With --allow-mutations api_key_create, api_key_update
+  and api_key_revoke are listed too and change no key: only the user
+  creates, changes or revokes one, with api key create|update|revoke in
+  their own terminal (an agent, the chat or a workflow is refused) or in
+  the app.
 
   --context adds excerpts of the profile's own knowledge to requests made
   with the key; only chat-only models serve such a key unless the server
@@ -431,9 +435,10 @@ OUTPUT REDACTION
 
   Output items go through the same redaction as workflow run --json
   (credential-shaped keys masked, values truncated at 4KB). Pass header
-  "X-Full-Outputs: 1" to opt out per request, mirroring
-  workflow run --full-outputs. The caller already holds the bearer
-  credential, so no additional gate is applied beyond authentication.
+  "X-Full-Outputs: 1" to opt out per request, like the user's own
+  workflow run --full-outputs. Unlike that flag, the header has no
+  operator check: whoever holds the bearer credential gets unredacted
+  outputs, so give the token only to what may see your secrets.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STATUS-CODE MAPPING (mirrors CLI exit codes — see "ref commands")
@@ -459,7 +464,7 @@ EXAMPLE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   monoagentcli httpapi &
-  monoagentcli --json --profile <profile> secret reveal httpapi-token --reveal   # copy "token"
+  monoagentcli --json --profile <profile> secret reveal httpapi-token --reveal   # the user, in their terminal: copy "token"
   curl -s http://127.0.0.1:9322/health
   curl -s -H 'Authorization: Bearer <paste credential here>' \
     http://127.0.0.1:9322/profiles/<profile>/workflows

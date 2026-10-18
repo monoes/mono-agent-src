@@ -143,8 +143,8 @@ monoagentcli --profile <profile> workflow run <wf-id> --timeout 30m
 ```
 
 `--json` prints the execution record with each node's status and output
-items once the run ends (credential-like values masked; `--full-outputs`
-unmasks). Status `waiting` means a human-in-the-loop node paused it:
+items once the run ends (credential-like values masked; `--full-outputs`,
+which unmasks them, is the user's own flag: an agent's run is refused). Status `waiting` means a human-in-the-loop node paused it:
 `monoagentcli --profile <profile> hil list`.
 
 ## 7. Read the result and fix

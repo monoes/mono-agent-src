@@ -79,6 +79,8 @@ func TestChatBashCantSignOrGrant(t *testing.T) {
 		// person goes out (#831 follow-up N1c): the chat uses monoagentcli.
 		"monomind org approve growth lead act", "monomind org gate-approve growth gate-1",
 		"monomind org answer growth q-1 yes",
+		// Revoking a profile's keys, grants and endpoints is the user's own.
+		"monoagentcli org teardown-profile", "monoagentcli org teardown-profile --dry-run",
 	} {
 		if allowedBashCommand(cmd) {
 			t.Errorf("chat Bash allows %q", cmd)

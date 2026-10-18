@@ -67,6 +67,11 @@ func ResolveKey(ctx context.Context, db *sql.DB, profileID, explicit string) (ke
 	var order []candidate
 	if db != nil {
 		if explicit != "" {
+			// The node's own reference, read as Resolve would: not in a run
+			// the user hasn't approved.
+			if err := secrets.RefusedReference(ctx, explicit); err != nil {
+				return "", "", err
+			}
 			name := strings.TrimPrefix(explicit, "@secret:")
 			if usableProfile(profileID) {
 				order = append(order, candidate{profileID, name, SourceProfileVault})

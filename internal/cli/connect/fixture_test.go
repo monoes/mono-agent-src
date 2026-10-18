@@ -13,6 +13,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/monoes/mono-agent/internal/connections"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/resources"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -56,6 +57,7 @@ type testEnv struct {
 
 func newSessionsTestEnv(t *testing.T) *testEnv {
 	t.Helper()
+	asTheOperator(t)
 	keyring.MockInit()
 	dbPath := filepath.Join(t.TempDir(), "monoagent.db")
 	db := openDB(t, dbPath)
@@ -156,4 +158,14 @@ func (e *testEnv) run(t *testing.T, stdin string, args ...string) (string, strin
 		errOut.WriteString(err.Error())
 	}
 	return out.String(), errOut.String(), exitCode(err)
+}
+
+// asTheOperator clears what makes this process not the operator's own
+// terminal: a test started from an agent's shell inherits its markers, and
+// the commands that print secrets refuse those (internal/cli/revealgate).
+func asTheOperator(t *testing.T) {
+	t.Helper()
+	for _, k := range operator.MarkerEnv() {
+		t.Setenv(k, "")
+	}
 }

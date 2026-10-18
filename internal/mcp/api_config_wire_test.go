@@ -1,9 +1,8 @@
 package mcp
 
 // The API tools over a real session, as a host drives them: every line the server writes to stdout is a
-// JSON-RPC message, and no secret is on the wire: the one key the session makes is in the result of
-// the call that made it and nowhere else, however the settings tools are called, and the Jev key of
-// the server's environment is nowhere.
+// JSON-RPC message, and no secret is on the wire: not the key the user made, however the settings
+// tools are called, and not the Jev key of the server's environment.
 
 import (
 	"encoding/json"
@@ -20,11 +19,7 @@ func TestTheAPIToolsPutNoSecretOnTheWire(t *testing.T) {
 	t.Setenv("TYPESAFE_API_KEY", jevKeyInTheEnvironment) // after the fixture, which clears it
 	w := newWireSession(t, f.Server)
 
-	text, isErr := w.call("api_key_create", map[string]any{"name": "wire"})
-	if isErr {
-		t.Fatalf("create: %s", scrubbed(text))
-	}
-	secret := stringField(t, decodeKey(t, text), "key")
+	_, secret := createKey(t, f.Server, "wire", false)
 	huge := strings.Repeat("Q", 1<<16)
 
 	for _, c := range []struct {
@@ -65,12 +60,8 @@ func TestTheAPIToolsPutNoSecretOnTheWire(t *testing.T) {
 			t.Fatalf("line %d of stdout is not JSON-RPC: %q", i+1, scrubbed(line))
 		}
 	}
-	// The key is in exactly one place: the result of the call that created it.
-	if n := strings.Count(out, secret); n != 1 {
-		t.Errorf("the key is on the wire %d times, want exactly once (in the create result)", n)
-	}
-	if n := len(keyRE.FindAllString(out, -1)); n != 1 {
-		t.Errorf("%d keys on the wire, want the one that was created", n)
+	if n := len(keyRE.FindAllString(out, -1)); n != 0 {
+		t.Errorf("%d keys on the wire, want none", n)
 	}
 	if strings.Contains(out, apikeys.HashKey(secret)) {
 		t.Error("the key's hash is on the wire")

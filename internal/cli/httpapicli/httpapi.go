@@ -38,7 +38,8 @@ func NewCommand(d Deps) *cobra.Command {
 			"read endpoints are registered (an unregistered mutating path 404s, not 403s). " +
 			"Output items are redacted the same way as `workflow run --json` and the MCP tools " +
 			"(credential-shaped keys masked); pass `X-Full-Outputs: 1` to opt out per request, " +
-			"mirroring `workflow run --full-outputs`.\n\n" +
+			"like the user's own `workflow run --full-outputs`. The header has no operator check: " +
+			"whoever holds the token gets unredacted outputs.\n\n" +
 			"See internal/httpapi/openapi.yaml for the full endpoint list and examples/httpapi-quickstart.md " +
 			"for a curl walkthrough.\n\n" +
 			"The same process serves the OpenAI-compatible API (/v1, authenticated by the API keys of `monoagentcli api key`) " +

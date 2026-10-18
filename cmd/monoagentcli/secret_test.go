@@ -20,6 +20,7 @@ import (
 
 func newSecretCLITestDB(t *testing.T) string {
 	t.Helper()
+	asOperatorProcess(t) // the commands that print secrets refuse an agent's shell
 	keyring.MockInit()
 	dbPath := filepath.Join(t.TempDir(), "cli-secret-test.db")
 	db, err := storage.NewDatabase(dbPath)

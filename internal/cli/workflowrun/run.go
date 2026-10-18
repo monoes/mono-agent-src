@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	"github.com/monoes/mono-agent/internal/cli/workflowtemplates"
 	"github.com/monoes/mono-agent/internal/nodes/browserjev"
 	"github.com/monoes/mono-agent/internal/operator"
@@ -263,6 +264,12 @@ func (d Deps) newRunCmd() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := args[0]
+			// Unredacted outputs carry whatever secret a step decrypted.
+			if FullOutputs {
+				if err := revealgate.Refuse("workflow run --full-outputs"); err != nil {
+					return err
+				}
+			}
 
 			if dryRun {
 				return d.DryRun(cmd, workflowID)

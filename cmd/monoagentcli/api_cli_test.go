@@ -13,6 +13,7 @@ import (
 // newAPITestDB is a migrated database and the HOME that goes with it.
 func newAPITestDB(t *testing.T) string {
 	t.Helper()
+	asOperatorProcess(t) // api key create refuses an agent's shell
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("MONOAGENT_API_CONTEXT_CONFINEMENT", "")
 	return testdb.Path(t)

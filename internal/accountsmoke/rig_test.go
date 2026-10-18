@@ -28,6 +28,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/account/accounttest"
 	"github.com/monoes/mono-agent/internal/library/libraryfake"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/testhome"
 )
 
@@ -330,6 +331,9 @@ func (r *rig) env(extra ...string) []string {
 		"MONOAGENT_SUMMARY_RUNTIME=off",
 		"MONOAGENT_WEBHOOK_ADDR=" + r.addr("webhook"), "MONOAGENT_EXTENSION_PORT=" + strconv.Itoa(r.port("bridge")),
 		"MONOAGENT_API_ADDR=" + r.addr("api"),
+		// The binary looks for agent markers no higher than this test process:
+		// an agent shell that runs the smoke must not mark it (devaccount only).
+		operator.AncestorStopEnv + "=" + strconv.Itoa(os.Getpid()),
 	}, extra...)
 }
 

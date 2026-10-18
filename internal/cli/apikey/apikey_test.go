@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/apikeys"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/testdb"
 )
@@ -48,8 +49,14 @@ func errorOf(code int) func(format string, a ...interface{}) error {
 }
 
 // run runs `api key <args>` on the database at dbPath as profile and returns stdout and stderr
-// separately. stdin is never a terminal, so `revoke` does not ask.
+// separately. stdin is never a terminal, so `revoke` does not ask. It runs as the operator.
 func run(t *testing.T, dbPath, profile string, jsonOut bool, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	return runAs(t, "", dbPath, profile, jsonOut, args...)
+}
+
+// runAs is run in a process refusal says is not the operator's ("" for the operator).
+func runAs(t *testing.T, refusal, dbPath, profile string, jsonOut bool, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	cmd := NewCommand(Deps{
 		JSONOutput:      func() bool { return jsonOut },
@@ -63,6 +70,7 @@ func run(t *testing.T, dbPath, profile string, jsonOut bool, args ...string) (st
 			enc.SetIndent("", "  ")
 			return enc.Encode(v)
 		},
+		Refusal: func() string { return refusal },
 	})
 	var out, errb bytes.Buffer
 	cmd.SetOut(&out)
@@ -352,6 +360,7 @@ func TestAPIKeyRevokeAsksOnATerminal(t *testing.T) {
 			StdinIsTerminal: func() bool { return true },
 			NotFound:        errorOf(2),
 			InvalidInput:    errorOf(3),
+			Refusal:         func() string { return "" },
 		})
 		var out bytes.Buffer
 		cmd.SetOut(&out)
@@ -370,5 +379,43 @@ func TestAPIKeyRevokeAsksOnATerminal(t *testing.T) {
 	}
 	if out, _, _ := run(t, db, "default", true, "list"); strings.TrimSpace(out) != "[]" {
 		t.Errorf("the key is still active after yes: %s", out)
+	}
+}
+
+// A key signs in as the profile: only the operator creates one, changes
+// what it reaches or revokes it, which cuts off whatever uses it. Anything
+// else is refused with exit 3 and the code operator_only, and no key is made
+// or changed; listing and showing stay open (#845 review, item 5).
+func TestAPIKeyCreateUpdateAndRevokeAreTheOperatorsOnly(t *testing.T) {
+	t.Parallel()
+	db := testdb.Path(t)
+	const agent = "CLAUDECODE is set, so an agent is running this command"
+	if _, _, err := run(t, db, "default", true, "create", "--name", "mine"); err != nil {
+		t.Fatalf("the operator's create: %v", err)
+	}
+	for _, args := range [][]string{
+		{"create", "--name", "agent-made"},
+		{"update", "mine", "--context"},
+		{"update", "mine", "--name", "renamed"},
+		{"revoke", "mine", "--yes"},
+	} {
+		_, _, err := runAs(t, agent, db, "default", true, args...)
+		var fields interface{ JSONErrorFields() map[string]any }
+		if clicore.ExitCodeFor(err) != 3 || !errors.As(err, &fields) || fields.JSONErrorFields()["code"] != "operator_only" || !strings.Contains(err.Error(), "CLAUDECODE") {
+			t.Errorf("an agent's %v: %v", args, err)
+		}
+	}
+	for _, args := range [][]string{{"list", "--include-revoked"}, {"show", "mine"}} {
+		out, _, err := runAs(t, agent, db, "default", true, args...)
+		if err != nil || strings.Contains(out, "agent-made") || strings.Contains(out, "renamed") ||
+			!strings.Contains(out, `"name": "mine"`) || !strings.Contains(out, `"context": false`) || !strings.Contains(out, `"revoked_at": null`) {
+			t.Errorf("an agent's %v after the refusals: %v\n%s", args, err, out)
+		}
+	}
+	if _, _, err := run(t, db, "default", true, "update", "mine", "--context"); err != nil {
+		t.Fatalf("the operator's update: %v", err)
+	}
+	if _, _, err := run(t, db, "default", true, "revoke", "mine", "--yes"); err != nil {
+		t.Fatalf("the operator's revoke: %v", err)
 	}
 }

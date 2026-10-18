@@ -13,37 +13,59 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// ancestorMarker names what marks one of this process's parents (up to
-// ancestorMaxDepth, below init): MONOAGENT_WORKFLOW_RUN or
-// MONOAGENT_AI_CALLER in the environment it was started with, or a
-// `monomind agent exec` command line; "" when none does. A parent whose
-// /proc entries can't be read (another user's) is passed over.
+// ancestorMarker names what marks one of this process's parents, below
+// init: processMarker, or ancestorTooDeep; "" when none does. A parent
+// whose /proc entries can't be read (another user's) ends the walk.
 func ancestorMarker() string {
 	if testing.Testing() && !ancestorsInTests {
 		return ""
 	}
-	pid := os.Getppid()
-	for depth := 0; depth < ancestorMaxDepth && pid > 1 && pid != ancestorsStopAt; depth++ {
-		if m := processMarker(pid); m != "" {
+	return walkAncestors(os.Getppid(), processMarker, parentOf)
+}
+
+// walkAncestors climbs from pid through parent and names the first process
+// marker marks; "" when it reaches init (pid 1), ancestorsStopAt or a
+// parent it can't read first. A chain still climbing after ancestorMaxDepth
+// processes counts as marked (ancestorTooDeep): nesting that many clean
+// shells is how a marked caller would put its mark out of reach.
+func walkAncestors(pid int, marker func(int) string, parent func(int) (int, bool)) string {
+	for depth := 0; pid > 1 && pid != ancestorsStopAt; depth++ {
+		if depth == ancestorMaxDepth {
+			return ancestorTooDeep
+		}
+		if m := marker(pid); m != "" {
 			return m
 		}
-		ppid, ok := parentOf(pid)
+		ppid, ok := parent(pid)
 		if !ok {
-			break
+			return ""
 		}
 		pid = ppid
 	}
 	return ""
 }
 
+// processMarker names what marks process pid: any variable Marker reads
+// (MarkerEnv: a workflow run, the chat, CLAUDECODE, MONOAGENT_ACTOR and the
+// other agents' markers) in the environment it was started with, or a
+// `monomind agent exec` command line; "" when none does.
 func processMarker(pid int) string {
 	dir := "/proc/" + strconv.Itoa(pid)
 	if env, err := os.ReadFile(dir + "/environ"); err == nil {
+		set := map[string]bool{}
 		for _, kv := range bytes.Split(env, []byte{0}) {
-			for k, m := range map[string]string{workflow.EnvWorkflowRun: ancestorWorkflowRun, browserctl.EnvAICaller: ancestorAICaller} {
-				if v, ok := bytes.CutPrefix(kv, []byte(k+"=")); ok && len(bytes.TrimSpace(v)) > 0 {
-					return m
-				}
+			if k, v, ok := bytes.Cut(kv, []byte("=")); ok && len(bytes.TrimSpace(v)) > 0 {
+				set[string(k)] = true
+			}
+		}
+		for k, m := range map[string]string{workflow.EnvWorkflowRun: ancestorWorkflowRun, browserctl.EnvAICaller: ancestorAICaller} {
+			if set[k] {
+				return m
+			}
+		}
+		for _, k := range MarkerEnv() {
+			if set[k] {
+				return ancestorPrefix + "'s " + k
 			}
 		}
 	}

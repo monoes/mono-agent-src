@@ -40,74 +40,29 @@ func TestAPIKeyToolsBelongToTheServersProfileByItsID(t *testing.T) {
 	s, side := workServer(t)
 	ctx := context.Background()
 	store := apikeys.NewStore(side.DB)
-	theirs, theirSecret, err := store.Create(ctx, "default", "theirs", false)
-	if err != nil {
+	if _, _, err := store.Create(ctx, "default", "theirs", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Create(ctx, workProfileID, "mine", true); err != nil {
 		t.Fatal(err)
 	}
 
-	// A key made through the tool belongs to the profile by its id: not the name it was
-	// opened by, and not "default".
-	created := decodeKey(t, mustCall(t, s, "api_key_create", map[string]any{"name": "mine", "context": true}))
-	if got := stringField(t, created, "profile_id"); got != workProfileID {
-		t.Errorf("a key created by the server of profile %s belongs to %q", workProfileID, got)
-	}
-	for profile, want := range map[string][]string{workProfileID: {"mine"}, "default": {"theirs"}, workProfileName: {}} {
-		keys, err := store.List(ctx, profile, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := []string{}
-		for _, k := range keys {
-			got = append(got, k.Name)
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("keys stored for profile %q = %v, want %v", profile, got, want)
-		}
-	}
+	// api_key_list lists the keys of the profile by its id: not the name it was opened
+	// by, and not "default".
 	if got := namesOf(decodeKeys(t, mustCall(t, s, "api_key_list", map[string]any{"include_revoked": true}))); !reflect.DeepEqual(got, []string{"mine"}) {
 		t.Errorf("api_key_list = %v, want only this profile's [mine]", got)
 	}
-
-	// The default profile's key is not found, by id and by name, worded as an id nobody
-	// has, and it is left as it was.
-	_, unknown := callAPITool(t, s, "api_key_revoke", map[string]any{"id": "key_zzzzzzzzzzzz"})
-	if unknown == nil {
-		t.Fatal("an unknown id must be an error")
-	}
-	for _, ref := range []string{theirs.ID, "theirs"} {
-		for name, args := range map[string]map[string]any{
-			"api_key_update": {"id": ref, "name": "taken", "context": true},
-			"api_key_revoke": {"id": ref},
-		} {
-			if _, err := callAPITool(t, s, name, args); err == nil || err.Error() != unknown.Error() {
-				t.Errorf("%s of the default profile's key by %q: %v, want exactly %q", name, ref, err, unknown)
-			}
+	// The tools that change none name the profile by its id in what the user runs.
+	for tool, args := range map[string]map[string]any{
+		"api_key_create": {"name": "made"},
+		"api_key_update": {"id": "mine", "context": false},
+		"api_key_revoke": {"id": "mine"},
+	} {
+		command := strings.TrimPrefix(tool, "api_key_")
+		if _, err := callAPITool(t, s, tool, args); err == nil || !strings.Contains(err.Error(), "--profile "+workProfileID+" api key "+command) {
+			t.Errorf("%s on the server of profile %s: %v, want a refusal that names it by its id", tool, workProfileID, err)
 		}
 	}
-	assertUntouched := func(when string) {
-		t.Helper()
-		left, err := store.Get(ctx, "default", theirs.ID)
-		if err != nil || left.Name != "theirs" || left.Context || left.RevokedAt != nil {
-			t.Errorf("%s the default profile's key was touched: %+v, %v", when, left, err)
-		}
-		if _, err := store.Authenticate(ctx, theirSecret); err != nil {
-			t.Errorf("%s the default profile's key stopped working: %v", when, err)
-		}
-	}
-	assertUntouched("after refused calls,")
-
-	// A name means this profile's active key of that name: the same name in both
-	// profiles is no clash, and a call by it reaches this profile's key only.
-	mine, _ := createKey(t, s, "theirs", false)
-	mustCall(t, s, "api_key_update", map[string]any{"id": "theirs", "context": true})
-	if k, err := store.Get(ctx, workProfileID, mine); err != nil || !k.Context {
-		t.Errorf("an update by name did not reach this profile's key: %+v, %v", k, err)
-	}
-	mustCall(t, s, "api_key_revoke", map[string]any{"id": "theirs"})
-	if k, err := store.Get(ctx, workProfileID, mine); err != nil || k.RevokedAt == nil {
-		t.Errorf("a revoke by name did not reach this profile's key: %+v, %v", k, err)
-	}
-	assertUntouched("after calls by the same name,")
 }
 
 // Whether auto works is read from the Jev settings of the profile by its id: the

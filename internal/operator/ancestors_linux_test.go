@@ -53,6 +53,11 @@ func TestAParentProcessMarksIt(t *testing.T) {
 	}{
 		{workflow.EnvWorkflowRun + "=exec-7", ancestorWorkflowRun},
 		{browserctl.EnvAICaller + "=chat", ancestorAICaller},
+		// An agent shell's own markers count too: `env -i` from Claude Code
+		// or an agent named by MONOAGENT_ACTOR is still that agent.
+		{"CLAUDECODE=1", ancestorPrefix + "'s CLAUDECODE"},
+		{"MONOAGENT_ACTOR=agent-x", ancestorPrefix + "'s MONOAGENT_ACTOR"},
+		{"MONOMIND_ORG_ROLE=writer", ancestorPrefix + "'s MONOMIND_ORG_ROLE"},
 	} {
 		if out := run([]string{c.env}, sh, "-c", helper); !strings.Contains(out, "marker="+c.marker+"\n") || !strings.Contains(out, "whatever its own environment says") {
 			t.Errorf("under a parent with %s:\n%s", c.env, out)
@@ -88,5 +93,44 @@ func TestIsAgentExec(t *testing.T) {
 		if got := isAgentExec(split(cmd)); got != want {
 			t.Errorf("%q: %v, want %v", cmd, got, want)
 		}
+	}
+}
+
+// The walk over a fake process tree: a chain of n clean processes above
+// pid 1000 (1000, 999, … then init).
+func TestWalkAncestors(t *testing.T) {
+	chain := func(n int, marked map[int]string) (func(int) string, func(int) (int, bool)) {
+		return func(pid int) string { return marked[pid] },
+			func(pid int) (int, bool) {
+				if pid <= 1000-n+1 {
+					return 1, true
+				}
+				return pid - 1, true
+			}
+	}
+	for name, c := range map[string]struct {
+		n      int
+		marked map[int]string
+		want   string
+	}{
+		"a short clean chain":                 {5, nil, ""},
+		"exactly the depth, clean":            {ancestorMaxDepth, nil, ""},
+		"one deeper than the depth":           {ancestorMaxDepth + 1, nil, ancestorTooDeep},
+		"33 nested clean shells over a mark":  {ancestorMaxDepth + 1, map[int]string{1000 - ancestorMaxDepth: "a parent process's CLAUDECODE"}, ancestorTooDeep},
+		"a mark within reach":                 {10, map[int]string{995: "a parent process's CLAUDECODE"}, "a parent process's CLAUDECODE"},
+		"a mark at the last process in reach": {ancestorMaxDepth, map[int]string{1000 - ancestorMaxDepth + 1: ancestorAICaller}, ancestorAICaller},
+	} {
+		marker, parent := chain(c.n, c.marked)
+		if got := walkAncestors(1000, marker, parent); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+	// A parent it can't read ends the walk, as before.
+	unreadable := func(pid int) (int, bool) { return 0, false }
+	if got := walkAncestors(1000, func(int) string { return "" }, unreadable); got != "" {
+		t.Errorf("an unreadable parent: %q", got)
+	}
+	if !strings.HasPrefix(ancestorTooDeep, "a parent chain deeper than 32") {
+		t.Errorf("ancestorTooDeep = %q", ancestorTooDeep)
 	}
 }

@@ -42,7 +42,7 @@ api_config_get, task_list, task_get, task_next, docs.
 Mutating tools (workflow_run, workflow_create/delete/set_active/node_add,
 hil_approve, hil_reject, secret_add/update/delete, person_upsert/delete,
 org_create and every org_role_*/org_reload tool, api_key_create/update/revoke,
-which manage the OpenAI-compatible API's keys, api_config_set and
+which change none of the OpenAI-compatible API's keys (below), api_config_set and
 api_config_apply, which save its server's settings and restart the daemon that
 reads them, api_auto_set, which switches its auto model on or off, and
 task_claim/comment/finish/release/add, which work the user's task board) are only
@@ -52,10 +52,10 @@ name. This includes workflow_run/hil_approve/hil_reject, which were exposed
 unconditionally before this flag existed — add --allow-mutations to an
 existing MCP client config that relies on them.
 
-api_key_create returns the new API key once, in its result, which makes it part
-of the host's transcript. monoagentcli api key create writes the key to its
-stdout: run in your own terminal, and not through an agent's shell tool, it
-stays out of that transcript.
+api_key_create, api_key_update and api_key_revoke change no key, for any caller:
+only you create, change or revoke an API key, with monoagentcli api key
+create|update|revoke in your own terminal (they refuse an agent's shell tool) or
+in the app, so a new key is in no transcript.
 
 api_config_set saves settings of the OpenAI-compatible API's server and refuses a
 change that makes the server reach further than it did, and saves nothing, unless

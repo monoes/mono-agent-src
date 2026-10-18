@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/secrets"
 
@@ -24,6 +25,10 @@ func (d Deps) newSecretExportCmd() *cobra.Command {
 		Example: `  monoagentcli secret export
   monoagentcli secret export --output ./my-vault.json.enc`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The file and the passphrase it prints are every secret.
+			if err := revealgate.Refuse("secret export"); err != nil {
+				return err
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)
@@ -101,7 +106,7 @@ func (d Deps) newSecretImportCmd() *cobra.Command {
 				return ErrProfileRequired
 			}
 
-			imported, skipped, err := secrets.Import(cmd.Context(), db.DB, profileID, passphrase, data,
+			imported, skipped, err := secrets.Import(writeCtx(cmd.Context()), db.DB, profileID, passphrase, data,
 				rematerializeConnection, rematerializeSession)
 			if err != nil {
 				return fmt.Errorf("importing vault: %w", err)

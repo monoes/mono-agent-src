@@ -39,6 +39,7 @@ var stdinTTY = false
 
 func (c *testConfig) deps() Deps {
 	return Deps{
+		Refusal:    func() string { return "" },
 		JSONOutput: func() bool { return c.JSONOutput },
 		ProfileID:  func() string { return c.ProfileID },
 		OpenDB: func() (*storage.Database, error) {

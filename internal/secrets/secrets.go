@@ -42,6 +42,9 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name string, fields m
 // shared by Add itself and by PutSystemEntry (system.go), which creates
 // entries of the three system-managed kinds.
 func addEntry(ctx context.Context, db *sql.DB, profileID, kind, name string, fields map[string]string, username, url, notes string) (string, error) {
+	if err := checkReservedWrite(ctx, db, profileID, "", name); err != nil {
+		return "", err
+	}
 	if len(fields) == 0 {
 		return "", fmt.Errorf("secrets.addEntry: at least one field is required")
 	}
@@ -161,6 +164,13 @@ func Update(ctx context.Context, db *sql.DB, profileID, id string, name, usernam
 	if name != nil && *name == "" {
 		return fmt.Errorf("secrets.Update: name must not be empty")
 	}
+	newName := ""
+	if name != nil {
+		newName = *name
+	}
+	if err := checkReservedWrite(ctx, db, profileID, id, newName); err != nil {
+		return err
+	}
 	if fields != nil {
 		if len(fields) == 0 {
 			return fmt.Errorf("secrets.Update: at least one field is required")
@@ -256,6 +266,9 @@ func List(ctx context.Context, db *sql.DB, profileID string) ([]Entry, error) {
 
 // Delete removes an entry.
 func Delete(ctx context.Context, db *sql.DB, profileID, id string) error {
+	if err := checkReservedWrite(ctx, db, profileID, id); err != nil {
+		return err
+	}
 	_, err := db.ExecContext(ctx, `DELETE FROM vault_secrets WHERE id = ? AND profile_id = ?`, id, profileID)
 	if err != nil {
 		return fmt.Errorf("secrets.Delete: %w", err)

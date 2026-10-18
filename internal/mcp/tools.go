@@ -19,10 +19,7 @@ type tool struct {
 	annotations map[string]bool
 	// outputSchema, when set, is the JSON schema of the tool's structuredContent.
 	outputSchema map[string]interface{}
-	// textOnly keeps the result out of structuredContent: api_key_create's
-	// result holds the new key, which goes on the wire once, in the text.
-	textOnly bool
-	mutating bool // gated behind Options.AllowMutations — see callTool/toolDefinitions
+	mutating     bool // gated behind Options.AllowMutations — see callTool/toolDefinitions
 	// global marks a tool that reads and writes no profile data (node types,
 	// docs, bundled workflow templates, machine-wide message templates and API
 	// settings). Every other tool is profile-scoped: scoped() adds the required
@@ -114,9 +111,6 @@ func callToolResult(ctx context.Context, s *Server, name string, args json.RawMe
 		b, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
 			return "", nil, fmt.Errorf("render tool result: %w", err)
-		}
-		if t.textOnly {
-			return string(b), nil, nil
 		}
 		return string(b), structuredOf(b), nil
 	}

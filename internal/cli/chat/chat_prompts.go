@@ -242,13 +242,14 @@ func registryNodeTypes(db *sql.DB) []aichat.NodeTypeInfo {
 var chatBashPrefixes = chatOrgPrefixes()
 
 // chatAgentOrgSubcommands are the `monoagentcli org` subcommands a chat
-// may run: all of them but sign and role.
+// may run: all of them but sign, role and teardown-profile, which revokes
+// the profile's keys, grants and endpoints and is the user's own.
 var chatAgentOrgSubcommands = []string{
 	"answer", "approvals", "approve", "automation", "automation-role", "autonomy", "chat", "costs", "create-json",
 	"decisions", "delete", "deny", "effective-tools", "events", "flow", "gate-approve", "gate-reject",
 	"gates", "grant", "group", "legacy", "list", "logs", "memory", "pause", "questions", "queued",
 	"reconcile", "reconcile-doc", "reload", "rename", "report", "resume", "run", "send", "serve", "status", "stop",
-	"summary", "teardown-profile", "validate",
+	"summary", "validate",
 }
 
 // chatMonomindOrgSubcommands are the `monomind org` subcommands a chat may

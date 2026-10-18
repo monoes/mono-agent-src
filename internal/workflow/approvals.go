@@ -11,6 +11,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/attachments"
 	"github.com/monoes/mono-agent/internal/fsconfine"
+	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
@@ -27,9 +28,22 @@ import (
 type aiAuthoredKey struct{}
 
 // WithAIAuthored marks ctx as a run of a definition the operator never
-// approved.
+// approved. No secret resolves in it (secrets.RefuseResolving): a step it
+// runs could send the value anywhere, or show it in an error or an output.
 func WithAIAuthored(ctx context.Context) context.Context {
-	return context.WithValue(ctx, aiAuthoredKey{}, true)
+	ctx = context.WithValue(ctx, aiAuthoredKey{}, true)
+	return secrets.RefuseResolving(ctx, unapprovedSecrets(ctx, ApproveHint("", "")))
+}
+
+// unapprovedSecrets is why a run of a definition the operator never
+// approved reads no secret: approve says how the user approves it, or,
+// when whether they did could not be checked (ApprovalCheckError), it says
+// that, as RefuseUnapprovedProgram does.
+func unapprovedSecrets(ctx context.Context, approve string) string {
+	if err := ApprovalCheckError(ctx); err != nil {
+		return fmt.Sprintf("whether you approved this workflow could not be checked (%v): run it again", err)
+	}
+	return "the chat, an agent or another workflow wrote or changed this workflow since you last saved or activated it: " + approve
 }
 
 // AIAuthoredFrom reports whether ctx is a run of a definition the operator
@@ -45,7 +59,19 @@ func AIAuthoredFrom(ctx context.Context) bool {
 // folder, and out of what runs code later (fsconfine.GuardHiddenHome).
 // approve says how the user approves it, for the refusals.
 func WithUnapproved(ctx context.Context, project, approve string) context.Context {
-	return fsconfine.GuardHiddenHome(WithAIAuthored(ctx), FileGuard(project, approve))
+	ctx = WithAIAuthored(ctx)
+	ctx = secrets.RefuseResolving(ctx, unapprovedSecrets(ctx, approve))
+	return fsconfine.GuardHiddenHome(ctx, FileGuard(project, approve))
+}
+
+// WithUnapprovedStep is WithUnapproved for one step an AI configured and
+// runs on its own, outside any workflow (MCP node_run, `node run` from an
+// agent's shell, the chat or a workflow): there is no workflow the user
+// could approve, so what it refuses says to put the step in one. tool names
+// the command.
+func WithUnapprovedStep(ctx context.Context, project, tool string) context.Context {
+	ctx = WithUnapproved(ctx, project, tool+" never does that for an AI: put the step in a workflow and have the user save or activate it")
+	return secrets.RefuseResolving(ctx, tool+" runs a step an AI wrote, not one the user approved: put the step in a workflow and have the user save or activate it")
 }
 
 // FileGuard is the fsconfine.Guard of a workflow the user hasn't approved,

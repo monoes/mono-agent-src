@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// raceSettle gives two calls that were sent together time to start and to queue
+// for the write lock. A slower server only lets a test pass, never fail.
+const raceSettle = 300 * time.Millisecond
+
 // Both calls are sent while another connection holds the database's write lock, so that both have
 // started before either can write, every time (raceSettle gives them time to queue for it). The
 // database waits for a lock for 5 seconds, far more than that.

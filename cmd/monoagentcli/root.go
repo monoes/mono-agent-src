@@ -145,7 +145,7 @@ func buildRootCmd(installProvider bool) *cobra.Command {
 	// Registered here on the run subcommand to keep workflow.go untouched.
 	if runCmd, _, err := cmd.Find([]string{"workflow", "run"}); err == nil && runCmd != nil {
 		runCmd.Flags().BoolVar(&workflowrun.FullOutputs, "full-outputs", false,
-			"Include unredacted output items in the --json record (values under credential-like keys such as token/password/api_key are masked by default)")
+			"Include unredacted output items in the --json record (values under credential-like keys such as token/password/api_key are masked by default); the user's own flag: an agent, the chat or a workflow is refused")
 	}
 
 	// Legacy social-oriented commands are hidden from the default build's

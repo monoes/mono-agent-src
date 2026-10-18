@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/zalando/go-keyring"
+
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 )
 
 type infoDoc struct {
@@ -106,7 +108,7 @@ func TestProfileInfoRevealIsTheOperatorsOnly(t *testing.T) {
 		t.Run(env, func(t *testing.T) {
 			t.Setenv(env, val)
 			out, err := runProfileJSON(t, dbPath, "info", "get", "--reveal")
-			if err == nil || exitCodeOf(t, err) != 3 {
+			if err == nil || clicore.ExitCodeFor(err) != 3 {
 				t.Fatalf("a marked caller's --reveal: err=%v", err)
 			}
 			for _, secret := range []string{"X1234567", "DE8937", "4111"} {

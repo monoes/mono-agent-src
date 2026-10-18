@@ -2,11 +2,14 @@ package workflow
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/rs/zerolog"
 
 	"github.com/monoes/mono-agent/internal/connections"
+	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
@@ -106,4 +109,46 @@ func mergeCredential(ctx context.Context, connStore *connections.Store, logger z
 func isUnsetConfigValue(v interface{}) bool {
 	s, isStr := v.(string)
 	return v == nil || (isStr && s == "")
+}
+
+// checkStoredFields refuses resolved when its credential_id, or a field
+// executor names a vault entry by (LiteralConfigResolver), isn't the value
+// stored holds as written: an expression produced it, from the run's data
+// or otherwise. So does a reference an expression put in the text of a field
+// executor resolves references inside (SecretTextResolver). It runs before
+// references resolve.
+func checkStoredFields(executor NodeExecutor, stored, resolved map[string]interface{}) error {
+	if t, ok := executor.(SecretTextResolver); ok {
+		for _, f := range t.SecretTextFields() {
+			if path, found := secrets.DataReference(stored[f], resolved[f], true); found {
+				if path != "" {
+					f += "." + path
+				}
+				return fmt.Errorf("%q: %w: only one written as it is in the workflow resolves", f, secrets.ErrDataReference)
+			}
+		}
+	}
+	fields := []string{"credential_id"}
+	if l, ok := executor.(LiteralConfigResolver); ok {
+		fields = append(fields, l.LiteralConfigFields()...)
+	}
+	for _, f := range fields {
+		v, set := resolved[f]
+		if !set || v == nil || v == "" {
+			continue
+		}
+		s, isText := stored[f].(string)
+		if (!isText || !strings.Contains(s, "{{")) && reflect.DeepEqual(stored[f], v) {
+			continue
+		}
+		what := "the vault entry's name"
+		switch f {
+		case "credential_id":
+			what = "the saved connection"
+		case "username": // a browser node's: the session it signs in with
+			what = "the account it acts as"
+		}
+		return fmt.Errorf("%q: %s must be written in the workflow, not taken from its data", f, what)
+	}
+	return nil
 }

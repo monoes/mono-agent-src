@@ -392,7 +392,7 @@ var nodeDocsVault = []nodeDoc{
 }`,
 		Inputs:  "any item (name is a fixed config value, not read from the item)",
 		Outputs: "output_field with the decrypted fields object",
-		Notes:   "WARNING: puts plaintext into the item stream — persists unmasked in execution history and flows to every downstream node. Only the ~16 conventional key names in internal/workflow/redact.go (password, token, api_key, ...) get masked, and only at the MCP/REST (unless --full-outputs)/chat-tool display boundaries.",
+		Notes:   "WARNING: puts plaintext into the item stream — persists unmasked in execution history and flows to every downstream node. Only the ~16 conventional key names in internal/workflow/redact.go (password, token, api_key, ...) get masked, and only at the MCP/REST (unless --full-outputs, the user's own flag)/chat-tool display boundaries. Refused in a run of a workflow the user hasn't approved (the chat's, an agent's, or one changed since the user saved or activated it), as every @secret reference is, and in MCP node_run and an agent's `node run`.",
 	},
 }
 

@@ -51,24 +51,34 @@ func (r *runner) resolveSubNodes(rootID string, exprCtx ExpressionContext, depth
 		}
 		r.injectCredential(n, cfg)
 		var perItem []string
+		var executor NodeExecutor
 		if factory, ok := r.registry.Get(n.Type); ok {
-			if res, ok := factory().(PerItemConfigResolver); ok {
+			executor = factory()
+			if res, ok := executor.(PerItemConfigResolver); ok {
 				perItem = res.PerItemConfigFields()
 			}
 		}
+		stored, _ := cloneConfigValue(cfg).(map[string]interface{})
 		held := extractPerItemFields(cfg, perItem)
 		resolved, err := r.expr.ResolveConfig(cfg, exprCtx)
 		if err != nil {
 			return nil, fmt.Errorf("sub-node %s (%s): resolve config: %w", n.ID, n.Name, err)
 		}
 		restorePerItemFields(resolved, held)
+		if err := checkStoredFields(executor, stored, resolved); err != nil {
+			return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
+		}
 		if db := vault.DBFromContext(r.ctx); db != nil {
 			profile, perr := vault.ProfileIDFromContext(r.ctx)
 			if perr != nil {
 				return nil, fmt.Errorf("sub-node %s (%s) ran without a profile: %w", n.ID, n.Name, perr)
 			}
-			_ = vault.ResolveConfig(r.ctx, db, resolved)
-			_ = secrets.ResolveConfig(r.ctx, db, profile, resolved)
+			if err := vault.ResolveConfig(r.ctx, db, stored, resolved); err != nil {
+				return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
+			}
+			if err := secrets.ResolveConfig(r.ctx, db, profile, stored, resolved); err != nil {
+				return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
+			}
 		}
 		children, err := r.resolveSubNodes(n.ID, exprCtx, depth+1)
 		if err != nil {
@@ -103,19 +113,27 @@ func (r *runner) callTool(ctx context.Context, n WorkflowNode, base ExpressionCo
 	}
 	exprCtx := base
 	exprCtx.JSON = args
+	stored, _ := cloneConfigValue(cfg).(map[string]interface{})
 	held := extractPerItemFields(cfg, perItem)
 	resolved, err := r.expr.ResolveConfig(cfg, exprCtx)
 	if err != nil {
 		return nil, fmt.Errorf("tool %q: resolve config: %w", n.Name, err)
 	}
 	restorePerItemFields(resolved, held)
+	if err := checkStoredFields(executor, stored, resolved); err != nil {
+		return nil, fmt.Errorf("tool %q: %w", n.Name, err)
+	}
 	if db := vault.DBFromContext(ctx); db != nil {
 		profile, perr := vault.ProfileIDFromContext(ctx)
 		if perr != nil {
 			return nil, fmt.Errorf("tool %q ran without a profile: %w", n.Name, perr)
 		}
-		_ = vault.ResolveConfig(ctx, db, resolved)
-		_ = secrets.ResolveConfig(ctx, db, profile, resolved)
+		if err := vault.ResolveConfig(ctx, db, stored, resolved); err != nil {
+			return nil, fmt.Errorf("tool %q: %w", n.Name, err)
+		}
+		if err := secrets.ResolveConfig(ctx, db, profile, stored, resolved); err != nil {
+			return nil, fmt.Errorf("tool %q: %w", n.Name, err)
+		}
 	}
 	outs, err := executor.Execute(ctx, NodeInput{
 		Items: []Item{NewItem(args)}, NodeOutputs: r.nodeOutputs,

@@ -182,6 +182,9 @@ func newJevEnableCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if why := d.Refusal(); why != "" {
+				return clicore.OperatorOnly("jev enable %s sends this profile's data to TypeSafe, which only the user switches on: %s; run it yourself in your terminal or the app", s, why)
+			}
 			setThreshold := cmd.Flags().Changed("threshold")
 			if setThreshold && (threshold <= 0 || threshold > 1) {
 				return clicore.InvalidInput("--threshold %v must be in (0,1]", threshold)

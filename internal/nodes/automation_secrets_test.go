@@ -150,7 +150,7 @@ func TestScopedSecretLookup(t *testing.T) {
 	fakeVault(t, map[string]string{
 		"p1|automation:b/key": "b-key", "p1|automation:i/key": "i-key", "p1|shared": "bare",
 	})
-	look := ScopedSecretLookup(context.Background(), nil, "p1", "b")
+	look := ScopedSecretLookup(context.Background(), nil, "p1", "b", nil)
 	for _, c := range []struct {
 		scope, name, want string
 		ok                bool

@@ -3,9 +3,11 @@ package org
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/apikeys"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 )
 
 // Deleting a profile must not leave API keys that still authenticate as it:
@@ -47,5 +49,35 @@ func TestOrgTeardownProfileRevokesAPIKeys(t *testing.T) {
 	}
 	if _, err := store.Authenticate(ctx, otherSecret); err != nil {
 		t.Fatalf("another profile's key must survive: %v", err)
+	}
+}
+
+// Revoking a profile's API keys, grants and endpoints cuts off whatever uses
+// them: an agent, the chat or a workflow is refused (exit 3, operator_only)
+// and nothing is revoked, while a dry run stays open (#845 review, item 5).
+func TestOrgTeardownProfileIsTheOperatorsOnly(t *testing.T) {
+	f := newOrgCLIFixture(t)
+	db, profileID, _, err := testEnv(f.cfg).Profile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	store := apikeys.NewStore(db.DB)
+	_, secret, err := store.Create(ctx, profileID, "svc", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CLAUDECODE", "1")
+	_, err = f.run(t, "teardown-profile")
+	var fields interface{ JSONErrorFields() map[string]any }
+	if clicore.ExitCodeFor(err) != 3 || !errors.As(err, &fields) || fields.JSONErrorFields()["code"] != "operator_only" || !strings.Contains(err.Error(), "CLAUDECODE") {
+		t.Fatalf("an agent's teardown-profile: %v", err)
+	}
+	if _, err := store.Authenticate(ctx, secret); err != nil {
+		t.Fatalf("a refused teardown revoked a key: %v", err)
+	}
+	if preview := f.mustRun(t, "teardown-profile", "--dry-run"); preview["api_keys"] != float64(1) {
+		t.Errorf("an agent's dry run: api_keys = %v, want 1", preview["api_keys"])
 	}
 }

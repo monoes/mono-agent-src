@@ -86,8 +86,7 @@ func toolNodeRun(ctx context.Context, s *Server, args json.RawMessage) (interfac
 	// approved: the node runs as in such a workflow (no programs on this
 	// computer, no hidden files in the user's home outside the project
 	// folder, approvals for what needs the user's).
-	ctx = workflow.WithUnapproved(ctx, profiledir.Root(rt.db.DB, profileOf(ctx)),
-		"node_run never does that for an AI: put the step in a workflow and have the user save or activate it")
+	ctx = workflow.WithUnapprovedStep(ctx, profiledir.Root(rt.db.DB, profileOf(ctx)), "node_run")
 	if queued, handled, gerr := workflow.RunExecGuard(ctx, a.Type, workflow.NodeInput{Items: items}, config); handled {
 		if gerr != nil {
 			return nil, fmt.Errorf("node %s failed: %w", a.Type, gerr)

@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/capturesummary"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	"github.com/monoes/mono-agent/internal/profileinfo"
 )
 
@@ -77,10 +77,10 @@ func (d Deps) newInfoGetCmd() *cobra.Command {
 		Short: "Show the stored values; ID, bank and card numbers are masked unless --reveal",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Every field --reveal unmasks is an ID, bank or card number: only
-			// the operator's own terminal or the app sees those in full.
-			if why := operator.Refusal(); reveal && why != "" {
-				return d.InvalidInput("--reveal shows ID, bank and card numbers in full, and only you may see them: %s", why)
+			if reveal {
+				if err := revealgate.Refuse("profile info get --reveal"); err != nil {
+					return err
+				}
 			}
 			db, err := d.OpenDB()
 			if err != nil {
@@ -102,7 +102,7 @@ func (d Deps) newInfoGetCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&reveal, "reveal", false, "show ID, bank and card numbers in full")
+	cmd.Flags().BoolVar(&reveal, "reveal", false, "show ID, bank and card numbers in full (the user's own: an agent, the chat or a workflow is refused)")
 	return cmd
 }
 

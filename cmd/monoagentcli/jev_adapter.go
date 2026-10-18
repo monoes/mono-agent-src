@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/jevcli"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -17,5 +18,6 @@ func newJevCmd(cfg *globalConfig) *cobra.Command {
 		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
 		ResolveProfile:  resolveProfileID,
 		StdinIsTerminal: stdinIsTerminal,
+		Refusal:         operator.Refusal,
 	})
 }

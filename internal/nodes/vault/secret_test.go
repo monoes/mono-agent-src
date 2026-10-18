@@ -295,3 +295,23 @@ func TestRegisterAll(t *testing.T) {
 		}
 	}
 }
+
+// A workflow the user hasn't approved (the chat's, an agent's, one another
+// workflow changed) reads no vault entry: its next step could send the value
+// anywhere, and its output would show it to whoever started it. Once
+// approved, it reads as before.
+func TestSecretGetRefusedInAnUnapprovedRun(t *testing.T) {
+	ctx := newSecretsTestCtx(t)
+	input := workflow.NodeInput{WorkflowID: "wf1", ExecutionID: "ex1", Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"api_key": "sk-live-abc123"})}}
+	if _, err := (&SecretSaveNode{}).Execute(ctx, input, map[string]interface{}{"kind": "secret", "name": "kept", "field_keys": []interface{}{"api_key"}}); err != nil {
+		t.Fatal(err)
+	}
+	get := &SecretGetNode{}
+	out, err := get.Execute(workflow.WithAIAuthored(ctx), input, map[string]interface{}{"name": "kept"})
+	if err == nil || !strings.Contains(err.Error(), "which this run may not") || out != nil {
+		t.Fatalf("an unapproved run's vault.secret_get: %v %v", out, err)
+	}
+	if _, err := get.Execute(ctx, input, map[string]interface{}{"name": "kept"}); err != nil {
+		t.Fatalf("an approved run's vault.secret_get: %v", err)
+	}
+}

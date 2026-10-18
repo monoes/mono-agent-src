@@ -112,6 +112,11 @@ func (b *BrowserNode) Type() string {
 	return fmt.Sprintf("%s.%s", b.platform, b.actionType)
 }
 
+// LiteralConfigFields: username picks the saved session (the account the
+// node acts as), as credential_id picks a saved connection
+// (workflow.LiteralConfigResolver).
+func (b *BrowserNode) LiteralConfigFields() []string { return []string{"username"} }
+
 // Execute runs the platform action against the bot's browser.
 // It converts workflow Items to action parameters, runs ActionExecutor, and converts results back to Items.
 //
@@ -323,8 +328,9 @@ func (b *BrowserNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		}
 	}
 	attachPackage(executor, b.platform, storage.db)
+	var refused secretRefusals
 	if storage.db != nil {
-		executor.SetSecretLookup(ScopedSecretLookup(ctx, storage.db, storage.profileID, strings.ToLower(b.platform)))
+		executor.SetSecretLookup(ScopedSecretLookup(ctx, storage.db, storage.profileID, strings.ToLower(b.platform), refused.note))
 	}
 
 	// Opt-in Jev element-picker fallback for steps that declare an intent
@@ -352,6 +358,16 @@ func (b *BrowserNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	}
 
 	result, err := executor.Execute(storageAction)
+	// A {{secret:}} lookup this run may not do read nothing: a failed step
+	// says so, and a step that went on without it logs it.
+	if why := refused.first(); why != nil {
+		if err != nil {
+			err = fmt.Errorf("%w; %v", err, why)
+		} else {
+			logger.Warn().Msg(why.Error())
+			fmt.Fprintln(os.Stderr, "Warning:", why)
+		}
+	}
 	succeeded := 0
 	if progress != nil && result != nil {
 		succeeded = progress.record(result)

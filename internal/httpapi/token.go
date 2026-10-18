@@ -17,7 +17,7 @@ import (
 // than a system kind — the token isn't owned by another subsystem's
 // record the way a connection/session/ai_provider is, and this keeps
 // internal/secrets untouched by this package.
-const tokenSecretName = "httpapi-token"
+const tokenSecretName = secrets.ReservedEntry
 
 // tokenField is the vault_secrets field key holding the token value.
 const tokenField = "token"
@@ -34,7 +34,8 @@ func ensureToken(ctx context.Context, db *sql.DB, profileID string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("httpapi: generate token: %w", err)
 	}
-	if _, err := secrets.Add(ctx, db, profileID, "secret", tokenSecretName,
+	// The server makes the token: the one write of it that isn't the user's own.
+	if _, err := secrets.Add(secrets.AllowReservedWrite(ctx), db, profileID, "secret", tokenSecretName,
 		map[string]string{tokenField: tok}, "", "", "monoagentcli httpapi bearer token (auto-generated)"); err != nil {
 		return "", fmt.Errorf("httpapi: store token: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/monoes/mono-agent/internal/autostart"
 	apiconfigcli "github.com/monoes/mono-agent/internal/cli/apiconfig"
 	"github.com/monoes/mono-agent/internal/openaiapi"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -46,6 +47,7 @@ func apiConfigDeps(cfg *globalConfig) apiconfigcli.Deps {
 		WriteJSON:    writeJSONTo,
 		ProfileID:    func() string { return cfg.ProfileID },
 		SavedEnv:     savedEnv,
+		Refusal:      operator.Refusal,
 	}
 }
 

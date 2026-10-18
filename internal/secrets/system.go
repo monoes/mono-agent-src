@@ -85,6 +85,9 @@ func disambiguateName(ctx context.Context, db *sql.DB, profileID, name string) (
 // app pointing at a token that no longer exists anywhere. For kind
 // "secret"/"login" this is equivalent to plain Delete.
 func DeleteCascade(ctx context.Context, db *sql.DB, profileID, id string) error {
+	if err := checkReservedWrite(ctx, db, profileID, id); err != nil {
+		return err
+	}
 	var kind string
 	err := db.QueryRowContext(ctx, `SELECT kind FROM vault_secrets WHERE id = ? AND profile_id = ?`, id, profileID).Scan(&kind)
 	if err == sql.ErrNoRows {

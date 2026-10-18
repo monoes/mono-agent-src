@@ -91,6 +91,26 @@ func TestResolveKeyExplicitRefPrecedence(t *testing.T) {
 	}
 }
 
+// A node's explicit reference is read as secrets.Resolve reads one: in a run
+// the user hasn't approved it is refused, spaces around it or not, and no
+// entry is read (#845 review: ai.choose trims its key before reading it).
+func TestResolveKeyRefusesAReferenceTheRunMayNotRead(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("TYPESAFE_API_KEY", "")
+	db := newDB(t)
+	seedKey(t, db, "alice", "github", "ghp-alice", "2026-01-01T00:00:00Z")
+	ctx := secrets.RefuseResolving(context.Background(), "the chat wrote this workflow")
+	for _, ref := range []string{"@secret:github", " @secret:github "} {
+		k, _, err := ResolveKey(ctx, db, "alice", ref)
+		if !errors.Is(err, secrets.ErrResolveRefused) || k != "" || !strings.Contains(err.Error(), "the chat wrote this workflow") {
+			t.Errorf("%q in an unapproved run = %q, %v; want the refusal", ref, k, err)
+		}
+	}
+	if k, _, err := ResolveKey(context.Background(), db, "alice", " @secret:github "); err != nil || k != "ghp-alice" {
+		t.Errorf("the user's run = %q, %v", k, err)
+	}
+}
+
 // Absent is jev.ErrNoAPIKey; present but undecryptable is ErrKeyUnreadable.
 func TestResolveKeyAbsentVersusUnreadable(t *testing.T) {
 	keyring.MockInit()

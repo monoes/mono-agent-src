@@ -22,4 +22,7 @@ type Deps struct {
 	ResolveProfile func(db *sql.DB, idOrName string) (string, error)
 	// StdinIsTerminal decides whether `jev enable` may ask instead of requiring --yes.
 	StdinIsTerminal func() bool
+	// Refusal says why this process may not switch a surface on or set the key
+	// (operator.Refusal): an agent, the chat or a workflow runs it. "" for the user.
+	Refusal func() string
 }

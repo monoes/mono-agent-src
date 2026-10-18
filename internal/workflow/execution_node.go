@@ -223,12 +223,18 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 		perItemFields = resolver.PerItemConfigFields()
 	}
 	plan := r.planPerItem(node, executor, config, len(inputItems), perItemFields, exprCtx)
+	// The config as the workflow holds it, which a @secret reference must
+	// be in to resolve (secrets.ResolveConfig).
+	stored, _ := cloneConfigValue(config).(map[string]interface{})
 	fieldState := extractPerItemFields(config, perItemFields)
 	resolvedConfig, err := r.expr.ResolveConfig(config, exprCtx)
 	if err != nil {
 		return nil, fmt.Errorf("node %s (%s): resolve config: %w", node.ID, node.Name, err)
 	}
 	restorePerItemFields(resolvedConfig, fieldState)
+	if err := checkStoredFields(executor, stored, resolvedConfig); err != nil {
+		return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
+	}
 
 	// Resolve @img-NNN references to absolute vault file paths.
 	if vaultDB := vault.DBFromContext(ctx); vaultDB != nil {
@@ -236,9 +242,14 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 		if perr != nil {
 			return nil, fmt.Errorf("node %s (%s) ran without a profile: %w", node.ID, node.Name, perr)
 		}
-		_ = vault.ResolveConfig(ctx, vaultDB, resolvedConfig)
-		// Resolve @secret:<name> references to decrypted vault values.
-		_ = secrets.ResolveConfig(ctx, vaultDB, profile, resolvedConfig)
+		if err := vault.ResolveConfig(ctx, vaultDB, stored, resolvedConfig); err != nil {
+			return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
+		}
+		// Resolve @secret:<name> references to decrypted vault values; a run
+		// the user hasn't approved resolves none, and the step doesn't run.
+		if err := secrets.ResolveConfig(ctx, vaultDB, profile, stored, resolvedConfig); err != nil {
+			return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
+		}
 	}
 
 	// AI sub-nodes attached through ai_… connections, resolved for the node.

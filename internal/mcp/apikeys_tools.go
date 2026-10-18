@@ -13,10 +13,10 @@ import (
 )
 
 // apiTools are the tools over the API keys of the OpenAI-compatible API (/v1) and
-// the models it would serve (spec §8.3). Keys belong to the call's profile: a key
-// of another profile is "not found". The rules (names, uniqueness, the context
-// switch, the errors) are internal/apikeys', and what api_models_list computes is
-// internal/openaiapi's, the same code `monoagentcli api` runs.
+// the models it would serve (spec §8.3). api_key_list lists the call's profile's
+// keys; api_key_create, api_key_update and api_key_revoke change none, since only
+// the user does that. What api_models_list computes is internal/openaiapi's, the
+// same code `monoagentcli api` runs.
 func apiTools() []tool {
 	return []tool{
 		{
@@ -42,20 +42,19 @@ func apiTools() []tool {
 		},
 		{
 			name:        "api_key_create",
-			description: "Create an API key for the call's profile, for the OpenAI-compatible API (/v1): the key is returned ONCE, in the key field, and no tool can show it again. Treat it as a password and give it only to the user, since it is now part of this transcript. " + apiToolsDetails,
+			description: "Creates no key, for any caller: an API key for the OpenAI-compatible API (/v1) signs in as the profile, so only the user creates one, with `monoagentcli --profile <id> api key create --name <name>` in their own terminal, or in the app. A call is refused and changes nothing. " + apiToolsDetails,
 			schema: objSchema(map[string]interface{}{
 				"name":    strParam("Key name, unique among the profile's active keys"),
 				"context": boolParam("Add the profile's own knowledge (documents and captures) to requests made with this key (default false)"),
 			}, "name"),
 			annotations: map[string]bool{"readOnlyHint": false},
-			textOnly:    true,
 			mutating:    true,
 			handler:     toolAPIKeyCreate,
 		},
 		{
 			name: "api_key_update",
-			description: "Rename an active API key of the call's profile and/or switch its knowledge context on or off. Pass name, context or both: an argument left out is not changed, " +
-				"and context false turns it off. The key itself is not changed and never returned.",
+			description: "Changes no key, for any caller: renaming an API key of the OpenAI-compatible API (/v1) or switching its knowledge context changes what a key that signs in as the profile reaches, " +
+				"so only the user does it, with `monoagentcli --profile <id> api key update <id|name> [--name N] [--context | --no-context]` in their own terminal, or in the app. A call is refused and changes nothing.",
 			schema: objSchema(map[string]interface{}{
 				"id":      strParam("The key's id (key_…) or the name of an active key"),
 				"name":    strParam("New name (omit to leave unchanged)"),
@@ -67,8 +66,8 @@ func apiTools() []tool {
 		},
 		{
 			name: "api_key_revoke",
-			description: "Revoke an API key of the call's profile now: requests made with it are refused from the next request on (a turn already running finishes). " +
-				"It cannot be undone. Revoking a revoked key by id succeeds.",
+			description: "Revokes no key, for any caller: revoking an API key of the OpenAI-compatible API (/v1) cuts off whatever signs in with it, " +
+				"so only the user does it, with `monoagentcli --profile <id> api key revoke <id|name>` in their own terminal, or in the app. A call is refused and changes nothing.",
 			schema: objSchema(map[string]interface{}{
 				"id": strParam("The key's id (key_…) or the name of an active key"),
 			}, "id"),
@@ -102,74 +101,26 @@ func toolAPIKeyList(ctx context.Context, s *Server, args json.RawMessage) (inter
 	return store.List(ctx, profileID, a.IncludeRevoked)
 }
 
-// createdAPIKey is what api_key_create returns: the key's metadata and the key
-// itself, the one place the key is ever shown.
-type createdAPIKey struct {
-	apikeys.Key
-	Secret string `json:"key"`
+// The tools below change no key. A key signs in as the profile, and whoever
+// calls an MCP tool is an AI, so only the user makes one, changes what it
+// reaches or revokes it, as `api key create|update|revoke` refuse an agent,
+// the chat and a workflow. The tools stay listed so that a call is told so.
+
+func toolAPIKeyCreate(ctx context.Context, _ *Server, _ json.RawMessage) (interface{}, error) {
+	return nil, keyRefusal(ctx, "api_key_create makes no key", "creates an API key, which signs in as this profile", "create --name <name>")
 }
 
-// The three handlers below pass the store's errors on as they are (ErrInvalidName,
-// ErrNameTaken, ErrNotFound: static texts) and never put an argument in one, since a
-// caller may have pasted the key itself where an id goes.
-
-func toolAPIKeyCreate(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
-	var a struct {
-		Name    string `json:"name"`
-		Context bool   `json:"context"`
-	}
-	if err := decodeArgs(args, &a); err != nil {
-		return nil, err
-	}
-	store, profileID, err := s.apiKeys(ctx)
-	if err != nil {
-		return nil, err
-	}
-	key, secret, err := store.Create(ctx, profileID, a.Name, a.Context)
-	if err != nil {
-		return nil, err
-	}
-	return createdAPIKey{Key: key, Secret: secret}, nil
+func toolAPIKeyUpdate(ctx context.Context, _ *Server, _ json.RawMessage) (interface{}, error) {
+	return nil, keyRefusal(ctx, "api_key_update changes no key", "changes what an API key reaches", "update <id|name>")
 }
 
-func toolAPIKeyUpdate(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
-	var a struct {
-		ID      string  `json:"id"`
-		Name    *string `json:"name"`
-		Context *bool   `json:"context"`
-	}
-	if err := decodeArgs(args, &a); err != nil {
-		return nil, err
-	}
-	if a.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	u := apikeys.Update{Name: a.Name, Context: a.Context}
-	if u.IsEmpty() {
-		return nil, fmt.Errorf("nothing to change: pass name or context")
-	}
-	store, profileID, err := s.apiKeys(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return store.Update(ctx, profileID, a.ID, u)
+func toolAPIKeyRevoke(ctx context.Context, _ *Server, _ json.RawMessage) (interface{}, error) {
+	return nil, keyRefusal(ctx, "api_key_revoke revokes no key", "revokes an API key, which cuts off whatever signs in with it", "revoke <id|name>")
 }
 
-func toolAPIKeyRevoke(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
-	var a struct {
-		ID string `json:"id"`
-	}
-	if err := decodeArgs(args, &a); err != nil {
-		return nil, err
-	}
-	if a.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	store, profileID, err := s.apiKeys(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return store.Revoke(ctx, profileID, a.ID)
+// keyRefusal is the answer of those tools: what the user runs instead.
+func keyRefusal(ctx context.Context, refused, only, command string) error {
+	return fmt.Errorf("%s: only the user %s: `monoagentcli --profile %s api key %s` in their own terminal, or the app", refused, only, profileOf(ctx), command)
 }
 
 // modelsTTL is how long api_models_list reuses the list of models it loaded. After

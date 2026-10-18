@@ -448,3 +448,11 @@ func stringMap(v interface{}) (map[string]string, error) {
 	}
 	return out, nil
 }
+
+// LiteralConfigFields: server names the vault entry the server is read from
+// (workflow.LiteralConfigResolver).
+func (n *CallNode) LiteralConfigFields() []string { return []string{"server"} }
+
+// SecretTextFields: env and header values may hold @secret references inside
+// their text (workflow.SecretTextResolver).
+func (n *CallNode) SecretTextFields() []string { return []string{"env", "headers"} }

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/operator"
 )
 
 // runNodeSubcmdStdin executes `node run <type> --stdin --output json` with
@@ -47,6 +49,7 @@ func runNodeSubcmdStdin(t *testing.T, d Deps, stdin string, args ...string) (str
 // nodeVaultTestDB is a temp HOME and the path of a database in it.
 func nodeVaultTestDB(t *testing.T) string {
 	t.Helper()
+	asTheOperator(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -200,4 +203,14 @@ func jsonString(s string) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+// asTheOperator clears what makes this process not the operator's own
+// terminal: a test started from an agent's shell inherits its markers, and
+// the commands that print secrets refuse those (internal/cli/revealgate).
+func asTheOperator(t *testing.T) {
+	t.Helper()
+	for _, k := range operator.MarkerEnv() {
+		t.Setenv(k, "")
+	}
 }

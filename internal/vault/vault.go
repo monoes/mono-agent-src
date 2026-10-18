@@ -383,10 +383,18 @@ func Resolve(ctx context.Context, db *sql.DB, ref string) (string, error) {
 	return path, nil
 }
 
+// ErrDataReference is wrapped by the refusal of an @img reference that a
+// step's config holds only once its expressions were evaluated.
+var ErrDataReference = errors.New("an @img reference that came from the run's data or an expression is not read from the vault")
+
 // ResolveConfig walks a config map and replaces any string value that starts
 // with "@img-" with its absolute file path from the vault.
 // Keys with missing images are left as-is (the ref string) and a warning is logged to stderr.
-func ResolveConfig(ctx context.Context, db *sql.DB, config map[string]interface{}) error {
+// stored is the same config as the workflow holds it, before its expressions
+// were evaluated into config: a reference resolves only where stored holds it
+// as it is, and one an expression produced (the run's data, or text the
+// expression built) is refused, so the step doesn't run.
+func ResolveConfig(ctx context.Context, db *sql.DB, stored, config map[string]interface{}) error {
 	if db == nil {
 		return nil
 	}
@@ -397,6 +405,9 @@ func ResolveConfig(ctx context.Context, db *sql.DB, config map[string]interface{
 		}
 		if !strings.HasPrefix(s, "@img-") {
 			continue
+		}
+		if lit, ok := stored[k].(string); !ok || lit != s || strings.Contains(lit, "{{") {
+			return fmt.Errorf("%q: %w: only one written as it is in the workflow resolves", k, ErrDataReference)
 		}
 		resolved, err := Resolve(ctx, db, s)
 		if errors.Is(err, ErrNoProfile) {

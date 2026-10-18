@@ -47,7 +47,8 @@ func invalid(format string, a ...interface{}) error {
 
 // fixture is one test's database, environment, daemon heartbeat and service manager.
 type fixture struct {
-	db string
+	db      string
+	refusal string // what Deps.Refusal answers: an agent's shell when set
 
 	mu        sync.Mutex
 	env       map[string]string
@@ -85,6 +86,7 @@ func (f *fixture) useInstaller(in autostart.Installer) {
 
 func (f *fixture) deps(jsonOut bool) Deps {
 	return Deps{
+		Refusal:    func() string { return f.refusal },
 		JSONOutput: func() bool { return jsonOut },
 		OpenDB:     func() (*storage.Database, error) { return storage.NewDatabase(f.db) },
 		Env: func() apiconfig.Env {

@@ -82,8 +82,8 @@ func (d Deps) runSecretUpdate(newName, username, url, notes *string, fieldFlags 
 			}
 		}
 
-		if err := secrets.Update(cmd.Context(), db.DB, profileID, id, namePtr, usernamePtr, urlPtr, notesPtr, fields); err != nil {
-			return fmt.Errorf("updating entry: %w", err)
+		if err := secrets.Update(writeCtx(cmd.Context()), db.DB, profileID, id, namePtr, usernamePtr, urlPtr, notesPtr, fields); err != nil {
+			return writeErr("updating entry", err)
 		}
 
 		finalName := args[0]
@@ -121,8 +121,8 @@ func (d Deps) newSecretRmCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := secrets.DeleteCascade(cmd.Context(), db.DB, profileID, id); err != nil {
-				return fmt.Errorf("deleting entry: %w", err)
+			if err := secrets.DeleteCascade(writeCtx(cmd.Context()), db.DB, profileID, id); err != nil {
+				return writeErr("deleting entry", err)
 			}
 			if d.JSONOutput() {
 				enc := json.NewEncoder(cmd.OutOrStdout())

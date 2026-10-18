@@ -72,12 +72,11 @@ var apiToolDetails = map[string]string{
 		"with no key the surface is on and auto stays unavailable, which auto says. " +
 		"It changes nothing else: the profile's threshold, its other Jev surfaces and other profiles are untouched. Which models auto may pick is auto_confinement (api_config_set), not this.",
 	"api_key_list": "List the API keys of the call's profile, for the OpenAI-compatible API (/v1): [{id, profile_id, name, prefix, context, created_at, last_used_at, revoked_at}]. Metadata only: a key itself is never part of it, because only its SHA-256 is stored and it was shown once, when it was created. Revoked keys are included only with include_revoked.",
-	"api_key_create": "Create an API key for the call's profile, for the OpenAI-compatible API (/v1). The key is returned ONCE, in the key field of the result: " +
-		"only its SHA-256 is stored, so no tool can show it again. It authenticates /v1 requests as this profile and nothing else. " +
-		"Treat it as a password and give it only to the user: it is now part of this conversation's transcript, which the host may keep " +
-		"(`monoagentcli api key create` writes the key to stdout: run by the user in their own terminal it keeps the key out of any transcript, run by an agent through a shell tool it puts the key in that transcript too). " +
-		"The name rule is the store's: " + apikeys.ErrInvalidName.Error() + ". A name must also be unique among the profile's active keys. " +
-		"With context true, requests made with the key get excerpts of the profile's own knowledge added, and such a key is served only by chat-only models, and is refused tool calling, unless the server raises --context-confinement (and --confinement, on a chat-only listener) above chat-only: " +
+	"api_key_create": "Creates no key, for any caller: an API key for the OpenAI-compatible API (/v1) authenticates /v1 requests as the profile, so only the user creates one, " +
+		"with `monoagentcli --profile <id> api key create --name <name> [--context]` in their own terminal or in the app, which shows the key to the user once and puts it in no transcript " +
+		"(the command refuses an agent's shell tool, the chat and a workflow). A call of this tool is refused and changes nothing; api_key_list then shows the key the user made, never the key itself. " +
+		"What to tell a user who asks: the name rule is the store's: " + apikeys.ErrInvalidName.Error() + ". A name must also be unique among the profile's active keys. " +
+		"With --context, requests made with the key get excerpts of the profile's own knowledge added, and such a key is served only by chat-only models, and is refused tool calling, unless the server raises --context-confinement (and --confinement, on a chat-only listener) above chat-only: " +
 		"the settings context_confinement and confinement, which api_config_get shows (saved, and as the running daemon started with them) and api_config_set changes, a change that reaches further and that the operator must have allowed.",
 	"api_models_list": "List the models the OpenAI-compatible API (/v1) would serve, with each one's confinement class (chat-only, sandboxed or unconfined), " +
 		"its capabilities (text; image for a model of a runtime that makes images; tools for a model that serves tool calling: its runtime is in the list below, monomind can apply the sandbox every turn with tools requires, and for a runtime that is not chat-only run it read-only), " +

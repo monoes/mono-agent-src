@@ -9,7 +9,7 @@ import (
 )
 
 // Nothing a caller sends comes back in an error from these tools. A caller may have
-// pasted a key into any argument (a model that has just created one has it at
+// pasted a key into any argument (a model the user showed one has it at
 // hand), and a 1 MiB argument must not come back as a multi-megabyte error, as it
 // did when the answer quoted the value. Every argument that takes a string gets
 // both a key-shaped value and 1 MiB, for every tool of the family, and what comes

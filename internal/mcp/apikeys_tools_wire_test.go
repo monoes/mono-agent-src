@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -91,55 +90,41 @@ func (w *wireSession) finish() string {
 	return w.out.String()
 }
 
-// The key is in exactly one place on the wire: the result of the call that created
-// it. Not in a list, an update, a revoke, nor in any error, including the answers to
-// calls that go wrong, and to a caller that pastes the key where an id goes.
-func TestTheKeyIsOnTheWireExactlyOnce(t *testing.T) {
+// No key is on the wire: the key tools change none, and the key the user made is
+// in no list or error, including the answers to calls that go wrong, and to a
+// caller that pastes the key where an id or a name goes.
+func TestNoKeyIsOnTheWire(t *testing.T) {
 	s, _ := newAPIKeyServer(t, true)
+	id, secret := createKey(t, s, "wire", true)
 	w := newWireSession(t, s)
 
-	text, isErr := w.call("api_key_create", map[string]any{"name": "wire", "context": true})
-	if isErr {
-		t.Fatalf("create: %s", text)
+	for _, c := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"api_key_create", map[string]any{"name": "made", "context": true}},
+		{"api_key_update", map[string]any{"id": id, "name": "wire-2", "context": false}},
+		{"api_key_revoke", map[string]any{"id": id}},
+		{"api_key_update", map[string]any{"id": secret, "name": "x"}}, // the key pasted where an id goes
+		{"api_key_revoke", map[string]any{"id": secret}},              // the same
+		{"api_key_update", map[string]any{"id": id, "name": secret}},  // the key pasted where a name goes
+		{"api_key_create", map[string]any{"name": secret}},            // the same, for a new key
+	} {
+		if text, isErr := w.call(c.name, c.args); !isErr {
+			t.Errorf("%s changed a key: %s", c.name, scrubbed(text))
+		}
 	}
-	created := decodeKey(t, text)
-	secret, id := stringField(t, created, "key"), stringField(t, created, "id")
-
 	w.call("api_key_list", nil)
 	w.call("api_key_list", map[string]any{"include_revoked": true})
-	w.call("api_key_update", map[string]any{"id": id, "name": "wire-2", "context": false})
-	w.call("api_key_update", map[string]any{"id": "wire-2"})                 // nothing to change
-	w.call("api_key_create", map[string]any{"name": "wire-2"})               // the name is taken
-	w.call("api_key_create", map[string]any{"name": ""})                     // an invalid name
-	w.call("api_key_update", map[string]any{"id": secret, "name": "x"})      // the key pasted where an id goes
-	w.call("api_key_revoke", map[string]any{"id": secret})                   // the same
-	w.call("api_key_update", map[string]any{"id": id, "name": secret})       // the key pasted where a name goes
-	w.call("api_key_create", map[string]any{"name": secret})                 // the same, for a new key
-	w.call("api_key_list", map[string]any{"include_revoked": true})          // it must not be listed
-	w.call("api_key_revoke", map[string]any{"id": id})                       // revoked
-	w.call("api_key_revoke", map[string]any{"id": id})                       // revoked again
-	w.call("api_key_revoke", map[string]any{"id": "key_zzzzzzzzzzzz"})       // unknown
-	w.call("api_key_list", map[string]any{"include_revoked": true})          // the revoked key, listed
-	w.call("api_key_list", map[string]any{"include_revoked": "yes"})         // a malformed call
-	w.call("api_key_create", map[string]any{"name": "wire-3", "context": 1}) // a malformed call
+	w.call("api_key_list", map[string]any{"include_revoked": "yes"}) // a malformed call
 	out := w.finish()
 
-	if n := strings.Count(out, secret); n != 1 {
-		t.Fatalf("the key is on the wire %d times, want exactly once (in the create result)", n)
+	if keyRE.MatchString(out) {
+		t.Fatal("a key is on the wire")
 	}
-	// That once is the answer to request 1.
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		var m map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(line), &m); err != nil {
-			t.Fatalf("a line of stdout that is not JSON-RPC: %q", scrubbed(line))
-		}
-		if strings.Contains(line, secret) && string(bytes.TrimSpace(m["id"])) != "1" {
-			t.Errorf("the key is in the answer to request %s, not the create's", m["id"])
-		}
-	}
-	// Nor is its random part or its hash anywhere else.
-	if n := strings.Count(out, secret[len(apikeys.KeyPrefix):]); n != 1 {
-		t.Errorf("the random part of the key is on the wire %d times, want once", n)
+	// Nor is its random part or its hash.
+	if strings.Contains(out, secret[len(apikeys.KeyPrefix):]) {
+		t.Error("the random part of the key is on the wire")
 	}
 	if strings.Contains(out, apikeys.HashKey(secret)) {
 		t.Error("the key's hash is on the wire")
