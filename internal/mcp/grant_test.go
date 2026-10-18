@@ -70,11 +70,12 @@ func liveHeartbeat(t *testing.T) {
 	}
 }
 
-// fakeDaemon completes the first QUEUED execution with one output item.
+// fakeDaemon completes the first QUEUED execution with one output item. It
+// looks for the execution until the test ends.
 func fakeDaemon(t *testing.T, db *storage.Database, output map[string]interface{}) {
+	testCtx := t.Context()
 	go func() {
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
+		for testCtx.Err() == nil {
 			var id string
 			if err := db.DB.QueryRow(`SELECT id FROM workflow_executions WHERE status = 'QUEUED' LIMIT 1`).Scan(&id); err == nil {
 				now := time.Now().UTC()

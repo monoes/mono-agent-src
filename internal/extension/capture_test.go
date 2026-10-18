@@ -28,6 +28,20 @@ type fakeExtension struct {
 	conn *websocket.Conn
 }
 
+// waitBudget bounds a wait for something that must happen: up to shortly
+// before the test binary's own timeout, so that a loaded machine slows the
+// test down instead of failing it. The wait still ends as soon as the thing
+// happens.
+func waitBudget(t *testing.T) time.Duration {
+	if d, ok := t.Deadline(); ok {
+		if left := time.Until(d) - 10*time.Second; left > 5*time.Second {
+			return left
+		}
+		return 5 * time.Second
+	}
+	return 5 * time.Minute
+}
+
 // startCaptureServer brings up a Server on a free port with an isolated
 // HOME (so the token never touches real state) and an inbox under the
 // test's temp dir, and connects a fake extension to it.
@@ -56,7 +70,7 @@ func startCaptureServerWith(t *testing.T, configure func(*Server)) (*Server, *fa
 	t.Cleanup(func() { _ = srv.Close() })
 
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(waitBudget(t))
 	for !Probe(base) {
 		if time.Now().After(deadline) {
 			t.Fatalf("server never became healthy at %s", base)
@@ -71,7 +85,7 @@ func startCaptureServerWith(t *testing.T, configure func(*Server)) (*Server, *fa
 	t.Cleanup(func() { _ = conn.Close() })
 	authenticateTestConn(t, conn)
 
-	if err := srv.WaitForConnection(3 * time.Second); err != nil {
+	if err := srv.WaitForConnection(waitBudget(t)); err != nil {
 		t.Fatalf("server never saw the fake extension: %v", err)
 	}
 	return srv, &fakeExtension{t: t, conn: conn}, inbox
@@ -81,7 +95,7 @@ func startCaptureServerWith(t *testing.T, configure func(*Server)) (*Server, *fa
 // interleaves.
 func (f *fakeExtension) nextCommand() *Command {
 	f.t.Helper()
-	_ = f.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = f.conn.SetReadDeadline(time.Now().Add(waitBudget(f.t)))
 	_, msg, err := f.conn.ReadMessage()
 	if err != nil {
 		f.t.Fatalf("read command: %v", err)

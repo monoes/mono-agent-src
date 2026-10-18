@@ -14,12 +14,14 @@ import (
 
 // slowDaemon stands in for `monoagentcli daemon`: on its own connection it
 // claims the first QUEUED execution, marks it RUNNING, and finishes it with
-// one output item after d (never, when d < 0).
+// one output item after d (never, when d < 0). It looks for the execution
+// until the test ends, however long a loaded machine takes to queue it.
 func slowDaemon(t *testing.T, db *storage.Database, d time.Duration) {
+	testCtx := t.Context()
 	go func() {
 		ctx := context.Background()
 		ws := workflow.NewSQLiteWorkflowStore(db.DB)
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for ; testCtx.Err() == nil; time.Sleep(10 * time.Millisecond) {
 			var id string
 			if db.DB.QueryRow(`SELECT id FROM workflow_executions WHERE status = 'QUEUED' LIMIT 1`).Scan(&id) != nil {
 				continue
@@ -51,7 +53,9 @@ func TestGrantWaitSeesARunAnotherConnectionFinishes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if took := time.Since(start); took > 3*time.Second {
+	// Returned by the run's end, not by the tool's 600s limit; the bound is
+	// that far from both, so a loaded machine cannot fail it.
+	if took := time.Since(start); took > time.Minute {
 		t.Fatalf("call took %s", took)
 	}
 	if !strings.Contains(out, `"status": "success"`) || !strings.Contains(out, "relevant post") {
@@ -68,7 +72,7 @@ func TestGrantWaitCutOffByClosedStdinSaysSo(t *testing.T) {
 	slowDaemon(t, f.db, -1)
 	start := time.Now()
 	resps := serveLines(t, f.server, callToolReq(1, "automation_publish", map[string]interface{}{"keywords": "mcp"}))
-	if took := time.Since(start); took > postEOFGrace+3*time.Second {
+	if took := time.Since(start); took > postEOFGrace+time.Minute { // cut off at the grace, not at 600s
 		t.Fatalf("call took %s", took)
 	}
 	text := string(resps[0]["result"])

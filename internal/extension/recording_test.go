@@ -22,7 +22,7 @@ import (
 // nextAck reads frames until the recording ack for id arrives.
 func (f *fakeExtension) nextAck(id string) *Response {
 	f.t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(waitBudget(f.t))
 	for {
 		_ = f.conn.SetReadDeadline(deadline)
 		_, msg, err := f.conn.ReadMessage()
