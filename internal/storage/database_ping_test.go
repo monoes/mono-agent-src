@@ -55,19 +55,23 @@ func TestNewDatabaseRetriesBusyThenSucceeds(t *testing.T) {
 	db.DB.Close()
 }
 
-// The deadline is wall clock: a ping that ignores its context and holds on
-// (as opening a connection does, waiting out the busy timeout) is abandoned
-// when the deadline passes, not awaited.
-func TestNewDatabaseDeadlineCoversAPingStillWaiting(t *testing.T) {
+// The retry window is wall clock: a retry that ignores its context and holds
+// on (as opening a connection does, waiting out the busy timeout) is
+// abandoned when the window ends, not awaited.
+func TestNewDatabaseRetryWindowCoversARetryStillWaiting(t *testing.T) {
 	oldDeadline, oldPing := pingDeadline, pingContext
 	defer func() { pingDeadline, pingContext = oldDeadline, oldPing }()
 	pingDeadline = 200 * time.Millisecond
 	release := make(chan struct{})
 	defer close(release)
+	calls := 0
 	pingContext = func(ctx context.Context, db *sql.DB) error {
-		select { // holds on well past the deadline, whatever ctx says
-		case <-release:
-		case <-time.After(5 * time.Second):
+		calls++
+		if calls > 1 {
+			select { // holds on well past the window, whatever ctx says
+			case <-release:
+			case <-time.After(5 * time.Second):
+			}
 		}
 		return errors.New("database is locked (5) (SQLITE_BUSY)")
 	}
@@ -77,6 +81,23 @@ func TestNewDatabaseDeadlineCoversAPingStillWaiting(t *testing.T) {
 		t.Fatalf("err = %v, want the locked error", err)
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("NewDatabase took %s with a %s deadline: it waited for the ping", elapsed, pingDeadline)
+		t.Fatalf("NewDatabase took %s with a %s retry window: it waited for the retry", elapsed, pingDeadline)
 	}
+}
+
+// The first open is awaited however slow the machine is: a slow answer that
+// is not SQLITE_BUSY is not a locked database.
+func TestNewDatabaseAwaitsASlowFirstOpen(t *testing.T) {
+	oldDeadline, oldPing := pingDeadline, pingContext
+	defer func() { pingDeadline, pingContext = oldDeadline, oldPing }()
+	pingDeadline = 50 * time.Millisecond
+	pingContext = func(ctx context.Context, db *sql.DB) error {
+		time.Sleep(300 * time.Millisecond) // a loaded machine
+		return oldPing(context.Background(), db)
+	}
+	db, err := NewDatabase(filepath.Join(t.TempDir(), "slow.db"))
+	if err != nil {
+		t.Fatalf("a slow but healthy open failed: %v", err)
+	}
+	db.DB.Close()
 }

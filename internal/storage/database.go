@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -111,45 +112,66 @@ func NewDatabase(dbPath string) (*Database, error) {
 	// Verify the connection is usable.
 	// The first open of a fresh file switches it to WAL, which needs an
 	// exclusive lock the busy timeout does not cover; a concurrent first
-	// start can hit SQLITE_BUSY here, so retry briefly. The deadline is wall
-	// clock: a ping still waiting when it passes is abandoned, not awaited
-	// (opening a connection applies the DSN pragmas without the context and
-	// can sit out the whole busy_timeout).
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), pingDeadline)
-	defer cancelPing()
-	ping := func() error {
-		done := make(chan error, 1)
-		go func() { done <- pingContext(pingCtx, db) }()
-		select {
-		case err := <-done:
-			return err
-		case <-pingCtx.Done():
-			return pingCtx.Err()
-		}
+	// start can hit SQLITE_BUSY here, so a busy answer is retried. The first
+	// ping is awaited however slow the machine is; only the retries are
+	// bounded (retryBusyPing).
+	pingErr := pingContext(context.Background(), db)
+	if isBusy(pingErr) {
+		pingErr = retryBusyPing(db, absPath, pingErr)
 	}
-	var pingErr error
-	for {
-		pingErr = ping()
-		if pingErr == nil {
-			break
-		}
-		busy := strings.Contains(pingErr.Error(), "SQLITE_BUSY")
-		if !busy && pingCtx.Err() == nil {
-			break
-		}
-		if pingCtx.Err() != nil {
-			db.Close()
-			return nil, fmt.Errorf("database %s stayed locked for %s: %w", absPath, pingDeadline, pingErr)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if err := pingErr; err != nil {
+	if pingErr != nil {
 		db.Close()
-		return nil, fmt.Errorf("pinging database: %w", err)
+		if errors.Is(pingErr, errStayedLocked) {
+			return nil, pingErr
+		}
+		return nil, fmt.Errorf("pinging database: %w", pingErr)
 	}
 	privatizeNewDB(created, absPath)
 
 	return &Database{DB: db, dbPath: absPath}, nil
+}
+
+// errStayedLocked marks the error of a database that answered SQLITE_BUSY
+// for the whole retry window.
+var errStayedLocked = errors.New("stayed locked")
+
+func isBusy(err error) bool { return err != nil && strings.Contains(err.Error(), "SQLITE_BUSY") }
+
+// retryBusyPing pings db again, every 50ms, until it answers, fails with
+// something other than SQLITE_BUSY, or pingDeadline has passed since the first
+// busy answer (first). The window is wall clock: a retry still waiting when it
+// ends is abandoned, not awaited, as opening a connection applies the DSN
+// pragmas without the context and can sit out the whole busy_timeout.
+func retryBusyPing(db *sql.DB, absPath string, first error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), pingDeadline)
+	defer cancel()
+	last := first
+	locked := func() error {
+		return fmt.Errorf("database %s %w for %s: %w", absPath, errStayedLocked, pingDeadline, last)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return locked()
+		case <-time.After(50 * time.Millisecond):
+		}
+		done := make(chan error, 1)
+		go func() { done <- pingContext(ctx, db) }()
+		select {
+		case err := <-done:
+			switch {
+			case err == nil:
+				return nil
+			case ctx.Err() != nil:
+				return locked()
+			case !isBusy(err):
+				return err
+			}
+			last = err
+		case <-ctx.Done():
+			return locked()
+		}
+	}
 }
 
 // ApplyMigrations reads embedded SQL migration files from data/migrations/ and
