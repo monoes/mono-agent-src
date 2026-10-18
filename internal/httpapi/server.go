@@ -110,13 +110,22 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	return s.Serve(ctx, ln)
 }
 
+// standaloneWebhookWarning is what a standalone server says at start about
+// webhook triggers. It starts a profile's engine on that profile's first run or
+// activate request (read-only mode starts none), every engine wants the one
+// webhook port, and whichever takes it serves only its own profile's triggers;
+// the others retry every 30s. The daemon's engine serves every profile.
+const standaloneWebhookWarning = "warning: this standalone HTTP API serves the webhook triggers of one profile at most: " +
+	"a profile's engine starts on its first run or activate request here, and the first engine to find the webhook port " +
+	"(MONOAGENT_WEBHOOK_ADDR, default 127.0.0.1:9321) free takes it, never while a daemon or another monoagent process holds it; " +
+	"other profiles' webhook triggers are not served. `monoagentcli daemon` serves them all, and this same API (--api, on by default)"
+
 // Serve serves on an already-bound listener until ctx is cancelled, then
 // gracefully shuts down.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.ensureTokens(ctx)
 	if !s.rt.hosted {
-		fmt.Fprintln(s.warnOut, "warning: this standalone HTTP API starts one engine per profile, but the webhook port is bound by only one of them: "+
-			"other profiles' webhook triggers are served only by `monoagentcli daemon`")
+		fmt.Fprintln(s.warnOut, standaloneWebhookWarning)
 	}
 	httpSrv := &http.Server{
 		Handler:      s.handler,

@@ -101,6 +101,14 @@ AUTH
   every profile); legacy rows and files are stamped by migration 099 and
   the file stamp. The daemon's own triggers serve all profiles.
 
+  A standalone httpapi serves the webhook triggers of one profile at most:
+  it starts a profile's engine on that profile's first run or activate
+  request (read-only mode starts none), and the first engine to find the
+  webhook port (MONOAGENT_WEBHOOK_ADDR, default 127.0.0.1:9321) free takes
+  it, never while a daemon or another monoagent process holds it. Other
+  profiles' webhook triggers are not served; monoagentcli daemon serves them
+  all, and this same API (--api, on by default). It warns at start.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OPENAI-COMPATIBLE API (/v1)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

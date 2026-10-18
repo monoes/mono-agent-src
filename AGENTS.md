@@ -923,10 +923,14 @@ the profile in the path in both standalone and daemon-hosted mode: another
 profile's workflow ID returns 404. A workflow with no profile ID belongs
 to nobody (404 for every profile); legacy rows and files are stamped by
 migration 099 and the file stamp. The daemon still serves every profile's triggers
-internally. A standalone `httpapi` starts one engine per profile on that
-profile's first mutating request, but the single webhook port is bound by only
-one of them: other profiles' webhook triggers are served only by `daemon`
-(the server prints a warning saying so at start). Full endpoint list:
+internally. A standalone `httpapi` serves the webhook triggers of one
+profile at most: it starts a profile's engine on that profile's first run or
+activate request (read-only mode starts none), and the first engine to find
+the webhook port (`MONOAGENT_WEBHOOK_ADDR`, default `127.0.0.1:9321`) free takes
+it, never while a daemon or another monoagent process holds it. Other
+profiles' webhook triggers are not served; `daemon` serves them all, and this
+same API (`--api`, on by default). The server prints a warning saying so at
+start. Full endpoint list:
 `internal/httpapi/openapi.yaml` (OpenAPI 3, validated in CI); curl
 walkthrough: `examples/httpapi-quickstart.md`; offline copy of this
 section: `monoagentcli ref api`.

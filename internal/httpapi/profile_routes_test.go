@@ -267,8 +267,9 @@ func TestUnknownProfileDoesTheSameTokenReadsAsAWrongToken(t *testing.T) {
 	}
 }
 
-// The standalone server says once, at start, that other profiles' webhook
-// triggers are the daemon's.
+// The standalone server says once, at start, whose webhook triggers it serves
+// (one profile's at most), that other profiles' are not served, and that the
+// daemon serves them all.
 func TestStandaloneServeWarnsAboutWebhookTriggers(t *testing.T) {
 	s := newTestServer(t, false)
 	var out bytes.Buffer
@@ -280,8 +281,15 @@ func TestStandaloneServeWarnsAboutWebhookTriggers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_ = s.Serve(ctx, ln)
-	if got := out.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "webhook") || !strings.Contains(got, "daemon") {
-		t.Errorf("warning = %q, want one line naming webhook triggers and the daemon", got)
+	got := out.String()
+	if strings.Count(got, "\n") != 1 {
+		t.Errorf("warning = %q, want one line", got)
+	}
+	for _, says := range []string{"one profile at most", "first run or activate request", "MONOAGENT_WEBHOOK_ADDR",
+		"never while a daemon", "other profiles' webhook triggers are not served", "`monoagentcli daemon` serves them all"} {
+		if !strings.Contains(got, says) {
+			t.Errorf("warning = %q, want it to say %q", got, says)
+		}
 	}
 }
 

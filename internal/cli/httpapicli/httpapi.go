@@ -43,6 +43,9 @@ func NewCommand(d Deps) *cobra.Command {
 			"whoever holds the token gets unredacted outputs.\n\n" +
 			"See internal/httpapi/openapi.yaml for the full endpoint list and examples/httpapi-quickstart.md " +
 			"for a curl walkthrough.\n\n" +
+			"Webhook triggers: this server serves those of one profile at most (the first engine to find the " +
+			"webhook port free takes it; a profile's engine starts on its first run or activate request). " +
+			"`monoagentcli daemon` serves every profile's triggers and this same API (--api, on by default).\n\n" +
 			"The same process serves the OpenAI-compatible API (/v1, authenticated by the API keys of `monoagentcli api key`) " +
 			"when the bind is loopback; --v1-addr gives it a dedicated listener, which is how it is exposed beyond loopback " +
 			"(TLS required). See `monoagentcli api --help` and examples/openai-api-quickstart.md.",
