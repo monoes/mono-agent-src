@@ -53,7 +53,7 @@ func TestUpsertPersonNeverStartsARealMonomind(t *testing.T) {
 		if err := db.UpsertPerson(&Person{PlatformUsername: name, Platform: "email", ProfileID: "default", FullName: name}); err != nil {
 			t.Fatal(err)
 		}
-		WaitForKGSync()
+		db.kg.wg.Wait()
 	}
 
 	ranReal := fake(filepath.Join(base, "real", "bin"))

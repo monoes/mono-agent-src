@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/data"
@@ -22,6 +23,54 @@ import (
 type Database struct {
 	DB     *sql.DB
 	dbPath string
+	kg     kgSyncs
+}
+
+// kgSyncCloseWait bounds how long Close waits for the knowledge-graph syncs
+// still running (each is capped by its own monomind timeout too).
+const kgSyncCloseWait = 5 * time.Second
+
+// kgSyncs tracks the knowledge-graph syncs a Database's upserts start in the
+// background. They read the database, so Close waits for them, for at most
+// kgSyncCloseWait: a short-lived command finishes the syncs it started
+// instead of cutting them off, and a stuck one cannot hold its exit. Once
+// closing starts, no new sync starts.
+type kgSyncs struct {
+	mu      sync.Mutex
+	closing bool
+	wg      sync.WaitGroup
+}
+
+func (k *kgSyncs) start(fn func()) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.closing {
+		return
+	}
+	k.wg.Add(1)
+	go func() {
+		defer k.wg.Done()
+		fn()
+	}()
+}
+
+// stop refuses new syncs and waits up to limit for the running ones; false
+// means some were still running.
+func (k *kgSyncs) stop(limit time.Duration) bool {
+	k.mu.Lock()
+	k.closing = true
+	k.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		k.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(limit):
+		return false
+	}
 }
 
 // pingDeadline bounds how long the first open retries a locked database;
@@ -460,6 +509,7 @@ func truncate(s string, n int) string {
 
 // Close closes the underlying database connection.
 func (d *Database) Close() error {
+	d.kg.stop(kgSyncCloseWait)
 	if d.DB != nil {
 		return d.DB.Close()
 	}

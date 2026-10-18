@@ -5,21 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/monomind"
 )
-
-// kgSyncs counts the fire-and-forget knowledge-graph syncs that the upserts
-// start, so a caller that is about to remove the directories they write to
-// (a test's temp HOME) can wait for them.
-var kgSyncs sync.WaitGroup
-
-// WaitForKGSync blocks until every knowledge-graph sync started so far by an
-// upsert has finished. Production code has no need for it: the syncs are
-// best-effort and nothing depends on them.
-func WaitForKGSync() { kgSyncs.Wait() }
 
 // ---------------------------------------------------------------------------
 // Person Messages
@@ -84,9 +73,7 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 		return fmt.Errorf("upserting message for person %s: %w", msg.PersonID, err)
 	}
 
-	kgSyncs.Add(1)
-	go func() {
-		defer kgSyncs.Done()
+	d.kg.start(func() {
 		label := msg.Subject
 		if label == "" {
 			label = msg.ID
@@ -104,7 +91,7 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 		// add an extra query for a best-effort sync.
 		edge := monomind.KGEdge{Source: label, Target: msg.PersonID, Relation: "sent_to", Description: msg.Source}
 		_ = monomind.SyncToKnowledgeGraph(context.Background(), d.DB, profileID, []monomind.KGNode{node}, []monomind.KGEdge{edge}, "message:"+msg.ID)
-	}()
+	})
 
 	return nil
 }

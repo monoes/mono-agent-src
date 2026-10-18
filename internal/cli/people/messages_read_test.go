@@ -11,9 +11,6 @@ import (
 func TestPeopleMessagesReadUnread(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "m.db")
-	// Upserting a message starts a background knowledge-graph sync that writes
-	// under HOME; it must end before the temp dirs are removed.
-	t.Cleanup(storage.WaitForKGSync)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -29,6 +26,8 @@ func TestPeopleMessagesReadUnread(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Upserting a message starts a background knowledge-graph sync that writes
+	// under HOME; Close waits for it, so it ends before the temp dirs go.
 	db.Close()
 	cfg := &testConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 	run := func(args ...string) (string, error) {
