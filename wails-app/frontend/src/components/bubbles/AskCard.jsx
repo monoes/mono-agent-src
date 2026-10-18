@@ -246,7 +246,9 @@ function Attachments({ ask }) {
 // SendBody is the approval of an outbound message (an email, a DM, a
 // comment, a post...) an agent prepared but may not send: who it goes to,
 // from which account, the exact text, every attachment, and who prepared it.
-// Edit makes the text editable; Approve then sends the text as shown.
+// Edit makes the text editable; Approve then sends the text as shown. A
+// card whose text says what the step sends, not a message (textReadOnly),
+// has no Edit: there is nothing to edit, and approving sends it as shown.
 function SendBody({ ask, nameOf, canAct, busy, outcome, onDecide, onNavigate }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
@@ -283,7 +285,7 @@ function SendBody({ ask, nameOf, canAct, busy, outcome, onDecide, onNavigate }) 
         {acct && <div><dt>{t('ask.from')}</dt><dd data-testid="ask-account">{acct}</dd></div>}
         {ask.subject && <div><dt>{t('ask.subject')}</dt><dd>{ask.subject}</dd></div>}
       </dl>
-      {editing && pending ? (
+      {editing && pending && !ask.textReadOnly ? (
         <textarea className="ask-text-edit" data-testid="ask-text-edit" rows={Math.min(12, Math.max(4, text.split('\n').length + 1))}
           value={text} onChange={e => setText(e.target.value)} disabled={busy}
           aria-label={t('ask.textLabel')} />
@@ -305,14 +307,16 @@ function SendBody({ ask, nameOf, canAct, busy, outcome, onDecide, onNavigate }) 
       )}
       {pending ? (
         <div className="ask-actions">
-          <button type="button" className="btn btn-primary btn-sm" data-testid="ask-approve" disabled={!canAct || busy || !text.trim()}
+          <button type="button" className="btn btn-primary btn-sm" data-testid="ask-approve" disabled={!canAct || busy || (!ask.textReadOnly && !text.trim())}
             onClick={() => onDecide?.(ask, true, edited ? { editText: text } : {})} style={{ gap: 4 }}>
             {busy ? <Loader size={11} className="spin" /> : <Check size={11} />} {t('orgBubble.approve')}
           </button>
-          <button type="button" className="btn btn-ghost btn-sm" data-testid="ask-edit" aria-pressed={editing} disabled={busy}
-            onClick={() => setEditing(e => !e)} style={{ gap: 4 }}>
-            <Pencil size={11} /> {editing ? t('ask.doneEditing') : t('ask.edit')}
-          </button>
+          {!ask.textReadOnly && (
+            <button type="button" className="btn btn-ghost btn-sm" data-testid="ask-edit" aria-pressed={editing} disabled={busy}
+              onClick={() => setEditing(e => !e)} style={{ gap: 4 }}>
+              <Pencil size={11} /> {editing ? t('ask.doneEditing') : t('ask.edit')}
+            </button>
+          )}
           <button type="button" className="btn btn-ghost btn-sm" data-testid="ask-reject" disabled={!canAct || busy}
             onClick={() => onDecide?.(ask, false, {})} style={{ gap: 4 }}>
             <X size={11} /> {t('orgBubble.reject')}

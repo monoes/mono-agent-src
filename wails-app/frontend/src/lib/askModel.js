@@ -18,7 +18,7 @@ export function normalizeAsk(raw) {
       role: raw.preparedBy?.role || '', preparedBy: raw.preparedBy || {},
       action: raw.action || '', channel: raw.channel || '',
       account: raw.account || {}, recipient: raw.recipient || {},
-      subject: raw.subject || '', text: String(raw.text ?? ''),
+      subject: raw.subject || '', text: String(raw.text ?? ''), textReadOnly: !!raw.textReadOnly,
       attachments: Array.isArray(raw.attachments) ? raw.attachments : [],
       org: raw.org || raw.preparedBy?.org || '', conversationId: raw.conversationId || raw.preparedBy?.conversationId || '',
       hilRef: raw.hil_ref || '', personId: raw.person_id || raw.recipient?.personId || '',

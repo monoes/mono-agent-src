@@ -235,13 +235,16 @@ Same shape as the workflow editor's `NodeSchemaField`:
   sends whatever keys it holds, so a key the collection's `options` don't
   list may send, whatever the op's `sends` says: an agent's run, or an
   unapproved workflow's, waits for approval, with a card that names the
-  keys ("whoever its undeclared fields (article) reach"); everyone else's
-  runs as before. So does a key of an option object the op doesn't list in
-  `"subfields": {"article.articleDetails": ["subject", "body", "type", "to",
-  …]}` (an option with no entry there isn't judged), and such a collection
-  or option given as an expression. Raw JSON goes through the params an op
-  declares for it (`jsonParameters` with `additionalFieldsJson` and the
-  like), and its `sends` says what they do.
+  keys ("whoever its undeclared fields (article) reach") and shows the op
+  and each key's value as its text, under the op's own `sends` action, or
+  a post when it has none; everyone else's runs as before. A merge
+  through `| pick:'a,b'` sends only the keys it names, so only those
+  count. A key of an option object the op doesn't list in `"subfields":
+  {"article.articleDetails": ["subject", "body", "type", "to", …]}` may send
+  too (an option with no entry there isn't judged), and so does such a
+  collection or option given as an expression. Raw JSON goes through the
+  params an op declares for it (`jsonParameters` with `additionalFieldsJson`
+  and the like), and its `sends` says what they do.
 - n8n `resourceLocator` → `text`; read it with `| rl` (§5), which accepts
   both a plain value and n8n's `{"__rl":true,"mode":"id","value":"x"}`.
 - n8n `options` with values loaded from the API (`loadOptionsMethod`) →

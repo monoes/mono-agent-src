@@ -184,6 +184,23 @@ describe('AskCard: send approval', () => {
     expect(onDecide).toHaveBeenCalledWith(expect.objectContaining({ id: 'hil-send-1' }), true, { editText: 'Hi Sam, short version.' })
   })
 
+  // A card for fields a step doesn't declare says what the step sends: no
+  // Edit, and Approve sends it as shown (the CLI refuses an edit, #848).
+  it("has no edit control for a card whose text isn't a message, and approves it as shown", () => {
+    const onDecide = vi.fn()
+    const text = 'trello card/update with fields it doesn\'t declare:\nupdateFields.zz_extra: "x"'
+    render(<AskCard ask={normalizeAsk({ ...sendEmail, textReadOnly: true, text })} nameOf={nameOf} onDecide={onDecide} />)
+    expect(screen.getByTestId('ask-text')).toHaveTextContent('updateFields.zz_extra: "x"')
+    expect(screen.queryByTestId('ask-edit')).toBeNull()
+    expect(screen.queryByTestId('ask-text-edit')).toBeNull()
+    fireEvent.click(screen.getByTestId('ask-approve'))
+    expect(onDecide).toHaveBeenCalledWith(expect.objectContaining({ id: 'hil-send-1' }), true, {})
+    cleanup()
+    // One with no text at all is still approvable.
+    render(<AskCard ask={normalizeAsk({ ...sendEmail, textReadOnly: true, text: '' })} nameOf={nameOf} />)
+    expect(screen.getByTestId('ask-approve')).toBeEnabled()
+  })
+
   it('does not approve an empty text', () => {
     render(<AskCard ask={send()} nameOf={nameOf} />)
     fireEvent.click(screen.getByTestId('ask-edit'))

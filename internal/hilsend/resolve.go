@@ -61,8 +61,12 @@ func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, 
 	}
 	if edit.Text != nil || edit.Subject != nil {
 		// A non-pending item can't be edited; claim below reports its state.
-		if _, err := st.Edit(ctx, id, edit.Text, edit.Subject); err != nil && errors.Is(err, ErrNotFound) {
+		// A card with no text to edit is not approved with the edit dropped:
+		// nothing is sent, and the item stays pending.
+		if p, err := st.Edit(ctx, id, edit.Text, edit.Subject); errors.Is(err, ErrNotFound) {
 			return Payload{}, err
+		} else if errors.Is(err, ErrNoText) {
+			return p, err
 		}
 	}
 	p, rp, proof, claimed, err := st.claim(ctx, id, always)

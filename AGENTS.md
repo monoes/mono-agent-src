@@ -2632,7 +2632,10 @@ monoagentcli --profile <id> --json browser network --tab 812 --failed
   request merges whole, or in an option object outside the op's
   `subfields`, makes the step a send whatever its annotation
   (`apipkg.SendOf`, `collections.go`): a gated run waits, with a card
-  naming the keys as a label, and other runs are unchanged. A condition's
+  naming the keys as a label (its text lists the op and each undeclared
+  field's value; the action is the op's own annotated one, else post; the
+  text can't be edited), and other runs are unchanged. A `| pick:` merge
+  counts only the keys it names. A condition's
   path fans out over a list (`…customFieldPairs.name=invite`).
   `TestShippedWorkflowsDeclareTheirKeys` keeps the shipped examples and
   n8n fixtures free of undeclared keys.
@@ -2745,6 +2748,10 @@ monoagentcli --profile work hil reject <id>
 `--data` overrides the item's editable fields with a JSON object (defaults
 to `{}` if omitted). Rejection fails the workflow branch — surface the
 consequence to the user before rejecting.
+
+A send item with `textReadOnly: true` shows what the step sends, not a
+message: `hil resolve --approve --edit-text` and `hil edit --text` on it exit
+3 (`hilsend.ErrNoText`) and send nothing; approve it as it is or reject it.
 
 An item whose approval sends a message to a person is the user's to decide:
 anything that can run after the Human-in-Loop node, through other nodes and

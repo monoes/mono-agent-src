@@ -41,6 +41,15 @@ describe('quoteClaim', () => {
     expect(quoteClaim('❤\uFE0F\uFE0F')).toBe('"❤\uFE0F\\uFE0F"')
     expect(quoteClaim('❤\uFE0E')).toBe('"❤\\uFE0E"')
   })
+  it('keeps a zero-width joiner between two emoji, escapes any other', () => {
+    for (const seq of ['👨\u200D👩\u200D👧', '🏳\uFE0F\u200D🌈', '👩\u{1F3FD}\u200D💻']) {
+      expect(quoteClaim(seq)).toBe(JSON.stringify(seq))
+    }
+    expect(quoteClaim('a\u200Db')).toBe('"a\\u200Db"')
+    expect(quoteClaim('👨\u200Da')).toBe('"👨\\u200Da"')
+    expect(quoteClaim('a\u200D👩')).toBe('"a\\u200D👩"')
+    expect(quoteClaim('👨\u200D\u200D👩')).toBe('"👨\\u200D\\u200D👩"')
+  })
   it('keeps the combining marks a script needs', () => {
     expect(quoteClaim('नमस्ते')).toBe('"नमस्ते"')
     expect(quoteClaim('e\u0301')).toBe('"e\u0301"')

@@ -62,6 +62,9 @@ type Payload struct {
 	Attachments []Attachment `json:"attachments"`
 	CreatedAt   string       `json:"createdAt"`
 
+	// TextReadOnly: the op names no text field, so the text (if any) says
+	// what the step sends and can't be edited (ErrNoText).
+	TextReadOnly bool `json:"textReadOnly,omitempty"`
 	// NodeType is the node that performs the send on approval.
 	NodeType string `json:"nodeType"`
 	// Error is why a failed item failed.

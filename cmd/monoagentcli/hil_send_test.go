@@ -222,6 +222,39 @@ func TestAlwaysAllowThroughResolveSkipsTheQueueNextTime(t *testing.T) {
 	queueViaNodeRun(t, cfg, strings.Replace(sendConfig, "ada@", "bob@", 1))
 }
 
+// A card for fields a step doesn't declare shows what the step sends, not a
+// message: an edit of its text is refused (exit 3) and nothing is sent,
+// rather than the original going out with the edit dropped (#848).
+func TestResolveRefusesAnEditOfACardWithNoText(t *testing.T) {
+	cfg := sendEnv(t)
+	calls := swapRunner(t)
+	asAgentProcess(t)
+	out, err := runSendCLI(t, cfg, newNodeRunCmd(cfg), "app.trello", "--output", "json", "--config",
+		`{"resource":"card","operation":"update","id":"c1","updateFields":{"zz_extra":"x"}}`)
+	var res map[string][]map[string]interface{}
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil {
+		t.Fatalf("node run: %v\n%s", err, out)
+	}
+	item, _ := res["main"][0]["json"].(map[string]interface{})
+	id, _ := item["hil_id"].(string)
+	if id == "" {
+		t.Fatalf("not queued: %s", out)
+	}
+	asOperatorProcess(t)
+	for _, args := range [][]string{{"resolve", id, "--approve", "--edit-text", "hi"}, {"edit", id, "--text", "hi"}} {
+		if _, err := runSendCLI(t, cfg, newHILCmd(cfg), args...); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "no text to edit") {
+			t.Errorf("hil %s: exit %d, %v", strings.Join(args, " "), exitCodeFor(err), err)
+		}
+	}
+	items, _ := runHIL(t, cfg, "list")
+	if len(*calls) != 0 || len(items) != 1 || items[0].Send.State != hilsend.StatePending || !items[0].Send.TextReadOnly {
+		t.Fatalf("after the refused edits: %d send(s), %+v", len(*calls), items)
+	}
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", id, "--approve"); err != nil || len(*calls) != 1 {
+		t.Fatalf("approve: %v, %d send(s)", err, len(*calls))
+	}
+}
+
 func TestAttachmentCommandConfinesPaths(t *testing.T) {
 	cfg := sendEnv(t)
 	db, err := storage.NewDatabase(cfg.DBPath)

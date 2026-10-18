@@ -364,24 +364,37 @@ func TestUndeclaredKeysWaitOnlyInAGatedRun(t *testing.T) {
 		nodeType string
 		config   cfg
 		to       string // the card's recipient; "-" when no run waits
+		action   string // the op's own annotation's, else a post
+		text     string // what the card shows
 	}{
 		"a raw article on a Zammad ticket update": {"app.zammad", cfg{"resource": "ticket", "operation": "update", "id": "5",
 			"updateFields": cfg{"article": cfg{"type": "email", "to": "v@example.test", "body": "x"}}},
-			"whoever its undeclared fields (article) reach"},
+			"whoever its undeclared fields (article) reach", hilsend.ActionComment,
+			"zammad ticket/update with fields it doesn't declare:\nupdateFields.article: {\"body\":\"x\",\"to\":\"v@example.test\",\"type\":\"email\"}"},
 		"raw articles on a Zammad ticket update": {"app.zammad", cfg{"resource": "ticket", "operation": "update", "id": "5",
 			"updateFields": cfg{"articles": []interface{}{cfg{"type": "twitter status", "body": "tweet"}}}},
-			"whoever its undeclared fields (articles) reach"},
+			"whoever its undeclared fields (articles) reach", hilsend.ActionComment, "updateFields.articles: [{\"body\":\"tweet\""},
 		"a raw bcc_emails on a Freshservice ticket": {"app.freshservice", cfg{"resource": "ticket", "operation": "create",
 			"email": "a@example.test", "subject": "S", "description": "D", "additionalFields": cfg{"bcc_emails": []interface{}{"v@example.test"}}},
-			"whoever its undeclared fields (bcc_emails) reach"},
+			"whoever its undeclared fields (bcc_emails) reach", hilsend.ActionEmail,
+			"freshservice ticket/create with fields it doesn't declare:\nadditionalFields.bcc_emails: [\"v@example.test\"]"},
 		"a declared Zammad update": {"app.zammad", cfg{"resource": "ticket", "operation": "update", "id": "5",
-			"updateFields": cfg{"state_id": 2}}, "-"},
+			"updateFields": cfg{"state_id": 2}}, "-", "", ""},
 		"a type_id on a Zammad ticket's article": {"app.zammad", cfg{"resource": "ticket", "operation": "create", "title": "T",
 			"group": "Users", "customer": "a@example.test", "article": cfg{"articleDetails": cfg{"type_id": 6, "body": "tweet"}}},
-			"whoever its undeclared fields (articleDetails.type_id) reach"},
+			"whoever its undeclared fields (articleDetails.type_id) reach", hilsend.ActionEmail,
+			"article.articleDetails: {\"body\":\"tweet\",\"type_id\":6}"},
 		"a note with a type_id": {"app.zammad", cfg{"resource": "ticket", "operation": "create", "title": "T", "group": "Users",
 			"customer": "a@example.test", "article": cfg{"articleDetails": cfg{"type": "note", "type_id": 6, "body": "tweet"}}},
-			"whoever its undeclared fields (articleDetails.type_id) reach"},
+			"whoever its undeclared fields (articleDetails.type_id) reach", hilsend.ActionEmail, "\"type_id\":6"},
+		// An op with no sends of its own (a work item) has nothing to say
+		// what the keys do: a post, addressed to no person.
+		"a raw key on a Trello card update": {"app.trello", cfg{"resource": "card", "operation": "update", "id": "c1",
+			"updateFields": cfg{"zz_extra": "x", "name": "N"}}, "whoever its undeclared fields (zz_extra) reach", hilsend.ActionPost,
+			"trello card/update with fields it doesn't declare:\nupdateFields.zz_extra: \"x\""},
+		// A pick lets only the keys it names through.
+		"a key GitHub's pull request edit leaves out": {"service.github", cfg{"resource": "pullRequest", "operation": "update",
+			"owner": "o", "repository": "r", "pullRequestNumber": "7", "editFields": cfg{"title": "T", "zz_extra": 1}}, "-", "", ""},
 	} {
 		asOperator(t)
 		if _, handled, err := hilsend.Guard(sendsCtx(db), c.nodeType, workflow.NodeInput{}, c.config); handled || err != nil {
@@ -409,8 +422,43 @@ func TestUndeclaredKeysWaitOnlyInAGatedRun(t *testing.T) {
 				continue
 			}
 			p, err := st.Get(context.Background(), out[0].Items[0].JSON["hil_id"].(string))
-			if err != nil || p.Recipient.Name != c.to || !p.Recipient.Label || p.Action != hilsend.ActionEmail {
-				t.Errorf("%s, %s: card %+v, %v; want an email to the label %q", name, run, p.Recipient, err, c.to)
+			if err != nil || p.Recipient.Name != c.to || !p.Recipient.Label || p.Action != c.action || !strings.Contains(p.Text, c.text) {
+				t.Errorf("%s, %s: card %s to %+v, text %q, %v; want %s to the label %q showing %q", name, run, p.Action, p.Recipient, p.Text, err,
+					c.action, c.to, c.text)
+			}
+		}
+	}
+}
+
+// A collection or option given as an expression is shown as one, not as
+// what it resolves to: on an empty item it resolves to "", which would read
+// as nothing undeclared (#848).
+func TestAnExpressionCollectionShowsAsOneOnTheCard(t *testing.T) {
+	Build(nil)
+	db := sendsDB(t)
+	st := hilsend.Store{DB: db, Profile: "default"}
+	type cfg = map[string]interface{}
+	asOperator(t)
+	t.Setenv(hilsend.EnvAgentContext, "coder")
+	for _, c := range []struct {
+		nodeType string
+		config   cfg
+		text     string
+	}{
+		{"app.freshservice", cfg{"resource": "ticket", "operation": "create", "email": "a@example.test", "subject": "S",
+			"description": "D", "additionalFields": "{{ $json.extra }}"},
+			"freshservice ticket/create with fields it doesn't declare:\nadditionalFields: (an expression)"},
+		{"app.zammad", cfg{"resource": "ticket", "operation": "create", "title": "T", "group": "Users",
+			"customer": "a@example.test", "article": cfg{"articleDetails": "{{ $json.article }}"}},
+			"zammad ticket/create with fields it doesn't declare:\narticle.articleDetails: (an expression)"},
+	} {
+		for _, in := range []workflow.NodeInput{{}, {Items: []workflow.Item{{JSON: cfg{}}}}} {
+			out, handled, err := hilsend.Guard(sendsCtx(db), c.nodeType, in, c.config)
+			if err != nil || !handled {
+				t.Fatalf("%s with %d item(s): handled=%v err=%v", c.nodeType, len(in.Items), handled, err)
+			}
+			if p, err := st.Get(context.Background(), out[0].Items[0].JSON["hil_id"].(string)); err != nil || p.Text != c.text {
+				t.Errorf("%s with %d item(s): text %q, %v; want %q", c.nodeType, len(in.Items), p.Text, err, c.text)
 			}
 		}
 	}

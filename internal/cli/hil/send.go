@@ -39,7 +39,7 @@ func (d Deps) hilSendError(err error) error {
 		return d.NotFound("send item not found")
 	case errors.Is(err, hilsend.ErrNotSend):
 		return d.InvalidInput("that Human-in-Loop item is not a send item")
-	case errors.Is(err, hilsend.ErrAlwaysLabel):
+	case errors.Is(err, hilsend.ErrAlwaysLabel), errors.Is(err, hilsend.ErrNoText):
 		return d.InvalidInput(err.Error())
 	}
 	return err
