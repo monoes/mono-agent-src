@@ -277,3 +277,26 @@ func TestPeopleGetProfileDetails(t *testing.T) {
 		}
 	}
 }
+
+// last_interacted_at is RFC3339 while created_at is a time.Time's text;
+// interactions come newest first by instant, though as text every 'T' value
+// of a day sorts after every space value of it.
+func TestPeopleInteractionsOrderByInstantAcrossStoredFormats(t *testing.T) {
+	cfg, db := newReviewCLITestDB(t)
+	seedCRM(t, db) // p2 has no interactions of its own
+	for _, q := range []string{
+		`INSERT INTO workflow_node_targets (id, execution_id, node_id, person_id, platform, link, status, comment_text, last_interacted_at)
+			VALUES ('older', 'e1', 'n1', 'p2', 'LINKEDIN', 'https://li/a', 'COMPLETED', 'older', '2026-10-19T09:00:00Z')`,
+		`INSERT INTO workflow_node_targets (id, execution_id, node_id, person_id, platform, link, status, comment_text, created_at)
+			VALUES ('newer', 'e1', 'n1', 'p2', 'LINKEDIN', 'https://li/b', 'COMPLETED', 'newer', '2026-10-19 10:00:00 +0000 UTC')`,
+	} {
+		if _, err := db.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runPeople(t, cfg, "interactions", "p2")
+	in := decodeJSON[[]personInteraction](t, out, err)
+	if len(in) != 2 || in[0].CommentText != "newer" || in[1].CommentText != "older" {
+		t.Fatalf("interactions = %+v, want newer first", in)
+	}
+}

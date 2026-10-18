@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/monoes/mono-agent/internal/sqltime"
 )
 
 // personInteraction is one thing a workflow did to a person
@@ -76,7 +78,7 @@ func (d Deps) newPeopleInteractionsCmd() *cobra.Command {
 				LEFT JOIN workflow_nodes wn ON wnt.node_id = wn.id
 				JOIN people p ON wnt.person_id = p.id
 				WHERE wnt.person_id = ? AND w.profile_id = ?
-				ORDER BY COALESCE(wnt.last_interacted_at, wnt.created_at) DESC
+				ORDER BY `+sqltime.SortKey("COALESCE(wnt.last_interacted_at, wnt.created_at)")+` DESC, wnt.rowid DESC
 				LIMIT ?`, args[0], d.ProfileID(), limit)
 			if err != nil {
 				return fmt.Errorf("querying interactions: %w", err)
