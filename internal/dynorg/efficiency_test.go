@@ -147,15 +147,14 @@ func TestWorkspaceProfile(t *testing.T) {
 	}
 }
 
+// The worker's profile section with the hooks themselves is tested in
+// app_access_test.go (profileSection).
 func TestProfileContextHook(t *testing.T) {
 	defer func() { ProfileContext = nil }()
-	if strings.Contains(workerSystemPrompt(Staff{Role: "R", Access: ProfileCoding}, "/w", nil, false)+profileBlock(context.Background()), "Profile context") {
-		t.Error("nil hook must add nothing")
+	if strings.Contains(workerSystemPrompt(Staff{Role: "R", Access: ProfileCoding}, "/w", nil, false)+profileSectionOf(profileRuleOf(context.Background()), ""), "Profile context") {
+		t.Error("nil hooks must add nothing")
 	}
 	ProfileContext = func(context.Context) string { return "Profile: Work (id work)" }
-	if b := profileBlock(context.Background()); !strings.Contains(b, "Profile: Work") {
-		t.Errorf("block = %q", b)
-	}
 	// The coder lead has the profile context in its own prompt: the extras don't repeat it.
 	if p := LeadExtras(RouterAuto); strings.Contains(p, "Profile: Work") {
 		t.Error("lead extras repeat the profile context")

@@ -9,9 +9,10 @@ import (
 // ProfileContext builds the active profile's context block (name, folder,
 // connected accounts, counts and recent items of tasks, documents, people,
 // workflows, orgs, vault item names): internal/profilectx. The caller wires
-// it once at startup; nil skips the block. It is included in every worker's
-// system prompt (once per turn, see profileSection; the coder lead has it in
-// its own prompt) and must never contain secret values.
+// it once at startup; nil skips the block. With app access on it is included
+// in every worker's system prompt (read once per turn, see profileContext; the
+// coder lead has it in its own prompt), and it must never contain secret
+// values.
 var ProfileContext func(ctx context.Context) string
 
 // ProfileID is the chat's mono-agent profile id. The caller wires it with
@@ -28,15 +29,6 @@ func ProfileRule(id string) string {
 	}
 	return fmt.Sprintf("Your mono-agent profile id is %s: pass `--profile %s` on every monoagentcli command "+
 		"(the machine-wide ones, such as `ref`, `browser permissions`, `browser allow`, `browser browsers` and `browser diff`, don't need it, and it does no harm there).", id, id)
-}
-
-// profileBlock is the profile rule and context as a prompt section, or "".
-func profileBlock(ctx context.Context) string {
-	var text string
-	if ProfileContext != nil {
-		text = ProfileContext(ctx)
-	}
-	return profileSectionOf(profileRuleOf(ctx), text)
 }
 
 // profileRuleOf is ProfileRule for the chat's profile, "" with no hook.
