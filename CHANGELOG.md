@@ -175,6 +175,11 @@ Every command, tool and request that acts on a profile now names that profile. T
 - **Tasks tab:** a desktop board of the active profile's tasks (Inbox, Ready, In progress, Review, Done) with drag and keyboard moves, search, quick add, a detail drawer with history and comments, and a sidebar badge for what waits on a person. It only renders; every change runs through `monoagentcli task`. Cards slide to their new place (off under reduced motion), and a "How to capture" note and empty-column hints say how tasks arrive.
 
 ### Fixed
+- **Chat memory no longer falls back to the `default` profile.** A chat turn without a profile now refuses instead of reading or writing the default profile's memory.
+- **A slow first open of the database no longer fails.** The first open waits for a slow ping; only the `SQLITE_BUSY` retries are bounded, a retry in flight is awaited, and a `Database` waits for its own knowledge-graph syncs when it closes.
+- **Workflow and people lists order mixed-format timestamps by instant,** not by text, so rows written with a zone offset no longer sort out of place.
+- **Every 401 of the HTTP API's profile bearer check does the same database work,** so a wrong token for an existing profile and one for an unknown profile take the same time.
+- **Docs.** `docs/extension-store-listing.md` and `scripts/package-extension-store.sh` hold the Edge Add-ons / Chrome Web Store submission kit and build the store zip (manifest at the zip root, no tests).
 - **Extension commands that redirect the browser are the user's own.** `extension bind`, `unbind`, `reset`, `pair --open` and `install --zip` now refuse an agent, the chat and a workflow run (exit 3, `operator_only`): they decide which profile a browser acts as, which bridge it pairs with, or what code it loads. `extension pair` still prints the token, and the desktop app and the extension's side panel work as before.
 - **Installed automations keep their actions after a second boot.** A boot of the automation registry that found it already booted didn't restore the action loader, and a later boot under another `$HOME` got the first home's registry.
 - **`workflow run`'s quieter terminal output ends with the run.** Its quieting of the engine's failure lines lasted for the rest of the process, so a later run in the same process lost them.
