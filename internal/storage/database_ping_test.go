@@ -92,8 +92,8 @@ func TestNewDatabaseAwaitsASlowFirstOpen(t *testing.T) {
 	defer func() { pingDeadline, pingContext = oldDeadline, oldPing }()
 	pingDeadline = 50 * time.Millisecond
 	pingContext = func(ctx context.Context, db *sql.DB) error {
-		time.Sleep(300 * time.Millisecond) // a loaded machine
-		return oldPing(context.Background(), db)
+		time.Sleep(300 * time.Millisecond) // a loaded disk
+		return oldPing(ctx, db)            // the real ping gives up when ctx has
 	}
 	db, err := NewDatabase(filepath.Join(t.TempDir(), "slow.db"))
 	if err != nil {
