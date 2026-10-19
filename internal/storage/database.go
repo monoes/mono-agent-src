@@ -112,9 +112,10 @@ func NewDatabase(dbPath string) (*Database, error) {
 	// Verify the connection is usable.
 	// The first open of a fresh file switches it to WAL, which needs an
 	// exclusive lock the busy timeout does not cover; a concurrent first
-	// start can hit SQLITE_BUSY here, so a busy answer is retried. The first
-	// ping is awaited however slow the machine is; only the retries are
-	// bounded (retryBusyPing).
+	// start can hit SQLITE_BUSY here, so a busy answer is retried. No ping is
+	// cut off: a slow one is disk I/O, not a lock (a fresh file's WAL switch
+	// took up to 14s on a loaded disk); only the retrying is bounded
+	// (retryBusyPing).
 	pingErr := pingContext(context.Background(), db)
 	if isBusy(pingErr) {
 		pingErr = retryBusyPing(db, absPath, pingErr)
@@ -139,38 +140,25 @@ func isBusy(err error) bool { return err != nil && strings.Contains(err.Error(),
 
 // retryBusyPing pings db again, every 50ms, until it answers, fails with
 // something other than SQLITE_BUSY, or pingDeadline has passed since the first
-// busy answer (first). The window is wall clock: a retry still waiting when it
-// ends is abandoned, not awaited, as opening a connection applies the DSN
-// pragmas without the context and can sit out the whole busy_timeout.
+// busy answer (first). No new retry starts once that window has passed, but a
+// retry already running is awaited, never cut off: it is either waiting for the
+// lock, which SQLite's busy_timeout ends, or it got the lock and is switching
+// the file to WAL, disk I/O that may be slow and must not be mistaken for a
+// lock. A locked database therefore fails after at most the window plus one
+// busy_timeout (10s + 5s).
 func retryBusyPing(db *sql.DB, absPath string, first error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), pingDeadline)
-	defer cancel()
+	window := time.Now().Add(pingDeadline)
 	last := first
-	locked := func() error {
-		return fmt.Errorf("database %s %w for %s: %w", absPath, errStayedLocked, pingDeadline, last)
-	}
 	for {
-		select {
-		case <-ctx.Done():
-			return locked()
-		case <-time.After(50 * time.Millisecond):
+		time.Sleep(50 * time.Millisecond)
+		if time.Now().After(window) {
+			return fmt.Errorf("database %s %w for %s: %w", absPath, errStayedLocked, pingDeadline, last)
 		}
-		done := make(chan error, 1)
-		go func() { done <- pingContext(ctx, db) }()
-		select {
-		case err := <-done:
-			switch {
-			case err == nil:
-				return nil
-			case ctx.Err() != nil:
-				return locked()
-			case !isBusy(err):
-				return err
-			}
-			last = err
-		case <-ctx.Done():
-			return locked()
+		err := pingContext(context.Background(), db)
+		if !isBusy(err) {
+			return err // answered, or failed with something other than a lock
 		}
+		last = err
 	}
 }
 
