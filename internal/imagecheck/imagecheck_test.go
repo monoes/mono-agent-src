@@ -119,3 +119,53 @@ func TestCheckGIFStructure(t *testing.T) {
 		t.Error("an oversize frame was taken")
 	}
 }
+
+// spliceChunk inserts a PNG chunk (valid CRC) right after IHDR.
+func spliceChunk(t *testing.T, src []byte, typ string, body []byte) []byte {
+	t.Helper()
+	const at = 8 + 12 + 13 // signature + IHDR chunk
+	var c bytes.Buffer
+	binary.Write(&c, binary.BigEndian, uint32(len(body)))
+	chunk := append([]byte(typ), body...)
+	c.Write(chunk)
+	binary.Write(&c, binary.BigEndian, crc32.ChecksumIEEE(chunk))
+	out := append([]byte{}, src[:at]...)
+	out = append(out, c.Bytes()...)
+	return append(out, src[at:]...)
+}
+
+func TestCheckAnimatedPNG(t *testing.T) {
+	var plain bytes.Buffer
+	png.Encode(&plain, image.NewGray(image.Rect(0, 0, 4, 4)))
+	if err := Check(plain.Bytes()); err != nil {
+		t.Fatalf("plain PNG refused: %v", err)
+	}
+	if err := Check(spliceChunk(t, plain.Bytes(), "tEXt", []byte("a\x00b"))); err != nil {
+		t.Fatalf("PNG with an ancillary chunk refused: %v", err)
+	}
+	apng := spliceChunk(t, plain.Bytes(), "acTL", make([]byte, 8))
+	if err := Check(apng); err == nil || !strings.Contains(err.Error(), "animated") {
+		t.Fatalf("APNG not refused as animated: %v", err)
+	}
+}
+
+func TestCheckPNGChunkListCutShort(t *testing.T) {
+	var plain bytes.Buffer
+	png.Encode(&plain, image.NewGray(image.Rect(0, 0, 4, 4)))
+	full := spliceChunk(t, plain.Bytes(), "tEXt", []byte("abc"))
+	for n := 8 + 12 + 13; n < len(full); n++ {
+		Check(full[:n]) // must not panic
+	}
+	huge := append([]byte{}, full[:8+12+13]...)
+	huge = append(huge, 0xff, 0xff, 0xff, 0xff, 't', 'E', 'X', 't')
+	if err := Check(huge); err == nil {
+		t.Fatal("chunk claiming 4 GiB accepted")
+	}
+}
+
+func FuzzCheckPNG(f *testing.F) {
+	var plain bytes.Buffer
+	png.Encode(&plain, image.NewGray(image.Rect(0, 0, 4, 4)))
+	f.Add(plain.Bytes())
+	f.Fuzz(func(t *testing.T, b []byte) { Check(b) })
+}

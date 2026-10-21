@@ -37,6 +37,8 @@ func Check(data []byte) error {
 		return fmt.Errorf("it claims %dx%d pixels; the limit is %d a side and %d megapixels", cfg.Width, cfg.Height, MaxSide, MaxPixels/1_000_000)
 	}
 	switch format {
+	case "png":
+		return checkPNG(data)
 	case "gif":
 		return checkGIF(data)
 	case "webp":
@@ -44,6 +46,31 @@ func Check(data []byte) error {
 		if len(data) >= 21 && string(data[12:16]) == "VP8X" && data[20]&0x02 != 0 {
 			return errors.New("animated pictures are not taken")
 		}
+	}
+	return nil
+}
+
+// checkPNG walks the chunk list up to the first IDAT, without reading any pixel
+// data, and refuses an animated PNG: png.DecodeConfig ignores its acTL chunk.
+func checkPNG(data []byte) error {
+	bad := errors.New("it cannot be read: the PNG is cut short")
+	pos := 8 // signature; DecodeConfig has already matched it and read IHDR
+	for pos != len(data) { // a header with no chunks after it is left to the size caps
+		if len(data)-pos < 8 {
+			return bad
+		}
+		n := int64(binary.BigEndian.Uint32(data[pos:]))
+		switch string(data[pos+4 : pos+8]) {
+		case "acTL":
+			return errors.New("animated pictures are not taken")
+		case "IDAT", "IEND":
+			return nil
+		}
+		next := int64(pos) + 8 + n + 4 // length, type, data, CRC
+		if next > int64(len(data)) {
+			return bad
+		}
+		pos = int(next)
 	}
 	return nil
 }
