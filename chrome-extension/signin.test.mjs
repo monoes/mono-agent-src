@@ -27,6 +27,12 @@ test("an unpaired browser is told to pair after signing in", () => {
   assert.equal(S.view({ status: "connected" }).pair, "");
 });
 
+test("an unpaired browser gets the token field; a paired one does not", () => {
+  assert.equal(S.view({ status: "unpaired" }).unpaired, true);
+  assert.match(S.view({ status: "unpaired" }).pair, /paste the token/);
+  assert.equal(S.view({ status: "connected" }).unpaired, false);
+});
+
 test("what is kept is named, and said not to be sent until sign-in", () => {
   const v = S.view({ status: "disconnected", queued: { captures: 2, tasks: 1, recording: true } });
   assert.equal(v.queued, "Waiting in this browser: 2 saved pages, 1 task, a recording. Nothing is sent until you sign in; then it is sent as usual.");

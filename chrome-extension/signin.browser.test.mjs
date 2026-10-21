@@ -78,8 +78,8 @@ describe("signed out, the extension is a sign-in screen", { skip: browser ? fals
     })`));
     assert.equal(screen.title, "Sign in to MonoAgent");
     assert.equal(screen.command, "monoagentcli account login");
-    assert.deepEqual(screen.buttons, ["signin-copy", "signin-recheck"]);
-    assert.equal(screen.fields, 0);
+    assert.deepEqual(screen.buttons, ["signin-copy", "signin-pair-save", "signin-recheck"]);
+    assert.equal(screen.fields, 1, "the pairing token field, shown because this browser is unpaired");
     assert.match(screen.pair, /monoagentcli extension pair/, "unpaired: told to pair after signing in");
     await shot("signin-unpaired.png");
   });

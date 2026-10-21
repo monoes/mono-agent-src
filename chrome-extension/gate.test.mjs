@@ -363,6 +363,7 @@ test("the side panel loads the gate first, and signin.html carries nothing else"
   assert.ok(panel.indexOf('<script src="sidepanel_gate.js">') < panel.indexOf("<body>"), "in the head, before the panel renders");
   const signin = readFileSync(join(HERE, "signin.html"), "utf8");
   assert.deepEqual([...signin.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]), ["signin.js"]);
-  assert.deepEqual([...signin.matchAll(/<button[^>]*id="([^"]+)"/g)].map((m) => m[1]), ["signin-copy", "signin-recheck"]);
-  assert.equal(/<(input|textarea|select|form|nav)\b/.test(signin), false, "no other control");
+  assert.deepEqual([...signin.matchAll(/<button[^>]*id="([^"]+)"/g)].map((m) => m[1]), ["signin-copy", "signin-pair-save", "signin-recheck"]);
+  assert.deepEqual([...signin.matchAll(/<(input|textarea|select|form|nav)\b[^>]*?(?:id="([^"]+)")?/g)].map((m) => m[1]), ["input"], "no control but the pairing token");
+  assert.ok(signin.includes('id="signin-pair-token"'));
 });

@@ -23,9 +23,11 @@
    */
   function view(status) {
     const s = status || {};
-    const out = { signedIn: s.signedIn === true, pair: "", queued: "", state: "" };
-    if (s.status === "unpaired") {
-      out.pair = `This browser is not connected to MonoAgent yet. After you sign in, run ${PAIR_COMMAND}.`;
+    const out = { signedIn: s.signedIn === true, unpaired: s.status === "unpaired", pair: "", queued: "", state: "" };
+    if (out.unpaired) {
+      // Signing in on the computer cannot clear this screen by itself: this
+      // browser only learns of it over a paired connection.
+      out.pair = `This browser is not connected to MonoAgent yet, so it cannot learn that you signed in. After you sign in, run ${PAIR_COMMAND}, or paste the token it prints below.`;
     }
     const q = s.queued || {};
     const parts = [];
@@ -57,6 +59,7 @@
       location.replace("sidepanel.html");
       return;
     }
+    $("signin-pairing").hidden = !v.unpaired;
     for (const [id, text] of [["signin-pair", v.pair], ["signin-queued", v.queued], ["signin-state", v.state]]) {
       $(id).textContent = text;
       $(id).hidden = !text;
@@ -69,6 +72,26 @@
       if (reply) show(reply);
     });
   }
+
+  $("signin-pair-save").addEventListener("click", () => {
+    const input = $("signin-pair-token");
+    const value = input.value.trim();
+    if (!value) {
+      input.focus();
+      return;
+    }
+    chrome.runtime.sendMessage({ type: "set_pairing_token", value }, (reply) => {
+      void chrome.runtime.lastError;
+      if (reply && reply.ok) {
+        input.value = "";
+        $("signin-state").textContent = "Saved. Connecting…";
+        $("signin-state").hidden = false;
+      } else {
+        $("signin-state").textContent = (reply && reply.error) || "Could not save the pairing token.";
+        $("signin-state").hidden = false;
+      }
+    });
+  });
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "status") show(msg);

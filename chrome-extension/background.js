@@ -1406,7 +1406,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // The sign-in screen's "Check again": ask the bridge now, or dial it.
   if (msg.type === "account_recheck") {
     if (ws?.readyState === WebSocket.OPEN) sendAccountPing();
-    else if (connectionStatus !== "unpaired") {
+    else {
+      // Unpaired too: a token saved since, or a bridge restarted with the
+      // token this browser holds, is only found by dialling again.
       fastRetryCount = 0;
       connect();
       fastRetryConnect();
