@@ -54,7 +54,7 @@ func Check(data []byte) error {
 // data, and refuses an animated PNG: png.DecodeConfig ignores its acTL chunk.
 func checkPNG(data []byte) error {
 	bad := errors.New("it cannot be read: the PNG is cut short")
-	pos := 8 // signature; DecodeConfig has already matched it and read IHDR
+	pos := 8               // signature; DecodeConfig has already matched it and read IHDR
 	for pos != len(data) { // a header with no chunks after it is left to the size caps
 		if len(data)-pos < 8 {
 			return bad
