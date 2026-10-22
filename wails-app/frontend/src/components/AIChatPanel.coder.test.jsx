@@ -263,6 +263,22 @@ describe('AIChatPanel coder mode', () => {
     expect(within(rows[1]).queryByTestId('coder-badge')).not.toBeInTheDocument()
   })
 
+  it('a reopened conversation whose turn is still running here goes back to live, not a snapshot', async () => {
+    m.coderStatus.mockResolvedValue(status())
+    m.listChatConversations.mockResolvedValue({
+      items: [{ id: 'coder-9', backend: 'agent', workflowContext: 'general', runtimeId: 'claude', model: 'sonnet', mode: 'coder', cwd: WS, updatedAt: '2026-09-27T10:00:00Z' }],
+    })
+    m.getChatTurns.mockResolvedValue({ items: [
+      { id: 't2', prompt: 'still running', status: 'active', ownedByThisInstance: true },
+      { id: 't1', prompt: 'earlier prompt', status: 'completed' },
+    ] })
+    render(<AIChatPanel workflowID="general" isOpen={true} onClose={() => {}} />)
+    await screen.findByText('still running')
+    const { api } = await import('../services/api.js')
+    await waitFor(() => expect(api.getChatEvents).toHaveBeenCalledWith('coder-9', 't2', 0, 200))
+    expect(await screen.findByRole('button', { name: /stop/i })).toBeInTheDocument()
+  })
+
   it('summarizes a real monomind init (hundreds of files) to the key ones', () => {
     const created = ['.claude', '.claude/skills', ...Array.from({ length: 200 }, (_, i) => `.claude/skills/s${i}`), '.claude/settings.json', '.mcp.json', 'CLAUDE.md']
     expect(initSummary(created)).toBe('CLAUDE.md, .claude/settings.json, .mcp.json and 202 more')

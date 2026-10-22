@@ -632,10 +632,12 @@ describe('AIChatPanel cross-instance ownership label', () => {
     await screen.findByText('Running in another window')
   })
 
+  // A turn still running here is re-attached to the live stream (useChatStream),
+  // which only applies events carrying this conversation and turn.
   it('regression: an active turn with ownedByThisInstance:true renders its normal live "Running <tool>" treatment, unaffected', async () => {
     listChatConversations2.mockResolvedValueOnce({ items: [{ id: 'conv-own-1', backend: 'agent', workflowContext: 'general', runtimeId: 'claude', model: '', updatedAt: '2026-09-12T00:00:00Z' }] })
     getChatTurns2.mockResolvedValueOnce({ items: [{ id: 'turn-own-1', prompt: 'do something here', status: 'active', ownedByThisInstance: true }] })
-    getChatEvents2.mockResolvedValueOnce({ items: activeNoTerminalEvents(), hasMore: false })
+    getChatEvents2.mockResolvedValueOnce({ items: activeNoTerminalEvents().map((e) => ({ ...e, conversationId: 'conv-own-1', turnId: 'turn-own-1' })), hasMore: false })
 
     render(<AIChatPanel workflowID="general" isOpen={true} onClose={() => {}} />)
 
@@ -646,7 +648,7 @@ describe('AIChatPanel cross-instance ownership label', () => {
   it('regression: an active turn with ownedByThisInstance entirely absent (older data / backend not yet carrying the field) is treated as normal, not foreign', async () => {
     listChatConversations2.mockResolvedValueOnce({ items: [{ id: 'conv-own-2', backend: 'agent', workflowContext: 'general', runtimeId: 'claude', model: '', updatedAt: '2026-09-12T00:00:00Z' }] })
     getChatTurns2.mockResolvedValueOnce({ items: [{ id: 'turn-own-2', prompt: 'do something here too', status: 'active' }] }) // no ownedByThisInstance field at all
-    getChatEvents2.mockResolvedValueOnce({ items: activeNoTerminalEvents(), hasMore: false })
+    getChatEvents2.mockResolvedValueOnce({ items: activeNoTerminalEvents().map((e) => ({ ...e, conversationId: 'conv-own-2', turnId: 'turn-own-2' })), hasMore: false })
 
     render(<AIChatPanel workflowID="general" isOpen={true} onClose={() => {}} />)
 

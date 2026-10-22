@@ -397,11 +397,21 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onOpenArtifac
     api.getChatTurns(conv.id, '', 50).then(async (res) => {
       const turns = (Array.isArray(res?.items) ? res.items : []).slice().reverse() // oldest first
       const built = []
+      let liveTurnId = ''
       for (const turn of turns) {
         // Bail before each further fetch once superseded — no point
         // fetching turn N+1's events for a transcript that will never be
         // shown.
         if (loadGenerationRef.current !== generation) return
+        // A turn still running in THIS window's supervisor (the page was
+        // reloaded under it, e.g. by a profile switch) is not a snapshot:
+        // hand it back to the live stream so it keeps updating, and stops
+        // when it ends, like a turn sent from here.
+        if (turn.status === 'active' && turn.ownedByThisInstance !== false) {
+          built.push({ role: 'user', content: turn.prompt })
+          liveTurnId = turn.id
+          continue
+        }
         // eslint-disable-next-line no-await-in-loop
         const state = await loadTurnState(conv.id, turn)
         if (!state) continue
@@ -435,7 +445,7 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onOpenArtifac
       setConversationBackend(conv.backend || 'agent')
       setChatMode(conv.mode === 'coder' ? 'coder' : 'assistant')
       setCoderCwd(conv.cwd || '')
-      setActiveTurnId('')
+      setActiveTurnId(liveTurnId)
       setShowSessions(false)
     }).catch(err => {
       if (loadGenerationRef.current !== generation) return
