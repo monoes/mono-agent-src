@@ -142,25 +142,50 @@ function FileChip({ name, size, children }) {
 // thumbnails and file chips, each with a remove button.
 export function AttachmentChips({ attachments, onRemove }) {
   if (!attachments?.length) return null
+  const card = {
+    position: 'relative', display: 'inline-flex', flexDirection: 'column', gap: 4, padding: 5,
+    border: '1px solid rgba(0,180,216,0.25)', borderRadius: 8, background: 'rgba(0,180,216,0.04)',
+  }
+  const caption = { display: 'flex', alignItems: 'baseline', gap: 5, fontFamily: mono, fontSize: 9, color: '#cbd5e1' }
   return (
-    <div data-testid="attachment-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+    <div data-testid="attachment-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
       {attachments.map(a => {
         const remove = (
           <button type="button" aria-label={`Remove ${a.name}`} title={`Remove ${a.name}`} onClick={() => onRemove(a.id)} style={{
-            background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex', flexShrink: 0,
+            position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%',
+            background: '#0b1220', border: '1px solid rgba(0,180,216,0.4)', color: '#e2e8f0', cursor: 'pointer',
+            padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <X size={11} />
+            <X size={10} />
           </button>
+        )
+        const label = (
+          <span style={caption}>
+            <span title={a.name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{a.name}</span>
+            {a.size != null && <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{formatBytes(a.size)}</span>}
+          </span>
         )
         if (isImage(a.mime) && a.dataUrl) {
           return (
-            <span key={a.id} data-testid="attachment-chip" style={{ position: 'relative', display: 'inline-flex', alignItems: 'flex-start', gap: 2 }}>
-              <Thumb src={a.dataUrl} alt={a.name} maxHeight={48} maxWidth={96} />
+            <span key={a.id} data-testid="attachment-chip" style={{ ...card, width: 120 }}>
+              <Thumb src={a.dataUrl} alt={a.name} maxHeight={84} maxWidth={108} />
+              {label}
               {remove}
             </span>
           )
         }
-        return <span key={a.id} data-testid="attachment-chip"><FileChip name={a.name} size={a.size}>{remove}</FileChip></span>
+        return (
+          <span key={a.id} data-testid="attachment-chip" style={{ ...card, flexDirection: 'row', alignItems: 'center', gap: 8, padding: '7px 10px', maxWidth: 240 }}>
+            <span style={{ width: 30, height: 30, borderRadius: 6, background: 'rgba(0,180,216,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <FileText size={15} color="#00b4d8" />
+            </span>
+            <span style={{ ...caption, flexDirection: 'column', alignItems: 'flex-start', gap: 1, minWidth: 0, fontSize: 10 }}>
+              <span title={a.name} style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+              {a.size != null && <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{formatBytes(a.size)}</span>}
+            </span>
+            {remove}
+          </span>
+        )
       })}
     </div>
   )
