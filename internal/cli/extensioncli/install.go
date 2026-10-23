@@ -3,175 +3,220 @@ package extensioncli
 import (
 	"archive/zip"
 	"bytes"
-	"context"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/monoes/mono-agent/internal/cli/update"
-	"github.com/monoes/mono-agent/internal/release"
-	"github.com/monoes/mono-agent/internal/updatecheck"
 	"github.com/spf13/cobra"
+
+	monoagent "github.com/monoes/mono-agent"
 )
 
-// extensionZipAsset is the browser extension's release asset (release.yml
-// zips the chrome-extension/ folder under that name).
-const extensionZipAsset = "monoagent-chrome-extension.zip"
-
-// extensionReleasesURL is the releases page every extension download URL is
-// built from (a variable so tests can point it at a fake server).
-var extensionReleasesURL = "https://github.com/" + update.ReleasesRepo + "/releases"
-
-// maxExtensionZip bounds the download and every unpacked file. The release
-// zip is about 1.5 MB.
+// maxExtensionZip bounds every unpacked file (and a --zip), far above the
+// extension's real size of about 1.5 MB.
 const maxExtensionZip = 64 << 20
 
-// httpGetAll downloads a release asset (a var so tests can serve one).
-var httpGetAll = update.HTTPGetAll
+// bundledExtension is the extension folder that ships inside this binary (a
+// variable so tests can bring their own).
+var bundledExtension = func() fs.FS {
+	sub, err := fs.Sub(monoagent.ChromeExtension, "chrome-extension")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}()
+
+// extensionDir is where the extension is unpacked: the folder the browser
+// loads it from, so it stays put across updates.
+func extensionDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".monoagent", "extension"), nil
+}
+
+// shipsWithExtension reports whether a bundled file goes into the unpacked
+// folder: the unit tests stay in the repo.
+func shipsWithExtension(name string) bool { return !strings.HasSuffix(name, ".test.mjs") }
 
 func newExtensionInstallCmd(cfg *Deps) *cobra.Command {
 	var zipPath string
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Download the MonoAgent Bridge extension for this version and unpack it for your browser",
-		Long: "Downloads monoagent-chrome-extension.zip from the release that matches this\n" +
-			"CLI (the latest release for a development build), checks it against the\n" +
-			"release's signed manifest (Ed25519 signature, then the zip's sha256), and\n" +
-			"unpacks it into ~/.monoagent/extension. An older release whose manifest has\n" +
-			"no extension entry is checked against its SHA256SUMS.txt instead. The\n" +
-			"folder stays at that path, so the browser keeps loading it from there:\n" +
-			"after an update, run this again and click Reload on the extension.\n" +
+		Short: "Unpack the MonoAgent Bridge extension that ships with this CLI for your browser",
+		Long: "Unpacks the extension folder built into this CLI into ~/.monoagent/extension,\n" +
+			"the exact version that matches this CLI, so nothing is downloaded. The folder\n" +
+			"stays at that path, so the browser keeps loading it from there: after an\n" +
+			"update, run this again and click Reload on the extension.\n" +
 			"\n" +
-			"--zip installs a zip you already have instead. A local zip is not checked\n" +
-			"against a release, so --zip is the user's own: an agent, the chat or a\n" +
-			"workflow is refused (exit 3, operator_only).",
+			"--zip installs a zip you already have instead. A local zip is not part of\n" +
+			"this CLI, so --zip is the user's own: an agent, the chat or a workflow is\n" +
+			"refused (exit 3, operator_only).",
 		Example: "  monoagentcli extension install\n" +
 			"  monoagentcli extension install --zip ~/Downloads/monoagent-chrome-extension.zip",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			var data []byte
+			dir, err := extensionDir()
+			if err != nil {
+				return err
+			}
 			if zipPath != "" {
-				if err := cfg.operatorOnly("extension install --zip puts code no release vouches for where the browser loads the extension from"); err != nil {
+				if err := cfg.operatorOnly("extension install --zip puts code the CLI does not ship where the browser loads the extension from"); err != nil {
 					return err
 				}
 				b, err := os.ReadFile(zipPath)
 				if err != nil {
 					return fmt.Errorf("read %s: %w", zipPath, err)
 				}
-				fmt.Fprintf(out, "Using %s (a local file: not checked against a release).\n", zipPath)
-				data = b
-			} else {
-				b, err := downloadExtensionZip(out, cfg.Version())
-				if err != nil {
+				fmt.Fprintf(out, "Using %s (a local file: not the extension this CLI ships).\n", zipPath)
+				if err := installExtensionZip(b, dir); err != nil {
 					return err
 				}
-				data = b
-			}
-			home, err := os.UserHomeDir()
-			if err != nil {
+			} else if err := installExtensionFS(bundledExtension, dir); err != nil {
 				return err
 			}
-			dir := filepath.Join(home, ".monoagent", "extension")
-			if err := installExtensionZip(data, dir); err != nil {
-				return err
+			if cfg.JSONOutput() {
+				return writeExtensionInfoJSON(out, readExtensionInfo(dir))
 			}
 			printExtensionLoadSteps(out, dir)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&zipPath, "zip", "", "install this extension zip instead of downloading one")
+	cmd.Flags().StringVar(&zipPath, "zip", "", "install this extension zip instead of the one built into this CLI")
 	return cmd
 }
 
-// extensionDownloadBase is where this version's release assets live: the
-// tagged release, or the latest one for a development build.
-func extensionDownloadBase(version string) string {
-	if update.IsDevVersion(version) {
-		return extensionReleasesURL + "/latest/download"
+// extensionInfo is `extension info`: where the extension is and whether the
+// copy there is the one this CLI ships.
+type extensionInfo struct {
+	Path      string `json:"path"`
+	Installed bool   `json:"installed"`
+	// Current is true when the unpacked folder matches the bundled extension
+	// file for file; false means run `extension install`.
+	Current bool   `json:"current"`
+	Version string `json:"version,omitempty"`
+}
+
+func newExtensionInfoCmd(cfg *Deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "info",
+		Short: "Show where the extension is unpacked and whether it is the version this CLI ships",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := extensionDir()
+			if err != nil {
+				return err
+			}
+			info := readExtensionInfo(dir)
+			out := cmd.OutOrStdout()
+			if cfg.JSONOutput() {
+				return writeExtensionInfoJSON(out, info)
+			}
+			switch {
+			case !info.Installed:
+				fmt.Fprintf(out, "Not installed. Run `monoagentcli extension install` to unpack it into %s\n", dir)
+			case !info.Current:
+				fmt.Fprintf(out, "Installed in %s but out of date. Run `monoagentcli extension install`, then click Reload on the extension.\n", dir)
+			default:
+				fmt.Fprintf(out, "Installed in %s (up to date, version %s).\n", dir, info.Version)
+			}
+			return nil
+		},
 	}
-	return extensionReleasesURL + "/download/" + version
+	return cmd
 }
 
-// extensionManifestClient is the release client that reads the signed
-// manifest at manifestURL (a variable so tests can use a test key and server).
-var extensionManifestClient = func(manifestURL string) *release.Client {
-	c := release.DefaultClient()
-	c.ManifestURLs = []string{manifestURL}
-	// This reads the CLI's own release, which may be older than one `update`
-	// already accepted, so it keeps no rollback record.
-	c.StatePath = ""
-	c.MaxAssetBytes = maxExtensionZip
-	return c
+// readExtensionInfo inspects the unpacked folder at dir.
+func readExtensionInfo(dir string) extensionInfo {
+	info := extensionInfo{Path: dir}
+	if _, err := os.Stat(filepath.Join(dir, "manifest.json")); err == nil {
+		info.Installed = true
+		info.Version = manifestVersion(os.DirFS(dir))
+		want, werr := extensionDigest(bundledExtension)
+		got, gerr := extensionDigest(os.DirFS(dir))
+		info.Current = werr == nil && gerr == nil && want == got
+	}
+	return info
 }
 
-// downloadExtensionZip returns the extension zip only after it is verified:
-// against the release's signed manifest (signature, then the zip's sha256),
-// or, when that manifest has no extension entry (releases before the
-// extension was listed) or no signed manifest can be had, against the
-// release's SHA256SUMS.txt. A manifest that fails a check is never a reason
-// to fall back.
-func downloadExtensionZip(out io.Writer, version string) ([]byte, error) {
-	base := extensionDownloadBase(version)
-	ctx := context.Background()
-	rc := extensionManifestClient(base + "/manifest.json")
-	m, err := rc.Latest(ctx)
-	switch {
-	case err == nil:
-		if !update.IsDevVersion(version) && m.Version != version {
-			return nil, fmt.Errorf("the signed manifest at %s is for %s, not %s; nothing was installed", base, m.Version, version)
+func writeExtensionInfoJSON(out io.Writer, info extensionInfo) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(info)
+}
+
+func manifestVersion(fsys fs.FS) string {
+	b, err := fs.ReadFile(fsys, "manifest.json")
+	if err != nil {
+		return ""
+	}
+	var m struct {
+		Version string `json:"version"`
+	}
+	_ = json.Unmarshal(b, &m)
+	return m.Version
+}
+
+// extensionDigest is one sha256 over the names and contents of every file
+// that ships, so an unpacked folder can be compared with the bundled one.
+func extensionDigest(fsys fs.FS) (string, error) {
+	h := sha256.New()
+	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !shipsWithExtension(name) {
+			return err
 		}
-		a, aerr := m.Asset(extensionZipAsset, "", "", "extension")
-		if aerr != nil {
-			fmt.Fprintf(out, "Manifest signature verified, but release %s lists no extension in it (an older release); checking against %s instead.\n", m.Version, updatecheck.SumsAssetName)
-			break
-		}
-		fmt.Fprintf(out, "Manifest signature verified (release %s).\n", m.Version)
-		fmt.Fprintf(out, "Downloading %s (%s)...\n", extensionZipAsset, a.URL)
-		data, err := rc.Download(ctx, a)
+		b, err := fs.ReadFile(fsys, name)
 		if err != nil {
-			return nil, fmt.Errorf("%w; nothing was installed", err)
+			return err
 		}
-		fmt.Fprintf(out, "Checksum verified against the signed manifest: %s SHA256 %s\n", extensionZipAsset, a.SHA256)
-		return data, nil
-	case !errors.Is(err, release.ErrUnavailable):
-		return nil, fmt.Errorf("the signed release manifest was rejected: %w; nothing was installed", err)
-	case !release.AllowLegacyGitHubUpdates:
-		return nil, fmt.Errorf("cannot verify the extension: %w", err)
-	default:
-		fmt.Fprintf(out, "No signed manifest to check against (%v); checking against %s only.\n", err, updatecheck.SumsAssetName)
-	}
-	fmt.Fprintf(out, "Downloading %s (%s)...\n", extensionZipAsset, base)
-	data, err := httpGetAll(base + "/" + extensionZipAsset)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxExtensionZip {
-		return nil, fmt.Errorf("%s is larger than %d bytes; refusing it", extensionZipAsset, maxExtensionZip)
-	}
-	sums, err := httpGetAll(base + "/" + updatecheck.SumsAssetName)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", updatecheck.SumsAssetName, err)
-	}
-	if err := updatecheck.VerifyReleaseDigest(data, sums, extensionZipAsset); err != nil {
-		return nil, err
-	}
-	fmt.Fprintf(out, "Checksum verified: %s SHA256 %s\n", extensionZipAsset, updatecheck.SHA256Hex(data))
-	return data, nil
+		fmt.Fprintf(h, "%s\x00%d\x00", name, len(b))
+		h.Write(b)
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil)), err
 }
 
-// installExtensionZip unpacks data into dir, replacing what is there. It
-// unpacks into a sibling folder first and swaps the two only once the new
-// one is complete, so a failure leaves the previous extension in place.
+// installExtensionFS copies the extension in fsys into dir, replacing what is there.
+func installExtensionFS(fsys fs.FS, dir string) error {
+	return swapExtensionIn(dir, func(staged string) error {
+		return fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !shipsWithExtension(name) {
+				return err
+			}
+			b, err := fs.ReadFile(fsys, name)
+			if err != nil {
+				return err
+			}
+			target := filepath.Join(staged, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(target, b, 0o644)
+		})
+	})
+}
+
+// installExtensionZip unpacks data into dir, replacing what is there.
 func installExtensionZip(data []byte, dir string) error {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return fmt.Errorf("read the extension zip: %w", err)
 	}
+	return swapExtensionIn(dir, func(staged string) error { return unpackExtension(zr, staged) })
+}
+
+// swapExtensionIn fills a sibling folder with fill and swaps it in for dir
+// only once it is complete, so a failure leaves the previous extension in place.
+func swapExtensionIn(dir string, fill func(staged string) error) error {
 	parent := filepath.Dir(dir)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
@@ -181,11 +226,11 @@ func installExtensionZip(data []byte, dir string) error {
 		return err
 	}
 	defer os.RemoveAll(staged)
-	if err := unpackExtension(zr, staged); err != nil {
+	if err := fill(staged); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(staged, "manifest.json")); err != nil {
-		return fmt.Errorf("the zip holds no extension (no manifest.json at its top level or in its one top folder)")
+		return fmt.Errorf("the extension holds no manifest.json at its top level or in its one top folder")
 	}
 	if err := os.Chmod(staged, 0o755); err != nil {
 		return err

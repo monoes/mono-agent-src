@@ -494,6 +494,10 @@ export function GetExtensionStatus() {
   return window['go']['main']['App']['GetExtensionStatus']();
 }
 
+export function GetExtensionInfo() {
+  return window['go']['main']['App']['GetExtensionInfo']();
+}
+
 export function GetGlobalOrgSummary(arg1) {
   return window['go']['main']['App']['GetGlobalOrgSummary'](arg1);
 }
@@ -1096,6 +1100,10 @@ export function OrgSignatureStatus(arg1) {
 
 export function PairExtension() {
   return window['go']['main']['App']['PairExtension']();
+}
+
+export function InstallExtension() {
+  return window['go']['main']['App']['InstallExtension']();
 }
 
 export function PauseOrgAutonomy(arg1, arg2) {

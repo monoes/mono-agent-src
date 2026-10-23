@@ -476,4 +476,4 @@ fi
 echo "Verify with:  ${INSTALL_DIR}/${BIN} version"
 echo "Sign in to monoes.me (required; nothing else works before it):  ${INSTALL_DIR}/${BIN} account login"
 echo "Account and offline behavior:  ${INSTALL_DIR}/${BIN} ref account"
-echo "Browser extension:  ${INSTALL_DIR}/${BIN} extension install"
+echo "Browser extension (ships with the CLI; unpacks it, then Load unpacked in chrome://extensions):  ${INSTALL_DIR}/${BIN} extension install"

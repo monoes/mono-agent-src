@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Every command, tool and request that acts on a profile now names that profile. There is no active profile, no `default` fallback and no environment variable that picks one, so an agent can no longer write to the wrong profile by accident. Run `monoagentcli profile list` to find the ids and names.
 
+### Changed
+
+- **The browser extension is the only way to browse, and it ships with the CLI.** `monoagentcli crawl <url>` and `action template capture <url>` no longer start a Chrome of their own: they open the page in your browser through the MonoAgent Bridge extension (http and https only) and fail if it is not connected. Their `--headless` flag is gone. The full extension folder is built into the CLI, so `extension install` unpacks the matching version into `~/.monoagent/extension` without a download (`--zip` still installs a zip of your own), and the new `extension info` says where it is and whether it is current. Settings → Browser Extension shows the folder, a copy button and the steps to load it unpacked.
+
 - **CLI.**
   - Every command that acts on a profile requires `--profile <id|name>`. Without it the command exits 3 with `pass --profile` and the list of profiles. Machine-wide commands (`version`, `update`, `config`, `message-template`, `agent`, `account`, `db`, `node list|schema`, `api config`, `profile list|create|get`, `mcp`, `daemon`, `httpapi`, `ref` and more) need none; the list is `internal/cli/profilegate/classes.go`.
   - Removed: `profile switch`, `profile current`, the `MONOAGENT_PROFILE` environment variable and the active-profile setting.

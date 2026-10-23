@@ -1,5 +1,5 @@
 # Keep the image build context small. Anything listed here must NOT be
-# go:embed-ed: data/ (migrations, actions, skills) and
+# go:embed-ed: data/ (migrations, actions, skills), chrome-extension/ and
 # internal/workflow/{schemas,templates} ARE embedded — do not exclude them.
 
 .git
@@ -13,7 +13,6 @@ scripts
 tools
 monoes_apis
 assets
-chrome-extension
 diag_comment_like
 *.md
 package.json

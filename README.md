@@ -592,7 +592,7 @@ The MonoAgent Bridge browser extension lets workflow nodes drive **your real, al
 
 Install (unpacked, not on the Web Store):
 
-1. Run `monoagentcli extension install`. It downloads the extension that matches your CLI version, checks it against the release's `SHA256SUMS.txt`, and unpacks it into `~/.monoagent/extension`
+1. Run `monoagentcli extension install`. The full extension folder ships inside the CLI (and the app), so nothing is downloaded: it unpacks the exact version that matches your CLI into `~/.monoagent/extension`. The app's **Settings → Browser Extension** shows that path and these steps. MonoAgent drives a browser only through this extension; it never launches one of its own
 2. Open `chrome://extensions` (Edge: `edge://extensions`) and enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked** and choose `~/.monoagent/extension`
 4. Pair it: run `monoagentcli extension pair --open`. It opens a one-time pairing page in your browser and the extension pairs itself. (Or run `monoagentcli extension pair` and paste the token it prints into the side panel.)

@@ -5,8 +5,10 @@
 package action
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +22,9 @@ type Deps struct {
 	Install autoinstall.Deps
 	// WithJSONErrors makes a command print its error as the CLI's --json error document.
 	WithJSONErrors func(cmd *cobra.Command)
+	// RenderHTML opens rawURL in the user's browser through the extension, waits for
+	// the page to render and returns its HTML.
+	RenderHTML func(ctx context.Context, rawURL string, wait time.Duration) (string, error)
 }
 
 // NewCommand builds `monoagentcli action`.

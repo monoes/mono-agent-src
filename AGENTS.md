@@ -614,7 +614,7 @@ dangerous calls.
   `extension pair --open` and `extension install --zip`, which change which
   profile a browser acts as, which bridge it pairs with, or the extension
   code it loads; `extension pair` printing the token stays open (an agent can
-  read the token file), as do `extension install` of the signed release and
+  read the token file), as do `extension install` of the extension built into the CLI and
   `extension serve` for a private bridge,
   (`clicore.OperatorRefusal`; for CLI authors, every `Deps.RequireOperator`, `NotOperator` and `Refusal` goes through `clicore.RequireOperator` / `clicore.OperatorRefusal`, which refuse when the check is nil). `extension pair` stays open (an agent can
   read the token file),

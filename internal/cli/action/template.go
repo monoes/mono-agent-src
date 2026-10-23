@@ -9,9 +9,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
 	actiondef "github.com/monoes/mono-agent/internal/action"
 	"github.com/monoes/mono-agent/internal/automation"
 	"github.com/monoes/mono-agent/internal/statedir"
@@ -45,7 +42,7 @@ Workflow:
 	}
 
 	cmd.AddCommand(
-		newActionTemplateCaptureCmd(),
+		d.newActionTemplateCaptureCmd(),
 		d.newActionTemplateInstallCmd(),
 		d.newActionTemplateListCmd(),
 	)
@@ -53,17 +50,16 @@ Workflow:
 	return cmd
 }
 
-func newActionTemplateCaptureCmd() *cobra.Command {
-	var headless bool
+func (d Deps) newActionTemplateCaptureCmd() *cobra.Command {
 	var waitSecs int
 	var outFile string
 
 	cmd := &cobra.Command{
 		Use:   "capture <url>",
-		Short: "Capture rendered HTML from a URL using a real browser",
+		Short: "Capture rendered HTML from a URL through your browser extension",
 		Args:  cobra.ExactArgs(1),
 		Example: `  monoagent action template capture https://www.instagram.com/someuser/
-  monoagent action template capture https://example.com --headless --wait 5`,
+  monoagent action template capture https://example.com --wait 5`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rawURL := args[0]
 
@@ -85,36 +81,11 @@ func newActionTemplateCaptureCmd() *cobra.Command {
 				dest = filepath.Join(captureDir, fmt.Sprintf("%s_%s.html", domain, timestamp))
 			}
 
-			fmt.Fprintf(os.Stderr, "Launching browser...\n")
-			l := launcher.New().
-				Headless(headless).
-				Set("disable-blink-features", "AutomationControlled")
-
-			launchURL, err := l.Launch()
+			fmt.Fprintf(os.Stderr, "Opening the page in your browser through the extension...\n")
+			html, err := d.RenderHTML(cmd.Context(), rawURL, time.Duration(waitSecs)*time.Second)
 			if err != nil {
-				return fmt.Errorf("launch browser: %w", err)
+				return err
 			}
-
-			browser := rod.New().ControlURL(launchURL)
-			if err := browser.Connect(); err != nil {
-				return fmt.Errorf("connect to browser: %w", err)
-			}
-			defer browser.Close()
-
-			page, err := browser.Page(proto.TargetCreateTarget{URL: rawURL})
-			if err != nil {
-				return fmt.Errorf("open page: %w", err)
-			}
-
-			fmt.Fprintf(os.Stderr, "Waiting %ds for JS rendering...\n", waitSecs)
-			time.Sleep(time.Duration(waitSecs) * time.Second)
-
-			res, err := page.Eval("() => document.documentElement.outerHTML")
-			if err != nil {
-				return fmt.Errorf("capture HTML: %w", err)
-			}
-
-			html := res.Value.String()
 			perm := os.FileMode(0o644) // --output is the user's own file
 			if outFile == "" {
 				perm = statedir.FilePerm // the capture lands in ~/.monoagent/captures
@@ -131,7 +102,6 @@ func newActionTemplateCaptureCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&headless, "headless", false, "Run browser headlessly (no window)")
 	cmd.Flags().IntVar(&waitSecs, "wait", 8, "Seconds to wait for JS rendering before capturing")
 	cmd.Flags().StringVar(&outFile, "out", "", "Output file path (default: ~/.monoagent/captures/<domain>_<ts>.html)")
 

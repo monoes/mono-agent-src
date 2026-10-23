@@ -625,6 +625,24 @@ export namespace main {
 	        this.connected_at = source["connected_at"];
 	    }
 	}
+	export class ExtensionInfo {
+	    path: string;
+	    installed: boolean;
+	    current: boolean;
+	    version: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExtensionInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.installed = source["installed"];
+	        this.current = source["current"];
+	        this.version = source["version"];
+	    }
+	}
 	export class BrowsersReport {
 	    running: boolean;
 	    hint: string;

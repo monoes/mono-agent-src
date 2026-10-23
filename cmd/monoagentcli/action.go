@@ -11,5 +11,6 @@ func newActionCmd(cfg *globalConfig) *cobra.Command {
 	return actioncli.NewCommand(actioncli.Deps{
 		Install:        autoinstallDeps(cfg),
 		WithJSONErrors: func(cmd *cobra.Command) { withJSONErrors(cfg, cmd) },
+		RenderHTML:     renderHTML,
 	})
 }

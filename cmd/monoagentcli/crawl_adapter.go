@@ -11,5 +11,6 @@ import (
 func newCrawlCmd(cfg *globalConfig) *cobra.Command {
 	return crawl.NewCommand(crawl.Deps{
 		JSONOutput: func() bool { return cfg != nil && cfg.JSONOutput },
+		RenderHTML: renderHTML,
 	})
 }

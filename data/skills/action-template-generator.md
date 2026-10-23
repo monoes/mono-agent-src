@@ -13,7 +13,7 @@ Official packages from monoes.me already cover instagram, linkedin, x, tiktok, h
 
 This skill is invoked after the user runs:
 ```bash
-monoagentcli action template capture <url>   # [--wait <secs>] [--headless] [--out <file>]
+monoagentcli action template capture <url>   # [--wait <secs>] [--out <file>]
 # or
 monoagentcli --profile <profile> crawl <url>
 ```

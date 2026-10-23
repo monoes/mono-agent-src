@@ -16,6 +16,7 @@ vi.mock('../services/api.js', () => ({
 vi.mock('../wailsjs/go/main/App', () => ({
   GetVersion: () => Promise.resolve({ version: '1' }), CheckForUpdate: () => Promise.resolve({}), AppSelfUpdate: vi.fn(),
 }))
+vi.mock('../components/settings/ExtensionSection.jsx', () => ({ default: () => <div>extension-section</div> }))
 vi.mock('../components/settings/HealthSection.jsx', () => ({ default: () => <div>health-section</div> }))
 vi.mock('../components/settings/JevSection.jsx', () => ({ default: () => <div>jev-section</div> }))
 // The API section asks Settings to take it to the Jev settings, as the dashboard's Jev row does, and is told

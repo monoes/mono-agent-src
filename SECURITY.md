@@ -860,8 +860,8 @@ parent process carries one. They exit 3 with code `operator_only`.
 
 Printing the token (`extension pair` without `--open`) stays open, because
 anything running as you can read `~/.monoagent/extension.token`. So does
-the plain `extension install`, which installs only the release matching
-the CLI, checked against its signed manifest. `serve`, `status` and
+the plain `extension install`, which unpacks only the extension built into
+the CLI (the binary itself is verified by the signed update path). `serve`, `status` and
 `browsers` stay open too: they change no binding, rotate no token, and
 agents use `serve` for private test bridges. Like the other operator
 checks, this keeps agents from doing these things by accident or on a

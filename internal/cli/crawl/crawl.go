@@ -8,9 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
 	"github.com/monoes/mono-agent/internal/cli/integrations"
 	"github.com/monoes/mono-agent/internal/statedir"
 	"github.com/spf13/cobra"
@@ -18,13 +15,12 @@ import (
 
 // NewCommand returns `crawl` with its `capture` subcommand.
 func NewCommand(d Deps) *cobra.Command {
-	var headless bool
 	var waitSecs int
 
 	cmd := &cobra.Command{
 		Use:   "crawl <url>",
 		Short: "Capture a website for AI-assisted crawling automation",
-		Long: `Render a URL in a real browser and capture its HTML for Claude Code analysis.
+		Long: `Open a URL in your own browser through the MonoAgent Bridge extension and capture its HTML for Claude Code analysis.
 
 Claude will then write a monoagent automation package that you can
 install and run as a reusable automation node — no API key required.
@@ -39,7 +35,7 @@ Steps (automated by Claude when you use /action-template-generator):
 For the full guide:  monoagentcli ref crawling`,
 		Args: cobra.ExactArgs(1),
 		Example: `  monoagentcli crawl https://www.producthunt.com/posts/new-product
-  monoagentcli crawl https://github.com/someuser --headless
+  monoagentcli crawl https://github.com/someuser
   monoagentcli crawl https://somesite.com/profile --wait 12`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rawURL := args[0]
@@ -71,37 +67,11 @@ For the full guide:  monoagentcli ref crawling`,
 			}
 			htmlFile := filepath.Join(captureDir, fmt.Sprintf("%s_%s.html", domain, timestamp))
 
-			fmt.Fprintf(os.Stderr, "Launching browser for %s...\n", parsed.Hostname())
-
-			l := launcher.New().
-				Headless(headless).
-				Set("disable-blink-features", "AutomationControlled")
-
-			launchURL, err := l.Launch()
+			fmt.Fprintf(os.Stderr, "Opening %s in your browser through the extension...\n", parsed.Hostname())
+			html, err := d.RenderHTML(cmd.Context(), rawURL, time.Duration(waitSecs)*time.Second)
 			if err != nil {
-				return fmt.Errorf("launch browser: %w", err)
+				return err
 			}
-
-			browser := rod.New().ControlURL(launchURL)
-			if err := browser.Connect(); err != nil {
-				return fmt.Errorf("connect to browser: %w", err)
-			}
-			defer browser.Close()
-
-			page, err := browser.Page(proto.TargetCreateTarget{URL: rawURL})
-			if err != nil {
-				return fmt.Errorf("open page: %w", err)
-			}
-
-			fmt.Fprintf(os.Stderr, "Waiting %ds for JS to render...\n", waitSecs)
-			time.Sleep(time.Duration(waitSecs) * time.Second)
-
-			res, err := page.Eval("() => document.documentElement.outerHTML")
-			if err != nil {
-				return fmt.Errorf("capture HTML: %w", err)
-			}
-
-			html := res.Value.String()
 			if err := os.WriteFile(htmlFile, []byte(html), statedir.FilePerm); err != nil {
 				return fmt.Errorf("save HTML: %w", err)
 			}
@@ -143,7 +113,6 @@ For the full guide:  monoagentcli ref crawling`,
 
 	cmd.AddCommand(d.newCrawlCaptureCmd())
 
-	cmd.Flags().BoolVar(&headless, "headless", false, "Run browser headlessly (no window)")
 	cmd.Flags().IntVar(&waitSecs, "wait", 8, "Seconds to wait for JS rendering")
 
 	return cmd

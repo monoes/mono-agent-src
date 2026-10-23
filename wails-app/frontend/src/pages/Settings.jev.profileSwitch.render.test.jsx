@@ -20,6 +20,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
 const stub = vi.hoisted(() => (name) => ({ default: () => <div>{name}</div> }))
 vi.mock('../components/settings/HealthSection.jsx', () => stub('health'))
 vi.mock('../components/settings/BrowserBindingsSection.jsx', () => stub('bindings'))
+vi.mock('../components/settings/ExtensionSection.jsx', () => stub('extension'))
 vi.mock('../components/settings/ApiSection.jsx', () => stub('api'))
 vi.mock('../components/settings/CoderModeSection.jsx', () => stub('coder'))
 vi.mock('../components/settings/api/ApiKeysSection.jsx', () => stub('api-keys'))

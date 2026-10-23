@@ -3,14 +3,13 @@ package extensioncli
 import (
 	"archive/zip"
 	"bytes"
-	"net/http"
-	"net/http/httptest"
+	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/monoes/mono-agent/internal/updatecheck"
+	"testing/fstest"
 )
 
 // fixtureExtensionZip builds a zip shaped like the release asset: every file
@@ -34,26 +33,6 @@ func fixtureExtensionZip(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// fakeExtensionRelease serves zip and a SHA256SUMS.txt naming sumsDigest for
-// it, under both the tagged and the latest download paths.
-func fakeExtensionRelease(t *testing.T, zipData []byte, sumsDigest string) {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/"+extensionZipAsset):
-			_, _ = w.Write(zipData)
-		case strings.HasSuffix(r.URL.Path, "/"+updatecheck.SumsAssetName):
-			_, _ = w.Write([]byte(sumsDigest + "  " + extensionZipAsset + "\n"))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	old := extensionReleasesURL
-	extensionReleasesURL = srv.URL + "/releases"
-	t.Cleanup(func() { extensionReleasesURL = old })
-}
-
 func runExtensionInstall(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	cmd := newExtensionInstallCmd(testDeps(false))
@@ -64,64 +43,6 @@ func runExtensionInstall(t *testing.T, args ...string) (string, error) {
 	cmd.SetArgs(append([]string{}, args...))
 	err := cmd.Execute()
 	return out.String(), err
-}
-
-func TestExtensionDownloadBase(t *testing.T) {
-	old := extensionReleasesURL
-	extensionReleasesURL = "https://example.test/releases"
-	defer func() { extensionReleasesURL = old }()
-	cases := map[string]string{
-		"v0.134.1":            "https://example.test/releases/download/v0.134.1",
-		"dev":                 "https://example.test/releases/latest/download",
-		"v0.134.1-3-gabc1234": "https://example.test/releases/latest/download",
-		"":                    "https://example.test/releases/latest/download",
-	}
-	for v, want := range cases {
-		if got := extensionDownloadBase(v); got != want {
-			t.Errorf("extensionDownloadBase(%q) = %q, want %q", v, got, want)
-		}
-	}
-}
-
-func TestExtensionInstallDownloadsVerifiesAndUnpacks(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	data := fixtureExtensionZip(t, map[string]string{
-		"chrome-extension/manifest.json":    `{"manifest_version":3}`,
-		"chrome-extension/icons/icon16.png": "png",
-	})
-	fakeExtensionRelease(t, data, updatecheck.SHA256Hex(data))
-
-	out, err := runExtensionInstall(t)
-	if err != nil {
-		t.Fatalf("install: %v\n%s", err, out)
-	}
-	dir := filepath.Join(home, ".monoagent", "extension")
-	for _, f := range []string{"manifest.json", "icons/icon16.png"} {
-		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
-			t.Errorf("%s not unpacked: %v", f, err)
-		}
-	}
-	for _, want := range []string{"Checksum verified", "chrome://extensions", "edge://extensions", "Developer mode",
-		"Load unpacked and choose " + dir, "run `monoagentcli extension install` again and click Reload"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output lacks %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestExtensionInstallRefusesAChecksumMismatch(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	data := fixtureExtensionZip(t, map[string]string{"chrome-extension/manifest.json": "{}"})
-	fakeExtensionRelease(t, data, strings.Repeat("0", 64))
-
-	if _, err := runExtensionInstall(t); err == nil || !strings.Contains(err.Error(), "mismatch") {
-		t.Fatalf("want a checksum mismatch, got %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(home, ".monoagent", "extension")); !os.IsNotExist(err) {
-		t.Errorf("something was installed after a failed check: %v", err)
-	}
 }
 
 func TestExtensionInstallReplacesThePreviousCopy(t *testing.T) {
@@ -143,7 +64,7 @@ func TestExtensionInstallReplacesThePreviousCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install --zip: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "not checked against a release") {
+	if !strings.Contains(out, "not the extension this CLI ships") {
 		t.Errorf("a local zip must say it was not checked:\n%s", out)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "manifest.json")); string(b) != "v2" {
@@ -188,4 +109,83 @@ func TestExtensionInstallIsRegistered(t *testing.T) {
 		}
 	}
 	t.Fatal("`extension install` is not registered")
+}
+
+func TestExtensionInstallUnpacksTheBundledExtension(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bundledExtension = fstest.MapFS{
+		"manifest.json": {Data: []byte(`{"version":"9.9.9"}`)},
+		"background.js": {Data: []byte("bg")},
+		"x.test.mjs":    {Data: []byte("test only")},
+		"sub/nested.js": {Data: []byte("n")},
+	}
+	out, err := runExtensionInstall(t)
+	if err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	dir := filepath.Join(home, ".monoagent", "extension")
+	for _, want := range []string{"manifest.json", "background.js", "sub/nested.js"} {
+		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
+			t.Errorf("%s was not unpacked: %v", want, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "x.test.mjs")); !os.IsNotExist(err) {
+		t.Errorf("a unit test file was unpacked")
+	}
+	for _, want := range []string{"chrome://extensions", "Developer mode", "Load unpacked and choose " + dir} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestExtensionInfoReportsMissingStaleAndCurrent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	setBundledExtension(t, fstest.MapFS{"manifest.json": {Data: []byte(`{"version":"2.0.0"}`)}})
+	info := func() extensionInfo {
+		t.Helper()
+		var out bytes.Buffer
+		cmd := newExtensionInfoCmd(testDeps(true))
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		var i extensionInfo
+		if err := json.Unmarshal(out.Bytes(), &i); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out.String())
+		}
+		return i
+	}
+	dir := filepath.Join(home, ".monoagent", "extension")
+	if i := info(); i.Installed || i.Path != dir {
+		t.Errorf("before install: %+v", i)
+	}
+	if err := installExtensionFS(fstest.MapFS{"manifest.json": {Data: []byte(`{"version":"1.0.0"}`)}}, dir); err != nil {
+		t.Fatal(err)
+	}
+	if i := info(); !i.Installed || i.Current || i.Version != "1.0.0" {
+		t.Errorf("an older copy must be installed but not current: %+v", i)
+	}
+	if _, err := runExtensionInstall(t); err != nil {
+		t.Fatal(err)
+	}
+	if i := info(); !i.Current || i.Version != "2.0.0" {
+		t.Errorf("after install: %+v", i)
+	}
+}
+
+func setBundledExtension(t *testing.T, f fs.FS) {
+	t.Helper()
+	old := bundledExtension
+	bundledExtension = f
+	t.Cleanup(func() { bundledExtension = old })
+}
+
+func TestTheBundledExtensionIsTheRealOne(t *testing.T) {
+	if got := manifestVersion(bundledExtension); got == "" {
+		t.Fatal("the extension built into the CLI has no manifest.json version")
+	}
 }

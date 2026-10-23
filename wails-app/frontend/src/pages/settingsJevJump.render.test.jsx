@@ -16,6 +16,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
   JevUsage: () => Promise.resolve({ surfaces: [], total: { surface: 'total', calls: 0 } }),
   JevSetKey: vi.fn(), JevTestKey: vi.fn(), JevRemoveKey: vi.fn(), JevSetSurface: vi.fn(),
 }))
+vi.mock('../components/settings/ExtensionSection.jsx', () => ({ default: () => <div>extension-section</div> }))
 vi.mock('../components/settings/HealthSection.jsx', () => ({ default: () => <div>health-section</div> }))
 // The API section asks Settings to take it to the Jev settings, as its "Open the Jev settings" button does.
 vi.mock('../components/settings/ApiSection.jsx', () => ({

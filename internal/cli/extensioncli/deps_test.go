@@ -21,7 +21,7 @@ func TestCommandTreeAndServingServe(t *testing.T) {
 		subs = append(subs, c.Name())
 	}
 	sort.Strings(subs)
-	if got := strings.Join(subs, " "); got != "approve autopair bind browsers deny install pair reset serve status unbind" {
+	if got := strings.Join(subs, " "); got != "approve autopair bind browsers deny info install pair reset serve status unbind" {
 		t.Errorf("subcommands = %q", got)
 	}
 	if len(cmd.Aliases) != 1 || cmd.Aliases[0] != "bridge" {
