@@ -101,7 +101,7 @@ func checkExtension(ctx context.Context, env *Env) Result {
 		if dir := env.ExtensionDir(); filepath.IsAbs(dir) {
 			res.Detail = "load unpacked from: " + dir
 		} else {
-			res.Detail = "load unpacked from the chrome-extension folder of the mono-agent download"
+			res.Detail = "run `monoagentcli extension install`, then load unpacked from ~/.monoagent/extension"
 		}
 	}
 	return res

@@ -134,10 +134,10 @@ func ExtensionDir() string {
 			return p
 		}
 	}
-	// 2. Try ~/.monoagent/chrome-extension
+	// 2. Try ~/.monoagent/extension, where `monoagentcli extension install` unpacks it
 	home, err := os.UserHomeDir()
 	if err == nil {
-		p := filepath.Join(home, ".monoagent", "chrome-extension")
+		p := filepath.Join(home, ".monoagent", "extension")
 		if _, err := os.Stat(filepath.Join(p, "manifest.json")); err == nil {
 			return p
 		}
