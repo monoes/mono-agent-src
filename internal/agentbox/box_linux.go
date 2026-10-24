@@ -114,7 +114,8 @@ func expand(home, p string) (string, error) {
 }
 
 // envArgs is --clearenv and one --setenv for each variable of env that the sandboxed
-// command may see: the allowlist, MONOAGENT_*, and PassEnv.
+// command may see: the allowlist and PassEnv (what the caller set for this turn). Ambient
+// MONOAGENT_* variables (connection secrets, task tokens) do not pass.
 func (b Box) envArgs(env []string, home, mode string) []string {
 	allowed := map[string]bool{}
 	for _, k := range EnvAllowlist {
@@ -129,7 +130,7 @@ func (b Box) envArgs(env []string, home, mode string) []string {
 		if !ok || k == "HOME" || k == "MONOAGENT_SANDBOX" {
 			continue
 		}
-		if allowed[k] || strings.HasPrefix(k, "MONOAGENT_") {
+		if allowed[k] {
 			vals[k] = v
 		}
 	}

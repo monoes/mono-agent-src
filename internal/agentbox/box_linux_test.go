@@ -50,11 +50,12 @@ func newRig(t *testing.T) rig {
 }
 
 func (r rig) box(mode Mode) Box {
-	return Box{Mode: mode, Cwd: r.proj, Home: r.home, StateDir: r.state, Binaries: []string{r.tool}}
+	return Box{Mode: mode, Cwd: r.proj, Home: r.home, StateDir: r.state, Binaries: []string{r.tool}, PassEnv: []string{"MONOAGENT_X"}}
 }
 
 func (r rig) env() []string {
-	return []string{"PATH=" + filepath.Dir(r.tool) + ":" + os.Getenv("PATH"), "HOME=" + r.home, "SSH_AUTH_SOCK=/tmp/agent.sock", "MONOAGENT_X=1", "AWS_SECRET_ACCESS_KEY=zzz"}
+	return []string{"PATH=" + filepath.Dir(r.tool) + ":" + os.Getenv("PATH"), "HOME=" + r.home, "SSH_AUTH_SOCK=/tmp/agent.sock", "MONOAGENT_X=1", "AWS_SECRET_ACCESS_KEY=zzz",
+		"MONOAGENT_GITHUB_CLIENT_SECRET=oauth-secret", "MONOAGENT_AITASK_TOKEN=ambient", "MONOAGENT_API_URL=http://127.0.0.1:9322"}
 }
 
 func runPlan(t *testing.T, p Plan, env []string) (string, error) {
@@ -416,5 +417,18 @@ echo "dirty=$(dirty 2>/dev/null || echo failed)"`
 	}
 	if !strings.Contains(strings.Join(p.Notes, "|"), "pkgs/dirty") {
 		t.Errorf("no warning for the skipped package directory: %v", p.Notes)
+	}
+}
+
+func TestOnlyAllowlistedMonoagentVariablesPass(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	p, err := r.box(Strict).Wrap("sh", []string{"-c", `echo "secret=${MONOAGENT_GITHUB_CLIENT_SECRET:-unset} task=${MONOAGENT_AITASK_TOKEN:-unset} api=${MONOAGENT_API_URL:-unset} turn=${MONOAGENT_X:-unset}"`}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runPlan(t, p, nil)
+	if err != nil || !strings.Contains(out, "secret=unset task=unset api=http://127.0.0.1:9322 turn=1") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }
