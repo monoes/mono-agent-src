@@ -293,9 +293,14 @@ func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error)
 		}
 	}
 	argv = append(argv, "--bind", cwd, cwd, "--chdir", cwd)
-	for _, d := range StrictRuntimeDirs {
-		if full := filepath.Join(home, d); exists(full) {
-			argv = append(argv, "--bind", full, full)
+	if rc, ok := RuntimeConfigs[b.Runtime]; ok {
+		for _, d := range rc.Scratch {
+			argv = append(argv, "--tmpfs", filepath.Join(home, d))
+		}
+		for _, f := range rc.Auth {
+			if full := filepath.Join(home, f); exists(full) {
+				argv = append(argv, "--ro-bind", full, full)
+			}
 		}
 	}
 	for _, set := range []struct {

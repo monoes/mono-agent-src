@@ -45,6 +45,21 @@ var StrictForbidden = []string{
 // the sandbox: strict mode confines what an agent reaches, it does not make these safe.
 var StrictRuntimeDirs = []string{".claude", ".claude.json", ".codex", ".config/opencode", ".gemini", ".config/github-copilot"}
 
+// RuntimeConfig is what a boxed turn gets of one agent runtime's home configuration:
+// Scratch directories are empty and disposable (the runtime writes its settings, caches and
+// sessions there and they vanish with the turn), Auth files are bound back read-only so the
+// runtime stays logged in. Other runtimes' directories are not bound at all.
+type RuntimeConfig struct{ Scratch, Auth []string }
+
+// RuntimeConfigs maps a runtime id to its configuration, relative to $HOME.
+var RuntimeConfigs = map[string]RuntimeConfig{
+	"claude":   {Scratch: []string{".claude"}, Auth: []string{".claude.json", ".claude/.credentials.json"}},
+	"codex":    {Scratch: []string{".codex"}, Auth: []string{".codex/auth.json"}},
+	"gemini":   {Scratch: []string{".gemini"}, Auth: []string{".gemini/oauth_creds.json", ".gemini/google_accounts.json"}},
+	"opencode": {Scratch: []string{".config/opencode", ".local/share/opencode"}, Auth: []string{".local/share/opencode/auth.json"}},
+	"copilot":  {Scratch: []string{".config/github-copilot"}, Auth: []string{".config/github-copilot/hosts.json", ".config/github-copilot/apps.json"}},
+}
+
 // RuntimeBinaries names the command each runtime id starts, to find where it is installed.
 var RuntimeBinaries = map[string]string{
 	"claude": "claude", "codex": "codex", "gemini": "gemini", "opencode": "opencode", "copilot": "copilot",

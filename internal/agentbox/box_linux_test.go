@@ -179,3 +179,45 @@ func TestCanaryRefusesABrokenBox(t *testing.T) {
 		t.Fatalf("canary did not refuse: %v", err)
 	}
 }
+
+// Only the selected runtime's login is bound, read-only; its settings directory is a
+// disposable tmpfs; another runtime's directory is not bound at all.
+func TestStrictBindsOnlyTheSelectedRuntimesAuthReadOnly(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	for f, c := range map[string]string{".claude/.credentials.json": "claude-login", ".claude/settings.json": "hooks", ".codex/auth.json": "codex-login"} {
+		p := filepath.Join(r.home, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(c), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := r.box(Strict)
+	b.Runtime = "claude"
+	probe := `echo "login=$(cat "$HOME/.claude/.credentials.json" 2>/dev/null || echo none)"
+echo "other=$(cat "$HOME/.codex/auth.json" 2>/dev/null || echo none)"
+echo "oldsettings=$(cat "$HOME/.claude/settings.json" 2>/dev/null || echo none)"
+(echo x >> "$HOME/.claude/.credentials.json") 2>/dev/null && echo credwrite=ok || echo credwrite=denied
+echo '{"hooks":1}' > "$HOME/.claude/settings.json" && echo settingswrite=tmpfs`
+	p, err := b.Wrap("sh", []string{"-c", probe}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runPlan(t, p, nil)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, w := range []string{"login=claude-login", "other=none", "oldsettings=none", "credwrite=denied", "settingswrite=tmpfs"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("want %q in:\n%s", w, out)
+		}
+	}
+	if c, _ := os.ReadFile(filepath.Join(r.home, ".claude/settings.json")); string(c) != "hooks" {
+		t.Errorf("host settings changed: %q", c)
+	}
+	if c, _ := os.ReadFile(filepath.Join(r.home, ".claude/.credentials.json")); string(c) != "claude-login" {
+		t.Errorf("host credentials changed: %q", c)
+	}
+}
