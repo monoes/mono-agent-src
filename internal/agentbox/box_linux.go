@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -283,9 +284,14 @@ func (b Box) binaryBinds(home string, forbidden []string, found string) []string
 // Wrap returns the command that runs bin with args under the box. env is the environment
 // the command would have had; only the allowlisted part reaches it.
 func (b Box) Wrap(bin string, args, env []string) (Plan, error) {
-	bw, err := exec.LookPath("bwrap")
-	if err != nil {
-		return Plan{}, errf(CodeUnavailable, "bubblewrap (bwrap) is not installed: the agent sandbox cannot start")
+	bw := b.Bwrap
+	var err error
+	if bw == "" {
+		if bw, err = findBwrap(); err != nil {
+			return Plan{}, err
+		}
+	} else if err = trustedLauncher(bw); err != nil {
+		return Plan{}, err
 	}
 	home, err := b.home()
 	if err != nil {
@@ -523,6 +529,61 @@ func runCanary(ctx context.Context, plan Plan, marker string) error {
 	}
 	if err != nil || !strings.Contains(string(out), "canary-ok") {
 		return errf(CodeCanary, "the sandbox canary failed: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Pin returns the box with the bubblewrap launcher resolved once and checked, so that the
+// canary and the turn run the same executable.
+func (b Box) Pin() (Box, error) {
+	if b.Bwrap != "" {
+		return b, trustedLauncher(b.Bwrap)
+	}
+	bw, err := findBwrap()
+	b.Bwrap = bw
+	return b, err
+}
+
+// findBwrap is the system's bubblewrap: /usr/bin, /usr/local/bin, else the first on PATH.
+// The ambient PATH is only a last resort and the result is checked either way.
+func findBwrap() (string, error) {
+	for _, p := range []string{"/usr/bin/bwrap", "/usr/local/bin/bwrap"} {
+		if _, err := os.Stat(p); err == nil {
+			return p, trustedLauncher(p)
+		}
+	}
+	p, err := exec.LookPath("bwrap")
+	if err != nil {
+		return "", errf(CodeUnavailable, "bubblewrap (bwrap) is not installed: the agent sandbox cannot start")
+	}
+	if p, err = filepath.Abs(p); err != nil {
+		return "", errf(CodeUnavailable, "bubblewrap path: %v", err)
+	}
+	return p, trustedLauncher(p)
+}
+
+// trustedLauncher refuses a launcher that someone else could replace: the executable and
+// every directory above it (as written and after symlinks) must be owned by root or the
+// invoking user and not writable by group or others.
+func trustedLauncher(p string) error {
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return errf(CodeUnavailable, "bubblewrap %s: %v", p, err)
+	}
+	for _, path := range []string{r, p} {
+		for cur := path; ; cur = filepath.Dir(cur) {
+			fi, err := os.Stat(cur)
+			if err != nil {
+				return errf(CodeUntrusted, "bubblewrap: %v", err)
+			}
+			st, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok || (st.Uid != 0 && int(st.Uid) != os.Getuid()) || fi.Mode().Perm()&0o022 != 0 {
+				return errf(CodeUntrusted, "bubblewrap %s is not trusted: %s is writable by others or owned by another user", p, cur)
+			}
+			if cur == "/" {
+				break
+			}
+		}
 	}
 	return nil
 }

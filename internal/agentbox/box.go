@@ -23,6 +23,7 @@ const (
 	CodeUnavailable   = "box_unavailable"
 	CodeCanary        = "box_canary_failed"
 	CodeBadPath       = "box_path_refused"
+	CodeUntrusted     = "box_untrusted_launcher"
 )
 
 // Error is a typed box error: Code is stable, Msg is for people.
@@ -63,6 +64,9 @@ type Box struct {
 	// regular file (no symlink, no directory) that is not, or under, a credential, startup or
 	// state location.
 	ReadOnly, Attach []string
+	// Bwrap is the absolute path of the bubblewrap launcher. Pin sets it once per turn so the
+	// canary and the turn run the same, checked executable; empty means Wrap resolves it.
+	Bwrap string
 	// PassEnv names variables passed on besides the allowlist and MONOAGENT_*.
 	PassEnv []string
 }

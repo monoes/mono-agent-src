@@ -38,6 +38,10 @@ func boxedCommand(ctx context.Context, opts ExecOptions, bin string, args, env [
 		b.PassEnv = append(b.PassEnv, k)
 	}
 	sort.Strings(b.PassEnv)
+	b, err := b.Pin()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
+	}
 	if err := b.Canary(ctx); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
 	}

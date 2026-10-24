@@ -154,3 +154,28 @@ func processWithArg(arg string) bool {
 	}
 	return false
 }
+
+// A launcher that someone else could replace starts nothing.
+func TestExecBoxRefusesAnUntrustedLauncher(t *testing.T) {
+	needBwrap(t)
+	r := newBoxRig(t, `touch "$PWD/ran"`)
+	dir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bwrap"), []byte("#!/bin/sh\ntouch \""+r.proj+"/ran\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o := r.opts(agentbox.Strict)
+	o.Box.Bwrap = filepath.Join(dir, "bwrap")
+	_, err := Exec(context.Background(), o, nil)
+	if !errors.Is(err, ErrSandboxRequired) || !agentbox.IsCode(err, agentbox.CodeUntrusted) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, serr := os.Stat(filepath.Join(r.proj, "ran")); serr == nil {
+		t.Fatal("the untrusted launcher ran")
+	}
+}

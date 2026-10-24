@@ -13,3 +13,8 @@ func (b Box) Wrap(bin string, args, env []string) (Plan, error) {
 func (b Box) Canary(context.Context) error {
 	return errf(CodeUnsupportedOS, "the agent sandbox needs bubblewrap and runs on Linux only")
 }
+
+// Pin is not available off Linux.
+func (b Box) Pin() (Box, error) {
+	return b, errf(CodeUnsupportedOS, "the agent sandbox needs bubblewrap and runs on Linux only")
+}

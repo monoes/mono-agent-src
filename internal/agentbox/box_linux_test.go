@@ -322,3 +322,53 @@ func TestAttachmentsAreCheckedAndProbed(t *testing.T) {
 		t.Errorf("the canary plan lacks the attachment bind: %v", err)
 	}
 }
+
+func TestLauncherMustBeTrusted(t *testing.T) {
+	needBwrap(t)
+	real, err := findBwrap()
+	if err != nil {
+		t.Fatalf("the system bwrap is not trusted: %v", err)
+	}
+	data, _ := os.ReadFile(real)
+	dir := filepath.Join(t.TempDir(), "bin")
+	os.MkdirAll(dir, 0o755)
+	copyPath := filepath.Join(dir, "bwrap")
+	os.WriteFile(copyPath, data, 0o755)
+	if err := trustedLauncher(copyPath); err != nil {
+		t.Skipf("scratch ancestors are not private on this machine: %v", err)
+	}
+	// Replaceable by others: refused.
+	os.Chmod(dir, 0o777)
+	if err := trustedLauncher(copyPath); !IsCode(err, CodeUntrusted) {
+		t.Errorf("a launcher in a world-writable directory: %v", err)
+	}
+	os.Chmod(dir, 0o755)
+	os.Chmod(copyPath, 0o775)
+	if err := trustedLauncher(copyPath); !IsCode(err, CodeUntrusted) {
+		t.Errorf("a group-writable launcher: %v", err)
+	}
+	// Wrap and the canary refuse it, and a pinned box uses one path for both.
+	r := newRig(t)
+	b := r.box(Strict)
+	b.Bwrap = copyPath
+	if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeUntrusted) {
+		t.Errorf("Wrap with an untrusted launcher: %v", err)
+	}
+	if err := b.Canary(context.Background()); !IsCode(err, CodeUntrusted) {
+		t.Errorf("Canary with an untrusted launcher: %v", err)
+	}
+	pinned, err := r.box(Strict).Pin()
+	if err != nil || pinned.Bwrap != real {
+		t.Fatalf("Pin: %q %v", pinned.Bwrap, err)
+	}
+	p, _ := pinned.Wrap("true", nil, r.env())
+	cp, _, _ := pinned.canaryPlan()
+	if p.Argv[0] != real || cp.Argv[0] != real {
+		t.Errorf("turn %q and canary %q do not use the pinned launcher %q", p.Argv[0], cp.Argv[0], real)
+	}
+	// A hostile PATH entry is never consulted while a system launcher exists.
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	if got, err := findBwrap(); err != nil || got != real {
+		t.Errorf("findBwrap with a planted PATH entry: %q %v", got, err)
+	}
+}
