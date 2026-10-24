@@ -372,3 +372,49 @@ func TestLauncherMustBeTrusted(t *testing.T) {
 		t.Errorf("findBwrap with a planted PATH entry: %q %v", got, err)
 	}
 }
+
+// Only the binary (and a clean package root) is bound, never what lies beside it.
+func TestBinaryBindsDoNotExposeNeighbours(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	os.WriteFile(filepath.Join(r.home, "tools", "secret.txt"), []byte("neighbour"), 0o600)
+	os.WriteFile(filepath.Join(r.home, "tools", "bin", "other"), []byte("other"), 0o755)
+	pkg := func(name string, extra ...string) string {
+		root := filepath.Join(r.home, "pkgs", name)
+		os.MkdirAll(filepath.Join(root, "bin"), 0o755)
+		os.WriteFile(filepath.Join(root, "package.json"), []byte("{}"), 0o644)
+		os.WriteFile(filepath.Join(root, "lib.txt"), []byte("lib"), 0o644)
+		for _, e := range extra {
+			os.WriteFile(filepath.Join(root, e), []byte("x"), 0o600)
+		}
+		cli := filepath.Join(root, "bin", "cli")
+		os.WriteFile(cli, []byte("#!/bin/sh\ncat \"$(dirname \"$(readlink -f \"$0\")\")/../lib.txt\"\n"), 0o755)
+		link := filepath.Join(r.home, "tools", "bin", name)
+		os.Symlink(cli, link)
+		return link
+	}
+	clean, dirty := pkg("clean"), pkg("dirty", ".env")
+	b := r.box(Strict)
+	b.Binaries = []string{r.tool, clean, dirty}
+	probe := `echo "neighbour=$(cat "` + filepath.Join(r.home, "tools", "secret.txt") + `" 2>/dev/null || echo none)"
+echo "otherbin=$(cat "` + filepath.Join(r.home, "tools", "bin", "other") + `" 2>/dev/null || echo none)"
+echo "clean=$(clean 2>/dev/null || echo failed)"
+echo "dirty=$(dirty 2>/dev/null || echo failed)"`
+	p, err := b.Wrap("sh", []string{"-c", probe}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// PATH for the lookup includes the tools dir (r.env()).
+	out, err := runPlan(t, p, nil)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, w := range []string{"neighbour=none", "otherbin=none", "clean=lib", "dirty=failed"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("want %q in:\n%s", w, out)
+		}
+	}
+	if !strings.Contains(strings.Join(p.Notes, "|"), "pkgs/dirty") {
+		t.Errorf("no warning for the skipped package directory: %v", p.Notes)
+	}
+}

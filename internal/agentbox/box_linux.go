@@ -247,36 +247,66 @@ func underScratch(home, p string) bool {
 	return false
 }
 
+// sensitiveNames are entry names that keep a package directory from being bound: its
+// siblings would be exposed along with the code.
+var sensitiveNames = map[string]bool{".env": true, ".npmrc": true, "id_rsa": true, "id_ed25519": true, "credentials": true, "credentials.json": true}
+
+func holdsSensitive(dir string) bool {
+	forbidden := map[string]bool{}
+	for _, f := range StrictForbidden {
+		if n := filepath.Base(f); strings.HasPrefix(n, ".") {
+			forbidden[n] = true
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return true
+	}
+	for _, e := range entries {
+		if forbidden[e.Name()] || sensitiveNames[e.Name()] {
+			return true
+		}
+	}
+	return false
+}
+
 // binaryBinds are the read-only binds that make one executable runnable in a strict box:
-// the file as found on PATH, and the directory it really lives in (its install prefix, or
-// the package root for a script) when that is under a hidden location and holds nothing
-// forbidden.
-func (b Box) binaryBinds(home string, forbidden []string, found string) []string {
+// the file as found on PATH and the file it really is, and, for a script in a package, the
+// package root (a directory with a package.json) when nothing sensitive sits in it. Never
+// the parent directory or install prefix: what lies beside a binary is not needed to run it.
+func (b Box) binaryBinds(home string, forbidden []string, found string, plan *Plan) []string {
 	var binds []string
 	add := func(p string) {
 		if p != "" && exists(p) && underScratch(home, p) {
 			binds = append(binds, p)
 		}
 	}
-	add(found)
 	real, err := filepath.EvalSymlinks(found)
 	if err != nil {
+		add(found)
 		return binds
 	}
-	dirs := []string{filepath.Dir(real)}
-	if filepath.Base(filepath.Dir(real)) == "bin" {
-		dirs = append(dirs, filepath.Dir(filepath.Dir(real)))
-	}
-	for d, i := filepath.Dir(real), 0; i < 6 && d != home && d != "/" && d != "."; d, i = filepath.Dir(d), i+1 {
-		if exists(filepath.Join(d, "package.json")) {
-			dirs = append(dirs, d)
-			break
+	if real != found {
+		// A symlink stays one, so a script that finds its package through $0 still can.
+		if underScratch(home, found) {
+			binds = append(binds, "symlink:"+real+"\x00"+found)
 		}
+	} else {
+		add(found)
 	}
-	for _, d := range dirs {
-		if err := checkAllowed(home, forbidden, d); err == nil {
+	add(real)
+	for d, i := filepath.Dir(real), 0; i < 6 && d != home && d != "/" && d != "."; d, i = filepath.Dir(d), i+1 {
+		if !exists(filepath.Join(d, "package.json")) {
+			continue
+		}
+		switch {
+		case !underScratch(home, d):
+		case checkAllowed(home, forbidden, d) != nil || holdsSensitive(d):
+			plan.Notes = append(plan.Notes, "the package directory "+d+" holds credential-like entries: not bound, "+filepath.Base(found)+" may not start")
+		default:
 			add(d)
 		}
+		break
 	}
 	return binds
 }
@@ -408,9 +438,14 @@ func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error)
 			plan.Notes = append(plan.Notes, n+" was not found on PATH: not bound into the box")
 			continue
 		}
-		for _, p := range b.binaryBinds(home, forbidden, found) {
-			if !seen[p] {
-				seen[p] = true
+		for _, p := range b.binaryBinds(home, forbidden, found, plan) {
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			if target, link, ok := strings.Cut(strings.TrimPrefix(p, "symlink:"), "\x00"); ok && strings.HasPrefix(p, "symlink:") {
+				argv = append(argv, "--symlink", target, link)
+			} else {
 				argv = append(argv, "--ro-bind", p, p)
 			}
 		}
