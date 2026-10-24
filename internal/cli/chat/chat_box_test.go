@@ -42,8 +42,10 @@ func TestCoderBoxDecision(t *testing.T) {
 	if _, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", ai.OrgModeDynamic); codeOf(err) != CodeBoxOrgUnsupport {
 		t.Errorf("dynamic org: %v", err)
 	}
-	if (coderSettings{Box: "bogus"}).boxMode() != BoxOff {
-		t.Error("an unknown value is not off")
+	for _, bad := range []string{"bogus", "STRICT", "stirct", " strict", "on"} {
+		if b, err := coderBox(coderSettings{Box: bad}, ai.AccessCoding, "/w", "claude", ""); b != nil || codeOf(err) != CodeBoxInvalid {
+			t.Errorf("value %q: %v %v", bad, b, err)
+		}
 	}
 }
 
@@ -133,4 +135,22 @@ func TestCoderBoxSettingIsOffByDefaultAndTheOperators(t *testing.T) {
 		t.Errorf("status after set: %s", out)
 	}
 	// That an agent is refused --box is covered by TestEveryCoderSetFlagIsTheOperators.
+}
+
+// A tampered stored value does not mean off: the turn is refused before anything starts.
+func TestCoderBoxRefusesATamperedSetting(t *testing.T) {
+	r := newAccessRig(t, true)
+	setCoderSettings(t, r.dbPath, coderSettings{Enabled: true, Box: "stirct"})
+	c := r.conv(t, ai.AccessCoding)
+	r.reset()
+	_, err := runChatCmd(t, r.dbPath, r.bin, "--conversation", c.ID, "--turn", "t1", "--", "hi")
+	if codeOf(err) != CodeBoxInvalid || exitCodeFor(err) == 0 {
+		t.Fatalf("err = %v", err)
+	}
+	if r.exec() != "" {
+		t.Fatalf("a turn started: %s", r.exec())
+	}
+	if out, _ := runCoderCLI(t, r.dbPath, "status"); !strings.Contains(out, `"box":"stirct"`) {
+		t.Errorf("status hides the tampered value: %s", out)
+	}
 }
