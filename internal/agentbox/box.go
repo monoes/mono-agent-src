@@ -58,8 +58,11 @@ type Box struct {
 	// Binaries are further executables the turn starts (monomind, monoagentcli): their
 	// install locations are bound read-only.
 	Binaries []string
-	// ReadOnly are extra files or directories bound read-only (a turn's prompt files).
-	ReadOnly []string
+	// ReadOnly are the regular files the caller itself wrote for the turn (its prompt files),
+	// bound read-only. Attach are files supplied for the turn: each must be a canonical
+	// regular file (no symlink, no directory) that is not, or under, a credential, startup or
+	// state location.
+	ReadOnly, Attach []string
 	// PassEnv names variables passed on besides the allowlist and MONOAGENT_*.
 	PassEnv []string
 }

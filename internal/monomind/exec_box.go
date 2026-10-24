@@ -29,11 +29,11 @@ func boxedCommand(ctx context.Context, opts ExecOptions, bin string, args, env [
 	b.ReadOnly = append([]string(nil), b.ReadOnly...)
 	for i := 0; i+1 < len(args); i++ {
 		switch args[i] {
-		case "--prompt-file", "--system-file", "--tools-file", "--attach":
+		case "--prompt-file", "--system-file", "--tools-file":
 			b.ReadOnly = append(b.ReadOnly, args[i+1])
 		}
 	}
-	b.ReadOnly = append(b.ReadOnly, opts.Attach...)
+	b.Attach = append(append([]string(nil), b.Attach...), opts.Attach...)
 	for k := range opts.Env {
 		b.PassEnv = append(b.PassEnv, k)
 	}

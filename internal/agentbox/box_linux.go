@@ -144,6 +144,61 @@ func (b Box) envArgs(env []string, home, mode string) []string {
 	return append(out, "--setenv", "HOME", home, "--setenv", "MONOAGENT_SANDBOX", "bwrap-"+mode)
 }
 
+// regularFile reports whether p is a regular file that is not a symlink (a missing file is
+// skipped by the caller).
+func regularFile(p string) (bool, error) {
+	fi, err := os.Lstat(p)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !fi.Mode().IsRegular() {
+		return false, errf(CodeBadPath, "%s is not a regular file (a symlink or directory cannot be bound into the box)", p)
+	}
+	return true, nil
+}
+
+// fileBinds are the read-only binds of the caller's own files and of the attachments.
+func (b Box) fileBinds(home string) ([]string, error) {
+	forbidden, _, err := b.forbiddenPaths(home)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, f := range b.ReadOnly {
+		ok, err := regularFile(f)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, "--ro-bind", f, f)
+		}
+	}
+	for _, f := range b.Attach {
+		if !filepath.IsAbs(f) || filepath.Clean(f) != f {
+			return nil, errf(CodeBadPath, "attachment %q is not a clean absolute path", f)
+		}
+		ok, err := regularFile(f)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, errf(CodeBadPath, "attachment %s does not exist", f)
+		}
+		r, err := filepath.EvalSymlinks(f)
+		if err != nil || r != f {
+			return nil, errf(CodeBadPath, "attachment %s is reached through a symlink", f)
+		}
+		if err := checkAllowed(home, forbidden, r); err != nil {
+			return nil, err
+		}
+		out = append(out, "--ro-bind", f, f)
+	}
+	return out, nil
+}
+
 // mountPoint is p with symlinks resolved: bwrap cannot mount on a symlink.
 func mountPoint(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
@@ -249,11 +304,11 @@ func (b Box) Wrap(bin string, args, env []string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	for _, ro := range b.ReadOnly {
-		if exists(ro) {
-			argv = append(argv, "--ro-bind", ro, ro)
-		}
+	files, err := b.fileBinds(home)
+	if err != nil {
+		return Plan{}, err
 	}
+	argv = append(argv, files...)
 	argv = append(argv, "--die-with-parent", "--", bin)
 	plan.Argv = append(append([]string{bw}, argv...), args...)
 	return plan, nil
@@ -436,7 +491,7 @@ func (b Box) canaryPlan() (plan Plan, marker string, err error) {
 	}
 	nonce := hex.EncodeToString(nb)
 	var inState []string
-	for _, f := range b.ReadOnly {
+	for _, f := range append(append([]string(nil), b.ReadOnly...), b.Attach...) {
 		if r := mountPoint(f); strings.HasPrefix(r, mountPoint(state)+"/") || strings.HasPrefix(f, state+"/") {
 			inState = append(inState, f)
 		}

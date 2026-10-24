@@ -285,3 +285,40 @@ func TestRelocatedForbiddenDirectoriesAreMasked(t *testing.T) {
 		}
 	}
 }
+
+// Attachments must be canonical regular files outside the protected locations, and the
+// canary probes the plan that includes them.
+func TestAttachmentsAreCheckedAndProbed(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	good := filepath.Join(filepath.Dir(r.home), "notes.txt")
+	os.WriteFile(good, []byte("notes"), 0o600)
+	link := filepath.Join(filepath.Dir(r.home), "link.txt")
+	os.Symlink(filepath.Join(r.state, "monoagent.db"), link)
+	for name, att := range map[string]string{
+		"state directory": r.state, "file in state": filepath.Join(r.state, "monoagent.db"),
+		"symlink to state": link, "directory": r.proj, "missing": filepath.Join(r.proj, "nope"), "relative": "notes.txt",
+	} {
+		b := r.box(Strict)
+		b.Attach = []string{att}
+		if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeBadPath) {
+			t.Errorf("attachment %s (%s) not refused: %v", name, att, err)
+		}
+	}
+	b := r.box(Strict)
+	b.Attach = []string{good}
+	p, err := b.Wrap("sh", []string{"-c", `cat "` + good + `"`}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runPlan(t, p, nil); err != nil || !strings.Contains(out, "notes") {
+		t.Fatalf("good attachment: %v %s", err, out)
+	}
+	if err := b.Canary(context.Background()); err != nil {
+		t.Fatalf("canary with an attachment: %v", err)
+	}
+	cp, _, err := b.canaryPlan()
+	if err != nil || !strings.Contains(strings.Join(cp.Argv, " "), "--ro-bind "+good+" "+good) {
+		t.Errorf("the canary plan lacks the attachment bind: %v", err)
+	}
+}
