@@ -2333,9 +2333,15 @@ every turn exactly as it was; `coder status --json` reports it as `box`) runs
 the coder lead turn of a `coding`-access chat inside the agent sandbox
 (`internal/agentbox`, bubblewrap, Linux only; other systems return
 `box_unsupported_os`). `strict` leaves the turn the current folder, the
-runtimes' own config and the install locations of the binaries it starts
-(monomind, node, the runtime CLI, each bound read-only; what could not be found
-is logged); `compat` hides a list of paths and keeps the rest writable (best
+selected runtime's login files (read-only, with a disposable settings directory
+that vanishes with the turn; other runtimes' directories are not bound) and the
+binaries it starts (monomind, node, the runtime CLI: the file itself, plus a
+package directory only when nothing credential-like sits in it; what could not be
+bound is logged). Forbidden locations are compared and masked at their real
+targets, attachments must be plain files outside them, the launcher is one
+checked system `bwrap` for the canary and the turn, only an allowlist and the
+turn's own variables pass, and an unknown `coder.box` value refuses the turn
+(`box_setting_invalid`); `compat` hides a list of paths and keeps the rest writable (best
 effort, not a boundary). The path lists are the ones `agent-mode sandbox`
 prints. Before the turn a canary runs in the same configuration (state
 directory unreadable, no `SSH_AUTH_SOCK`, only the box's own processes, home
