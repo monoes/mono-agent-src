@@ -40,8 +40,7 @@ func profileOf(r *http.Request) string {
 // and anyProfileAuth take it as an argument.
 //
 //	read  GET only: list, get, status.
-//	write mutations that start nothing and send nothing (validate; tasks, documents
-//	      and people when the API gains routes for them).
+//	write mutations that start nothing and send nothing (validate; tagging a document).
 //	run   starting or (de)activating a workflow.
 //	full  approvals, and anything else that spends the profile's authority:
 //	      vault secrets, sends and the account are never reachable below it.
@@ -107,6 +106,23 @@ func (s *Server) scoped(tok agenttokens.Token, need agenttokens.Scope, h http.Ha
 	}
 }
 
+// auditForeignUse records a valid token used on a path that names another profile (or one
+// that does not exist), as refused with 401: the caller is answered the one 401 of every
+// credential failure, and the owner of the token sees the attempt in `token audit`. Both
+// ways of getting here (a profile that exists and one that does not) do this one write, so
+// the answer's cost does not tell them apart. A failed write is only logged: the request is
+// refused either way.
+func (s *Server) auditForeignUse(tok agenttokens.Token, r *http.Request) {
+	ctx := context.WithoutCancel(r.Context())
+	id, err := s.agentTokens().BeginUse(ctx, tok, r.Method, r.URL.EscapedPath())
+	if err == nil {
+		err = s.agentTokens().FinishUse(ctx, id, http.StatusUnauthorized)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "httpapi: warning: %v\n", err)
+	}
+}
+
 type scopeCtxKey struct{}
 
 // scopeOf is the scope the request was authenticated with: an agent token's, or full for
@@ -154,6 +170,11 @@ func (s *Server) profileAuth(need agenttokens.Scope, h http.HandlerFunc) http.Ha
 				_, _ = s.readToken(ctx, decoy)
 			}
 			constantTimeEqual(got, s.decoyToken)
+			if strings.HasPrefix(got, agenttokens.Prefix) {
+				if tok, err := s.agentTokens().Verify(ctx, got); err == nil {
+					s.auditForeignUse(tok, r)
+				}
+			}
 			writeUnauthorized(w)
 			return
 		}
@@ -175,9 +196,12 @@ func (s *Server) profileAuth(need agenttokens.Scope, h http.HandlerFunc) http.Ha
 			matched = nil // the tokens above were still read: the work stays the same
 		}
 		if len(matched) == 0 && strings.HasPrefix(got, agenttokens.Prefix) {
-			if tok, err := s.agentTokens().Verify(ctx, got); err == nil && containsID(candidates, tok.ProfileID) {
-				s.scoped(tok, need, h, w, r.WithContext(context.WithValue(ctx, profileCtxKey{}, tok.ProfileID)))
-				return
+			if tok, err := s.agentTokens().Verify(ctx, got); err == nil {
+				if containsID(candidates, tok.ProfileID) {
+					s.scoped(tok, need, h, w, r.WithContext(context.WithValue(ctx, profileCtxKey{}, tok.ProfileID)))
+					return
+				}
+				s.auditForeignUse(tok, r)
 			}
 		}
 		switch {

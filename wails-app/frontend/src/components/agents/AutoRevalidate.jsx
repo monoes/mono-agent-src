@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
@@ -44,8 +44,13 @@ export default function AutoRevalidate({ refreshKey = 0 }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Only the newest answer counts: a reload that started before a toggle (the roster
+  // changed while the user was confirming) can arrive after it with the old state.
+  const latest = useRef(0)
   const load = useCallback(async () => {
+    const mine = ++latest.current
     const res = await api.agentRosterAutoRevalidate()
+    if (mine !== latest.current) return
     if (res?.error) { setError(res.error); return }
     setError('')
     setSt(res)
@@ -69,6 +74,7 @@ export default function AutoRevalidate({ refreshKey = 0 }) {
     setSaving(true)
     const res = await api.setAgentRosterAutoRevalidate(on)
     setSaving(false)
+    latest.current++ // the user's own answer is newest: reloads still in flight are older
     if (res?.error) { setError(res.error); return }
     setError('')
     setSt(res)

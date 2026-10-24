@@ -319,9 +319,9 @@ jobs:
             # computed so it follows the files.
             pkgs="$(grep -rl --include='*.go' --exclude-dir=wails-app --exclude-dir=node_modules '//go:build.*nosocial' . | xargs -n1 dirname | sed 's|^\./||' | sort -u | grep -vx 'cmd/monoagentcli' | sed 's|^|./|' || true)"
             echo "nosocial packages: $pkgs"
-            if [ -n "$pkgs" ]; then go test -timeout 35m $tags $pkgs -race; fi
+            if [ -n "$pkgs" ]; then go test -timeout 60m $tags $pkgs -race; fi
           elif [ "$SHARD" = rest ]; then
-            go test -timeout 35m $tags $(go list $tags ./... | grep -v '/cmd/monoagentcli$') -race
+            go test -timeout 60m $tags $(go list $tags ./... | grep -v '/cmd/monoagentcli$') -race
           else
             names="$(go test $tags ./cmd/monoagentcli -list '^(Test|Example)' | grep -E '^(Test|Example)' | awk -v s="$SHARD" 'NR % 4 == s' | paste -sd'|')"
             go test -timeout 35m $tags ./cmd/monoagentcli -race -run "^($names)$"

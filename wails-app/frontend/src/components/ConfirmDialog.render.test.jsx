@@ -38,4 +38,30 @@ describe('ConfirmDialog', () => {
     await act(async () => { fireEvent.keyDown(window, { key: 'Escape' }) })
     expect(answer).toBe(false)
   })
+
+  it('hands focus back to the opener after Escape, Cancel and confirm', async () => {
+    render(<><button>opener</button><ConfirmHost /></>)
+    const opener = screen.getByText('opener')
+    for (const close of [
+      async () => fireEvent.keyDown(window, { key: 'Escape' }),
+      async () => fireEvent.click(screen.getByText('Cancel')),
+      async () => fireEvent.click(screen.getByText('Run')),
+    ]) {
+      opener.focus()
+      act(() => { confirm('Run it?', { confirmLabel: 'Run' }) })
+      await screen.findByText('Cancel')
+      await act(close)
+      expect(document.activeElement).toBe(opener)
+    }
+  })
+
+  it('does not focus an opener that left the page', async () => {
+    const { rerender } = render(<><button>gone</button><ConfirmHost /></>)
+    screen.getByText('gone').focus()
+    act(() => { confirm('Run it?') })
+    await screen.findByText('Cancel')
+    rerender(<ConfirmHost />)
+    await act(async () => fireEvent.keyDown(window, { key: 'Escape' }))
+    expect(document.activeElement).toBe(document.body)
+  })
 })

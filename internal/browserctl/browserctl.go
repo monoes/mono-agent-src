@@ -80,6 +80,13 @@ type Options struct {
 	// DB, when set, lets the session raise the HIL item a site needs at
 	// level ask (AskSite); without it that is a *SiteNeedsApprovalError.
 	DB *sql.DB
+	// HoldLocalSubmits holds submits on local pages too (Policy.HoldLocalSubmits).
+	HoldLocalSubmits bool
+	// PinOrigin, when set, is the one origin the session may act on: any page
+	// of another origin is refused (*PinnedOriginError) BEFORE the site policy
+	// looks at it, so a page that navigated away raises no "allow this site"
+	// approval for an origin it chose.
+	PinOrigin string
 	// Sender overrides finding the bridge (tests).
 	Sender Sender
 }
@@ -98,6 +105,8 @@ type Session struct {
 	url     string
 	// blankTab: an agent's tab with no page yet (origin_guard.go).
 	blankTab bool
+	// pinOrigin: see Options.PinOrigin.
+	pinOrigin string
 }
 
 // Open finds the bridge and the browser, and unless o.NoTab the tab, which
@@ -116,15 +125,17 @@ func Open(o Options) (*Session, error) {
 	}
 	policy := perms.PolicyForCaller(AgentCaller())
 	policy.Allowlist = append(policy.Allowlist, o.Allowlist...)
+	policy.HoldLocalSubmits = o.HoldLocalSubmits
 	if policy.Agent && policy.level() == LevelOff {
 		return nil, &BrowserOffError{Kind: policy.Kind, Declared: policy.Declared} // no command at all, a listing included
 	}
 	s := &Session{
-		sender:  sender,
-		policy:  policy,
-		db:      o.DB,
-		key:     ContextKey(),
-		profile: o.Profile,
+		sender:    sender,
+		policy:    policy,
+		db:        o.DB,
+		key:       ContextKey(),
+		profile:   o.Profile,
+		pinOrigin: o.PinOrigin,
 	}
 	s.state = LoadState(s.key)
 	if err := s.route(o); err != nil {

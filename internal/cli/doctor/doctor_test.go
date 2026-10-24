@@ -60,3 +60,23 @@ func TestDoctorFooterSeparatesOptionalFixes(t *testing.T) {
 		t.Fatalf("after --fix: %q", got)
 	}
 }
+
+func TestRunHealthPassesTheAgentAccount(t *testing.T) {
+	var seen string
+	cfg := testDeps(false)
+	build := cfg.NewEnv
+	cfg.NewEnv = func(p []string) (*health.Env, func()) {
+		env, closeEnv := build(p)
+		return env, func() { seen = env.AgentAccount; closeEnv() }
+	}
+	t.Setenv(health.AgentAccountEnv, "fromenv")
+	runHealth(context.Background(), cfg, health.NewRegistry(nil, nil), health.Options{})
+	if seen != "fromenv" {
+		t.Errorf("env var: %q", seen)
+	}
+	cfg.agentAccount = "fromflag"
+	runHealth(context.Background(), cfg, health.NewRegistry(nil, nil), health.Options{})
+	if seen != "fromflag" {
+		t.Errorf("flag must win: %q", seen)
+	}
+}

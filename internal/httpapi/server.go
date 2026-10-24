@@ -46,6 +46,8 @@ type Server struct {
 	// tokens is the agent-token store, built on first use (agentTokens).
 	tokens     *agenttokens.Store
 	tokensOnce sync.Once
+	// routeTable is every route routes() registered, with the scope it needs.
+	routeTable []routeClass
 	// warnOut receives the start-up warning (default stderr).
 	warnOut io.Writer
 }
@@ -172,30 +174,50 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // belong to the machine and stay global.
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	// Every route of the API is registered through reg, which takes the scope the
+	// route needs (or says that it is open): there is no way to add one that has no
+	// class, and TestEveryRouteIsClassified keeps routes() from reaching for the mux.
+	reg := &registrar{s: s, mux: mux}
 
-	mux.HandleFunc("GET /health", s.handleHealth) // unauthenticated
+	reg.open("GET /health", s.handleHealth) // unauthenticated
 
-	mux.Handle("GET /profiles/{profile}/workflows", s.profileAuth(agenttokens.ScopeRead, s.handleWorkflowList))
-	mux.Handle("GET /profiles/{profile}/workflows/{id}", s.profileAuth(agenttokens.ScopeRead, s.handleWorkflowGet))
-	mux.Handle("GET /profiles/{profile}/workflows/{id}/executions", s.profileAuth(agenttokens.ScopeRead, s.handleWorkflowExecutions))
-	mux.Handle("POST /profiles/{profile}/workflows/{id}/validate", s.profileAuth(agenttokens.ScopeWrite, s.handleWorkflowValidate))
-	mux.Handle("GET /nodes", s.anyProfileAuth(agenttokens.ScopeRead, s.handleNodeList))
-	mux.Handle("GET /nodes/{type}/schema", s.anyProfileAuth(agenttokens.ScopeRead, s.handleNodeSchema))
-	mux.Handle("GET /profiles/{profile}/hil", s.profileAuth(agenttokens.ScopeRead, s.handleHilList))
+	reg.scoped("GET /profiles/{profile}/workflows", agenttokens.ScopeRead, s.handleWorkflowList)
+	reg.scoped("GET /profiles/{profile}/workflows/{id}", agenttokens.ScopeRead, s.handleWorkflowGet)
+	reg.scoped("GET /profiles/{profile}/workflows/{id}/executions", agenttokens.ScopeRead, s.handleWorkflowExecutions)
+	reg.scoped("POST /profiles/{profile}/workflows/{id}/validate", agenttokens.ScopeWrite, s.handleWorkflowValidate)
+	reg.scoped("GET /nodes", agenttokens.ScopeRead, s.handleNodeList)
+	reg.scoped("GET /nodes/{type}/schema", agenttokens.ScopeRead, s.handleNodeSchema)
+	reg.scoped("GET /profiles/{profile}/hil", agenttokens.ScopeRead, s.handleHilList)
+
+	// The profile's documents, people and task board, for an agent that has no CLI
+	// (agent mode): reads only, bounded and without a file path or a secret
+	// (handlers_agent_data.go).
+	reg.scoped("GET /profiles/{profile}/documents", agenttokens.ScopeRead, s.handleDocumentList)
+	reg.scoped("GET /profiles/{profile}/documents/{id}", agenttokens.ScopeRead, s.handleDocumentGet)
+	reg.scoped("GET /profiles/{profile}/documents/{id}/tags", agenttokens.ScopeRead, s.handleDocumentTagList)
+	reg.scoped("GET /profiles/{profile}/people", agenttokens.ScopeRead, s.handlePeopleList)
+	reg.scoped("GET /profiles/{profile}/people/{id}", agenttokens.ScopeRead, s.handlePersonGet)
+	reg.scoped("GET /profiles/{profile}/tasks", agenttokens.ScopeRead, s.handleTaskList)
+	reg.scoped("GET /profiles/{profile}/tasks/next", agenttokens.ScopeRead, s.handleTaskNext)
+	reg.scoped("GET /profiles/{profile}/tasks/{id}", agenttokens.ScopeRead, s.handleTaskGet)
 
 	if s.opts.AllowMutations {
-		mux.Handle("POST /profiles/{profile}/workflows/{id}/run", s.profileAuth(agenttokens.ScopeRun, s.handleWorkflowRun))
-		mux.Handle("POST /profiles/{profile}/workflows/{id}/activate", s.profileAuth(agenttokens.ScopeRun, s.handleWorkflowActivate))
-		mux.Handle("POST /profiles/{profile}/workflows/{id}/deactivate", s.profileAuth(agenttokens.ScopeRun, s.handleWorkflowDeactivate))
-		mux.Handle("POST /profiles/{profile}/hil/{id}/approve", s.profileAuth(agenttokens.ScopeFull, s.handleHilApprove))
-		mux.Handle("POST /profiles/{profile}/hil/{id}/reject", s.profileAuth(agenttokens.ScopeFull, s.handleHilReject))
+		reg.scoped("POST /profiles/{profile}/workflows/{id}/run", agenttokens.ScopeRun, s.handleWorkflowRun)
+		reg.scoped("POST /profiles/{profile}/workflows/{id}/activate", agenttokens.ScopeRun, s.handleWorkflowActivate)
+		reg.scoped("POST /profiles/{profile}/workflows/{id}/deactivate", agenttokens.ScopeRun, s.handleWorkflowDeactivate)
+		reg.scoped("POST /profiles/{profile}/hil/{id}/approve", agenttokens.ScopeFull, s.handleHilApprove)
+		reg.scoped("POST /profiles/{profile}/hil/{id}/reject", agenttokens.ScopeFull, s.handleHilReject)
+		// Tagging a document starts nothing and sends nothing, and the CLI does it
+		// without an approval card.
+		reg.scoped("POST /profiles/{profile}/documents/{id}/tags", agenttokens.ScopeWrite, s.handleDocumentTagAdd)
+		reg.scoped("DELETE /profiles/{profile}/documents/{id}/tags/{tag}", agenttokens.ScopeWrite, s.handleDocumentTagRemove)
 	}
 
 	// The routes before profiles were explicit: refused for every method, with
 	// a pointer to where they went. No credential is read and nothing is
 	// looked up, so the answer is the same to everyone.
 	for _, old := range []string{"/workflows", "/workflows/", "/hil", "/hil/"} {
-		mux.HandleFunc(old, handleRemovedRoute)
+		reg.open(old, handleRemovedRoute)
 	}
 
 	if s.opts.ExtraRoutes != nil {
@@ -203,6 +225,42 @@ func (s *Server) routes() *http.ServeMux {
 	}
 
 	return mux
+}
+
+// registrar registers the API's routes on the mux and keeps the table of what
+// each one needs.
+type registrar struct {
+	s   *Server
+	mux *http.ServeMux
+}
+
+// scoped registers a route that needs a bearer: the profile's own (scope full) or
+// an agent token whose scope allows need. A pattern with {profile} takes the
+// token of that profile only; one without takes the token of any profile.
+func (g *registrar) scoped(pattern string, need agenttokens.Scope, h http.HandlerFunc) {
+	if !need.Valid() {
+		panic("httpapi: route " + pattern + " has no scope class")
+	}
+	auth := g.s.anyProfileAuth
+	if strings.Contains(pattern, "{profile}") {
+		auth = g.s.profileAuth
+	}
+	g.mux.Handle(pattern, auth(need, h))
+	g.s.routeTable = append(g.s.routeTable, routeClass{Pattern: pattern, Need: need})
+}
+
+// open registers a route with no bearer at all: the health check and the answer to
+// the routes that were removed. The test keeps the list of them.
+func (g *registrar) open(pattern string, h http.HandlerFunc) {
+	g.mux.HandleFunc(pattern, h)
+	g.s.routeTable = append(g.s.routeTable, routeClass{Pattern: pattern, Open: true})
+}
+
+// routeClass is how one registered route authenticates.
+type routeClass struct {
+	Pattern string
+	Need    agenttokens.Scope // the narrowest scope that may call it; empty for an open route
+	Open    bool
 }
 
 // handleRemovedRoute answers the unprefixed /workflows and /hil routes, which

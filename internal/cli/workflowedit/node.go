@@ -54,8 +54,8 @@ func (d Deps) newNodeAddCmd() *cobra.Command {
 			ctx := context.Background()
 
 			// Ensure workflow exists.
-			wf, err := store.GetWorkflow(ctx, workflowID)
-			if err != nil || wf == nil {
+			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
 
@@ -129,8 +129,8 @@ func (d Deps) newNodeListCmd() *cobra.Command {
 			store := d.WorkflowStore(db)
 			ctx := context.Background()
 
-			wf, err := store.GetWorkflow(ctx, args[0])
-			if err != nil || wf == nil {
+			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), args[0])
+			if wf == nil {
 				return d.NotFound("workflow %q not found", args[0])
 			}
 
@@ -178,8 +178,8 @@ func (d Deps) newNodeSetCmd() *cobra.Command {
 			store := d.WorkflowStore(db)
 			ctx := context.Background()
 
-			wf, err := store.GetWorkflow(ctx, workflowID)
-			if err != nil || wf == nil {
+			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
 
@@ -264,8 +264,8 @@ func (d Deps) newNodeRemoveCmd() *cobra.Command {
 			store := d.WorkflowStore(db)
 			ctx := context.Background()
 
-			wf, err := store.GetWorkflow(ctx, workflowID)
-			if err != nil || wf == nil {
+			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
 
@@ -348,8 +348,8 @@ func (d Deps) newConnectCmd() *cobra.Command {
 			store := d.WorkflowStore(db)
 			ctx := context.Background()
 
-			wf, err := store.GetWorkflow(ctx, workflowID)
-			if err != nil || wf == nil {
+			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
 
@@ -405,8 +405,8 @@ func (d Deps) newDisconnectCmd() *cobra.Command {
 			store := d.WorkflowStore(db)
 			ctx := context.Background()
 
-			wf, err := store.GetWorkflow(ctx, workflowID)
-			if err != nil || wf == nil {
+			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
 

@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/monoes/mono-agent/internal/statedir"
 )
 
 // StampFileWorkflowProfiles gives every workflow file in dir whose profile_id
@@ -73,12 +71,7 @@ func StampFileWorkflowProfiles(dir, fallbackID string, ownerOf func(workflowID s
 		if err != nil {
 			return stamped, fmt.Errorf("stamping workflow file %s: %w", e.Name(), err)
 		}
-		tmp := path + ".tmp"
-		if err := statedir.WriteFile(tmp, out); err != nil {
-			return stamped, fmt.Errorf("stamping workflow file %s: %w", e.Name(), err)
-		}
-		if err := os.Rename(tmp, path); err != nil {
-			_ = os.Remove(tmp)
+		if err := writeFileAtomic(path, out); err != nil {
 			return stamped, fmt.Errorf("stamping workflow file %s: %w", e.Name(), err)
 		}
 		stamped = append(stamped, id)

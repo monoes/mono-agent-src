@@ -8,6 +8,7 @@ package doctags
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,9 +38,22 @@ func documentExists(ctx context.Context, q queryRower, profileID, docID string) 
 	return err
 }
 
+// ErrTooManyTags reports that a tag would be new and the profile already holds the most the
+// caller allows.
+var ErrTooManyTags = errors.New("too many tags")
+
 // Add links the profile's tag called name (case-insensitive) to a document,
 // creating it when new. Linking twice is a no-op.
 func Add(ctx context.Context, db *sql.DB, profileID, docID, name string) (Tag, error) {
+	return AddLimited(ctx, db, profileID, docID, name, 0)
+}
+
+// AddLimited is Add that makes no new tag once the profile holds maxTags of them (0 is no
+// limit; an existing tag is still linked): ErrTooManyTags. The count and the insert are one
+// transaction that takes the write lock first (BEGIN IMMEDIATE on a connection of its own),
+// so concurrent callers take turns and cannot overshoot the limit, and none of them fails on
+// a read lock that cannot become a write lock.
+func AddLimited(ctx context.Context, db *sql.DB, profileID, docID, name string, maxTags int) (Tag, error) {
 	if profileID == "" {
 		return Tag{}, profiledir.ErrNoProfile
 	}
@@ -47,22 +61,44 @@ func Add(ctx context.Context, db *sql.DB, profileID, docID, name string) (Tag, e
 	if name == "" {
 		return Tag{}, fmt.Errorf("empty tag name: %w", peopletags.ErrInvalid)
 	}
-	tx, err := db.BeginTx(ctx, nil)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return Tag{}, err
 	}
-	defer tx.Rollback() //nolint:errcheck
-	if err := documentExists(ctx, tx, profileID, docID); err != nil {
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return Tag{}, err
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if _, err := conn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+			// The connection may still be inside the transaction: it must not go back to the pool.
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
+	if err := documentExists(ctx, conn, profileID, docID); err != nil {
 		return Tag{}, err
 	}
 
 	t := Tag{Name: name}
-	err = tx.QueryRowContext(ctx, `SELECT id, name, color FROM tags WHERE LOWER(name) = LOWER(?) AND profile_id = ?`,
+	err = conn.QueryRowContext(ctx, `SELECT id, name, color FROM tags WHERE LOWER(name) = LOWER(?) AND profile_id = ?`,
 		name, profileID).Scan(&t.ID, &t.Name, &t.Color)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
+		if maxTags > 0 {
+			var have int
+			if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM tags WHERE profile_id = ?`, profileID).Scan(&have); err != nil {
+				return Tag{}, err
+			}
+			if have >= maxTags {
+				return Tag{}, fmt.Errorf("the profile has %d tags, the most allowed here: %w", have, ErrTooManyTags)
+			}
+		}
 		t.ID, t.Color = uuid.NewString(), peopletags.DefaultColor
-		if _, err := tx.ExecContext(ctx, `INSERT INTO tags(id, name, color, profile_id) VALUES(?,?,?,?)`,
+		if _, err := conn.ExecContext(ctx, `INSERT INTO tags(id, name, color, profile_id) VALUES(?,?,?,?)`,
 			t.ID, t.Name, t.Color, profileID); err != nil {
 			return Tag{}, fmt.Errorf("creating tag %q: %w", name, err)
 		}
@@ -71,22 +107,26 @@ func Add(ctx context.Context, db *sql.DB, profileID, docID, name string) (Tag, e
 	}
 
 	var linked, count int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM document_tags WHERE document_id = ? AND tag_id = ?`,
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM document_tags WHERE document_id = ? AND tag_id = ?`,
 		docID, t.ID).Scan(&linked); err != nil {
 		return Tag{}, err
 	}
 	if linked == 0 {
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM document_tags WHERE document_id = ?`, docID).Scan(&count); err != nil {
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM document_tags WHERE document_id = ?`, docID).Scan(&count); err != nil {
 			return Tag{}, err
 		}
 		if count >= MaxPerDocument {
 			return Tag{}, fmt.Errorf("document %q already has %d tags, the most allowed: %w", docID, count, peopletags.ErrInvalid)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO document_tags(document_id, tag_id) VALUES(?,?)`, docID, t.ID); err != nil {
+		if _, err := conn.ExecContext(ctx, `INSERT INTO document_tags(document_id, tag_id) VALUES(?,?)`, docID, t.ID); err != nil {
 			return Tag{}, fmt.Errorf("tagging %s: %w", docID, err)
 		}
 	}
-	return t, tx.Commit()
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return Tag{}, err
+	}
+	committed = true
+	return t, nil
 }
 
 // Remove unlinks a tag (by id or name) from a document; the tag itself stays.

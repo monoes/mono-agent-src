@@ -28,6 +28,7 @@ import (
 //
 //	coder.queue      {kind, tabId, selector?, note?, cwd?, reload?, profile?} -> {item}
 //	                 reload (bug-report): capture console and network across a reload
+//	coder.task       {kind, tabId, note?, profile?} -> {task}   (coder_task.go: a queued AI task)
 //	coder.queue.list {profile?}                                     -> {items}
 //	coder.projects   {profile?}                                     -> {projects, recent}
 //	coder.list       {profile?}                                     -> {conversations}
@@ -91,6 +92,7 @@ func registerCoderHandlers(s *Server) { registerCoderBridge(s, &cliCoder{}) }
 func registerCoderBridge(s *Server, cli coderCLI) *coderBridge {
 	cb := &coderBridge{cli: cli, instance: "ext-" + randHex(6), active: map[string]context.CancelFunc{}, cwds: map[string]string{}}
 	s.HandleRequestWithTimeout(MethodCoderQueue, cb.handleQueue, coderQueueTimeout)
+	s.HandleRequestWithTimeout(MethodCoderTask, cb.handleTask, coderQueueTimeout)
 	s.HandleRequestWithTimeout(MethodCoderQueueList, cb.passThrough("coder", "queue", "list"), chatQueryTimeout)
 	s.HandleRequestWithTimeout(MethodCoderProjects, cb.passThrough("coder", "projects", "list"), chatQueryTimeout)
 	s.HandleRequestWithTimeout(MethodCoderList, cb.passThrough("coder", "list"), chatQueryTimeout)

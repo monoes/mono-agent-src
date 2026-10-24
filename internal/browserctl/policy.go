@@ -35,6 +35,11 @@ type Policy struct {
 	// "scheme://host[:port]" or "*.host", and for a block also "host".
 	Allowlist []string
 	Blocklist []string
+	// HoldLocalSubmits makes a form submit wait for a person on local and dev
+	// pages too (SubmitGated). Set for the confined extension tasks, whose
+	// page is whatever the person has open: a localhost, LAN, .local or .test
+	// page is as much a stranger's as any other.
+	HoldLocalSubmits bool
 }
 
 func (p Policy) level() string {
@@ -156,10 +161,10 @@ func (p Policy) Check(rawURL string) error {
 }
 
 // SubmitGated reports whether a form submit on rawURL waits for a person's
-// approval: an agent on an allowed origin that is not local, unless its
-// level is full-no-approvals.
+// approval: an agent on an allowed origin that is not local (or any allowed
+// origin when HoldLocalSubmits), unless its level is full-no-approvals.
 func (p Policy) SubmitGated(rawURL string) bool {
-	return p.Agent && p.level() != LevelFullNoApprovals && p.Allowed(rawURL) && !IsLocal(rawURL)
+	return p.Agent && p.level() != LevelFullNoApprovals && p.Allowed(rawURL) && (p.HoldLocalSubmits || !IsLocal(rawURL))
 }
 
 // IsLocal reports whether rawURL is an http(s) page on this machine or a

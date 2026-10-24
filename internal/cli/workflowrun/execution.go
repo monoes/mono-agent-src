@@ -194,6 +194,14 @@ func redactedItemsJSON(raw string, rr *workflow.ReplyRedactor) json.RawMessage {
 			return b
 		}
 	}
+	// Not an item array: a stored JSON value is masked by key like items are,
+	// and the text as a whole is scrubbed for a marked process (rr non-nil).
+	var v any
+	if json.Unmarshal([]byte(raw), &v) == nil {
+		if b, err := json.Marshal(workflow.RedactAny(v)); err == nil {
+			raw = string(b)
+		}
+	}
 	b, _ := json.Marshal(rr.String(raw))
 	return b
 }

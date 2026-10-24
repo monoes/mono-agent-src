@@ -68,8 +68,13 @@ func TestRedactItemsNonMatchingKeysUntouched(t *testing.T) {
 	if got["body"] != "password=hunter2 token=abc" {
 		t.Errorf("body was content-scanned: %v", got["body"])
 	}
-	if got["tokens_count"] != 3 || got["authorized"] != true || got["secret_note"] != "keep" {
+	// A count and a flag under a credential-like key are not credentials; a
+	// STRING under a key that merely contains one is masked (fail closed).
+	if got["tokens_count"] != 3 || got["authorized"] != true {
 		t.Errorf("near-miss keys were masked: %+v", got)
+	}
+	if got["secret_note"] != "***" {
+		t.Errorf("a string under a key containing secret = %v, want ***", got["secret_note"])
 	}
 	if got["Authorization"] != "***" {
 		t.Errorf("exact Authorization = %v, want ***", got["Authorization"])
@@ -230,5 +235,21 @@ func TestRedactItemsSharedSubtreeNotACycle(t *testing.T) {
 	}
 	if a := got["a"].(map[string]any); a["note"] != "x" {
 		t.Errorf("shared subtree content altered: %v", a)
+	}
+}
+
+func TestRedactItemsMasksCredentialHeadersBySubstring(t *testing.T) {
+	items := []map[string]any{{"headers": map[string]any{
+		"Set-Cookie": "sid=1", "X-Api-Key": "k", "Proxy-Authorization": "Basic x", "x-auth-token": "t", "db_password": "p", "Content-Type": "text/html"},
+		"usage": map[string]any{"total_tokens": 7}, "max_tokens": 5}}
+	got := RedactItems(items)[0]
+	h := got["headers"].(map[string]any)
+	for _, k := range []string{"Set-Cookie", "X-Api-Key", "Proxy-Authorization", "x-auth-token", "db_password"} {
+		if h[k] != "***" {
+			t.Errorf("%s = %v, want ***", k, h[k])
+		}
+	}
+	if h["Content-Type"] != "text/html" || got["usage"].(map[string]any)["total_tokens"] != 7 || got["max_tokens"] != 5 {
+		t.Errorf("ordinary output changed: %+v", got)
 	}
 }

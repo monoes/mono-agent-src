@@ -297,6 +297,9 @@ func TestExtensionOutputQuotesHostileText(t *testing.T) {
 	out, _ := runExt(t, d, "browsers", "list")
 	all.WriteString(out)
 	out, err = runExt(t, d, "deny", "--all")
+	if err != nil {
+		t.Fatalf("deny --all: %v", err)
+	}
 	all.WriteString(out)
 	if strings.ContainsAny(all.String(), "\x1b\u202e\u2066") {
 		t.Fatalf("raw control or bidi character in the output: %q", all.String())

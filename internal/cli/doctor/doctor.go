@@ -24,6 +24,10 @@ const maxFixPasses = 4
 func runHealth(ctx context.Context, cfg *Deps, reg *health.Registry, opts health.Options) *health.Report {
 	env, closeEnv := cfg.NewEnv(cfg.projects)
 	defer closeEnv()
+	env.AgentAccount = cfg.agentAccount
+	if env.AgentAccount == "" {
+		env.AgentAccount = os.Getenv(health.AgentAccountEnv)
+	}
 	return reg.Run(ctx, env, opts)
 }
 
@@ -162,6 +166,7 @@ Exit code 1 means a required check failed.`,
 	cmd.Flags().BoolVar(&fix, "fix", false, "Apply fixes: auto ones directly, confirm ones after asking")
 	cmd.Flags().BoolVar(&yes, "yes", false, "With --fix: accept confirm fixes without asking")
 	cmd.Flags().BoolVar(&projects, "projects", false, "Also run monomind's checks, for the profile folder and every monomind project inside it (without the rest of --deep)")
+	cmd.Flags().StringVar(&cfg.agentAccount, "agent-account", "", "Windows account the agent runs as: check that it has no access to the state folder ($"+health.AgentAccountEnv+" is the default; run \"monoagentcli agent-mode windows\")")
 	cmd.Flags().StringSliceVar(&cfg.projects, "project", nil, "Only these monomind projects (path relative to the profile folder, or folder name); implies --projects")
 	cmd.AddCommand(newDoctorFixCmd(cfg))
 	return cmd

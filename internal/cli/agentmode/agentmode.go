@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/docs"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -32,6 +33,10 @@ const (
 // Runtimes lists the runtimes that have a profile, in the order help shows them.
 var Runtimes = []Runtime{Bwrap, Seatbelt, ClaudeCode}
 
+// WindowsDoc is the command that prints the Windows recipe (a separate low-privilege account, the
+// daemon API with a scoped token, WSL2), which is embedded in the binary.
+const WindowsDoc = "monoagentcli agent-mode windows"
+
 // ErrWindows is the answer for --runtime windows. Windows has no sandbox primitive that a
 // command line can start a process in without installing something (AppContainer needs a
 // packaged app or a Win32 API program, Windows Sandbox is a separate disposable VM, and
@@ -42,7 +47,7 @@ var ErrWindows = errors.New("agent-mode has no Windows profile: Windows has no s
 	"(1) WSL2 - run the agent and monoagentcli inside a WSL distribution and use --runtime bwrap there " +
 	"(the agent then cannot see the Windows user's ~/.monoagent, but mono-agent's data must live in the distribution to be used); " +
 	"(2) a separate Windows user account for the agent (it cannot read your profile folder) that reaches the API on 127.0.0.1 with an `agent-mode token`; " +
-	"(3) Windows Sandbox or a VM, with the API forwarded in. See \"Agent mode\" in SECURITY.md")
+	"(3) Windows Sandbox or a VM, with the API forwarded in. See \"Agent mode\" in SECURITY.md and run \"" + WindowsDoc + "\" for the steps")
 
 // The profiles contain no path or value of the caller, so nothing can be injected.
 // Paths come from $HOME (bwrap), a -D parameter (seatbelt) or ~ (Claude Code) at the
@@ -131,7 +136,8 @@ Scopes: read = GET only; write = also validate and other non-send changes; run =
 
 Still deferred, and not done here: user-presence unlock for the vault, the macOS keychain ACL
 (needs a signed binary), and hiding an abstract-socket D-Bus session bus under --unshare-net.
-Windows has no profile (agent-mode sandbox --runtime windows says why and what to use).`
+Windows has no profile (agent-mode sandbox --runtime windows says why and what to use; the recipe is in
+"monoagentcli agent-mode windows" prints the recipe, and "monoagentcli doctor --agent-account NAME" checks it).`
 
 // NewCommand is `agent-mode`.
 func NewCommand(d Deps) *cobra.Command {
@@ -140,7 +146,7 @@ func NewCommand(d Deps) *cobra.Command {
 		Short: "Run a coding agent without your credentials: a sandbox profile, scoped tokens and the HTTP API",
 		Long:  longHelp,
 	}
-	cmd.AddCommand(newSandboxCmd(), d.newTokenCmd(), d.newEnvCmd(), d.newStatusCmd())
+	cmd.AddCommand(newWindowsCmd(), newSandboxCmd(), d.newTokenCmd(), d.newEnvCmd(), d.newStatusCmd())
 	return cmd
 }
 
@@ -193,4 +199,17 @@ func newSandboxCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&allowRW, "allow-rw", nil, "with --strict: bind this path read-write (~/x or absolute; repeatable; ~/.ssh, ~/.monoagent, startup files and similar are refused)")
 	c.Flags().StringArrayVar(&allowRO, "allow-ro", nil, "with --strict: bind this path read-only (same rules as --allow-rw; repeatable)")
 	return c
+}
+
+func newWindowsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "windows",
+		Short: "Print the guide to running an agent on Windows (a separate low-privilege account)",
+		Long:  "Prints the guide embedded in this binary: why a separate account is the boundary on Windows, the steps, WSL2 as an alternative, and what it does not protect against. It reads nothing and works offline.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprint(cmd.OutOrStdout(), docs.AgentModeWindows)
+			return err
+		},
+	}
 }

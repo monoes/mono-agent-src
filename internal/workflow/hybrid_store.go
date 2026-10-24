@@ -360,6 +360,10 @@ func (h *HybridWorkflowStore) syncFileNodes(ctx context.Context, workflowID stri
 	if h.files == nil {
 		return
 	}
+	// The same lock a guarded save holds from publishing its file to its commit, so this
+	// copy of the rows is never older than a file already published.
+	fileWriteMu.Lock()
+	defer fileWriteMu.Unlock()
 	wf, err := h.files.GetWorkflow(ctx, workflowID)
 	if err != nil || wf == nil {
 		return
@@ -370,7 +374,7 @@ func (h *HybridWorkflowStore) syncFileNodes(ctx context.Context, workflowID stri
 	}
 	wf.Nodes = sqlWF.Nodes
 	wf.Connections = sqlWF.Connections
-	_ = h.files.SaveWorkflow(ctx, wf)
+	_ = h.files.saveWorkflow(ctx, wf)
 }
 
 func (h *HybridWorkflowStore) SaveWorkflowNodes(ctx context.Context, workflowID string, nodes []WorkflowNode) error {

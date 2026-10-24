@@ -3,7 +3,6 @@
 const RUNTIME_LABELS = {
   dsh: 'DeepSeek Harness',
   kilo: 'Kilo Code',
-  freebuff: 'Freebuff',
 }
 
 // runtimeLabel is how a runtime id reads in pickers and lists.

@@ -26,7 +26,7 @@ const RuntimeEnvVar = "MONOAGENT_AI_RUNTIME"
 // runtimePriority orders installed runtimes when no explicit choice is made.
 var runtimePriority = []string{
 	"claude", "codex", "kimicode", "qwen", "grok", "crush", "copilot",
-	"pi", "antigravity", "opencode", "qwen-rpc", "pi-rpc", "kilo", "freebuff",
+	"pi", "antigravity", "opencode", "qwen-rpc", "pi-rpc", "kilo",
 }
 
 // maxHTMLChars caps the HTML sent in the prompt (DOM relevant to selectors
@@ -82,7 +82,7 @@ func (g *AgentGenerator) resolve(ctx context.Context) (bin, runtime string, err 
 		return "", "", fmt.Errorf("cache-only mode: agent scan failed: %w", err)
 	}
 	for _, want := range runtimePriority {
-		// kilo/freebuff run full-access only (or not at all); a scoped
+		// kilo runs full-access only (or not at all); a scoped
 		// generation turn would be refused with `unsupported`.
 		if e := scan.Find(want); e != nil && e.Installed && runsScoped(e) {
 			g.resolvedBin = resolvedBin

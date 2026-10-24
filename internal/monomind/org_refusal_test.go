@@ -16,6 +16,10 @@ const (
 	roleSignRefusal = "Refusing: MONOMIND_ORG_ROLE is set — this is an org role or agent-exec process. Only the operator signs org definitions; run this yourself in a terminal."
 	r6Refusal       = `Could not start org sec: org "sec" cannot start on this host: the authority mask (bubblewrap) is unavailable on this host (bwrap not found (ENOENT)), so mail digests, the envelope key and native runner copies are protected by file-tool rules alone; the SDK sandbox is unavailable on this host (bwrap and socat not found on PATH (install bubblewrap and socat)), so shell commands run without the read and write denials`
 	r1Refusal       = `Could not start org sec: org root /mnt/nas/proj is on a network filesystem (nfs4); a sections org needs a local filesystem so one daemon can own it`
+	// Recorded from monomind 2.25.0 `org run sec --resume` with bwrap and socat off PATH
+	// (the line `org run --resume` / checkpoint resume prints; `org resume` itself only
+	// clears a pause file and never runs the host preflight).
+	r6ResumeRefusal = `Could not start org sec: org "sec" cannot resume on this host: the authority mask (bubblewrap) is unavailable on this host (bwrap not found (ENOENT)), so mail digests, the envelope key and native runner copies are protected by file-tool rules alone; the SDK sandbox is unavailable on this host (bwrap and socat not found on PATH (install bubblewrap and socat)), so shell commands run without the read and write denials`
 	heldRefusal     = `Could not start org sec: org "sec" is already owned by another daemon on /home/u/proj`
 )
 
@@ -54,9 +58,10 @@ func TestRoleSignAttemptCarriesMonomindsRefusal(t *testing.T) {
 
 func TestStartRefusalExtracted(t *testing.T) {
 	for name, tc := range map[string]struct{ text, kind string }{
-		"R6":   {"noise\n  Total estimate: ~$1.80\n" + r6Refusal + "\n[ERROR] org start failed", RefusalPreflight},
-		"R1":   {r1Refusal, RefusalDaemonLock},
-		"held": {heldRefusal, RefusalDaemonLock},
+		"R6":                 {"noise\n  Total estimate: ~$1.80\n" + r6Refusal + "\n[ERROR] org start failed", RefusalPreflight},
+		"R6 resume (2.25.0)": {"Total estimate: ~$1.80\n" + r6ResumeRefusal + "\n[ERROR] org start failed", RefusalPreflight},
+		"R1":                 {r1Refusal, RefusalDaemonLock},
+		"held":               {heldRefusal, RefusalDaemonLock},
 	} {
 		got := asStartRefusal("sec", tc.text)
 		if got == nil || got.Kind != tc.kind {

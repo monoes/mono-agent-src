@@ -193,6 +193,27 @@ func TestCompactRespectsWhatTheTurnLeftOfItsBudget(t *testing.T) {
 	}
 }
 
+// A capped turn whose runtime reported no cost cannot say what is left of the
+// cap, so the compaction (which would otherwise get the whole cap again) does
+// not run; an uncapped turn still compacts.
+func TestCompactIsSkippedUnderACapWhenNoCostWasReported(t *testing.T) {
+	h := newCompactHarness(t, compactOKTranscript, 250000)
+	h.opts.BudgetUSD = 1
+	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
+	notices, _ := h.events(t)
+	if strings.Contains(h.argv(), "--resume") || strings.Contains(h.argv(), "--budget-usd") {
+		t.Errorf("a compaction ran with the full cap: %q", h.argv())
+	}
+	if got := lastNotice(notices); !strings.Contains(got, "every further call") || strings.Contains(got, "was compacted") {
+		t.Errorf("notices = %q", notices)
+	}
+	h = newCompactHarness(t, compactOKTranscript, 250000)
+	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
+	if !strings.Contains(h.argv(), "--resume") {
+		t.Errorf("an uncapped turn no longer compacts: %q", h.argv())
+	}
+}
+
 func TestCompactAfterStopSaysNothing(t *testing.T) {
 	h := newCompactHarness(t, compactOKTranscript, 250000)
 	ctx, cancel := context.WithCancel(context.Background())

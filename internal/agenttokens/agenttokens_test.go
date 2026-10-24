@@ -232,3 +232,80 @@ func TestAuditPruneIsPerToken(t *testing.T) {
 		t.Errorf("noisy token rows = %d, want 5", n)
 	}
 }
+
+func auditCountOf(t *testing.T, s *Store, tok Token, refused bool) int {
+	t.Helper()
+	q := `SELECT COUNT(*) FROM agent_token_audit WHERE token_id = ? AND status IN (401, 403)`
+	if !refused {
+		q = `SELECT COUNT(*) FROM agent_token_audit WHERE token_id = ? AND status NOT IN (401, 403)`
+	}
+	var n int
+	if err := s.db.QueryRow(q, tok.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func use(t *testing.T, s *Store, tok Token, status int) {
+	t.Helper()
+	id, err := s.BeginUse(context.Background(), tok, "GET", "/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishUse(context.Background(), id, status); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// One token's flood past the whole table's cap leaves another token's rows, served and
+// refused, where they were: the table is trimmed by count, from the token holding the most.
+func TestAFloodDoesNotEraseAnotherTokensAudit(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	defer func(a, b, c int) { auditKeep, auditKeepPerToken, auditKeepRefusedPerToken = a, b, c }(auditKeep, auditKeepPerToken, auditKeepRefusedPerToken)
+	auditKeep, auditKeepPerToken, auditKeepRefusedPerToken = 60, 1000, 1000
+	quiet, _, _ := s.Create(ctx, "default", "quiet", ScopeRead, 0)
+	loud, _, _ := s.Create(ctx, "default", "loud", ScopeRead, 0)
+	for i := 0; i < 3; i++ {
+		use(t, s, quiet, 200)
+	}
+	for i := 0; i < 2; i++ {
+		use(t, s, quiet, 401)
+	}
+	for i := 0; i < 400; i++ { // several times the cap, served and refused
+		use(t, s, loud, 200)
+		use(t, s, loud, 401)
+	}
+	if n := auditCountOf(t, s, quiet, false); n != 3 {
+		t.Errorf("the quiet token's served rows = %d, want 3", n)
+	}
+	if n := auditCountOf(t, s, quiet, true); n != 2 {
+		t.Errorf("the quiet token's refused rows = %d, want 2", n)
+	}
+	var total int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM agent_token_audit`).Scan(&total)
+	if total > 60 {
+		t.Errorf("the table holds %d rows, want at most 60", total)
+	}
+}
+
+// A token cannot wash its earlier refused requests (its probing of another profile, a scope
+// it lacked) out of the log with ordinary calls.
+func TestServedCallsDoNotWashRefusedRows(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	defer func(b int) { auditKeepPerToken = b }(auditKeepPerToken)
+	auditKeepPerToken = 10
+	tok, _, _ := s.Create(ctx, "default", "bot", ScopeRead, 0)
+	use(t, s, tok, 401)
+	use(t, s, tok, 403)
+	for i := 0; i < 200; i++ {
+		use(t, s, tok, 200)
+	}
+	if n := auditCountOf(t, s, tok, true); n != 2 {
+		t.Errorf("refused rows after 200 served calls = %d, want 2", n)
+	}
+	if n := auditCountOf(t, s, tok, false); n != 10 {
+		t.Errorf("served rows = %d, want 10", n)
+	}
+}

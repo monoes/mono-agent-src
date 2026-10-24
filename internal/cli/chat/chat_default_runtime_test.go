@@ -25,7 +25,7 @@ func readyResult(runtime string) agentroster.Result {
 func TestPickChatRuntime(t *testing.T) {
 	no := false
 	unrunnable := scanOf("claude")
-	unrunnable.Agents = append(unrunnable.Agents, monomind.ScanEntry{ID: "freebuff", Installed: true, ExecutionSupported: &no})
+	unrunnable.Agents = append(unrunnable.Agents, monomind.ScanEntry{ID: "tui-only", Installed: true, ExecutionSupported: &no})
 
 	cases := []struct {
 		name    string

@@ -30,7 +30,6 @@ var runtimeBinEnv = []struct{ name, env string }{
 	{"aider", "AIDER_CLI_BIN"},
 	{"dsh", "DSH_CLI_BIN"},
 	{"kilo", "KILO_CLI_BIN"},
-	{"freebuff", "FREEBUFF_CLI_BIN"},
 }
 
 var runtimePins struct {

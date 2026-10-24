@@ -43,36 +43,6 @@ func (f *fakeMachine) machine() runtimeMachine {
 
 var yesScript = func(agentinstall.Recipe) bool { return true }
 
-func TestInstallRuntimeFreebuffUsesScanRecipe(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "freebuff")
-	entry := monomind.ScanEntry{ID: "freebuff", InstallHint: "npm install -g freebuff",
-		Install: &monomind.InstallRecipe{Kind: "npm", Packages: []string{"freebuff"}}, LoginHint: sp("freebuff login")}
-	after := entry
-	after.Installed, after.Binary = true, sp(bin)
-	f := &fakeMachine{binDir: dir, before: monomind.ScanResult{Agents: []monomind.ScanEntry{entry}},
-		after: monomind.ScanResult{Agents: []monomind.ScanEntry{after}}}
-	var lines []string
-	_, err := installRuntime(context.Background(), f.machine(), "freebuff", false, yesScript, func(l string) { lines = append(lines, l) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(f.installed) != 1 || f.installed[0].Kind != agentinstall.KindNpm || len(f.installed[0].Packages) != 1 || f.installed[0].Packages[0] != "freebuff" {
-		t.Fatalf("installed wrong recipe: %+v", f.installed)
-	}
-	if log := strings.Join(lines, "\n"); !strings.Contains(log, "freebuff login") {
-		t.Fatalf("missing scan login hint: %s", log)
-	}
-
-	// Monoagent must not invent support when an older monomind lacks it.
-	old := &fakeMachine{before: monomind.ScanResult{Agents: []monomind.ScanEntry{npmEntry("codex", true, "", "")}}}
-	_, err = installRuntime(context.Background(), old.machine(), "freebuff", false, yesScript, func(string) {})
-	if exitCodeFor(err) != 2 || len(old.installed) != 0 {
-		t.Fatalf("unknown Freebuff installed: %v, %+v", err, old.installed)
-	}
-}
-
 func npmEntry(id string, installed bool, bin, version string) monomind.ScanEntry {
 	e := monomind.ScanEntry{ID: id, Installed: installed, InstallHint: "npm install -g " + id + "-pkg",
 		Install: &monomind.InstallRecipe{Kind: "npm", Packages: []string{id + "-pkg"}}}

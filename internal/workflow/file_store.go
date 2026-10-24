@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,6 +98,17 @@ func (s *WorkflowFileStore) filePath(id string) (string, error) {
 // Assigns a new UUID if wf.ID is empty.
 // Embeds default schema for any node missing its Schema field.
 func (s *WorkflowFileStore) SaveWorkflow(ctx context.Context, wf *Workflow) error {
+	fileWriteMu.Lock()
+	defer fileWriteMu.Unlock()
+	return s.saveWorkflow(ctx, wf)
+}
+
+// saveWorkflowDurable is kept for the guarded save; every save is atomic and flushed now.
+func (s *WorkflowFileStore) saveWorkflowDurable(ctx context.Context, wf *Workflow) error {
+	return s.saveWorkflow(ctx, wf)
+}
+
+func (s *WorkflowFileStore) saveWorkflow(ctx context.Context, wf *Workflow) error {
 	if wf.ID == "" {
 		wf.ID = uuid.New().String()
 		wf.CreatedAt = time.Now().UTC()
@@ -162,15 +174,61 @@ func (s *WorkflowFileStore) SaveWorkflow(ctx context.Context, wf *Workflow) erro
 	}
 	// Write atomically: write to a temp file then rename over the target, so a
 	// crash mid-write cannot truncate/corrupt an existing workflow definition.
-	tmp := path + ".tmp"
-	if err := statedir.WriteFile(tmp, data); err != nil {
+	if err := writeFileAtomic(path, data); err != nil {
 		return fmt.Errorf("file_store: write %s: %w", wf.ID, err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("file_store: rename %s: %w", wf.ID, err)
-	}
 	s.invalidate(path)
+	return nil
+}
+
+// writeFileAtomic replaces path with data so that a reader sees the old file or the new one and a
+// crash leaves one of them: the bytes go to a RANDOM temp file created exclusively in the same
+// folder (O_EXCL, mode 0600, so a pre-planted file or symlink is never followed or truncated),
+// are flushed, the temp file is renamed over path, and the folder is flushed. The temp file is
+// removed on every failure.
+func writeFileAtomic(path string, data []byte) (err error) {
+	dir := filepath.Dir(path)
+	if err := statedir.MkdirAll(dir); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err = f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tmp, path); err != nil {
+		return err
+	}
+	return syncDir(dir)
+}
+
+// syncDir flushes a directory's entries (the rename) to disk. Platforms that cannot open a
+// directory for this (Windows) keep the rename as it is.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return nil
+	}
+	defer d.Close()
+	if err := d.Sync(); err != nil && !errors.Is(err, os.ErrInvalid) {
+		return err
+	}
 	return nil
 }
 
@@ -203,15 +261,10 @@ func (s *WorkflowFileStore) restoreRaw(id string, data []byte, existed bool) err
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("file_store: remove %s: %w", id, err)
 		}
-		return nil
+		return syncDir(filepath.Dir(path))
 	}
-	tmp := path + ".tmp"
-	if err := statedir.WriteFile(tmp, data); err != nil {
+	if err := writeFileAtomic(path, data); err != nil {
 		return fmt.Errorf("file_store: write %s: %w", id, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("file_store: rename %s: %w", id, err)
 	}
 	return nil
 }

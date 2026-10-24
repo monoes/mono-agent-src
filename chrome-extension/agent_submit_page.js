@@ -23,7 +23,8 @@
  * Not caught, by design and documented: a "form" that is only a fetch/XHR
  * from a click handler, with no <form> and no submit. The guard is a
  * courtesy layer against mistakes and page-borne prompt injection, not a
- * sandbox: page script that runs before it, or that finds window[key], can
+ * sandbox: page script that runs before it (it could see the event names the
+ * guard registers) can
  * get past it.
  *
  * Browser-tested in agent_submit.browser.test.mjs.
@@ -32,10 +33,27 @@
 (function (root) {
   "use strict";
 
-  /** installGuard(key, eventName) → true once the frame is guarded (and armed). */
-  function installGuard(key, eventName) {
-    const existing = window[key];
-    if (existing && typeof existing.control === "function") return existing.control("arm");
+  /**
+   * installGuard(ctl, eventName) → true once the frame is guarded (and armed).
+   * ctl is a per-tab random event name the page never sees (like eventName): the
+   * guard is controlled over it, and nothing about the guard is on window, so a
+   * page that defines an object under some well-known name cannot make an
+   * unguarded frame look armed, and cannot find a handle to disarm it.
+   */
+  function installGuard(ctl, eventName) {
+    // Taken now, before page script can swap them for its own.
+    const dispatchNative = EventTarget.prototype.dispatchEvent;
+    const Custom0 = CustomEvent;
+    // This document is already guarded under this name: arm that guard again.
+    // Only a guard listening on the name answers, so an object the page defines
+    // proves nothing.
+    const probe = { action: "arm", result: false };
+    try {
+      dispatchNative.call(document, new Custom0(ctl, { detail: probe }));
+    } catch {
+      // no answer: not guarded yet
+    }
+    if (probe.result === true) return true;
 
     // Taken now, before page script can swap them for its own.
     const proto = HTMLFormElement.prototype;
@@ -66,11 +84,10 @@
       }
       return armed;
     }
-    try {
-      Object.defineProperty(window, key, { value: Object.freeze({ control }), enumerable: false, writable: false, configurable: false });
-    } catch {
-      return false; // the page holds the name: no guard rather than one nobody can disarm
-    }
+    document.addEventListener(ctl, (event) => {
+      const d = event && event.detail;
+      if (d && typeof d === "object" && typeof d.action === "string") d.result = control(d.action) === true;
+    });
 
     const cut = (s, n) => String(s == null ? "" : s).slice(0, n);
     const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();

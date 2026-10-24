@@ -25,7 +25,6 @@ func TestCoderStatusListsRuntimes(t *testing.T) {
 		{ID: "codex", Installed: true, FullAccess: true, ToolActivityFidelity: "full", Resume: true, Effort: true, InitTarget: &codexTarget},
 		{ID: "grok", Installed: false, FullAccess: true, ToolActivityFidelity: "start-only"},
 		{ID: "vercel", Installed: true},
-		{ID: "freebuff", Installed: true},
 	}
 	status := func() (map[string]any, map[string]map[string]any) {
 		out, code := runCoderCLI(t, dbPath, "status")
@@ -48,7 +47,7 @@ func TestCoderStatusListsRuntimes(t *testing.T) {
 	withCoderCaps(t, monomind.CoderCapabilities...)
 	withCoderScan(t, scan...)
 	raw, rts := status()
-	if raw["runtime"] != "claude" || raw["ready"] != true || len(rts) != 5 {
+	if raw["runtime"] != "claude" || raw["ready"] != true || len(rts) != 4 {
 		t.Fatalf("old monomind status = %v", raw)
 	}
 	want := map[string]any{"id": "claude", "installed": true, "fullAccess": true, "ready": true, "toolActivity": "full",
@@ -77,16 +76,6 @@ func TestCoderStatusListsRuntimes(t *testing.T) {
 	}
 	if c := rts["claude"]; c["resume"] != false {
 		t.Errorf("new monomind's claude must be taken as scanned, got %v", c)
-	}
-	if f := rts["freebuff"]; f["ready"] != false || f["fullAccess"] != false {
-		t.Errorf("Freebuff without reported full access = %v", f)
-	}
-	// Future Freebuff support follows the scan contract, with no id allowlist.
-	scan[4].FullAccess = true
-	withCoderScan(t, scan...)
-	_, rts = status()
-	if f := rts["freebuff"]; f["ready"] != true || f["fullAccess"] != true || f["resume"] != false || f["toolActivity"] != "none" {
-		t.Errorf("Freebuff with reported full access = %v", f)
 	}
 
 	// No global caps: nothing is ready.

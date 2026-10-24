@@ -59,7 +59,9 @@ func loadWorkflowDefinition(ctx context.Context, cfg *globalConfig, workflowID s
 	if err != nil {
 		return nil, fmt.Errorf("get workflow: %w", err)
 	}
-	if wf == nil {
+	// The profile boundary, as `workflow get` keeps it: another profile's
+	// workflow (its node configs, its inputs) is not found.
+	if wf == nil || ownedWorkflow(ctx, store, db.DB, cfg.ProfileID, workflowID) == nil {
 		return nil, errNotFound("workflow %q not found", workflowID)
 	}
 	return wf, nil

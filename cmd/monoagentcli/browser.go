@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -103,14 +104,44 @@ func openBrowser(cmd *cobra.Command, cfg *globalConfig, noTab bool) (*browserRun
 	}
 	b, _ := cmd.Flags().GetString("browser")
 	tab, _ := cmd.Flags().GetInt("tab")
+	// An extension task works on the tab it was queued for and no other,
+	// whatever --tab and --browser say, and submits wait for a person on
+	// local pages too.
+	tgt, err := extensionTarget(cfg, db.DB)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if tgt != nil {
+		if (tab != 0 && tab != tgt.Tab) || (b != "" && b != tgt.Browser) {
+			db.Close()
+			return nil, browserCLIError{error: errInvalidInput("this session works on tab %d only: leave out --tab and --browser", tgt.Tab), code: "tab_pinned"}
+		}
+		tab, b = tgt.Tab, tgt.Browser
+	}
 	s, err := browserctl.Open(browserctl.Options{
 		Browser: b, Profile: cfg.ProfileID, Tab: tab, NoTab: noTab, Permissions: &perms, DB: db.DB, Sender: sender,
+		HoldLocalSubmits: tgt != nil, PinOrigin: pinOriginOf(tgt),
 	})
 	if err != nil {
 		db.Close()
 		return nil, browserErr(cmd, cfg, err)
 	}
+	if tgt != nil && !noTab {
+		if now := browserctl.Origin(s.URL()); s.TabID() != tgt.Tab || now != tgt.Origin {
+			db.Close()
+			return nil, browserCLIError{error: errInvalidInput("tab %d is on %s now, not %s as when the task was queued: it stopped", tgt.Tab, now, tgt.Origin), code: "tab_moved"}
+		}
+	}
 	return &browserRun{cfg: cfg, cmd: cmd, s: s, db: db}, nil
+}
+
+// pinOriginOf is the origin an extension session is pinned to, "" for none.
+func pinOriginOf(tgt *aitask.ExtensionTarget) string {
+	if tgt == nil {
+		return ""
+	}
+	return tgt.Origin
 }
 
 func (r *browserRun) Close() { r.db.Close() }
@@ -176,6 +207,7 @@ func browserErr(cmd *cobra.Command, cfg *globalConfig, err error) error {
 	var se *browserctl.SubmitStateError
 	var changed *browserctl.SubmitChangedError
 	var blankTab *browserctl.BlankTabError
+	var pinned *browserctl.PinnedOriginError
 	var off *browserctl.BrowserOffError
 	var blocked *browserctl.SiteBlockedError
 	var pending *browserctl.SiteApprovalPendingError
@@ -217,6 +249,8 @@ func browserErr(cmd *cobra.Command, cfg *globalConfig, err error) error {
 		return browserCLIError{error: errInvalidInput("%s", changed.Error()), code: "submit_changed"}
 	case errors.Is(err, browserctl.ErrSubmitUnbound):
 		return browserCLIError{error: errInvalidInput("%v", err), code: "submit_unbound"}
+	case errors.As(err, &pinned):
+		return browserCLIError{error: errInvalidInput("%s", pinned.Error()), code: "tab_moved"}
 	case errors.As(err, &blankTab):
 		return browserCLIError{error: errInvalidInput("%s", blankTab.Error()), code: "tab_blank"}
 	case errors.Is(err, browserctl.ErrNoBridge), errors.Is(err, extension.ErrNoExtension), errors.Is(err, extension.ErrBrowserGone),

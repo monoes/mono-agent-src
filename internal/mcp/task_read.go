@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/taskview"
 )
 
 const (
-	taskListDefault = 50  // task_list's limit when none is given
-	taskListMax     = 200 // and the most it returns
+	taskListDefault = taskview.ListDefault // task_list's limit when none is given
+	taskListMax     = taskview.ListMax     // and the most it returns
 )
 
 // taskReadTools only read the board: they are in the default server, the

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -203,7 +204,10 @@ func TestGolden_OrgValidateText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a valid 2.24.1 org with warnings must not error: %v", err)
 	}
-	if !strings.Contains(out, "sec: valid (3 warning(s))") {
+	// The count is monomind's lint, which grows with each release (2.25.0
+	// adds an older-model-pin warning to the recorded org): the summary line
+	// is what the parser must find, not how many warnings precede it.
+	if !regexp.MustCompile(`sec: valid \(\d+ warning\(s\)\)`).MatchString(out) {
 		t.Errorf("valid output = %q", out)
 	}
 	_, err = OrgValidate(context.Background(), t.TempDir(), "bad")

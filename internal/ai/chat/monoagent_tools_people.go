@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -37,39 +38,52 @@ func (mt *MonoagentTools) listPeople(args string) (string, error) {
 			return "", fmt.Errorf("invalid args: %w", err)
 		}
 	}
-	limit := a.Limit
+	out, err := ListPeople(mt.db, mt.ProfileID(), a.Platform, a.Search, a.Limit)
+	if err != nil {
+		return "", err
+	}
+	return marshalJSON(map[string]interface{}{"people": out})
+}
+
+// PersonSummary is a row of the people list.
+type PersonSummary = personSummary
+
+// ListPeople is list_people: the profile's people, newest first, at most limit of them
+// (50 when limit is not above 0), narrowed by platform and by a search term on the
+// username and the name. The caller bounds limit.
+func ListPeople(db *sql.DB, profileID, platform, search string, limit int) ([]PersonSummary, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	query := `SELECT id, platform_username, platform, COALESCE(full_name,''), COALESCE(category,''), COALESCE(job_title,'')
 	          FROM people WHERE profile_id = ?`
-	params := []interface{}{mt.ProfileID()}
-	if a.Platform != "" {
+	params := []interface{}{profileID}
+	if platform != "" {
 		query += " AND platform = ?"
-		params = append(params, a.Platform)
+		params = append(params, platform)
 	}
-	if a.Search != "" {
+	if search != "" {
 		query += " AND (platform_username LIKE ? OR full_name LIKE ?)"
-		like := "%" + a.Search + "%"
+		like := "%" + search + "%"
 		params = append(params, like, like)
 	}
 	query += " ORDER BY created_at DESC LIMIT ?"
 	params = append(params, limit)
 
-	rows, err := mt.db.Query(query, params...)
+	rows, err := db.Query(query, params...)
 	if err != nil {
-		return "", fmt.Errorf("query people: %w", err)
+		return nil, fmt.Errorf("query people: %w", err)
 	}
 	defer rows.Close()
 	out := make([]personSummary, 0)
 	for rows.Next() {
 		var p personSummary
 		if err := rows.Scan(&p.ID, &p.PlatformUsername, &p.Platform, &p.FullName, &p.Category, &p.JobTitle); err != nil {
-			return "", fmt.Errorf("scan person: %w", err)
+			return nil, fmt.Errorf("scan person: %w", err)
 		}
 		out = append(out, p)
 	}
-	return marshalJSON(map[string]interface{}{"people": out})
+	return out, nil
 }
 
 type personIDArgs struct {
@@ -81,24 +95,39 @@ func (mt *MonoagentTools) getPerson(args string) (string, error) {
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
-	if err := mt.checkPersonOwnership(a.PersonID); err != nil {
+	p, err := GetPerson(mt.db, mt.ProfileID(), a.PersonID)
+	if err != nil {
 		return "", err
+	}
+	return marshalJSON(p)
+}
+
+// GetPerson is get_person: one person of the profile as a document (ErrPersonNotFound
+// for one that is not the profile's). It selects its columns by name, so a column added
+// to the table is not in it until it is added here.
+func GetPerson(db *sql.DB, profileID, personID string) (map[string]interface{}, error) {
+	var exists int
+	switch err := db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND profile_id = ?`, personID, profileID).Scan(&exists); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, fmt.Errorf("person %s not found: %w", personID, ErrPersonNotFound)
+	case err != nil:
+		return nil, fmt.Errorf("check person ownership: %w", err)
 	}
 	var id, username, platform, fullName, imageURL, contact, website, followerCount, intro, category, jobTitle string
 	var headline, location, about, experience, education, details string
 	var followingCount, contentCount int
 	var isVerified bool
-	if err := mt.db.QueryRow(
+	if err := db.QueryRow(
 		`SELECT id, platform_username, platform, COALESCE(full_name,''), COALESCE(image_url,''),
 		        COALESCE(contact_details,''), COALESCE(website,''), COALESCE(content_count,0), COALESCE(follower_count,''),
 		        COALESCE(following_count,0), COALESCE(introduction,''), COALESCE(is_verified,0), COALESCE(category,''), COALESCE(job_title,''),
 		        COALESCE(headline,''), COALESCE(location,''), COALESCE(about,''), COALESCE(experience,''), COALESCE(education,''),
 		        COALESCE(profile_details,'')
-		 FROM people WHERE id = ? AND profile_id = ?`, a.PersonID, mt.ProfileID(),
+		 FROM people WHERE id = ? AND profile_id = ?`, personID, profileID,
 	).Scan(&id, &username, &platform, &fullName, &imageURL, &contact, &website, &contentCount, &followerCount,
 		&followingCount, &intro, &isVerified, &category, &jobTitle,
 		&headline, &location, &about, &experience, &education, &details); err != nil {
-		return "", fmt.Errorf("query person: %w", err)
+		return nil, fmt.Errorf("query person: %w", err)
 	}
 	p := map[string]interface{}{
 		"id": id, "platform_username": username, "platform": platform, "full_name": fullName,
@@ -119,7 +148,7 @@ func (mt *MonoagentTools) getPerson(args string) (string, error) {
 	if details != "" && json.Unmarshal([]byte(details), &extras) == nil && len(extras) > 0 {
 		p["profile_details"] = extras
 	}
-	return marshalJSON(p)
+	return p, nil
 }
 
 type upsertPersonArgs struct {

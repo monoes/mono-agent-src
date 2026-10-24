@@ -521,7 +521,7 @@ func TestBuildCarriesExecutionSupport(t *testing.T) {
 	no, yes := false, true
 	reason := "interactive-only"
 	scan := scanOf(
-		monomind.ScanEntry{ID: "freebuff", Installed: true, ExecutionSupported: &no, ExecutionUnsupportedReason: &reason},
+		monomind.ScanEntry{ID: "tui-only", Installed: true, ExecutionSupported: &no, ExecutionUnsupportedReason: &reason},
 		monomind.ScanEntry{ID: "claude", Installed: true, ExecutionSupported: &yes},
 		monomind.ScanEntry{ID: "codex", Installed: true},
 	)
@@ -529,8 +529,8 @@ func TestBuildCarriesExecutionSupport(t *testing.T) {
 	for _, rr := range Build(nil, scan, time.Now(), 0) {
 		by[rr.Runtime] = rr
 	}
-	if f := by["freebuff"]; f.ExecutionSupported == nil || *f.ExecutionSupported || f.ExecutionUnsupportedReason != reason {
-		t.Errorf("freebuff = %+v", f)
+	if f := by["tui-only"]; f.ExecutionSupported == nil || *f.ExecutionSupported || f.ExecutionUnsupportedReason != reason {
+		t.Errorf("tui-only = %+v", f)
 	}
 	if c := by["claude"]; c.ExecutionSupported == nil || !*c.ExecutionSupported || c.ExecutionUnsupportedReason != "" {
 		t.Errorf("claude = %+v", c)

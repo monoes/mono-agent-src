@@ -82,6 +82,7 @@ const promptTemplate = `You are filling in a job application form for the user. 
 func init() {
 	aitask.Register(aitask.Kind{
 		Name:           Kind,
+		Description:    "Fill a job application form in the user's browser from their facts; never submits.",
 		Schema:         Schema,
 		PromptTemplate: promptTemplate,
 		DefaultAccess:  aitask.AccessWorkspace,

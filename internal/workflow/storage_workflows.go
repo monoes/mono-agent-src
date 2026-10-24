@@ -393,7 +393,17 @@ func saveConnectionsTx(ctx context.Context, tx *sql.Tx, workflowID string, conns
 
 // loadWorkflowNodes is an internal helper to fetch nodes for a workflow.
 func (s *SQLiteWorkflowStore) loadWorkflowNodes(ctx context.Context, workflowID string) ([]WorkflowNode, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return loadNodesFrom(ctx, s.db, workflowID)
+}
+
+// rowQuerier is what the loaders need of a *sql.DB or a *sql.Tx.
+type rowQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func loadNodesFrom(ctx context.Context, q rowQuerier, workflowID string) ([]WorkflowNode, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT id, workflow_id, node_type, name, config, position_x, position_y, disabled, created_at, updated_at
 		FROM workflow_nodes WHERE workflow_id = ? ORDER BY `+sqltime.SortKey("created_at")+`, rowid`, workflowID)
 	if err != nil {
@@ -425,7 +435,11 @@ func (s *SQLiteWorkflowStore) loadWorkflowNodes(ctx context.Context, workflowID 
 
 // loadWorkflowConnections is an internal helper to fetch connections for a workflow.
 func (s *SQLiteWorkflowStore) loadWorkflowConnections(ctx context.Context, workflowID string) ([]WorkflowConnection, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return loadConnectionsFrom(ctx, s.db, workflowID)
+}
+
+func loadConnectionsFrom(ctx context.Context, q rowQuerier, workflowID string) ([]WorkflowConnection, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT id, workflow_id, source_node_id, source_handle, target_node_id, target_handle, position
 		FROM workflow_connections WHERE workflow_id = ? ORDER BY position ASC`, workflowID)
 	if err != nil {

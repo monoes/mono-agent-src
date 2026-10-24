@@ -38,7 +38,9 @@
   const PREFILL_KEY = "coderPrefill";
   const PREFILL_FRESH_MS = 60000;
   const NEEDS_ELEMENT = new Set(["copy-style", "fix-element"]);
-  const NEEDS_NOTE = new Set(["fix-element", "ask"]);
+  const NEEDS_NOTE = new Set(["fix-element", "ask", "extension-ask"]);
+  // "Fill with coder" and "Ask coder": queued as AI tasks (coder_task), not as coder queue items.
+  const TASK_KINDS = new Set(["extension-fill", "extension-ask"]);
   const KIND_LABELS = {
     "copy-style": "Copy style",
     tokens: "Design tokens",
@@ -46,6 +48,8 @@
     "bug-report": "Bug report",
     integration: "Integration",
     ask: "Question",
+    "extension-fill": "Fill with coder",
+    "extension-ask": "Ask coder",
   };
   // coder.queue's refusals that no other job would escape (the CLI's codes).
   const REFUSALS = new Set(["coder_disabled", "needs_monomind_update", "coder_runtime_unsupported"]);
@@ -182,27 +186,37 @@
     queueing = true;
     say("", "");
     drawForm();
+    const kind = kindSel.value;
+    // A task carries only the tab and the person's note: no selector, folder
+    // or reload, and never the page's text (the CLI reads the tab itself).
     const answer = await ask(
-      withProfile({
-        type: "coder_queue",
-        kind: kindSel.value,
-        tabId: p.tabId,
-        // Only a bug report reloads the tab; an older bridge ignores the field.
-        ...(kindSel.value === "bug-report" ? { reload: reloadBox.checked } : {}),
-        selector: target && target.tabId === p.tabId ? target.selector : "",
-        note: noteBox.value,
-        cwd: cwdSel.value,
-      })
+      withProfile(
+        TASK_KINDS.has(kind)
+          ? { type: "coder_task", kind, tabId: p.tabId, note: noteBox.value }
+          : {
+              type: "coder_queue",
+              kind,
+              tabId: p.tabId,
+              // Only a bug report reloads the tab; an older bridge ignores the field.
+              ...(kind === "bug-report" ? { reload: reloadBox.checked } : {}),
+              selector: target && target.tabId === p.tabId ? target.selector : "",
+              note: noteBox.value,
+              cwd: cwdSel.value,
+            }
+      )
     );
     queueing = false;
     if (answer.ok) {
       noteBox.value = "";
       target = null;
-      say("ok", "Queued. Start it in the MonoAgent app.");
+      say("ok", TASK_KINDS.has(kind) ? "Queued as a task. Start it in the MonoAgent app: it never runs on its own." : "Queued. Start it in the MonoAgent app.");
       loadLists();
     } else if (REFUSALS.has(answer.code)) {
       // Coder mode off, or unable to run: true of every job, so said at the top.
       refusedText = answer.error || "MonoAgent will not take work for the coder right now.";
+      if (TASK_KINDS.has(kind) && answer.code === "coder_disabled") {
+        refusedText = "Coder mode is off in MonoAgent, so this was not queued. Fill form and the chat still work as quick one-shots; turn the coder on in MonoAgent's Settings to hand work to it.";
+      }
     } else {
       say("err", answer.code === "offline" ? NOTICES.offline : answer.error || "MonoAgent did not queue it.");
     }

@@ -69,6 +69,11 @@ func (s *SQLiteWorkflowStore) saveDefinition(ctx context.Context, w *Workflow, m
 		return err
 	}
 
+	if hook := txHookFrom(ctx); hook != nil {
+		if err := hook(ctx, tx); err != nil {
+			return &TxHookError{Err: err}
+		}
+	}
 	prevVersion := w.Version
 	w.Version = v
 	if beforeCommit != nil {

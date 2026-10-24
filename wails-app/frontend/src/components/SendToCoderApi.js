@@ -12,6 +12,14 @@ export const aitaskApi = {
   cancel: (id) => Promise.resolve().then(() => GoApp.CancelAITask(id)),
 }
 
+// The propose-then-apply calls (app_aitask_apply.go): the CLI's JSON, parsed.
+const parsed = (p) => p.then(s => (typeof s === 'string' ? JSON.parse(s) : s))
+export const aitaskApplyApi = {
+  preview: (id) => parsed(Promise.resolve().then(() => GoApp.PreviewFailedRunFix(id))),
+  apply: (id, allowActive, expectHash) => parsed(Promise.resolve().then(() => GoApp.ApplyFailedRunFix(id, !!allowActive, expectHash))),
+  saveDraft: (id) => parsed(Promise.resolve().then(() => GoApp.SaveGeneratedWorkflow(id))),
+}
+
 // selectionText is the context entry for text a button hands over (the Go side
 // writes it to a file and passes it as selection=<path>).
 export const selectionText = (text) => `selection-text=${text}`

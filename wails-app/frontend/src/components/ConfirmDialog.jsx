@@ -27,6 +27,7 @@ export default function ConfirmHost() {
   const [req, setReq] = useState(null)
   const [checked, setChecked] = useState(false)
   const dialogRef = useRef(null)
+  const openerRef = useRef(null)
 
   const close = useCallback((value) => {
     settle(value === true && req?.checkbox ? { checked } : value)
@@ -34,10 +35,23 @@ export default function ConfirmHost() {
   }, [req, checked])
 
   useEffect(() => {
-    const handler = (e) => { setChecked(false); setReq(e.detail) }
+    const handler = (e) => {
+      // Remember what had focus, so closing the dialog hands it back.
+      if (!openerRef.current) openerRef.current = document.activeElement
+      setChecked(false); setReq(e.detail)
+    }
     bus.addEventListener('confirm:open', handler)
     return () => bus.removeEventListener('confirm:open', handler)
   }, [])
+
+  // On close, focus returns to the element that had it when the dialog opened
+  // (if it is still on the page), not to <body>.
+  useEffect(() => {
+    if (req) return
+    const opener = openerRef.current
+    openerRef.current = null
+    if (opener && opener !== document.body && document.contains(opener)) opener.focus?.()
+  }, [req])
 
   // Trap Tab focus within the dialog so keyboard users can't tab out to the
   // obscured page behind it.

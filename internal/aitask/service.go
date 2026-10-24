@@ -292,7 +292,7 @@ func (s *Service) Complete(id, token string, result []byte) (Task, error) {
 		return Task{}, &Error{Code: CodeSchemaInvalid, Fields: map[string]any{"reason": err.Error()},
 			Message: "the result does not match the " + kind.Name + " schema: " + err.Error() + ". Fix the file and run complete again."}
 	}
-	if err := runCheck(kind, s.Store.Profile, result); err != nil {
+	if err := runCheck(kind, s.Store.Profile, id, result); err != nil {
 		return Task{}, &Error{Code: CodeSchemaInvalid, Fields: map[string]any{"reason": err.Error()},
 			Message: "the result was refused by the " + kind.Name + " check: " + err.Error() + ". Fix the file and run complete again."}
 	}
@@ -404,11 +404,11 @@ const CheckTimeout = 15 * time.Second
 
 // runCheck runs the kind's Check, if any. A panic or a timeout is a refusal,
 // never a pass.
-func runCheck(k Kind, profile string, raw []byte) (err error) {
+func runCheck(k Kind, profile, taskID string, raw []byte) (err error) {
 	if k.Check == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), CheckTimeout)
+	ctx, cancel := context.WithTimeout(WithTaskID(context.Background(), taskID), CheckTimeout)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
@@ -425,4 +425,18 @@ func runCheck(k Kind, profile string, raw []byte) (err error) {
 	case <-ctx.Done():
 		return fmt.Errorf("the check timed out")
 	}
+}
+
+type taskIDKey struct{}
+
+// WithTaskID marks ctx as working for task id: Kind.Check gets such a context from
+// Service.Complete, so a check can look at the task's own (immutable) context.
+func WithTaskID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, taskIDKey{}, id)
+}
+
+// TaskIDFrom is the task id of ctx, or "".
+func TaskIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(taskIDKey{}).(string)
+	return id
 }

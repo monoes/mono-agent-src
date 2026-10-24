@@ -138,6 +138,9 @@ type Env struct {
 	Executable string // path of the running binary
 	ProfileID  string // the profile to check ("" = none given: per-profile checks are skipped)
 
+	// AgentAccount is the Windows account the agent runs as (--agent-account), "" when not given.
+	AgentAccount string
+
 	// DB is the opened (not migrated) database, nil when it doesn't exist
 	// yet or failed to open (DBErr).
 	DB    *sql.DB

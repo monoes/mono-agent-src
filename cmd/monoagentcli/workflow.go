@@ -261,6 +261,7 @@ func newWorkflowCmd(cfg *globalConfig) *cobra.Command {
 		newWorkflowVersionsCmd(cfg),
 		newWorkflowGenerateCmd(cfg),
 	)
+	cmd.AddCommand(newWorkflowAitaskCmds(cfg)...)
 
 	return cmd
 }

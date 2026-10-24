@@ -28,6 +28,10 @@ import (
 // which `aitask supervise` runs with the task's token already in its
 // environment, keeps that token.
 //
+// A confined kind (confinedKind: application-apply, and the kinds that read
+// untrusted text: draft-reply) is never a full-access coder turn, in the first turn or in
+// any later one of its conversation, whatever the task's status.
+//
 // kind is the browser-permission kind the turn runs as: apply for the turn of
 // an open application-apply task (the first turn and every follow-up), read
 // only from the task row of this profile once the caller is the operator,
@@ -60,22 +64,31 @@ func taskTurn(cfg *Deps, conversationID string, turnCap *float64) (run taskRun) 
 		return run
 	}
 	apply := t.Kind == applyfill.Kind
+	confined := confinedKind(t.Kind)
 	operator := clicore.RequireOperator(cfg.RequireOperator, "continue an AI task's turn") == nil
 	if !operator {
-		if apply {
-			run.err = clicore.OperatorOnly("only the user can continue an application task's conversation")
+		if confined {
+			run.err = clicore.OperatorOnly("only the user can continue a %s task's conversation", t.Kind)
 		}
 		return run
 	}
-	if apply {
-		run.kind = browserctl.KindApply
-		if run.confine, err = confineApplyTurn(cfg, t.ID); err != nil {
+	if confined {
+		if apply || aitask.IsExtensionKind(t.Kind) {
+			run.kind = browserctl.KindApply // the browser-capable confined kinds
+		}
+		if run.confine, err = confineTurn(cfg, t.Kind, t.ID); err != nil {
 			run.kind, run.err = browserctl.KindCoder, err
 			return run
 		}
+		// The task id (never the token: CheckToken still guards complete and fail)
+		// marks every confined turn, open or over, so the CLI's task-session guard
+		// (cmd/monoagentcli/task_session_guard.go) holds the agent to its profile.
+		// This env var is the guard's single signal: every path that returns a
+		// confinement carries it (TestEveryConfinedTurnCarriesTheTaskID).
+		run.env = map[string]string{aitask.EnvTaskID: t.ID}
 	}
 	open := t.Status == aitask.StatusRunning || t.Status == aitask.StatusNeedsUser
-	if !open && !apply {
+	if !open && !confined {
 		return run // an ordinary coder turn after a generic task is over
 	}
 	run.end = func(turnErr error) {
@@ -122,7 +135,7 @@ func taskTurn(cfg *Deps, conversationID string, turnCap *float64) (run taskRun) 
 	if moved, err := store.Rebind(t.ID, token, os.Getpid()); err != nil || !moved {
 		_ = l.Settle(context.Background(), t.ID, t.ConversationID)
 		run.budget = nil
-		if apply {
+		if confined {
 			run.err = fmt.Errorf("task %s could not be handed to this turn", t.ID)
 		}
 		run.kind, run.confine, run.end = browserctl.KindCoder, nil, func(error) {}

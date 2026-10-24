@@ -7,6 +7,7 @@ package monomind
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 // Protocol version implemented by this client (handshake-checked).
@@ -14,6 +15,18 @@ const ProtocolVersion = 1
 
 // MinMonomindVersion is the minimum monomind release this client requires.
 const MinMonomindVersion = "2.10.0"
+
+// MinConfinedMonomindVersion is the oldest monomind whose shell-command scanner
+// cannot be bypassed (ANSI-C quoting, monoes/monomind#702 to #704). A confined
+// AI task's command allow-list rests on that scanner, so those turns refuse an
+// older monomind; nothing else does (MinMonomindVersion is unchanged).
+const MinConfinedMonomindVersion = "2.27.0"
+
+// ConfinementSupported reports whether version can enforce a command
+// allow-list. An empty or unreadable version cannot.
+func ConfinementSupported(version string) bool {
+	return strings.TrimSpace(version) != "" && versionAtLeast(version, MinConfinedMonomindVersion)
+}
 
 // RequiredCapabilities are the handshake capabilities mono-agent relies on.
 var RequiredCapabilities = []string{"agent-exec", "agent-scan", "org-json-v1"}

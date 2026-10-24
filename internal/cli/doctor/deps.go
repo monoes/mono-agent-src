@@ -24,6 +24,8 @@ type Deps struct {
 
 	// projects is doctor's --project.
 	projects []string
+	// agentAccount is doctor's --agent-account.
+	agentAccount string
 }
 
 // NewDoctorCommand is `monoagentcli doctor`.

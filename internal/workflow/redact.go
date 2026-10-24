@@ -19,6 +19,25 @@ var redactKeyPattern = regexp.MustCompile(
 // RedactedValue replaces every value stored under a sensitive key.
 const RedactedValue = "***"
 
+// redactBroadKeyPattern matches, as a case-insensitive SUBSTRING, key names that
+// carry credentials in HTTP and error output (Set-Cookie, X-Api-Key,
+// Proxy-Authorization, access_token, db_password...). It masks only STRING
+// values: a count under max_tokens or a flag under use_secret_store stays, and
+// a container under such a key is walked, so its own credential keys are
+// masked and its ordinary fields are not.
+var redactBroadKeyPattern = regexp.MustCompile(`(?i)(cookie|authorization|api[-_]?key|token|secret|password|passwd|pwd)`)
+
+// AgentTextScrubber, when set, is applied to every string a ReplyRedactor
+// shows: a marked process (an agent, the chat's runs, a workflow's process)
+// gets credential-shaped text in run output and errors removed, which no key
+// name can catch. internal/aitask sets it (its value scanner), as workflow
+// cannot import it.
+var AgentTextScrubber func(string) string
+
+// RedactAny is v with credential-named string values masked, as RedactItems
+// does for items; for stored values that are not item arrays.
+func RedactAny(v any) any { return redactValueDepth(v, 0, nil) }
+
 // CycleMarker replaces any value that is part of a reference cycle or
 // deeper than MaxRedactDepth during redaction. goja's Export() preserves
 // reference cycles from core.code results, so without this guard a cyclic
@@ -91,6 +110,10 @@ func redactValueDepth(v any, depth int, visited map[uintptr]bool) any {
 		vNext := withVisited(visited, ptr)
 		for k, val := range t {
 			if redactKeyPattern.MatchString(k) {
+				out[k] = RedactedValue
+				continue
+			}
+			if str, isStr := val.(string); isStr && str != "" && redactBroadKeyPattern.MatchString(k) {
 				out[k] = RedactedValue
 				continue
 			}

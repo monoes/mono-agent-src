@@ -48,7 +48,6 @@ type SectionsRuntimePolicy struct {
 // asked. sections_runtimes_test.go pins it.
 var sectionsFallback = []SectionsRuntime{
 	{"kilo", SectionsRuntimeRefused, "Kilo supports full access only and a sections org refuses full access (a full-access role runs with no authority mask), so no role can run on it"},
-	{"freebuff", SectionsRuntimeRefused, "Freebuff has no headless prompt or JSON transport, so no role can run on it"},
 	{"kimicode", SectionsRuntimeUnverified, ""},
 	{"qwen", SectionsRuntimeUnverified, ""},
 	{"qwen-rpc", SectionsRuntimeUnverified, ""},

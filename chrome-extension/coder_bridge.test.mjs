@@ -282,3 +282,67 @@ test("a web page's content script may send coder_from_page alone; another extens
   assert.deepEqual(await t.send({ type: "coder_from_page" }, evil), { ok: true }, "the highlight panel's button still works");
   assert.equal(t.record.opened.length, 1);
 });
+
+// "Fill with coder" / "Ask coder": coder_task queues an AI task about the tab.
+// Like coder_queue it carries the tab and the person's note and nothing the
+// page said, and it is only ever asked of coder.task (which queues; the
+// person starts it in the app).
+test("a task request carries only kind, tab, note and profile, never the page", async () => {
+  const t = setup();
+  const out = await t.send({
+    type: "coder_task",
+    kind: "extension-fill",
+    tabId: 42,
+    note: " use my work email ",
+    profile: "p-work",
+    selector: "#buy",
+    cwd: "/home/me/shop",
+    text: PAGE_TEXT,
+    context: { text: PAGE_TEXT },
+    title: PAGE_TEXT,
+    url: "https://shop.example/p",
+  });
+  assert.equal(out.ok, true);
+  assert.equal(t.ask.calls.length, 1);
+  const { method, params } = t.ask.calls[0];
+  assert.equal(method, "coder.task");
+  assert.deepEqual(params, { kind: "extension-fill", tabId: 42, note: "use my work email", profile: "p-work" });
+  assert.ok(!JSON.stringify(t.ask.calls).includes("SECRET"), "page text was sent");
+  assert.equal(t.record.scripts.length, 0, "queueing a task read the page");
+});
+
+test("a task is refused before anything is sent when its kind, tab or question is wrong", async () => {
+  const t = setup();
+  for (const bad of [
+    { kind: "generic", tabId: 9 },
+    { kind: "ask", tabId: 9 }, // a coder.queue kind, not a task
+    { kind: "extension-fill", tabId: 0 },
+    { kind: "extension-fill", tabId: "9" },
+    { kind: "extension-ask", tabId: 9, note: "   " }, // an ask needs its question
+    { kind: "extension-ask", tabId: 9 },
+  ]) {
+    const out = await t.send(Object.assign({ type: "coder_task" }, bad));
+    assert.equal(out.ok, false, JSON.stringify(bad));
+    assert.equal(out.code, "invalid");
+  }
+  assert.equal(t.ask.calls.length, 0);
+  assert.equal((await t.send({ type: "coder_task", kind: "extension-fill", tabId: 9 })).ok, true, "a fill needs no note");
+  const long = await t.send({ type: "coder_task", kind: "extension-ask", tabId: 9, note: "n".repeat(5000) });
+  assert.equal(long.ok, true);
+  assert.equal(t.ask.calls[1].params.note.length, 4000);
+});
+
+test("coder_queue still refuses the task kinds, and coder_task is for this extension's pages only", async () => {
+  const t = setup();
+  assert.equal((await t.send({ type: "coder_queue", kind: "extension-fill", tabId: 9 })).ok, false);
+  assert.equal(await t.send({ type: "coder_task", kind: "extension-fill", tabId: 9 }, CONTENT), undefined, "a page's content script");
+  assert.equal(await t.send({ type: "coder_task", kind: "extension-fill", tabId: 9 }, { id: "another-extension", url: PANEL.url }), undefined);
+  assert.equal(t.ask.calls.length, 0);
+});
+
+test("the bridge's refusals reach the panel with their code", async () => {
+  const ask = fakeAsk({ methods: ["ping", "coder.task"], reply: () => { throw Object.assign(new Error("coder mode is disabled"), { code: "coder_disabled" }); } });
+  const out = await setup({ ask }).send({ type: "coder_task", kind: "extension-ask", tabId: 9, note: "why?" });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "coder_disabled");
+});

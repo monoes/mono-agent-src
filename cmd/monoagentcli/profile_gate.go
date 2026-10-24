@@ -27,10 +27,15 @@ var profileGateMode = profilegate.ModeEnforce
 // PersistentPreRun of its own (doctor, setup) replaces the root's, so each of
 // those is wrapped to run the gate first.
 func installProfileGate(root *cobra.Command, cfg *globalConfig) {
+	profileSets := 0
+	countProfileFlag(root, &profileSets)
 	// gate returns the refusal in ModeEnforce (exit code 3, printed by the
 	// CLI's normal error path before the command's own work) and prints the
 	// warning in ModeWarn.
 	gate := func(cmd *cobra.Command) error {
+		if err := guardTaskSession(cmd, cfg.DBPath, profileSets); err != nil {
+			return err
+		}
 		list := func() ([]profilegate.ProfileRef, error) { return listProfilesReadOnly(cfg.DBPath) }
 		// An empty value (--profile '' or --profile=) names no profile.
 		given := cmd.Flags().Changed("profile")

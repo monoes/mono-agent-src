@@ -14,6 +14,13 @@ export function TaskHeaderCard({ task, onNavigate }) {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null) // { kind, data } once the task completed
   const [cancelling, setCancelling] = useState(false)
+  const [budget, setBudget] = useState(null) // what the task has spent against its cap; absent when the CLI can't say
+  // A different task on the same instance starts from nothing: none of the
+  // previous task's status, result or error is shown for it.
+  const [shownTask, setShownTask] = useState(task.taskId)
+  if (shownTask !== task.taskId) {
+    setShownTask(task.taskId); setStatus(task.status || ''); setResult(null); setError(''); setCancelling(false); setBudget(null)
+  }
 
   useEffect(() => {
     if (!task.taskId || taskIsDone(status)) return undefined
@@ -33,8 +40,6 @@ export function TaskHeaderCard({ task, onNavigate }) {
     return () => { live = false }
   }, [task.taskId, task.kind, status])
 
-  // What the task has spent against its cap; absent when the CLI can't say.
-  const [budget, setBudget] = useState(null)
   useEffect(() => {
     if (!task.taskId) return undefined
     let live = true
@@ -76,7 +81,7 @@ export function TaskHeaderCard({ task, onNavigate }) {
       {!taskIsDone(status) && (
         <button type="button" className="btn btn-ghost btn-sm" onClick={cancel} disabled={cancelling}>Cancel</button>
       )}
-      {result && <TaskResultLine kind={result.kind} result={result.data} onNavigate={onNavigate} />}
+      {result && <TaskResultLine kind={result.kind} taskId={task.taskId} result={result.data} onNavigate={onNavigate} />}
       {error && <span role="alert" style={{ color: 'var(--red)', width: '100%' }}>{error}</span>}
     </section>
   )

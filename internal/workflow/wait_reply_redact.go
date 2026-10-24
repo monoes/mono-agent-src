@@ -156,6 +156,14 @@ func (r *ReplyRedactor) String(s string) string {
 // str is String, and whether s holds a fieldPiece piece of a shown
 // execution's token.
 func (r *ReplyRedactor) str(s string) (string, bool) {
+	out, piece := r.hideReplyTokens(s)
+	if r != nil && AgentTextScrubber != nil {
+		out = AgentTextScrubber(out)
+	}
+	return out, piece
+}
+
+func (r *ReplyRedactor) hideReplyTokens(s string) (string, bool) {
 	if r == nil || len(s) < fieldPiece {
 		return s, false
 	}

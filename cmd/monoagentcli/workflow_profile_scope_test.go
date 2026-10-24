@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
@@ -55,5 +56,42 @@ func TestWorkflowImportSavesIntoTheTargetProfile(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("imported workflow %s not listed: %+v", id, rows)
+	}
+}
+
+// Every command that takes a workflow id keeps the profile boundary `workflow
+// get` keeps: another profile's workflow is not found, so its node configs
+// cannot be listed, read as inputs, validated or edited.
+func TestWorkflowCommandsDoNotReachAnotherProfilesWorkflow(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := twoProfileDB(t) // w1 is default's, w2 is p-work's
+	for _, args := range [][]string{
+		{"get", "w2"},
+		{"node", "list", "w2"},
+		{"node", "set", "w2", "n1", "--name", "x"},
+		{"node", "remove", "w2", "n1"},
+		{"node", "add", "w2", "--type", "trigger.manual", "--name", "x"},
+		{"inputs", "w2"},
+		{"validate", "w2"},
+	} {
+		c := *cfg
+		c.ProfileID = "default"
+		cmd := newWorkflowCmd(&c)
+		cmd.SetArgs(args)
+		var err error
+		captureStdout(t, func() { err = cmd.Execute() })
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("workflow %v reached another profile's workflow: %v", args, err)
+		}
+	}
+	// Its own workflow is still reachable.
+	c := *cfg
+	c.ProfileID = "default"
+	cmd := newWorkflowCmd(&c)
+	cmd.SetArgs([]string{"node", "list", "w1"})
+	var err error
+	captureStdout(t, func() { err = cmd.Execute() })
+	if err != nil {
+		t.Errorf("own workflow: %v", err)
 	}
 }

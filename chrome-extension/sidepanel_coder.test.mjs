@@ -502,3 +502,41 @@ test("nothing about a profile is asked before the header has one; then everythin
   assert.deepEqual(t.of("coder_projects").map((m) => m.profile), ["p-work", "p-home"], "another profile's folders");
   assert.ok(t.sent.every((m) => !profiled.includes(m.type) || m.profile), "a request went out with no profile");
 });
+
+test("Fill with coder and Ask coder queue a task: coder_task with the tab and the note, none of the page, no folder or element", async () => {
+  const t = setup({ replies: { coder_task: { ok: true, task: { taskId: "at-1", status: "queued" } } } });
+  await settle();
+  t.els["coder-kind"].value = "extension-fill";
+  t.els["coder-kind"].fire("change");
+  assert.equal(t.els["coder-queue"].disabled, false, "a fill needs neither an element nor a note");
+  t.els["coder-note"].value = "use my work email";
+  t.els["coder-queue"].fire("click");
+  await settle();
+  assert.deepEqual(t.of("coder_task"), [{ type: "coder_task", kind: "extension-fill", tabId: 5, note: "use my work email", profile: "p-work" }]);
+  assert.equal(t.of("coder_queue").length, 0, "a task went to the coder queue");
+  assert.ok(!JSON.stringify(t.sent).includes("SECRET"), "the page's title went out");
+  assert.match(t.els["coder-msg"].textContent, /Queued as a task\. Start it in the MonoAgent app/);
+  assert.equal(t.els["coder-note"].value, "");
+
+  t.els["coder-kind"].value = "extension-ask";
+  t.els["coder-kind"].fire("change");
+  assert.equal(t.els["coder-queue"].disabled, true, "an ask needs its question");
+  assert.equal(t.els["coder-why"].textContent, "Say what you want in the note.");
+  t.els["coder-note"].value = "why is Pay disabled?";
+  t.els["coder-note"].fire("input");
+  t.els["coder-queue"].fire("click");
+  await settle();
+  assert.equal(t.of("coder_task")[1].kind, "extension-ask");
+  assert.equal(t.of("coder_task")[1].note, "why is Pay disabled?");
+});
+
+test("with coder mode off a task says it was not queued and that the quick tools remain", async () => {
+  const t = setup({ replies: { coder_task: { ok: false, error: "coder mode is disabled", code: "coder_disabled" } } });
+  await settle();
+  t.els["coder-kind"].value = "extension-fill";
+  t.els["coder-kind"].fire("change");
+  t.els["coder-queue"].fire("click");
+  await settle();
+  assert.match(t.els["coder-notice"].textContent, /Coder mode is off.*not queued.*quick one-shots/);
+  assert.equal(t.els["coder-queue"].disabled, true);
+});

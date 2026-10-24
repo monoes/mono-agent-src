@@ -8,7 +8,7 @@ type ScanEntry struct {
 	Version     *string `json:"version"`
 	InstallHint string  `json:"install_hint"`
 	// ExecutionSupported is false for a runtime monomind cannot run headless
-	// (freebuff: no prompt/JSON transport); ExecutionUnsupportedReason is its
+	// (no prompt/JSON transport); ExecutionUnsupportedReason is its
 	// own sentence for why. Both are nil from a monomind that predates them.
 	ExecutionSupported         *bool   `json:"execution_supported,omitempty"`
 	ExecutionUnsupportedReason *string `json:"execution_unsupported_reason,omitempty"`

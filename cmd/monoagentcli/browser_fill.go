@@ -109,6 +109,10 @@ func runApprovedFill(cmd *cobra.Command, cfg *globalConfig, hilID string) error 
 		_ = browserctl.ReleaseSubmitItem(ctx, db.DB, cfg.ProfileID, it.ID)
 		return browserErr(cmd, cfg, err)
 	}
+	tgt, err := extensionApproved(cfg, db.DB, it)
+	if err != nil {
+		return giveBack(err)
+	}
 	sender, err := browserBridge()
 	if err != nil {
 		return giveBack(err)
@@ -122,7 +126,7 @@ func runApprovedFill(cmd *cobra.Command, cfg *globalConfig, hilID string) error 
 		allow = append(allow, o)
 	}
 	s, err := browserctl.Open(browserctl.Options{
-		Browser: it.Instance, Profile: cfg.ProfileID, Tab: it.TabID, Permissions: &perms, Allowlist: allow, Sender: sender,
+		Browser: it.Instance, Profile: cfg.ProfileID, Tab: it.TabID, Permissions: &perms, Allowlist: allow, Sender: sender, PinOrigin: pinOriginOf(tgt),
 	})
 	if err != nil {
 		return giveBack(err)

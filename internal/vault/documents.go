@@ -176,6 +176,31 @@ func ListDocuments(ctx context.Context, db *sql.DB, profileID string) ([]Documen
 	return docs, rows.Err()
 }
 
+// ListDocumentsPage is ListDocuments for at most limit documents after the first
+// offset, newest first: the rows read and the files stat'ed (for Stale) are bounded
+// by limit, not by how many documents the profile has. A limit below 1 lists none.
+func ListDocumentsPage(ctx context.Context, db *sql.DB, profileID string, limit, offset int) ([]DocumentEntry, error) {
+	docs := []DocumentEntry{}
+	if limit < 1 {
+		return docs, nil
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT `+documentColumns+` FROM vault_documents WHERE profile_id = ? ORDER BY seq DESC LIMIT ? OFFSET ?`,
+		profileID, limit, max(offset, 0))
+	if err != nil {
+		return nil, fmt.Errorf("vault.ListDocumentsPage: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		d, err := scanDocument(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("vault.ListDocumentsPage: scan: %w", err)
+		}
+		docs = append(docs, d)
+	}
+	return docs, rows.Err()
+}
+
 // GetDocument returns id's document entry, scoped to profileID. Returns a
 // nil entry (not an error) when no such row exists for this profile --
 // deleted, never existed, and belonging to a different profile all look

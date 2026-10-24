@@ -42,8 +42,8 @@
 
   const ACTIONS = ["arm", "disarm", "allow_once", "status"];
   const STORE_KEY = "agentSubmitGuard";
-  // The guard's handle on the page's window (see installGuard).
-  const GUARD_KEY = "__monoagentSubmitGuard";
+  // Nothing of the guard is on the page's window: it is controlled over a per-tab
+  // random event name (st.ctl, see installGuard) that only this worker knows.
   const MESSAGE = "agent_submit_blocked";
   const MAX_BLOCKED = 50;
 
@@ -88,7 +88,7 @@
   }
 
   /** inject puts the relay, then the guard, into the target frames. */
-  async function inject(tabId, frames, immediately) {
+  async function inject(tabId, frames, immediately, ctl) {
     const page = root.MonoAgentSubmitPage;
     const target = Object.assign({ tabId }, frames);
     const event = `monoagent-submit-${nonce()}`;
@@ -97,7 +97,7 @@
       target,
       world: "MAIN",
       func: page.installGuard,
-      args: [GUARD_KEY, event],
+      args: [ctl, event],
       injectImmediately: !!immediately,
     });
     return (results || []).some((r) => r && r.result === true);
@@ -110,13 +110,21 @@
 
   /** control runs one guard action in the target frames; true when a guard took it. */
   async function control(tabId, frames, action) {
+    const st = tabs[tabId];
+    if (!st || !st.ctl) return false;
     const results = await chrome.scripting.executeScript({
       target: Object.assign({ tabId }, frames),
       world: "MAIN",
-      args: [GUARD_KEY, action],
-      func: (key, a) => {
-        const guard = window[key];
-        return !!guard && guard.control(a) === true;
+      args: [st.ctl, action],
+      func: (name, a) => {
+        // Answered only by a guard listening on this tab's name.
+        const box = { action: a, result: false };
+        try {
+          document.dispatchEvent(new CustomEvent(name, { detail: box }));
+        } catch {
+          return false;
+        }
+        return box.result === true;
       },
     });
     return (results || []).some((r) => r && r.result === true);
@@ -134,7 +142,8 @@
       if (tab.pendingUrl) throw new Error("submit_guard: the tab is navigating; arm it once the page has loaded");
       const origin = originOf(tab.url);
       if (!/^https?:/.test(origin)) throw new Error("submit_guard: the tab has no web page to guard");
-      if (!(await inject(tabId, { allFrames: true }, false))) {
+      st.ctl = st.ctl || `monoagent-ctl-${nonce()}`;
+      if (!(await inject(tabId, { allFrames: true }, false, st.ctl))) {
         throw new Error("submit_guard: the guard could not be installed in this page");
       }
       if (st.origin !== origin) st.blocked = []; // records belong to the origin they were made on
@@ -255,7 +264,11 @@
       if (!tab || originOf(tab.url) !== st.origin) return;
     }
     // As early as Chrome allows: before the page's own scripts, usually.
-    await inject(details.tabId, { frameIds: [details.frameId] }, true).catch(() => false);
+    if (!st.ctl) {
+      st.ctl = `monoagent-ctl-${nonce()}`;
+      save();
+    }
+    await inject(details.tabId, { frameIds: [details.frameId] }, true, st.ctl).catch(() => false);
     // The bar waits for the page: executeScript's default timing.
     if (details.frameId === 0) await ui(details.tabId, root.MonoAgentGuardBar.show);
   }
@@ -293,5 +306,5 @@
     load();
   }
 
-  root.MonoAgentSubmitGuard = { install, handle, normalize, armedTabs, GUARD_KEY };
+  root.MonoAgentSubmitGuard = { install, handle, normalize, armedTabs };
 })(globalThis);

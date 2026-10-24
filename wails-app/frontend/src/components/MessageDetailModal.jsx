@@ -1,8 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { StatusBadge } from './CommsLinks.jsx'
 import { statusTimeline } from '../lib/commsStatus.js'
+import SendToCoderButton from './SendToCoderButton.jsx'
+import { selectionText } from './SendToCoderApi.js'
+
+// The goal is the app's own words; the text to reply to travels only as the
+// user's selection (a synced message or thread is never handed to a coder task).
+const DRAFT_GOAL = 'Draft a reply to the text in the context folder. Write the draft only; do not send anything.'
 
 // Renders untrusted HTML email content in a sandboxed iframe — no scripts,
 // no same-origin access, no top-level navigation. Falls back to <pre> for
@@ -13,6 +19,7 @@ function isLikelyHTML(body) {
 
 export default function MessageDetailModal({ message, personLabel, onClose }) {
   const overlayRef = useRef(null)
+  const [replyText, setReplyText] = useState('')
   const { t } = useTranslation()
 
   useEffect(() => {
@@ -102,6 +109,35 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
             }}>
               {message.body || '(no content)'}
             </pre>
+          )}
+        </div>
+
+        {/* Draft with coder: sends only what the user selected or pasted here. */}
+        <div style={{ padding: '10px 18px', borderTop: '1px solid #1e3a4f', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 }}>
+          <textarea
+            aria-label="Text to reply to"
+            placeholder="Select the part of the message to reply to, or paste it here"
+            value={replyText}
+            onChange={e => setReplyText(e.target.value)}
+            rows={2}
+            style={{ flex: '1 1 320px', minWidth: 0, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--elevated)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: 6 }}
+          />
+          {!html && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+              const picked = window.getSelection?.()?.toString() || ''
+              if (picked.trim()) setReplyText(picked)
+            }}>
+              Use selection
+            </button>
+          )}
+          {replyText.trim() && (
+            <SendToCoderButton
+              kind="draft-reply"
+              label="Draft with coder"
+              goal={DRAFT_GOAL}
+              context={() => [selectionText(replyText)]}
+              origin={{ page: 'communications', label: 'Communications' }}
+            />
           )}
         </div>
       </div>

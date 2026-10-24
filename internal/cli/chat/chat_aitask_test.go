@@ -64,7 +64,7 @@ func (r *taskRig) task(t *testing.T, profile, status string) (aitask.Task, strin
 
 func (r *taskRig) taskOfKind(t *testing.T, profile, status, kind string) (aitask.Task, string) {
 	t.Helper()
-	if kind == "application-apply" {
+	if confinedKind(kind) {
 		stubSnapshot(t)
 	}
 	st, done := r.store(t, profile)
@@ -265,8 +265,8 @@ func TestApplyConversationStaysConfinedAfterItsTaskIsOver(t *testing.T) {
 		if !strings.Contains(string(logged), "--allow-bash-prefix") {
 			t.Errorf("%s: the follow-up ran without the confined command list", status)
 		}
-		if id, token := r.env(t); id != "" || token != "" {
-			t.Errorf("%s: a finished task handed out its env %q %q", status, id, token)
+		if id, token := r.env(t); id != task.ID || token != "" {
+			t.Errorf("%s: a finished confined task's turn carries the id %q and no token, got %q %q", status, task.ID, id, token)
 		}
 		st, done := r.store(t, "default")
 		got, _ := st.Get(task.ID)
@@ -427,11 +427,11 @@ func TestApplyTaskTurnIsRefusedWithoutASnapshot(t *testing.T) {
 
 func TestConfinementRefusesRuntimesItCannotEnforceItOn(t *testing.T) {
 	c := &confinement{workDir: t.TempDir(), contextDir: t.TempDir(), bashPrefixes: applyBashPrefixes("default")}
-	if err := c.check("claude"); err != nil {
+	if err := c.check("claude", "2.27.0"); err != nil {
 		t.Fatal(err)
 	}
 	for _, rt := range []string{"codex", "gemini", "kilo", "grok", ""} {
-		if err := c.check(rt); err == nil {
+		if err := c.check(rt, "2.27.0"); err == nil {
 			t.Errorf("%q accepted", rt)
 		}
 	}

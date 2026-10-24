@@ -46,6 +46,17 @@ ENDPOINTS
          embedded JSON schema for one node type
     GET  /profiles/{profile}/hil
          pending Human-in-Loop queue
+    GET  /profiles/{profile}/documents          (?limit= ?offset= ?tag=)
+    GET  /profiles/{profile}/documents/{id}
+    GET  /profiles/{profile}/documents/{id}/tags
+         the profile's documents without a file path (agent mode)
+    GET  /profiles/{profile}/people             (?platform= ?search= ?limit=)
+    GET  /profiles/{profile}/people/{id}
+         the fields person_list / person_get return
+    GET  /profiles/{profile}/tasks              (?status= ?limit=)
+    GET  /profiles/{profile}/tasks/{id}
+    GET  /profiles/{profile}/tasks/next
+         the task board, read as an agent; next claims nothing
 
   Only registered with --allow-mutations / MONOAGENT_HTTPAPI_ALLOW_MUTATIONS=1:
     POST /profiles/{profile}/workflows/{id}/run
@@ -56,6 +67,9 @@ ENDPOINTS
          activate a workflow's triggers
     POST /profiles/{profile}/workflows/{id}/deactivate
          deactivate a workflow's triggers
+    POST /profiles/{profile}/documents/{id}/tags     {"name": "..."}
+    DELETE /profiles/{profile}/documents/{id}/tags/{tag}
+         tag / untag a document (scope write)
     POST /profiles/{profile}/hil/{id}/approve
          approve a pending HIL item
     POST /profiles/{profile}/hil/{id}/reject

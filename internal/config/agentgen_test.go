@@ -155,58 +155,6 @@ func TestGenerateConfigSandboxesAgentExec(t *testing.T) {
 	}
 }
 
-// Monomind owns discovery: Freebuff is considered only when its scan
-// includes an installed runner, and never displaces an existing preference.
-func TestGenerateConfigFreebuffDiscovery(t *testing.T) {
-	for _, tc := range []struct {
-		name, agents, want string
-	}{
-		{"only Freebuff", `[{"id":"freebuff","installed":true}]`, "freebuff"},
-		{"existing preference", `[{"id":"freebuff","installed":true},{"id":"codex","installed":true}]`, "codex"},
-		{"not installed", `[{"id":"freebuff","installed":false}]`, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			bin := writeRecordingMonomind(t)
-			src, err := os.ReadFile(bin)
-			if err != nil {
-				t.Fatal(err)
-			}
-			scan := "if [ \"$1 $2\" = \"agent scan\" ]; then\n  echo '{\"v\":1,\"agents\":" + tc.agents + "}'\n  exit 0\nfi\n"
-			src = []byte(strings.Replace(string(src), "echo 'unsupported invocation'", scan+"echo 'unsupported invocation'", 1))
-			if err := os.WriteFile(bin, src, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			record := filepath.Join(t.TempDir(), "record.txt")
-			t.Setenv("AGENTGEN_RECORD", record)
-			t.Setenv(monomind.EnvOverride, bin)
-			t.Setenv(RuntimeEnvVar, "")
-			monomind.ResetCapabilityCache()
-			t.Cleanup(monomind.ResetCapabilityCache)
-			g := NewAgentGenerator(zerolog.Nop())
-			_, err = g.GenerateConfig(context.Background(), "test", "<html>GENERATE_MARKER_HTML</html>", "extract title", nil)
-			if tc.want == "" {
-				if err == nil || !strings.Contains(err.Error(), "cache-only mode") {
-					t.Fatalf("uninstalled Freebuff: %v", err)
-				}
-				if _, err := os.Stat(record); !os.IsNotExist(err) {
-					t.Fatal("executed an uninstalled runtime")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			raw, err := os.ReadFile(record)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(raw), "ARG --runtime\nARG "+tc.want+"\n") {
-				t.Fatalf("wrong runtime: %s", raw)
-			}
-		})
-	}
-}
-
 func TestKiloConfigRuntimeDiscovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, agents, want string

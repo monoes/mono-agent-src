@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -305,6 +306,10 @@ func (mt *MonoagentTools) checkWorkflowOwnership(workflowID string) error {
 	return nil
 }
 
+// ErrPersonNotFound is the error of a person who is not in the profile (a person of
+// another profile is not found either).
+var ErrPersonNotFound = errors.New("not found")
+
 func (mt *MonoagentTools) checkPersonOwnership(personID string) error {
 	var exists int
 	err := mt.db.QueryRow(
@@ -312,7 +317,7 @@ func (mt *MonoagentTools) checkPersonOwnership(personID string) error {
 		personID, mt.ProfileID(),
 	).Scan(&exists)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("person %s not found", personID)
+		return fmt.Errorf("person %s not found: %w", personID, ErrPersonNotFound)
 	}
 	if err != nil {
 		return fmt.Errorf("check person ownership: %w", err)

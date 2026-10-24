@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -41,7 +42,7 @@ type Scope string
 const (
 	// ScopeRead: GET only (list, get, status).
 	ScopeRead Scope = "read"
-	// ScopeWrite: also mutations that are not sends (validate, tasks, documents, people).
+	// ScopeWrite: also mutations that are not sends (validate, tagging a document).
 	ScopeWrite Scope = "write"
 	// ScopeRun: also running and (de)activating workflows.
 	ScopeRun Scope = "run"
@@ -66,6 +67,9 @@ func (s Scope) rank() int {
 	}
 	return 0
 }
+
+// Valid reports whether s is one of the four scopes.
+func (s Scope) Valid() bool { return s.rank() > 0 }
 
 // Allows reports whether a holder of scope s may call something that needs `need`.
 // An unknown scope allows nothing.
@@ -130,6 +134,7 @@ type Store struct {
 
 	mu      sync.Mutex
 	touched map[string]time.Time
+	inserts atomic.Uint64
 }
 
 // NewStore returns a Store over a migrated database.
@@ -338,13 +343,24 @@ func (s *Store) RevokeProfile(ctx context.Context, profileID string) (int, error
 	return int(n), nil
 }
 
-// auditKeep is how many audit rows the whole table keeps; older ones go on insert.
-// auditKeepPerToken is how many one token keeps, so a busy token cannot push another
-// token's history out.
+// The audit table is bounded by count, never by an id gap, so that one token's traffic cannot
+// push another's history out:
+//
+//   - auditKeepPerToken is how many rows of served requests one token keeps (status other than
+//     401 and 403, and a request still running);
+//   - auditKeepRefusedPerToken is how many refused ones (401 and 403: a scope it lacked, another
+//     profile's path) it keeps, in a set of their own that served requests cannot push out, so a
+//     token cannot wash its earlier probing away with ordinary calls;
+//   - auditKeep is the backstop for the whole table: over it, the oldest rows of the token
+//     holding the most rows go first (served before refused).
 var (
-	auditKeep         = 50000
-	auditKeepPerToken = 2000
+	auditKeep                = 50000
+	auditKeepPerToken        = 2000
+	auditKeepRefusedPerToken = 500
 )
+
+// refusedClause is the rows that are in a token's refused set.
+const refusedClause = `status IN (401, 403)`
 
 // maxAuditPath bounds the stored path.
 const maxAuditPath = 200
@@ -379,10 +395,11 @@ func (s *Store) BeginUse(ctx context.Context, t Token, method, path string) (int
 		return 0, fmt.Errorf("auditing agent token use: %w", err)
 	}
 	id, _ := res.LastInsertId()
-	_, _ = s.db.ExecContext(ctx,
-		`DELETE FROM agent_token_audit WHERE token_id = ? AND id NOT IN (SELECT id FROM agent_token_audit WHERE token_id = ? ORDER BY id DESC LIMIT ?)`,
-		t.ID, t.ID, auditKeepPerToken)
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM agent_token_audit WHERE id <= ?`, id-int64(auditKeep))
+	// The whole-table backstop is checked on every insert for a small table and every
+	// auditKeep/400th for a large one: counting the table is not free.
+	if s.inserts.Add(1)%uint64(max(1, auditKeep/400)) == 0 {
+		s.enforceTotal(ctx)
+	}
 	s.mu.Lock()
 	last, seen := s.touched[t.ID]
 	due := !seen || now.Sub(last) >= lastUsedEvery
@@ -396,12 +413,48 @@ func (s *Store) BeginUse(ctx context.Context, t Token, method, path string) (int
 	return id, nil
 }
 
-// FinishUse records the status the request ended with.
+// FinishUse records the status the request ended with, and trims the set it now belongs to
+// (served or refused) to its per-token cap.
 func (s *Store) FinishUse(ctx context.Context, id int64, status int) error {
 	if _, err := s.db.ExecContext(ctx, `UPDATE agent_token_audit SET status = ? WHERE id = ?`, status, id); err != nil {
 		return fmt.Errorf("auditing agent token use: %w", err)
 	}
+	class, keep := `NOT (`+refusedClause+`)`, auditKeepPerToken
+	if status == 401 || status == 403 {
+		class, keep = refusedClause, auditKeepRefusedPerToken
+	}
+	// Both statements walk the token's own rows through idx_agent_token_audit_token.
+	_, _ = s.db.ExecContext(ctx,
+		`DELETE FROM agent_token_audit WHERE token_id = (SELECT token_id FROM agent_token_audit WHERE id = ?) AND `+class+`
+		   AND id NOT IN (SELECT id FROM agent_token_audit WHERE token_id = (SELECT token_id FROM agent_token_audit WHERE id = ?) AND `+class+` ORDER BY id DESC LIMIT ?)`,
+		id, id, keep)
 	return nil
+}
+
+// enforceTotal brings the table under auditKeep by deleting the oldest rows of the token that
+// holds the most, served rows before refused ones. Best effort: a failure only leaves the
+// table a little over until the next check.
+func (s *Store) enforceTotal(ctx context.Context) {
+	for i := 0; i < 8; i++ {
+		var total int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_token_audit`).Scan(&total); err != nil || total <= auditKeep {
+			return
+		}
+		var heaviest string
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT token_id FROM agent_token_audit GROUP BY token_id ORDER BY COUNT(*) DESC LIMIT 1`).Scan(&heaviest); err != nil {
+			return
+		}
+		res, err := s.db.ExecContext(ctx,
+			`DELETE FROM agent_token_audit WHERE id IN (SELECT id FROM agent_token_audit WHERE token_id = ?
+			   ORDER BY (`+refusedClause+`) ASC, id ASC LIMIT ?)`, heaviest, total-auditKeep)
+		if err != nil {
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return
+		}
+	}
 }
 
 // Audit returns the most recent uses of the token (newest first), at most limit.

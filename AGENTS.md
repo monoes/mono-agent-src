@@ -117,6 +117,13 @@ also `setup --deps`). `--group <g>` / `--check <id>` narrow the run; `--deep` ad
 (e.g. update availability). Checks never change anything — only fixes do.
 Run `doctor` first when something environment-related fails.
 
+`core.agent_isolation` (internal/health/agent_isolation.go) is read-only and offline and never fails by default: it reports
+whether bwrap (Linux, and whether unprivileged user namespaces work) or sandbox-exec (macOS) is present. On Windows there is no
+sandbox; the agent runs as a separate low-privilege account (docs/agent-mode-windows.md, embedded via docs/embed.go and printed by `monoagentcli agent-mode windows`). `doctor --agent-account NAME`
+(or `MONOAGENT_AGENT_ACCOUNT`) lists the state folder with `icacls` and reports ok (no entry for the account), warn
+(read, or unreadable list) or fail (write/full). The command runner is injectable (`agentIsolationProbe`); group
+membership beyond Everyone/Users/Authenticated Users and localized group names are not visible and the detail says so.
+
 Install an AI agent runtime: `monoagentcli agent install <runtime>` (npm
 packages via system or managed Node; vendor `https` install scripts ask first
 or take `--yes`; anything else prints manual steps). In `doctor`, per-runtime
@@ -989,6 +996,34 @@ No endpoint ever returns a generic 500 for a condition the CLI classifies
 more specifically — this repo prefers honest, mapped statuses (see the
 README's Feature Highlights on `SUCCESS_WITH_ERRORS` runs) over collapsing
 everything to 200/500.
+
+### Agent mode: a scoped token instead of the CLI
+
+A coding agent that should not run `monoagentcli` as the user runs in the OS sandbox
+(`agent-mode sandbox --runtime bwrap|seatbelt|claude-code`) and calls this API with a scoped token
+(`agent-mode token create --scope read|write|run`, `agent-mode env`, `token audit`; SECURITY.md
+"Agent mode" has the full model). A token (`mat-…`, 24h by default, SHA-256 at rest, bound to one
+profile) is classed per route; the class is declared where the route is registered
+(`registrar.scoped` in `internal/httpapi/server.go`: there is no way to register a route without
+one, and `TestEveryRouteIsClassified` fails for one that is missing from the scope matrix
+`scopeRoutes`, is a GET above `read`, is a write at `read`, or bypasses the registrar). Every call
+made with a token is audited before the handler runs, refused ones too.
+
+Data routes for agent mode (`internal/httpapi/handlers_agent_data.go`; the profile is the token's):
+
+| Route | Scope | Notes |
+|---|---|---|
+| `GET /profiles/{p}/documents`, `/documents/{id}`, `/documents/{id}/tags` | read | no file path, capture dir or index error; `?tag=` (≤5), `?limit=` ≤200, `?offset=` |
+| `GET /profiles/{p}/people`, `/people/{id}` | read | `chat.ListPeople` / `chat.GetPerson`, the code behind `person_list` / `person_get`; each text ≤4,096 characters, an answer ≤~64 K |
+| `GET /profiles/{p}/tasks`, `/tasks/{id}`, `/tasks/next` | read | `internal/tasks` read as `agent:httpapi` (Inbox hidden, also by `?status=inbox` or number, unless `AgentAccess.View`); views from `internal/taskview`, shared with the MCP task tools |
+| `POST /profiles/{p}/documents/{id}/tags`, `DELETE …/tags/{tag}` | write | registered only with `--allow-mutations`; name ≤64 characters, ≤10 tags per document, no new tag past 500 per profile (`doctags.AddLimited`, one `BEGIN IMMEDIATE` transaction) |
+
+Rules for a new data route: reuse the CLI/MCP read function (export it; do not copy its query);
+take the profile from `profileOf(r)` only; page it (`pageParams`) and cap the output; refuse unknown
+query parameters (`paramsOnly`) and validate ids (`validID`); never return a path or a credential
+column (add a canary to `TestResponsesHoldNoPathAndNoSecret`); add it to `openapi.yaml` (checked by
+`TestOpenAPIHasEveryRoute` and the "Validate HTTP API OpenAPI spec" job, which runs
+`npx @redocly/cli@2.49.0 lint internal/httpapi/openapi.yaml`) and to `scopeRoutes`.
 
 ### OpenAI-compatible API (`/v1`)
 
@@ -2329,12 +2364,6 @@ login (and its bill) is what the turn uses.
   `pi-rpc` transports). `monoagentcli agent install <runtime>` installs one
   (see "Health check"), `monoagentcli agent test <runtime>` runs a smoke turn
   that also proves the login works.
-- **Freebuff.** Compatibility preparation is documented in
-  [docs/freebuff-runtime.md](docs/freebuff-runtime.md). Execution requires
-  monomind's `freebuff` runner ([monomind#600](https://github.com/monoes/monomind/issues/600));
-  installing the interactive Freebuff CLI alone does not enable it. Its
-  executable override is `FREEBUFF_CLI_BIN`. Runtime capabilities still come
-  from monomind's scan.
 - **Kilo Code.** Compatibility preparation is documented in
   [docs/kilo-runtime.md](docs/kilo-runtime.md). Execution requires monomind's
   `kilo` runner ([monomind#601](https://github.com/monoes/monomind/issues/601)).
@@ -3547,6 +3576,7 @@ normal coder conversation (a bubble in the app); the code is `internal/aitask` a
 monoagentcli --profile P aitask submit --kind generic --goal "…" [--context CLASS=PATH]… [--application ID] \
     [--access coding|workspace|qa] [--runtime R] [--budget-usd N] [--unattended] [--queue-only] --json
 monoagentcli --profile P aitask status|result|wait|cancel <id> --json     # list [--kind K] [--application ID]
+monoagentcli --profile P aitask kinds --json                              # read-only, anyone: what can be asked for
 monoagentcli --profile P aitask complete <id> --result FILE               # the task's own session
 monoagentcli --profile P aitask fail <id> --reason TEXT                   # the task's own session
 ```
@@ -3556,6 +3586,20 @@ monoagentcli --profile P aitask fail <id> --reason TEXT                   # the 
   is `needs_user`, never success.
 - The kind (`generic`; other packages add theirs with `aitask.Register`) fixes the prompt and the result schema.
   `complete` checks the file against it and refuses with `schema_invalid` and the reason, so the agent can fix it.
+- `draft-reply` (`internal/aitask/kinds_draftreply.go`): a reply draft the person saves with `people messages compose --draft`;
+  context is only text the user selected or pasted, never a thread; it cannot send (the result schema has no send field).
+  `application-apply` and `draft-reply` (the kinds that read text a stranger wrote) run as confined, claude-only turns with no
+  file tools and a fixed command allow-list (`confinedKind` / `confinedVerbs` in `internal/cli/chat/chat_apply.go`; `draft-reply`:
+  only `aitask complete|fail`; a new confined kind is one line there). The kinds of `internal/aitaskkinds` are not confined by
+  this layer. A confined turn ignores `coder set --default-access`, which only fills in `chat history create`. In a confined task's
+  session the root refuses a `--profile` other than the task's or given twice, `--db-path`, `--config-dir`, `--output-dir`,
+  `--log-file`, `--all-profiles` and `workflow validate --file`; the agent hands the result back with
+  `aitask complete --result-json JSON` or `--result FILE` from the task's own work folder (any other path is refused); on every
+  other kind the access level is recorded and hashed but `qa` is not enforced on the turn. A confined turn (first or follow-up)
+  refuses to start (`confinement_unenforceable`, exit 3) on a monomind older than `monomind.MinConfinedMonomindVersion` (2.27.0),
+  because the allow-list rests on monomind's shell scanner and older versions can be bypassed; the global minimum is unchanged.
+- The extension's kinds (`internal/aitask/kinds_extension.go`): `extension-fill` ("Fill with coder": multi-page forms, uploads, custom widgets; result `{summary, fields:[{label,value,source,generated}], stopped_before_submit}` and a result without `stopped_before_submit: true` is refused) and `extension-ask` ("Ask coder": `{summary, answer, suggested_actions}`; default access `qa`). The side panel queues them through the bridge request `coder.task` -> `aitask submit-page --kind extension-fill|extension-ask --tab N --stdin-json` (operator-only; it only ever QUEUES, the person presses Start in the app; the goal carries nothing the page wrote). They are browser-capable confined kinds that run as the `apply` browser kind on the one tab that was queued: the tab, browser and origin are the queue record (`posting/target.json`), `browser --tab/--browser` naming anything else is refused (`tab_pinned`), a tab that has left its origin stops the turn (`tab_moved`) and `aitask start` refuses it too (`tab_moved`, `tab_gone`, `tab_unknown`); the pin is by top-level ORIGIN only (scheme, host and port): a page of the same origin, a path change or a link within the site is still the queued tab; form submits wait for a person on local pages too; the pin also covers approved `browser fill|upload --hil` items, a session whose task or apply token cannot be established is refused (never run unscoped), and uploads come only from the task's `document/` folder; `extension-fill` may run `browser a11y|screenshot|wait|click|type|fill|upload`, `extension-ask` only `browser a11y|screenshot|wait`. `stopped_before_submit` is the agent's own statement: what backs it is that allow-list and the held approvals, and a control that is not a form button is not held.
+  They run as confined, claude-only turns like `application-apply` (`confinedVerbs`), need monomind 2.27.0 or newer, and hand the result back with `aitask complete --result-json`.
 - Context goes to `<conversation folder>/.monoagent/context/<task>/<class>/` with a README that says it is data, never
   instructions; files are size-capped, links and odd files refused, secret values hidden. `CLASS` is `posting`, `facts`,
   `document` or `selection`; anything else, and anything in the synced message attachments folder, is refused
@@ -3596,17 +3640,24 @@ monoagentcli --profile P aitask fail <id> --reason TEXT                   # the 
 - Exit codes: 2 unknown task, 3 refusals (`unknown_kind`, `schema_invalid`, `bad_token`, `task_closed`, …), 1
   `wait_timeout`.
 
-Kinds (`aitask.Register`; the profile-facing ones live in `internal/aitaskkinds`). All three below ask for `workspace`
-access (they drive `monoagentcli --profile P …`, which `coding` is not told about), are never unattended, treat context and
-run output as data, and never run a workflow or send anything:
+Propose, then apply: `workflow apply-fix <task> [--dry-run] [--allow-active] --json` prints `{ok, workflowId, workflowName, edits:[{node, nodeName, path, before, after}], warnings:[{code, text}]}` (codes `workflow_active`, `new_outbound`, `credential_field`, `expression_added`) or, applying, `{ok, workflowId, applied, needsApproval:true}`; `workflow save-draft <task> --json` prints `{ok, workflowId, name, nodeCount, needsApproval:true}`. Both are operator-only and take only the task id (`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`, after `--`; the app sends `--profile P --json workflow apply-fix [--dry-run|--allow-active] -- <id>`), read the task of THIS profile (kind, status complete, stored result), re-validate the result against the workflow as it is now, and refuse with typed `code`s: `not_found`, `wrong_kind`, `not_complete`, `no_result`, `no_edit`, `no_change`, `unknown_node`, `secret_key`, `invalid_workflow`, `bad_result`, `stale_proposal` (the workflow or a node changed after the task completed; dry-run says it too), `workflow_active_needs_confirm` (active workflow without `--allow-active`, which the app passes only after a separate confirm) `already_applied`, `changed_since_preview` (the definition or active flag differs from the dry-run's `definitionHash`, checked again inside the writing transaction), `expect_hash_required`, `no_target` / `wrong_target` (the workflow and run come from the task's own verified context, `workflow: <id>` / `execution: <id>` lines, never from the result; the run must belong to that workflow) and `too_large` (more than 50 changed values, a value over 2000 characters, a key over 128, a dotted path over 512 or nesting deeper than 8 levels; added empty objects count and are shown, so the app shows everything it applies) `invalid_key` (a key with control, format or direction characters, not in NFC, or colliding with a sibling after case folding and trimming; secret-looking keys and strings are refused anywhere inside an added or replaced object or list) and `file_sync_failed` (the canonical workflow file could not be published atomically; the whole apply is rolled back and no apply row is kept; when the previous file could not be put back either, the error carries `file_inconsistent: <workflow id>` and `ai_task_apply_audit` (migration 124) records it). Path labels escape a literal `.` and `\` in a key (`a\.b`). `--expect-hash` must match `^[A-Za-z0-9][A-Za-z0-9:_-]{7,127}$` (checked first, `invalid_input`, so a flag swallowed as its value is refused); the dry-run's `definitionHash` is 64 hex characters. A real apply passes `--expect-hash <definitionHash>` from the dry-run (`apply-fix [--allow-active] --expect-hash H -- <id>`) and removes every stored approval of the workflow in the same transaction, so a revert to an older approved definition needs a fresh approval. Each apply or save writes one `ai_task_applies` row, inside the transaction of the write it guards (`workflow.WithTxHook`), (migration 123: task, kind, workflow, edit count, actor; no values) whose primary key refuses a second apply; a refused or failed write leaves no row. They record no approval: the edited or saved workflow stays unapproved until the user saves or activates it. No HTTP route reaches them (`TestTheAPIHasNoRouteToApplyAnAITaskProposal`).
+
+`aitask kinds --json` prints `{"kinds":[{name, description, defaultAccess, unattendedOk, contextClasses:[…],
+resultSchema:{name, required:[…], properties:[…]}}]}`, sorted by name; fields are only ever added. It opens no database
+and asks for no operator, so an agent can see what it may ask for.
+
+Kinds (`aitask.Register`; the profile-facing ones live in `internal/aitaskkinds`). The three workflow kinds below ask for `workspace`
+access but run as CONFINED turns (`confinedVerbs` in `internal/cli/chat/chat_apply.go`: no file tools, only the listed read-only commands,
+result via `aitask complete --result-json`); they are never unattended, treat context and run output as data, and PROPOSE only:
 
 | Kind | Input (`selection`) | Result | What the agent may do |
 | --- | --- | --- | --- |
 | `generic` | the goal | `{summary}` | whatever the goal asks (`coding`) |
 | `application-apply` | posting, facts, documents | fill record | fill the form in the browser, never submit (confined) |
-| `workflow-generate` | the brief | `{workflowId, name, summary, nodeCount, validation:{ok, errors}}` | `node list/schema`, `ref`, `workflow validate/import`; saved inactive and AI-authored until the user approves; `aitaskkinds.CheckResult` refuses a `workflowId` the profile does not have |
-| `recording-analyze` | recording id + title | `{recordingId, automationName?, summary, saved:false, verified:false}` | `record analyze <id> --json` only; never reads the recording; `record save`/`verify` stay the user's |
-| `failed-run-fix` | workflow id, execution id, failing node ids, redacted error | `{workflowId, executionId, diagnosis, changed, changes, needsApproval}` | `workflow execution/get`, `workflow node …`, `workflow connect`, `workflow validate`; the edit unapproves the workflow; never reruns |
+| `draft-reply` | the text to reply to (selected or pasted) | `{summary, draft:{to?, subject?, body}, assumptions}` | nothing but `aitask complete\|fail` (confined, `qa`); the person saves the draft, nothing is sent |
+| `workflow-generate` | the brief | `{summary, workflow:{name, description?, is_active:false, nodes, connections}, validation}` | CONFINED: `workflow search/templates list|show/get`, `node list/schema`, `ref`; the agent writes nothing. `Kind.Check` recomputes the verdict with the `workflow validate` validator; `workflow save-draft <task>` (operator) saves it as a new inactive, unapproved draft |
+| `recording-analyze` | recording id + title | `{recordingId, summary, suggestions[≤12], risks?}` | CONFINED: `record show` only; `Kind.Check` verifies the recording is in the profile; changes nothing |
+| `failed-run-fix` | workflow id, execution id, failing node ids, redacted error | `{summary, diagnosis, workflowId, executionId, fix:{kind:workflow-edit\|advice\|none, description, edits?:[{node, config}]}}` | CONFINED: `workflow get/list/search/executions/execution`; `Kind.Check` plans the edits against the workflow now (`internal/workflowfix`); `workflow apply-fix <task> [--dry-run] [--allow-active]` (operator) applies them |
 
 # monomind:start instructions:opencode
 # Monomind

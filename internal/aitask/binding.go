@@ -67,3 +67,31 @@ func CapsHash(t Task, k Kind, policy string) string {
 	sum := sha256.Sum256(doc)
 	return hex.EncodeToString(sum[:])
 }
+
+// VerifiedContext returns task t's context folder, only if it is the folder that was
+// queued: the read-only snapshot of its run (SnapshotDir) when there is one, else the
+// original under the conversation's folder, and either way only when its hash is the
+// one stored at submit. A context that changed is context_changed, not data.
+func VerifiedContext(stateDir string, t Task) (string, error) {
+	candidates := []string{}
+	if stateDir != "" {
+		candidates = append(candidates, SnapshotDir(stateDir, t.ID))
+	}
+	if t.Cwd != "" {
+		candidates = append(candidates, filepath.Join(t.Cwd, filepath.FromSlash(ContextDir), t.ID))
+	}
+	for _, dir := range candidates {
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			continue
+		}
+		h, err := HashDir(dir)
+		if err != nil {
+			return "", err
+		}
+		if h == t.ContextHash {
+			return dir, nil
+		}
+		return "", errf(CodeContextChanged, "the context folder of task %s changed since it was queued", t.ID)
+	}
+	return "", errf(CodeContextChanged, "task %s has no context folder to read", t.ID)
+}

@@ -103,6 +103,19 @@ func descriptionsLocked() map[string]string {
 	return out
 }
 
+// All returns the registered kinds, sorted by name. It is read-only: the Kind
+// values are copies.
+func All() []Kind {
+	kindsMu.RLock()
+	defer kindsMu.RUnlock()
+	names := namesLocked()
+	out := make([]Kind, 0, len(names))
+	for _, n := range names {
+		out = append(out, kinds[n])
+	}
+	return out
+}
+
 func namesLocked() []string {
 	out := make([]string, 0, len(kinds))
 	for n := range kinds {
@@ -115,6 +128,7 @@ func namesLocked() []string {
 func init() {
 	Register(Kind{
 		Name:          "generic",
+		Description:   "Do whatever the goal asks in a coder conversation and report a summary.",
 		DefaultAccess: AccessCoding,
 		PromptTemplate: "Do what the goal asks. When you are done, hand back a JSON object with a `summary` " +
 			"(what you did and what you found) and, when there is one, the `output` it produced.",

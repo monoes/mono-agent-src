@@ -135,6 +135,9 @@ func (s *Session) forget(id int) {
 // becomes the HIL item asking the user (AskSite) when the session has a
 // database, or AskSite's own refusal (a recent no, too many items waiting).
 func (s *Session) check(rawURL string) error {
+	if s.pinOrigin != "" && Origin(rawURL) != s.pinOrigin {
+		return &PinnedOriginError{Pinned: s.pinOrigin, Now: Origin(rawURL)}
+	}
 	err := s.policy.Check(rawURL)
 	var ask *SiteNeedsApprovalError
 	if errors.As(err, &ask) && s.db != nil {
@@ -150,4 +153,12 @@ func (s *Session) check(rawURL string) error {
 		return &SiteApprovalPendingError{HILID: id, Origin: ask.Origin, Kind: ask.Kind, Profile: s.profile}
 	}
 	return err
+}
+
+// PinnedOriginError: the session is pinned to one origin (Options.PinOrigin)
+// and the page is on another.
+type PinnedOriginError struct{ Pinned, Now string }
+
+func (e *PinnedOriginError) Error() string {
+	return fmt.Sprintf("the tab is on %s now, not %s as when the task was queued: it stopped", e.Now, e.Pinned)
 }

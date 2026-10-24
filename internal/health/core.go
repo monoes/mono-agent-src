@@ -43,6 +43,7 @@ func coreChecks() []Check {
 		{ID: CheckDB, Group: GroupCore, Title: "Database", Required: true, DependsOn: []string{CheckHome}, Run: checkDB},
 		permsCheck(),
 		{ID: CheckSandbox, Group: GroupCore, Title: "Agent sandbox", DependsOn: []string{CheckHome}, Run: checkSandbox},
+		{ID: CheckAgentIsolation, Group: GroupCore, Title: "Agent isolation", Run: checkAgentIsolation},
 		{ID: CheckProfile, Group: GroupCore, Title: "Profile", Required: true, DependsOn: []string{CheckDB}, Run: checkProfile},
 		{ID: CheckVault, Group: GroupCore, Title: "Secrets vault", Features: []string{"credentials", "connections"}, DependsOn: []string{CheckProfile}, Run: checkVault},
 		{ID: CheckPath, Group: GroupCore, Title: "Login shell PATH", Features: []string{"tools installed via nvm/Homebrew/mise"}, Run: checkPath},

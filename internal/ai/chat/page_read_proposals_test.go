@@ -3,6 +3,7 @@ package chat
 import (
 	"database/sql"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -243,6 +244,16 @@ func TestProposeVaultSaveNamesOneItemAndCarriesNoBytes(t *testing.T) {
 	for _, k := range []string{"data", "mime"} {
 		if _, ok := p[k]; ok {
 			t.Errorf("the proposal carries %q: the side panel fetches the item itself", k)
+		}
+	}
+}
+
+// Every proposal tool is offered in a page-read session, the one chat whose
+// replies the side panel turns into cards.
+func TestProposalToolsAreInThePageReadSet(t *testing.T) {
+	for _, n := range proposalToolNames {
+		if !slices.Contains(PageReadToolNames, n) {
+			t.Errorf("proposal tool %s is not in PageReadToolNames", n)
 		}
 	}
 }

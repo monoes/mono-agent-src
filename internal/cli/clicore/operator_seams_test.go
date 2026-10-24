@@ -2,9 +2,9 @@ package clicore
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,19 +30,14 @@ func TestNoCommandCallsItsOperatorCheckDirectly(t *testing.T) {
 		if !dir.IsDir() || dir.Name() == "clicore" {
 			continue
 		}
-		pkgs, err := parser.ParseDir(fset, filepath.Join("..", dir.Name()), func(fi fs.FileInfo) bool {
-			return !strings.HasSuffix(fi.Name(), "_test.go")
-		}, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, pkg := range pkgs {
-			seams := depsSeams(pkg)
+		pkgs := parseDir(t, fset, filepath.Join("..", dir.Name()))
+		for _, files := range pkgs {
+			seams := depsSeams(files)
 			if len(seams) == 0 {
 				continue
 			}
 			checked++
-			for _, file := range pkg.Files {
+			for _, file := range files {
 				ast.Inspect(file, func(n ast.Node) bool {
 					call, ok := n.(*ast.CallExpr)
 					if !ok {
@@ -65,9 +60,9 @@ func TestNoCommandCallsItsOperatorCheckDirectly(t *testing.T) {
 }
 
 // depsSeams are the operator-check fields of pkg's Deps.
-func depsSeams(pkg *ast.Package) map[string]bool {
+func depsSeams(files []*ast.File) map[string]bool {
 	out := map[string]bool{}
-	for _, file := range pkg.Files {
+	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			ts, ok := n.(*ast.TypeSpec)
 			if !ok || ts.Name.Name != "Deps" {
@@ -89,6 +84,32 @@ func depsSeams(pkg *ast.Package) map[string]bool {
 			}
 			return false
 		})
+	}
+	return out
+}
+
+// parseDir parses the non-test .go files of dir that this platform builds
+// (go/build's constraint check), grouped by package name.
+func parseDir(t *testing.T, fset *token.FileSet, dir string) map[string][]*ast.File {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string][]*ast.File{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if ok, err := build.Default.MatchFile(dir, name); err != nil || !ok {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[f.Name.Name] = append(out[f.Name.Name], f)
 	}
 	return out
 }

@@ -448,5 +448,13 @@ func Scan(ctx context.Context) (*ScanResult, error) {
 	if err := json.Unmarshal(JSONBody(out), &res); err != nil {
 		return nil, fmt.Errorf("agent scan: unparseable output: %w", err)
 	}
+	// freebuff has no headless transport in monomind; never list it.
+	kept := res.Agents[:0]
+	for _, a := range res.Agents {
+		if a.ID != "freebuff" {
+			kept = append(kept, a)
+		}
+	}
+	res.Agents = kept
 	return &res, nil
 }

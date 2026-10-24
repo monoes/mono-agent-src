@@ -47,6 +47,10 @@ func loadWorkflowSettings(ctx context.Context, db *sql.DB, w *Workflow) {
 	if db == nil || w == nil {
 		return
 	}
+	loadSettingsFrom(ctx, db, w)
+}
+
+func loadSettingsFrom(ctx context.Context, db rowQuerier, w *Workflow) {
 	var raw string
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(settings, '') FROM workflows WHERE id = ?`, w.ID).Scan(&raw); err != nil {
 		return

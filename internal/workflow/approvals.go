@@ -166,6 +166,13 @@ func operatorApproved(ctx context.Context, store WorkflowStore, wf *Workflow) (b
 	return err == nil && approved, err
 }
 
+// IsApproved reports whether the operator approved wf's current definition: the
+// check a run makes, for a command that wants to say whether the user still has
+// to approve a change. A store that keeps no approvals approves everything.
+func IsApproved(ctx context.Context, store WorkflowStore, wf *Workflow) (bool, error) {
+	return operatorApproved(ctx, store, wf)
+}
+
 // DefinitionApproved reports whether the operator approved definition hash
 // of the workflow. A database from before approvals (no table: a test's
 // schema) approves everything.

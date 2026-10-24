@@ -10,7 +10,6 @@ const policy = {
   source: 'monomind',
   runtimes: [
     { runtime: 'kilo', status: 'refused', reason: 'Kilo supports full access only and a sections org refuses full access' },
-    { runtime: 'freebuff', status: 'refused', reason: 'Freebuff is interactive-only' },
     { runtime: 'qwen', status: 'unverified', reason: 'runtime "qwen" uses the generic "private-home" isolation' },
   ],
 }
@@ -30,7 +29,6 @@ describe('RuntimeSelect in a sections org', () => {
     await waitFor(() => expect(screen.getByRole('option', { name: /kilo/i })).toBeInTheDocument())
     expect(opt('kilo')).toBeDisabled()
     expect(opt('kilo')).toHaveAttribute('title', policy.runtimes[0].reason)
-    expect(opt('freebuff')).toBeDisabled()
     expect(opt('qwen')).not.toBeDisabled()
     expect(opt('qwen').textContent).toMatch(/unverified/)
     expect(opt('claude')).not.toBeDisabled()
@@ -100,7 +98,7 @@ describe('sections helpers', () => {
     expect(runtimeChoice(policy, 'kilo').status).toBe('refused')
     expect(runtimeChoice(policy, 'claude').status).toBe('ok')
     expect(runtimeChoice(null, 'kilo').status).toBe('ok')
-    expect(pickerRuntimes(BASE, policy)).toEqual([...BASE, 'kilo', 'freebuff'])
+    expect(pickerRuntimes(BASE, policy)).toEqual([...BASE, 'kilo'])
   })
 })
 

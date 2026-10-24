@@ -1641,3 +1641,15 @@ export function ValidateOrgReport(arg1) {
 export function VerifyDraft(arg1, arg2, arg3) {
   return window['go']['main']['App']['VerifyDraft'](arg1, arg2, arg3);
 }
+
+export function ApplyFailedRunFix(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyFailedRunFix'](arg1, arg2, arg3);
+}
+
+export function PreviewFailedRunFix(arg1) {
+  return window['go']['main']['App']['PreviewFailedRunFix'](arg1);
+}
+
+export function SaveGeneratedWorkflow(arg1) {
+  return window['go']['main']['App']['SaveGeneratedWorkflow'](arg1);
+}

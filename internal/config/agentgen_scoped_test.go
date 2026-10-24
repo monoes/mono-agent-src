@@ -16,7 +16,7 @@ func TestRunsScoped(t *testing.T) {
 		{"older monomind, no modes", monomind.ScanEntry{}, true},
 		{"scoped listed", monomind.ScanEntry{AccessModes: []string{"scoped", "full"}}, true},
 		{"kilo: full only", monomind.ScanEntry{AccessModes: []string{"full"}}, false},
-		{"freebuff: not executable", monomind.ScanEntry{ExecutionSupported: &no}, false},
+		{"not executable", monomind.ScanEntry{ExecutionSupported: &no}, false},
 	}
 	for _, c := range cases {
 		if got := runsScoped(&c.e); got != c.want {

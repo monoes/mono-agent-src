@@ -63,9 +63,6 @@ func mustOfficialHashes(b []byte) (map[string]map[string]string, map[string]stri
 	return hashes, mins
 }
 
-// isOfficialHash reports whether h is the hash of some official release of id.
-func isOfficialHash(id, h string) bool { _, ok := officialHashes[id][h]; return ok }
-
 // isOfficialRelease reports whether h is the hash of the official release
 // of id at version, and that release is not below the package's minimum.
 func isOfficialRelease(id, version, h string) bool {

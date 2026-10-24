@@ -22,6 +22,9 @@
  *   coder_projects    -> {projects, recent}
  *   coder_queue       {kind, tabId, selector?, note?, cwd?, reload?, profile?} -> {item}
  *                     reload: bug-report only, reload the tab to catch its load's errors
+ *   coder_task        {kind, tabId, note?, profile?} -> {task}
+ *                     "Fill with coder" / "Ask coder" (kind extension-fill | extension-ask): queues an AI
+ *                     task about the tab. Like coder_queue it starts nothing, and no page text rides it.
  *   coder_queue_list  -> {items}
  *   coder_list        -> {conversations}
  *   coder_events      {conversationId, turn?, since?} -> {turn, events, turn_active, images}
@@ -48,6 +51,9 @@
   "use strict";
 
   const KINDS = ["copy-style", "tokens", "fix-element", "bug-report", "integration", "ask"];
+  // The AI-task kinds ("Fill with coder", "Ask coder"). They queue through
+  // coder.task, not coder.queue; extension-ask needs the person's question.
+  const TASK_KINDS = ["extension-fill", "extension-ask"];
   const PREFILL_KEY = "coderPrefill";
   const SELECTOR_CAP = 1024;
   const NOTE_CAP = 4000;
@@ -136,6 +142,22 @@
     if (cwd.length > CWD_CAP) throw fail("that folder path is too long", "invalid");
     if (cwd) params.cwd = cwd;
     if (kind === "bug-report" && typeof msg.reload === "boolean") params.reload = msg.reload;
+    return withProfile(params, msg);
+  }
+
+  /**
+   * taskParams is the whole of a coder.task request, built field by field like
+   * queueParams: the person's note and the tab, never the page's text, title or
+   * selector. The note is the person's own words.
+   */
+  function taskParams(msg) {
+    const kind = str(msg.kind);
+    if (TASK_KINDS.indexOf(kind) === -1) throw fail(`unknown kind "${kind}"`, "invalid");
+    if (!Number.isInteger(msg.tabId) || msg.tabId <= 0) throw fail("there is no tab to send", "invalid");
+    const params = { kind, tabId: msg.tabId };
+    const note = str(msg.note).trim().slice(0, NOTE_CAP);
+    if (kind === "extension-ask" && !note) throw fail("say what you want to ask", "invalid");
+    if (note) params.note = note;
     return withProfile(params, msg);
   }
 
@@ -317,6 +339,11 @@
       const data = await query("coder.queue", params, QUEUE_TIMEOUT_MS);
       return { ok: true, item: (data && data.item) || null };
     },
+    coder_task: async (msg) => {
+      const params = taskParams(msg);
+      const data = await query("coder.task", params, QUEUE_TIMEOUT_MS);
+      return { ok: true, task: (data && data.task) || null };
+    },
     coder_queue_list: async (msg) => {
       const data = await query("coder.queue.list", withProfile({}, msg));
       return { ok: true, items: (data && data.items) || [] };
@@ -360,10 +387,12 @@
     handlers,
     handoff,
     queueParams,
+    taskParams,
     selectorOf,
     elementKind,
     promptUserToSubmit,
     KINDS,
+    TASK_KINDS,
     PREFILL_KEY,
   };
 })(globalThis);

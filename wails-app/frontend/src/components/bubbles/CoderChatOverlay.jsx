@@ -273,7 +273,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           )}
         </div>
         {bubble.cwd && <CoderHeader cwd={bubble.cwd} />}
-        {view.task && <TaskHeaderCard task={view.task} onNavigate={onNavigate} />}
+        {view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
           {showStage && !stageCollapsed && (
             <>

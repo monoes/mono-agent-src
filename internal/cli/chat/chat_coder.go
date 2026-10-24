@@ -138,7 +138,7 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 		return err
 	}
 	if t.confine != nil {
-		if err := t.confine.check(rt.ID); err != nil {
+		if err := t.confine.check(rt.ID, st.MonomindVersion); err != nil {
 			return err
 		}
 		t.cwd, t.orgMode, systemPrompt = t.confine.workDir, "", t.confine.systemPrompt()
@@ -191,11 +191,18 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 	var kindDone func()
 	if t.confine != nil && kind == browserctl.KindApply {
 		// The token names the task, so the browser verbs derive its folders from it.
-		kindDone = addKindEnv(opts.Env, func() ([]string, func(int), func()) { return browserctl.IssueApplyKind(t.confine.taskID) })
+		kindDone = addKindEnv(opts.Env, func() ([]string, func(int), func()) { return issueApplyKind(t.confine.taskID) })
 	} else {
 		kindDone = addAgentKind(opts.Env, kind)
 	}
 	defer kindDone()
+	// A confined turn without its vouched kind (the record could not be written:
+	// the declared kind comes without its token) would be read as kind "other" by
+	// the browser verbs, which scope neither its tab nor its files. It does not run.
+	if t.confine != nil && (opts.Env[browserctl.EnvAgentKind] == "" || opts.Env[browserctl.EnvAgentKindToken] == "") {
+		return &coderError{code: "confinement_unenforceable", err: &clicore.Error{Code: 3,
+			Msg: fmt.Sprintf("task %s was not run: the record that vouches for its browser permissions could not be written (is ~/.monoagent writable?), and without it the task would not be held to its tab and files", t.confine.taskID)}}
+	}
 	kiloDropped := dropKiloOptions(&opts)
 	onEvent := func(ev monomind.Event) {
 		b, _ := json.Marshal(ev)
@@ -363,8 +370,14 @@ func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, m
 // addAgentKind adds kind's vouched environment (browserctl.IssueAgentKind)
 // to env and returns its done.
 func addAgentKind(env map[string]string, kind string) (done func()) {
-	return addKindEnv(env, func() ([]string, func(int), func()) { return browserctl.IssueAgentKind(kind) })
+	return addKindEnv(env, func() ([]string, func(int), func()) { return issueAgentKind(kind) })
 }
+
+// issueApplyKind is browserctl.IssueApplyKind; a var so a test can make it fail.
+var (
+	issueApplyKind = browserctl.IssueApplyKind
+	issueAgentKind = browserctl.IssueAgentKind
+)
 
 func addKindEnv(env map[string]string, issue func() ([]string, func(int), func())) (done func()) {
 	kindEnv, _, done := issue()

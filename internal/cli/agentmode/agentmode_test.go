@@ -87,3 +87,28 @@ func TestBwrapProfileHidesStateDir(t *testing.T) {
 		t.Fatalf("sandbox exposed ~/.monoagent: %s", out)
 	}
 }
+
+func TestWindowsRefusalPointsAtTheRecipe(t *testing.T) {
+	_, err := Profile(Windows)
+	if err == nil || !strings.Contains(err.Error(), WindowsDoc) || !strings.Contains(err.Error(), "WSL2") {
+		t.Fatalf("%v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "http") {
+		t.Errorf("the refusal must name the command, not a URL: %v", err)
+	}
+}
+
+func TestWindowsCommandPrintsTheEmbeddedGuide(t *testing.T) {
+	var out bytes.Buffer
+	c := newWindowsCmd()
+	c.SetOut(&out)
+	if err := c.RunE(c, nil); err != nil {
+		t.Fatal(err)
+	}
+	if first, _, _ := strings.Cut(out.String(), "\n"); first != "# Agent mode on Windows" {
+		t.Errorf("first line %q", first)
+	}
+	if !strings.Contains(out.String(), "icacls") || out.Len() < 1000 {
+		t.Errorf("embedded guide is missing or short: %d bytes", out.Len())
+	}
+}
