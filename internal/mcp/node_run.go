@@ -17,6 +17,7 @@ import (
 	"github.com/monoes/mono-agent/internal/nodes"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/publication"
+	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -108,7 +109,10 @@ func toolNodeRun(ctx context.Context, s *Server, args json.RawMessage) (interfac
 		NodeID:      "mcp-node",
 		NodeName:    a.Type,
 	}
+	ctx = secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, input.NodeID, input.NodeName), a.Type)
 	outputs, err := factory().Execute(ctx, input, config)
+	outputs = workflow.MaskAgentNodeOutputs(ctx, outputs)
+	err = workflow.MaskAgentNodeError(ctx, err)
 	recordPublications(ctx, rt, a.Type, config, input, outputs)
 	if errors.Is(err, nodes.ErrUserOnlyBrowserRun) {
 		return nil, fmt.Errorf("operator_only: %w", err)
@@ -125,6 +129,20 @@ func toolNodeRun(ctx context.Context, s *Server, args json.RawMessage) (interfac
 			return nil, fmt.Errorf("node %s failed: %s", a.Type, msg)
 		}
 		return nil, fmt.Errorf("node %s failed: %w", a.Type, err)
+	}
+	if a.Type == "vault.secret_get" {
+		// This node explicitly returns plaintext under the profile's Reveal
+		// grant; key-name credential masking would hide the requested value.
+		name, _ := config["name"].(string)
+		allowed, err := secrets.CanAgentReveal(ctx, rt.db.DB, profileOf(ctx), name)
+		if err != nil || !allowed {
+			return nil, fmt.Errorf("vault reveal access is no longer available")
+		}
+		out := map[string]interface{}{}
+		for _, o := range outputs {
+			out[o.Handle] = rr.Items(workflow.TruncateItems(o.Items))
+		}
+		return map[string]interface{}{"outputs": out}, nil
 	}
 	return renderOutputs(outputs, rr), nil
 }

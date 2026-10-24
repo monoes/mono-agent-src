@@ -268,7 +268,7 @@ func (c *Context) Block() string {
 	line(&b, "People", c.People, "`monoagentcli people`")
 	line(&b, "Workflows", c.Workflows, "`monoagentcli workflow list`")
 	line(&b, "Orgs", c.Orgs, "`monoagentcli org list`")
-	line(&b, "Vault items (names only; values are never shown to you)", c.Vault, "`monoagentcli vault`")
+	line(&b, "Vault items (names only in this summary; check `monoagentcli secret agent-access` for use/reveal permissions)", c.Vault, "`monoagentcli vault`")
 	fmt.Fprintf(&b, "- Browser extension: %s", c.Extension.Status)
 	if c.Extension.Browsers > 0 {
 		fmt.Fprintf(&b, " (%d browser(s))", c.Extension.Browsers)

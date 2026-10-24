@@ -27,7 +27,7 @@ func TestAgentAccessLiftsTheSecretRefusalOfAnUnapprovedRun(t *testing.T) {
 	store := newFullEngineStore(t)
 	db := store.RawDB()
 	bg := context.Background()
-	for _, m := range []string{"106_workflow_approvals.sql", "110_profile_agent_secret_access.sql", "111_agent_secret_access_scope_audit.sql"} {
+	for _, m := range []string{"106_workflow_approvals.sql", "110_profile_agent_secret_access.sql", "111_agent_secret_access_scope_audit.sql", "125_vault_agent_access_levels.sql"} {
 		sql, err := data.MigrationsFS.ReadFile("migrations/" + m)
 		if err != nil {
 			t.Fatal(err)

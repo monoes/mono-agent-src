@@ -1653,3 +1653,11 @@ export function PreviewFailedRunFix(arg1) {
 export function SaveGeneratedWorkflow(arg1) {
   return window['go']['main']['App']['SaveGeneratedWorkflow'](arg1);
 }
+
+export function GetVaultAgentAccess() {
+  return window['go']['main']['App']['GetVaultAgentAccess']();
+}
+
+export function SetVaultAgentAccess(arg1) {
+  return window['go']['main']['App']['SetVaultAgentAccess'](arg1);
+}

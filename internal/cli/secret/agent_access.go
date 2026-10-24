@@ -14,11 +14,8 @@ import (
 	"github.com/monoes/mono-agent/internal/secrets"
 )
 
-// newSecretAgentAccessCmd is `secret agent-access [on|off]`: whether a
-// workflow the user never approved (one the chat or an agent wrote or
-// changed) may read this profile's vault, with no approval per workflow.
-// Off by default. Turning it on or off is the user's own: an agent, the
-// chat or a workflow is refused, and so is a process an agent started.
+// newSecretAgentAccessCmd manages profile vault permissions. Mutations remain
+// operator-only; on/off are compatibility aliases for scoped use/strict.
 func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 	var (
 		yes, anyHost bool
@@ -26,47 +23,42 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 		expires      string
 	)
 	cmd := &cobra.Command{
-		Use:   "agent-access [on|off]",
-		Short: "Let agent-written workflows read this profile's vault without your approval (off by default)",
-		Long: "With no argument, shows whether it is on and its scope.\n" +
-			"\n" +
-			"By default a workflow the chat or an agent wrote or changed reads no @secret reference until\n" +
-			"you save or activate it yourself. `on` lifts that for a run of such a workflow (a manual or\n" +
-			"triggered run, and the stream of a trigger.sse node) and for nothing else: a reference that\n" +
-			"came from run data or an expression, a single step an AI runs outside a workflow (node run),\n" +
-			"and vault.secret_get stay refused, and the workflow's file and program limits stay.\n" +
-			"\n" +
-			"Scope: --secret NAME[,NAME...] allows only those secrets (default: all); --expires 24h ends it\n" +
-			"after that long (default: never); --host HOST[,HOST...] allows a secret to be sent only to\n" +
-			"those hosts by http.request, http.graphql, mcp.call (http) and trigger.sse. --host or --any-host\n" +
-			"is required: --any-host lets any workflow an agent wrote send any allowed secret to any address\n" +
-			"it names, so use it only for a profile whose secrets you accept an agent using. With --host,\n" +
-			"only those four node types read secrets and a proxy must be on the list.\n" +
-			"\n" +
-			"Masking of stored outputs is best-effort: it covers the value and its common encodings, but\n" +
-			"any expression or code step can transform a value past it. Turning this on therefore trusts\n" +
-			"the agent-written workflows with the secrets and hosts you name.\n" +
-			"\n" +
-			"Every secret read this way is logged by name (never value): `agent-access audit`.\n" +
-			"Only you can change it.",
+		Use:   "agent-access [strict|use|reveal]",
+		Short: "Set profile vault access: strict, use without revealing, or reveal",
+		Long: "Choose strict (default), use (supported secret references without plaintext retrieval), or reveal (plaintext retrieval too).\n" +
+			"Only the operator can change this profile setting. use/reveal require --yes.\n" +
+			"on/off remain aliases for scoped use/strict; on requires --host or --any-host.\n" +
+			"--secret and --expires narrow a grant; --host narrows use to supported destinations.\n" +
+			"Use masks supported outputs best-effort; arbitrary code can transform secrets past masking.\n" +
+			"Every agent read is audited by name, never value. Internal authentication tokens stay reserved.",
 		Args:      cobra.MaximumNArgs(1),
-		ValidArgs: []string{"on", "off"},
+		ValidArgs: []string{"strict", "use", "reveal", "on", "off"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 1 && args[0] != "on" && args[0] != "off" {
-				return fmt.Errorf("agent-access takes on or off, not %q", args[0])
+			if len(args) == 1 && args[0] != "on" && args[0] != "off" && args[0] != "strict" && args[0] != "use" && args[0] != "reveal" {
+				return fmt.Errorf("agent-access takes strict, use or reveal (on/off aliases), not %q", args[0])
 			}
 			var grant secrets.AccessGrant
 			if len(args) == 1 {
 				if why := operator.Refusal(); why != "" {
 					return clicore.OperatorOnly("agent-access decides whether an agent may use your vault, which is yours to choose: %s; run it yourself in your terminal or the app", why)
 				}
-				if args[0] == "on" {
+				if args[0] == "on" || args[0] == "use" || args[0] == "reveal" {
 					if !yes {
+						if args[0] == "reveal" {
+							return fmt.Errorf("pass --yes to confirm: agents may retrieve plaintext passwords from this profile's vault")
+						}
 						return fmt.Errorf("pass --yes to confirm: the secrets named (every one by default) become usable by agent-written workflows, and masking in their stored output is best-effort (any expression or code step can defeat it), so this trusts those workflows with the secrets and hosts you name")
+					}
+					if args[0] != "on" && len(hosts) == 0 {
+						anyHost = true
 					}
 					var err error
 					if grant, err = buildGrant(names, hosts, anyHost, expires); err != nil {
 						return err
+					}
+					grant.Level = "use"
+					if args[0] == "reveal" {
+						grant.Level = "reveal"
 					}
 				}
 			}
@@ -82,7 +74,7 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 			}
 			if len(args) == 1 {
 				var err error
-				if args[0] == "on" {
+				if args[0] == "on" || args[0] == "use" || args[0] == "reveal" {
 					err = secrets.SetAgentAccessGrant(cmd.Context(), db.DB, profileID, grant)
 				} else {
 					err = secrets.SetAgentAccess(cmd.Context(), db.DB, profileID, false)
@@ -95,10 +87,14 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("reading agent access: %w", err)
 			}
+			level := "strict"
+			if g != nil {
+				level = g.Level
+			}
 			if d.JSONOutput() {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				out := map[string]any{"profile_id": profileID, "agent_access": g != nil}
+				out := map[string]any{"profile_id": profileID, "agent_access": g != nil, "level": level}
 				if g != nil {
 					out["secrets"] = g.Secrets
 					out["hosts"] = g.Hosts
@@ -109,10 +105,10 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 			}
 			w := cmd.OutOrStdout()
 			if g == nil {
-				fmt.Fprintln(w, "Off: a workflow an agent wrote reads no secret until you save or activate it.")
+				fmt.Fprintln(w, "Strict: agents cannot use or reveal vault secrets without your approval.")
 				return nil
 			}
-			fmt.Fprintln(w, "On: workflows written by an agent read this profile's vault without your approval.")
+			fmt.Fprintf(w, "Level: %s (profile %s)\n", level, profileID)
 			fmt.Fprintf(w, "  secrets: %s\n", orAll(g.Secrets))
 			if g.AnyHost {
 				fmt.Fprintln(w, "  hosts:   ANY (a secret can be sent to any address a workflow names)")
@@ -127,7 +123,7 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm turning it on")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm enabling use or plaintext reveal")
 	cmd.Flags().StringSliceVar(&names, "secret", nil, "Allow only these secrets (default: all of the profile's)")
 	cmd.Flags().StringSliceVar(&hosts, "host", nil, "Send a secret only to these hosts")
 	cmd.Flags().BoolVar(&anyHost, "any-host", false, "Do not bind secrets to hosts: a workflow can send an allowed secret to any address it names")

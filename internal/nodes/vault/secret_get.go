@@ -47,17 +47,24 @@ func (n *SecretGetNode) Execute(ctx context.Context, input workflow.NodeInput, c
 	// the user approves it (secrets.RefuseResolving, as for every @secret
 	// reference): its next step could send the value anywhere, and the run's
 	// output shows it to whoever started it.
+	name, _ := config["name"].(string)
+	db := vaultstore.DBFromContext(ctx)
+	profileID, perr := vaultstore.ProfileIDFromContext(ctx)
+	allowed, err := secrets.CanAgentReveal(ctx, db, profileID, name)
+	if err != nil {
+		return nil, fmt.Errorf("vault.secret_get: checking reveal access: %w", err)
+	}
+	if err := workflow.ApprovalCheckError(ctx); err != nil {
+		return nil, fmt.Errorf("vault.secret_get: whether you approved this workflow could not be checked: %w", err)
+	}
 	if why := secrets.ResolveRefusal(ctx); why != "" {
 		return nil, fmt.Errorf("vault.secret_get decrypts a vault entry, which this run may not: %s", why)
 	}
-	// Even where the owner turned agent access on (`secret agent-access on`),
-	// which lets an unapproved run use @secret references in the fields that
-	// take them: this node puts the plaintext into the item stream, and so
-	// into the run's outputs, for whoever started the run to read.
-	if workflow.AIAuthoredFrom(ctx) {
+	// Use permits references, but this node puts plaintext into the item
+	// stream; an agent-written run needs the profile's Reveal level.
+	if workflow.AIAuthoredFrom(ctx) && !allowed {
 		return nil, fmt.Errorf("vault.secret_get puts a secret's value in the run's output, which a workflow you haven't approved may not do, even with agent access on: use an @secret reference in the field that needs it, or approve the workflow")
 	}
-	name, _ := config["name"].(string)
 	if name == "" {
 		return nil, fmt.Errorf("vault.secret_get: name is required")
 	}
@@ -66,11 +73,9 @@ func (n *SecretGetNode) Execute(ctx context.Context, input workflow.NodeInput, c
 		outputField = "credential"
 	}
 
-	db := vaultstore.DBFromContext(ctx)
 	if db == nil {
 		return nil, fmt.Errorf("vault.secret_get: no database in context")
 	}
-	profileID, perr := vaultstore.ProfileIDFromContext(ctx)
 	if perr != nil {
 		return nil, fmt.Errorf("vault.secret_get: ran without a profile: %w", perr)
 	}
@@ -78,6 +83,11 @@ func (n *SecretGetNode) Execute(ctx context.Context, input workflow.NodeInput, c
 	id, err := lookupSecretIDByName(ctx, db, profileID, name)
 	if err != nil {
 		return nil, fmt.Errorf("vault.secret_get: %w", err)
+	}
+	if workflow.AIAuthoredFrom(ctx) {
+		if err := secrets.AuthorizeAgentReveal(ctx, db, profileID, name); err != nil {
+			return nil, fmt.Errorf("vault.secret_get: %w", err)
+		}
 	}
 	fields, _, err := secrets.DecryptFields(ctx, db, profileID, id)
 	if err != nil {

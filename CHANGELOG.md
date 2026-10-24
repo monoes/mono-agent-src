@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Vault agent access.** Each profile now offers Strict, Use without revealing, and Reveal in the Vault page and `secret agent-access strict|use|reveal`. Existing grants retain Use access. Reveal permits audited plaintext reads through `secret reveal` and `vault.secret_get`; only the operator can change the level.
+
 - **AI tasks.** `workflow-generate`, `failed-run-fix` and `recording-analyze` now run as confined turns that only propose. The user reviews and applies: `workflow apply-fix <task> [--dry-run]` shows or applies a failed run's workflow edits, `workflow save-draft <task>` saves a generated workflow as an inactive draft; both leave the workflow unapproved.
 
 - **AI tasks.** `aitask kinds [--json]` lists the kinds of task with their description, default access, context classes and result contract.

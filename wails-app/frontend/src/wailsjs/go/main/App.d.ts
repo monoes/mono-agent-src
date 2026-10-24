@@ -829,3 +829,7 @@ export function ApplyFailedRunFix(arg1:string,arg2:boolean,arg3:string):Promise<
 export function PreviewFailedRunFix(arg1:string):Promise<string>;
 
 export function SaveGeneratedWorkflow(arg1:string):Promise<string>;
+
+export function GetVaultAgentAccess():Promise<Record<string, any>>;
+
+export function SetVaultAgentAccess(arg1:string):Promise<Record<string, any>>;

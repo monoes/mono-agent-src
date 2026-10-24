@@ -76,3 +76,68 @@ func TestNodeRunResolvesNoSecretReference(t *testing.T) {
 		t.Fatalf("node_run sent %q", got)
 	}
 }
+
+func TestNodeRunVaultRevealRequiresRevealLevel(t *testing.T) {
+	keyring.MockInit()
+	s := newTestServerAllowMutations(t, true)
+	rt, err := s.runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := secrets.Add(ctx, rt.db.DB, testProfile, "secret", "kept", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]interface{}{"type": "vault.secret_get", "config": map[string]interface{}{"name": "kept"}}
+	for _, level := range []string{"use", "reveal"} {
+		if err := secrets.SetAgentAccessGrant(ctx, rt.db.DB, testProfile, secrets.AccessGrant{Level: level, AnyHost: true}); err != nil {
+			t.Fatal(err)
+		}
+		text, err := callNamed(t, s, "node_run", args)
+		if level == "reveal" {
+			if err != nil || !strings.Contains(text, "vsecret-777") {
+				t.Fatalf("reveal: %v %s", err, text)
+			}
+		} else if err == nil || strings.Contains(text, "vsecret-777") {
+			t.Fatalf("use: %v %s", err, text)
+		}
+	}
+	if err := secrets.SetAgentAccess(ctx, rt.db.DB, testProfile, false); err != nil {
+		t.Fatal(err)
+	}
+	if text, err := callNamed(t, s, "node_run", args); err == nil || strings.Contains(text, "vsecret-777") {
+		t.Fatalf("revoked: %v %s", err, text)
+	}
+}
+
+func TestNodeRunAgentUseMasksEchoedSecret(t *testing.T) {
+	keyring.MockInit()
+	s := newTestServerAllowMutations(t, true)
+	rt, err := s.runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := secrets.Add(ctx, rt.db.DB, testProfile, "secret", "kept", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SetAgentAccess(ctx, rt.db.DB, testProfile, true); err != nil {
+		t.Fatal(err)
+	}
+	received := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		received <- string(b)
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+	text, err := callNamed(t, s, "node_run", map[string]interface{}{"type": "http.request", "config": map[string]interface{}{"url": srv.URL, "method": "POST", "body": "@secret:kept"}})
+	var body string
+	select {
+	case body = <-received:
+	default:
+	}
+	if err != nil || body != "vsecret-777" || strings.Contains(text, "vsecret-777") {
+		t.Fatalf("use must send and mask: received %q, result %s, error %v", body, text, err)
+	}
+}

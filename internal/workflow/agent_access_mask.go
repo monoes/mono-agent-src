@@ -26,6 +26,24 @@ type maskingStore struct {
 	run context.Context // the run's context, which knows the values read
 }
 
+// MaskAgentNodeOutputs applies the same value masking to standalone agent
+// steps that a workflow's execution store applies to persisted outputs.
+func MaskAgentNodeOutputs(ctx context.Context, outputs []NodeOutput) []NodeOutput {
+	if len(secrets.ResolvedValues(ctx)) == 0 {
+		return outputs
+	}
+	out := append([]NodeOutput(nil), outputs...)
+	for i := range out {
+		out[i].Items = maskItems(ctx, out[i].Items)
+	}
+	return out
+}
+
+// MaskAgentNodeError masks resolved values while retaining the error's type.
+func MaskAgentNodeError(ctx context.Context, err error) error {
+	return maskRunError(ctx, err)
+}
+
 func (m *maskingStore) CreateExecutionNode(ctx context.Context, en *WorkflowExecutionNode) error {
 	c := maskedNode(m.run, en)
 	err := m.WorkflowStore.CreateExecutionNode(ctx, c)
