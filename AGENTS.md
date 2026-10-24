@@ -2291,6 +2291,26 @@ older monomind the stage infers it from the `Task` call instead. The lead's own 
 events, and `chat history transcript --by-agent <conversation> <turn>`
 shows the turn split by agent.
 
+#### Agent box (`coder set --box`)
+
+`coder set --box off|compat|strict` (operator only; default `off`, which leaves
+every turn exactly as it was; `coder status --json` reports it as `box`) runs
+the coder lead turn of a `coding`-access chat inside the agent sandbox
+(`internal/agentbox`, bubblewrap, Linux only; other systems return
+`box_unsupported_os`). `strict` leaves the turn the current folder, the
+runtimes' own config and the install locations of the binaries it starts
+(monomind, node, the runtime CLI, each bound read-only; what could not be found
+is logged); `compat` hides a list of paths and keeps the rest writable (best
+effort, not a boundary). The path lists are the ones `agent-mode sandbox`
+prints. Before the turn a canary runs in the same configuration (state
+directory unreadable, no `SSH_AUTH_SOCK`, only the box's own processes, home
+writes not reaching the host); a box that does not hold starts nothing
+(`ErrSandboxRequired`). `workspace` and `full` turns need monoagentcli with the
+user's database, which the box hides, so they end in `box_needs_api_mode`
+while the setting is on; a dynamic org in a boxed chat ends in
+`box_org_unsupported` (its workers would run outside the box). Apply, org and
+dynamic-org turns are untouched. `monomind.ExecOptions.Box` is the hook.
+
 ## How AI works in mono-agent
 
 Every AI feature runs through the **monomind runner** (`monomind agent

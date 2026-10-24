@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Agent box (off by default).** `coder set --box off|compat|strict` runs a coding-access coder turn inside the agent sandbox on Linux (`internal/agentbox`, built from the same path lists as `agent-mode sandbox`), after a canary check; workspace and full access turns are refused while it is on. Nothing enables it.
 - **Agent mode hardening.** `agent-mode sandbox --runtime bwrap --strict` is a deny-by-default Linux profile (empty home, /tmp and /run; only the working directory, the runtimes' config and `--allow-rw`/`--allow-ro` paths bound back) and the supported separation; the existing profile is `--compat`, best effort and not a boundary, now with read-only startup files, hidden ssh/aws/gh/git credentials, own pid/ipc namespaces and a cleared environment; the macOS profile denies more credential and startup paths (not run on a Mac). The HTTP API answers 421 to a `Host` that is not the bound loopback address (`MONOAGENT_HTTPAPI_ALLOWED_HOSTS` lists extra names).
 - **Chats.** New chats the user starts default to a full-access coder chat when coder mode is on and the runtime is ready (`coder set --default-access` still wins; an agent's creation, the extension's chats and a fresh install stay scoped). `coder status --json` adds `defaultAccessSource`.
 
