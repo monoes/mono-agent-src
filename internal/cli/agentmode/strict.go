@@ -3,27 +3,15 @@ package agentmode
 import (
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/agentbox"
 	"strings"
 )
 
-// strictForbidden are home-relative paths that --allow-rw/--allow-ro and the working
-// directory may not be, be inside, or contain: state, credentials and every place that
-// starts code at a later login or session. The script checks the resolved paths when it
-// runs, so a symlink does not get round the list.
-var strictForbidden = []string{
-	".monoagent", ".ssh", ".gnupg", ".local/share/keyrings", ".local/share/kwalletd",
-	".config/gh", ".config/git", ".aws", ".netrc", ".git-credentials",
-	".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile",
-	".zshrc", ".zshenv", ".zprofile", ".zlogin", ".pam_environment",
-	".config/systemd", ".config/autostart", ".config/environment.d", ".config/fish",
-	".local/share/applications", ".local/bin",
-}
-
-// strictRuntimeDirs are bound back read-write when they exist: the agent runtimes keep
-// their login and settings there, and a runtime that cannot read its own login cannot
-// start. They are credentials too, and a hooks or settings change made in them outlives
-// the sandbox: strict mode confines what an agent reaches, it does not make these safe.
-var strictRuntimeDirs = []string{".claude", ".claude.json", ".codex", ".config/opencode", ".gemini", ".config/github-copilot"}
+// The forbidden and runtime-dir lists are internal/agentbox's.
+var (
+	strictForbidden   = agentbox.StrictForbidden
+	strictRuntimeDirs = agentbox.StrictRuntimeDirs
+)
 
 // StrictOptions are the extra binds a strict profile is generated with.
 type StrictOptions struct {
