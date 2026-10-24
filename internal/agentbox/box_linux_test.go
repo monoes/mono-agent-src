@@ -165,19 +165,32 @@ func TestCanaryPassesInBothModes(t *testing.T) {
 	}
 }
 
-// A box that exposes the state directory must be refused by the canary.
+// A mount plan that exposes the state directory is refused by the canary.
 func TestCanaryRefusesABrokenBox(t *testing.T) {
 	needBwrap(t)
 	r := newRig(t)
-	b := r.box(Strict)
-	b.StateDir = r.proj // the project is bound read-write: this "state" is readable
-	if err := os.WriteFile(filepath.Join(r.proj, "monoagent.db"), []byte("secret"), 0o600); err != nil {
+	plan, marker, err := r.box(Strict).canaryPlan()
+	if err != nil {
 		t.Fatal(err)
 	}
-	err := b.Canary(context.Background())
+	if err := runCanary(context.Background(), plan, marker); err != nil {
+		t.Fatalf("intact box: %v", err)
+	}
+	i := indexOf(plan.Argv, "--die-with-parent")
+	broken := Plan{Argv: append(append(append([]string{}, plan.Argv[:i]...), "--ro-bind", r.state, r.state), plan.Argv[i:]...)}
+	err = runCanary(context.Background(), broken, marker)
 	if !IsCode(err, CodeCanary) || !strings.Contains(err.Error(), "state directory") {
 		t.Fatalf("canary did not refuse: %v", err)
 	}
+}
+
+func indexOf(s []string, v string) int {
+	for i, x := range s {
+		if x == v {
+			return i
+		}
+	}
+	return -1
 }
 
 // Only the selected runtime's login is bound, read-only; its settings directory is a
@@ -219,5 +232,56 @@ echo '{"hooks":1}' > "$HOME/.claude/settings.json" && echo settingswrite=tmpfs`
 	}
 	if c, _ := os.ReadFile(filepath.Join(r.home, ".claude/.credentials.json")); string(c) != "claude-login" {
 		t.Errorf("host credentials changed: %q", c)
+	}
+}
+
+// A forbidden directory that is a symlink to somewhere else: the target is masked, refused
+// as a working directory or allowed path, and the canary checks it.
+func TestRelocatedForbiddenDirectoriesAreMasked(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	elsewhere := filepath.Join(filepath.Dir(r.home), "elsewhere")
+	realState := filepath.Join(elsewhere, "state")
+	realSSH := filepath.Join(elsewhere, "ssh")
+	for _, d := range []string{realState, realSSH} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	os.WriteFile(filepath.Join(realState, "monoagent.db"), []byte("secret"), 0o600)
+	os.WriteFile(filepath.Join(realSSH, "id_x"), []byte("key"), 0o600)
+	os.RemoveAll(r.state)
+	if err := os.Symlink(realState, r.state); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realSSH, filepath.Join(r.home, ".ssh")); err != nil {
+		t.Fatal(err)
+	}
+	probe := `echo "db=$(cat '` + realState + `/monoagent.db' 2>/dev/null || echo none)"; echo "key=$(cat '` + realSSH + `/id_x' 2>/dev/null || echo none)"`
+	for _, m := range []Mode{Strict, Compat} {
+		b := r.box(m)
+		p, err := b.Wrap("sh", []string{"-c", probe}, r.env())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := runPlan(t, p, nil)
+		if err != nil || !strings.Contains(out, "db=none") || !strings.Contains(out, "key=none") {
+			t.Errorf("%s: relocated targets readable: %v\n%s", m, err, out)
+		}
+		if err := b.Canary(context.Background()); err != nil {
+			t.Errorf("%s canary: %v", m, err)
+		}
+	}
+	for _, bad := range []string{realState, realSSH, elsewhere} {
+		b := r.box(Strict)
+		b.Cwd = bad
+		if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeBadPath) {
+			t.Errorf("cwd %s: %v", bad, err)
+		}
+		b = r.box(Strict)
+		b.AllowRO = []string{bad}
+		if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeBadPath) {
+			t.Errorf("allow %s: %v", bad, err)
+		}
 	}
 }

@@ -102,8 +102,8 @@ func TestExecBoxCanaryRefusesAndStartsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Exec(context.Background(), o, nil)
-	if !errors.Is(err, ErrSandboxRequired) || !agentbox.IsCode(err, agentbox.CodeCanary) {
-		t.Fatalf("err = %v, want ErrSandboxRequired wrapping the canary error", err)
+	if !errors.Is(err, ErrSandboxRequired) || !agentbox.IsCode(err, agentbox.CodeBadPath) {
+		t.Fatalf("err = %v, want ErrSandboxRequired wrapping the refusal", err)
 	}
 	if _, serr := os.Stat(filepath.Join(r.proj, "ran")); serr == nil {
 		t.Fatal("the turn started although the canary failed")
