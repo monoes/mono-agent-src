@@ -66,7 +66,7 @@ export default function VaultAgentAccess({ isActive = true }) {
     <section aria-label="Vault agent access" style={{ margin: '12px 20px 0', padding: 12, border: '1px solid var(--border, #1e3a4f)', borderRadius: 6, fontSize: 12 }}>
       <label htmlFor="vault-agent-access" style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Agent access · current profile</label>
       <select id="vault-agent-access" value={policy?.level || ''} disabled={busy || !policy} onChange={e => change(e.target.value)} aria-describedby="vault-agent-access-description"
-        style={{ background: 'var(--surface, #060b11)', color: 'var(--text, #e2e8f0)', border: '1px solid var(--border, #1e3a4f)', borderRadius: 5, padding: '6px 8px', maxWidth: '100%' }}>
+        style={{ maxWidth: '100%' }}>
         {!policy && <option value="">{busy ? 'Loading…' : 'Unavailable'}</option>}
         {levels.map(level => <option key={level.value} value={level.value}>{level.label}</option>)}
       </select>
