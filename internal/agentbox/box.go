@@ -3,6 +3,7 @@ package agentbox
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 )
 
 // Mode is which sandbox profile a turn runs under.
@@ -76,4 +77,14 @@ type Plan struct {
 	Argv []string
 	// Notes lists what the box could not resolve (a binary not found), for the caller to show.
 	Notes []string
+}
+
+// Command is the command to start for the plan. The launcher gets a minimal environment of
+// its own: bubblewrap's init process keeps the environment it was started with readable in
+// /proc/1/environ, so the caller's ambient environment must not be inherited. What the
+// payload may see travels as --setenv arguments.
+func (p Plan) Command() *exec.Cmd {
+	cmd := exec.Command(p.Argv[0], p.Argv[1:]...)
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	return cmd
 }

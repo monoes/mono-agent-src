@@ -62,7 +62,7 @@ func (r rig) env() []string {
 
 func runPlan(t *testing.T, p Plan, env []string) (string, error) {
 	t.Helper()
-	out, err := exec.Command(p.Argv[0], p.Argv[1:]...).CombinedOutput()
+	out, err := p.Command().CombinedOutput()
 	return string(out), err
 }
 
@@ -473,5 +473,26 @@ func TestIssuedAPITokenPassesOnlyWhenNamed(t *testing.T) {
 	}
 	if out, err := runPlan(t, p, nil); err != nil || !strings.Contains(out, "tok=bearer url=unset") {
 		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// The launcher is not started with the caller's environment: bubblewrap's init keeps it
+// readable in /proc/1/environ.
+func TestLauncherDoesNotInheritTheAmbientEnvironment(t *testing.T) {
+	needBwrap(t)
+	t.Setenv("MONOAGENT_AMBIENT_MARKER", "leak-me")
+	r := newRig(t)
+	for _, m := range []Mode{Strict, Compat} {
+		p, err := r.box(m).Wrap("sh", []string{"-c", `tr '\0' '\n' < /proc/1/environ 2>&1; echo done`}, os.Environ())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := runPlan(t, p, nil)
+		if err != nil || !strings.Contains(out, "done") {
+			t.Fatalf("%s: %v\n%s", m, err, out)
+		}
+		if strings.Contains(out, "leak-me") {
+			t.Errorf("%s: the ambient environment is readable in /proc/1/environ:\n%s", m, out)
+		}
 	}
 }

@@ -52,7 +52,5 @@ func boxedCommand(ctx context.Context, opts ExecOptions, bin string, args, env [
 	for _, n := range plan.Notes {
 		logging.FromContext(ctx).Warn("agent box", "note", n)
 	}
-	cmd := exec.Command(plan.Argv[0], plan.Argv[1:]...)
-	cmd.Env = env
-	return cmd, nil
+	return plan.Command(), nil
 }

@@ -3,6 +3,7 @@
 package agentbox
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -559,7 +560,8 @@ func runCanary(ctx context.Context, plan Plan, marker string) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	defer os.Remove(marker) // only ever present if the box leaked
-	out, err := exec.CommandContext(ctx, plan.Argv[0], plan.Argv[1:]...).CombinedOutput()
+	cmd := plan.Command()
+	out, err := runWithContext(ctx, cmd)
 	if _, serr := os.Stat(marker); serr == nil {
 		return errf(CodeCanary, "the sandbox canary failed: a write to the home directory reached the host")
 	}
@@ -622,4 +624,22 @@ func trustedLauncher(p string) error {
 		}
 	}
 	return nil
+}
+
+func runWithContext(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return buf.Bytes(), err
+	case <-ctx.Done():
+		_ = cmd.Process.Kill()
+		<-done
+		return buf.Bytes(), ctx.Err()
+	}
 }
