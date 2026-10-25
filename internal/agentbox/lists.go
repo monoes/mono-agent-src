@@ -64,3 +64,8 @@ var RuntimeConfigs = map[string]RuntimeConfig{
 var RuntimeBinaries = map[string]string{
 	"claude": "claude", "codex": "codex", "gemini": "gemini", "opencode": "opencode", "copilot": "copilot",
 }
+
+// BoxEnvDeny are allowlisted variables a boxed turn does not inherit: the box shares the
+// host network, so an ambient API bearer would reach what the filesystem boundary hides.
+// A caller that issues a scoped token for the turn passes it in PassEnv.
+var BoxEnvDeny = map[string]bool{"MONOAGENT_API_URL": true, "MONOAGENT_API_TOKEN": true, "MONOAGENT_PROFILE": true}

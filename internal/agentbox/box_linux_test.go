@@ -57,7 +57,7 @@ func (r rig) box(mode Mode) Box {
 
 func (r rig) env() []string {
 	return []string{"PATH=" + filepath.Dir(r.tool) + ":" + os.Getenv("PATH"), "HOME=" + r.home, "SSH_AUTH_SOCK=/tmp/agent.sock", "MONOAGENT_X=1", "AWS_SECRET_ACCESS_KEY=zzz",
-		"MONOAGENT_GITHUB_CLIENT_SECRET=oauth-secret", "MONOAGENT_AITASK_TOKEN=ambient", "MONOAGENT_API_URL=http://127.0.0.1:9322"}
+		"MONOAGENT_GITHUB_CLIENT_SECRET=oauth-secret", "MONOAGENT_AITASK_TOKEN=ambient", "MONOAGENT_API_URL=http://127.0.0.1:9322", "MONOAGENT_API_TOKEN=bearer", "MONOAGENT_PROFILE=work"}
 }
 
 func runPlan(t *testing.T, p Plan, env []string) (string, error) {
@@ -425,12 +425,12 @@ echo "dirty=$(dirty 2>/dev/null || echo failed)"`
 func TestOnlyAllowlistedMonoagentVariablesPass(t *testing.T) {
 	needBwrap(t)
 	r := newRig(t)
-	p, err := r.box(Strict).Wrap("sh", []string{"-c", `echo "secret=${MONOAGENT_GITHUB_CLIENT_SECRET:-unset} task=${MONOAGENT_AITASK_TOKEN:-unset} api=${MONOAGENT_API_URL:-unset} turn=${MONOAGENT_X:-unset}"`}, r.env())
+	p, err := r.box(Strict).Wrap("sh", []string{"-c", `echo "secret=${MONOAGENT_GITHUB_CLIENT_SECRET:-unset} task=${MONOAGENT_AITASK_TOKEN:-unset} api=${MONOAGENT_API_URL:-unset}${MONOAGENT_API_TOKEN:-}${MONOAGENT_PROFILE:-} turn=${MONOAGENT_X:-unset}"`}, r.env())
 	if err != nil {
 		t.Fatal(err)
 	}
 	out, err := runPlan(t, p, nil)
-	if err != nil || !strings.Contains(out, "secret=unset task=unset api=http://127.0.0.1:9322 turn=1") {
+	if err != nil || !strings.Contains(out, "secret=unset task=unset api=unset turn=1") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
@@ -458,5 +458,20 @@ func TestDevIsPrivate(t *testing.T) {
 		if strings.Contains(out, fmt.Sprint(hostIno)+"\n") {
 			t.Errorf("%s: /dev/shm is the host's (inode %d)", m, hostIno)
 		}
+	}
+}
+
+// An API token the caller issues for this turn (PassEnv) does pass; the ambient one never does.
+func TestIssuedAPITokenPassesOnlyWhenNamed(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	b := r.box(Strict)
+	b.PassEnv = []string{"MONOAGENT_API_TOKEN"}
+	p, err := b.Wrap("sh", []string{"-c", `echo "tok=${MONOAGENT_API_TOKEN:-unset} url=${MONOAGENT_API_URL:-unset}"`}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runPlan(t, p, nil); err != nil || !strings.Contains(out, "tok=bearer url=unset") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }

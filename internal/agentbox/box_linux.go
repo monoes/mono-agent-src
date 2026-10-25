@@ -119,7 +119,7 @@ func expand(home, p string) (string, error) {
 func (b Box) envArgs(env []string, home, mode string) []string {
 	allowed := map[string]bool{}
 	for _, k := range EnvAllowlist {
-		allowed[k] = true
+		allowed[k] = !BoxEnvDeny[k]
 	}
 	for _, k := range b.PassEnv {
 		allowed[k] = true
