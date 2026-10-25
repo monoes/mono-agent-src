@@ -582,27 +582,24 @@ func (b Box) Pin() (Box, error) {
 	return b, err
 }
 
-// findBwrap is the system's bubblewrap: /usr/bin, /usr/local/bin, else the first on PATH.
-// The ambient PATH is only a last resort and the result is checked either way.
+// launcherCandidates are the only places bubblewrap is accepted from (a var for tests).
+var launcherCandidates = []string{"/usr/bin/bwrap", "/usr/local/bin/bwrap"}
+
+// findBwrap is the system's bubblewrap. The ambient PATH is never consulted: a launcher in a
+// directory the user or a project controls could print a passing canary and run the turn
+// unboxed.
 func findBwrap() (string, error) {
-	for _, p := range []string{"/usr/bin/bwrap", "/usr/local/bin/bwrap"} {
+	for _, p := range launcherCandidates {
 		if _, err := os.Stat(p); err == nil {
 			return p, trustedLauncher(p)
 		}
 	}
-	p, err := exec.LookPath("bwrap")
-	if err != nil {
-		return "", errf(CodeUnavailable, "bubblewrap (bwrap) is not installed: the agent sandbox cannot start")
-	}
-	if p, err = filepath.Abs(p); err != nil {
-		return "", errf(CodeUnavailable, "bubblewrap path: %v", err)
-	}
-	return p, trustedLauncher(p)
+	return "", errf(CodeUnavailable, "bubblewrap (bwrap) is not installed in %s: the agent sandbox cannot start (a copy elsewhere is not used)", strings.Join(launcherCandidates, " or "))
 }
 
-// trustedLauncher refuses a launcher that someone else could replace: the executable and
-// every directory above it (as written and after symlinks) must be owned by root or the
-// invoking user and not writable by group or others.
+// trustedLauncher refuses a launcher that a non-root user could replace: the executable and
+// every directory above it (as written and after symlinks) must be owned by root and not
+// writable by group or others.
 func trustedLauncher(p string) error {
 	r, err := filepath.EvalSymlinks(p)
 	if err != nil {
@@ -615,8 +612,8 @@ func trustedLauncher(p string) error {
 				return errf(CodeUntrusted, "bubblewrap: %v", err)
 			}
 			st, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok || (st.Uid != 0 && int(st.Uid) != os.Getuid()) || fi.Mode().Perm()&0o022 != 0 {
-				return errf(CodeUntrusted, "bubblewrap %s is not trusted: %s is writable by others or owned by another user", p, cur)
+			if !ok || st.Uid != 0 || fi.Mode().Perm()&0o022 != 0 {
+				return errf(CodeUntrusted, "bubblewrap %s is not trusted: %s is not owned by root or is writable by others", p, cur)
 			}
 			if cur == "/" {
 				break
