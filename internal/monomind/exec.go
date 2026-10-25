@@ -220,10 +220,11 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 	// to monomind as MONOAGENT_RUN_ID, so its lines can be joined with ours.
 	cmd.Env = logging.ChildEnv(ctx, cmd.Env)
 	if opts.Box != nil {
-		boxed, err := boxedCommand(ctx, opts, bin, args, cmd.Env)
+		boxed, closeBox, err := boxedCommand(ctx, opts, bin, args, cmd.Env)
 		if err != nil {
 			return nil, err
 		}
+		defer closeBox()
 		cmd = boxed
 	}
 	setProcessGroup(cmd)

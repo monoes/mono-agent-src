@@ -75,7 +75,7 @@ func TestStrictArgvStructure(t *testing.T) {
 	}
 	j := strings.Join(p.Argv, " ")
 	for _, w := range []string{"--ro-bind / /", "--tmpfs " + r.home, "--tmpfs /tmp", "--tmpfs /run", "--unshare-pid", "--unshare-ipc",
-		"--new-session", "--cap-drop ALL", "--clearenv", "--bind " + r.proj + " " + r.proj, "--ro-bind " + r.tool + " " + r.tool,
+		"--new-session", "--cap-drop ALL", "--clearenv", "--bind-fd 3 " + r.proj, "--ro-bind-fd 4 " + r.tool,
 		"--setenv MONOAGENT_X 1", "--die-with-parent -- monomind agent exec"} {
 		if !strings.Contains(j, w) {
 			t.Errorf("argv lacks %q:\n%s", w, j)
@@ -180,7 +180,7 @@ func TestCanaryRefusesABrokenBox(t *testing.T) {
 		t.Fatalf("intact box: %v", err)
 	}
 	i := indexOf(plan.Argv, "--die-with-parent")
-	broken := Plan{Argv: append(append(append([]string{}, plan.Argv[:i]...), "--ro-bind", r.state, r.state), plan.Argv[i:]...)}
+	broken := Plan{Files: plan.Files, Argv: append(append(append([]string{}, plan.Argv[:i]...), "--ro-bind", r.state, r.state), plan.Argv[i:]...)}
 	err = runCanary(context.Background(), broken, marker)
 	if !IsCode(err, CodeCanary) || !strings.Contains(err.Error(), "state directory") {
 		t.Fatalf("canary did not refuse: %v", err)
@@ -321,7 +321,7 @@ func TestAttachmentsAreCheckedAndProbed(t *testing.T) {
 		t.Fatalf("canary with an attachment: %v", err)
 	}
 	cp, _, err := b.canaryPlan()
-	if err != nil || !strings.Contains(strings.Join(cp.Argv, " "), "--ro-bind "+good+" "+good) {
+	if err != nil || !strings.Contains(strings.Join(cp.Argv, " "), "--ro-bind-fd") && strings.Contains(strings.Join(cp.Argv, " "), good) {
 		t.Errorf("the canary plan lacks the attachment bind: %v", err)
 	}
 }
@@ -556,5 +556,44 @@ echo "wal=$(cat '` + db + `-wal' 2>/dev/null || echo none)"`
 		if _, err := b.Wrap("true", nil, r.env()); m == Strict && !IsCode(err, CodeBadPath) {
 			t.Errorf("%s: cwd containing the database: %v", m, err)
 		}
+	}
+}
+
+// What was checked is what is bound: if a directory above a checked file is swapped for a
+// symlink to somewhere else after the plan was made, the bind still carries the file that
+// was checked, because it goes through a descriptor.
+func TestBindsAreNotSwappableAfterTheCheck(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	dir := filepath.Dir(r.home)
+	evil := filepath.Join(dir, "evil")
+	os.MkdirAll(evil, 0o700)
+	os.WriteFile(filepath.Join(evil, "att.txt"), []byte("secret"), 0o600)
+	os.WriteFile(filepath.Join(evil, "allow.txt"), []byte("secret"), 0o600)
+	att := filepath.Join(dir, "ad", "att.txt")
+	allow := filepath.Join(dir, "ld", "allow.txt")
+	for _, f := range []string{att, allow} {
+		os.MkdirAll(filepath.Dir(f), 0o700)
+		os.WriteFile(f, []byte("original"), 0o600)
+	}
+	b := r.box(Strict)
+	b.Attach = []string{att}
+	b.AllowRO = []string{allow}
+	p, err := b.Wrap("sh", []string{"-c", `echo "att=$(cat '` + att + `')"; echo "allow=$(cat '` + allow + `')"`}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for _, d := range []string{filepath.Dir(att), filepath.Dir(allow)} {
+		if err := os.Rename(d, d+".orig"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(evil, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runPlan(t, p, nil)
+	if err != nil || strings.Contains(out, "secret") || !strings.Contains(out, "att=original") || !strings.Contains(out, "allow=original") {
+		t.Errorf("a swapped directory was followed: %v\n%s", err, out)
 	}
 }

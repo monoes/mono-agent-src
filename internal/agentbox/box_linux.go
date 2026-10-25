@@ -53,7 +53,7 @@ func (b Box) stateDir(home string) string {
 // it really is. masks are what the read-only root would leave readable: the real targets of
 // the state directory and Protect (wherever they are), and of any other forbidden location
 // that is a symlink out of the home directory.
-func (b Box) forbiddenPaths(home string) (all, masks []string, err error) {
+func (b Box) forbiddenPaths(home string, runtimes bool) (all, masks []string, err error) {
 	protected := append([]string{b.stateDir(home)}, b.Protect...)
 	paths := append([]string(nil), protected...)
 	for _, f := range StrictForbidden {
@@ -62,6 +62,9 @@ func (b Box) forbiddenPaths(home string) (all, masks []string, err error) {
 	// Every runtime's configuration is off limits to a working directory, an allowed path or
 	// an attachment; only the selected runtime's own mounts (strictArgv) reach it.
 	for _, rc := range RuntimeConfigs {
+		if !runtimes {
+			break
+		}
 		for _, f := range append(append([]string(nil), rc.Scratch...), rc.Auth...) {
 			paths = append(paths, filepath.Join(home, f))
 		}
@@ -162,57 +165,39 @@ func (b Box) envArgs(env []string, home, mode string) []string {
 	return append(out, "--setenv", "HOME", home, "--setenv", "MONOAGENT_SANDBOX", "bwrap-"+mode)
 }
 
-// regularFile reports whether p is a regular file that is not a symlink (a missing file is
-// skipped by the caller).
-func regularFile(p string) (bool, error) {
-	fi, err := os.Lstat(p)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !fi.Mode().IsRegular() {
-		return false, errf(CodeBadPath, "%s is not a regular file (a symlink or directory cannot be bound into the box)", p)
-	}
-	return true, nil
-}
-
-// fileBinds are the read-only binds of the caller's own files and of the attachments.
-func (b Box) fileBinds(home string) ([]string, error) {
-	forbidden, _, err := b.forbiddenPaths(home)
+// fileBinds are the read-only binds of the caller's own files and of the attachments, each
+// pinned through a descriptor.
+func (b Box) fileBinds(bd *binder, home string) ([]string, error) {
+	forbidden, _, err := b.forbiddenPaths(home, true)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, f := range b.ReadOnly {
-		ok, err := regularFile(f)
+		if _, err := os.Lstat(f); os.IsNotExist(err) {
+			continue
+		}
+		real, idx, err := bd.pin(f, wantFile)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			out = append(out, "--ro-bind", f, f)
-		}
+		out = append(out, fdBind("--ro-bind", idx, real)...)
 	}
 	for _, f := range b.Attach {
 		if !filepath.IsAbs(f) || filepath.Clean(f) != f {
 			return nil, errf(CodeBadPath, "attachment %q is not a clean absolute path", f)
 		}
-		ok, err := regularFile(f)
+		real, idx, err := bd.pin(f, wantFile)
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			return nil, errf(CodeBadPath, "attachment %s does not exist", f)
-		}
-		r, err := filepath.EvalSymlinks(f)
-		if err != nil || r != f {
+		if real != f {
 			return nil, errf(CodeBadPath, "attachment %s is reached through a symlink", f)
 		}
-		if err := checkAllowed(home, forbidden, r); err != nil {
+		if err := checkAllowed(home, forbidden, real); err != nil {
 			return nil, err
 		}
-		out = append(out, "--ro-bind", f, f)
+		out = append(out, fdBind("--ro-bind", idx, real)...)
 	}
 	return out, nil
 }
@@ -346,9 +331,15 @@ func (b Box) Wrap(bin string, args, env []string) (Plan, error) {
 	}
 	var plan Plan
 	var argv []string
+	bd := &binder{}
+	defer func() {
+		if err != nil {
+			bd.closeAll()
+		}
+	}()
 	switch b.Mode {
 	case Strict:
-		argv, err = b.strictArgv(home, env, &plan)
+		argv, err = b.strictArgv(bd, home, env, &plan)
 	case Compat:
 		argv, err = b.compatArgv(home, env)
 	default:
@@ -357,13 +348,14 @@ func (b Box) Wrap(bin string, args, env []string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	files, err := b.fileBinds(home)
+	files, err := b.fileBinds(bd, home)
 	if err != nil {
 		return Plan{}, err
 	}
 	argv = append(argv, files...)
 	argv = append(argv, "--die-with-parent", "--", bin)
 	plan.Argv = append(append([]string{bw}, argv...), args...)
+	plan.Files = bd.files
 	return plan, nil
 }
 
@@ -373,7 +365,7 @@ func common(envArgs []string) []string {
 }
 
 func (b Box) compatArgv(home string, env []string) ([]string, error) {
-	_, masks, err := b.forbiddenPaths(home)
+	_, masks, err := b.forbiddenPaths(home, true)
 	if err != nil {
 		return nil, err
 	}
@@ -415,15 +407,17 @@ func (b Box) compatArgv(home string, env []string) ([]string, error) {
 	return argv, nil
 }
 
-func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error) {
+func (b Box) strictArgv(bd *binder, home string, env []string, plan *Plan) ([]string, error) {
 	if b.Cwd == "" {
 		return nil, errf(CodeBadPath, "a strict box needs the working directory")
 	}
-	cwd, err := realPath(b.Cwd)
+	forbidden, masks, err := b.forbiddenPaths(home, true)
 	if err != nil {
-		return nil, errf(CodeBadPath, "working directory %s: %v", b.Cwd, err)
+		return nil, err
 	}
-	forbidden, masks, err := b.forbiddenPaths(home)
+	// The working directory is pinned first and everything is checked against what the
+	// descriptor names, not against the path as written.
+	cwd, cwdIdx, err := bd.pin(b.Cwd, wantDir)
 	if err != nil {
 		return nil, err
 	}
@@ -438,14 +432,28 @@ func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error)
 		argv = append(argv, "--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve")
 	}
 	argv = append(argv, "--tmpfs", home)
+
 	if rc, ok := RuntimeConfigs[b.Runtime]; ok {
 		for _, d := range rc.Scratch {
 			argv = append(argv, "--tmpfs", filepath.Join(home, d))
 		}
+		base, _, err := b.forbiddenPaths(home, false)
+		if err != nil {
+			return nil, err
+		}
 		for _, f := range rc.Auth {
-			if full := filepath.Join(home, f); exists(full) {
-				argv = append(argv, "--ro-bind", full, full)
+			dest := filepath.Join(home, f)
+			if _, err := os.Lstat(dest); os.IsNotExist(err) {
+				continue
 			}
+			real, idx, err := bd.pin(dest, wantFile)
+			if err != nil {
+				return nil, err
+			}
+			if err := checkAllowed(home, base, real); err != nil {
+				return nil, err
+			}
+			argv = append(argv, fdBind("--ro-bind", idx, dest)...)
 		}
 	}
 
@@ -472,12 +480,17 @@ func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error)
 			seen[p] = true
 			if target, link, ok := strings.Cut(strings.TrimPrefix(p, "symlink:"), "\x00"); ok && strings.HasPrefix(p, "symlink:") {
 				argv = append(argv, "--symlink", target, link)
-			} else {
-				argv = append(argv, "--ro-bind", p, p)
+				continue
 			}
+			real, idx, err := bd.pin(p, wantAny)
+			if err != nil {
+				return nil, err
+			}
+			argv = append(argv, fdBind("--ro-bind", idx, real)...)
 		}
 	}
-	argv = append(argv, "--bind", cwd, cwd, "--chdir", cwd)
+	argv = append(argv, fdBind("--bind", cwdIdx, cwd)...)
+	argv = append(argv, "--chdir", cwd)
 	for _, set := range []struct {
 		paths []string
 		flag  string
@@ -494,11 +507,18 @@ func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error)
 			if err := checkAllowed(home, forbidden, r); err != nil {
 				return nil, err
 			}
-			if !exists(r) {
+			if _, err := os.Lstat(full); os.IsNotExist(err) {
 				plan.Notes = append(plan.Notes, p+" does not exist: not bound")
 				continue
 			}
-			argv = append(argv, set.flag, r, r)
+			real, idx, err := bd.pin(full, wantAny)
+			if err != nil {
+				return nil, err
+			}
+			if err := checkAllowed(home, forbidden, real); err != nil {
+				return nil, err
+			}
+			argv = append(argv, fdBind(set.flag, idx, real)...)
 		}
 	}
 	return argv, nil
@@ -538,7 +558,7 @@ func (b Box) canaryPlan() (plan Plan, marker string, err error) {
 	if err != nil {
 		return Plan{}, "", errf(CodeUnavailable, "home directory: %v", err)
 	}
-	_, allMasks, err := b.forbiddenPaths(home)
+	_, allMasks, err := b.forbiddenPaths(home, true)
 	if err != nil {
 		return Plan{}, "", err
 	}
@@ -574,6 +594,7 @@ func (b Box) Canary(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer plan.Close()
 	return runCanary(ctx, plan, marker)
 }
 

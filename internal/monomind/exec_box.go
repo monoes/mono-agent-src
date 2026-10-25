@@ -14,7 +14,7 @@ import (
 // the same box configuration, and a box that does not hold starts nothing (the error
 // wraps ErrSandboxRequired). The files Exec wrote for the turn and the attachments are
 // bound read-only, and the variables the caller set for the turn are passed on.
-func boxedCommand(ctx context.Context, opts ExecOptions, bin string, args, env []string) (*exec.Cmd, error) {
+func boxedCommand(ctx context.Context, opts ExecOptions, bin string, args, env []string) (*exec.Cmd, func(), error) {
 	b := *opts.Box
 	b.Binaries = append(append([]string(nil), b.Binaries...), bin)
 	if self, err := os.Executable(); err == nil {
@@ -40,17 +40,17 @@ func boxedCommand(ctx context.Context, opts ExecOptions, bin string, args, env [
 	sort.Strings(b.PassEnv)
 	b, err := b.Pin()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
 	}
 	if err := b.Canary(ctx); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
 	}
 	plan, err := b.Wrap(bin, args, env)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrSandboxRequired, err)
 	}
 	for _, n := range plan.Notes {
 		logging.FromContext(ctx).Warn("agent box", "note", n)
 	}
-	return plan.Command(), nil
+	return plan.Command(), plan.Close, nil
 }

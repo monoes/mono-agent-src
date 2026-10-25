@@ -3,6 +3,7 @@ package agentbox
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
@@ -81,6 +82,16 @@ type Plan struct {
 	Argv []string
 	// Notes lists what the box could not resolve (a binary not found), for the caller to show.
 	Notes []string
+	// Files are the descriptors the bind arguments refer to; Command passes them to the
+	// launcher and Close releases them.
+	Files []*os.File
+}
+
+// Close releases the descriptors of the plan.
+func (p Plan) Close() {
+	for _, f := range p.Files {
+		f.Close()
+	}
 }
 
 // Command is the command to start for the plan. The launcher gets a minimal environment of
@@ -90,5 +101,6 @@ type Plan struct {
 func (p Plan) Command() *exec.Cmd {
 	cmd := exec.Command(p.Argv[0], p.Argv[1:]...)
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.ExtraFiles = p.Files
 	return cmd
 }
