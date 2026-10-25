@@ -3,18 +3,11 @@
 package agentbox
 
 import (
-	"bytes"
-	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
-	"time"
 )
 
 func (b Box) home() (string, error) {
@@ -212,22 +205,6 @@ func mountPoint(p string) string {
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-func lookPathIn(pathVar, name string) string {
-	if strings.Contains(name, "/") {
-		return name
-	}
-	for _, d := range filepath.SplitList(pathVar) {
-		if d == "" {
-			continue
-		}
-		p := filepath.Join(d, name)
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
-			return p
-		}
-	}
-	return ""
-}
-
 func envValue(env []string, key string) string {
 	v := ""
 	for _, kv := range env {
@@ -236,58 +213,6 @@ func envValue(env []string, key string) string {
 		}
 	}
 	return v
-}
-
-// underScratch reports whether p lies where the strict profile hides what the host has:
-// the home directory, /tmp, /var/tmp or /run.
-func underScratch(home, p string) bool {
-	for _, d := range []string{home, "/tmp", "/var/tmp", "/run"} {
-		if p == d || strings.HasPrefix(p, d+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-// binaryBinds are the read-only binds that make one executable runnable in a strict box:
-// the file as found on PATH and the file it really is, and, for a script in a package, the
-// package root (a directory with a package.json) when nothing sensitive sits in it. Never
-// the parent directory or install prefix: what lies beside a binary is not needed to run it.
-func (b Box) binaryBinds(home string, forbidden []string, found string, plan *Plan) []string {
-	var binds []string
-	add := func(p string) {
-		if p != "" && exists(p) && underScratch(home, p) {
-			binds = append(binds, p)
-		}
-	}
-	real, err := filepath.EvalSymlinks(found)
-	if err != nil {
-		add(found)
-		return binds
-	}
-	if real != found {
-		// A symlink stays one, so a script that finds its package through $0 still can.
-		if underScratch(home, found) {
-			binds = append(binds, "symlink:"+real+"\x00"+found)
-		}
-	} else {
-		add(found)
-	}
-	add(real)
-	for d, i := filepath.Dir(real), 0; i < 6 && d != home && d != "/" && d != "."; d, i = filepath.Dir(d), i+1 {
-		if !exists(filepath.Join(d, "package.json")) {
-			continue
-		}
-		switch {
-		case !underScratch(home, d):
-		case checkAllowed(home, forbidden, d) != nil || !verifiedPackage(d):
-			plan.Notes = append(plan.Notes, "the package directory "+d+" is not a verified runtime package or holds credential-like entries: not bound, "+filepath.Base(found)+" may not start")
-		default:
-			add(d)
-		}
-		break
-	}
-	return binds
 }
 
 // Wrap returns the command that runs bin with args under the box. env is the environment
@@ -499,163 +424,4 @@ func (b Box) strictArgv(bd *binder, home string, env []string, plan *Plan) ([]st
 		}
 	}
 	return argv, nil
-}
-
-// canaryProbe runs inside the box: $1 state directory, $2 nonce, $3 mode, $4 the number of
-// bound files expected inside the state directory, then those files, then the masked
-// targets that must be empty.
-const canaryProbe = `
-fail() { echo "canary: $1"; exit 1; }
-state=$1; nonce=$2; mode=$3; n=$4; shift 4
-allowed=""; i=0
-while [ "$i" -lt "$n" ]; do allowed="$allowed$1
-"; shift; i=$((i + 1)); done
-unexpected=$(find "$state" -mindepth 1 ! -type d 2>/dev/null | grep -vxF "$allowed")
-if [ -n "$unexpected" ]; then fail "the state directory is readable"; fi
-if [ -n "${SSH_AUTH_SOCK+x}" ]; then fail "SSH_AUTH_SOCK is set"; fi
-for m in "$@"; do
-  if [ -d "$m" ] && [ -n "$(ls -A "$m" 2>/dev/null)" ]; then fail "$m is readable"; fi
-  if [ -f "$m" ] && [ -s "$m" ]; then fail "$m is readable"; fi
-done
-n=$(ls /proc | grep -c '^[0-9][0-9]*$')
-if [ "$n" -gt 12 ]; then fail "host processes are visible ($n)"; fi
-if [ "$mode" = strict ]; then
-  : > "$HOME/.monoagent-canary-$nonce" 2>/dev/null || fail "the home directory is not writable"
-elif [ -e "$HOME/.bashrc" ] && ( : >> "$HOME/.bashrc" ) 2>/dev/null; then
-  fail "the shell startup file is writable"
-fi
-echo canary-ok
-`
-
-// canaryPlan is the command that runs the canary in the box configuration of the turn: the
-// same mounts, with the probe as the payload. marker is a file that must not appear on the
-// host.
-func (b Box) canaryPlan() (plan Plan, marker string, err error) {
-	home, err := b.home()
-	if err != nil {
-		return Plan{}, "", errf(CodeUnavailable, "home directory: %v", err)
-	}
-	_, allMasks, err := b.forbiddenPaths(home, true)
-	if err != nil {
-		return Plan{}, "", err
-	}
-	state := b.stateDir(home)
-	var masks []string // the state directory itself is checked file by file below
-	for _, m := range allMasks {
-		if m != state && m != mountPoint(state) {
-			masks = append(masks, m)
-		}
-	}
-	nb := make([]byte, 8)
-	if _, err := rand.Read(nb); err != nil {
-		return Plan{}, "", err
-	}
-	nonce := hex.EncodeToString(nb)
-	var inState []string
-	for _, f := range append(append([]string(nil), b.ReadOnly...), b.Attach...) {
-		if r := mountPoint(f); strings.HasPrefix(r, mountPoint(state)+"/") || strings.HasPrefix(f, state+"/") {
-			inState = append(inState, f)
-		}
-	}
-	args := append([]string{"-c", canaryProbe, "sh", state, nonce, string(b.Mode), fmt.Sprint(len(inState))}, inState...)
-	args = append(args, masks...)
-	plan, err = b.Wrap("sh", args, os.Environ())
-	return plan, filepath.Join(home, ".monoagent-canary-"+nonce), err
-}
-
-// Canary runs a short check in the same box configuration as the turn and returns an error
-// when the box does not hold: the state directory readable, SSH_AUTH_SOCK passed on, host
-// processes visible, or (strict) a write to the home directory reaching the host.
-func (b Box) Canary(ctx context.Context) error {
-	plan, marker, err := b.canaryPlan()
-	if err != nil {
-		return err
-	}
-	defer plan.Close()
-	return runCanary(ctx, plan, marker)
-}
-
-func runCanary(ctx context.Context, plan Plan, marker string) error {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	defer os.Remove(marker) // only ever present if the box leaked
-	cmd := plan.Command()
-	out, err := runWithContext(ctx, cmd)
-	if _, serr := os.Stat(marker); serr == nil {
-		return errf(CodeCanary, "the sandbox canary failed: a write to the home directory reached the host")
-	}
-	if err != nil || !strings.Contains(string(out), "canary-ok") {
-		return errf(CodeCanary, "the sandbox canary failed: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// Pin returns the box with the bubblewrap launcher resolved once and checked, so that the
-// canary and the turn run the same executable.
-func (b Box) Pin() (Box, error) {
-	if b.Bwrap != "" {
-		return b, trustedLauncher(b.Bwrap)
-	}
-	bw, err := findBwrap()
-	b.Bwrap = bw
-	return b, err
-}
-
-// launcherCandidates are the only places bubblewrap is accepted from (a var for tests).
-var launcherCandidates = []string{"/usr/bin/bwrap", "/usr/local/bin/bwrap"}
-
-// findBwrap is the system's bubblewrap. The ambient PATH is never consulted: a launcher in a
-// directory the user or a project controls could print a passing canary and run the turn
-// unboxed.
-func findBwrap() (string, error) {
-	for _, p := range launcherCandidates {
-		if _, err := os.Stat(p); err == nil {
-			return p, trustedLauncher(p)
-		}
-	}
-	return "", errf(CodeUnavailable, "bubblewrap (bwrap) is not installed in %s: the agent sandbox cannot start (a copy elsewhere is not used)", strings.Join(launcherCandidates, " or "))
-}
-
-// trustedLauncher refuses a launcher that a non-root user could replace: the executable and
-// every directory above it (as written and after symlinks) must be owned by root and not
-// writable by group or others.
-func trustedLauncher(p string) error {
-	r, err := filepath.EvalSymlinks(p)
-	if err != nil {
-		return errf(CodeUnavailable, "bubblewrap %s: %v", p, err)
-	}
-	for _, path := range []string{r, p} {
-		for cur := path; ; cur = filepath.Dir(cur) {
-			fi, err := os.Stat(cur)
-			if err != nil {
-				return errf(CodeUntrusted, "bubblewrap: %v", err)
-			}
-			st, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok || st.Uid != 0 || fi.Mode().Perm()&0o022 != 0 {
-				return errf(CodeUntrusted, "bubblewrap %s is not trusted: %s is not owned by root or is writable by others", p, cur)
-			}
-			if cur == "/" {
-				break
-			}
-		}
-	}
-	return nil
-}
-
-func runWithContext(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
-	var buf bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &buf, &buf
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		return buf.Bytes(), err
-	case <-ctx.Done():
-		_ = cmd.Process.Kill()
-		<-done
-		return buf.Bytes(), ctx.Err()
-	}
 }
