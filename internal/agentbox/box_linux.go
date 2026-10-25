@@ -57,6 +57,13 @@ func (b Box) forbiddenPaths(home string) (all, masks []string, err error) {
 	for _, f := range StrictForbidden {
 		paths = append(paths, filepath.Join(home, f))
 	}
+	// Every runtime's configuration is off limits to a working directory, an allowed path or
+	// an attachment; only the selected runtime's own mounts (strictArgv) reach it.
+	for _, rc := range RuntimeConfigs {
+		for _, f := range append(append([]string(nil), rc.Scratch...), rc.Auth...) {
+			paths = append(paths, filepath.Join(home, f))
+		}
+	}
 	for _, p := range paths {
 		all = append(all, p)
 		r, rerr := filepath.EvalSymlinks(p)
@@ -423,6 +430,16 @@ func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error)
 		argv = append(argv, "--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve")
 	}
 	argv = append(argv, "--tmpfs", home)
+	if rc, ok := RuntimeConfigs[b.Runtime]; ok {
+		for _, d := range rc.Scratch {
+			argv = append(argv, "--tmpfs", filepath.Join(home, d))
+		}
+		for _, f := range rc.Auth {
+			if full := filepath.Join(home, f); exists(full) {
+				argv = append(argv, "--ro-bind", full, full)
+			}
+		}
+	}
 
 	pathVar := envValue(env, "PATH")
 	if pathVar == "" {
@@ -453,16 +470,6 @@ func (b Box) strictArgv(home string, env []string, plan *Plan) ([]string, error)
 		}
 	}
 	argv = append(argv, "--bind", cwd, cwd, "--chdir", cwd)
-	if rc, ok := RuntimeConfigs[b.Runtime]; ok {
-		for _, d := range rc.Scratch {
-			argv = append(argv, "--tmpfs", filepath.Join(home, d))
-		}
-		for _, f := range rc.Auth {
-			if full := filepath.Join(home, f); exists(full) {
-				argv = append(argv, "--ro-bind", full, full)
-			}
-		}
-	}
 	for _, set := range []struct {
 		paths []string
 		flag  string

@@ -491,3 +491,34 @@ func TestLauncherDoesNotInheritTheAmbientEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// No runtime's configuration can be brought back as a working directory, an allowed path
+// or an attachment, the selected runtime's included.
+func TestRuntimeDirectoriesAreProtected(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	for _, d := range []string{".codex", ".claude", ".gemini"} {
+		os.MkdirAll(filepath.Join(r.home, d), 0o700)
+		os.WriteFile(filepath.Join(r.home, d, "auth.json"), []byte("login"), 0o600)
+	}
+	b := r.box(Strict)
+	b.Runtime = "claude"
+	b.Cwd = filepath.Join(r.home, ".codex")
+	if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeBadPath) {
+		t.Errorf("cwd ~/.codex: %v", err)
+	}
+	for _, p := range []string{"~/.claude", "~/.codex", "~/.gemini/auth.json"} {
+		b = r.box(Strict)
+		b.Runtime = "claude"
+		b.AllowRW = []string{p}
+		if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeBadPath) {
+			t.Errorf("allow %s: %v", p, err)
+		}
+	}
+	b = r.box(Strict)
+	b.Runtime = "claude"
+	b.Attach = []string{filepath.Join(r.home, ".codex", "auth.json")}
+	if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeBadPath) {
+		t.Errorf("attach ~/.codex/auth.json: %v", err)
+	}
+}
