@@ -249,29 +249,6 @@ func underScratch(home, p string) bool {
 	return false
 }
 
-// sensitiveNames are entry names that keep a package directory from being bound: its
-// siblings would be exposed along with the code.
-var sensitiveNames = map[string]bool{".env": true, ".npmrc": true, "id_rsa": true, "id_ed25519": true, "credentials": true, "credentials.json": true}
-
-func holdsSensitive(dir string) bool {
-	forbidden := map[string]bool{}
-	for _, f := range StrictForbidden {
-		if n := filepath.Base(f); strings.HasPrefix(n, ".") {
-			forbidden[n] = true
-		}
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return true
-	}
-	for _, e := range entries {
-		if forbidden[e.Name()] || sensitiveNames[e.Name()] {
-			return true
-		}
-	}
-	return false
-}
-
 // binaryBinds are the read-only binds that make one executable runnable in a strict box:
 // the file as found on PATH and the file it really is, and, for a script in a package, the
 // package root (a directory with a package.json) when nothing sensitive sits in it. Never
@@ -303,8 +280,8 @@ func (b Box) binaryBinds(home string, forbidden []string, found string, plan *Pl
 		}
 		switch {
 		case !underScratch(home, d):
-		case checkAllowed(home, forbidden, d) != nil || holdsSensitive(d):
-			plan.Notes = append(plan.Notes, "the package directory "+d+" holds credential-like entries: not bound, "+filepath.Base(found)+" may not start")
+		case checkAllowed(home, forbidden, d) != nil || !verifiedPackage(d):
+			plan.Notes = append(plan.Notes, "the package directory "+d+" is not a verified runtime package or holds credential-like entries: not bound, "+filepath.Base(found)+" may not start")
 		default:
 			add(d)
 		}

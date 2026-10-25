@@ -377,10 +377,10 @@ func TestBinaryBindsDoNotExposeNeighbours(t *testing.T) {
 	r := newRig(t)
 	os.WriteFile(filepath.Join(r.home, "tools", "secret.txt"), []byte("neighbour"), 0o600)
 	os.WriteFile(filepath.Join(r.home, "tools", "bin", "other"), []byte("other"), 0o755)
-	pkg := func(name string, extra ...string) string {
+	pkg := func(name, pkgName string, extra ...string) string {
 		root := filepath.Join(r.home, "pkgs", name)
 		os.MkdirAll(filepath.Join(root, "bin"), 0o755)
-		os.WriteFile(filepath.Join(root, "package.json"), []byte("{}"), 0o644)
+		os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"`+pkgName+`"}`), 0o644)
 		os.WriteFile(filepath.Join(root, "lib.txt"), []byte("lib"), 0o644)
 		for _, e := range extra {
 			os.WriteFile(filepath.Join(root, e), []byte("x"), 0o600)
@@ -391,13 +391,19 @@ func TestBinaryBindsDoNotExposeNeighbours(t *testing.T) {
 		os.Symlink(cli, link)
 		return link
 	}
-	clean, dirty := pkg("clean"), pkg("dirty", ".env")
+	clean, dirty := pkg("clean", "monomind"), pkg("dirty", "monomind", ".env.production")
+	nested := pkg("nested", "monomind")
+	os.MkdirAll(filepath.Join(r.home, "pkgs", "nested", "config"), 0o755)
+	os.WriteFile(filepath.Join(r.home, "pkgs", "nested", "config", "credentials.json"), []byte("{}"), 0o600)
+	stranger := pkg("stranger", "left-pad")
 	b := r.box(Strict)
-	b.Binaries = []string{r.tool, clean, dirty}
+	b.Binaries = []string{r.tool, clean, dirty, nested, stranger}
 	probe := `echo "neighbour=$(cat "` + filepath.Join(r.home, "tools", "secret.txt") + `" 2>/dev/null || echo none)"
 echo "otherbin=$(cat "` + filepath.Join(r.home, "tools", "bin", "other") + `" 2>/dev/null || echo none)"
 echo "clean=$(clean 2>/dev/null || echo failed)"
-echo "dirty=$(dirty 2>/dev/null || echo failed)"`
+echo "dirty=$(dirty 2>/dev/null || echo failed)"
+echo "nested=$(nested 2>/dev/null || echo failed)"
+echo "stranger=$(stranger 2>/dev/null || echo failed)"`
 	p, err := b.Wrap("sh", []string{"-c", probe}, r.env())
 	if err != nil {
 		t.Fatal(err)
@@ -407,7 +413,7 @@ echo "dirty=$(dirty 2>/dev/null || echo failed)"`
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, w := range []string{"neighbour=none", "otherbin=none", "clean=lib", "dirty=failed"} {
+	for _, w := range []string{"neighbour=none", "otherbin=none", "clean=lib", "dirty=failed", "nested=failed", "stranger=failed"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("want %q in:\n%s", w, out)
 		}
@@ -620,7 +626,9 @@ func TestAuthFilesAreValidated(t *testing.T) {
 	if _, err := run(func(r rig) { os.MkdirAll(filepath.Join(r.home, ".claude.json", "sub"), 0o700) }); !IsCode(err, CodeBadPath) {
 		t.Errorf("auth file that is a directory: %v", err)
 	}
-	p, err := run(func(r rig) { os.Symlink(filepath.Join(r.home, "dotfiles", "claude.json"), filepath.Join(r.home, ".claude.json")) })
+	p, err := run(func(r rig) {
+		os.Symlink(filepath.Join(r.home, "dotfiles", "claude.json"), filepath.Join(r.home, ".claude.json"))
+	})
 	if err != nil {
 		t.Fatalf("a dotfiles symlink: %v", err)
 	}
