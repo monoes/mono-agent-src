@@ -4,10 +4,12 @@ package agentbox
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -430,5 +432,31 @@ func TestOnlyAllowlistedMonoagentVariablesPass(t *testing.T) {
 	out, err := runPlan(t, p, nil)
 	if err != nil || !strings.Contains(out, "secret=unset task=unset api=http://127.0.0.1:9322 turn=1") {
 		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// The box gets its own /dev: the host's /dev/shm is not shared.
+func TestDevIsPrivate(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	marker := filepath.Join("/dev/shm", "agentbox-test-"+filepath.Base(r.home))
+	for _, m := range []Mode{Strict, Compat} {
+		p, err := r.box(m).Wrap("sh", []string{"-c", `echo x > ` + marker + `-inside; echo null=$(echo ok > /dev/null && echo ok); stat -c %i /dev/shm`}, r.env())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := runPlan(t, p, nil)
+		if err != nil || !strings.Contains(out, "null=ok") {
+			t.Fatalf("%s: %v\n%s", m, err, out)
+		}
+		if _, err := os.Stat(marker + "-inside"); err == nil {
+			os.Remove(marker + "-inside")
+			t.Errorf("%s: a write to /dev/shm reached the host", m)
+		}
+		host, _ := os.Stat("/dev/shm")
+		hostIno := host.Sys().(*syscall.Stat_t).Ino
+		if strings.Contains(out, fmt.Sprint(hostIno)+"\n") {
+			t.Errorf("%s: /dev/shm is the host's (inode %d)", m, hostIno)
+		}
 	}
 }

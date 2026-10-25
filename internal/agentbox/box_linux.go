@@ -352,7 +352,7 @@ func (b Box) Wrap(bin string, args, env []string) (Plan, error) {
 }
 
 func common(envArgs []string) []string {
-	out := []string{"--dev-bind", "/dev", "/dev", "--proc", "/proc", "--unshare-pid", "--unshare-ipc", "--new-session", "--cap-drop", "ALL"}
+	out := []string{"--dev", "/dev", "--proc", "/proc", "--unshare-pid", "--unshare-ipc", "--new-session", "--cap-drop", "ALL"}
 	return append(out, envArgs...)
 }
 
