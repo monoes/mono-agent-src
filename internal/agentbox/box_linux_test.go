@@ -597,3 +597,34 @@ func TestBindsAreNotSwappableAfterTheCheck(t *testing.T) {
 		t.Errorf("a swapped directory was followed: %v\n%s", err, out)
 	}
 }
+
+// An authentication file must be a regular file whose real target is not protected; a
+// symlink into a dotfiles repository is fine.
+func TestAuthFilesAreValidated(t *testing.T) {
+	needBwrap(t)
+	run := func(setup func(r rig)) (Plan, error) {
+		r := newRig(t)
+		os.WriteFile(filepath.Join(r.home, ".ssh_key"), []byte("x"), 0o600)
+		os.MkdirAll(filepath.Join(r.home, ".ssh"), 0o700)
+		os.WriteFile(filepath.Join(r.home, ".ssh", "id_x"), []byte("sshkey"), 0o600)
+		os.MkdirAll(filepath.Join(r.home, "dotfiles"), 0o700)
+		os.WriteFile(filepath.Join(r.home, "dotfiles", "claude.json"), []byte("login"), 0o600)
+		setup(r)
+		b := r.box(Strict)
+		b.Runtime = "claude"
+		return b.Wrap("cat", []string{filepath.Join(r.home, ".claude.json")}, r.env())
+	}
+	if _, err := run(func(r rig) { os.Symlink(filepath.Join(r.home, ".ssh", "id_x"), filepath.Join(r.home, ".claude.json")) }); !IsCode(err, CodeBadPath) {
+		t.Errorf("auth file linked to ~/.ssh: %v", err)
+	}
+	if _, err := run(func(r rig) { os.MkdirAll(filepath.Join(r.home, ".claude.json", "sub"), 0o700) }); !IsCode(err, CodeBadPath) {
+		t.Errorf("auth file that is a directory: %v", err)
+	}
+	p, err := run(func(r rig) { os.Symlink(filepath.Join(r.home, "dotfiles", "claude.json"), filepath.Join(r.home, ".claude.json")) })
+	if err != nil {
+		t.Fatalf("a dotfiles symlink: %v", err)
+	}
+	if out, err := runPlan(t, p, nil); err != nil || !strings.Contains(out, "login") {
+		t.Errorf("%v %s", err, out)
+	}
+}
