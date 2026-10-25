@@ -2365,10 +2365,16 @@ selected runtime's login files (read-only, with a disposable settings directory
 that vanishes with the turn; other runtimes' directories are not bound) and the
 binaries it starts (monomind, node, the runtime CLI: the file itself, plus a
 package directory only when nothing credential-like sits in it; what could not be
-bound is logged). Forbidden locations are compared and masked at their real
-targets, attachments must be plain files outside them, the launcher is one
-checked system `bwrap` for the canary and the turn, only an allowlist and the
-turn's own variables pass, and an unknown `coder.box` value refuses the turn
+bound is logged). Forbidden locations (state, the database in use, credentials, every runtime's
+config) are compared and masked at their real targets wherever they are; the
+working directory, allowed paths, attachments, the caller's files and the
+binaries are pinned through file descriptors, so a path swapped after the check
+is not followed; the launcher is `bwrap` from a root-owned system location (never
+PATH), the same for the canary and the turn, started with a minimal
+environment; the box has its own `/dev`; only an allowlist and the turn's own
+variables pass (no ambient API url, token or profile); a package directory is
+bound only when its package.json names the agent runner or a runtime and its
+tree holds nothing credential-like; and an unknown `coder.box` value refuses the turn
 (`box_setting_invalid`); `compat` hides a list of paths and keeps the rest writable (best
 effort, not a boundary). The path lists are the ones `agent-mode sandbox`
 prints. Before the turn a canary runs in the same configuration (state
