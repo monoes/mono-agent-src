@@ -40,7 +40,7 @@ func (s coderSettings) boxMode() string {
 // workspace and full access use monoagentcli with the user's database, which the box
 // hides until the API client mode exists, and a dynamic org's workers would run outside
 // the box the lead is in.
-func coderBox(s coderSettings, access, cwd, runtime, orgMode string) (*agentbox.Box, error) {
+func coderBox(s coderSettings, access, cwd, runtime, orgMode, dbPath string) (*agentbox.Box, error) {
 	mode := s.boxMode()
 	switch mode {
 	case BoxOff:
@@ -60,5 +60,10 @@ func coderBox(s coderSettings, access, cwd, runtime, orgMode string) (*agentbox.
 	if orgMode == ai.OrgModeDynamic {
 		return nil, &boxError{CodeBoxOrgUnsupport, "the sandbox (coder.box) is on, and a dynamic org's workers would run outside it: turn the org mode off or coder.box off"}
 	}
-	return &agentbox.Box{Mode: agentbox.Mode(mode), Cwd: cwd, Runtime: runtime}, nil
+	box := &agentbox.Box{Mode: agentbox.Mode(mode), Cwd: cwd, Runtime: runtime}
+	if dbPath != "" {
+		// The database actually in use (--db-path), wherever it is, with its journal files.
+		box.Protect = []string{dbPath, dbPath + "-wal", dbPath + "-shm"}
+	}
+	return box, nil
 }

@@ -57,6 +57,10 @@ type Box struct {
 	// Home overrides $HOME (tests). StateDir is mono-agent's state directory; it defaults
 	// to Home/.monoagent and is what the canary checks is hidden.
 	Home, StateDir string
+	// Protect are further files or directories that must be unreadable inside the box: the
+	// database actually in use (--db-path) and the like. Like StateDir they are masked
+	// wherever they are, symlink or not, and refused as a working directory or allowed path.
+	Protect []string
 	// Binaries are further executables the turn starts (monomind, monoagentcli): their
 	// install locations are bound read-only.
 	Binaries []string

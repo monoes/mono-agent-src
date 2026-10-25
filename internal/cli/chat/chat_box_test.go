@@ -24,26 +24,26 @@ func codeOf(err error) string {
 }
 
 func TestCoderBoxDecision(t *testing.T) {
-	if b, err := coderBox(coderSettings{}, ai.AccessCoding, "/w", "claude", ""); b != nil || err != nil {
+	if b, err := coderBox(coderSettings{}, ai.AccessCoding, "/w", "claude", "", ""); b != nil || err != nil {
 		t.Fatalf("unset: %v %v", b, err)
 	}
-	if b, err := coderBox(coderSettings{Box: "off"}, ai.AccessFull, "/w", "claude", ""); b != nil || err != nil {
+	if b, err := coderBox(coderSettings{Box: "off"}, ai.AccessFull, "/w", "claude", "", ""); b != nil || err != nil {
 		t.Fatalf("off: %v %v", b, err)
 	}
-	b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "")
+	b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", "")
 	if err != nil || b == nil || b.Mode != agentbox.Strict || b.Cwd != "/w" || b.Runtime != "claude" {
 		t.Fatalf("coding: %+v %v", b, err)
 	}
 	for _, a := range []string{ai.AccessWorkspace, ai.AccessFull, ""} {
-		if b, err := coderBox(coderSettings{Box: "compat"}, a, "/w", "claude", ""); b != nil || codeOf(err) != CodeBoxNeedsAPIMode {
+		if b, err := coderBox(coderSettings{Box: "compat"}, a, "/w", "claude", "", ""); b != nil || codeOf(err) != CodeBoxNeedsAPIMode {
 			t.Errorf("access %q: %v %v", a, b, err)
 		}
 	}
-	if _, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", ai.OrgModeDynamic); codeOf(err) != CodeBoxOrgUnsupport {
+	if _, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", ai.OrgModeDynamic, ""); codeOf(err) != CodeBoxOrgUnsupport {
 		t.Errorf("dynamic org: %v", err)
 	}
 	for _, bad := range []string{"bogus", "STRICT", "stirct", " strict", "on"} {
-		if b, err := coderBox(coderSettings{Box: bad}, ai.AccessCoding, "/w", "claude", ""); b != nil || codeOf(err) != CodeBoxInvalid {
+		if b, err := coderBox(coderSettings{Box: bad}, ai.AccessCoding, "/w", "claude", "", ""); b != nil || codeOf(err) != CodeBoxInvalid {
 			t.Errorf("value %q: %v %v", bad, b, err)
 		}
 	}
@@ -152,5 +152,12 @@ func TestCoderBoxRefusesATamperedSetting(t *testing.T) {
 	}
 	if out, _ := runCoderCLI(t, r.dbPath, "status"); !strings.Contains(out, `"box":"stirct"`) {
 		t.Errorf("status hides the tampered value: %s", out)
+	}
+}
+
+func TestCoderBoxProtectsTheConfiguredDatabase(t *testing.T) {
+	b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", "/srv/agent/monoagent.db")
+	if err != nil || len(b.Protect) != 3 || b.Protect[0] != "/srv/agent/monoagent.db" || b.Protect[1] != "/srv/agent/monoagent.db-wal" {
+		t.Fatalf("%+v %v", b, err)
 	}
 }

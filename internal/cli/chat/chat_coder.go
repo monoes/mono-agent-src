@@ -150,7 +150,7 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 	if fi, err := os.Stat(t.cwd); err != nil || !fi.IsDir() {
 		return clicore.InvalidInput("this coder conversation's folder %s no longer exists; start a new conversation", t.cwd)
 	}
-	box, err := coderBox(settings, t.access, t.cwd, rt.ID, t.orgMode)
+	box, err := coderBox(settings, t.access, t.cwd, rt.ID, t.orgMode, cfg.DBPath())
 	if err != nil {
 		return err
 	}

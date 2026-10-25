@@ -50,10 +50,12 @@ func (b Box) stateDir(home string) string {
 }
 
 // forbiddenPaths are the forbidden locations as written and, where one is a symlink, where
-// it really is. masks are the real targets that lie outside the home directory: the root is
-// bound read-only, so they would stay readable unless they are masked too.
+// it really is. masks are what the read-only root would leave readable: the real targets of
+// the state directory and Protect (wherever they are), and of any other forbidden location
+// that is a symlink out of the home directory.
 func (b Box) forbiddenPaths(home string) (all, masks []string, err error) {
-	paths := []string{b.stateDir(home)}
+	protected := append([]string{b.stateDir(home)}, b.Protect...)
+	paths := append([]string(nil), protected...)
 	for _, f := range StrictForbidden {
 		paths = append(paths, filepath.Join(home, f))
 	}
@@ -64,17 +66,23 @@ func (b Box) forbiddenPaths(home string) (all, masks []string, err error) {
 			paths = append(paths, filepath.Join(home, f))
 		}
 	}
+	isProtected := map[string]bool{}
+	for _, p := range protected {
+		isProtected[p] = true
+	}
 	for _, p := range paths {
 		all = append(all, p)
 		r, rerr := filepath.EvalSymlinks(p)
-		if rerr != nil || r == p {
+		if rerr != nil {
 			continue
 		}
 		if r == "/" || strings.HasPrefix(home, r+"/") {
 			return nil, nil, errf(CodeBadPath, "%s resolves to %s, which contains your home directory", p, r)
 		}
-		all = append(all, r)
-		if r != home && !strings.HasPrefix(r, home+"/") {
+		if r != p {
+			all = append(all, r)
+		}
+		if isProtected[p] || (r != p && r != home && !strings.HasPrefix(r, home+"/")) {
 			masks = append(masks, r)
 		}
 	}
@@ -530,11 +538,17 @@ func (b Box) canaryPlan() (plan Plan, marker string, err error) {
 	if err != nil {
 		return Plan{}, "", errf(CodeUnavailable, "home directory: %v", err)
 	}
-	_, masks, err := b.forbiddenPaths(home)
+	_, allMasks, err := b.forbiddenPaths(home)
 	if err != nil {
 		return Plan{}, "", err
 	}
 	state := b.stateDir(home)
+	var masks []string // the state directory itself is checked file by file below
+	for _, m := range allMasks {
+		if m != state && m != mountPoint(state) {
+			masks = append(masks, m)
+		}
+	}
 	nb := make([]byte, 8)
 	if _, err := rand.Read(nb); err != nil {
 		return Plan{}, "", err

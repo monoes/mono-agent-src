@@ -522,3 +522,39 @@ func TestRuntimeDirectoriesAreProtected(t *testing.T) {
 		t.Errorf("attach ~/.codex/auth.json: %v", err)
 	}
 }
+
+// A state directory or database outside the home directory is masked wherever it is, with
+// no symlink involved, and the canary checks it.
+func TestExternalStateAndDatabaseAreMasked(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	ext := filepath.Join(filepath.Dir(r.home), "srv")
+	os.MkdirAll(filepath.Join(ext, "state"), 0o700)
+	os.WriteFile(filepath.Join(ext, "state", "monoagent.db"), []byte("secret"), 0o600)
+	db := filepath.Join(ext, "agent.db")
+	os.WriteFile(db, []byte("database"), 0o600)
+	os.WriteFile(db+"-wal", []byte("wal"), 0o600)
+	probe := `echo "state=$(cat '` + filepath.Join(ext, "state", "monoagent.db") + `' 2>/dev/null || echo none)"
+echo "db=$(cat '` + db + `' 2>/dev/null || echo none)"
+echo "wal=$(cat '` + db + `-wal' 2>/dev/null || echo none)"`
+	for _, m := range []Mode{Strict, Compat} {
+		b := r.box(m)
+		b.StateDir = filepath.Join(ext, "state")
+		b.Protect = []string{db, db + "-wal", db + "-shm"}
+		p, err := b.Wrap("sh", []string{"-c", probe}, r.env())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := runPlan(t, p, nil)
+		if err != nil || !strings.Contains(out, "state=none") || !strings.Contains(out, "db=none") || !strings.Contains(out, "wal=none") {
+			t.Errorf("%s: protected files readable: %v\n%s", m, err, out)
+		}
+		if err := b.Canary(context.Background()); err != nil {
+			t.Errorf("%s canary: %v", m, err)
+		}
+		b.Cwd = ext
+		if _, err := b.Wrap("true", nil, r.env()); m == Strict && !IsCode(err, CodeBadPath) {
+			t.Errorf("%s: cwd containing the database: %v", m, err)
+		}
+	}
+}
