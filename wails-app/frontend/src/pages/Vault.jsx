@@ -4,6 +4,7 @@ import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import KeyValueFields, { newRow, validateRows } from '../components/KeyValueFields.jsx'
 import VaultItemModal from '../components/VaultItemModal.jsx'
+import VaultAgentAccess from '../components/VaultAgentAccess.jsx'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 
 const fmtDate = (s) => {
@@ -248,6 +249,8 @@ export default function Vault({ isActive = true }) {
           <Plus size={12} /> Add New Item
         </button>
       </div>
+
+      <VaultAgentAccess isActive={isActive} />
 
       <div style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: 320 }}>

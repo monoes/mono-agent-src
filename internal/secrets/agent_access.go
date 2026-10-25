@@ -22,7 +22,8 @@ import (
 // profile_agent_secret_access (migrations 110, 111), written only from the
 // operator's own terminal (internal/cli/secret). It lifts that one refusal:
 // a reference that came from a run's data or an expression stays refused
-// (ErrDataReference), and so does a step an AI runs outside any workflow.
+// (ErrDataReference). Standalone steps use the same grant; plaintext reads
+// additionally require the reveal level.
 //
 // The switch can be narrowed to named secrets, to hosts a resolved secret
 // may be sent to, and to a time. Every secret an unapproved run reads under
@@ -32,6 +33,7 @@ import (
 
 // AccessGrant is the switch as the owner set it.
 type AccessGrant struct {
+	Level     string     `json:"level"` // use or reveal; a missing grant is strict
 	EnabledAt time.Time  `json:"enabled_at"`
 	Secrets   []string   `json:"secrets,omitempty"`    // empty: every secret
 	Hosts     []string   `json:"hosts,omitempty"`      // where a resolved secret may be sent
@@ -410,10 +412,11 @@ func GetAgentAccess(ctx context.Context, db *sql.DB, profileID string) (*AccessG
 		return nil, nil
 	}
 	var enabled, names, hosts, expires sql.NullString
+	var level string
 	var anyHost sql.NullInt64
 	err := db.QueryRowContext(ctx,
-		`SELECT CAST(enabled_at AS TEXT), secret_names, hosts, any_host, CAST(expires_at AS TEXT) FROM profile_agent_secret_access WHERE profile_id = ?`,
-		profileID).Scan(&enabled, &names, &hosts, &anyHost, &expires)
+		`SELECT CAST(enabled_at AS TEXT), secret_names, hosts, any_host, CAST(expires_at AS TEXT), level FROM profile_agent_secret_access WHERE profile_id = ?`,
+		profileID).Scan(&enabled, &names, &hosts, &anyHost, &expires, &level)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -423,7 +426,10 @@ func GetAgentAccess(ctx context.Context, db *sql.DB, profileID string) (*AccessG
 		}
 		return nil, err
 	}
-	g := &AccessGrant{AnyHost: !anyHost.Valid || anyHost.Int64 != 0}
+	if level != "use" && level != "reveal" {
+		return nil, fmt.Errorf("invalid vault agent access level %q", level)
+	}
+	g := &AccessGrant{Level: level, AnyHost: !anyHost.Valid || anyHost.Int64 != 0}
 	g.EnabledAt, _ = parseTime(enabled.String)
 	if names.Valid && names.String != "" {
 		_ = json.Unmarshal([]byte(names.String), &g.Secrets)
@@ -467,6 +473,15 @@ func SetAgentAccess(ctx context.Context, db *sql.DB, profileID string, on bool) 
 // SetAgentAccessGrant switches it on with g's scope, replacing any earlier
 // grant of the profile.
 func SetAgentAccessGrant(ctx context.Context, db *sql.DB, profileID string, g AccessGrant) error {
+	if g.Level == "" {
+		g.Level = "use"
+	}
+	if g.Level != "use" && g.Level != "reveal" {
+		return fmt.Errorf("invalid vault agent access level %q", g.Level)
+	}
+	if g.Level == "reveal" && !g.AnyHost {
+		return fmt.Errorf("reveal requires --any-host: plaintext cannot be bound to a destination")
+	}
 	names, _ := json.Marshal(g.Secrets)
 	hosts, _ := json.Marshal(g.Hosts)
 	var n, h interface{}
@@ -493,8 +508,8 @@ func SetAgentAccessGrant(ctx context.Context, db *sql.DB, profileID string, g Ac
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO profile_agent_secret_access (profile_id, enabled_at, secret_names, hosts, any_host, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		profileID, time.Now().UTC().Format(time.RFC3339Nano), n, h, anyHost, exp); err != nil {
+		`INSERT INTO profile_agent_secret_access (profile_id, enabled_at, secret_names, hosts, any_host, expires_at, level) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		profileID, time.Now().UTC().Format(time.RFC3339Nano), n, h, anyHost, exp, g.Level); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -541,4 +556,36 @@ func ClearAgentAccessAudit(ctx context.Context, db *sql.DB, profileID string) (i
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// CanAgentReveal checks the current profile policy for a plaintext read.
+// Internal authentication tokens are excluded even under Reveal.
+func CanAgentReveal(ctx context.Context, db *sql.DB, profileID, name string) (bool, error) {
+	g, err := GetAgentAccess(ctx, db, profileID)
+	if err != nil {
+		return false, err
+	}
+	return g != nil && g.Level == "reveal" && g.AnyHost && g.allowsSecret(name) && !IsReservedEntry(name), nil
+}
+
+// AuthorizeAgentReveal rechecks policy and records a name-only audit before
+// plaintext is returned. Failure to write the audit withholds the value.
+func AuthorizeAgentReveal(ctx context.Context, db *sql.DB, profileID, name string) error {
+	ok, err := CanAgentReveal(ctx, db, profileID, name)
+	if err != nil {
+		return fmt.Errorf("checking vault reveal access: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("vault plaintext access requires this profile's Reveal level for %q", name)
+	}
+	n, _ := ctx.Value(accessNodeKey{}).(accessNode)
+	origin := AccessOrigin{}
+	if a := accessOf(ctx); a != nil {
+		origin = a.origin
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO profile_agent_secret_audit (profile_id, workflow_id, execution_id, node_id, node_name, secret_name) VALUES (?, ?, ?, ?, ?, ?)`, profileID, origin.WorkflowID, origin.ExecutionID, n.id, n.name, name)
+	if err != nil {
+		return fmt.Errorf("auditing vault reveal access: %w", err)
+	}
+	return nil
 }

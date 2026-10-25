@@ -302,6 +302,34 @@ The desktop app does everything through these commands; they are equally usable 
   - `org stop|pause|resume <org>` are the bubble's controls.
 - **OpenAI-compatible API:** `api status`, `api models [--for loopback|network] [--confinement C] [--context-confinement C] [--auto-confinement C]` and `api key list|create --name N [--context]|update <id> --context|--no-context|update <id> --name=N|revoke <id> --yes`, for Settings › "OpenAI-compatible API" (`wails-app/app_api.go`), and `api config show|set|unset` (with `--dry-run` and `--yes`) and `daemon restart` for its Server settings (`wails-app/app_api_config.go`). The app shows every listener `api status` lists that serves `/v1`, and asks `api models` for the policy that `api status` reports for the first one that answers `/v1` (the first listed when none does). `api key create --json` is the one call that returns a key (`"key"`): the app shows it once and drops it when the dialog closes. The settings calls pass the keys of the ten settings, a text for each attached to its flag, and the paths of the two TLS files, never their contents. A failed call keeps its exit class in the text the app receives (`not_found: …` for exit 2, `invalid_input: …` for exit 3).
 
+## Vault agent access
+
+The operator selects a level per profile in the Vault page or CLI:
+
+```bash
+monoagentcli --profile work --json secret agent-access
+monoagentcli --profile work secret agent-access strict
+monoagentcli --profile work secret agent-access use --yes
+monoagentcli --profile work secret agent-access reveal --yes
+```
+
+- **Strict** is the default: no additional agent permission to use or read passwords.
+  Explicitly operator-approved workflows retain their existing access.
+- **Use without revealing** permits literal `@secret:` references through supported
+  tools and workflows, including standalone node runs. Direct plaintext retrieval
+  stays refused. Output masking is best-effort, so this trusts the agent with use.
+- **Reveal** additionally permits `secret reveal <name> --reveal` and
+  `node run vault.secret_get` / MCP `node_run` to return plaintext. Internal API
+  bearer and agent-token entries remain excluded from plaintext agent retrieval.
+
+Agents may inspect the level but cannot change it or clear its audit. Existing
+`on` / `off` commands remain aliases for scoped Use / Strict; existing grants
+migrate to Use. `--secret`, `--expires`, and Use's `--host` constraints still apply;
+Reveal requires any-host access because plaintext cannot be bound to a destination.
+Every agent read under a grant is audited by name, never value (`secret agent-access
+audit`). Policy changes take effect on subsequent reads, including active runs;
+previously retrieved values cannot be recalled. Encryption on disk is unchanged.
+
 ## Publication history
 
 Publication is a profile's local history of successful posts, comments,

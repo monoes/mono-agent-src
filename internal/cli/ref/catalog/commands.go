@@ -5,6 +5,7 @@ package catalog
 // cliDocs is the start of the `ref commands` catalogue; catalog.go appends the
 // entries kept in the other commands_*.go files.
 var cliDocs = []cmdDoc{
+	{Name: "secret agent-access", Short: "Per-profile vault access: Strict, Use without revealing, or Reveal", Usage: "monoagentcli --profile <profile> secret agent-access [strict|use|reveal]", Flags: "  --yes              Confirm enabling use or reveal\n  --secret NAME      Limit allowed vault entries\n  --expires 24h      End access after a duration\n  --host HOST        Limit use to supported hosts\n  --any-host         Allow any host (default for use/reveal)\n  audit [--clear]    List name-only access history; clearing is operator-only", Examples: []string{"monoagentcli --profile work --json secret agent-access", "monoagentcli --profile work secret agent-access strict", "monoagentcli --profile work secret agent-access use --yes", "monoagentcli --profile work secret agent-access reveal --yes", "monoagentcli --profile work secret reveal my-password --reveal"}},
 	{Name: "publication", Short: "List and register published content in a profile", Usage: "monoagentcli publication list|get|register|stats", Flags: "  list: --search --platform --kind --workflow --agent --since --until --limit --offset\n  register: --stdin-json", Examples: []string{"monoagentcli --profile work --json publication list", "monoagentcli --profile work --json publication register --stdin-json < publication.json", "monoagentcli ref publication"}},
 	{
 		Name:  "login",

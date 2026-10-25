@@ -25,3 +25,42 @@ esac
 		t.Fatalf("argv = %q", args)
 	}
 }
+
+func TestVaultAgentAccessArgv(t *testing.T) {
+	argsLog, _ := connFakeCLI(t, `echo '{"profile_id":"work","level":"strict","agent_access":false}'`)
+	a := newConnTestApp(t)
+	got, err := a.GetVaultAgentAccess()
+	if err != nil || got["level"] != "strict" {
+		t.Fatalf("GetVaultAgentAccess = %+v, %v", got, err)
+	}
+	if args := strings.TrimSpace(readLog(t, argsLog)); args != "--profile work --json secret agent-access" {
+		t.Fatalf("argv = %q", args)
+	}
+}
+
+func TestSetVaultAgentAccessArgv(t *testing.T) {
+	for _, level := range []string{"strict", "use", "reveal"} {
+		t.Run(level, func(t *testing.T) {
+			argsLog, _ := connFakeCLI(t, `echo '{"profile_id":"work","level":"`+level+`"}'`)
+			a := newConnTestApp(t)
+			got, err := a.SetVaultAgentAccess(level)
+			if err != nil || got["level"] != level {
+				t.Fatalf("SetVaultAgentAccess = %+v, %v", got, err)
+			}
+			want := "--profile work --json secret agent-access " + level
+			if level != "strict" {
+				want += " --yes"
+			}
+			if args := strings.TrimSpace(readLog(t, argsLog)); args != want {
+				t.Fatalf("argv = %q, want %q", args, want)
+			}
+		})
+	}
+}
+
+func TestSetVaultAgentAccessRejectsUnknownLevel(t *testing.T) {
+	a := newConnTestApp(t)
+	if _, err := a.SetVaultAgentAccess("open-everything"); err == nil {
+		t.Fatal("unknown access level accepted")
+	}
+}

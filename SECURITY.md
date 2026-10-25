@@ -71,9 +71,9 @@ The commands that print a decrypted value (`secret reveal --reveal`,
 recognises as an agent, the in-app chat or a workflow run. By default no
 secret resolves in a workflow you haven't approved, or in a step an agent
 runs on its own (`node run`, MCP `node_run`); `secret agent-access on` lifts
-the first of these, for the profile, as described under "Letting
-agent-written workflows read the vault" below. `vault.secret_get` is never
-lifted.
+these reference restrictions for the profile. The Reveal level additionally
+permits plaintext retrieval with `secret reveal` and `vault.secret_get`, as
+described under "Letting agent-written workflows read the vault" below.
 
 This is a deterrent against mistakes and instructions planted in pages or
 messages, not a barrier:
@@ -118,20 +118,33 @@ messages, not a barrier:
 
 ### Letting agent-written workflows read the vault
 
-`monoagentcli secret agent-access on` is a profile-wide switch that lets a
-run of a workflow you never approved (one the chat, an agent or another
-workflow wrote or changed) resolve `@secret:` references written in the
-workflow's own fields, without you saving or activating each workflow.
+Each profile offers three levels through the Vault page and
+`monoagentcli --profile <profile> secret agent-access [strict|use|reveal]`:
+
+- **Strict** (default): no additional agent permission to use or retrieve vault secrets.
+  Workflows explicitly approved by the operator retain their existing permissions.
+- **Use without revealing** (`use --yes`): supported tools and workflows may
+  resolve literal `@secret:` references. Direct plaintext retrieval stays refused.
+- **Reveal** (`reveal --yes`): additionally permits `secret reveal --reveal` and
+  `vault.secret_get` to retrieve plaintext. Internal authentication-token entries
+  remain excluded. Plaintext reads recheck scope and expiry and write a name-only audit.
+
+Existing grants become Use. `on` remains a compatibility alias for scoped Use,
+with its existing required `--host` or `--any-host`; `off` aliases Strict.
+The new `use` and `reveal` commands default to any host; Reveal cannot be
+host-bound because plaintext leaves the controlled tool interface. Passwords
+remain encrypted on disk at every level. Turning access off blocks subsequent
+reads; values an agent already retrieved cannot be recalled.
 
 - **Who sets it.** Only you: the command is refused (exit 3,
-  `operator_only`) to an agent, the chat or a workflow, as `secret reveal`
-  is, and so is clearing its audit. It lives in `profile_agent_secret_access`,
+  `operator_only`) to an agent, the chat or a workflow, and so is clearing its
+  audit. It lives in `profile_agent_secret_access`,
   outside any workflow definition, so no import or settings key can turn it on.
 - **Default.** Off. A profile with no row behaves as before.
 - **Scope.** `--secret NAME[,NAME...]` limits it to those vault entries (default
   all); `--expires 24h` ends it after that long (an expired grant is off);
-  `--host HOST[,HOST...]` limits where a secret may be sent, and one of
-  `--host` or `--any-host` is required. The grant is read again at every
+  `--host HOST[,HOST...]` limits where a secret may be sent under Use. The
+  legacy `on` alias requires `--host` or `--any-host`; `use` defaults to any host. The grant is read again at every
   resolution, so `agent-access off`, a narrower grant or an expiry stops
   a run already under way at its next read.
 - **Where a secret may go.** With `--host`, a request of `http.request`,
@@ -147,8 +160,9 @@ workflow's own fields, without you saving or activating each workflow.
   recorded by name (workflow, run, step and time; never the value):
   `secret agent-access audit [--json]`; only you clear it (`--clear`). A read
   whose audit row cannot be written is refused.
-- **Values in outputs.** `vault.secret_get` stays refused to an unapproved
-  run, with the switch on as off. The values the run itself resolved
+- **Values in outputs under Use.** `vault.secret_get` stays refused to an unapproved
+  run. Reveal explicitly permits its plaintext output. The values the run
+  itself resolved
   (6 characters or more) are masked, wherever they occur, in the step inputs,
   outputs and errors it stores, so they don't show in `workflow_executions`,
   MCP or `--full-outputs`.
@@ -185,8 +199,8 @@ workflow's own fields, without you saving or activating each workflow.
   its text (encoded, split) is not masked.
 - **What it does not lift.** The run stays unapproved: its file and program
   limits stay (`workflow_approvals`), a reference that came from run data or
-  an expression is refused, and a failed approval check, a step an AI runs
-  outside a workflow (`node run`) and `vault.secret_get` stay refused.
+  an expression is refused, and a failed approval check stays refused.
+  Standalone steps use the same grant; `vault.secret_get` additionally requires Reveal.
   A person or process that can run `monoagentcli` outside an agent's markers
   can still turn the switch on, as they can approve a workflow: the bypasses
   are the same as for `workflow_approvals`.

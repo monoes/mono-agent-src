@@ -107,6 +107,38 @@ func (a *App) ListSecrets() ([]VaultEntry, error) {
 	return entries, nil
 }
 
+// GetVaultAgentAccess reads the active profile's vault policy through the CLI.
+func (a *App) GetVaultAgentAccess() (map[string]interface{}, error) {
+	if err := a.signedOut(); err != nil {
+		return nil, err
+	}
+	var result map[string]interface{}
+	if err := a.runVaultCLI("", &result, "agent-access"); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// SetVaultAgentAccess is called after the Vault page confirms access with the
+// user. The CLI remains responsible for operator checks and profile scoping.
+func (a *App) SetVaultAgentAccess(level string) (map[string]interface{}, error) {
+	if err := a.signedOut(); err != nil {
+		return nil, err
+	}
+	if level != "strict" && level != "use" && level != "reveal" {
+		return nil, fmt.Errorf("invalid vault agent access level %q", level)
+	}
+	args := []string{"agent-access", level}
+	if level != "strict" {
+		args = append(args, "--yes")
+	}
+	var result map[string]interface{}
+	if err := a.runVaultCLI("", &result, args...); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // secretStdinPayload is the JSON object piped to `monoagentcli secret
 // add/update --stdin-json`: {"value": "...", "fields": {...}}. Secret
 // material travels over the pipe, never in argv.

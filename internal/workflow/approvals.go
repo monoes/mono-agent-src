@@ -67,10 +67,16 @@ func WithUnapproved(ctx context.Context, project, approve string) context.Contex
 // WithUnapprovedStep is WithUnapproved for one step an AI configured and
 // runs on its own, outside any workflow (MCP node_run, `node run` from an
 // agent's shell, the chat or a workflow): there is no workflow the user
-// could approve, so what it refuses says to put the step in one. tool names
-// the command.
+// could approve. The profile's agent-access grant can allow secret use;
+// the step keeps the remaining unapproved-workflow restrictions, scope and
+// audit. tool names the command.
 func WithUnapprovedStep(ctx context.Context, project, tool string) context.Context {
 	ctx = WithUnapproved(ctx, project, tool+" never does that for an AI: put the step in a workflow and have the user save or activate it")
+	profile, _ := vault.ProfileIDFromContext(ctx)
+	db := vault.DBFromContext(ctx)
+	if grant, err := secrets.GetAgentAccess(ctx, db, profile); err == nil && grant != nil && ApprovalCheckError(ctx) == nil {
+		return secrets.AllowResolving(ctx, db, profile, secrets.AccessOrigin{})
+	}
 	return secrets.RefuseResolving(ctx, tool+" runs a step an AI wrote, not one the user approved: put the step in a workflow and have the user save or activate it")
 }
 

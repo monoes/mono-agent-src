@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/cli/revealgate"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/secrets"
 
 	"github.com/spf13/cobra"
@@ -332,13 +333,10 @@ func (d Deps) newRevealCmd() *cobra.Command {
 			if !yes {
 				return fmt.Errorf("pass --reveal explicitly to print field value(s)")
 			}
-			if err := revealgate.Refuse("secret reveal"); err != nil {
-				return err
-			}
 			return d.revealAndPrint(cmd, args[0])
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "reveal", false, "Confirm the print (the user's own: an agent, the chat or a workflow is refused)")
+	cmd.Flags().BoolVar(&yes, "reveal", false, "Confirm plaintext output (agents require this profile's Reveal level)")
 	return cmd
 }
 
@@ -352,6 +350,18 @@ func (d Deps) revealAndPrint(cmd *cobra.Command, name string) error {
 	profileID := d.ProfileID()
 	if profileID == "" {
 		return ErrProfileRequired
+	}
+	if operator.Refusal() != "" {
+		allowed, err := secrets.CanAgentReveal(cmd.Context(), db.DB, profileID, name)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return revealgate.Refuse("secret reveal")
+		}
+		if err := secrets.AuthorizeAgentReveal(cmd.Context(), db.DB, profileID, name); err != nil {
+			return err
+		}
 	}
 	id, err := d.lookupSecretID(cmd.Context(), db.DB, profileID, name)
 	if err != nil {

@@ -123,12 +123,6 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeType := args[0]
-			// Its output is a vault entry's decrypted fields.
-			if nodeType == "vault.secret_get" {
-				if err := revealgate.Refuse("node run vault.secret_get"); err != nil {
-					return err
-				}
-			}
 
 			// --stdin reads {"config":{...},"input":[...]} from stdin so secrets in
 			// config (DB passwords, API keys) never appear in argv, which is
@@ -183,6 +177,18 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			if configJSON != "" {
 				if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 					return fmt.Errorf("invalid --config JSON: %w", err)
+				}
+			}
+			if nodeType == "vault.secret_get" {
+				name, _ := config["name"].(string)
+				allowed, err := secrets.CanAgentReveal(cmd.Context(), rawDB, d.ProfileID(), name)
+				if err != nil {
+					return fmt.Errorf("checking vault reveal access: %w", err)
+				}
+				if !allowed {
+					if err := revealgate.Refuse("node run vault.secret_get"); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -353,12 +359,15 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			}
 			// What an agent, the chat or a workflow runs here was written by
 			// them, not approved by the user: it runs as a step of a workflow
-			// the user hasn't approved (no secret resolves, no program runs, no
-			// hidden file in the home is written), as MCP node_run's does.
+			// the user hasn't approved, honoring its profile's vault access
+			// grant and file/program restrictions, as MCP node_run does.
 			if operator.Refusal() != "" {
 				ctx = workflow.WithUnapprovedStep(ctx, profiledir.Root(rawDB, d.ProfileID()), "node run")
+				ctx = secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, input.NodeID, input.NodeName), nodeType)
 			}
 			outputs, err := executor.Execute(ctx, input, config)
+			outputs = workflow.MaskAgentNodeOutputs(ctx, outputs)
+			err = workflow.MaskAgentNodeError(ctx, err)
 			if rawDB != nil {
 				pubOutputs := make([]publication.Output, 0, len(outputs))
 				for _, out := range outputs {
