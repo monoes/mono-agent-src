@@ -636,3 +636,26 @@ func TestAuthFilesAreValidated(t *testing.T) {
 		t.Errorf("%v %s", err, out)
 	}
 }
+
+// The selected runtime's login may be a link into a dotfiles repository, but never into
+// another runtime's credentials.
+func TestAuthFileCannotAliasAnotherRuntimesLogin(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	os.MkdirAll(filepath.Join(r.home, ".codex"), 0o700)
+	os.WriteFile(filepath.Join(r.home, ".codex", "auth.json"), []byte("codex-login"), 0o600)
+	os.Symlink(filepath.Join(r.home, ".codex", "auth.json"), filepath.Join(r.home, ".claude.json"))
+	b := r.box(Strict)
+	b.Runtime = "claude"
+	if _, err := b.Wrap("true", nil, r.env()); !IsCode(err, CodeBadPath) {
+		t.Fatalf("claude's login aliased to codex's credentials: %v", err)
+	}
+	// The selected runtime's own files are still its own.
+	os.Remove(filepath.Join(r.home, ".claude.json"))
+	os.MkdirAll(filepath.Join(r.home, ".claude"), 0o700)
+	os.WriteFile(filepath.Join(r.home, ".claude", "real.json"), []byte("own"), 0o600)
+	os.Symlink(filepath.Join(r.home, ".claude", "real.json"), filepath.Join(r.home, ".claude.json"))
+	if _, err := b.Wrap("true", nil, r.env()); err != nil {
+		t.Errorf("a runtime's login linked inside its own directory: %v", err)
+	}
+}

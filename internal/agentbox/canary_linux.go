@@ -49,7 +49,7 @@ func (b Box) canaryPlan() (plan Plan, marker string, err error) {
 	if err != nil {
 		return Plan{}, "", errf(CodeUnavailable, "home directory: %v", err)
 	}
-	_, allMasks, err := b.forbiddenPaths(home, true)
+	_, allMasks, err := b.forbiddenPaths(home, "")
 	if err != nil {
 		return Plan{}, "", err
 	}

@@ -46,7 +46,7 @@ func (b Box) stateDir(home string) string {
 // it really is. masks are what the read-only root would leave readable: the real targets of
 // the state directory and Protect (wherever they are), and of any other forbidden location
 // that is a symlink out of the home directory.
-func (b Box) forbiddenPaths(home string, runtimes bool) (all, masks []string, err error) {
+func (b Box) forbiddenPaths(home, skipRuntime string) (all, masks []string, err error) {
 	protected := append([]string{b.stateDir(home)}, b.Protect...)
 	paths := append([]string(nil), protected...)
 	for _, f := range StrictForbidden {
@@ -54,9 +54,9 @@ func (b Box) forbiddenPaths(home string, runtimes bool) (all, masks []string, er
 	}
 	// Every runtime's configuration is off limits to a working directory, an allowed path or
 	// an attachment; only the selected runtime's own mounts (strictArgv) reach it.
-	for _, rc := range RuntimeConfigs {
-		if !runtimes {
-			break
+	for id, rc := range RuntimeConfigs {
+		if id == skipRuntime {
+			continue
 		}
 		for _, f := range append(append([]string(nil), rc.Scratch...), rc.Auth...) {
 			paths = append(paths, filepath.Join(home, f))
@@ -161,7 +161,7 @@ func (b Box) envArgs(env []string, home, mode string) []string {
 // fileBinds are the read-only binds of the caller's own files and of the attachments, each
 // pinned through a descriptor.
 func (b Box) fileBinds(bd *binder, home string) ([]string, error) {
-	forbidden, _, err := b.forbiddenPaths(home, true)
+	forbidden, _, err := b.forbiddenPaths(home, "")
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func common(envArgs []string) []string {
 }
 
 func (b Box) compatArgv(home string, env []string) ([]string, error) {
-	_, masks, err := b.forbiddenPaths(home, true)
+	_, masks, err := b.forbiddenPaths(home, "")
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +313,7 @@ func (b Box) strictArgv(bd *binder, home string, env []string, plan *Plan) ([]st
 	if b.Cwd == "" {
 		return nil, errf(CodeBadPath, "a strict box needs the working directory")
 	}
-	forbidden, masks, err := b.forbiddenPaths(home, true)
+	forbidden, masks, err := b.forbiddenPaths(home, "")
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +339,7 @@ func (b Box) strictArgv(bd *binder, home string, env []string, plan *Plan) ([]st
 		for _, d := range rc.Scratch {
 			argv = append(argv, "--tmpfs", filepath.Join(home, d))
 		}
-		base, _, err := b.forbiddenPaths(home, false)
+		base, _, err := b.forbiddenPaths(home, b.Runtime)
 		if err != nil {
 			return nil, err
 		}
