@@ -149,12 +149,12 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	if c.WantsMission && (c.Kind != KindSend || HostMade(c.TurnID)) {
 		return c, errors.New("coder host: only a person's send can ask for a mission")
 	}
-	mark := ""
+	mark := 0
 	if c.WantsMission {
-		mark = wantsMissionMark // lives in the error column while the command is pending
+		mark = 1
 	}
 	now := s.stamp()
-	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at)
+	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`, c.ProfileID, c.ConversationID, string(c.Kind), c.TurnID, c.Message, string(att), mark, now, now)
 	if err != nil {
 		return c, err
@@ -169,7 +169,7 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 // blocked sends cannot push a later resume or stop (or another chat's send) out
 // of the window; they are picked up on a later pass, once the chat is free.
 func (s *Store) Pending() ([]Command, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at
+	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at
 		FROM coder_session_commands c WHERE status = 'pending'
 		AND (kind != 'send' OR NOT EXISTS (SELECT 1 FROM coder_sessions s
 			WHERE s.profile_id = c.profile_id AND s.conversation_id = c.conversation_id AND (s.state = 'paused' OR s.turn_pid > 0 OR s.turn_id != '')))
@@ -182,7 +182,7 @@ func (s *Store) Pending() ([]Command, error) {
 	for rows.Next() {
 		var c Command
 		var kind, att string
-		if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.WantsMission, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
 		c.Kind = Kind(kind)
@@ -222,7 +222,7 @@ func (s *Store) ExpireSends() error {
 
 // GetCommand returns one command.
 func (s *Store) GetCommand(id int64) (Command, bool, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at
+	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at
 		FROM coder_session_commands WHERE id = ?`, id)
 	if err != nil {
 		return Command{}, false, err
@@ -233,7 +233,7 @@ func (s *Store) GetCommand(id int64) (Command, bool, error) {
 	}
 	var c Command
 	var kind, att string
-	if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.WantsMission, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return Command{}, false, err
 	}
 	c.Kind = Kind(kind)

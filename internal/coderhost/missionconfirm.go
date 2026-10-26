@@ -86,12 +86,6 @@ func TakeMissionToken() string {
 
 const confirmPrefix = "coder-mission-confirm/"
 
-// wantsMissionMark is stored in the error column of a pending send the person
-// asked to run as a mission. It is NOT authority: it only tells the host that a
-// missing or expired record is a failure to report, not a plain turn to run. The
-// host clears it when the command ends.
-const wantsMissionMark = "wants-mission"
-
 const confirmPurpose = "coder-mission-confirm"
 
 // MissionConfirm is what the operator confirmed: this turn of this conversation,
@@ -335,18 +329,17 @@ func (s *Store) ConsumeConfirm(profileID, conversationID, turnID, token string, 
 	return n == 1
 }
 
-// readMark turns the stored marker of a pending mission send into WantsMission.
+// readMark keeps WantsMission (scanned from the wants_mission column) only for a pending send.
+// The column is NOT authority: it only tells the host that a missing or expired
+// record is a failure to report, not a plain turn to run.
 func (c *Command) readMark() {
-	if c.Status == CmdPending && c.Error == wantsMissionMark {
-		c.WantsMission, c.Error = true, ""
-	}
+	c.WantsMission = c.WantsMission && c.Status == CmdPending
 }
 
 // pendingMissionIDs lists the pending sends marked as missions that match where
 // (their records are revoked once the sends are failed).
 func (s *Store) pendingMissionIDs(where string, args ...any) []Command {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, turn_id FROM coder_session_commands WHERE kind = 'send' AND status = 'pending' AND error = ? AND `+where,
-		append([]any{wantsMissionMark}, args...)...)
+	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, turn_id FROM coder_session_commands WHERE kind = 'send' AND status = 'pending' AND wants_mission = 1 AND `+where, args...)
 	if err != nil {
 		return nil
 	}
