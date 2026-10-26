@@ -14,10 +14,13 @@ func managedReviewTask(t *testing.T, s *Store) (Session, Task) {
 	}
 	tk := mustTask(t, s, "default", se.ID, "work")
 	mustRun(t, s, "default", se)
-	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, bot("m1-t1"), 0); err != nil {
+	worker := Actor{Kind: Agent, Name: "m1-t1", Session: se.ID, Task: tk.ID} // bound, as a conductor's worker is
+	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, worker, 0); err != nil {
 		t.Fatal(err)
 	}
-	finishTask(t, s, se.ID, tk.ID, "m1-t1")
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, Outcome{Result: "did it"}, worker); err != nil {
+		t.Fatal(err)
+	}
 	return se, tk
 }
 

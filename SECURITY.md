@@ -1674,10 +1674,12 @@ that works a task acts on them. The defences:
   and attach evidence to its one task, and is refused claiming, finishing, releasing,
   splitting, adding or writing session events; a verifier without a task is refused. The
   conductor never records a verdict for the lead, but that is the conductor's rule and
-  not the store's: the store lets any named agent of the session verify a task it did
-  not hand back (a peer checker), so the lead holds no verifier binding and no more. The store also refuses verdicts by task-bound non-verifiers and by the
-  executing identity, and by any agent with no binding in a session a chat conversation manages,
-  and the conductor distrusts any verdict not recorded by the verifier it assigned or by the
+  not the store's alone: in a session a chat conversation manages the store refuses a
+  verdict from any agent that holds no verifier binding (only the verifier the conductor started
+  for the task, or the operator, records one), so the lead holds none and no more; only a session
+  nobody manages (the operator's own) still lets another named agent verify a task it did not hand
+  back (a peer checker). The store also refuses verdicts by task-bound non-verifiers and by the
+  executing identity, and the conductor distrusts any verdict not recorded by the verifier it assigned or by the
   operator (`verdict_by_unexpected_actor`); a mission does not close on such a task.
   **Mission tokens.** What binds a worker's or verifier's process to its session, task, role and
   name is a token the conductor mints for that run (`internal/agenttokens`, the same table and
@@ -1685,13 +1687,17 @@ that works a task acts on them. The defences:
   process's environment (`MONOAGENT_TASK_TOKEN`). The CLI and the MCP tools take the binding
   only from a token the database verifies for the call's profile; the `MONOAGENT_TASK_*` labels
   that stay in the environment (the brief's text, an agent marker) scope nothing. The token is
-  short-lived (a little over the run's timeout), revoked when the run ends, bound to one task, and
-  not accepted by the HTTP API; a token that is unknown, expired, revoked, another profile's or
-  another kind refuses every act, and no token is an ordinary agent that cannot record a verdict
-  in a session a chat conversation manages. A worker's token never records a verdict and a
+  short-lived (a little over the run's timeout), revoked when the run ends or expires (a conductor that
+  starts or resumes a conversation also revokes the tokens an earlier, crashed run of it left, and
+  expired ones are purged), bound to one task, and not accepted by the HTTP API; a token that is unknown, expired, revoked, another profile's or
+  another kind refuses every act, and no token is an ordinary agent that cannot record a verdict,
+  and cannot claim, take the next task, finish, release, split, add or attach evidence, in a session a
+  chat conversation manages (it may still read; sessions the operator created keep their rules). A worker's token never records a verdict and a
   verifier's never claims or finishes. *Honest limits:* a process that can read the token (a
   process of the same user, its own environment, the process table, the database file) can use it,
-  and so can a process that can read the database or the vault write its own; the token is
+  and so can a process that can read the database or the vault write its own; a worker can also read
+  a sibling process's token from the process table, so `verdict_by_unexpected_actor` (above) is the
+  backstop for verdicts, not the token alone; the token is
   scoped and per run, so what it reaches is that one task until the run ends, and it is not a
   sandbox: a worker's own sub-processes inherit it. An agent that scrubs its own environment
   and is not recognised as an agent is still treated as the operator by the CLI (above). **The evidence rule:** a task of kind

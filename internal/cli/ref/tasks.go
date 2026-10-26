@@ -121,13 +121,13 @@ WHO MAY DO WHAT
   the task as its worker never verifies it, nor the same agent identity as the last hand-back (agent:<client>
   without its #suffix); an agent verifies only while the session runs. What binds a process to a session, a task and a role is the
   mission token the conductor mints for each worker or verifier run (MONOAGENT_TASK_TOKEN, checked against
-  the database, short-lived, revoked when the run ends, and refused by the HTTP API); the MONOAGENT_TASK_*
+  the database, short-lived, revoked when the run ends or expires, and refused by the HTTP API); the MONOAGENT_TASK_*
   labels in the same environment bind nothing. A worker's token lets its process claim, comment on, finish,
   release and attach evidence to its one task, and add and take no other; a verifier's lets it verify, comment on
   (the task in Review) and attach evidence to that one task, and claim, finish, release, split or add nothing.
   The token also fixes the name the process acts under. A token that does not verify (unknown, expired, revoked,
   of another profile) binds to nothing that exists: every act is refused. A process with no token is an ordinary
-  agent, and it never records a verdict in a session a chat conversation manages (only a task's verifier or the operator does). A task of kind task that declares files in its notes cannot be
+  agent: in a session a chat conversation manages it never records a verdict (only a task's verifier or the operator does) and cannot claim, take next, finish, release, split, add or attach evidence (it reads; sessions you created keep their rules). A task of kind task that declares files in its notes cannot be
   finished with a result unless it holds a commit, diff, test, file or log artifact (a report does
   not count; refused with invalid_input "a code task needs evidence"): attach one with artifact first.
   After a failed verification the evidence from before does not count: a retry attaches a new one.

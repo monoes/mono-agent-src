@@ -96,6 +96,11 @@ func (s *Store) SessionNext(ctx context.Context, profileID string, sessionID int
 		if err != nil {
 			return err
 		}
+		if claim {
+			if err := s.noUnboundInManaged(ctx, x, profileID, sessionID, actor, "take the next task"); err != nil {
+				return err
+			}
+		}
 		if se.State != SessionRunning || se.Archived {
 			return nil
 		}
@@ -385,6 +390,9 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 			return err
 		}
 		if err := writableBy(se, actor, "attach an artifact"); err != nil {
+			return err
+		}
+		if err := s.noUnboundInManaged(ctx, x, profileID, sessionID, actor, "attach an artifact"); err != nil {
 			return err
 		}
 		if err := s.checkScope(ctx, x, profileID, id, sessionID, actor); err != nil {

@@ -1806,12 +1806,12 @@ the user approves, resumes, sets the budget, caps, access level and auto-close
 What binds a process to a session, a task and a role is a mission token (`internal/agenttokens`,
 `mission.go`; `MONOAGENT_TASK_TOKEN`): the conductor mints one per worker or verifier run
 (`internal/dynorg/mission_token.go`), bound to profile, session, task, role and the name the process
-acts under, valid a little longer than the task timeout, revoked when the run ends, and never accepted
+acts under, valid a little longer than the task timeout, revoked when the run ends or expires (a starting conductor revokes what a crashed run of its conversation left), and never accepted
 by the HTTP API. The CLI (`internal/cli/task/mission_token.go`) and MCP (`boundTaskActor`) read the
 binding only through `internal/taskbind`, from the database; the `MONOAGENT_TASK_*` labels are the
 brief's text and an agent marker, and bind nothing. A token that does not verify binds to nothing that
-exists (every act refused); no token is an ordinary agent, which cannot verify a task of a session a chat
-conversation manages. A bound worker reaches the personal board through neither the delegated approve and
+exists (every act refused); no token is an ordinary agent, which in a session a chat
+conversation manages can neither verify a task nor claim, finish, release, split, add or attach (it reads). A bound worker reaches the personal board through neither the delegated approve and
 view of `task agents allow` nor `task digest`. Whoever can read the token can use it, for that one
 task until the run ends (SECURITY.md, "Honest limits"). An agent that scrubs its own environment (no agent
 marker, no `--as`) is still treated as the operator by the CLI; that weakness is old and matters more now. The MCP tools are `task_session_list` and
