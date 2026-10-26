@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/health"
@@ -325,6 +326,13 @@ var statusMark = map[health.Status]string{
 }
 
 func printDoctorReport(w io.Writer, rep *health.Report, fixed bool) {
+	f, isFile := w.(*os.File)
+	printDoctorReportWith(w, rep, fixed, isFile && term.IsTerminal(int(f.Fd())))
+}
+
+// printDoctorReportWith prints the text report. previews says whether text taken from files
+// (a row's Preview) may be shown: only on a person's terminal, never in a pipe or a log.
+func printDoctorReportWith(w io.Writer, rep *health.Report, fixed, previews bool) {
 	profile := rep.ProfileID
 	if profile == "" {
 		profile = "none (pass --profile to check one)"
@@ -376,6 +384,12 @@ func printDoctorReport(w io.Writer, rep *health.Report, fixed bool) {
 		fmt.Fprintf(w, "  %s %-22s %s%s\n", statusMark[r.Status], r.Title, r.Summary, req)
 		if r.Detail != "" && r.Status != health.StatusOK && r.Status != health.StatusSkip {
 			for _, line := range strings.Split(r.Detail, "\n") {
+				fmt.Fprintf(w, "      %s\n", line)
+			}
+		}
+		if r.Preview != "" && previews && r.Status != health.StatusOK && r.Status != health.StatusSkip {
+			fmt.Fprintf(w, "      from the file (escaped, cut):\n")
+			for _, line := range strings.Split(r.Preview, "\n") {
 				fmt.Fprintf(w, "      %s\n", line)
 			}
 		}

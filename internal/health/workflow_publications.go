@@ -41,8 +41,16 @@ type WorkflowPublicationsInfo struct {
 // AdoptableWorkflowFile is what an operator needs to see before adopting a file.
 type AdoptableWorkflowFile struct {
 	ID, ProfileID, SHA, Path string
-	NodeTypes, Triggers      []string
+	// NodeTypes and Triggers hold only types the node registry knows; Unknown counts the others.
+	NodeTypes, Triggers []string
+	Unknown             int
+	// Preview is text from the file: it goes only to a person's terminal, never into the JSON
+	// report (and so never into the MCP doctor tool).
 	Preview                  []string
+	Nodes, ConfigBytes, Refs int
+	HasSettings              bool
+	ErrorWorkflow            bool
+	Cut                      bool
 }
 
 // OpenWorkflowPublication is one unfinished change.
@@ -131,13 +139,18 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 	for _, a := range info.Adoptable {
 		arg := a.ID + ":" + a.ProfileID + ":" + a.SHA
 		cmd := "monoagentcli --profile " + a.ProfileID + " doctor fix " + FixWorkflowPublicationsAdopt + ":" + arg
+		incomplete := ""
+		if a.Cut || a.Unknown > 0 {
+			incomplete = fmt.Sprintf("INCOMPLETE: read %s before adopting\n", a.Path)
+		}
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".adopt." + rowID(a.ID), Title: a.ID,
 			Status: StatusInfo,
-			Summary: fmt.Sprintf("a workflow file with no stored copy: profile %q, nodes %s, triggers %s; it is not used until you adopt it (inactive, unapproved)",
-				a.ProfileID, quotedList(a.NodeTypes), quotedList(a.Triggers)),
-			Detail: fmt.Sprintf("file %q\nsha256 %s (check with: sha256sum <file>)\nnodes (escaped, cut):\n%s\nadopt it only after reading this; an operator's own terminal is required, with --profile naming the file's profile:\n%s",
-				a.Path, a.SHA, quotedLines(a.Preview), cmd),
-			FixID: FixWorkflowPublicationsAdopt + ":" + arg, FixCommand: cmd})
+			Summary: fmt.Sprintf("a workflow file with no stored copy: profile %q, %d node(s), types %s; it is not used until you adopt it (inactive, unapproved)",
+				a.ProfileID, a.Nodes, quotedList(a.NodeTypes)),
+			Detail: fmt.Sprintf("file %q\nsha256 %s (check with: sha256sum <file>)\n%s%d node(s), %d byte(s) of node configuration, %d unknown node type(s); workflow settings: %t, error workflow: %t, secret or variable references: %d\nadopt it only after reading the file; an operator's own terminal is required, with --profile naming the file's profile:\n%s",
+				a.Path, a.SHA, incomplete, a.Nodes, a.ConfigBytes, a.Unknown, a.HasSettings, a.ErrorWorkflow, a.Refs, cmd),
+			Preview: previewText(a.Preview),
+			FixID:   FixWorkflowPublicationsAdopt + ":" + arg, FixCommand: cmd})
 	}
 	if info.MoreAdoptable > 0 {
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".adopt.more", Title: "more files",
@@ -217,6 +230,18 @@ func quotedList(names []string) string {
 		q[i] = fmt.Sprintf("%q", n)
 	}
 	return strings.Join(q, ", ")
+}
+
+// maxPreviewBytes bounds the file text one row shows to a person.
+const maxPreviewBytes = 2048
+
+// previewText escapes the lines taken from a file and cuts them at maxPreviewBytes in all.
+func previewText(lines []string) string {
+	out := quotedLines(lines)
+	if len(out) > maxPreviewBytes {
+		out = out[:maxPreviewBytes] + "\n  (cut)"
+	}
+	return out
 }
 
 // quotedLines prints one escaped line per entry, indented.

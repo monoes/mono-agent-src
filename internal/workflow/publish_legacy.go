@@ -172,6 +172,14 @@ type AdoptableFile struct {
 	NodeTypes []string
 	Triggers  []string
 	Preview   []string
+	// What the file holds, counted without quoting it: nodes, their configuration bytes, whether it
+	// has workflow settings or an error workflow, and how many references to secrets or
+	// variables ("secret." and "${") its configuration and settings contain. Cut is set when
+	// anything above was shortened, so the operator must read the file itself.
+	Nodes, ConfigBytes, Refs int
+	HasSettings              bool
+	ErrorWorkflow            bool
+	Cut                      bool
 }
 
 const (
@@ -261,7 +269,17 @@ func (h *HybridWorkflowStore) AdoptableFiles(ctx context.Context) (shown []Adopt
 		path, _ := h.files.filePath(id)
 		a := AdoptableFile{ID: id, ProfileID: wf.ProfileID, Path: path, SHA: shaHex(append([]byte{}, raw...))}
 		types, trig := map[string]bool{}, map[string]bool{}
+		a.Nodes, a.HasSettings = len(wf.Nodes), len(wf.Settings) > 0
+		_, a.ErrorWorkflow = wf.Settings[ErrorWorkflowSetting]
+		a.Cut = len(wf.Nodes) > maxPreviewNodes
+		if sj, err := json.Marshal(wf.Settings); err == nil {
+			a.Refs += strings.Count(string(sj), "secret.") + strings.Count(string(sj), "${")
+		}
 		for i, nd := range wf.Nodes {
+			cj, _ := json.Marshal(nd.Config)
+			a.ConfigBytes += len(cj)
+			a.Refs += strings.Count(string(cj), "secret.") + strings.Count(string(cj), "${")
+			a.Cut = a.Cut || len(cj) > maxPreviewChars || len(nd.Name) > maxNameShown || len(nd.Type) > maxNameShown
 			types[nd.Type] = true
 			if strings.HasPrefix(nd.Type, "trigger.") {
 				trig[nd.Type] = true
@@ -275,6 +293,7 @@ func (h *HybridWorkflowStore) AdoptableFiles(ctx context.Context) (shown []Adopt
 			a.Preview = append(a.Preview, fmt.Sprintf("(+%d more nodes)", len(wf.Nodes)-maxPreviewNodes))
 		}
 		a.NodeTypes, a.Triggers = shortList(types), shortList(trig)
+		a.Cut = a.Cut || len(types) > maxNamesShown || len(trig) > maxNamesShown
 		shown = append(shown, a)
 	}
 	return shown, more, nil

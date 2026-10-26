@@ -99,3 +99,19 @@ func TestApplyReportFixesNeverAdoptsAWorkflowFile(t *testing.T) {
 		t.Fatalf("a fix-everything pass touched the adopt fix: %v", outcomes)
 	}
 }
+
+// Text taken from a file is shown on a person's terminal only; a pipe or a log never gets it.
+func TestDoctorReportShowsFilePreviewsOnlyOnATerminal(t *testing.T) {
+	rep := &health.Report{Summary: map[health.Status]int{}, Results: []health.Result{
+		{ID: "a", Group: "core", Title: "A", Status: health.StatusInfo, Summary: "s", Preview: "  \"core.set {url}\""},
+	}}
+	var piped, tty bytes.Buffer
+	printDoctorReportWith(&piped, rep, false, false)
+	printDoctorReportWith(&tty, rep, false, true)
+	if strings.Contains(piped.String(), "core.set") {
+		t.Fatalf("a preview reached a pipe:\n%s", piped.String())
+	}
+	if !strings.Contains(tty.String(), "core.set") {
+		t.Fatalf("a terminal does not get the preview:\n%s", tty.String())
+	}
+}

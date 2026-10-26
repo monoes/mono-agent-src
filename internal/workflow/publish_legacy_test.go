@@ -469,3 +469,31 @@ func TestManyInvalidFilesDoNotHideTheRealOne(t *testing.T) {
 		t.Fatalf("shown %+v, more %d, %v", shown, more, err)
 	}
 }
+
+// The listing counts what a file holds without quoting it: decoy keys cannot push the part that
+// matters out of view, and anything shortened is flagged.
+func TestAdoptableFileCountsWhatItHoldsAndFlagsCuts(t *testing.T) {
+	ctx := context.Background()
+	h, _, _, _ := guardedRig(t)
+	cfg := map[string]interface{}{"url": "${secret.token}", "command": "run"}
+	for i := 0; i < 30; i++ {
+		cfg[fmt.Sprintf("a%02d", i)] = strings.Repeat("x", 20)
+	}
+	w := mirrorWF("wf-big", "wf-big-trig", "wf-big-set")
+	w.Settings = map[string]interface{}{ErrorWorkflowSetting: "wf-err"}
+	w.Nodes[1].Config = cfg
+	for i := 0; i < maxPreviewNodes+2; i++ {
+		w.Nodes = append(w.Nodes, WorkflowNode{ID: fmt.Sprintf("extra-%d", i), WorkflowID: "wf-big", Type: "core.set", Name: "e", Config: map[string]interface{}{}})
+	}
+	if err := h.files.SaveWorkflow(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	shown, _, err := h.AdoptableFiles(ctx)
+	if err != nil || len(shown) != 1 {
+		t.Fatalf("%+v %v", shown, err)
+	}
+	a := shown[0]
+	if a.Nodes != len(w.Nodes) || !a.Cut || !a.HasSettings || !a.ErrorWorkflow || a.Refs < 2 || a.ConfigBytes < 600 {
+		t.Fatalf("counts: %+v", a)
+	}
+}
