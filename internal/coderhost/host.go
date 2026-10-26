@@ -248,7 +248,9 @@ func (h *Host) Tick() error {
 					// re-checks it here so a changed mission state starts nothing.
 					match, err := h.Store.confirmMatchesMission(mc)
 					if err != nil {
-						return err
+						// Only this send fails: the other chats' commands still run this pass.
+						h.end(c, CmdFailed, "could not check the open mission: "+err.Error())
+						continue
 					}
 					if !match {
 						h.end(c, CmdFailed, errMissionChanged)
