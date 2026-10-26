@@ -37,3 +37,21 @@ func readRegularFile(path string) ([]byte, error) {
 	}
 	return data, err
 }
+
+// readRegularPrefix reads at most n bytes from the start of a regular file, opened as readRegularFile
+// opens it.
+func readRegularPrefix(path string, n int) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return io.ReadAll(io.LimitReader(f, int64(n)))
+}

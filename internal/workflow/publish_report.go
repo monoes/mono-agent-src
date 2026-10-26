@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -48,41 +49,49 @@ func (h *HybridWorkflowStore) OpenPublications(ctx context.Context) ([]OpenPubli
 	return out, rows.Err()
 }
 
+// maxDriftListed bounds each list FileDrift returns.
+const maxDriftListed = 200
+
 // FileDrift compares the workflow files with what the database last reconciled them with:
 // unreadable files do not parse; pending files parse and differ, so they await an import.
 func (h *HybridWorkflowStore) FileDrift(ctx context.Context) (unreadable, pending []string, err error) {
 	if h.files == nil {
 		return nil, nil, nil
 	}
-	entries, err := os.ReadDir(h.files.dir)
+	// Only the files of workflows that have rows are looked at, found by their ids and not by
+	// listing the folder, so files without rows (and names that are not plain ids) cost nothing.
+	stored, err := h.workflowIDs(ctx)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil, nil
-		}
 		return nil, nil, err
 	}
-	for _, e := range entries {
-		id, ok := strings.CutSuffix(e.Name(), ".json")
-		if e.IsDir() || !ok || strings.HasSuffix(id, ".ai-backup") {
-			continue
+	ids := make([]string, 0, len(stored))
+	for id := range stored {
+		if safeFileID.MatchString(id) {
+			ids = append(ids, id)
 		}
-		var stored int
-		if qerr := h.sql.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&stored); qerr == nil && stored == 0 {
-			continue // a file with no stored copy is reported as adoptable, not read here
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if len(unreadable) >= maxDriftListed && len(pending) >= maxDriftListed {
+			break
 		}
-		raw, rerr := readRegularFile(filepath.Join(h.files.dir, e.Name()))
+		raw, rerr := readRegularFile(filepath.Join(h.files.dir, id+".json"))
 		if rerr != nil {
 			continue
 		}
 		if wf, perr := parseWorkflowFile(raw); perr != nil || wf == nil || wf.ID == "" || graphIDProblem(wf) != "" {
-			unreadable = append(unreadable, id)
+			if len(unreadable) < maxDriftListed {
+				unreadable = append(unreadable, id)
+			}
 			continue
 		}
 		var known string
 		switch qerr := h.sql.db.QueryRowContext(ctx, `SELECT file_sha FROM workflow_file_state WHERE workflow_id = ?`, id).Scan(&known); {
 		case qerr == nil && known == shaHex(append([]byte{}, raw...)):
 		case qerr == nil || errors.Is(qerr, sql.ErrNoRows):
-			pending = append(pending, id)
+			if len(pending) < maxDriftListed {
+				pending = append(pending, id)
+			}
 		case isNoTable(qerr):
 			return unreadable, nil, nil
 		default:

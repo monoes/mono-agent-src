@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -452,21 +453,76 @@ func TestAReadOnlyStoreWritesNothingWhenItReads(t *testing.T) {
 	}
 }
 
-// Files that cannot be adopted do not use up the listing: 250 invalid files that sort first do not
-// hide the one real file, and they are counted, not parsed one by one without end.
+// Files that cannot be adopted do not use up the listing: invalid files of the largest allowed
+// size, however many and however they sort, do not hide the real one.
 func TestManyInvalidFilesDoNotHideTheRealOne(t *testing.T) {
 	ctx := context.Background()
 	h, _, _, _ := guardedRig(t)
 	dir := h.files.dir
+	junk := make([]byte, maxAdoptableBytes) // as big as a file may be, and not a workflow
+	for i := 0; i < 20; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("000-big-%02d.json", i)), junk, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for i := 0; i < 250; i++ {
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("000-%03d.json", i)), []byte("not json"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	dropFile(t, h, "zzz-real", false)
+	// The real file is the oldest: nothing but being counted fairly lets it through.
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "zzz-real.json"), old, old); err != nil {
+		t.Fatal(err)
+	}
 	shown, more, err := h.AdoptableFiles(ctx)
-	if err != nil || len(shown) != 1 || shown[0].ID != "zzz-real" || more != 250 {
+	if err != nil || len(shown) != 1 || shown[0].ID != "zzz-real" || more != 270 {
 		t.Fatalf("shown %+v, more %d, %v", shown, more, err)
+	}
+}
+
+// Valid-looking files that fill the listing hide nobody silently: the rest are counted and the
+// first few are named, so one of them can still be adopted by naming it.
+func TestFilesBeyondTheListingAreNamed(t *testing.T) {
+	ctx := context.Background()
+	h, _, _, _ := guardedRig(t)
+	dir := h.files.dir
+	dropFile(t, h, "real-but-old", false)
+	old := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "real-but-old.json"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxAdoptableShown+5; i++ {
+		dropFile(t, h, fmt.Sprintf("decoy-%02d", i), false)
+	}
+	l, err := h.AdoptableListing(ctx)
+	if err != nil || len(l.Shown) != maxAdoptableShown || l.More != 6 {
+		t.Fatalf("shown %d, more %d, %v", len(l.Shown), l.More, err)
+	}
+	named := false
+	for _, id := range l.HiddenIDs {
+		named = named || id == "real-but-old"
+	}
+	if !named {
+		t.Fatalf("the file that was not shown is not named: %v", l.HiddenIDs)
+	}
+}
+
+// A folder with a huge number of entries costs a bounded amount of work: names beyond the cap are
+// not looked at, and the listing says it stopped.
+func TestAHugeFolderIsListedWithBoundedWork(t *testing.T) {
+	ctx := context.Background()
+	h, _, _, _ := guardedRig(t)
+	for i := 0; i < maxAdoptableEntries+500; i++ {
+		if err := os.WriteFile(filepath.Join(h.files.dir, fmt.Sprintf("m-%05d.json", i)), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := time.Now()
+	l, err := h.AdoptableListing(ctx)
+	if err != nil || !l.Truncated || len(l.Shown) != 0 || time.Since(start) > 20*time.Second {
+		t.Fatalf("truncated=%v shown=%d after %v: %v", l.Truncated, len(l.Shown), time.Since(start), err)
 	}
 }
 

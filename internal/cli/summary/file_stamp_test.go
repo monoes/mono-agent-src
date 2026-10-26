@@ -33,3 +33,18 @@ func TestReadOnlyHybridStoreLeavesWorkflowFilesAlone(t *testing.T) {
 		t.Fatalf("the polled store rewrote a workflow file:\n%s\n->\n%s", before, after)
 	}
 }
+
+// A poll creates nothing: with no workflows folder, none appears.
+func TestReadOnlyHybridStoreDoesNotCreateTheWorkflowsFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	readOnlyHybridStore(db)
+	if _, err := os.Stat(filepath.Join(home, ".monoagent")); err == nil {
+		t.Fatal("a polled store created ~/.monoagent or what is under it")
+	}
+}

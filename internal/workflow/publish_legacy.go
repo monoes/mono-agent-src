@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -183,13 +185,15 @@ type AdoptableFile struct {
 }
 
 const (
-	maxAdoptableShown  = 20
-	maxAdoptableBudget = 16 << 20 // bytes read in one listing, across all candidate files
-	maxAdoptableBytes  = 1 << 20
-	maxNameShown       = 48
-	maxNamesShown      = 10
-	maxPreviewNodes    = 10
-	maxPreviewChars    = 240
+	maxAdoptableShown   = 20
+	maxAdoptableEntries = 5000 // directory names looked at in one listing
+	maxAdoptableReads   = 200  // files read in full and parsed in one listing
+	maxHiddenNamed      = 20   // ids of files not shown that are named
+	maxAdoptableBytes   = 1 << 20
+	maxNameShown        = 48
+	maxNamesShown       = 10
+	maxPreviewNodes     = 10
+	maxPreviewChars     = 240
 )
 
 func cut(s string, n int) string {
@@ -216,87 +220,165 @@ func shortList(set map[string]bool) []string {
 	return out
 }
 
-// AdoptableFiles lists workflow files that have no rows and so wait to be adopted, up to
-// maxAdoptableShown; more counts the rest (files beyond the listing, with names that are not safe to
-// print, unreadable, or larger than 1 MiB). A file is read only if its name is a plain id and it is a
-// small regular file, and at most maxAdoptableBudget bytes are read in all; the rest are counted.
+// AdoptableListing is what AdoptableFiles found. Shown are the files that can be looked at;
+// More counts every other file with no stored copy that was seen but not shown (not a plain id, too
+// big, would not parse, beyond the listing); HiddenIDs names the first few of those whose names are
+// plain ids, so a file that is not shown can still be adopted by naming it (read it, take its
+// sha256, `doctor fix workflows.publications.adopt:<id>:<profile>:<sha256>`). Truncated says more
+// directory entries existed than were looked at, so More is a lower bound.
+type AdoptableListing struct {
+	Shown     []AdoptableFile
+	More      int
+	HiddenIDs []string
+	Truncated bool
+}
+
+// AdoptableFiles lists workflow files that have no rows and so wait to be adopted (see
+// AdoptableListing for the numbers); more counts the files not shown.
 func (h *HybridWorkflowStore) AdoptableFiles(ctx context.Context) (shown []AdoptableFile, more int, err error) {
+	l, err := h.AdoptableListing(ctx)
+	return l.Shown, l.More, err
+}
+
+// AdoptableListing does a bounded amount of work however many files there are: at most
+// maxAdoptableEntries names are looked at (the directory is read in batches, not all at once),
+// everything decidable from the name and the directory entry (a plain id, a regular file, small
+// enough, no stored copy) is decided before a file is opened, candidates are taken newest first,
+// and at most maxAdoptableReads files are opened and parsed in all.
+func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableListing, error) {
+	var out AdoptableListing
 	if h.files == nil {
-		return nil, 0, nil
+		return out, nil
 	}
-	entries, err := os.ReadDir(h.files.dir)
+	dir, err := os.Open(h.files.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, 0, nil
+			return out, nil
 		}
-		return nil, 0, err
+		return out, err
 	}
-	spent := int64(0)
-	for _, e := range entries {
-		id, ok := strings.CutSuffix(e.Name(), ".json")
-		if e.IsDir() || !ok || strings.HasSuffix(id, ".ai-backup") {
+	defer dir.Close()
+	stored, err := h.workflowIDs(ctx)
+	if err != nil {
+		return out, err
+	}
+	type candidate struct {
+		id    string
+		mtime time.Time
+	}
+	var cands []candidate
+	seen := 0
+	for !out.Truncated {
+		names, rerr := dir.Readdirnames(256)
+		for _, name := range names {
+			if seen++; seen > maxAdoptableEntries {
+				out.Truncated = true
+				break
+			}
+			id, ok := strings.CutSuffix(name, ".json")
+			if !ok || strings.HasSuffix(id, ".ai-backup") || stored[id] {
+				continue
+			}
+			if !safeFileID.MatchString(id) {
+				out.More++
+				continue
+			}
+			info := regularFileInfo(h.files, id)
+			if info == nil || info.Size() > maxAdoptableBytes {
+				out.More++
+				continue
+			}
+			cands = append(cands, candidate{id, info.ModTime()})
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				break
+			}
+			return out, rerr
+		}
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		if !cands[i].mtime.Equal(cands[j].mtime) {
+			return cands[i].mtime.After(cands[j].mtime)
+		}
+		return cands[i].id < cands[j].id
+	})
+	reads := 0
+	hide := func(id string) {
+		out.More++
+		if len(out.HiddenIDs) < maxHiddenNamed {
+			out.HiddenIDs = append(out.HiddenIDs, id)
+		}
+	}
+	for _, c := range cands {
+		if len(out.Shown) >= maxAdoptableShown || reads >= maxAdoptableReads {
+			hide(c.id)
 			continue
 		}
-		// Everything decidable from the name and the directory entry comes before a file is read.
-		if !safeFileID.MatchString(id) || !e.Type().IsRegular() {
-			more++
+		// A glance at the start of the file first: a file that does not even begin like a JSON
+		// object is counted without being read in full, so such files cost almost nothing and do not
+		// use up the reads.
+		path, _ := h.files.filePath(c.id)
+		if head, herr := readRegularPrefix(path, 64); herr != nil || !strings.HasPrefix(strings.TrimSpace(string(head)), "{") {
+			hide(c.id)
 			continue
 		}
-		var n int
-		if err := h.sql.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n); err != nil || n > 0 {
-			continue
-		}
-		info, ierr := e.Info()
-		if ierr != nil || info.Size() > maxAdoptableBytes || len(shown) >= maxAdoptableShown || spent+info.Size() > maxAdoptableBudget {
-			more++
-			continue
-		}
-		spent += info.Size()
-		if regularFileInfo(h.files, id) == nil {
-			more++
-			continue
-		}
-		raw, existed, rerr := h.files.readRaw(id)
+		reads++
+		raw, existed, rerr := h.files.readRaw(c.id)
 		if rerr != nil || !existed {
-			more++
+			hide(c.id)
 			continue
 		}
 		wf, perr := parseWorkflowFile(raw)
-		if perr != nil || wf == nil || wf.ID != id || !safeFileID.MatchString(wf.ProfileID) || graphIDProblem(wf) != "" {
-			more++
+		if perr != nil || wf == nil || wf.ID != c.id || !safeFileID.MatchString(wf.ProfileID) || graphIDProblem(wf) != "" {
+			hide(c.id)
 			continue
 		}
-		path, _ := h.files.filePath(id)
-		a := AdoptableFile{ID: id, ProfileID: wf.ProfileID, Path: path, SHA: shaHex(append([]byte{}, raw...))}
-		types, trig := map[string]bool{}, map[string]bool{}
-		a.Nodes, a.HasSettings = len(wf.Nodes), len(wf.Settings) > 0
-		_, a.ErrorWorkflow = wf.Settings[ErrorWorkflowSetting]
-		a.Cut = len(wf.Nodes) > maxPreviewNodes
-		if sj, err := json.Marshal(wf.Settings); err == nil {
-			a.Refs += strings.Count(string(sj), "secret.") + strings.Count(string(sj), "${")
-		}
-		for i, nd := range wf.Nodes {
-			cj, _ := json.Marshal(nd.Config)
-			a.ConfigBytes += len(cj)
-			a.Refs += strings.Count(string(cj), "secret.") + strings.Count(string(cj), "${")
-			a.Cut = a.Cut || len(cj) > maxPreviewChars || len(nd.Name) > maxNameShown || len(nd.Type) > maxNameShown
-			types[nd.Type] = true
-			if strings.HasPrefix(nd.Type, "trigger.") {
-				trig[nd.Type] = true
-			}
-			if i < maxPreviewNodes {
-				cfg, _ := json.Marshal(nd.Config)
-				a.Preview = append(a.Preview, cut(nd.Type, maxNameShown)+" "+cut(nd.Name, maxNameShown)+" "+cut(string(cfg), maxPreviewChars))
-			}
-		}
-		if len(wf.Nodes) > maxPreviewNodes {
-			a.Preview = append(a.Preview, fmt.Sprintf("(+%d more nodes)", len(wf.Nodes)-maxPreviewNodes))
-		}
-		a.NodeTypes, a.Triggers = shortList(types), shortList(trig)
-		a.Cut = a.Cut || len(types) > maxNamesShown || len(trig) > maxNamesShown
-		shown = append(shown, a)
+		out.Shown = append(out.Shown, describeAdoptable(h.files, c.id, wf, raw))
 	}
-	return shown, more, nil
+	return out, nil
+}
+
+// describeAdoptable counts and cuts what a parsed file holds, for an operator to look at.
+func describeAdoptable(files *WorkflowFileStore, id string, wf *Workflow, raw []byte) AdoptableFile {
+	path, _ := files.filePath(id)
+	a := AdoptableFile{ID: id, ProfileID: wf.ProfileID, Path: path, SHA: shaHex(append([]byte{}, raw...))}
+	types, trig := map[string]bool{}, map[string]bool{}
+	a.Nodes, a.HasSettings = len(wf.Nodes), len(wf.Settings) > 0
+	_, a.ErrorWorkflow = wf.Settings[ErrorWorkflowSetting]
+	a.Cut = len(wf.Nodes) > maxPreviewNodes
+	if sj, err := json.Marshal(wf.Settings); err == nil {
+		a.Refs += countRefs(string(sj))
+	}
+	for i, nd := range wf.Nodes {
+		cj, _ := json.Marshal(nd.Config)
+		a.ConfigBytes += len(cj)
+		a.Refs += countRefs(string(cj))
+		a.Cut = a.Cut || len(cj) > maxPreviewChars || len(nd.Name) > maxNameShown || len(nd.Type) > maxNameShown
+		types[nd.Type] = true
+		if strings.HasPrefix(nd.Type, "trigger.") {
+			trig[nd.Type] = true
+		}
+		if i < maxPreviewNodes {
+			a.Preview = append(a.Preview, cut(nd.Type, maxNameShown)+" "+cut(nd.Name, maxNameShown)+" "+cut(string(cj), maxPreviewChars))
+		}
+	}
+	if len(wf.Nodes) > maxPreviewNodes {
+		a.Preview = append(a.Preview, fmt.Sprintf("(+%d more nodes)", len(wf.Nodes)-maxPreviewNodes))
+	}
+	a.NodeTypes, a.Triggers = shortList(types), shortList(trig)
+	a.Cut = a.Cut || len(types) > maxNamesShown || len(trig) > maxNamesShown
+	return a
+}
+
+// countRefs counts the places a text refers to a secret or a variable by the spellings the engine
+// uses. It is a floor, not a proof: it is shown as "at least".
+func countRefs(s string) int {
+	n := 0
+	for _, marker := range []string{"secret.", "${", "@secret:", "{{", "$vars", "$env"} {
+		n += strings.Count(s, marker)
+	}
+	return n
 }
 
 // ImportedInactive lists workflows an operator adopted from files and that are still inactive.

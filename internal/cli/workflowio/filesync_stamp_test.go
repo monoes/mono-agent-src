@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/testdb"
@@ -199,5 +200,62 @@ func TestStampFileWorkflowsDoesNotScanTheFolderWithoutAProfile(t *testing.T) {
 	}
 	if err := StampFileWorkflows(context.Background(), db.DB, notADir); err != nil {
 		t.Fatalf("the folder was scanned although no profile exists: %v", err)
+	}
+}
+
+// A claim another process records while the pass runs is noticed: from then on a file with no rows
+// is not eligible, and a workflow with a change recorded never is.
+func TestStampEligibilityFollowsTheClaimAndOpenChanges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	eligible := stampEligible(ctx, db.DB)
+	if !eligible("w-legacy") {
+		t.Fatal("before the claim every ownerless file may need an owner")
+	}
+	if _, err := db.DB.Exec(`INSERT INTO settings (key, value) VALUES ('workflow_files.legacy_import_done', '1')`); err != nil {
+		t.Fatal(err)
+	}
+	if eligible("w-legacy") {
+		t.Fatal("a file with no rows was stamped after the claim was recorded mid-pass")
+	}
+	if _, err := db.DB.Exec(`INSERT INTO workflows (id, name, profile_id) VALUES ('w-rows', 'r', 'default')`); err != nil {
+		t.Fatal(err)
+	}
+	if !eligible("w-rows") {
+		t.Fatal("a workflow with rows is eligible")
+	}
+	if _, err := db.DB.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('w-rows', 'save', 'unresolved', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if eligible("w-rows") {
+		t.Fatal("a workflow with a change recorded was eligible")
+	}
+}
+
+// A workflow with a change recorded is not stamped: the writer of that change owns its file.
+func TestStampFileWorkflowsSkipsAWorkflowWithAChangeRecorded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dir := writeStampFixture(t)
+	if _, err := db.DB.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('w-legacy', 'save', 'pending', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := StampFileWorkflows(ctx, db.DB, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := profileOfFile(t, filepath.Join(dir, "w-legacy.json")); got != "" {
+		t.Fatalf("a file with a change recorded was stamped %q", got)
 	}
 }

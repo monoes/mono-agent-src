@@ -101,16 +101,7 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 		}
 		return p.String
 	}
-	// Before the files older versions left are taken in, all of them may need an owner. After it,
-	// only the files of workflows that have rows do: a file with no stored copy is left unread.
-	claimed := workflow.LegacyClaimDone(ctx, db)
-	eligible := func(id string) bool {
-		if !claimed {
-			return true
-		}
-		var n int
-		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n) == nil && n > 0
-	}
+	eligible := stampEligible(ctx, db)
 	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, eligible)
 	if len(stamped) > 0 {
 		log.Printf("workflow files: gave %d workflow(s) with no profile an owner (fallback %q)", len(stamped), owner)
@@ -179,4 +170,27 @@ func connIDs(cs []workflow.WorkflowConnection) []string {
 		}
 	}
 	return out
+}
+
+// stampEligible says which files the stamp pass may open. Before the files older versions left are
+// taken in, all of them may need an owner; after it, only the files of workflows that have rows do
+// (a file with no stored copy is left unread). Once the claim is recorded the question never
+// changes, so it is asked once; until then it is asked per file, because another process may finish
+// the claim while the pass runs. A workflow with a change recorded is skipped: the writer of that
+// change owns its file.
+func stampEligible(ctx context.Context, db *sql.DB) func(id string) bool {
+	claimed := workflow.LegacyClaimDone(ctx, db)
+	return func(id string) bool {
+		var open int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_publications WHERE workflow_id = ?`, id).Scan(&open); err == nil && open > 0 {
+			return false
+		}
+		if !claimed {
+			if claimed = workflow.LegacyClaimDone(ctx, db); !claimed {
+				return true
+			}
+		}
+		var n int
+		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n) == nil && n > 0
+	}
 }
