@@ -88,8 +88,14 @@ var startHostProcess = func(cfg *Deps) error {
 	defer logFile.Close()
 	cmd := exec.Command(exe, "--db-path", cfg.DBPath(), "--profile", cfg.ProfileID(), "coder", "host", "run")
 	cmd.Stdout, cmd.Stderr = logFile, logFile
+	// A host started from a session's shell must not carry that session's identity.
+	cmd.Env = hostProcessEnv(os.Environ())
 	return clicore.DetachStart(cmd)
 }
+
+// hostProcessEnv is the environment the detached host starts with: a host started from a session's
+// shell must not carry that session's identity.
+func hostProcessEnv(env []string) []string { return withoutEnv(env, coderhost.SessionTokenEnv) }
 
 // ensureHost starts the host when none is running and waits for it to take its lock.
 func ensureHost(cfg *Deps) error {
@@ -178,9 +184,16 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			logf := func(f string, a ...any) {
 				fmt.Fprintf(cmd.ErrOrStderr(), time.Now().Format(time.RFC3339)+" "+f+"\n", a...)
 			}
+			store := coderhost.NewStore(db.DB)
 			h := &coderhost.Host{
-				Store:                coderhost.NewStore(db.DB),
-				L:                    &execLauncher{bin: exe, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf},
+				Store: store,
+				L: &execLauncher{bin: exe, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
+					tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokens, bind: func(p, c, turn string, pid int, stamp string) error {
+						if store.HostInsideTurn() {
+							return coderhost.ErrHostInsideTurn
+						}
+						return store.BindSessionToken(p, c, turn, pid, stamp)
+					}},
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,

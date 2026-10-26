@@ -121,7 +121,7 @@ func TestExecLauncherStartsADetachedTurnAndStopsItsGroup(t *testing.T) {
 	argsLog := filepath.Join(dir, "args.log")
 	promptLog := filepath.Join(dir, "prompt.txt")
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\necho \"$*\" >> '" + argsLog + "'\nif [ \"$4\" = \"chat\" ] && [ \"$5\" = \"history\" ]; then exit 0; fi\n" +
+	script := "#!/bin/sh\necho \"$*\" >> '" + argsLog + "'\nif [ \"$6\" = \"chat\" ] && [ \"$7\" = \"history\" ]; then exit 0; fi\n" +
 		"cat > '" + promptLog + "'\necho '{\"level\":\"warn\",\"error\":\"a library log line, not a refusal\"}'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\n" +
 		"(trap '' TERM; exec sleep 60) &\necho $! > '" + filepath.Join(dir, "child.pid") + "'\nwait\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
@@ -654,8 +654,12 @@ func TestSessionSettingsGetSetAndTheirGuards(t *testing.T) {
 	if _, code := run(agent, "settings", "set", conv.ID, "--patch", `{"checkin_minutes": 1}`); code == 0 {
 		t.Fatal("a non-operator changed a session's settings")
 	}
-	if v, _ = run(agent, "settings", "get", conv.ID); v.Settings.CheckinMinutes != 5 {
-		t.Fatalf("a non-operator may read, and the value must be unchanged: %+v", v)
+	// an agent with no session token reads nothing (reading is the operator's or a session's own tree)
+	if _, code := run(agent, "settings", "get", conv.ID); code == 0 {
+		t.Fatal("an agent without a session token read a session's settings")
+	}
+	if v, _ = run(cfg, "settings", "get", conv.ID); v.Settings.CheckinMinutes != 5 {
+		t.Fatalf("the value must be unchanged: %+v", v)
 	}
 }
 

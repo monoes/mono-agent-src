@@ -16,6 +16,10 @@ const (
 // DetachStart starts cmd detached from this console, without a window, so
 // it outlives this process and the app that ran it.
 func DetachStart(cmd *exec.Cmd) error {
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: detachedProcess | createNewProcessGroup | createNoWindow}
+	attr := &syscall.SysProcAttr{HideWindow: true, CreationFlags: detachedProcess | createNewProcessGroup | createNoWindow}
+	if cmd.SysProcAttr != nil {
+		attr.AdditionalInheritedHandles = cmd.SysProcAttr.AdditionalInheritedHandles // handles the caller passes on
+	}
+	cmd.SysProcAttr = attr
 	return cmd.Start()
 }

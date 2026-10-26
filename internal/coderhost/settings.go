@@ -137,6 +137,9 @@ func (s Settings) Validate() error {
 			return fmt.Errorf("autonomy_classes.%s needs who (%s) and fallback (%s)", class, strings.Join(whoValues, "|"), strings.Join(fallbackValues, "|"))
 		}
 	}
+	if err := ValidateAutonomy(s); err != nil {
+		return err
+	}
 	if err := within("max_children", s.MaxChildren, 0, 20); err != nil {
 		return err
 	}

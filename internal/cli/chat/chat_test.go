@@ -13,7 +13,7 @@ import (
 	aichat "github.com/monoes/mono-agent/internal/ai/chat"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/profiledir"
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // TestParseToolsFlag covers the mechanical run-gate plumbing: --tools is a
@@ -175,18 +175,9 @@ func TestMonoagentToolSpecsAdvertisesSaveDocument(t *testing.T) {
 func newChatCLITestDB(t *testing.T) string {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	dbPath := filepath.Join(t.TempDir(), "cli-chat-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	if err := db.DB.Close(); err != nil {
-		t.Fatalf("closing seed db: %v", err)
-	}
-	return dbPath
+	// A copy of the one migrated template (internal/testdb), not 130+
+	// migrations run again for every test.
+	return testdb.Path(t)
 }
 
 // writeFakeMonomindForChat writes a throwaway fake monomind binary that

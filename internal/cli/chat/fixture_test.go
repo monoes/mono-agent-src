@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"io"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -33,7 +34,7 @@ func testDeps(c *testConfig) *Deps {
 			if err != nil {
 				return nil, err
 			}
-			if err := db.ApplyMigrations(); err != nil {
+			if err := migrateOnce(db, clicore.ExpandPath(c.DBPath)); err != nil {
 				db.Close()
 				return nil, err
 			}
@@ -52,6 +53,23 @@ func testDeps(c *testConfig) *Deps {
 		RequireOperator:   func(string) error { return nil },
 		PublicationPrompt: func() string { return "Register what you publish." },
 	}
+}
+
+var migrated sync.Map // DB path -> struct{}: the paths migrated in this test binary
+
+// migrateOnce migrates db the first time a path is opened. A command opens the
+// database on every call, and re-checking an already migrated database costs
+// ~50ms (more under -race) each time; the tests' databases are copies of the
+// one migrated template, and nothing in these tests changes their schema.
+func migrateOnce(db *storage.Database, path string) error {
+	if _, done := migrated.Load(path); done {
+		return nil
+	}
+	if err := db.ApplyMigrations(); err != nil {
+		return err
+	}
+	migrated.Store(path, struct{}{})
+	return nil
 }
 
 // exitCodeFor is the exit code the CLI gives err.

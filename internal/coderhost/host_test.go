@@ -35,6 +35,7 @@ type fakeLauncher struct {
 	startErr error
 	next     int
 	onStart  func() // runs inside Start, before the turn exists
+	caps     []float64
 }
 
 func newFakeLauncher() *fakeLauncher {
@@ -56,6 +57,13 @@ func (l *fakeLauncher) Start(profile, conv, turn, msg string, att []string, toke
 	l.tokens = append(l.tokens, token)
 	l.turns[turn] = t
 	return t, nil
+}
+
+func (l *fakeLauncher) StartCapped(profile, conv, turn, msg string, att []string, token string, capUSD float64) (Turn, error) {
+	l.mu.Lock()
+	l.caps = append(l.caps, capUSD)
+	l.mu.Unlock()
+	return l.Start(profile, conv, turn, msg, att, token)
 }
 
 func (l *fakeLauncher) Adopt(pid int, stamp string) Turn {
