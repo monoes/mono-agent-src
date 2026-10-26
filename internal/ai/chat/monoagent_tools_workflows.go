@@ -450,9 +450,7 @@ func isTriggerNodeType(t string) bool {
 func setActiveNoted(ctx context.Context, st interface {
 	SetWorkflowActive(context.Context, string, bool) error
 }, id string, active bool) (string, error) {
-	if ns, ok := st.(interface {
-		SetWorkflowActiveNoted(context.Context, string, bool) (string, error)
-	}); ok {
+	if ns, ok := st.(workflow.ActiveNoter); ok {
 		return ns.SetWorkflowActiveNoted(ctx, id, active)
 	}
 	return "", st.SetWorkflowActive(ctx, id, active)

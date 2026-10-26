@@ -349,6 +349,14 @@ func (h *HybridWorkflowStore) SetWorkflowActive(ctx context.Context, id string, 
 	return err
 }
 
+// ActiveNoter is a store that says, when it switches a workflow off, that it could only switch the
+// rows (see RowsOnlyNote). Callers that deactivate ask for it and pass the note on.
+type ActiveNoter interface {
+	SetWorkflowActiveNoted(ctx context.Context, id string, active bool) (string, error)
+}
+
+var _ ActiveNoter = (*HybridWorkflowStore)(nil)
+
 // RowsOnlyNote is what a caller tells the person when SetWorkflowActiveNoted could only switch the
 // rows off: the workflow is off, but its file and the unfinished change were left as they are.
 const RowsOnlyNote = "deactivated in the database; the file was left as it is; run doctor to settle the unfinished change"
@@ -370,6 +378,13 @@ func (h *HybridWorkflowStore) SetWorkflowActiveNoted(ctx context.Context, id str
 		}
 	}
 	_, err = h.setActivePublication(ctx, id, active)
+	if err != nil && !active && errors.Is(err, ErrPublicationBusy) {
+		// A change that never finishes (a hung writer, a reused process id) must not keep the
+		// workflow on: after the wait, the rows alone are switched off, whatever the change's state.
+		if done, ferr := h.deactivateRowsOnlyOnce(ctx, id, true); ferr == nil && done {
+			return RowsOnlyNote, nil
+		}
+	}
 	return "", err
 }
 
@@ -737,6 +752,9 @@ func (h *HybridWorkflowStore) deactivateRowsOnly(ctx context.Context, id string)
 		return false, nil
 	}
 	state, err := h.UnfinishedChange(ctx, id)
+	if err != nil && isBusyErr(err) {
+		return false, errors.Join(ErrPublicationBusy, err)
+	}
 	if err != nil || state == "" {
 		return false, err
 	}
@@ -748,7 +766,7 @@ func (h *HybridWorkflowStore) deactivateRowsOnly(ctx context.Context, id string)
 	deadline := time.Now().Add(publicationWait)
 	wait := 50 * time.Millisecond
 	for {
-		done, err = h.deactivateRowsOnlyOnce(ctx, id)
+		done, err = h.deactivateRowsOnlyOnce(ctx, id, false)
 		if err == nil || !isBusyErr(err) || time.Now().After(deadline) {
 			if err != nil && (isBusyErr(err) || errors.Is(err, context.DeadlineExceeded)) && !errors.Is(err, ErrPublicationBusy) {
 				err = errors.Join(ErrPublicationBusy, err)
@@ -769,10 +787,14 @@ func (h *HybridWorkflowStore) deactivateRowsOnly(ctx context.Context, id string)
 	}
 }
 
-func (h *HybridWorkflowStore) deactivateRowsOnlyOnce(ctx context.Context, id string) (done bool, err error) {
-	state, err := h.UnfinishedChange(ctx, id)
-	if err != nil || state == "" {
-		return false, err // settled meanwhile (or unreadable): the caller publishes as usual
+// deactivateRowsOnlyOnce is one attempt. A change whose owner is alive is left to its owner unless
+// ignoreLive says the wait is over.
+func (h *HybridWorkflowStore) deactivateRowsOnlyOnce(ctx context.Context, id string, ignoreLive bool) (done bool, err error) {
+	if !ignoreLive {
+		state, err := h.UnfinishedChange(ctx, id)
+		if err != nil || state == "" {
+			return false, err // settled meanwhile (or unreadable): the caller publishes as usual
+		}
 	}
 	tx, txDone, err := h.beginDurable(ctx)
 	if err != nil {
@@ -785,14 +807,18 @@ func (h *HybridWorkflowStore) deactivateRowsOnlyOnce(ctx context.Context, id str
 	}
 	// The change may have been settled while the lock was awaited: look again under it.
 	in, err := scanIntent(tx.QueryRowContext(ctx, `SELECT `+intentColumns+` FROM workflow_publications WHERE workflow_id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && in.State == "pending" && in.live()) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && !ignoreLive && in.State == "pending" && in.live()) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflows SET is_active = 0, updated_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
+	res, err := tx.ExecContext(ctx, `UPDATE workflows SET is_active = 0, updated_at = ? WHERE id = ?`, time.Now().UTC(), id)
+	if err != nil {
 		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, fmt.Errorf("workflow %s: %w", id, ErrWorkflowNotFound)
 	}
 	return true, tx.Commit()
 }

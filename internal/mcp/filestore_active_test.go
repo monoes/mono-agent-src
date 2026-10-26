@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A workflow saved through workflow_save lives as a file (the file store
@@ -35,5 +36,29 @@ func TestSetActiveAndDeleteReachTheWorkflowFile(t *testing.T) {
 	callInto(t, s, "workflow_delete", map[string]interface{}{"workflow_id": saved.ID}, nil)
 	if list := callInto(t, s, "workflow_list", map[string]interface{}{}, nil); strings.Contains(list, saved.ID) {
 		t.Fatalf("deleted workflow still listed: %s", list)
+	}
+}
+
+// workflow_set_active tells the caller when only the database could be switched off.
+func TestSetActiveOffUnderAnUnfinishedChangeCarriesTheNote(t *testing.T) {
+	s := newTestServerAllowMutations(t, true)
+	doc := map[string]interface{}{"name": "noted", "nodes": []map[string]interface{}{
+		{"id": "t", "node_type": "trigger.manual", "name": "Trigger", "config": map[string]interface{}{}}}}
+	var saved savedWorkflow
+	callInto(t, s, "workflow_save", map[string]interface{}{"workflow": doc}, &saved)
+	if text := callInto(t, s, "workflow_set_active", map[string]interface{}{"workflow_id": saved.ID, "active": false}, nil); strings.Contains(text, "note") {
+		t.Fatalf("an ordinary deactivation carries a note: %s", text)
+	}
+	rt, err := s.runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.db.DB.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES (?, 'save', 'unresolved', 0, ?)`, saved.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	text := callInto(t, s, "workflow_set_active", map[string]interface{}{"workflow_id": saved.ID, "active": false}, nil)
+	if !strings.Contains(text, "the file was left as it is") {
+		t.Fatalf("no note: %s", text)
 	}
 }

@@ -251,9 +251,7 @@ func (e *WorkflowEngine) DeactivateWorkflowNoted(ctx context.Context, id string)
 
 	// The store first: if it refuses (the database is busy), the triggers must stay as they were.
 	note := ""
-	if ns, ok := e.store.(interface {
-		SetWorkflowActiveNoted(context.Context, string, bool) (string, error)
-	}); ok {
+	if ns, ok := e.store.(ActiveNoter); ok {
 		var err error
 		if note, err = ns.SetWorkflowActiveNoted(ctx, id, false); err != nil {
 			return "", fmt.Errorf("engine: deactivate workflow: %w", err)
