@@ -54,30 +54,38 @@ func (s *Store) CreateMission(ctx context.Context, profileID string, b MissionBi
 		strings.TrimSpace(b.Actor) == "" || b.Owner == "" || ttl <= 0 {
 		return Token{}, "", ErrMission
 	}
-	var r [4]byte
-	if _, err := rand.Read(r[:]); err != nil {
-		return Token{}, "", fmt.Errorf("generating agent token: %w", err)
-	}
-	name := fmt.Sprintf("mission-s%d-t%d-%s-%s", b.Session, b.Task, b.Role, hex.EncodeToString(r[:]))
-	if !validName(name) {
-		return Token{}, "", ErrInvalidName
-	}
 	secret, err := generate()
 	if err != nil {
 		return Token{}, "", err
 	}
-	id, err := newID()
-	if err != nil {
-		return Token{}, "", err
-	}
 	now := s.now().UTC()
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agent_tokens (id, profile_id, name, scope, prefix, token_hash, created_at, expires_at, mission_session, mission_task, mission_role, mission_actor, mission_owner)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, profileID, name, string(ScopeRead), secret[:prefixLen], Hash(secret), now.Format(timeFmt), now.Add(ttl).Format(timeFmt),
-		b.Session, b.Task, b.Role, b.Actor, b.Owner)
-	if err != nil {
-		return Token{}, "", fmt.Errorf("storing agent token: %w", err)
+	// The name carries 8 random bytes, so two runs of one task practically never meet; a
+	// collision is retried with a new suffix rather than failing the run.
+	var id string
+	for attempt := 0; ; attempt++ {
+		var r [8]byte
+		if _, err := rand.Read(r[:]); err != nil {
+			return Token{}, "", fmt.Errorf("generating agent token: %w", err)
+		}
+		name := fmt.Sprintf("mission-s%d-t%d-%s-%s", b.Session, b.Task, b.Role, hex.EncodeToString(r[:]))
+		if !validName(name) {
+			return Token{}, "", ErrInvalidName
+		}
+		if id, err = newID(); err != nil {
+			return Token{}, "", err
+		}
+		_, err = s.db.ExecContext(ctx,
+			`INSERT INTO agent_tokens (id, profile_id, name, scope, prefix, token_hash, created_at, expires_at, mission_session, mission_task, mission_role, mission_actor, mission_owner)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, profileID, name, string(ScopeRead), secret[:prefixLen], Hash(secret), now.Format(timeFmt), now.Add(ttl).Format(timeFmt),
+			b.Session, b.Task, b.Role, b.Actor, b.Owner)
+		if err != nil && attempt < 2 && strings.Contains(err.Error(), "UNIQUE constraint failed: agent_tokens.profile_id, agent_tokens.name") {
+			continue
+		}
+		if err != nil {
+			return Token{}, "", fmt.Errorf("storing agent token: %w", err)
+		}
+		break
 	}
 	t, err := s.byID(ctx, id)
 	return t, secret, err
@@ -111,3 +119,20 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 	n, _ := res.RowsAffected()
 	return int(n), nil
 }
+
+// SweepMissions is what a conductor does when it starts or resumes: it revokes every token the
+// owner still holds (a conductor that is starting has minted none yet, so what is active
+// belongs to a run that ended without revoking: a crash or a kill) and purges the mission
+// tokens that have expired, so the list does not grow. It returns how many it revoked.
+func (s *Store) SweepMissions(ctx context.Context, owner string) (int, error) {
+	n, err := s.RevokeOwner(ctx, owner)
+	if err != nil {
+		return n, err
+	}
+	if _, err := s.db.ExecContext(ctx, purgeExpiredMissions, s.now().UTC().Format(timeFmt)); err != nil {
+		return n, fmt.Errorf("purging expired mission tokens: %w", err)
+	}
+	return n, nil
+}
+
+const purgeExpiredMissions = `DELETE ` + `FROM agent_tokens WHERE mission_session > 0 AND expires_at IS NOT NULL AND expires_at < ?`

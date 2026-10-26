@@ -101,3 +101,95 @@ func TestConductorRevokesTheTokenOfAFailedRun(t *testing.T) {
 		t.Fatalf("%d mission tokens are live after the run failed", live)
 	}
 }
+
+func tokenValid(t *testing.T, r *missionRig, secret string) bool {
+	t.Helper()
+	_, err := agenttokens.NewStore(r.db).VerifyMission(context.Background(), "default", secret)
+	return err == nil
+}
+
+// A conductor that is dropped (a crash: nothing revokes its tokens) leaves a live token. A new
+// conductor of the same conversation, named by the same owner, revokes it when it starts, and
+// the tokens it mints itself afterwards survive.
+func TestANewConductorRevokesTheTokensOfACrashedRun(t *testing.T) {
+	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
+	r.mc.Owner = ConversationOwner("default", "conv-1")
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	eventually(t, "a running", func() bool { return r.ex.runCount(a.ID) == 1 })
+	r.ex.mu.Lock()
+	old := r.ex.envs[a.ID][agenttokens.EnvMissionToken]
+	r.ex.mu.Unlock()
+	if !tokenValid(t, r, old) {
+		t.Fatal("the first run's token is not live")
+	}
+	w := r.c.taskWorker(a.ID)
+
+	// The turn is restarted: a new conductor over the same store and conversation.
+	mc2 := &MissionRun{Store: r.store, ProfileID: "default", Session: r.sid, Tokens: agenttokens.NewStore(r.db), Owner: r.mc.Owner,
+		Poll: 10 * time.Millisecond, TaskTimeout: 10 * time.Minute}
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: mc2})
+	t.Cleanup(c2.Close)
+	env := map[string]string{}
+	unbind, err := c2.bindMission(tbg, w, env) // its first mint sweeps first
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenValid(t, r, old) {
+		t.Fatal("the crashed run's token is still valid after a new conductor started")
+	}
+	mine := env[agenttokens.EnvMissionToken]
+	if !tokenValid(t, r, mine) {
+		t.Fatal("the new conductor's own token was swept")
+	}
+	c2.sweepMissionTokens(mc2) // once per conductor: a second call must not take its own tokens
+	if !tokenValid(t, r, mine) {
+		t.Fatal("a later sweep revoked the conductor's own token")
+	}
+	unbind()
+	if tokenValid(t, r, mine) {
+		t.Fatal("the run's token outlived its run")
+	}
+}
+
+// A token another conversation's conductor holds is not swept.
+func TestTheSweepLeavesAnotherConversationsTokensAlone(t *testing.T) {
+	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
+	r.mc.Owner = ConversationOwner("default", "conv-1")
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	eventually(t, "a running", func() bool { return r.ex.runCount(a.ID) == 1 })
+	r.ex.mu.Lock()
+	theirs := r.ex.envs[a.ID][agenttokens.EnvMissionToken]
+	r.ex.mu.Unlock()
+	mc2 := &MissionRun{Store: r.store, ProfileID: "default", Tokens: agenttokens.NewStore(r.db), Owner: ConversationOwner("default", "conv-2")}
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 2, MaxConcurrent: 1}, Staffer: &Staffer{Roster: []Model{opus}, Lead: opus},
+		Exec: r.ex.exec, Emit: r.em, Missions: mc2})
+	t.Cleanup(c2.Close)
+	c2.sweepMissionTokens(mc2)
+	if !tokenValid(t, r, theirs) {
+		t.Fatal("a sweep of one conversation revoked another's token")
+	}
+}
+
+// A revoke that fails is retried and then surfaced; the token is left to expire.
+func TestAFailedRevokeIsSurfaced(t *testing.T) {
+	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
+	r.mc.revokeFn = func(context.Context, string) error { return errors.New("database is locked") }
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	eventually(t, "a running", func() bool { return r.ex.runCount(a.ID) == 1 })
+	r.ex.mu.Lock()
+	secret := r.ex.envs[a.ID][agenttokens.EnvMissionToken]
+	r.ex.mu.Unlock()
+	r.ex.release(a.ID)
+	r.waitStatus(a.ID, tasks.StatusReview)
+	eventually(t, "the failure to be journalled", func() bool { return countNotices(r.em, "mission_token_revoke_failed") == 1 })
+	if !tokenValid(t, r, secret) {
+		t.Fatal("the stub failed the revoke, so the token should still be live (and end by expiry)")
+	}
+}

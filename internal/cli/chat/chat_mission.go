@@ -39,7 +39,8 @@ func missionRun(m *dynorg.MissionConfig, db *sql.DB) *dynorg.MissionRun {
 	if !m.Planning() {
 		return nil
 	}
-	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID, Tokens: agenttokens.NewStore(db)}
+	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID, Tokens: agenttokens.NewStore(db),
+		Owner: dynorg.ConversationOwner(m.ProfileID, m.ConversationID)}
 }
 
 // missionMaxAgents is the per-turn worker cap of a turn: a confirmed mission gets the larger

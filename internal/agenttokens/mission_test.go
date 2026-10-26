@@ -3,6 +3,7 @@ package agenttokens
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,5 +113,74 @@ func TestRevokeOwnerEndsOnlyThatRunsTokens(t *testing.T) {
 	}
 	if n, _ := s.RevokeOwner(ctx, ""); n != 0 {
 		t.Errorf("an empty owner revoked %d", n)
+	}
+}
+
+func countRows(t *testing.T, s *Store, where string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM agent_tokens WHERE `+where, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// A sweep revokes the owner's still-active tokens and purges the expired mission tokens, and
+// touches neither another owner's live token nor a token that is not a mission token.
+func TestSweepMissionsRevokesTheOwnersAndPurgesTheExpired(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	past := NewStore(s.db)
+	past.SetClock(func() time.Time { return time.Now().Add(-3 * time.Hour) })
+	if _, _, err := past.CreateMission(ctx, "default", missionB, time.Hour); err != nil { // expired two hours ago
+		t.Fatal(err)
+	}
+	b2 := missionB
+	b2.Owner = "run-b"
+	_, live, _ := s.CreateMission(ctx, "default", missionB, time.Hour)
+	_, other, _ := s.CreateMission(ctx, "default", b2, time.Hour)
+	plain, plainSecret, err := s.Create(ctx, "default", "plain", ScopeRead, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.SweepMissions(ctx, "run-a")
+	if err != nil || n != 2 { // the expired one was never revoked, so it counts
+		t.Fatalf("swept %d: %v", n, err)
+	}
+	if _, err := s.VerifyMission(ctx, "default", live); !errors.Is(err, ErrInvalid) {
+		t.Errorf("the owner's active token survived: %v", err)
+	}
+	if _, err := s.VerifyMission(ctx, "default", other); err != nil {
+		t.Errorf("another owner's token was revoked: %v", err)
+	}
+	if _, err := s.Verify(ctx, plainSecret); err != nil {
+		t.Errorf("a plain token was touched: %v", err)
+	}
+	if got := countRows(t, s, `mission_session > 0 AND expires_at < ?`, time.Now().UTC().Format(timeFmt)); got != 0 {
+		t.Errorf("%d expired mission tokens remain", got)
+	}
+	if got := countRows(t, s, `mission_session > 0`); got != 2 {
+		t.Errorf("the unexpired rows should remain (one revoked, one live): %d", got)
+	}
+	if got := countRows(t, s, `id = ?`, plain.ID); got != 1 {
+		t.Errorf("a non-mission row was removed")
+	}
+}
+
+// The name carries 8 random bytes; many mints of one binding all succeed.
+func TestMissionTokenNameSuffixIsLong(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	tok, _, err := s.CreateMission(ctx, "default", missionB, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := strings.LastIndex(tok.Name, "-"); len(tok.Name)-i-1 != 16 {
+		t.Fatalf("suffix of %q is not 8 bytes of hex", tok.Name)
+	}
+	for i := 0; i < 50; i++ {
+		if _, _, err := s.CreateMission(ctx, "default", missionB, time.Hour); err != nil {
+			t.Fatalf("mint %d: %v", i, err)
+		}
 	}
 }
