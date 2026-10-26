@@ -1716,6 +1716,25 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **A setting that changes what agents may do must be changed by the operator only:**
+  the configuration rows that gate approvals, permissions or sandboxing, or that decide
+  what runs unattended, are written and deleted only by the operator's own terminal, and
+  the single-use ones are read only there as well; `config set` and `config delete` refuse
+  anything else with the operator-only exit code. The two newest reserved rows,
+  `memory.runs` and `workflow.error_workflow`, are not hidden from reads: any caller may
+  see them. Of the writers, only `Database.SaveConfig` (and the config store built on it)
+  refuses a reserved row from a caller that is not the operator. The few raw SQL writers
+  (the sandbox fallback, browser permissions and site rules, the coder settings and project
+  map, `config set`, the coder host's confirmations) are protected only by their own
+  commands' operator checks, and a test fails when a file starts touching the configs
+  table without being listed and justified, or holds more statements than its entry
+  allows. Plain preferences and the selector rows an automation resolves stay open to
+  every caller. A workflow's own `error_workflow` setting is part of its definition, so
+  saving or editing it by anyone but the operator leaves the definition unapproved; an
+  unapproved definition's own setting is ignored (only the reserved default applies), so an
+  agent-written workflow cannot start an approved error workflow as the operator's run. The
+  check reads marks, not identity: a process that deliberately hides its marks, or edits
+  the database file, is not stopped, as with the other operator-only commands.
 - **The operator-only commands refuse an agent-driven caller:** `board`
   (it shows the Inbox) and `approve` (both unless delegated, see above),
   `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow`,
