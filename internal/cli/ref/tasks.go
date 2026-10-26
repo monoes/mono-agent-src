@@ -128,7 +128,11 @@ WHO MAY DO WHAT
   finished with a result unless it holds a commit, diff, test, file or log artifact (a report does
   not count; refused with invalid_input "a code task needs evidence"): attach one with artifact first.
   After a failed verification the evidence from before does not count: a retry attaches a new one.
-  The evidence rule is self-asserted: artifact references are not validated and the declared files come from the planner's notes.
+  In a git work tree the evidence must be a commit artifact (hex sha) that exists, is reachable from
+  HEAD or a mission branch and changes at least one declared file or a path under a declared folder;
+  it is checked when attached and again before finish and verify. Test, file, log and diff artifacts
+  are not checked and do not carry a code task alone there; outside git the old rule applies. The
+  declared files themselves come from the planner's notes and are self-asserted.
   MISSIONS. A coder chat's lead runs a session with the mission tools (a send confirmed with
   coder sessions send --mission, operator only; an open session of the conversation implies it): mission_plan, mission_add_tasks,
   mission_split, mission_status, mission_replan, and once a session exists mission_next, mission_assign,

@@ -482,7 +482,7 @@ func (s *Store) handBack(ctx context.Context, profileID string, session, id int6
 			return errClaimMoved
 		}
 		if session != 0 && kind == "result" {
-			if err := s.needsEvidence(ctx, x, profileID, id); err != nil {
+			if err := s.needsEvidence(ctx, x, profileID, session, id); err != nil {
 				return err
 			}
 		}

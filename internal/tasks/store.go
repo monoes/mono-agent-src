@@ -14,6 +14,8 @@ import (
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// checker validates commit evidence where git is available (SetEvidenceChecker).
+	checker EvidenceChecker
 }
 
 // NewStore returns a Store over a migrated database.

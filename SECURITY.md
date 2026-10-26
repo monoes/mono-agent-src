@@ -1684,10 +1684,20 @@ that works a task acts on them. The defences:
   operator (`verdict_by_unexpected_actor`); a mission does not close on such a task. **The evidence rule:** a task of kind
   `task` that declares files cannot be finished to Review with a result unless it holds a
   commit, diff, test, file or log artifact (a report does not count); the check runs in the
-  store, inside the hand-back transaction, for every caller. It is self-asserted: an
-  artifact reference is a string the agent wrote and is not validated, and the files a
-  task declares come from notes the planner wrote, so the rule makes skipping evidence
-  a visible refusal and is not proof that the work exists. When a mission's tasks are all
+  store, inside the hand-back transaction, for every caller. The CLI, the MCP server and
+  the mission conductor install a git-backed checker (the store has no git access and
+  stays pure; a store without one, as in personal callers and tests, behaves as before).
+  In a git work tree the checker requires a `commit` artifact (7 to 64 hex digits, never
+  an option, ref name or path) that exists, is reachable from the work tree's HEAD or a
+  `monoagent/<id>/<id>` branch, and changes at least one declared file or a path under
+  a declared folder (at least one, not all), by its own diff or against its merge base
+  with HEAD; the same check runs again before a task can be verified (the operator can
+  still close a task without it). Git runs as an argument list without a shell, with
+  repository-redirecting environment variables dropped. Outside a git work tree the old
+  rule stays. Still self-asserted: test, file, log and diff artifacts (not accepted alone
+  in a git work tree, but not checked), the declared files themselves (planner-written
+  notes), and whether a commit that touches a declared file is the work that was asked
+  for. A process that installs no checker (the desktop app) does not run the check. When a mission's tasks are all
   done or verified, `mission_finish` closes the session as done in the operator's process
   (as the spend record is): the agent cannot close it while a task is open, blocked or
   failing, or a writer branch is unmerged.

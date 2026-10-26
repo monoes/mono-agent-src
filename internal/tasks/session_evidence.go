@@ -51,7 +51,7 @@ func declaresFiles(notes string) bool {
 // needsEvidence reads the task and refuses a result for a task of a session that is a code
 // task (kind task, files declared) and holds no evidence artifact. Research tasks (no
 // files), checks, epics and questions are exempt.
-func (s *Store) needsEvidence(ctx context.Context, x dbx, profileID string, id int64) error {
+func (s *Store) needsEvidence(ctx context.Context, x dbx, profileID string, session, id int64) error {
 	t, err := s.getTx(ctx, x, profileID, id)
 	if err != nil {
 		return err
@@ -71,18 +71,33 @@ func (s *Store) needsEvidence(ctx context.Context, x dbx, profileID string, id i
 		return fmt.Errorf("tasks: reading the evidence of #%d: %w", id, err)
 	}
 	defer rows.Close()
+	var commits []string
+	held := false
 	for rows.Next() {
 		var note string
 		if err := rows.Scan(&note); err != nil {
 			return fmt.Errorf("tasks: reading the evidence of #%d: %w", id, err)
 		}
-		kind, _, _ := strings.Cut(note, " ")
+		kind, ref, _ := strings.Cut(note, " ")
 		if evidenceKinds[kind] {
-			return nil
+			held = true
+		}
+		if kind == ArtifactCommit {
+			commits = append(commits, ref)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
+	}
+	rows.Close()
+	if s.checker != nil {
+		// A checked store asks even with no evidence held: a git work tree needs a commit.
+		if gerr := s.gateEvidence(ctx, session, t, commits); gerr != nil {
+			return gerr
+		}
+	}
+	if held {
+		return nil
 	}
 	if lastFail != 0 {
 		return fmt.Errorf("%w: task #%d failed verification: the evidence from before is the work that failed, so finishing it again needs "+
@@ -92,4 +107,15 @@ func (s *Store) needsEvidence(ctx context.Context, x dbx, profileID string, id i
 	return fmt.Errorf("%w: task #%d declares files, so finishing it needs at least one artifact "+
 		"(commit, diff, test, file or log): attach it with `task artifact %d --kind commit|diff|test --ref REF`, then finish again: %w",
 		ErrInvalid, id, id, ErrNoEvidence)
+}
+
+// parseMetaFiles reads the files of a [mission-meta] line.
+func parseMetaFiles(js string) ([]string, bool) {
+	var m struct {
+		Files []string `json:"files"`
+	}
+	if json.Unmarshal([]byte(js), &m) != nil {
+		return nil, false
+	}
+	return m.Files, true
 }

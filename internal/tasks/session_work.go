@@ -276,6 +276,12 @@ func (s *Store) VerifySessionTask(ctx context.Context, profileID string, session
 		if actor.Kind == Agent && worker != "" && sameIdentity(worker, actor.Label()) {
 			return invalid("task #%d was done by %s: another agent verifies it", id, worker)
 		}
+		if pass && s.checker != nil {
+			// A verified task always holds checked evidence (an operator closes without it).
+			if err := s.needsEvidence(ctx, x, profileID, sessionID, id); err != nil {
+				return err
+			}
+		}
 		stamp := s.stamp()
 		switch {
 		case pass:
@@ -398,6 +404,11 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 		}
 		if n >= MaxArtifactsPerTask {
 			return limit("task #%d already has %d artifacts", id, n)
+		}
+		if in.Kind == ArtifactCommit {
+			if err := s.checkCommitRef(ctx, sessionID, id, ref); err != nil {
+				return err
+			}
 		}
 		stamp := s.stamp()
 		res, err := x.ExecContext(ctx, `INSERT INTO task_artifacts (task_id, kind, ref, note, at, actor) VALUES (?,?,?,?,?,?)`,
