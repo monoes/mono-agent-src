@@ -13,48 +13,14 @@ import (
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
-// boundSessionEnv names the session an agent's process is bound to: the carrier of the
-// session a worker's token will hold. An agent that sets it may act only in that session.
-const boundSessionEnv = "MONOAGENT_TASK_SESSION"
-
-// boundNumber reads a binding variable: 0 when it is blank, the number when it is one, and -1
-// (a binding to nothing that exists, which refuses every act) when it is set to anything else:
-// a garbled worker environment is not an unbound process.
-func boundNumber(raw string) int64 {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0
-	}
-	n, err := strconv.ParseInt(strings.TrimPrefix(raw, "#"), 10, 64)
-	if err != nil || n <= 0 {
-		return -1
-	}
-	return n
-}
-
-// boundSession reads boundSessionEnv. A task without its session is a damaged
-// binding (-1), not an unbound Personal-board caller.
-func (d Deps) boundSession() int64 {
-	session := boundNumber(d.Getenv(boundSessionEnv))
-	if session == 0 && d.boundTask() != 0 {
-		return -1
-	}
-	return session
-}
-
-// boundTaskEnv narrows boundSessionEnv to one task: what a mission worker's process holds.
-const boundTaskEnv = "MONOAGENT_TASK_ID"
-
-// boundTask reads boundTaskEnv: 0 when it is not set.
-func (d Deps) boundTask() int64 { return boundNumber(d.Getenv(boundTaskEnv)) }
-
-// boundRoleEnv narrows the task binding to a verifier's: "verifier" lets the process verify,
-// comment on and attach evidence to its one task and nothing else.
-const boundRoleEnv = "MONOAGENT_TASK_ROLE"
-
-func (d Deps) boundVerifier() bool {
-	return d.boundTask() != 0 && strings.TrimSpace(d.Getenv(boundRoleEnv)) == "verifier"
-}
+// boundSessionEnv and boundTaskEnv are the labels a conductor leaves in a worker's environment
+// (the brief's text, and an agent-context marker for the operator guard). They scope nothing:
+// the process can change them. What binds a process to a session, a task and a role is the
+// mission token it carries (agenttokens.EnvMissionToken), verified by missionBinding.
+const (
+	boundSessionEnv = "MONOAGENT_TASK_SESSION"
+	boundTaskEnv    = "MONOAGENT_TASK_ID"
+)
 
 // parseSessionID reads 3 or #3.
 func (d Deps) parseSessionID(s string) (int64, error) {
