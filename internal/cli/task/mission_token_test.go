@@ -77,8 +77,12 @@ func TestMissionTokenCases(t *testing.T) {
 	var d sessionDoc
 	mustTaskJSON(t, db, "default", &d, "", "session", "approve", id(one))
 	var got sessionTaskDoc
+	// the task is worked by its bound worker (an unbound agent cannot work a managed session)
+	_, wsecret := mintToken(t, db, "default", agenttokens.MissionBinding{Session: one, Task: mine, Role: agenttokens.RoleWorker, Actor: "m1-t1"}, time.Hour, time.Time{})
+	setenv(t, agenttokens.EnvMissionToken, wsecret)
 	mustTaskJSON(t, db, "default", &got, "", "claim", id(mine), "--as", "m1-t1")
 	mustTaskJSON(t, db, "default", &got, "", "finish", id(mine), "--result", "done", "--as", "m1-t1")
+	setenv(t, agenttokens.EnvMissionToken, "")
 	b := agenttokens.MissionBinding{Session: one, Task: mine, Role: agenttokens.RoleVerifier, Actor: "v1-t1"}
 
 	refused := func(label string, args ...string) {

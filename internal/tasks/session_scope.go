@@ -71,7 +71,7 @@ func (s *Store) noUnboundInManaged(ctx context.Context, x dbx, profileID string,
 	if conv.String == "" {
 		return nil
 	}
-	return bindingRefused("session #%d is managed by a conversation: an agent without a task token cannot %s there (it may read and comment); its conductor hands out the work", session, what)
+	return bindingRefused("session #%d is managed by a conversation: an agent without a task token cannot %s there (it may read); its conductor hands out the work", session, what)
 }
 
 // sessionIDOf is the session a task belongs to (0 for a task of the personal

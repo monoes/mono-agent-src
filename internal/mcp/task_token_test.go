@@ -48,7 +48,7 @@ func (f *taskFixture) managedSession(titles ...string) (tasks.Session, []tasks.T
 // toReview has a worker take the task and hand it back.
 func (f *taskFixture) toReview(se tasks.Session, tk tasks.Task, worker string) {
 	f.t.Helper()
-	w := tasks.Actor{Kind: tasks.Agent, Name: worker}
+	w := tasks.Actor{Kind: tasks.Agent, Name: worker, Session: se.ID, Task: tk.ID} // bound, as a conductor's worker is
 	if _, err := f.Store.SessionClaim(opCtx, "default", se.ID, tk.ID, w, 0); err != nil {
 		f.t.Fatal(err)
 	}
