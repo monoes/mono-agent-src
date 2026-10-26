@@ -76,8 +76,8 @@ func TestCommitMustExistAndTouchADeclaredFile(t *testing.T) {
 	if err := c(bg, commitCheck(target, "p/p.go", "zzz.go")); err != nil {
 		t.Fatalf("a commit touching one declared file: %v", err)
 	}
-	if err := c(bg, commitCheck(target[:7], "p/")); err != nil {
-		t.Fatalf("an abbreviated sha under a declared folder: %v", err)
+	if err := c(bg, commitCheck(strings.ToUpper(target), "p/")); err != nil {
+		t.Fatalf("a full sha in capitals under a declared folder: %v", err)
 	}
 	if err := c(bg, commitCheck(target, "p/**")); err != nil {
 		t.Fatalf("a /** folder: %v", err)
@@ -94,7 +94,7 @@ func TestHostileReferencesAndPathsAreRefused(t *testing.T) {
 	dir, base, _, target := repoWith(t)
 	c := Checker(dir)
 	for _, ref := range []string{"-x", "--upload-pack=touch /tmp/x", "refs/heads/main", "main", "HEAD", target + "; id", "$(id)", "../../etc/passwd",
-		"abc", strings.Repeat("a", 65), strings.Repeat("a", 5000), target[:6], "--end-of-options", target + "\n-x"} {
+		"abc", strings.Repeat("a", 65), strings.Repeat("a", 5000), target[:6], target[:7], target[:39], "--end-of-options", target + "\n-x"} {
 		if err := c(bg, commitCheck(ref, "p/p.go")); err == nil {
 			t.Errorf("ref %q was accepted", ref)
 		}

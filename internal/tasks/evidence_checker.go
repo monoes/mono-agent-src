@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ErrEvidenceNotApplicable is what an EvidenceChecker returns when the work folder is not a
@@ -20,10 +21,19 @@ var ErrEvidenceNotApplicable = errors.New("tasks: evidence cannot be checked her
 //     also change at least one of them (finishing and verifying the task).
 //
 // Files are the entries the task's notes declare, as written. The checker cleans them.
+//
+// Scoped, Dir and Base come from the store, never from the caller. A Scoped check is one of a
+// session that belongs to a conversation (a mission): Dir is that conversation's folder, the
+// only place the checker may look ("" when the store could not resolve one: not applicable),
+// and the process's own working directory, which an agent can change, is not consulted. Base is
+// the repository HEAD the conductor recorded when the task first started ("" when none was
+// recorded): a commit already part of it is not evidence of work done since.
 type EvidenceCheck struct {
 	Session, Task int64
 	Kind, Ref     string
 	Files         []string
+	Scoped        bool
+	Dir, Base     string
 }
 
 // EvidenceChecker validates evidence where git is available. The store has no git access
@@ -35,62 +45,87 @@ type EvidenceChecker func(ctx context.Context, c EvidenceCheck) error
 // references are not validated, as before.
 func (s *Store) SetEvidenceChecker(c EvidenceChecker) { s.checker = c }
 
-// checkCommitRef validates a commit reference when a checker is installed (attaching).
-func (s *Store) checkCommitRef(ctx context.Context, session, id int64, ref string) error {
-	if s.checker == nil {
-		return nil
-	}
-	err := s.checker(ctx, EvidenceCheck{Session: session, Task: id, Kind: ArtifactCommit, Ref: ref})
-	if err == nil || errors.Is(err, ErrEvidenceNotApplicable) {
-		return nil
-	}
-	return invalid("the commit %q is not evidence: %v", echo(ref), err)
-}
+// evidenceBudget bounds the whole evidence gate of one finish or verify, however many
+// commits the task holds; evidenceMaxCommits is how many of them (the newest) it examines.
+// The checks run before the write transaction opens, so neither holds the database lock.
+var evidenceBudget = 5 * time.Second
+
+const evidenceMaxCommits = 5
 
 // ArtifactCommit is the artifact kind the checker validates.
 const ArtifactCommit = "commit"
 
+// checkCommitRef validates a commit reference when a checker is installed (attaching). It
+// returns the reference to store: normalised (lower case) when git checked it, as typed when
+// the work folder is not a git work tree.
+func (s *Store) checkCommitRef(ctx context.Context, session, id int64, ref string, sc evScope) (string, error) {
+	if s.checker == nil {
+		return ref, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, evidenceBudget)
+	defer cancel()
+	err := s.checker(ctx, sc.check(session, id, ArtifactCommit, ref, nil))
+	switch {
+	case err == nil:
+		return strings.ToLower(ref), nil
+	case errors.Is(err, ErrEvidenceNotApplicable):
+		return ref, nil
+	}
+	return "", invalid("the commit %q is not evidence: %v", echo(ref), err)
+}
+
 // gateEvidence runs when a task that declares files holds evidence: with a checker installed
 // and the work folder a git work tree, at least one commit artifact must exist, be reachable
 // and change at least one declared file or a path under a declared folder. Test, file, log
-// and diff artifacts stay self-asserted and no longer carry a code task alone there.
-func (s *Store) gateEvidence(ctx context.Context, session int64, t Task, commits []string) error {
+// and diff artifacts stay self-asserted and no longer carry a code task alone there. It reads
+// no database: the whole gate runs inside one deadline and examines the newest commits only.
+func (s *Store) gateEvidence(ctx context.Context, session int64, t Task, commits []string, sc evScope) error {
 	if s.checker == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, evidenceBudget)
+	defer cancel()
 	files := declaredFiles(t.Notes)
-	probe := EvidenceCheck{Session: session, Task: t.ID, Files: files}
-	if err := s.checker(ctx, probe); err != nil {
+	if err := s.checker(ctx, sc.check(session, t.ID, "", "", files)); err != nil {
 		if errors.Is(err, ErrEvidenceNotApplicable) {
 			return nil
 		}
 		return fmt.Errorf("%w: task #%d: the evidence could not be checked: %v: %w", ErrInvalid, t.ID, err, ErrNoEvidence)
 	}
+	if len(commits) > evidenceMaxCommits {
+		commits = commits[len(commits)-evidenceMaxCommits:]
+	}
 	var first error
-	for _, ref := range commits {
-		err := s.checker(ctx, EvidenceCheck{Session: session, Task: t.ID, Kind: ArtifactCommit, Ref: ref, Files: files})
+	for i := len(commits) - 1; i >= 0; i-- { // newest first
+		ref := commits[i]
+		err := s.checker(ctx, sc.check(session, t.ID, ArtifactCommit, ref, files))
 		if err == nil {
 			return nil
 		}
 		if first == nil {
 			first = fmt.Errorf("commit %s: %v", echo(ref), err)
 		}
+		if ctx.Err() != nil {
+			break
+		}
 	}
 	why := "it holds no commit artifact"
 	if first != nil {
 		why = first.Error()
 	}
-	return fmt.Errorf("%w: task #%d declares files in a git work tree, so its evidence must be a commit that exists, is reachable from "+
-		"the work tree's HEAD or a mission branch, and changes at least one declared file (or a path under a declared folder) (%s): "+
-		"attach it with `task artifact %d --kind commit --ref SHA`, then finish again: %w", ErrInvalid, t.ID, why, t.ID, ErrNoEvidence)
+	return fmt.Errorf("%w: task #%d declares files in a git work tree, so its evidence must be a commit (its full object id, from `git rev-parse HEAD`) "+
+		"that exists, is reachable from the work tree's HEAD or a mission branch, is not a merge commit, was made since the task started, and changes "+
+		"at least one declared file (or a path under a declared folder) (%s): "+
+		"attach it with `task artifact %d --kind commit --ref FULL_SHA`, then finish again: %w", ErrInvalid, t.ID, why, t.ID, ErrNoEvidence)
 }
 
 // declaredFiles lists the entries a task's notes declare, in the closing [mission-meta]
-// line or a "Files:" block (one line, or the lines up to the first blank one).
+// line or a "Files:" block (one line, or the lines up to the first blank one). A trailing
+// parenthesised annotation ("src/a.go (new)") is dropped, and "none" or "n/a" declares nothing.
 func declaredFiles(notes string) []string {
 	var out []string
 	add := func(raw string) {
-		if p := strings.TrimSpace(raw); p != "" && len(out) < 200 {
+		if p := cleanDeclaredEntry(raw); p != "" && len(out) < 200 {
 			out = append(out, p)
 		}
 	}
@@ -126,4 +161,22 @@ func declaredFiles(notes string) []string {
 		}
 	}
 	return out
+}
+
+// cleanDeclaredEntry trims one declared entry: trailing parenthesised annotations come off,
+// and the placeholders for "no files" become "".
+func cleanDeclaredEntry(raw string) string {
+	p := strings.TrimSpace(raw)
+	for strings.HasSuffix(p, ")") {
+		i := strings.LastIndex(p, "(")
+		if i < 0 {
+			break
+		}
+		p = strings.TrimSpace(p[:i])
+	}
+	switch strings.ToLower(strings.Trim(p, "`'\".")) {
+	case "none", "n/a", "na", "nil", "-", "":
+		return ""
+	}
+	return p
 }

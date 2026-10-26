@@ -126,9 +126,9 @@ var taskSessionCommandDocs = []cmdDoc{
 		Short: "Attach evidence to a session task: a commit, a file, a report, test output (the operator, the agent that holds the task, or a verifier of a task in Review)",
 		Usage: "monoagentcli [--profile P] task artifact ID --kind KIND --ref REF [--note TEXT] [--as NAME]",
 		Flags: `  --kind string  commit, file, report, test, diff, log, url or other
-  --ref string   A commit hash, a path, a URL
+  --ref string   A commit's full object id (git rev-parse HEAD), a path, a URL
   --note string  What it shows`,
-		Examples: []string{`monoagentcli --profile work task artifact 12 --kind commit --ref 4f129c2 --as worker-1`},
+		Examples: []string{`monoagentcli --profile work task artifact 12 --kind commit --ref 4f129c2e0f3a9d1b7c5e8a6d2b4f0c9e1a3d5b7f --as worker-1`},
 	},
 	{
 		Name:     "task depend",

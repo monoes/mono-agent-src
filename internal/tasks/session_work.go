@@ -238,6 +238,10 @@ func (s *Store) VerifySessionTask(ctx context.Context, profileID string, session
 	if !pass && note == "" {
 		return Task{}, invalid("a failed verification needs a note: say what is wrong, the next worker reads it")
 	}
+	var pre *evidenceVerdict
+	if pass && actor.Kind != Human {
+		pre = s.precheckEvidence(ctx, profileID, sessionID, id) // git runs before the write lock is taken
+	}
 	var out Task
 	err := s.tx(ctx, func(x dbx) error {
 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
@@ -276,9 +280,10 @@ func (s *Store) VerifySessionTask(ctx context.Context, profileID string, session
 		if actor.Kind == Agent && worker != "" && sameIdentity(worker, actor.Label()) {
 			return invalid("task #%d was done by %s: another agent verifies it", id, worker)
 		}
-		if pass && s.checker != nil {
-			// A verified task always holds checked evidence (an operator closes without it).
-			if err := s.needsEvidence(ctx, x, profileID, sessionID, id); err != nil {
+		if pass && s.checker != nil && actor.Kind != Human {
+			// A verified task always holds checked evidence. The operator is never held to it: an
+			// operator verifies, or closes with a move, without it.
+			if err := s.needsEvidence(ctx, x, profileID, sessionID, id, pre); err != nil {
 				return err
 			}
 		}
@@ -349,9 +354,12 @@ func (s *Store) verifyRetry(ctx context.Context, x dbx, profileID string, cur Ta
 const (
 	ArtifactBranch = "branch"
 	ArtifactMerge  = "merge"
+	// ArtifactBase is the repository HEAD (a full object id) the conductor recorded when the task
+	// first started; the commit evidence of the task must not be part of it. The first one stands.
+	ArtifactBase = "base"
 )
 
-var artifactKinds = map[string]bool{"commit": true, "file": true, "report": true, "test": true, "diff": true, "log": true, "url": true, "other": true, ArtifactBranch: true, ArtifactMerge: true}
+var artifactKinds = map[string]bool{"commit": true, "file": true, "report": true, "test": true, "diff": true, "log": true, "url": true, "other": true, ArtifactBranch: true, ArtifactMerge: true, ArtifactBase: true}
 
 // artifactRefRunes bounds an artifact's reference.
 const artifactRefRunes = 2048
@@ -368,7 +376,7 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 	if !artifactKindRE.MatchString(in.Kind) || !artifactKinds[in.Kind] {
 		return Artifact{}, invalid("unknown artifact kind %q (use commit, file, report, test, diff, log, url or other)", echo(in.Kind))
 	}
-	if (in.Kind == ArtifactBranch || in.Kind == ArtifactMerge) && actor.Kind != Human {
+	if (in.Kind == ArtifactBranch || in.Kind == ArtifactMerge || in.Kind == ArtifactBase) && actor.Kind != Human {
 		return Artifact{}, operatorOnly("record a " + in.Kind + " artifact: the scheduler's records of writer branches are the operator's process's")
 	}
 	ref := cutRunes(oneLine(in.Ref), artifactRefRunes)
@@ -376,6 +384,18 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 		return Artifact{}, invalid("an artifact needs a reference: a commit hash, a path, a URL")
 	}
 	note := cutBytes(cleanText(in.Note), MaxCommentBytes)
+	// The commit is checked against git before the write transaction opens; the transaction
+	// then confirms the scope it was checked in is unchanged.
+	var scope evScope
+	if in.Kind == ArtifactCommit && s.checker != nil {
+		var err error
+		if scope, err = s.attachScope(ctx, profileID, sessionID, id); err != nil {
+			return Artifact{}, err
+		}
+		if ref, err = s.checkCommitRef(ctx, sessionID, id, ref, scope); err != nil {
+			return Artifact{}, err
+		}
+	}
 	var out Artifact
 	err := s.tx(ctx, func(x dbx) error {
 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
@@ -405,9 +425,27 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 		if n >= MaxArtifactsPerTask {
 			return limit("task #%d already has %d artifacts", id, n)
 		}
-		if in.Kind == ArtifactCommit {
-			if err := s.checkCommitRef(ctx, sessionID, id, ref); err != nil {
+		if in.Kind == ArtifactCommit && s.checker != nil {
+			if now, err := s.evidenceScope(ctx, x, profileID, sessionID, id); err != nil {
 				return err
+			} else if now != scope {
+				return evidenceMoved(id)
+			}
+		}
+		if in.Kind == ArtifactBase {
+			// the first start point stands: a later start of the same task records nothing new
+			var first Artifact
+			var at string
+			err := x.QueryRowContext(ctx, `SELECT id, ref, note, at, actor FROM task_artifacts WHERE task_id = ? AND kind = ? ORDER BY id ASC LIMIT 1`, id, ArtifactBase).
+				Scan(&first.ID, &first.Ref, &first.Note, &at, &first.Actor)
+			if err == nil {
+				first.TaskID, first.Kind = id, ArtifactBase
+				first.At, _ = time.Parse(timeFmt, at)
+				out = first
+				return nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("tasks: reading the start of #%d: %w", id, err)
 			}
 		}
 		stamp := s.stamp()

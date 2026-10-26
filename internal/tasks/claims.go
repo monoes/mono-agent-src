@@ -457,6 +457,10 @@ func (s *Store) handBack(ctx context.Context, profileID string, session, id int6
 	if err := noVerifier(actor, "finish or release a task"); err != nil {
 		return Task{}, err
 	}
+	var pre *evidenceVerdict
+	if session != 0 && kind == "result" {
+		pre = s.precheckEvidence(ctx, profileID, session, id) // git runs before the write lock is taken
+	}
 	var out Task
 	err := s.tx(ctx, func(x dbx) error {
 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
@@ -482,7 +486,7 @@ func (s *Store) handBack(ctx context.Context, profileID string, session, id int6
 			return errClaimMoved
 		}
 		if session != 0 && kind == "result" {
-			if err := s.needsEvidence(ctx, x, profileID, session, id); err != nil {
+			if err := s.needsEvidence(ctx, x, profileID, session, id, pre); err != nil {
 				return err
 			}
 		}
