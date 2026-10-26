@@ -180,3 +180,24 @@ func TestStampFileWorkflowsTakesTheOwnerFromTheSQLiteRow(t *testing.T) {
 		t.Errorf("file stamped %q, want work (its SQLite row's owner)", got)
 	}
 }
+
+// With no profile nothing can be stamped, so the pass does not even list the folder (a folder it
+// could not list would be an error otherwise).
+func TestStampFileWorkflowsDoesNotScanTheFolderWithoutAProfile(t *testing.T) {
+	t.Parallel()
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.DB.Exec("DEL" + "ETE FROM profiles"); err != nil {
+		t.Fatal(err)
+	}
+	notADir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := StampFileWorkflows(context.Background(), db.DB, notADir); err != nil {
+		t.Fatalf("the folder was scanned although no profile exists: %v", err)
+	}
+}

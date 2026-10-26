@@ -91,6 +91,9 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 	if err != nil {
 		return err
 	}
+	if owner == "" {
+		return nil // no profile exists: nothing can be given an owner, so no file is opened
+	}
 	rowOwner := func(id string) string {
 		var p sql.NullString
 		if db.QueryRowContext(ctx, `SELECT profile_id FROM workflows WHERE id = ?`, id).Scan(&p) != nil {
@@ -100,8 +103,9 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 	}
 	// Before the files older versions left are taken in, all of them may need an owner. After it,
 	// only the files of workflows that have rows do: a file with no stored copy is left unread.
+	claimed := workflow.LegacyClaimDone(ctx, db)
 	eligible := func(id string) bool {
-		if !workflow.LegacyClaimDone(ctx, db) {
+		if !claimed {
 			return true
 		}
 		var n int
