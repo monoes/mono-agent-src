@@ -358,16 +358,12 @@ func TestVaultSave_MadeUpProfilesCostNothing(t *testing.T) {
 	srv.SetVaultSink(sink)
 	h, _ := srv.handlerFor(MethodVaultSave)
 	params := vaultParams(nil)
-	start := time.Now()
 	for i := 0; i < 50000; i++ {
 		params["profile"] = fmt.Sprintf("ghost-%d", i)
 		_, err := h(context.Background(), &Request{Method: MethodVaultSave, Params: params, Origin: ConnInfo{Instance: "b1", ConnectedAt: now}}, func(string, string) {})
 		if err == nil || codeOf(t, err) != CodeInvalidInput {
 			t.Fatalf("made-up profile %d: %v", i, err)
 		}
-	}
-	if took := time.Since(start); took > time.Second {
-		t.Errorf("50k made-up profiles took %v", took)
 	}
 	if sink.calls() != 0 || sink.lists != 1 {
 		t.Errorf("sink saves %d, profile lists %d; want 0 and 1", sink.calls(), sink.lists)
@@ -452,3 +448,34 @@ func TestSaveRateLimiterIsLinearAndForgets(t *testing.T) {
 		t.Errorf("%d windows a minute later, want 1 (the one just counted)", n)
 	}
 }
+
+// "Cheap" is measured as work, not wall-clock time (which a loaded runner
+// stretches): one refused made-up profile allocates a bounded handful of
+// objects, however many calls came before it, and reaches no sink save.
+func TestVaultSave_MadeUpProfileCallAllocatesABoundedAmount(t *testing.T) {
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	prevNow := vaultSaveNow
+	vaultSaveNow = func() time.Time { return now }
+	defer func() { vaultSaveNow = prevNow }()
+	sink := &fakeVaultSink{live: []string{"p-work"}}
+	srv := NewServer("127.0.0.1:0", zerolog.Nop())
+	srv.SetVaultSink(sink)
+	h, _ := srv.handlerFor(MethodVaultSave)
+	params := vaultParams(nil)
+	params["profile"] = "ghost"
+	req := &Request{Method: MethodVaultSave, Params: params, Origin: ConnInfo{Instance: "b1", ConnectedAt: now}}
+	call := func() { _, _ = h(context.Background(), req, func(string, string) {}) }
+	call() // the first call reads the profile list
+	perCall := testing.AllocsPerRun(2000, call)
+	t.Logf("allocations per made-up profile call: %v", perCall)
+	if perCall > vaultMadeUpAllocBudget {
+		t.Errorf("a made-up profile call allocates %v objects, budget %d: a per-call cost came back", perCall, vaultMadeUpAllocBudget)
+	}
+	if sink.calls() != 0 || sink.lists != 1 {
+		t.Errorf("sink saves %d, profile lists %d; want 0 and 1", sink.calls(), sink.lists)
+	}
+}
+
+// vaultMadeUpAllocBudget bounds the objects one refused made-up profile call may
+// allocate (the error, its message and the request plumbing).
+const vaultMadeUpAllocBudget = 16

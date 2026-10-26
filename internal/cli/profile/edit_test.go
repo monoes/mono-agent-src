@@ -153,16 +153,17 @@ func TestProfileUpdateAndDeleteAreForTheOperatorOnly(t *testing.T) {
 
 // seedOverrides gives the columns whose CHECK constraint rejects the dummy value.
 var seedOverrides = map[string]map[string]any{
-	"applications":           {"kind": "job", "status": "pending"},
-	"chat_memory_messages":   {"role": "human"},
-	"application_status_log": {"actor": "user"},
-	"workflow_executions":    {"status": "COMPLETED"},
-	"person_links":           {"relation": "same", "status": "confirmed", "person_a": 1, "person_b": 2},
-	"application_fills":      {"status": "filled"},
-	"application_tabs":       {"state": "parked"},
-	"application_links":      {"kind": "task"},
-	"task_deps":              {"task_id": 1, "depends_on_task_id": 2},
-	"coder_session_commands": {"kind": "send"},
+	"applications":            {"kind": "job", "status": "pending"},
+	"chat_memory_messages":    {"role": "human"},
+	"application_status_log":  {"actor": "user"},
+	"workflow_executions":     {"status": "COMPLETED"},
+	"person_links":            {"relation": "same", "status": "confirmed", "person_a": 1, "person_b": 2},
+	"application_fills":       {"status": "filled"},
+	"application_tabs":        {"state": "parked"},
+	"application_links":       {"kind": "task"},
+	"task_deps":               {"task_id": 1, "depends_on_task_id": 2},
+	"coder_session_commands":  {"kind": "send"},
+	"coder_session_decisions": {"made_by": "model"},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a

@@ -654,8 +654,12 @@ func TestSessionSettingsGetSetAndTheirGuards(t *testing.T) {
 	if _, code := run(agent, "settings", "set", conv.ID, "--patch", `{"checkin_minutes": 1}`); code == 0 {
 		t.Fatal("a non-operator changed a session's settings")
 	}
-	if v, _ = run(agent, "settings", "get", conv.ID); v.Settings.CheckinMinutes != 5 {
-		t.Fatalf("a non-operator may read, and the value must be unchanged: %+v", v)
+	// an agent with no session token reads nothing (reading is the operator's or a session's own tree)
+	if _, code := run(agent, "settings", "get", conv.ID); code == 0 {
+		t.Fatal("an agent without a session token read a session's settings")
+	}
+	if v, _ = run(cfg, "settings", "get", conv.ID); v.Settings.CheckinMinutes != 5 {
+		t.Fatalf("the value must be unchanged: %+v", v)
 	}
 }
 

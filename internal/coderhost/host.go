@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -60,6 +61,10 @@ type Host struct {
 	mu   sync.Mutex // serializes session changes between the loop and the turn watchers
 	live map[string]Turn
 	wg   sync.WaitGroup
+
+	readHolds map[int64]*readHold  // commands held for a failed read, Tick only
+	capLogged map[string]time.Time // when each unreadable cap was last logged
+	capHeld   map[string][2]string // chats whose sends the max_concurrent cap held on the last pass (profile, conversation); Tick only
 }
 
 func key(profileID, conversationID string) string { return profileID + "\x00" + conversationID }
@@ -107,6 +112,9 @@ func (h *Host) settle(x Session) {
 	x.TurnID, x.TurnPID, x.TurnStamp = "", 0, ""
 	if x.State != StatePaused {
 		x.State = StateIdle
+		if h.Store.OpenParked(x.ProfileID, x.ConversationID) > 0 {
+			x.State = StateWaitingUser // a parked question outlives the turn that was running when it was parked
+		}
 	}
 	if err := h.Store.SaveSession(x); err != nil {
 		h.logf("coder host: saving %s: %v", x.ConversationID, err)
@@ -130,21 +138,32 @@ func (h *Host) watch(x Session, t Turn) {
 // Tick makes one pass over the waiting commands. A command that cannot run yet
 // (a send to a busy or paused session) stays pending, in order.
 func (h *Host) Tick() error {
+	h.Store.ReopenFailedAnswers() // an answer note that did not run (stop, expiry, a failed check) gives its question back
+	h.Store.DropUnstartedCaps()
 	if err := h.Store.ExpireSends(); err != nil {
 		return err
 	}
-	cmds, err := h.Store.Pending()
+	cmds, err := h.pendingOrdered()
 	if err != nil {
 		return err
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	heldNow := map[string][2]string{}
+	defer func() { h.capHeld = heldNow }()
 	if h.live == nil {
 		h.live = map[string]Turn{}
 	}
 	blocked := map[string]bool{} // an earlier send for the chat is still waiting: later sends keep their order
+	var running *childRunning    // built on the first send to a child (max_concurrent)
 	for _, c := range cmds {
 		k := key(c.ProfileID, c.ConversationID)
+		// cmds was read before the pass began: an earlier command of this pass (a stop, which fails the
+		// chat's earlier sends, or a master's stop) may have ended this one. Act only on a command that is
+		// still pending, and let an unreadable row wait for the next pass.
+		if cur, ok, err := h.Store.GetCommand(c.ID); err != nil || !ok || cur.Status != CmdPending {
+			continue
+		}
 		if h.RequireConversations {
 			// A command read just before its conversation was deleted must not bring the session
 			// back, nor start a turn on nothing.
@@ -159,6 +178,19 @@ func (h *Host) Tick() error {
 		if err != nil {
 			return err
 		}
+		// A command a master queued is run only while the target is still that master's descendant and
+		// the master is alive; a paused master's sends are held (they stay pending, in order, and do not
+		// hold up a person's message to the same chat).
+		if c.Issuer != "" {
+			if ok, hold, reason := h.issuerStillAllowed(c, x); !ok {
+				if strings.HasPrefix(reason, readFailed) {
+					h.recheckFailed(c, reason, k, blocked) // a failed read holds the command; it fails only after repeated passes
+				} else if !hold {
+					h.end(c, CmdFailed, reason)
+				}
+				continue
+			}
+		}
 		switch c.Kind {
 		case KindSend:
 			if blocked[k] || h.live[k] != nil || x.State == StatePaused {
@@ -171,9 +203,37 @@ func (h *Host) Tick() error {
 			}
 			// A check-in is queued by the host, not typed by a person: it is only run for a
 			// master that is still unattended, as it was when it was queued.
-			if strings.HasPrefix(c.TurnID, "checkin-") {
+			if strings.HasPrefix(c.TurnID, CheckinTurnPrefix) {
 				if reason := h.checkinStillAllowed(x, h.Store.now()); reason != "" {
-					h.end(c, CmdFailed, reason)
+					h.recheckFailed(c, reason, k, blocked)
+					continue
+				}
+			}
+			// A message a master sent to a child counts with the check-ins: after CheckinLimit
+			// host-made turns in a row the child waits for a person, and it is only run for a
+			// session that is still a child.
+			if strings.HasPrefix(c.TurnID, MasterTurnPrefix) || c.Issuer != "" {
+				if reason := h.masterSendStillAllowed(x); reason != "" {
+					h.recheckFailed(c, reason, k, blocked)
+					continue
+				}
+			}
+			// An answer note from a master or an applied default counts with the check-ins too: a
+			// person's own answer is not held back.
+			if answerGated(c.TurnID) {
+				if reason := h.answerStillAllowed(x); reason != "" {
+					h.recheckFailed(c, reason, k, blocked)
+					continue
+				}
+			}
+			// max_concurrent: a master's children run only so many turns at once; the rest wait, in order.
+			if x.Role == "child" && x.Parent != "" {
+				if running == nil {
+					running = h.runningChildren(cmds)
+				}
+				if h.childSlotFull(x, k, running) {
+					heldNow[k] = [2]string{c.ProfileID, c.ConversationID}
+					blocked[k] = true
 					continue
 				}
 			}
@@ -214,25 +274,60 @@ func (h *Host) Tick() error {
 					}
 				}
 			}
+			capUSD, capped, berr := h.Store.TurnCap(c.ProfileID, c.ConversationID)
+			if berr == nil && capped {
+				if _, ok := h.L.(BudgetLauncher); !ok {
+					berr = errors.New("this launcher cannot start a turn under a spend cap")
+				}
+			}
+			if berr != nil {
+				h.settle(x)
+				h.end(c, CmdFailed, berr.Error())
+				continue
+			}
+			// The turn's cap is recorded BEFORE the turn starts (and dropped if it does not), so a crash or a
+			// failed write can never leave a running turn with no cap on record.
+			if capped {
+				if err := h.Store.RecordTurnCap(c.ProfileID, c.ConversationID, c.TurnID, capUSD); err != nil {
+					h.settle(x)
+					h.end(c, CmdFailed, "could not record the turn's spend cap: "+err.Error())
+					continue
+				}
+			}
 			t, err := h.unlocked(func() (Turn, error) { // admission can take seconds; do not hold up the turn watchers meanwhile
 				// The token is the one of the confirmation record looked up above (never anything
 				// in the command row, the message or the mesh block); the child verifies the
 				// record's MAC and consumes it.
+				if capped {
+					return h.L.(BudgetLauncher).StartCapped(c.ProfileID, c.ConversationID, c.TurnID, message, c.Attachments, token, capUSD)
+				}
 				return h.L.Start(c.ProfileID, c.ConversationID, c.TurnID, message, c.Attachments, token)
 			})
 			if err != nil {
+				if capped {
+					h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
+				}
 				h.settle(x)
 				h.end(c, CmdFailed, err.Error())
 				continue
 			}
+			if capped {
+				h.Store.MarkTurnCapStarted(c.ProfileID, c.ConversationID, c.TurnID)
+			}
+			if c.Issuer != "" && !HostMade(c.TurnID) {
+				h.Store.MarkHostTurn(c.ProfileID, c.ConversationID, c.TurnID) // counts like a master- turn
+			}
 			x.TurnPID, x.TurnStamp = t.PID(), t.Stamp()
 			if err := h.Store.SaveSession(x); err != nil {
 				t.Stop()
-				h.end(c, CmdFailed, "could not record the session: "+err.Error())
+				h.end(c, CmdFailed, startedMarker+" but could not record the session: "+err.Error())
 				return err
 			}
 			_, _ = h.unlocked(func() (Turn, error) { commit(); return nil, nil }) // the turn has the messages and is recorded: mark them read, without holding up the watchers
 			h.live[k] = t
+			if running != nil {
+				running.started(x, k)
+			}
 			h.watch(x, t)
 			h.end(c, CmdDone, "")
 		case KindStop:
@@ -240,6 +335,10 @@ func (h *Host) Tick() error {
 			// stopped the session, not just the turn that happened to run.
 			dropped, err := h.Store.CancelPendingSends(c.ProfileID, c.ConversationID, c.ID, "cancelled by a stop")
 			if err != nil {
+				return err
+			}
+			// The master was stopped: what it had queued for its children is not run either.
+			if err := h.Store.CancelChildMasterSends(c.ProfileID, c.ConversationID, "the master was stopped"); err != nil {
 				return err
 			}
 			t := h.live[k]
@@ -260,6 +359,9 @@ func (h *Host) Tick() error {
 		case KindResume:
 			if x.State == StatePaused {
 				x.State = StateIdle
+				if h.Store.OpenParked(x.ProfileID, x.ConversationID) > 0 {
+					x.State = StateWaitingUser // a parked question outlives a pause
+				}
 				if h.live[k] != nil {
 					x.State = StateRunning
 				}
@@ -282,8 +384,12 @@ func (h *Host) end(c Command, status, errText string) {
 	// The status moves first and the record is revoked after: a confirmation written
 	// while this runs either sees the command no longer pending and refuses, or is in
 	// place before the revoke.
-	if err := h.Store.SetCommand(c.ID, status, errText); err != nil {
+	// Only a command that is still pending is ended: one that another process already ended (an
+	// operator's stop) keeps the status and reason it was given.
+	if applied, err := h.Store.setCommandIfPending(c.ID, status, errText); err != nil {
 		h.logf("coder host: recording command %d: %v", c.ID, err)
+	} else if !applied {
+		h.logf("coder host: command %d was ended elsewhere; its status is left as it is", c.ID)
 	}
 	endBetweenSteps()
 	if status == CmdFailed && c.Kind == KindSend {
@@ -460,6 +566,7 @@ func (h *Host) checkinIfDue() {
 	if now := h.Store.now(); now.Sub(h.lastCheckin) >= every {
 		h.lastCheckin = now
 		h.checkinPass(now)
+		h.parkedPass()
 	}
 }
 
@@ -467,19 +574,100 @@ func (h *Host) checkinIfDue() {
 // allowed it to be queued: it can have waited, and the settings can have changed.
 // It returns why not, or "".
 func (h *Host) checkinStillAllowed(x Session, now time.Time) string {
-	if !x.Unattended || x.Role != "master" {
-		return "the session is no longer an unattended master"
+	kids, err := h.liveChildren(x.ProfileID, x.ConversationID)
+	if err != nil {
+		return readFailed + "the session's children do not read: " + err.Error()
+	}
+	if kids == 0 && x.Unattended && x.Role != "child" { // a lead is checked on while its mission has open work: a failed read is not "no mission"
+		if _, ok := h.missionOf(x.ProfileID, x.ConversationID); !ok {
+			return readFailed + "the session's mission does not read"
+		}
+	}
+	if reason := h.checkinTargetStillValid(x, kids); reason != "" {
+		return reason
 	}
 	settings, err := h.Store.GetSettings(x.ProfileID, x.ConversationID)
 	if err != nil {
-		return "the session's settings do not read"
+		return readFailed + "the session's settings do not read: " + err.Error()
 	}
 	if !withinActiveHours(settings.ActiveHours, now) {
 		return "outside the session's active hours"
 	}
 	streak, _, _, err := h.Store.CheckinStreak(x.ProfileID, x.ConversationID)
-	if err != nil || streak >= settings.CheckinLimit {
+	if err != nil {
+		return readFailed + "the session's turns do not read: " + err.Error()
+	}
+	if streak >= settings.CheckinLimit {
 		return "the session has had its check-ins in a row; it waits for a person"
 	}
 	return ""
+}
+
+// answerStillAllowed re-checks, when an answer note from a master or a default is
+// about to run, that the session has not had CheckinLimit host-made turns in a row.
+func (h *Host) answerStillAllowed(x Session) string {
+	settings, err := h.Store.GetSettings(x.ProfileID, x.ConversationID)
+	if err != nil {
+		return readFailed + "the session's settings do not read: " + err.Error()
+	}
+	streak, _, _, err := h.Store.CheckinStreak(x.ProfileID, x.ConversationID)
+	if err != nil {
+		return readFailed + "the session's turns do not read: " + err.Error()
+	}
+	if streak >= settings.CheckinLimit {
+		return "the session has had its host-made turns in a row; it waits for a person"
+	}
+	return ""
+}
+
+// masterSendStillAllowed re-checks, when a master's message to a child is about to
+// run, that the session is still a child of a master that has not been stopped
+// and has not had CheckinLimit host-made turns in a row without a person. It
+// returns why not, or "".
+func (h *Host) masterSendStillAllowed(x Session) string {
+	if x.Role != "child" || x.Parent == "" {
+		return "the session is no longer a child session"
+	}
+	settings, err := h.Store.GetSettings(x.ProfileID, x.ConversationID)
+	if err != nil {
+		return readFailed + "the session's settings do not read: " + err.Error()
+	}
+	streak, _, _, err := h.Store.CheckinStreak(x.ProfileID, x.ConversationID)
+	if err != nil {
+		return readFailed + "the session's turns do not read: " + err.Error()
+	}
+	if streak >= settings.CheckinLimit {
+		return "the session has had its host-made turns in a row; it waits for a person"
+	}
+	return ""
+}
+
+// issuerStillAllowed is the check every command a master queued (c.Issuer != "") passes when it is about
+// to run: the target x must still be a descendant of the issuer (the predicate the tools authorize with),
+// and the issuer must still exist and not be stopped. A send from a paused master is held (hold is true:
+// leave it pending, in order, like a send to a paused chat); a stop, pause or resume from a paused master
+// still runs, so a master can always stop a runaway child. reason says why not when ok is false and hold
+// is false. A command with no issuer is always allowed here.
+func (h *Host) issuerStillAllowed(c Command, x Session) (ok bool, hold bool, reason string) {
+	if c.Issuer == "" {
+		return true, false, ""
+	}
+	below, err := h.Store.IsDescendantErr(c.ProfileID, c.Issuer, c.ConversationID)
+	if err != nil {
+		return false, true, readFailed + "the session's place in the tree does not read: " + err.Error()
+	}
+	if !below {
+		return false, false, "the session is no longer a child of the master that sent this"
+	}
+	m, found, err := h.Store.GetSession(c.ProfileID, c.Issuer)
+	if err != nil {
+		return false, true, readFailed + "the session's master does not read: " + err.Error()
+	}
+	if !found || m.State == StateStopped {
+		return false, false, "the session's master is gone or stopped"
+	}
+	if m.State == StatePaused && c.Kind == KindSend {
+		return false, true, "the session's master is paused"
+	}
+	return true, false, ""
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -57,7 +56,7 @@ func TestDynamicOrgLeadGetsMissionToolsByStage(t *testing.T) {
 		if len(extra) > 0 && extra[0] == "confirm" { // the host's token for an operator-confirmed send
 			tok = confirmedToken(t, cs, conv.ID, id, 0)
 		}
-		t.Setenv(coderhost.MissionTokenEnv, tok)
+		handOffMissionToken(t, tok)
 		if out, err := runChatCmd(t, dbPath, bin, append(args, "--", "build it")...); err != nil {
 			t.Fatalf("turn %s: %v\n%s", id, err, out)
 		}
