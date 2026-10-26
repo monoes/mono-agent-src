@@ -1687,17 +1687,31 @@ that works a task acts on them. The defences:
   store, inside the hand-back transaction, for every caller. The CLI, the MCP server and
   the mission conductor install a git-backed checker (the store has no git access and
   stays pure; a store without one, as in personal callers and tests, behaves as before).
-  In a git work tree the checker requires a `commit` artifact (7 to 64 hex digits, never
-  an option, ref name or path) that exists, is reachable from the work tree's HEAD or a
-  `monoagent/<id>/<id>` branch, and changes at least one declared file or a path under
-  a declared folder (at least one, not all), by its own diff or against its merge base
-  with HEAD; the same check runs again before a task can be verified (the operator can
-  still close a task without it). Git runs as an argument list without a shell, with
-  repository-redirecting environment variables dropped. Outside a git work tree the old
-  rule stays. Still self-asserted: test, file, log and diff artifacts (not accepted alone
-  in a git work tree, but not checked), the declared files themselves (planner-written
-  notes), and whether a commit that touches a declared file is the work that was asked
-  for. A process that installs no checker (the desktop app) does not run the check. When a mission's tasks are all
+  In a git work tree the checker requires a `commit` artifact, named by its full object id
+  (40 hex digits, 64 in a sha256 repository: never an abbreviation, option, ref name or path;
+  the stored reference is the normalised id), that exists, is reachable from the work tree's
+  HEAD or a `monoagent/<id>/<id>` branch, is not a merge commit, is not part of the history the
+  task started from, and changes at least one declared file or a path under a declared folder
+  (at least one, not all), by its own diff or against its merge base with HEAD. The work tree
+  is the folder of the session's conversation, read by the store from its database; the
+  process's working directory, which an agent can change, is never consulted for a mission
+  session. A conversation folder that is not a git work tree (or is unknown) keeps the old rule
+  (any artifact of an evidence kind); a session with no conversation (the operator's own)
+  is checked in the process's working directory. When a task first starts, the operator's
+  process records the folder's HEAD as a `base` artifact (an agent cannot write one; the first
+  stands); a commit that is part of it is refused. The git checks run before the write
+  transaction opens, under one 5 second deadline over the newest five commits, and the
+  transaction confirms the task and its evidence are unchanged, else refuses with a retryable
+  error. The same check runs again before an agent can verify a task; the operator is never
+  held to it (it verifies, or closes with a move, without it). Git runs as an argument list
+  without a shell, with repository-redirecting and object-replacement variables dropped.
+  Still self-asserted: test, file, log and diff artifacts (not accepted alone in a git work
+  tree, but not checked), the declared files themselves (planner-written notes), whether a
+  commit that touches a declared file is the work that was asked for, and who made it
+  (commit dates and authors are not read, and a worker can commit a trivial change to a
+  declared file after the start). A session an agent links to another chat of its profile is
+  checked in that chat's folder. A process that installs no checker (the desktop app) does
+  not run the check. When a mission's tasks are all
   done or verified, `mission_finish` closes the session as done in the operator's process
   (as the spend record is): the agent cannot close it while a task is open, blocked or
   failing, or a writer branch is unmerged.

@@ -35,13 +35,19 @@ func TestGitCheckDoesNotHoldTheWriteLock(t *testing.T) {
 		_, err := s.SessionFinish(bg, "default", se.ID, tk.ID, Outcome{Result: "done"}, bot("w1"))
 		done <- err
 	}()
-	<-started
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the checker never ran")
+	}
 	ctx, cancel := context.WithTimeout(bg, 3*time.Second)
 	defer cancel()
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock() // never leave the finish hanging when the assertion below fails
 	if _, _, err := s.Add(ctx, "default", AddInput{Title: "another writer", Ready: true}, human); err != nil {
 		t.Fatalf("a writer was blocked while the evidence was being checked: %v", err)
 	}
-	close(release)
+	unblock()
 	if err := <-done; err != nil {
 		t.Fatalf("finish: %v", err)
 	}
