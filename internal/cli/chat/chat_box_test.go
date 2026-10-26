@@ -156,8 +156,65 @@ func TestCoderBoxRefusesATamperedSetting(t *testing.T) {
 }
 
 func TestCoderBoxProtectsTheConfiguredDatabase(t *testing.T) {
-	b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", "/srv/agent/monoagent.db")
-	if err != nil || len(b.Protect) != 3 || b.Protect[0] != "/srv/agent/monoagent.db" || b.Protect[1] != "/srv/agent/monoagent.db-wal" {
-		t.Fatalf("%+v %v", b, err)
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	real := filepath.Join(dir, "data", "private", "agent.db")
+	os.MkdirAll(filepath.Dir(real), 0o700)
+	os.WriteFile(real, []byte("db"), 0o600)
+	alias := filepath.Join(dir, "srv-alias.db")
+	os.Symlink(real, alias)
+	os.MkdirAll(filepath.Join(dir, "proj"), 0o700)
+	os.WriteFile(filepath.Join(dir, "proj", "agent.db"), []byte("db"), 0o600)
+
+	has := func(list []string, want string) bool {
+		for _, p := range list {
+			if p == want {
+				return true
+			}
+		}
+		return false
+	}
+	// A path with ~ reaches the box absolute.
+	b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", "~/proj/agent.db")
+	if err != nil || !has(b.Protect, filepath.Join(dir, "proj", "agent.db")) || !has(b.Protect, filepath.Join(dir, "proj", "agent.db-wal")) {
+		t.Fatalf("tilde path: %v %v", b, err)
+	}
+	// A symlinked database is protected under both names, and its journal files at the real place.
+	b, err = coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{alias, alias + "-wal", real, real + "-wal", real + "-shm"} {
+		if !has(b.Protect, want) {
+			t.Errorf("Protect lacks %s: %v", want, b.Protect)
+		}
+	}
+	// A path that cannot be resolved for another reason than being absent refuses the turn.
+	if _, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", filepath.Join(real, "below-a-file.db")); codeOf(err) != CodeBoxDBPath {
+		t.Errorf("unresolvable path: %v", err)
+	}
+	// Not created yet: still protected where it will be.
+	if b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", filepath.Join(dir, "new.db")); err != nil || !has(b.Protect, filepath.Join(dir, "new.db")) {
+		t.Errorf("new database: %v %v", b, err)
+	}
+}
+
+// With the database inside the project directory the turn is refused instead of running with
+// the database readable (the real bubblewrap path).
+func TestCoderBoxRefusesAProjectThatHoldsTheDatabase(t *testing.T) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	os.MkdirAll(filepath.Join(dir, "proj"), 0o700)
+	os.WriteFile(filepath.Join(dir, "proj", "agent.db"), []byte("db"), 0o600)
+	b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, filepath.Join(dir, "proj"), "claude", "", "~/proj/agent.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Home = dir
+	if _, err := b.Wrap("true", nil, os.Environ()); !agentbox.IsCode(err, agentbox.CodeBadPath) {
+		t.Fatalf("a project holding the database was accepted: %v", err)
 	}
 }

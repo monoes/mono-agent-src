@@ -1,6 +1,9 @@
 package chat
 
 import (
+	"errors"
+	"io/fs"
+	"path/filepath"
 	"strconv"
 
 	"github.com/monoes/mono-agent/internal/agentbox"
@@ -19,6 +22,7 @@ const (
 	CodeBoxNeedsAPIMode = "box_needs_api_mode"
 	CodeBoxOrgUnsupport = "box_org_unsupported"
 	CodeBoxInvalid      = "box_setting_invalid"
+	CodeBoxDBPath       = "box_db_path_unresolved"
 )
 
 type boxError struct{ code, msg string }
@@ -62,8 +66,52 @@ func coderBox(s coderSettings, access, cwd, runtime, orgMode, dbPath string) (*a
 	}
 	box := &agentbox.Box{Mode: agentbox.Mode(mode), Cwd: cwd, Runtime: runtime}
 	if dbPath != "" {
-		// The database actually in use (--db-path), wherever it is, with its journal files.
-		box.Protect = []string{dbPath, dbPath + "-wal", dbPath + "-shm"}
+		prot, err := protectedDatabase(dbPath)
+		if err != nil {
+			return nil, &boxError{CodeBoxDBPath, "the sandbox (coder.box) cannot tell where the database is, so it cannot hide it: " + err.Error()}
+		}
+		box.Protect = prot
 	}
 	return box, nil
+}
+
+// protectedDatabase is every name under which the database in use and its journal files can
+// be reached: the path as the opener understands it (a leading ~ expanded, made absolute) and
+// the path it really is after symlinks, each with its -wal and -shm. Anything but a missing
+// file that stops the path from resolving is an error: an unhidden database is worse than no
+// turn.
+func protectedDatabase(dbPath string) ([]string, error) {
+	abs, err := filepath.Abs(expandHome(dbPath))
+	if err != nil {
+		return nil, err
+	}
+	names := []string{abs}
+	real, err := filepath.EvalSymlinks(abs)
+	switch {
+	case err == nil:
+		names = append(names, real)
+	case errors.Is(err, fs.ErrNotExist):
+		// Not created yet: the directory it will be created in must resolve, and the
+		// database lands in its real place.
+		dir, derr := filepath.EvalSymlinks(filepath.Dir(abs))
+		if derr != nil && !errors.Is(derr, fs.ErrNotExist) {
+			return nil, derr
+		}
+		if derr == nil {
+			names = append(names, filepath.Join(dir, filepath.Base(abs)))
+		}
+	default:
+		return nil, err
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, n := range names {
+		for _, p := range []string{n, n + "-wal", n + "-shm"} {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out, nil
 }
