@@ -336,7 +336,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
-			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s\n", st.Box)
+			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s (off by default; best-effort hardening, not isolation: the host network is shared and the host root is read-only)\n", st.Box)
 			if !st.Ready {
 				fmt.Fprintf(cmd.OutOrStdout(), "missing monomind capabilities: %v\n", st.MissingCapabilities)
 			}

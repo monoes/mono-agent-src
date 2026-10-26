@@ -2386,6 +2386,14 @@ while the setting is on; a dynamic org in a boxed chat ends in
 `box_org_unsupported` (its workers would run outside the box). Apply, org and
 dynamic-org turns are untouched. `monomind.ExecOptions.Box` is the hook.
 
+The box is best-effort hardening, not isolation, and `coder.box` stays off by
+default. It shares the host network (services on loopback and abstract unix
+sockets stay reachable from the turn) and it mounts the host root read-only, so
+only the locations it names are hidden: credentials kept elsewhere (backup
+copies, other mounts, a different config directory) remain readable. A
+stricter design would build the filesystem from an explicit list of system
+directories and give the turn a controlled outbound path; it is not built.
+
 ## How AI works in mono-agent
 
 Every AI feature runs through the **monomind runner** (`monomind agent
