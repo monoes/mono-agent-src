@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/testdb"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 const ownerlessFile = `{"id":"w-legacy","name":"legacy","version":1,"is_active":false,"nodes":[{"id":"n1","type":"trigger.manual","name":"Start","position":{"x":1,"y":2},"config":{"k":"v"}}],"connections":[],"extra_key":{"keep":true}}`
@@ -257,5 +259,37 @@ func TestStampFileWorkflowsSkipsAWorkflowWithAChangeRecorded(t *testing.T) {
 	}
 	if got := profileOfFile(t, filepath.Join(dir, "w-legacy.json")); got != "" {
 		t.Fatalf("a file with a change recorded was stamped %q", got)
+	}
+}
+
+// A publisher that edits the file while the stamp pass is about to look at it is not overwritten with
+// a stale document: the pass waits for the lock, then sees the edit and stamps that.
+func TestStampWaitsForAWriterHoldingTheLockAndKeepsItsEdit(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dir := writeStampFixture(t)
+	path := filepath.Join(dir, "w-legacy.json")
+	started, finished := make(chan struct{}), make(chan error, 1)
+	go func() {
+		finished <- workflow.WithPublicationLock(ctx, db.DB, "w-legacy", func() error {
+			close(started)
+			time.Sleep(400 * time.Millisecond)
+			return os.WriteFile(path, []byte(`{"id":"w-legacy","name":"EDITED","nodes":[],"connections":[]}`), 0o600)
+		})
+	}()
+	<-started
+	if err := StampFileWorkflows(ctx, db.DB, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), "EDITED") || profileOfFile(t, path) != "default" {
+		t.Fatalf("the edit was lost or the file not stamped:\n%s", b)
 	}
 }

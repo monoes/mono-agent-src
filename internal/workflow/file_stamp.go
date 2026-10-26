@@ -1,7 +1,9 @@
 package workflow
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,9 +28,11 @@ func StampFileWorkflowProfiles(dir, fallbackID string, ownerOf func(workflowID s
 	return StampFileWorkflowProfilesFor(dir, fallbackID, ownerOf, nil)
 }
 
-// StampFileWorkflowProfilesFor is StampFileWorkflowProfiles for the files eligible names (all of
-// them when eligible is nil); a file that is not eligible is not opened.
-func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowID string) string, eligible func(fileID string) bool) ([]string, error) {
+// StampFileWorkflowProfilesFor is StampFileWorkflowProfiles with locked, which runs the whole
+// look-and-rewrite of one file (the callback do) under whatever excludes the file's other writers,
+// and may decline to run it at all (a file it does not name is not opened). With locked nil every
+// file is handled without a lock.
+func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowID string) string, locked func(fileID string, do func() error) error) ([]string, error) {
 	if fallbackID == "" && ownerOf == nil {
 		return nil, ErrNoProfile
 	}
@@ -44,49 +48,81 @@ func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowI
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		if eligible != nil && !eligible(strings.TrimSuffix(e.Name(), ".json")) {
-			continue
+		name := e.Name()
+		var did string
+		one := func() error {
+			var err error
+			did, err = stampOne(filepath.Join(dir, name), name, fallbackID, ownerOf)
+			return err
 		}
-		path := filepath.Join(dir, e.Name())
-		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
-			continue // a link, pipe or device is not stamped (and never opened)
-		}
-		raw, err := readRegularFile(path)
-		if err != nil {
-			continue
-		}
-		var doc map[string]json.RawMessage
-		if json.Unmarshal(raw, &doc) != nil {
-			continue
-		}
-		var id string
-		if json.Unmarshal(doc["id"], &id) != nil || id == "" {
-			continue // not a workflow file
-		}
-		var owner string
-		_ = json.Unmarshal(doc["profile_id"], &owner)
-		if owner != "" {
-			continue
-		}
-		profileID := fallbackID
-		if ownerOf != nil {
-			if o := ownerOf(id); o != "" {
-				profileID = o
+		if locked != nil {
+			if err := locked(strings.TrimSuffix(name, ".json"), one); err != nil {
+				if did != "" {
+					stamped = append(stamped, did)
+				}
+				if errors.Is(err, ErrStampSkipped) {
+					continue
+				}
+				return stamped, err
 			}
+		} else if err := one(); err != nil {
+			return stamped, err
 		}
-		if profileID == "" {
-			continue
+		if did != "" {
+			stamped = append(stamped, did)
 		}
-		quoted, _ := json.Marshal(profileID)
-		doc["profile_id"] = quoted
-		out, err := json.MarshalIndent(doc, "", "  ")
-		if err != nil {
-			return stamped, fmt.Errorf("stamping workflow file %s: %w", e.Name(), err)
-		}
-		if err := writeFileAtomic(path, out); err != nil {
-			return stamped, fmt.Errorf("stamping workflow file %s: %w", e.Name(), err)
-		}
-		stamped = append(stamped, id)
 	}
 	return stamped, nil
+}
+
+// ErrStampSkipped is what a locked callback returns when it could not take the lock: the file is
+// left for the next pass.
+var ErrStampSkipped = errors.New("workflow file left for the next pass")
+
+// stampOne gives one ownerless workflow file its owner, or leaves it. It returns the workflow id
+// when it rewrote the file. The file is read again just before it is replaced and left alone if it
+// changed in between.
+func stampOne(path, name, fallbackID string, ownerOf func(string) string) (string, error) {
+	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+		return "", nil // a link, pipe or device is not stamped (and never opened)
+	}
+	raw, err := readRegularFile(path)
+	if err != nil {
+		return "", nil
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil {
+		return "", nil
+	}
+	var id string
+	if json.Unmarshal(doc["id"], &id) != nil || id == "" {
+		return "", nil // not a workflow file
+	}
+	var owner string
+	_ = json.Unmarshal(doc["profile_id"], &owner)
+	if owner != "" {
+		return "", nil
+	}
+	profileID := fallbackID
+	if ownerOf != nil {
+		if o := ownerOf(id); o != "" {
+			profileID = o
+		}
+	}
+	if profileID == "" {
+		return "", nil
+	}
+	quoted, _ := json.Marshal(profileID)
+	doc["profile_id"] = quoted
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("stamping workflow file %s: %w", name, err)
+	}
+	if again, rerr := readRegularFile(path); rerr != nil || !bytes.Equal(again, raw) {
+		return "", nil // edited meanwhile: not ours to overwrite
+	}
+	if err := writeFileAtomic(path, out); err != nil {
+		return "", fmt.Errorf("stamping workflow file %s: %w", name, err)
+	}
+	return id, nil
 }

@@ -3,6 +3,7 @@ package workflowio
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -102,7 +103,22 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 		return p.String
 	}
 	eligible := stampEligible(ctx, db)
-	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, eligible)
+	// Each file is checked, read and replaced under the database's write lock with its
+	// publication record locked, so no publisher can replace the file between the read and the
+	// rewrite; a lock that cannot be taken leaves the file for the next pass.
+	locked := func(id string, do func() error) error {
+		err := workflow.WithPublicationLock(ctx, db, id, func() error {
+			if !eligible(id) {
+				return nil
+			}
+			return do()
+		})
+		if errors.Is(err, workflow.ErrPublicationBusy) {
+			return workflow.ErrStampSkipped
+		}
+		return err
+	}
+	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, locked)
 	if len(stamped) > 0 {
 		log.Printf("workflow files: gave %d workflow(s) with no profile an owner (fallback %q)", len(stamped), owner)
 	}

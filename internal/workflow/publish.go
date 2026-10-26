@@ -111,6 +111,22 @@ func lockPublication(ctx context.Context, tx *sql.Tx, id string) error {
 	return err
 }
 
+// WithPublicationLock runs fn while holding the database's write lock with the workflow's
+// publication record locked: no publisher can replace the workflow's file meanwhile (the file step
+// of a publication takes the same lock). It returns ErrStampSkipped-style errors only from fn; a lock
+// it cannot take is returned wrapped in ErrPublicationBusy.
+func WithPublicationLock(ctx context.Context, db *sql.DB, id string, fn func() error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return errors.Join(ErrPublicationBusy, err)
+	}
+	defer tx.Rollback()
+	if err := lockPublication(ctx, tx, id); err != nil {
+		return errors.Join(ErrPublicationBusy, err)
+	}
+	return fn()
+}
+
 // Publish is the one path by which a definition reaches both stores. The rows are the commit
 // point and the file a projection of them; because they cannot share a transaction, an intent is
 // recorded first (its own transaction, visible to every process), then the file is published,
