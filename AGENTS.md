@@ -3773,7 +3773,7 @@ change is logged in the status history. `applied` is reached only through `appli
 | 0 | run paused at a HIL node — status `WAITING` (paused for human review); the output carries a `hint` field pointing at `hil list` |
 | 1 | general error — also the exit for a run that ends `CANCELLED`, and for a run that ends `SUCCESS_WITH_ERRORS` with no successful step (every non-trigger node failed; a partial success still exits 0) |
 | 2 | not found (workflow, node type, HIL item, secret name, …). Includes `hil approve`/`hil reject`, `secret rm`/`secret update`, and `workflow delete` on unknown ids |
-| 3 | invalid input / validation failure |
+| 3 | invalid input / validation failure — including a flag the parser refuses (an unknown flag, a value that does not parse), in every command group (`{"error","code":"invalid_input"}` with `--json`) |
 | 4 | auth or connection failure — including `login_required`: no valid monoes.me sign-in (see [monoes.me account](#monoesme-account)) |
 | 5 | `chat history set-access` lowered the level but a process the conversation's turns started could not be stopped (`survivors_remain`; the JSON lists each under `lowered.survivors` with its pid, command and reason) |
 | 6 | `chat history set-access --expect L` found the conversation no longer at level L: `access_changed`, `current` is the real level, nothing was changed |

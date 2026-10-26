@@ -207,7 +207,7 @@ THE AGENT LOOP
   its history, with any comment the operator added.
   A SessionStart hook can run monoagentcli --profile <id> task digest; nothing installs it for you.
   In text, digest prints nothing when no task is ready, and it exits 0 whatever goes
-  wrong at run time (an unknown flag is the command parser's exit 1): a digest that
+  wrong at run time (an unknown flag is exit 3): a digest that
   fails prints one line on standard error and nothing on standard output.
   In text, a task's notes are printed indented, between a notice that they are
   untrusted and the line (end of the notes); a session task's acceptance criteria end with (end of the acceptance criteria); the notes in its history carry a caution
@@ -273,7 +273,7 @@ JSON
   code not_found (exit 2), or invalid_input, operator_only, not_ready, claimed (with
   claimed_by and claimed_until), not_claimant or limit (exit 3). Any other failure is
   exit 1 with {"error"} alone; an unknown flag, or a number or duration that does not
-  parse, is the command parser's exit 1 with {"error"} and no code (as in every command group).
+  parse, is invalid_input (exit 3, as in every command group).
 
 FROM MCP
   The MCP server (monoagentcli mcp) serves task_list, task_get, task_next, task_session_list and task_session_get in every server (they only

@@ -25,7 +25,7 @@ import (
 // :memory: DB would split) with the tables the node and jevconf touch.
 func newAutoTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "hil.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "hil.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		t.Fatal(err)
 	}
