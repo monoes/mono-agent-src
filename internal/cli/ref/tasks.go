@@ -109,7 +109,7 @@ WHO MAY DO WHAT
   the budget, the limits, the access level or auto-close: that is session budget ID --usd N
   --max-tasks N --max-depth N --max-retries N --access LEVEL --auto-close on|off --spend N --note TEXT
   (session new takes --budget-usd), the operator's. session new takes an optional --client-id KEY
-  (idempotency, per profile, up to 64 letters, digits, - or _): a repeated key returns the existing session
+  (idempotency, per profile, up to 64 letters, digits, - or _); an agent may pass --conversation only for its own chat (verified by its session token). A repeated key returns the existing session
   (exit 0, deduped true) and creates none; a longer or garbled key is invalid_input. A worker or verifier bound to a task may not
   pause or stop the session. finish and artifact by an agent are refused while the session is
   paused or stopped (a comment is not). Progress n/m (counts.done, counts.total) leaves epics out:

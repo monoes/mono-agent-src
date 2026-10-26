@@ -246,12 +246,15 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 			return err
 		}
 		if c, ok := conv.(string); ok && actor.Kind == Agent {
+			if actor.Conversation == "" || c != actor.Conversation {
+				return invalid("an agent links a session only to its own chat")
+			}
 			var n int
 			if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, c, profileID).Scan(&n); err != nil {
 				return fmt.Errorf("tasks: looking up the conversation: %w", err)
 			}
 			if n == 0 {
-				return invalid("conversation %q is not a chat of this profile: an agent links a session only to its own chat", echo(c))
+				return invalid("conversation %q is not a chat of this profile", echo(c))
 			}
 		}
 		if clientID != "" {
