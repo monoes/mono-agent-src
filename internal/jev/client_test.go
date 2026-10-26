@@ -189,3 +189,22 @@ func TestOnResultGetsUsageOnValidationFailure(t *testing.T) {
 		t.Fatalf("OnResult resp=%+v err=%v", got, gotErr)
 	}
 }
+
+func TestAskRepairsAChoiceThatContradictsItsProbabilities(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"answers":{
+			"operation":{"type":"choice","choice":"CLICK","probabilities":{"CLICK":0.2,"WAIT":0.8},"confidence":0.5},
+			"bad":{"type":"choice","choice":"zzz","probabilities":{"a":0.2,"b":0.8},"confidence":0.5}}}`))
+	})
+	ops := choiceQ("CLICK", "WAIT")
+	resp, err := c.Ask(context.Background(), nil, map[string]Question{"operation": ops})
+	if err != nil {
+		t.Fatalf("a self-contradicting choice failed the ask: %v", err)
+	}
+	if got := resp.Answers["operation"].Choice; got != "WAIT" {
+		t.Fatalf("choice = %q, want the most probable option WAIT", got)
+	}
+	if _, err := c.Ask(context.Background(), nil, map[string]Question{"bad": choiceQ("a", "b")}); !errors.Is(err, ErrInvalidAnswer) {
+		t.Fatalf("a choice that was never offered must still be rejected, err = %v", err)
+	}
+}

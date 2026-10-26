@@ -19,7 +19,7 @@ var orgToolNames = []string{
 	"org_task_split", "org_task_merge", "org_task_cancel", "org_task_block", "org_plan_graph",
 	"org_recall", "org_remember", "org_learn",
 }
-var bossOrgTools = []string{"org_complete", "org_respawn_role", "org_list_runtime_options"}
+var bossOrgTools = []string{"org_complete", "org_respawn_role", "org_list_runtime_options", "org_compact_role", "org_clear_role"}
 
 // builtinRuntimeTools are the runtime's own tools a role has unless policy
 // denies them.

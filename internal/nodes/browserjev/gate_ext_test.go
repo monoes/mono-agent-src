@@ -187,6 +187,26 @@ func TestExtGuardRearmsAndRecoversRecords(t *testing.T) {
 	}
 }
 
+// A click the page did not react to is not a failed submit: the run goes on
+// and its own "nothing changed" check watches the page.
+func TestExtGuardTreatsAnUnansweredClickAsSent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fakeResubmit(t)
+	db := testdb.Open(t).DB
+	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "p1")
+	page := &fakeGuardPage{}
+	g, err := armGuard(ctx, page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.state.Blocked = []extension.BlockedSubmit{blockedAt(2, "http://localhost:3000/")}
+	got, _ := g.Blocked(ctx)
+	page.actions, page.failWith = nil, &browserctl.NoReactionError{}
+	if err := g.Submit(ctx, got[0], ""); err != nil {
+		t.Errorf("an unanswered click failed the run: %v", err)
+	}
+}
+
 // An approval is handed back when nothing reached the page, and used up
 // when something did.
 func TestExtGuardHandsBackAnUnsentApproval(t *testing.T) {

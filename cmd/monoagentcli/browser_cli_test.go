@@ -180,6 +180,40 @@ func TestBrowserHeldSubmitExits3AndIsApprovedOnce(t *testing.T) {
 	}
 }
 
+// A replayed click the page did not react to is reported as such, not as a
+// submit, and still uses the approval up.
+func TestBrowserSubmitReportsAClickThePageIgnored(t *testing.T) {
+	bt := newBrowserTest(t, true)
+	if err := browserctl.SaveAllowlist(bt.db().DB, []string{"https://example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	bt.fake.AddTab("https://example.com/compose", "Coder · Agent", true)
+	fp := &browserctltest.FormPage{Action: "https://example.com/post", Method: "post", Selector: "#f", Submit: true, NoReaction: true,
+		Fields: []browserctl.FormField{{Name: "body", Type: "textarea", Value: "hi"}}}
+	bt.fake.On("eval_cdp", fp.Handler())
+	out, err := bt.run("click", "#send")
+	if exitCodeFor(err) != 3 {
+		t.Fatalf("held click: exit %d: %v", exitCodeFor(err), err)
+	}
+	var held map[string]any
+	if jerr := json.Unmarshal([]byte(out), &held); jerr != nil {
+		t.Fatalf("held click printed %q", out)
+	}
+	hilID, _ := held["hil_id"].(string)
+	t.Setenv("CLAUDECODE", "") // the user approves it
+	if _, err := runHIL(t, bt.cfg, "approve", hilID[:8]); err != nil {
+		t.Fatalf("hil approve: %v", err)
+	}
+	t.Setenv("CLAUDECODE", "1")
+	res := bt.runJSON("submit", "--hil", hilID)
+	if res["status"] != "clicked_no_reaction" || res["note"] == "" {
+		t.Fatalf("submit = %v", res)
+	}
+	if _, err := bt.run("submit", "--hil", hilID); jsonCode(err) != "submit_consumed" {
+		t.Fatalf("second submit: %v (%s)", err, jsonCode(err))
+	}
+}
+
 func TestBrowserSubmitHandsTheApprovalBackWhenTheTabMoved(t *testing.T) {
 	bt := newBrowserTest(t, true)
 	db := bt.db().DB

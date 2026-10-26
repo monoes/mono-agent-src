@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"sync"
@@ -24,8 +25,26 @@ type FormPage struct {
 	// Submit: the probed control is submit-like.
 	Submit bool
 	Fields []browserctl.FormField
-	// Triggered counts submits the trigger script made.
+	// Triggered counts submits the trigger script let through.
 	Triggered int
+	// NoReaction: the page does not change after the click.
+	NoReaction bool
+	// Disabled: the submit control is disabled; Covered: another element
+	// sits over it.
+	Disabled, Covered bool
+	// Blocks: the form changes between the trigger and the click, so the
+	// page's click check stops the click. Misdirects: the click lands on
+	// another element. Drifts: the form changed by the time of the check
+	// right before the press. MovesAway: something covers the control by
+	// then.
+	Blocks, Misdirects, Drifts, MovesAway bool
+	// StrayAndFired: a click elsewhere was cancelled, and the click on the
+	// control went through.
+	StrayAndFired bool
+	// ReadFails: reading how the click went fails with this error;
+	// OnRead runs first (a test moves the tab there).
+	ReadFails string
+	OnRead    func()
 }
 
 // Set changes one field's value.
@@ -51,6 +70,10 @@ func (fp *FormPage) form() map[string]any {
 
 var expectRE = regexp.MustCompile(`const EXPECT = "([0-9a-f]*)";`)
 
+// subRE finds the submit control's selector in the trigger script: "" when
+// the held submit has none (the form is requestSubmit()ed).
+var subRE = regexp.MustCompile(`const el = ("[^"]*") \?`)
+
 // Handler answers eval_cdp for the three scripts; anything else gets null.
 func (fp *FormPage) Handler() Handler {
 	return func(c *extension.Command) (any, error) {
@@ -71,9 +94,36 @@ func (fp *FormPage) Handler() Handler {
 			m := expectRE.FindStringSubmatch(expr)
 			if m != nil && m[1] != "" && m[1] != fp.digest() {
 				res = map[string]any{"changed": true}
-			} else {
+			} else if sub := subRE.FindStringSubmatch(expr); sub == nil || sub[1] == `""` {
 				fp.Triggered++
 				res = map[string]any{"ok": true}
+			} else if fp.Disabled {
+				res = map[string]any{"disabled": true}
+			} else if fp.Covered {
+				res = map[string]any{"covered": true}
+			} else {
+				fp.Triggered++
+				res = map[string]any{"ok": true, "click": true, "x": 120, "y": 48}
+			}
+		case strings.HasPrefix(expr, "/*mono:recheck*/"):
+			switch {
+			case fp.Drifts:
+				res = map[string]any{"changed": true}
+			case fp.MovesAway:
+				res = map[string]any{"covered": true}
+			default:
+				res = map[string]any{"ok": true}
+			}
+		case strings.HasPrefix(expr, "/*mono:peek*/"), strings.HasPrefix(expr, "/*mono:collect*/"):
+			if strings.HasPrefix(expr, "/*mono:peek*/") && fp.OnRead != nil {
+				fp.OnRead()
+			}
+			if fp.ReadFails != "" && strings.HasPrefix(expr, "/*mono:peek*/") {
+				return nil, errors.New(fp.ReadFails)
+			}
+			res = map[string]any{
+				"fired": !fp.Blocks && !fp.Misdirects, "blocked": fp.Blocks,
+				"misdirected": fp.Misdirects || fp.StrayAndFired, "changed": !fp.NoReaction,
 			}
 		}
 		return map[string]any{"result": res}, nil

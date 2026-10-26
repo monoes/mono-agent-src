@@ -120,6 +120,8 @@ func LeadPrompt(l Limits, appAccess bool) string {
 		"its sub-workers can't spawn, their access never exceeds the worker's, they count against this turn's limits, and they stop when it finishes. " +
 		"Workers from earlier turns of this chat are listed as veterans (status idle) in org_roster and org_wait: " +
 		"org_message one to continue its work with its context instead of spawning a new worker. " +
+		"A veteran's context grows with each follow-up: org_compact_worker shrinks it to a summary it writes, " +
+		"org_clear_worker forgets it (the next org_message briefs it from scratch); both are refused while it works. " +
 		"Your own file edits take the same write lease: writers wait while you edit, and you must not edit files " +
 		"while a writing worker runs; org_wait for it first. " +
 		fmt.Sprintf("This turn allows %d workers, %d running at once%s. ", l.MaxAgents, l.MaxConcurrent, budget) +

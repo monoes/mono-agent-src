@@ -19,19 +19,29 @@ const isolatedWorld = "monoagent-submit-gate"
 // evalIsolated evaluates js in a new isolated world of p's main frame and
 // returns its value.
 func evalIsolated(p *extension.ExtensionPage, js string) (interface{}, error) {
-	tree, err := p.CDP("Page.getFrameTree", nil)
+	ctxID, err := newIsolatedWorld(p)
 	if err != nil {
 		return nil, err
+	}
+	return evalIn(p, ctxID, js)
+}
+
+// newIsolatedWorld opens an isolated world in p's main frame and returns its
+// execution context, for scripts that must share state across evaluations.
+func newIsolatedWorld(p *extension.ExtensionPage) (int, error) {
+	tree, err := p.CDP("Page.getFrameTree", nil)
+	if err != nil {
+		return 0, err
 	}
 	ft, _ := tree["frameTree"].(map[string]interface{})
 	frame, _ := ft["frame"].(map[string]interface{})
 	frameID, _ := frame["id"].(string)
 	if frameID == "" {
-		return nil, errors.New("the page has no main frame to run the check in")
+		return 0, errors.New("the page has no main frame to run the check in")
 	}
 	world, err := p.CDP("Page.createIsolatedWorld", map[string]interface{}{"frameId": frameID, "worldName": isolatedWorld})
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	var ctxID int
 	switch v := world["executionContextId"].(type) {
@@ -41,8 +51,13 @@ func evalIsolated(p *extension.ExtensionPage, js string) (interface{}, error) {
 		ctxID = v
 	}
 	if ctxID == 0 {
-		return nil, errors.New("the page did not open an isolated world for the check")
+		return 0, errors.New("the page did not open an isolated world for the check")
 	}
+	return ctxID, nil
+}
+
+// evalIn evaluates js in the isolated world ctxID and returns its value.
+func evalIn(p *extension.ExtensionPage, ctxID int, js string) (interface{}, error) {
 	res, err := p.CDP("Runtime.evaluate", map[string]interface{}{
 		"expression": js, "contextId": ctxID, "returnByValue": true, "awaitPromise": true,
 	})

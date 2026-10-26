@@ -424,7 +424,7 @@ func (c *Conductor) message(ctx context.Context, from *worker, id, text string) 
 	// isolated writer's worktree of an earlier turn, is another).
 	if w.session != "" && w.model.Resume && w.cwd == orElse(w.workDir, c.cfg.Cwd) {
 		resume = w.session
-	} else {
+	} else if w.report != "" {
 		prompt = "Your earlier report:\n" + w.report + "\n\nFollow-up from the lead:\n" + text
 	}
 	w.report, w.errText = "", ""

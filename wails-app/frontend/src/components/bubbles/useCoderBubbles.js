@@ -286,6 +286,13 @@ export function useCoderBubbles() {
     } : b)))
   }, [])
 
+  // unbindConversation turns a bubble back into a draft: its next message
+  // creates a new conversation (Clear / Compact).
+  const unbindConversation = useCallback((key) => {
+    byConversation.current = Object.fromEntries(Object.entries(byConversation.current).filter(([, k]) => k !== key))
+    setBubbles(list => list.map(b => (b.key === key ? { ...b, conversationId: '' } : b)))
+  }, [])
+
   // dropBubble only uses state setters and a ref.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const close = useCallback(dropBubble, [])
@@ -332,7 +339,7 @@ export function useCoderBubbles() {
     bubbles, side, expandedKey, summaries,
     summaryOf: key => (key.startsWith('org:') ? orgSummaryOf(key) : coderSummaryOf(key)),
     setHilNeeds,
-    expand, collapse, openDraft, openNewChat, openConversation, openOrg, patchBubble, bindConversation, close, reorder, setSide,
+    expand, collapse, openDraft, openNewChat, openConversation, openOrg, patchBubble, bindConversation, unbindConversation, close, reorder, setSide,
     getView, setView,
     // bossOf is the org's boss once its design was read ('' before).
     bossOf: name => bosses.current[name] || '',

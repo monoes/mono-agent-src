@@ -11,6 +11,8 @@ import { useVerifiedAccess } from './useChatPaneData.js'
 import { chatAccessApi } from '../../lib/chatAccessApi.js'
 import { isAccess, isCoderAccess, isConfinedTask } from '../../lib/chatAccess.js'
 import { useCoderConversation } from './useCoderConversation.js'
+import { ChatResetBar } from '../chat/ChatResetBar.jsx'
+import { COMPACT_PROMPT, compactSummary, compactSeed } from '../../lib/chatCompact.js'
 import { TaskHeaderCard } from './TaskHeaderCard.jsx'
 import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
@@ -105,6 +107,42 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   settingsOpenRef.current = settingsOpen
   const closeSettings = useCallback(() => { setSettingsOpen(false); settingsBtn.current?.focus?.() }, [])
   const conv = useCoderConversation({ conversationId: bubble.conversationId, create, access })
+
+  // Clear / Compact: the bubble goes back to a draft in the same folder and
+  // model, so the next message starts a new conversation. Compact first asks
+  // the agent for a summary and opens the new conversation with it.
+  const [seed, setSeed] = useState('')
+  const compactPending = useRef(false)
+  const startFresh = useCallback(() => {
+    if (!conv.reset()) return false
+    setSetup(s => ({
+      ...s,
+      workspace: bubble.cwd ? { kind: 'folder', path: bubble.cwd } : s.workspace,
+      runtime: bubble.runtime || s.runtime, model: bubble.model || s.model, effort: bubble.effort || s.effort,
+      access: bubble.access || s.access,
+    }))
+    store.unbindConversation(bubble.key)
+    return true
+  }, [conv, bubble, store])
+  const compact = useCallback(() => {
+    if (!conv.conversationId || conv.streaming) return
+    compactPending.current = true
+    conv.send(COMPACT_PROMPT)
+  }, [conv])
+  const lastMsg = conv.messages[conv.messages.length - 1]
+  useEffect(() => {
+    if (!compactPending.current || conv.streaming || lastMsg?.role !== 'turn') return
+    compactPending.current = false
+    const summary = compactSummary(lastMsg.state)
+    if (summary && startFresh()) setSeed(summary)
+    else notify('chat', 'Could not compact: no summary came back')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv.streaming, lastMsg])
+  useEffect(() => {
+    if (!seed || bubble.conversationId || conv.conversationId || conv.streaming) return
+    setSeed('')
+    conv.send(compactSeed(seed))
+  }, [seed, bubble.conversationId, conv, conv.streaming])
 
   // The title is the backend's redacted one, read again after each turn; a raw
   // prompt never becomes a title.
@@ -274,6 +312,9 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
         </div>
         {bubble.cwd && <CoderHeader cwd={bubble.cwd} />}
         {view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
+        <ChatResetBar onClear={startFresh} onCompact={compact}
+          clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
+          compactDisabled={conv.streaming || !conv.conversationId} />
         <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
           {showStage && !stageCollapsed && (
             <>

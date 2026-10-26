@@ -159,5 +159,16 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
     }
   }, [convId, t])
 
-  return { messages, announcement, liveTurn, activeTurnId, streaming: !!activeTurnId, stopRequested, loading, loadError, send, stop, conversationId: convId }
+  // reset empties the chat so the next send creates a new conversation.
+  // Blocked while a turn runs.
+  const reset = useCallback(() => {
+    if (activeRef.current) return false
+    loadedFor.current = ''
+    setMessages([])
+    setConvId('')
+    setLoadError('')
+    return true
+  }, [])
+
+  return { reset, messages, announcement, liveTurn, activeTurnId, streaming: !!activeTurnId, stopRequested, loading, loadError, send, stop, conversationId: convId }
 }

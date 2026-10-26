@@ -205,11 +205,38 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 		if !ok {
 			return nil, fmt.Errorf("%w: no answer for %q", ErrInvalidAnswer, id)
 		}
+		a = repairChoice(q, a)
+		decoded.Answers[id] = a
 		if err := Validate(q, a); err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
 	}
 	return &decoded, nil
+}
+
+// repairChoice makes a choice answer agree with its own probabilities: when
+// the named choice is an offered option but not the most probable one, the
+// most probable one is the answer (Top gates on the probabilities, never on
+// the stated choice). The model contradicting itself is not worth failing a
+// whole run over; an answer whose probabilities are themselves invalid, or
+// whose choice was never offered, is left for Validate to reject.
+func repairChoice(q Question, a Answer) Answer {
+	if q.Type != TypeChoice || a.Choice == "" || len(a.Probabilities) == 0 {
+		return a
+	}
+	if _, offered := a.Probabilities[a.Choice]; !offered {
+		return a
+	}
+	best, bestP := "", -1.0
+	for id, p := range a.Probabilities {
+		if p > bestP || (p == bestP && id < best) {
+			best, bestP = id, p
+		}
+	}
+	if bestP > a.Probabilities[a.Choice]+1e-6 {
+		a.Choice = best
+	}
+	return a
 }
 
 // Top returns the most probable option and its probability — the gate value

@@ -74,12 +74,24 @@ func newBrowserSubmitCmd(cfg *globalConfig) *cobra.Command {
 			if errors.Is(err, browserctl.ErrNotSent) {
 				return giveBack(err)
 			}
+			// A click that reached the control but changed nothing used the
+			// approval up; it is reported, not failed.
+			var idle *browserctl.NoReactionError
+			noReaction := errors.As(err, &idle)
+			if noReaction {
+				err = nil
+			}
 			browserctl.Settle()
 			_ = browserctl.FinishSubmitItem(ctx, db.DB, cfg.ProfileID, it.ID, err)
 			if err != nil {
 				return browserErr(cmd, cfg, err)
 			}
 			url, _ := s.Refresh()
+			if noReaction {
+				return browserOut(cmd, cfg, map[string]any{"hil_id": it.ID, "status": "clicked_no_reaction", "tabId": s.TabID(), "url": url, "note": idle.Error()}, func() {
+					fmt.Fprintf(cmd.OutOrStdout(), "Clicked on %s (approval %s used), but the page did not react: %s\n", it.Origin, it.ID, "nothing on the page changed, so the submit may not have gone through")
+				})
+			}
 			return browserOut(cmd, cfg, map[string]any{"hil_id": it.ID, "status": "submitted", "tabId": s.TabID(), "url": url}, func() {
 				fmt.Fprintf(cmd.OutOrStdout(), "Submitted on %s (approval %s used)\n", it.Origin, it.ID)
 			})

@@ -18,6 +18,9 @@ const (
 	ToolMessage = "org_message"
 	ToolStop    = "org_stop"
 	ToolRate    = "org_rate"
+
+	ToolClearWorker   = "org_clear_worker"
+	ToolCompactWorker = "org_compact_worker"
 )
 
 // ToolTimeout is the lead's --tool-timeout: above MaxWait, so a wait
@@ -58,6 +61,10 @@ func toolSpecs(profiles []string) []monomind.ToolSpec {
 		{Name: ToolMessage, Description: "Send a follow-up to a worker that has finished; it continues where it left off. Then org_wait for its new report.",
 			Schema: obj(map[string]any{"agent_id": str("The worker."), "text": str("The follow-up.")}, "agent_id", "text")},
 		{Name: ToolStop, Description: "Stop a running worker.",
+			Schema: obj(map[string]any{"agent_id": str("The worker.")}, "agent_id")},
+		{Name: ToolClearWorker, Description: "Forget a finished worker's conversation: its session is dropped and so is its report, so your next org_message to it briefs it from scratch. Refused while it is working.",
+			Schema: obj(map[string]any{"agent_id": str("The worker.")}, "agent_id")},
+		{Name: ToolCompactWorker, Description: "Shrink a finished worker's context: it is asked for a summary of its work, which becomes its report and replaces its session, so your next org_message to it re-briefs it from that summary. Refused while it is working.",
 			Schema: obj(map[string]any{"agent_id": str("The worker.")}, "agent_id")},
 		{Name: ToolRate, Description: "Rate a worker's latest report after you read it: good if it did the job, bad if it didn't. Ratings teach staffing which models fit which kind of work; rate each report once.",
 			Schema: obj(map[string]any{"agent_id": str("The worker."), "rating": str("good or bad.")}, "agent_id", "rating")},
@@ -188,6 +195,22 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 			return "", fmt.Errorf("bad arguments: %v", err)
 		}
 		info, err := c.Stop(a.AgentID)
+		if err != nil {
+			return "", err
+		}
+		return marshal(info)
+	case ToolClearWorker, ToolCompactWorker:
+		var a struct {
+			AgentID string `json:"agent_id"`
+		}
+		if err := json.Unmarshal(orEmpty(args), &a); err != nil {
+			return "", fmt.Errorf("bad arguments: %v", err)
+		}
+		reset := c.ClearWorker
+		if name == ToolCompactWorker {
+			reset = c.CompactWorker
+		}
+		info, err := reset(a.AgentID)
 		if err != nil {
 			return "", err
 		}

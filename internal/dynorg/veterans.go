@@ -42,7 +42,11 @@ type Veteran struct {
 
 // remember hands w to Config.Remember once a run of it ended: only a
 // worker that has something to continue from (a session or a report).
-func (c *Conductor) remember(w *worker) {
+func (c *Conductor) remember(w *worker) { c.keep(w, false) }
+
+// keep is remember; force also hands over a worker with neither a session
+// nor a report, so a cleared one replaces what was kept before.
+func (c *Conductor) keep(w *worker, force bool) {
 	if c.cfg.Remember == nil {
 		return
 	}
@@ -56,7 +60,7 @@ func (c *Conductor) remember(w *worker) {
 		v.Skills = append(v.Skills, s.Name)
 	}
 	c.mu.Unlock()
-	if v.Session == "" && v.Report == "" {
+	if !force && v.Session == "" && v.Report == "" {
 		return
 	}
 	c.cfg.Remember(v)
