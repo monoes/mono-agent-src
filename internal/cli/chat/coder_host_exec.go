@@ -115,15 +115,18 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	cmd := exec.Command(l.bin, l.args(profileID, rest...)...)
 	// The environment is the host's without any token of a session that started the host, plus this
 	// turn's own: a turn must never inherit another session's identity (the host can have been
-	// started from a master's shell). Tokens go in the environment, not the arguments (which any
-	// process of the user lists).
+	// started from a master's shell). Tokens never go in the arguments (which any process of the
+	// user lists). The session token goes in the environment (the turn's shell reads it there);
+	// the mission confirmation goes over an inherited pipe the child reads once and closes, so it
+	// is never in any environment block.
 	cmd.Env = turnEnv(os.Environ())
 	if missionToken != "" {
-		// The child verifies the operator's signed record and consumes it, and drops the variable from
-		// its own environment. The variable stays in the environment block the process was started with
-		// (readable by the same user until it exits); the token is single use and dead once the record
-		// is consumed.
-		cmd.Env = append(cmd.Env, coderhost.MissionTokenEnv+"="+missionToken)
+		closeToken, terr := coderhost.AttachMissionToken(cmd, missionToken)
+		if terr != nil {
+			os.Remove(promptPath)
+			return nil, fmt.Errorf("could not hand over the mission confirmation: %w", terr)
+		}
+		defer closeToken() // the host keeps no copy of the read end, started or not
 	}
 	if l.tokens != nil {
 		tok, err := l.tokens(profileID, conversationID, turnID)
@@ -479,9 +482,9 @@ func hostHeldTurns(cfg *Deps) (skip func(ai.Turn) bool, closeFn func()) {
 // isHostInstance is the owner id a host-run turn carries (see hostID).
 func isHostInstance(owner string) bool { return strings.HasPrefix(owner, "host-") }
 
-// turnEnv is the environment a turn starts with: the host's without any session or mission token.
+// turnEnv is the environment a turn starts with: the host's without any session token or mission-handoff marker.
 func turnEnv(env []string) []string {
-	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionTokenEnv)
+	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionFDEnv)
 }
 
 // withoutEnv returns env without the named variables.

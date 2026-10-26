@@ -45,11 +45,12 @@ func sessionToolErr(err error) error {
 		code = "not_yours"
 	case errors.Is(err, coderhost.ErrOperatorOnly):
 		code = "operator_only"
-	case errors.Is(err, coderhost.ErrLimit), errors.Is(err, coderhost.ErrQueueFull):
+	case errors.Is(err, coderhost.ErrLimit), errors.Is(err, coderhost.ErrQueueFull), errors.Is(err, coderhost.ErrTooManyOpen), errors.Is(err, coderhost.ErrWaitsForPerson):
 		code = "limit"
 	case errors.Is(err, coderhost.ErrAccess):
 		code = "access"
-	case errors.Is(err, coderhost.ErrInvalid):
+	case errors.Is(err, coderhost.ErrInvalid), errors.Is(err, coderhost.ErrNotAnswerer), errors.Is(err, coderhost.ErrNotOpen), errors.Is(err, coderhost.ErrStopped),
+		errors.Is(err, coderhost.ErrMasterStopped), errors.Is(err, coderhost.ErrAnswerKeepsFailing), errors.Is(err, coderhost.ErrNoConversation):
 		code = "invalid_input"
 	default:
 		return err
@@ -72,7 +73,7 @@ func sessionTools() []tool {
 		}
 		return t
 	}
-	return []tool{
+	tools := []tool{
 		{
 			name: "session_spawn", mutating: true, annotations: write, handler: toolSessionSpawn,
 			description: coderSessionIntro + "Creates a child session of this master: same runtime, model and folder (or a folder inside it), access at most yours and never full, " +
@@ -110,6 +111,7 @@ func sessionTools() []tool {
 			}, "session", "patch"),
 		},
 	}
+	return append(append(tools, sessionAnswerTools()...), sessionProducerTools()...)
 }
 
 func joinNames(names []string) string {

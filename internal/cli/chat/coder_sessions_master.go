@@ -179,6 +179,29 @@ func masterSet(cfg *Deps, cmd *cobra.Command, target, patch string, others bool)
 	return printQueueJSON(cmd, map[string]any{"conversationId": target, "changed": keys, "settings": next, "agentAdjustable": coderhost.AgentAdjustable})
 }
 
+// masterAnswer is the token path of `questions answer`: the caller is the master the verified token
+// names. Every refusal that is about whose question it is reads the same (not_found), so a master
+// learns nothing about questions outside its own children.
+func masterAnswer(cfg *Deps, cmd *cobra.Command, args []string) error {
+	id, err := parseID(args[1], "question")
+	if err != nil {
+		return err
+	}
+	mc, err := openMasterCall(cfg)
+	if err != nil {
+		return err
+	}
+	defer mc.close()
+	q, c, err := mc.store.AnswerAsMaster(mc.caller, args[0], id, args[2])
+	switch {
+	case err == nil:
+		return printQueueJSON(cmd, map[string]any{"question": q, "commandId": c.ID, "hostStarted": false})
+	case errors.Is(err, coderhost.ErrSessionToken), errors.Is(err, coderhost.ErrNotYours):
+		return masterErr(err)
+	}
+	return clicore.InvalidInput("%v", err)
+}
+
 // visibleToToken is the filter a session token puts on the read verbs: with a token, a function that
 // says whether a conversation is the caller's own session or one of its descendants (a bad token is a
 // refusal). Without a token the caller must be the operator (the same check the operator verbs use):

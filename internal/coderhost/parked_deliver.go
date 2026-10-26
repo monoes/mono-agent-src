@@ -24,6 +24,10 @@ const (
 	// MaxAnswerReopens is how many times a question's note may fail before the host stops trying a
 	// default, or accepting a master's answer, for it: it is left for a person.
 	MaxAnswerReopens = 2
+	// MaxExpiredReopens is how many times a question's note may expire (held by the max_concurrent cap
+	// past its time) before the question stays parked for a person: an expiry is no failed answer, but
+	// it must not repeat for ever.
+	MaxExpiredReopens = 10
 	// startedMarker begins the error of a command that failed after its turn had started: the model
 	// may have read the note, so its question is not reopened.
 	startedMarker     = "the turn started"
@@ -218,12 +222,12 @@ func (s *Store) limitReached(c *passCtx, q Question) (bool, error) {
 // keepsFailing says whether a default for q should wait: its note has failed MaxAnswerReopens
 // times, or failed within the last ParkTimeout.
 func (s *Store) keepsFailing(q Question, now time.Time) bool {
-	var n int
+	var n, expired int
 	var last string
-	if err := s.db.QueryRow(`SELECT reopen_count, last_failed_at FROM coder_session_questions WHERE id = ?`, q.ID).Scan(&n, &last); err != nil {
+	if err := s.db.QueryRow(`SELECT reopen_count, expired_reopens, last_failed_at FROM coder_session_questions WHERE id = ?`, q.ID).Scan(&n, &expired, &last); err != nil {
 		return true
 	}
-	if n >= MaxAnswerReopens {
+	if n >= MaxAnswerReopens || expired >= MaxExpiredReopens {
 		return true
 	}
 	t, err := time.Parse(timeLayout, last)
@@ -246,26 +250,27 @@ func (s *Store) pendingGatedAnswers(profileID, conversationID string) int {
 // question is open again, and the ledger row of a default is marked not_applied (kept, so
 // no other row is rotated out for it). The host calls it on every pass.
 func (s *Store) ReopenFailedAnswers() {
-	rows, err := s.db.Query(`SELECT q.id, q.profile_id, q.conversation_id, q.command_id, q.decision_id FROM coder_session_questions q
-		JOIN coder_session_commands c ON c.id = q.command_id WHERE q.status != 'open' AND q.command_id > 0 AND c.status = 'failed' AND c.error NOT LIKE ? LIMIT ?`, startedMarker+"%", pendingBatch)
+	rows, err := s.db.Query(`SELECT q.id, q.profile_id, q.conversation_id, q.command_id, q.decision_id, c.error LIKE ? FROM coder_session_questions q
+		JOIN coder_session_commands c ON c.id = q.command_id WHERE q.status != 'open' AND q.command_id > 0 AND c.status = 'failed' AND c.error NOT LIKE ? LIMIT ?`, expiredMarker+"%", startedMarker+"%", pendingBatch)
 	if err != nil {
 		return
 	}
 	type lost struct {
 		id, cmd, decision int64
 		profile, conv     string
+		expired           bool // the note waited too long (the max_concurrent cap can hold one): not a failure of the answer
 	}
 	var all []lost
 	for rows.Next() {
 		var l lost
-		if rows.Scan(&l.id, &l.profile, &l.conv, &l.cmd, &l.decision) == nil {
+		if rows.Scan(&l.id, &l.profile, &l.conv, &l.cmd, &l.decision, &l.expired) == nil {
 			all = append(all, l)
 		}
 	}
 	rows.Close()
 	for _, l := range all {
-		res, err := s.db.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '', command_id = 0, decision_id = 0, reopen_count = reopen_count + 1, last_failed_at = ?
-			WHERE id = ? AND command_id = ? AND status != 'open'`, s.stamp(), l.id, l.cmd)
+		res, err := s.db.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '', command_id = 0, decision_id = 0, reopen_count = reopen_count + ?, expired_reopens = expired_reopens + ?, last_failed_at = ?
+			WHERE id = ? AND command_id = ? AND status != 'open'`, boolInt(!l.expired), boolInt(l.expired), s.stamp(), l.id, l.cmd)
 		if err != nil {
 			continue
 		}

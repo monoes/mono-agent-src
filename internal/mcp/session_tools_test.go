@@ -86,7 +86,7 @@ func TestSessionToolsAreServedAndGated(t *testing.T) {
 	for _, tl := range sessionTools() {
 		names[tl.name] = tl
 	}
-	for _, n := range []string{"session_spawn", "session_list", "session_status", "session_send", "session_pause", "session_resume", "session_stop", "session_set"} {
+	for _, n := range []string{"session_spawn", "session_list", "session_status", "session_send", "session_pause", "session_resume", "session_stop", "session_set", "session_answer", "session_park", "session_record"} {
 		tl, ok := names[n]
 		if !ok {
 			t.Fatalf("%s is not defined", n)
@@ -96,7 +96,7 @@ func TestSessionToolsAreServedAndGated(t *testing.T) {
 			t.Errorf("%s mutating = %v", n, tl.mutating)
 		}
 	}
-	if len(names) != 8 {
+	if len(names) != 11 {
 		t.Fatalf("tools = %d", len(names))
 	}
 	found := 0
@@ -105,7 +105,7 @@ func TestSessionToolsAreServedAndGated(t *testing.T) {
 			found++
 		}
 	}
-	if found != 8 {
+	if found != 11 {
 		t.Fatalf("allTools serves %d session tools", found)
 	}
 }

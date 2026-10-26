@@ -13,8 +13,12 @@ import (
 
 // `coder sessions decisions|questions`: the ledger of decisions made for a session
 // without asking a person, and the questions parked while nobody could answer.
-// Reading is open; reverting a decision and answering a question are the
-// operator's.
+// Reads need the operator or a session token (a token sees only its own tree);
+// reverting a decision is the operator's; answering a question is the operator's
+// or the direct master's.
+
+// notYourSession is the one refusal for a read of a session outside the caller's own tree.
+const notYourSession = "not your session or one of your child sessions"
 
 func parseID(s, what string) (int64, error) {
 	id, err := strconv.ParseInt(s, 10, 64)
@@ -54,10 +58,22 @@ func newDecisionsListCmd(cfg *Deps) *cobra.Command {
 		Short: "List a session's decisions, newest first",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			vis, err := visibleToToken(cfg)
+			if err != nil {
+				return err
+			}
+			if vis != nil && !vis(args[0]) {
+				return clicore.NotFound("%s", notYourSession)
+			}
 			return withCoderStore(cfg, args[0], func(cs *coderhost.Store, profileID string) error {
 				rows, err := cs.ListDecisions(profileID, args[0], coderhost.LedgerFilter{Class: class, Status: status, Limit: limit})
 				if err != nil {
 					return err
+				}
+				if vis != nil {
+					for i := range rows {
+						rows[i] = coderhost.SealEntry(rows[i])
+					}
 				}
 				return printQueueJSON(cmd, map[string]any{"conversationId": args[0], "decisions": rows})
 			})
@@ -76,6 +92,13 @@ func newDecisionsShowCmd(cfg *Deps) *cobra.Command {
 		Short: "Show one decision",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			vis, err := visibleToToken(cfg)
+			if err != nil {
+				return err
+			}
+			if vis != nil && !vis(args[0]) {
+				return clicore.NotFound("%s", notYourSession)
+			}
 			id, err := parseID(args[1], "decision")
 			if err != nil {
 				return err
@@ -87,6 +110,9 @@ func newDecisionsShowCmd(cfg *Deps) *cobra.Command {
 				}
 				if !ok {
 					return clicore.NotFound("no decision %d for %s", id, args[0])
+				}
+				if vis != nil {
+					e = coderhost.SealEntry(e)
 				}
 				return printQueueJSON(cmd, e)
 			})
@@ -142,12 +168,19 @@ func newQuestionsListCmd(cfg *Deps) *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
 		Use:   "list [CONVERSATION]",
-		Short: "List parked questions (every conversation of the profile without an argument), with who may answer each",
+		Short: "List parked questions (every conversation of the profile without an argument; under a session token only the caller's own tree), with who may answer each",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			conv := ""
 			if len(args) == 1 {
 				conv = args[0]
+			}
+			vis, err := visibleToToken(cfg)
+			if err != nil {
+				return err
+			}
+			if vis != nil && conv != "" && !vis(conv) {
+				return clicore.NotFound("%s", notYourSession)
 			}
 			profileID := cfg.ProfileID()
 			if conv != "" {
@@ -165,6 +198,15 @@ func newQuestionsListCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if vis != nil { // a session sees its own tree's questions, with the model-written text cleaned
+				seen := rows[:0]
+				for _, q := range rows {
+					if vis(q.ConversationID) {
+						seen = append(seen, coderhost.SealQuestion(q))
+					}
+				}
+				rows = seen
+			}
 			return printQueueJSON(cmd, map[string]any{"questions": rows})
 		},
 	}
@@ -177,11 +219,16 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 	var noHost bool
 	cmd := &cobra.Command{
 		Use:   "answer CONVERSATION ID ANSWER",
-		Short: "Answer a parked question when the policy names the user (the operator only)",
-		Long: "The answer is queued to the session as a message the host sends (a turn id starting with answer-). It " +
+		Short: "Answer a parked question when the policy names you: the user (the operator), or a master (with its session token)",
+		Long: "With a session token (a master's turn) this answers a question parked by a child session of the caller when the policy " +
+			"names the master for that class; any other question is refused as not one of the caller's. Without a token it is the operator's. " +
+			"The answer is queued to the session as a message the host sends (a turn id starting with answer-). It " +
 			"carries no authority: it cannot raise access or a budget, change a setting or confirm a mission.",
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if sessionTokenFromEnv() != "" {
+				return masterAnswer(cfg, cmd, args)
+			}
 			if err := clicore.RequireOperator(cfg.RequireOperator, "answer a coder session's parked question"); err != nil {
 				return err
 			}

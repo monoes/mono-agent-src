@@ -10,10 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -43,46 +41,6 @@ const MissionConfirmTTL = MaxSendAge
 // MissionConfirmGrace is how long the host waits for the record of a command
 // marked as a mission: the command is queued before its record is written.
 const MissionConfirmGrace = time.Minute
-
-// MissionTokenEnv is the variable the host hands a chat child its confirmation
-// token in (see MissionConfirm.Token).
-const MissionTokenEnv = "MONOAGENT_MISSION_TOKEN"
-
-var (
-	stashMu      sync.Mutex
-	stashedToken string
-)
-
-// StashMissionToken moves the host's confirmation token out of the Go
-// environment into memory. The binary calls it before anything else can start a
-// subprocess (the account guard, the update and tool probes), so no child of this
-// process inherits it; the chat command then takes it with TakeMissionToken.
-// Limit: os.Unsetenv clears Go's copy, not the environment block the kernel gave
-// the process at exec, so the token stays readable from that block
-// (/proc/<pid>/environ on Linux, `ps eww` on macOS) by a process of the same user
-// until the child exits. What bounds that is that the token is single use: it is
-// dead once ConsumeConfirm has run, early in the turn.
-func StashMissionToken() {
-	stashMu.Lock()
-	defer stashMu.Unlock()
-	if v := os.Getenv(MissionTokenEnv); v != "" {
-		stashedToken = v
-	}
-	_ = os.Unsetenv(MissionTokenEnv)
-}
-
-// TakeMissionToken returns the stashed token (stashing it first if it is still in
-// the environment) and forgets it, so a token is handed out once. This is about
-// what this process's own children inherit; see StashMissionToken for what the
-// process environment still shows.
-func TakeMissionToken() string {
-	StashMissionToken()
-	stashMu.Lock()
-	defer stashMu.Unlock()
-	t := stashedToken
-	stashedToken = ""
-	return t
-}
 
 const confirmPrefix = "coder-mission-confirm/"
 

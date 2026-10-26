@@ -1706,13 +1706,16 @@ that works a task acts on them. The defences:
   under a reserved config prefix that only the operator writes, deletes or reads, is single
   use, and is revoked when its command is cancelled, expires, fails or is deleted with its
   conversation. A send marked as a mission never runs plain: without a live record it
-  fails. The token reaches the child in its environment; the binary moves it out of
-  its own (Go) environment before it starts any process of its own, so nothing the child
-  starts inherits it. That does not erase the environment block the process was given at
-  start: on Linux `/proc/<pid>/environ` and on macOS `ps eww` still show the token to a
-  process of the same user until the child exits. What bounds this is that the token is
-  single use and is dead once the child has consumed the record, early in the turn; the
-  window is from the host's start of the child until that point. The limit of the MAC: the same user with keychain
+  fails. The token reaches the child over an inherited pipe, not in its
+  environment or arguments: the host writes it to a fresh pipe, closes the write end and
+  passes the read end; the child checks that the descriptor is a pipe, reads at most a few
+  hundred bytes once, with a deadline, closes it before it starts any process of its own,
+  and refuses anything malformed. A value in a process environment can be read by other
+  processes of the same user until the process exits; with a pipe the value is exposed only
+  for the moment between the host's write and the child's first read, and nothing is left to
+  read afterwards. The session token, which stays in the turn's environment, is unchanged. Only the descriptor's number, which is not secret, is in the
+  environment. On Windows the same pipe is passed as an inherited handle. The token is also
+  single use and is dead once the child has consumed the record, early in the turn. The limit of the MAC: the same user with keychain
   access (the key comes out of the OS keychain, or the file keyring that stands in for
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
@@ -1801,15 +1804,20 @@ injected text and a confused script inside the rules; it is not a sandbox agains
 - **Spawn and run limits.** Depth 2, `max_children` per master, 6 spawns per 10 minutes
   per master, 5 pending slots per child shared by everything a master queues except a stop (sends, pause,
   resume) and 2 master stops apart, queued sends that expire (6 hours; a master's sends, not its pause or resume,
-  after 15 minutes), 50 waiting sends and 50 waiting control commands per conversation. `max_concurrent` is stored and shown; nothing acts on
-  it yet.
+  after 15 minutes), 50 waiting sends and 50 waiting control commands per conversation. `max_concurrent` (default 2) caps the children of one master that run a turn at once (only turns this host started are counted); further sends wait (in order within a chat; across chats the freed slot goes to the master's oldest waiting send), and a held send can expire like any other (15 minutes for a master's, 6 hours for others including `answer-d-` notes) and then fails with the expiry reason.
 - **Check-ins and the streak.** After `checkin_limit` (default 48) host-made turns (`checkin-`, `answer-`,
   `master-`) in a row with no message from a person, a session waits for one. A new path that starts turns
   without a person must use its own prefix and be counted, or it would reset the limit.
 - **Autonomy decides who answers a gap, nothing more.** `risky_action` and `missing_credential` are never
-  answered by the model and never take a default. A model-made decision is written to the decisions ledger. The
-  gap class and `reversible` flag come from whoever records the decision: a model-facing tool must take them from
-  a host- or master-validated source before it is added.
+  answered by the model and never take a default. A model-made decision is written to the decisions ledger as the
+  model's. The producer tools (`session_park`, `session_record`, `sessions park|record`) take the caller from the
+  verified session token (no session argument), validate the class, refuse a hard class as reversible or as a
+  recorded model decision, and consult the policy: a park the policy leaves to the model and a record the policy
+  leaves to a master or the user are refused. They start no turn and carry no approval. The `reversible` flag is the
+  model's claim and is shown as such in the ledger. A model's ledger rows rotate only among its own and `record` is limited to 20 an hour per session. A master answers
+  its direct child's question under its own token (`session_answer`); every question that is not its direct child's
+  (including one of a deeper descendant) is refused with one text. Reading questions and decisions needs the operator
+  or a session token, is limited to the caller's subtree, and returns model-written text cleaned.
 - **Mesh text is data.** What other agents send to a session over monomind's mesh is sealed as untrusted peer
   content in front of its next turn; it starts no turn and carries no authority. The mesh name is not a trust
   anchor and `mesh_accept` (`none`, `subtree` or `project`; default `subtree`) limits who is heard.

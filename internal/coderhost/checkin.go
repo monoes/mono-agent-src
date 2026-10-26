@@ -57,9 +57,11 @@ func (h *Host) checkinPass(now time.Time) {
 	}
 	for _, m := range sessions {
 		children := kids[m.ProfileID+"\x00"+m.ConversationID]
-		if m.Role != "master" || len(children) == 0 {
+		if m.Role == "child" || (len(children) > 0 && m.Role != "master") {
 			continue
 		}
+		// A master with children is looked at as before. A session without children (a mission lead) only
+		// when checkinOne finds a running task session with open work bound to it.
 		h.checkinOne(now, m, children)
 	}
 }
@@ -69,6 +71,9 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	// the master is being dealt with already. Nothing is recorded, so it is looked at
 	// again on the next pass (one catch-up, never a pile).
 	if !m.Unattended || m.State != StateIdle || m.TurnID != "" || h.Store.PendingFor(m.ProfileID, m.ConversationID) > 0 {
+		return
+	}
+	if h.checkinTargetStillValid(m, len(children)) != "" {
 		return
 	}
 	settings, err := h.Store.GetSettings(m.ProfileID, m.ConversationID)
@@ -150,7 +155,7 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	}
 	// The master may have been given something to do since it was read at the top of the
 	// pass; the view is read again so a check-in does not start behind a person's message.
-	if fresh, ok, err := h.Store.GetSession(m.ProfileID, m.ConversationID); err != nil || !ok || !fresh.Unattended || fresh.Role != "master" ||
+	if fresh, ok, err := h.Store.GetSession(m.ProfileID, m.ConversationID); err != nil || !ok || h.checkinTargetStillValid(fresh, len(children)) != "" ||
 		fresh.State != StateIdle || fresh.TurnID != "" || h.Store.PendingFor(m.ProfileID, m.ConversationID) > 0 {
 		return
 	}
@@ -249,7 +254,11 @@ func triggeredEvents(before, now snapshot, enabled []string) []string {
 // digestText is the master's prompt for a check-in: facts only.
 func digestText(reason string, s snapshot) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[CHECK-IN] Progress check (%s). The sessions you coordinate, as the host sees them now:\n", reason)
+	if len(s.Children) == 0 {
+		fmt.Fprintf(&b, "[CHECK-IN] Progress check (%s). Your mission, as the host sees it now:\n", reason)
+	} else {
+		fmt.Fprintf(&b, "[CHECK-IN] Progress check (%s). The sessions you coordinate, as the host sees them now:\n", reason)
+	}
 	for _, c := range s.Children {
 		last := "no turn yet"
 		switch c.Status {
@@ -266,6 +275,10 @@ func digestText(reason string, s snapshot) string {
 		b.WriteString("\n")
 	}
 	b.WriteString(missionLine(s.Mission))
+	if len(s.Children) == 0 {
+		b.WriteString("Read mission_status and move the open tasks forward. Do not redo finished work. This message was written by the host, not by the person.")
+		return b.String()
+	}
 	b.WriteString("Review them and give each the direction it needs. Do not redo finished work. This message was written by the host, not by the person or by any of these sessions.")
 	return b.String()
 }
