@@ -73,7 +73,7 @@ func (b Box) canaryPlan() (plan Plan, marker string, err error) {
 	}
 	args := append([]string{"-c", canaryProbe, "sh", state, nonce, string(b.Mode), fmt.Sprint(len(inState))}, inState...)
 	args = append(args, masks...)
-	plan, err = b.Wrap("sh", args, os.Environ())
+	plan, err = b.Wrap("/bin/sh", args, b.canaryEnv())
 	return plan, filepath.Join(home, ".monoagent-canary-"+nonce), err
 }
 
@@ -120,4 +120,21 @@ func runWithContext(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 		<-done
 		return buf.Bytes(), ctx.Err()
 	}
+}
+
+// canaryEnv is the environment the canary is given: the ambient one without the variables the
+// turn passes explicitly (their ambient values may be broader than what the turn is issued),
+// and a fixed PATH so that the probe does not pick up a tool from a directory a project controls.
+func (b Box) canaryEnv() []string {
+	pass := map[string]bool{"PATH": true}
+	for _, k := range b.PassEnv {
+		pass[k] = true
+	}
+	env := []string{"PATH=/usr/bin:/bin"}
+	for _, kv := range os.Environ() {
+		if k, _, ok := strings.Cut(kv, "="); ok && !pass[k] {
+			env = append(env, kv)
+		}
+	}
+	return env
 }

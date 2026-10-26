@@ -705,3 +705,28 @@ func TestPackageBindsAreNotSwappableAfterTheCheck(t *testing.T) {
 		t.Errorf("a swapped package directory was followed: %v\n%s", err, out)
 	}
 }
+
+// The canary does not see the ambient value of a variable the turn passes explicitly, and
+// does not look tools up on the ambient PATH.
+func TestCanaryEnvironment(t *testing.T) {
+	needBwrap(t)
+	t.Setenv("MONOAGENT_API_TOKEN", "ambient-broad-token")
+	r := newRig(t)
+	b := r.box(Strict)
+	b.PassEnv = []string{"MONOAGENT_API_TOKEN"}
+	plan, _, err := b.canaryPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Close()
+	j := strings.Join(plan.Argv, " ")
+	if strings.Contains(j, "ambient-broad-token") {
+		t.Error("the ambient token reached the canary")
+	}
+	if !strings.Contains(j, " -- /bin/sh ") {
+		t.Errorf("the canary does not run an absolute shell")
+	}
+	if !strings.Contains(j, "--setenv PATH /usr/bin:/bin") {
+		t.Error("the canary does not use a fixed PATH")
+	}
+}
