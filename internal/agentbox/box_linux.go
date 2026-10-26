@@ -375,21 +375,11 @@ func (b Box) strictArgv(bd *binder, home string, env []string, plan *Plan) ([]st
 			plan.Notes = append(plan.Notes, n+" was not found on PATH: not bound into the box")
 			continue
 		}
-		for _, p := range b.binaryBinds(home, forbidden, found, plan) {
-			if seen[p] {
-				continue
-			}
-			seen[p] = true
-			if target, link, ok := strings.Cut(strings.TrimPrefix(p, "symlink:"), "\x00"); ok && strings.HasPrefix(p, "symlink:") {
-				argv = append(argv, "--symlink", target, link)
-				continue
-			}
-			real, idx, err := bd.pin(p, wantAny)
-			if err != nil {
-				return nil, err
-			}
-			argv = append(argv, fdBind("--ro-bind", idx, real)...)
+		args, err := b.bindBinary(bd, home, forbidden, found, seen, plan)
+		if err != nil {
+			return nil, err
 		}
+		argv = append(argv, args...)
 	}
 	argv = append(argv, fdBind("--bind", cwdIdx, cwd)...)
 	argv = append(argv, "--chdir", cwd)

@@ -371,7 +371,8 @@ func TestLauncherMustBeRootOwnedAndNeverComesFromPATH(t *testing.T) {
 	}
 }
 
-// Only the binary (and a clean package root) is bound, never what lies beside it.
+// Only the binary and a verified package's manifest entries are bound, never what lies beside
+// them: not the install prefix, not the package's configuration or credential-like files.
 func TestBinaryBindsDoNotExposeNeighbours(t *testing.T) {
 	needBwrap(t)
 	r := newRig(t)
@@ -380,46 +381,53 @@ func TestBinaryBindsDoNotExposeNeighbours(t *testing.T) {
 	pkg := func(name, pkgName string, extra ...string) string {
 		root := filepath.Join(r.home, "pkgs", name)
 		os.MkdirAll(filepath.Join(root, "bin"), 0o755)
+		os.MkdirAll(filepath.Join(root, "lib"), 0o755)
+		os.MkdirAll(filepath.Join(root, "config"), 0o755)
 		os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"`+pkgName+`"}`), 0o644)
-		os.WriteFile(filepath.Join(root, "lib.txt"), []byte("lib"), 0o644)
+		os.WriteFile(filepath.Join(root, "lib", "lib.txt"), []byte("lib"), 0o644)
+		os.WriteFile(filepath.Join(root, "config", "auth.json"), []byte("package-secret"), 0o600)
+		os.WriteFile(filepath.Join(root, ".env.production"), []byte("package-secret"), 0o600)
 		for _, e := range extra {
+			os.MkdirAll(filepath.Dir(filepath.Join(root, e)), 0o755)
 			os.WriteFile(filepath.Join(root, e), []byte("x"), 0o600)
 		}
 		cli := filepath.Join(root, "bin", "cli")
-		os.WriteFile(cli, []byte("#!/bin/sh\ncat \"$(dirname \"$(readlink -f \"$0\")\")/../lib.txt\"\n"), 0o755)
+		os.WriteFile(cli, []byte("#!/bin/sh\nd=$(dirname \"$(readlink -f \"$0\")\")/..\ncat \"$d/lib/lib.txt\"\ncat \"$d/config/auth.json\" \"$d/.env.production\" 2>/dev/null\n"), 0o755)
 		link := filepath.Join(r.home, "tools", "bin", name)
 		os.Symlink(cli, link)
 		return link
 	}
-	clean, dirty := pkg("clean", "monomind"), pkg("dirty", "monomind", ".env.production")
-	nested := pkg("nested", "monomind")
-	os.MkdirAll(filepath.Join(r.home, "pkgs", "nested", "config"), 0o755)
-	os.WriteFile(filepath.Join(r.home, "pkgs", "nested", "config", "credentials.json"), []byte("{}"), 0o600)
+	clean := pkg("clean", "monomind")
+	tainted := pkg("tainted", "monomind", "dist/credentials.json")
 	stranger := pkg("stranger", "left-pad")
 	b := r.box(Strict)
-	b.Binaries = []string{r.tool, clean, dirty, nested, stranger}
+	b.Binaries = []string{r.tool, clean, tainted, stranger}
 	probe := `echo "neighbour=$(cat "` + filepath.Join(r.home, "tools", "secret.txt") + `" 2>/dev/null || echo none)"
 echo "otherbin=$(cat "` + filepath.Join(r.home, "tools", "bin", "other") + `" 2>/dev/null || echo none)"
 echo "clean=$(clean 2>/dev/null || echo failed)"
-echo "dirty=$(dirty 2>/dev/null || echo failed)"
-echo "nested=$(nested 2>/dev/null || echo failed)"
+echo "tainted=$(tainted 2>/dev/null || echo failed)"
 echo "stranger=$(stranger 2>/dev/null || echo failed)"`
 	p, err := b.Wrap("sh", []string{"-c", probe}, r.env())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// PATH for the lookup includes the tools dir (r.env()).
 	out, err := runPlan(t, p, nil)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, w := range []string{"neighbour=none", "otherbin=none", "clean=lib", "dirty=failed", "nested=failed", "stranger=failed"} {
+	// The verified package runs and reads its manifest entry; its configuration and
+	// credential-like files are not in the box.
+	for _, w := range []string{"neighbour=none", "otherbin=none", "clean=lib", "tainted=failed", "stranger=failed"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("want %q in:\n%s", w, out)
 		}
 	}
-	if !strings.Contains(strings.Join(p.Notes, "|"), "pkgs/dirty") {
-		t.Errorf("no warning for the skipped package directory: %v", p.Notes)
+	if strings.Contains(out, "package-secret") {
+		t.Errorf("a package's credential-like file reached the box:\n%s", out)
+	}
+	notes := strings.Join(p.Notes, "|")
+	if !strings.Contains(notes, "pkgs/tainted") || !strings.Contains(notes, "pkgs/stranger") {
+		t.Errorf("no warning for the skipped packages: %v", p.Notes)
 	}
 }
 
@@ -657,5 +665,43 @@ func TestAuthFileCannotAliasAnotherRuntimesLogin(t *testing.T) {
 	os.Symlink(filepath.Join(r.home, ".claude", "real.json"), filepath.Join(r.home, ".claude.json"))
 	if _, err := b.Wrap("true", nil, r.env()); err != nil {
 		t.Errorf("a runtime's login linked inside its own directory: %v", err)
+	}
+}
+
+// The binary and package checks are made on what is pinned: a package directory swapped for a
+// symlink after the plan was made does not change what is bound.
+func TestPackageBindsAreNotSwappableAfterTheCheck(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	root := filepath.Join(r.home, "pkgs", "tool")
+	os.MkdirAll(filepath.Join(root, "bin"), 0o755)
+	os.MkdirAll(filepath.Join(root, "lib"), 0o755)
+	os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"monomind"}`), 0o644)
+	os.WriteFile(filepath.Join(root, "lib", "lib.txt"), []byte("lib"), 0o644)
+	cli := filepath.Join(root, "bin", "cli")
+	os.WriteFile(cli, []byte("#!/bin/sh\ncat \"$(dirname \"$(readlink -f \"$0\")\")/../lib/lib.txt\"\n"), 0o755)
+	link := filepath.Join(r.home, "tools", "bin", "tool")
+	os.Symlink(cli, link)
+	evil := filepath.Join(filepath.Dir(r.home), "evil")
+	os.MkdirAll(filepath.Join(evil, "lib"), 0o755)
+	os.MkdirAll(filepath.Join(evil, "bin"), 0o755)
+	os.WriteFile(filepath.Join(evil, "lib", "lib.txt"), []byte("evil-lib"), 0o644)
+	os.WriteFile(filepath.Join(evil, "package.json"), []byte(`{"name":"monomind"}`), 0o644)
+	b := r.box(Strict)
+	b.Binaries = []string{r.tool, link}
+	p, err := b.Wrap("sh", []string{"-c", "tool"}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if err := os.Rename(root, root+".orig"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(evil, root); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runPlan(t, p, nil)
+	if err != nil || strings.Contains(out, "evil") || !strings.Contains(out, "lib") {
+		t.Errorf("a swapped package directory was followed: %v\n%s", err, out)
 	}
 }

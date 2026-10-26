@@ -3,9 +3,12 @@
 package agentbox
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 func lookPathIn(pathVar, name string) string {
@@ -35,43 +38,107 @@ func underScratch(home, p string) bool {
 	return false
 }
 
-// binaryBinds are the read-only binds that make one executable runnable in a strict box:
-// the file as found on PATH and the file it really is, and, for a script in a package, the
-// package root (a directory with a package.json) when nothing sensitive sits in it. Never
-// the parent directory or install prefix: what lies beside a binary is not needed to run it.
-func (b Box) binaryBinds(home string, forbidden []string, found string, plan *Plan) []string {
-	var binds []string
-	add := func(p string) {
-		if p != "" && exists(p) && underScratch(home, p) {
-			binds = append(binds, p)
-		}
-	}
-	real, err := filepath.EvalSymlinks(found)
+// packageManifest are the top-level entries of a verified package that are bound, besides the
+// ones its package.json names as main or bin. Everything else in the package directory (its
+// configuration, sources, data) stays out of the box.
+var packageManifest = []string{"package.json", "bin", "dist", "lib", "build", "node_modules"}
+
+// bindBinary returns the read-only binds that make one executable runnable in a strict box.
+// Everything is pinned first and judged on the pinned object:
+//   - the executable must be a regular file (bound as the file it really is; a symlink to it
+//     stays a symlink, so a script that finds its package through $0 still can);
+//   - for a script inside a package under a hidden location, the package directory must be a
+//     verified runtime package (verifiedPackage), and only its manifest entries are bound.
+//
+// Never the parent directory or install prefix.
+func (b Box) bindBinary(bd *binder, home string, forbidden []string, found string, seen map[string]bool, plan *Plan) ([]string, error) {
+	var out []string
+	real0, err := filepath.EvalSymlinks(found)
 	if err != nil {
-		add(found)
-		return binds
+		plan.Notes = append(plan.Notes, found+" cannot be resolved: not bound into the box")
+		return nil, nil
 	}
-	if real != found {
-		// A symlink stays one, so a script that finds its package through $0 still can.
-		if underScratch(home, found) {
-			binds = append(binds, "symlink:"+real+"\x00"+found)
+	if !underScratch(home, real0) && !underScratch(home, found) {
+		return nil, nil // visible through the read-only root anyway
+	}
+	if underScratch(home, real0) {
+		real, idx, err := bd.pin(real0, wantFile)
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		add(found)
+		if !seen[real] {
+			seen[real] = true
+			out = append(out, fdBind("--ro-bind", idx, real)...)
+		}
+		real0 = real
 	}
-	add(real)
-	for d, i := filepath.Dir(real), 0; i < 6 && d != home && d != "/" && d != "."; d, i = filepath.Dir(d), i+1 {
-		if !exists(filepath.Join(d, "package.json")) {
+	if real0 != found && underScratch(home, found) && !seen[found] {
+		seen[found] = true
+		out = append(out, "--symlink", real0, found)
+	}
+	for d, i := filepath.Dir(real0), 0; i < 6 && d != home && d != "/" && d != "."; d, i = filepath.Dir(d), i+1 {
+		if _, err := os.Lstat(filepath.Join(d, "package.json")); err != nil {
 			continue
 		}
-		switch {
-		case !underScratch(home, d):
-		case checkAllowed(home, forbidden, d) != nil || !verifiedPackage(d):
-			plan.Notes = append(plan.Notes, "the package directory "+d+" is not a verified runtime package or holds credential-like entries: not bound, "+filepath.Base(found)+" may not start")
-		default:
-			add(d)
+		if !underScratch(home, d) {
+			break
 		}
-		break
+		pkg, err := b.bindPackage(bd, home, forbidden, d, seen, plan)
+		if err != nil {
+			return nil, err
+		}
+		return append(out, pkg...), nil
 	}
-	return binds
+	return out, nil
+}
+
+// bindPackage binds the manifest entries of the package directory dir, judged through the
+// pinned directory: its package.json must name a verified package, the directory itself must
+// not be a protected location, and the bound entries must hold nothing credential-like.
+func (b Box) bindPackage(bd *binder, home string, forbidden []string, dir string, seen map[string]bool, plan *Plan) ([]string, error) {
+	skip := func(why string) ([]string, error) {
+		plan.Notes = append(plan.Notes, "the package directory "+dir+" "+why+": not bound, the tool may not start")
+		return nil, nil
+	}
+	real, idx, err := bd.pin(dir, wantDir)
+	if err != nil {
+		return skip("cannot be pinned")
+	}
+	if checkAllowed(home, forbidden, real) != nil {
+		return skip("is a protected location")
+	}
+	names, ok := packageEntryNames(bd.procPath(idx))
+	if !ok {
+		return skip("is not a verified runtime package")
+	}
+	var out []string
+	var pinned []int
+	var pinnedNames []string
+	for _, n := range names {
+		pr, eidx, err := bd.pinAt(idx, real, n, wantAny)
+		if err != nil {
+			if os.IsNotExist(err) || errors.Is(err, unix.ENOENT) {
+				continue
+			}
+			return skip("holds an entry that is not a plain file or directory (" + n + ")")
+		}
+		_ = pr
+		pinned, pinnedNames = append(pinned, eidx), append(pinnedNames, n)
+	}
+	for i, eidx := range pinned {
+		if pinnedNames[i] == "node_modules" {
+			continue // installed third-party code
+		}
+		if !entryClean(bd.procPath(eidx), real) {
+			return skip("holds credential-like files or links out of the directory (" + pinnedNames[i] + ")")
+		}
+	}
+	for i, eidx := range pinned {
+		dest := filepath.Join(real, pinnedNames[i])
+		if !seen[dest] {
+			seen[dest] = true
+			out = append(out, fdBind("--ro-bind", eidx, dest)...)
+		}
+	}
+	return out, nil
 }
