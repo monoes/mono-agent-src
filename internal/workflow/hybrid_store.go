@@ -345,15 +345,36 @@ func (h *HybridWorkflowStore) DeleteWorkflow(ctx context.Context, id string) err
 // file (so a hand edit is not lost), and otherwise on the committed rows. File and rows change
 // in one publication.
 func (h *HybridWorkflowStore) SetWorkflowActive(ctx context.Context, id string, active bool) error {
+	_, err := h.SetWorkflowActiveNoted(ctx, id, active)
+	return err
+}
+
+// RowsOnlyNote is what a caller tells the person when SetWorkflowActiveNoted could only switch the
+// rows off: the workflow is off, but its file and the unfinished change were left as they are.
+const RowsOnlyNote = "deactivated in the database; the file was left as it is; run doctor to settle the unfinished change"
+
+// SetWorkflowActiveNoted is SetWorkflowActive that also returns a note ("" when nothing needs
+// saying). Every caller that deactivates must pass a note on: RowsOnlyNote means the file was left.
+func (h *HybridWorkflowStore) SetWorkflowActiveNoted(ctx context.Context, id string, active bool) (note string, err error) {
 	if !active {
 		// The operator's kill switch: when an earlier change of this workflow is unresolved (or
-		// stuck with no owner), switching it off must still work. Only the rows' flag changes; the
-		// file and the open change are left exactly as they are. Switching on is never done this way.
-		if done, err := h.deactivateRowsOnly(ctx, id); done || err != nil {
-			return err
+		// stuck with no owner), switching it off must still work. Abandoned changes are settled
+		// first; only if one is still open do the rows alone change, the file and the open change
+		// left exactly as they are. Switching on is never done this way.
+		done, err := h.deactivateRowsOnly(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if done {
+			return RowsOnlyNote, nil
 		}
 	}
-	_, err := h.Publish(ctx, Publication{
+	_, err = h.setActivePublication(ctx, id, active)
+	return "", err
+}
+
+func (h *HybridWorkflowStore) setActivePublication(ctx context.Context, id string, active bool) (*Workflow, error) {
+	return h.Publish(ctx, Publication{
 		WorkflowID:   id,
 		Origin:       "active",
 		KeepFileless: true,
@@ -374,7 +395,6 @@ func (h *HybridWorkflowStore) SetWorkflowActive(ctx context.Context, id string, 
 			return &next, nil
 		},
 	})
-	return err
 }
 
 // lockedFileCopy is the workflow file's definition for a publication to build on, and only when
@@ -707,8 +727,11 @@ func (h *HybridWorkflowStore) UnfinishedChange(ctx context.Context, id string) (
 	return "", nil
 }
 
-// deactivateRowsOnly switches the rows' active flag off under the publication lock when the
-// workflow has an unresolved or stuck change; done says whether it did.
+// deactivateRowsOnly is the kill switch's fallback. A workflow with an unresolved or stuck change
+// is first given the chance to settle (an abandoned change is rolled back, as any writer would
+// do); if it is then fine, done is false and the caller publishes as usual. If a change is still
+// open, the rows' active flag alone is switched off under the publication lock. Like Publish it
+// waits out a busy database for up to publicationWait and then fails with ErrPublicationBusy.
 func (h *HybridWorkflowStore) deactivateRowsOnly(ctx context.Context, id string) (done bool, err error) {
 	if h.files == nil {
 		return false, nil
@@ -716,6 +739,40 @@ func (h *HybridWorkflowStore) deactivateRowsOnly(ctx context.Context, id string)
 	state, err := h.UnfinishedChange(ctx, id)
 	if err != nil || state == "" {
 		return false, err
+	}
+	if rerr := h.recoverID(ctx, id); rerr != nil && ctx.Err() != nil {
+		return false, rerr
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*publicationWait)
+	defer cancel()
+	deadline := time.Now().Add(publicationWait)
+	wait := 50 * time.Millisecond
+	for {
+		done, err = h.deactivateRowsOnlyOnce(ctx, id)
+		if err == nil || !isBusyErr(err) || time.Now().After(deadline) {
+			if err != nil && (isBusyErr(err) || errors.Is(err, context.DeadlineExceeded)) && !errors.Is(err, ErrPublicationBusy) {
+				err = errors.Join(ErrPublicationBusy, err)
+			}
+			return done, err
+		}
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return false, errors.Join(ErrPublicationBusy, ctx.Err())
+			}
+			return false, ctx.Err()
+		case <-time.After(wait):
+		}
+		if wait < 800*time.Millisecond {
+			wait *= 2
+		}
+	}
+}
+
+func (h *HybridWorkflowStore) deactivateRowsOnlyOnce(ctx context.Context, id string) (done bool, err error) {
+	state, err := h.UnfinishedChange(ctx, id)
+	if err != nil || state == "" {
+		return false, err // settled meanwhile (or unreadable): the caller publishes as usual
 	}
 	tx, txDone, err := h.beginDurable(ctx)
 	if err != nil {

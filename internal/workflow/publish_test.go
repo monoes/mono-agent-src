@@ -837,3 +837,88 @@ func TestReadOnlyStoreDoesNotRecoverAbandonedChanges(t *testing.T) {
 		t.Fatal("a read-only store changed a file or settled a change")
 	}
 }
+
+// The note a caller must pass on: rows-only success says so; an ordinary deactivation says nothing.
+func TestDeactivateReturnsTheRowsOnlyNote(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil || note != "" {
+		t.Fatalf("an ordinary deactivation: %q %v", note, err)
+	}
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'unresolved', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil || note != RowsOnlyNote {
+		t.Fatalf("under an unresolved change: %q %v", note, err)
+	}
+}
+
+// An abandoned change is settled first: when that works, the deactivation is an ordinary one (the
+// file goes inactive too) and there is nothing to tell the person.
+func TestDeactivateSettlesAnAbandonedChangeBeforeUsingTheBypass(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	prev := fileBytes(t, h, "wf-g")
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications
+		(workflow_id, kind, state, target_sha, prev_sha, prev_bytes, prev_existed, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'pending', ?, ?, ?, 1, 0, ?)`, shaHex(prev), shaHex(prev), prev, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if err != nil || note != "" {
+		t.Fatalf("%q %v", note, err)
+	}
+	if f, _ := h.files.GetWorkflow(ctx, "wf-g"); f == nil || f.IsActive {
+		t.Fatal("the file still says active: the bypass was used although the change could be settled")
+	}
+	if openIntentCount(t, s) != 0 {
+		t.Fatal("the abandoned change was left")
+	}
+}
+
+// A busy database is waited out like any publication, and a lock held for longer ends as "busy",
+// not as a raw database error; the workflow stays as it was.
+func TestRowsOnlyDeactivateWaitsAndThenReportsBusy(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'unresolved', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	old := publicationWait
+	publicationWait = 150 * time.Millisecond
+	t.Cleanup(func() { publicationWait = old })
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	release := time.AfterFunc(3*time.Second, func() { _, _ = conn.ExecContext(context.Background(), `ROLLBACK`); conn.Close() })
+	defer release.Stop()
+	start := time.Now()
+	_, err = h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if !errors.Is(err, ErrPublicationBusy) || time.Since(start) > 2*time.Second {
+		t.Fatalf("after %v: %v", time.Since(start), err)
+	}
+	release.Stop()
+	_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
+	conn.Close()
+	if rows, _ := s.GetWorkflow(ctx, "wf-g"); !rows.IsActive {
+		t.Fatal("the workflow changed although the switch reported busy")
+	}
+}
