@@ -15,6 +15,7 @@ import (
 // "file: function". Each is a write the store reserves for the operator. Adding one needs a
 // reason here, in review.
 var operatorSites = map[string]string{
+	"mission_base.go: recordBase":                "the store reserves base (start point) artifacts for the operator's process",
 	"mission_close.go: operatorClose":            "the guarded close of a finished mission (report artifact and the close)",
 	"mission_exec.go: recordSpend":               "AddSessionSpend: only this process records a worker's cost",
 	"mission_integration.go: requeueIntegration": "an integration check that had begun goes back to Ready when the tree changed under it (Move out of Review or Done is the operator's)",
