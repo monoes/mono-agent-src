@@ -261,6 +261,7 @@ func allTools() []tool {
 	native = append(native, authoringTools()...)
 	native = append(native, nodeRunTool(), doctorTool())
 	native = append(native, taskTools()...)
+	native = append(native, sessionTools()...)
 	native = append(native, apiTools()...)
 	native = append(native, publicationTools()...)
 	native = append(native, generateTools()...)
