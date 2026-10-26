@@ -176,7 +176,7 @@ type AdoptableFile struct {
 
 const (
 	maxAdoptableShown   = 20
-	maxAdoptableExamine = 200
+	maxAdoptableBudget  = 16 << 20 // bytes read in one listing, across all candidate files
 	maxAdoptableBytes   = 1 << 20
 	maxNameShown        = 48
 	maxNamesShown       = 10
@@ -210,8 +210,8 @@ func shortList(set map[string]bool) []string {
 
 // AdoptableFiles lists workflow files that have no rows and so wait to be adopted, up to
 // maxAdoptableShown; more counts the rest (files beyond the listing, with names that are not safe to
-// print, unreadable, or larger than 1 MiB). At most maxAdoptableExamine directory entries are looked
-// at and a file is read only if it is small.
+// print, unreadable, or larger than 1 MiB). A file is read only if its name is a plain id and it is a
+// small regular file, and at most maxAdoptableBudget bytes are read in all; the rest are counted.
 func (h *HybridWorkflowStore) AdoptableFiles(ctx context.Context) (shown []AdoptableFile, more int, err error) {
 	if h.files == nil {
 		return nil, 0, nil
@@ -223,22 +223,28 @@ func (h *HybridWorkflowStore) AdoptableFiles(ctx context.Context) (shown []Adopt
 		}
 		return nil, 0, err
 	}
-	examined := 0
+	spent := int64(0)
 	for _, e := range entries {
 		id, ok := strings.CutSuffix(e.Name(), ".json")
 		if e.IsDir() || !ok || strings.HasSuffix(id, ".ai-backup") {
+			continue
+		}
+		// Everything decidable from the name and the directory entry comes before a file is read.
+		if !safeFileID.MatchString(id) || !e.Type().IsRegular() {
+			more++
 			continue
 		}
 		var n int
 		if err := h.sql.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n); err != nil || n > 0 {
 			continue
 		}
-		if examined++; examined > maxAdoptableExamine {
+		info, ierr := e.Info()
+		if ierr != nil || info.Size() > maxAdoptableBytes || len(shown) >= maxAdoptableShown || spent+info.Size() > maxAdoptableBudget {
 			more++
 			continue
 		}
-		info := regularFileInfo(h.files, id)
-		if len(shown) >= maxAdoptableShown || !safeFileID.MatchString(id) || info == nil || info.Size() > maxAdoptableBytes {
+		spent += info.Size()
+		if regularFileInfo(h.files, id) == nil {
 			more++
 			continue
 		}

@@ -451,3 +451,21 @@ func TestAReadOnlyStoreWritesNothingWhenItReads(t *testing.T) {
 		t.Fatal("a read-only store recorded the claim")
 	}
 }
+
+// Files that cannot be adopted do not use up the listing: 250 invalid files that sort first do not
+// hide the one real file, and they are counted, not parsed one by one without end.
+func TestManyInvalidFilesDoNotHideTheRealOne(t *testing.T) {
+	ctx := context.Background()
+	h, _, _, _ := guardedRig(t)
+	dir := h.files.dir
+	for i := 0; i < 250; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("000-%03d.json", i)), []byte("not json"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dropFile(t, h, "zzz-real", false)
+	shown, more, err := h.AdoptableFiles(ctx)
+	if err != nil || len(shown) != 1 || shown[0].ID != "zzz-real" || more != 250 {
+		t.Fatalf("shown %+v, more %d, %v", shown, more, err)
+	}
+}
