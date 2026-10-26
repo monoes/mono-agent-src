@@ -999,3 +999,36 @@ func TestRowsOnlyDeactivateWaitsAndThenReportsBusy(t *testing.T) {
 		t.Fatal("the workflow changed although the switch reported busy")
 	}
 }
+
+// An activation that is paused when the kill switch gives up waiting cannot commit afterwards: the
+// workflow stays off.
+func TestAPausedActivationCannotCommitOverTheKillSwitch(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if _, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	guardedCommitFault = func() error { close(entered); <-release; return nil }
+	old := publicationWait
+	publicationWait = 150 * time.Millisecond
+	t.Cleanup(func() { publicationWait = old })
+	done := make(chan error, 1)
+	go func() { done <- h.SetWorkflowActive(ctx, "wf-g", true) }()
+	<-entered // the activation has written its file and waits before its commit
+	guardedCommitFault = nil
+	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if err != nil || note != RowsOnlyNote {
+		t.Fatalf("%q %v", note, err)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("the paused activation committed over the kill switch")
+	}
+	if rows, _ := s.GetWorkflow(ctx, "wf-g"); rows.IsActive {
+		t.Fatal("the workflow was switched back on")
+	}
+	if state, _ := h.UnfinishedChange(ctx, "wf-g"); state != "unresolved" {
+		t.Fatalf("the paused change is %q, want it left for the operator", state)
+	}
+}

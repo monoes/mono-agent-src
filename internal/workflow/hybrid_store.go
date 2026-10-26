@@ -820,6 +820,14 @@ func (h *HybridWorkflowStore) deactivateRowsOnlyOnce(ctx context.Context, id str
 	if n, _ := res.RowsAffected(); n == 0 {
 		return false, fmt.Errorf("workflow %s: %w", id, ErrWorkflowNotFound)
 	}
+	if in.State == "pending" && in.live() {
+		// A change whose owner may still wake up must not commit over this switch: marking it
+		// unresolved fails its commit step (it only commits a pending change) and leaves the
+		// file and the choice to the operator, exactly as for any other unresolved change.
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_publications SET state = 'unresolved' WHERE id = ? AND state = 'pending'`, in.ID); err != nil {
+			return false, err
+		}
+	}
 	return true, tx.Commit()
 }
 
