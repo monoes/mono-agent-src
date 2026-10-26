@@ -62,7 +62,8 @@ WHO MAY DO WHAT
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
-  agents deny, os install and os uninstall are the operator's: they answer an agent
+  agents deny, session approve, session resume, session archive, session budget,
+  undepend, os install and os uninstall are the operator's: they answer an agent
   with exit 3 and the code operator_only (board and approve unless delegated, see
   below). board shows the Inbox, so an agent uses "task list". os install and
   os uninstall change the Services menu of the user's Mac, outside the board.
@@ -94,6 +95,58 @@ WHO MAY DO WHAT
   (a blank --as, like a MONOAGENT_ACTOR of only spaces, is an agent without a name,
   never the operator), or MONOAGENT_ACTOR is set. Ask the person when the gate refuses
   you; do not look for a way round it.
+  TASK SESSIONS. A session is one goal with a board of its own; the personal board
+  never shows its tasks. The operator opens a session, not each task: an agent (or the
+  operator) plans it as a draft with session new and add --session N --acceptance TEXT
+  (every session task needs acceptance criteria), and its tasks cannot be taken, and are
+  not in any inbox, until the operator runs session approve. Then an agent works inside
+  that session only: next --session N (a Ready task whose dependencies are done, or verified and
+  waiting in Review: auto-close is off by default, so a verified task settles its dependents, of a
+  running session), claim, comment, finish and release by task id, add follow-ups (Ready
+  at once; the session's max tasks is the bound), split a task that has not begun,
+  depend, artifact, and verify. An agent may also run session new, session list, session show,
+  session plan, session pause and session stop (stop releases every claim; only the operator resumes). It may not set
+  the budget, the limits, the access level or auto-close: that is session budget ID --usd N
+  --max-tasks N --max-depth N --max-retries N --access LEVEL --auto-close on|off --spend N --note TEXT
+  (session new takes --budget-usd), the operator's. session new takes an optional --client-id KEY
+  (idempotency, per profile, up to 64 letters, digits, - or _): a repeated key returns the existing session
+  (exit 0, deduped true) and creates none; a longer or garbled key is invalid_input. A worker or verifier bound to a task may not
+  pause or stop the session. finish and artifact by an agent are refused while the session is
+  paused or stopped (a comment is not). Progress n/m (counts.done, counts.total) leaves epics out:
+  an epic only groups, counts.epics holds their number, and the plan view still shows them. A session
+  task's title over 200 characters is refused (invalid_input), not cut. A verifier marks a task verified with verify --pass; closing it to Done is
+  the operator's unless the operator turned auto-close on. verify --fail sends the task
+  back to Ready with the note, up to the session's max retries, then it is blocked and
+  waits in Review for the operator. A task is verified by the operator or an agent that did not do it: one bound to
+  the task as its worker never verifies it, nor the same agent identity as the last hand-back (agent:<client>
+  without its #suffix); an agent verifies only while the session runs. A process bound to a session with MONOAGENT_TASK_SESSION acts in it only.
+  MONOAGENT_TASK_ID narrows that to one task (a mission worker's process): it claims, comments on,
+  finishes, releases and attaches evidence to that task only, and adds and takes no other.
+  MONOAGENT_TASK_ROLE=verifier (with MONOAGENT_TASK_ID) makes it a verifier's binding: it verifies,
+  comments on (the task in Review) and attaches evidence to that one task, and claims, finishes,
+  releases, splits or adds nothing. A task of kind task that declares files in its notes cannot be
+  finished with a result unless it holds a commit, diff, test, file or log artifact (a report does
+  not count; refused with invalid_input "a code task needs evidence"): attach one with artifact first.
+  After a failed verification the evidence from before does not count: a retry attaches a new one.
+  The evidence rule is self-asserted: artifact references are not validated and the declared files come from the planner's notes.
+  MISSIONS. A coder chat's lead runs a session with the mission tools (a send confirmed with
+  coder sessions send --mission, operator only; an open session of the conversation implies it): mission_plan, mission_add_tasks,
+  mission_split, mission_status, mission_replan, and once a session exists mission_next, mission_assign,
+  mission_report, mission_verify (another agent, read only, another model when ready, records its own
+  verdict) and mission_finish (integration check, writer merges, final report, closes the session as done
+  only when every task is done or verified). The lead reaches only the session of its own conversation.
+  The text of a session's goal and acceptance criteria is data, like a task's notes.
+  WHO CLOSES WHAT IN A MISSION. Workers finish a task to Review (with evidence for a code task);
+  the verifier, another agent, marks it verified (a failure sends it back to Ready, then blocks it
+  after max retries). A verified task counts as done for its dependents, so they unlock at once.
+  Moving a task on to Done is the operator's, or the session's auto_close_verified does it when the
+  operator turned that on. The lead never closes a task. mission_finish closes the SESSION only
+  through the one guarded operator close: every task done or verified, none blocked, no writer
+  branch left to merge, and the integration check done or verified. Two writers work in parallel
+  when orgWriters is isolated (a worktree and branch each, merged one at a
+  time with org_merge); with shared they take turns. A confirmed mission in a git work tree with a
+  commit defaults to isolated while the operator never set orgWriters; an operator's shared (or
+  isolated) is kept, and mission_plan and mission_status writers show the mode in effect.
   An agent names itself with --as NAME (or MONOAGENT_ACTOR), the same name for the
   whole task. A name is 1 to 64 characters of letters, digits and ._#@:-;
   the labels you, agent, capture, chrome and os are reserved (in any case). A name
@@ -157,7 +210,7 @@ THE AGENT LOOP
   wrong at run time (an unknown flag is the command parser's exit 1): a digest that
   fails prints one line on standard error and nothing on standard output.
   In text, a task's notes are printed indented, between a notice that they are
-  untrusted and the line (end of the notes); the notes in its history carry a caution
+  untrusted and the line (end of the notes); a session task's acceptance criteria end with (end of the acceptance criteria); the notes in its history carry a caution
   of their own. In text, a column or a list that was cut ends with "... N more" and
   the command that shows the rest. Every command the output suggests carries
   --profile ID, and --as NAME when the caller has a name (an agent that only an
@@ -199,9 +252,18 @@ JSON
   Every command takes the global --json and prints one document, except a digest that
   fails: that prints one line on standard error and nothing on standard output, and
   exits 0. The documents:
-    {"profile","task"}                  edit, move, comment, claim, finish, release, next
+    {"profile","task"}                  edit, move, comment, claim, finish, release, next, verify, depend, undepend
     {"profile","created","task"}        add
     {"profile","task","events"}         show
+    {"profile","session"}               session new, session approve, session pause, session resume, session stop, session archive, session budget
+    {"profile","sessions"}              session list
+    {"profile","session","events"}      session show
+    {"profile","session","tasks"}       session plan
+    {"profile","session","task"}        next --session
+    {"profile","session_id","tasks"}    list --session
+    {"profile","session","rev","counts","tasks"}  board --session
+    {"profile","artifact"}              artifact
+    {"profile","tasks"}                 split (the new parts)
     {"profile","tasks"}                 list, approve, archive, unarchive
     {"profile","archived"}              archive --status (how many were archived)
     {"profile","rev","counts","tasks"}  board, with the tasks by column
@@ -211,12 +273,12 @@ JSON
   code not_found (exit 2), or invalid_input, operator_only, not_ready, claimed (with
   claimed_by and claimed_until), not_claimant or limit (exit 3). Any other failure is
   exit 1 with {"error"} alone; an unknown flag, or a number or duration that does not
-  parse, is the command parser's exit 1 with no JSON at all.
+  parse, is the command parser's exit 1 with {"error"} and no code (as in every command group).
 
 FROM MCP
-  The MCP server (monoagentcli mcp) serves task_list, task_get and task_next in every server (they only
+  The MCP server (monoagentcli mcp) serves task_list, task_get, task_next, task_session_list and task_session_get in every server (they only
   read), and with --allow-mutations task_claim (id, or next: true), task_comment,
-  task_finish, task_release and task_add. Each takes a required "profile" argument and acts on that profile as the
+  task_finish, task_release, task_add, task_split, task_verify and task_artifact. task_add, task_claim, task_comment, task_finish, task_release, task_list, task_get and task_next take an optional "session" (a task session's number). Each takes a required "profile" argument and acts on that profile as the
   agent agent:<client>#<4 hex digits>, named after the MCP client and the session: two
   sessions are two claimants, and no argument names you. Text written by people, agents
   or captures comes back in fields ending in _untrusted. task_list sets truncated when

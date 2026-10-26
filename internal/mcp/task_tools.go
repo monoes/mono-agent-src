@@ -18,7 +18,7 @@ const taskBoardIntro = "The user's monoagent task board (not a monomind org's is
 // one profile's board and its verbs, each a thin call of internal/tasks on the
 // server's profile, as the agent this server names (taskActor).
 func taskTools() []tool {
-	return append(taskReadTools(), taskWriteTools()...)
+	return append(append(append(taskReadTools(), taskSessionReadTools()...), taskWriteTools()...), taskSessionWriteTools()...)
 }
 
 // taskBoard opens the board of the call's profile: the store, the profile (an

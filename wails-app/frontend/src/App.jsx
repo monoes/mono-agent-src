@@ -272,7 +272,7 @@ export default function App({ banners = null }) {
     applications: <Applications isActive={activePage === 'applications'} navData={activePage === 'applications' ? navData : null} onNavigate={navigate} onOpenCoderChat={openCoderChat} />,
     documents: <Documents isActive={activePage === 'documents'} />,
     info: <Info isActive={activePage === 'info'} />,
-    tasks: <Tasks isActive={activePage === 'tasks'} />,
+    tasks: <Tasks isActive={activePage === 'tasks'} navData={activePage === 'tasks' ? navData : null} />,
     ai: <Agents />,
     orgs: <Orgs isActive={activePage === 'orgs'} onNavigate={navigate} pendingSelectOrgName={pendingOrgSelect} onConsumePendingSelect={() => setPendingOrgSelect(null)} />,
     logs:      <Logs logs={logs} onClear={() => { api.clearLogs(); setLogs([]) }} onRefresh={refreshLogs} />,

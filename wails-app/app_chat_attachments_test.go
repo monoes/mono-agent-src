@@ -160,3 +160,22 @@ func TestApp_StartChatTurn_PassesAttachments(t *testing.T) {
 		t.Errorf("argv = %q", got)
 	}
 }
+
+// A mission is confirmed only through the coder host's operator-gated send: on the
+// direct turn path (no host) it is refused and no turn process starts, and the
+// chat command has no flag that stands in for it.
+func TestApp_CoderConfirmMission_DirectPathIsRefused(t *testing.T) {
+	bin, argsLog := chatFakeCLI(t, fakeChatReply{match: "chat --conversation", stdout: lines(
+		admissionLine("coder-1", "turn-1", "active", false),
+	)})
+	a, _ := newCLIChatApp(t, bin)
+	a.selectForTest("default")
+	if r := decodeStart(t, a.CoderConfirmMission("coder-1", "turn-1", "-yes, start")); r.OK {
+		t.Fatalf("a mission started on the direct path: %+v", r)
+	}
+	for _, l := range readArgsLog(t, argsLog) {
+		if strings.Contains(l, "chat --conversation") || strings.Contains(l, "--mission") {
+			t.Errorf("a turn process was started for a refused mission: %q", l)
+		}
+	}
+}

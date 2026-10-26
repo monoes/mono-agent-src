@@ -83,5 +83,5 @@ func (s *Server) taskActor() tasks.Actor {
 	if s.actorName == "" {
 		s.actorName = "agent:" + clientLabel(s.clientName) + "#" + s.actorSuffix
 	}
-	return tasks.Actor{Kind: tasks.Agent, Name: s.actorName}
+	return tasks.Actor{Kind: tasks.Agent, Name: s.actorName, Session: boundSession(), Task: boundTask(), Verifier: boundVerifier()}
 }

@@ -44,9 +44,10 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:  "coder sessions send",
 		Short: "Queue a message for a coder conversation; the host starts the turn when the session is free (the operator only)",
-		Usage: "monoagentcli [--profile P] coder sessions send CONVERSATION MESSAGE [--turn ID] [--attach FILE]... [--no-host]",
+		Usage: "monoagentcli [--profile P] coder sessions send CONVERSATION MESSAGE [--turn ID] [--attach FILE]... [--mission] [--no-host]",
 		Flags: `  --turn string          Turn id (default: a new one)
   --attach stringArray   A file to attach to the turn (repeatable, at most 10)
+  --mission              The user confirmed a mission for this send: queues it marked as a mission and writes a signed, single-use confirmation bound to the command (revoked if the command is cancelled, expires or fails; the send fails instead of running plain if it is gone); the operator only
   --no-host              Queue only; do not start the host`,
 		Examples: []string{
 			`monoagentcli --profile work coder sessions send <conv> "run the tests and fix what fails"`,

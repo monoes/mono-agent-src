@@ -23,7 +23,7 @@ type Turn interface {
 // Launcher starts and finds turn processes. A turn is a `chat --conversation`
 // process that journals itself; it must not die with the host.
 type Launcher interface {
-	Start(profileID, conversationID, turnID, message string, attachments []string) (Turn, error)
+	Start(profileID, conversationID, turnID, message string, attachments []string, missionToken string) (Turn, error)
 	// Adopt returns the turn process pid/stamp still names, or nil when it is gone.
 	Adopt(pid int, stamp string) Turn
 	// Finish closes a turn that ended without finishing itself. It is a no-op
@@ -177,6 +177,22 @@ func (h *Host) Tick() error {
 					continue
 				}
 			}
+			// A send the person asked to run as a mission starts only with its genuine, live
+			// confirmation: without one it is not run as a plain turn (that would silently
+			// drop what was asked for). The record is written just after the command is
+			// queued, so a missing one is waited for a minute before it counts as lost.
+			token := ""
+			if c.WantsMission {
+				if mc, ok := h.Store.PeekConfirm(c); ok {
+					token = mc.Token()
+				} else if t, err := time.Parse(timeLayout, c.CreatedAt); err == nil && h.Store.now().Sub(t) < MissionConfirmGrace {
+					blocked[k] = true
+					continue
+				} else {
+					h.end(c, CmdFailed, "mission confirmation expired or missing: send again")
+					continue
+				}
+			}
 			// The turn is recorded before it starts, without a pid yet, so the
 			// app's startup sweep sees it as the host's while it is admitted.
 			x.State, x.TurnID, x.TurnPID, x.TurnStamp = StateRunning, c.TurnID, 0, ""
@@ -199,7 +215,10 @@ func (h *Host) Tick() error {
 				}
 			}
 			t, err := h.unlocked(func() (Turn, error) { // admission can take seconds; do not hold up the turn watchers meanwhile
-				return h.L.Start(c.ProfileID, c.ConversationID, c.TurnID, message, c.Attachments)
+				// The token is the one of the confirmation record looked up above (never anything
+				// in the command row, the message or the mesh block); the child verifies the
+				// record's MAC and consumes it.
+				return h.L.Start(c.ProfileID, c.ConversationID, c.TurnID, message, c.Attachments, token)
 			})
 			if err != nil {
 				h.settle(x)
@@ -256,9 +275,19 @@ func (h *Host) Tick() error {
 	return nil
 }
 
+// endBetweenSteps runs between end's two steps; a test places a confirmation there.
+var endBetweenSteps = func() {}
+
 func (h *Host) end(c Command, status, errText string) {
+	// The status moves first and the record is revoked after: a confirmation written
+	// while this runs either sees the command no longer pending and refuses, or is in
+	// place before the revoke.
 	if err := h.Store.SetCommand(c.ID, status, errText); err != nil {
 		h.logf("coder host: recording command %d: %v", c.ID, err)
+	}
+	endBetweenSteps()
+	if status == CmdFailed && c.Kind == KindSend {
+		h.Store.Revoke(c.ProfileID, c.ConversationID, c.TurnID, c.ID) // a send that did not start leaves no live confirmation
 	}
 }
 

@@ -96,7 +96,8 @@ func (sup *chatSupervisor) startTurn(h *chatTurnHandle, message string, tools, a
 	h.mu.Lock()
 	h.cancel = cancel
 	h.mu.Unlock()
-	proc, err := sup.launcher(ctx, cliBin, chatTurnArgs(h.profileID, h.conversationID, h.turnID, sup.instanceID, message, tools, allowRuns, attachments...))
+	args := chatTurnArgs(h.profileID, h.conversationID, h.turnID, sup.instanceID, message, tools, allowRuns, attachments...)
+	proc, err := sup.launcher(ctx, cliBin, args)
 	if err != nil {
 		cancel()
 		return "", err

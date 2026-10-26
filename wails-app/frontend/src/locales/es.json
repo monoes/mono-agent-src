@@ -1300,6 +1300,38 @@
         "checkinWaiting_one": "Esperando por ti: se hizo {{count}} turno de revisión sin un mensaje tuyo. Escribe en este chat para que continúen.",
         "checkinWaiting_other": "Esperando por ti: se hicieron {{count}} turnos de revisión sin un mensaje tuyo. Escribe en este chat para que continúen."
       }
+    },
+    "mission": {
+      "proposeLabel": "Propuesta de misión: {{title}}",
+      "planLabel": "Plan de misión: {{title}}",
+      "reportLabel": "Informe de misión",
+      "stripLabel": "Misión {{title}}",
+      "start": "Iniciar misión",
+      "notNow": "Ahora no",
+      "started": "Misión iniciada.",
+      "declined": "Ahora no. Aún puedes pedir una misión en tu próximo mensaje.",
+      "confirmMessage": "Sí, inicia la misión: {{title}}",
+      "approve": "Aprobar plan",
+      "edit": "Editar en Tareas",
+      "reject": "Rechazar",
+      "tasks_one": "{{count}} tarea",
+      "tasks_other": "{{count}} tareas",
+      "estimate": "unos ${{usd}}",
+      "round": "ronda de revisión {{round}}",
+      "sessionGone": "Esta misión ya no está en Tareas.",
+      "planUnavailable": "Plan no disponible.",
+      "planUnavailableLabel": "Plan de la misión",
+      "report": "Informe de misión",
+      "openReport": "Abrir en Tareas",
+      "templates": "Plantillas de misión",
+      "templateHint": "Parece una misión: ¿usar una plantilla?",
+      "template": {
+        "feature": "Función",
+        "bugfix": "Corrección de error",
+        "refactor": "Refactorización",
+        "research": "Investigación",
+        "migration": "Migración"
+      }
     }
   },
   "agentRow": {
@@ -1671,6 +1703,9 @@
     "close": "Cerrar",
     "drawer": {
       "title": "Título",
+      "metaFiles": "Archivos",
+      "metaSize": "Tamaño",
+      "metaRisk": "Riesgo",
       "notes": "Notas",
       "save": "Guardar",
       "history": "Historial",
@@ -1714,7 +1749,65 @@
     },
     "markDone": "Hecho",
     "backToReady": "Volver a Listo",
-    "inProfile": "en {{name}}"
+    "inProfile": "en {{name}}",
+    "session": {
+      "switcher": "Sesiones de tareas",
+      "personal": "Personal",
+      "header": "Sesión {{title}}",
+      "state": {
+        "draft": "Borrador",
+        "running": "En ejecución",
+        "paused": "En pausa",
+        "done": "Completada",
+        "stopped": "Detenida",
+        "failed": "Fallida"
+      },
+      "budget_near": "Cerca del presupuesto",
+      "budget_over": "Presupuesto alcanzado",
+      "archived": "Archivada",
+      "progress": "{{done}} hechas",
+      "spendOf": "{{spent}} de {{budget}}",
+      "spendNoBudget": "{{spent}} gastados, sin presupuesto",
+      "view": "Vista",
+      "view_board": "Tablero",
+      "view_plan": "Plan",
+      "action": {
+        "approve": "Aprobar plan",
+        "pause": "Pausar",
+        "resume": "Reanudar",
+        "stop": "Detener",
+        "archive": "Archivar",
+        "budget": "Editar presupuesto",
+        "conversation": "Abrir conversación"
+      },
+      "confirmStop": "¿Detener esta sesión para siempre? Se liberan todas las reclamaciones y sus agentes paran; las tareas se quedan donde están.",
+      "budgetLabel": "Presupuesto (USD)",
+      "budgetHint": "0 para sin presupuesto",
+      "cancel": "Cancelar",
+      "blocked": "Bloqueada",
+      "verified": "Verificada",
+      "retries": "Reintentos: {{n}}",
+      "waitsFor": "Espera a {{ids}}",
+      "after": "después de {{ids}}",
+      "kind": {
+        "epic": "Épica",
+        "check": "Comprobación",
+        "task": "Tarea"
+      },
+      "acceptance": "Criterios de aceptación",
+      "noAcceptance": "Sin criterios de aceptación",
+      "dependsOn": "Depende de",
+      "assignee": "Asignada a",
+      "retriesLabel": "Reintentos",
+      "none": "Ninguna",
+      "artifacts": "Artefactos",
+      "noArtifacts": "Aún no hay artefactos",
+      "events": "Eventos de la sesión",
+      "listError": "No se pudieron leer las sesiones",
+      "retry": "Reintentar",
+      "planError": "No se pudo leer el plan",
+      "planEmpty": "Este plan aún no tiene tareas"
+    }
   },
   "publication": {
     "title": "Publicación",
@@ -2092,6 +2185,7 @@
     "stillActive_one": "Se conservo {{count}} chat: sigue en curso. Detén su turno primero.",
     "stillActive_other": "Se conservaron {{count}} chats: siguen en curso. Detén sus turnos primero.",
     "deleteFailed": "No se pudieron eliminar {{count}}: {{message}}",
-    "dismiss": "Descartar"
+    "dismiss": "Descartar",
+    "mission": "Misión: {{state}}"
   }
 }

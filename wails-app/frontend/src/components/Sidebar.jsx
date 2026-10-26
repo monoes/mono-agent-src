@@ -173,7 +173,8 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected }) 
       // the same profile never replaces a newer one.
       if (seen && seen.profile_id === p.profile_id && p.rev < seen.rev) return
       seen = { profile_id: p.profile_id, rev: p.rev }
-      setTaskWaiting((p.inbox || 0) + (p.review || 0))
+      // Inbox and Review cards, plus the session plans a person has yet to approve.
+      setTaskWaiting((p.inbox || 0) + (p.review || 0) + (p.drafts || 0))
     }
     const off = onTasksChanged(read)
     ;(async () => {
@@ -184,7 +185,9 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected }) 
       }
       if (!cancelled) read(await tasksApi.pulse())
     })()
-    return () => { cancelled = true; if (typeof off === 'function') off() }
+    // A new session plan is no write to the personal board, so no event says so: ask again now and then.
+    const timer = setInterval(async () => { if (!document.hidden) read(await tasksApi.pulse()) }, 10000)
+    return () => { cancelled = true; clearInterval(timer); if (typeof off === 'function') off() }
   }, [])
 
   const getBadge = (id) => {

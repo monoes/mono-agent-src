@@ -148,6 +148,8 @@ export function CoderStatus():Promise<string>;
 
 export function CoderStopBackground(arg1:string,arg2:string):Promise<string>;
 
+export function CoderConfirmMission(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function CoderWorkspaceDefault(arg1:string):Promise<string>;
 
 export function CoderWorkspaceList():Promise<string>;
@@ -789,6 +791,28 @@ export function TaskEdit(arg1:number,arg2:string):Promise<string>;
 export function TaskMove(arg1:number,arg2:string,arg3:string,arg4:number):Promise<string>;
 
 export function TaskPulse():Promise<Record<string, any>>;
+
+export function TaskSessionApprove(arg1:number):Promise<string>;
+
+export function TaskSessionArchive(arg1:number):Promise<string>;
+
+export function TaskSessionBoard(arg1:number,arg2:number):Promise<string>;
+
+export function TaskSessionBudget(arg1:number,arg2:string):Promise<string>;
+
+export function TaskSessionPause(arg1:number):Promise<string>;
+
+export function TaskSessionPlan(arg1:number):Promise<string>;
+
+export function TaskSessionPulse(arg1:number):Promise<Record<string, any>>;
+
+export function TaskSessionResume(arg1:number):Promise<string>;
+
+export function TaskSessionShow(arg1:number,arg2:number):Promise<string>;
+
+export function TaskSessionStop(arg1:number):Promise<string>;
+
+export function TaskSessions(arg1:boolean):Promise<string>;
 
 export function TaskShow(arg1:number):Promise<string>;
 

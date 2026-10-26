@@ -31,10 +31,17 @@ type coderSettings struct {
 	// Dynamic org (#226): per-turn worker limits, the workers' budget
 	// (0 = none), and who picks a worker's model when the lead doesn't
 	// ("lead-then-jev" or "lead").
-	OrgMaxAgents     int     `json:"orgMaxAgents"`
-	OrgMaxConcurrent int     `json:"orgMaxConcurrent"`
-	OrgBudgetUSD     float64 `json:"orgBudgetUsd"`
-	OrgModelPicker   string  `json:"orgModelPicker"`
+	OrgMaxAgents int `json:"orgMaxAgents"`
+	// orgMaxAgentsDefaulted: OrgMaxAgents was unset (the operator never set it), so a
+	// mission turn may use a larger default (missionMaxAgents).
+	orgMaxAgentsDefaulted bool
+	// orgWritersDefaulted: OrgWriters was unset (the operator never set it), so a
+	// mission turn in a git work tree may default to isolated writers (missionWriters).
+	// It is never saved as an operator's choice (saveCoderSettings).
+	orgWritersDefaulted bool
+	OrgMaxConcurrent    int     `json:"orgMaxConcurrent"`
+	OrgBudgetUSD        float64 `json:"orgBudgetUsd"`
+	OrgModelPicker      string  `json:"orgModelPicker"`
 	// OrgRouter (coder.router) is who picks a worker's role and skills when
 	// the lead names none: "auto" (default), "jev" or "model".
 	OrgRouter string `json:"orgRouter"`
@@ -87,6 +94,7 @@ func (s coderSettings) withDefaults() coderSettings {
 	d := dynorg.DefaultLimits()
 	if s.OrgMaxAgents <= 0 {
 		s.OrgMaxAgents = d.MaxAgents
+		s.orgMaxAgentsDefaulted = true
 	}
 	if s.OrgMaxConcurrent <= 0 {
 		s.OrgMaxConcurrent = d.MaxConcurrent
@@ -95,6 +103,9 @@ func (s coderSettings) withDefaults() coderSettings {
 		s.OrgModelPicker = dynorg.PickerLeadThenJev
 	}
 	s.OrgRouter = dynorg.NormalizeRouter(s.OrgRouter)
+	if s.OrgWriters == "" {
+		s.orgWritersDefaulted = true
+	}
 	if s.OrgWriters != dynorg.WritersIsolated {
 		s.OrgWriters = dynorg.WritersShared
 	}
@@ -153,6 +164,12 @@ func loadCoderSettings(db *sql.DB) (coderSettings, error) {
 }
 
 func saveCoderSettings(db *sql.DB, s coderSettings) error {
+	if s.orgWritersDefaulted { // the default is not the operator's choice: keep it unset
+		s.OrgWriters = ""
+	}
+	if s.orgMaxAgentsDefaulted { // likewise: a stored default would pin missions at 6 workers
+		s.OrgMaxAgents = 0
+	}
 	b, err := json.Marshal(s)
 	if err != nil {
 		return err

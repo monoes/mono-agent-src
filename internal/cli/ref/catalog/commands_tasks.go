@@ -7,7 +7,7 @@ var taskCommandDocs = []cmdDoc{
 	{
 		Name:  "task add",
 		Short: "Add a task to the profile's Inbox (straight to Ready with --ready: the operator only)",
-		Usage: "monoagentcli [--profile P] task add [TITLE...] [--stdin] [--notes TEXT] [--ready] [--source cli|app|os] [--url U] [--source-title T] [--app A] [--client-id ID] [--as NAME]",
+		Usage: "monoagentcli [--profile P] task add [TITLE...] [--stdin] [--notes TEXT] [--ready] [--source cli|app|os] [--url U] [--source-title T] [--app A] [--client-id ID] [--session N --acceptance TEXT [--depends-on IDS] [--parent ID] [--kind K] [--executor E]] [--as NAME]",
 		Flags: `  --stdin                Read the text from standard input (at most 1 MiB): with no title its first line is the title, with a title the text is the notes
   --notes string         Notes (needs a title; not together with --stdin)
   --ready                Add straight to Ready (the operator only: refused for an AI agent)
@@ -15,33 +15,42 @@ var taskCommandDocs = []cmdDoc{
   --url string           The page the task came from (http or https; another link is dropped)
   --source-title string  The title of that page
   --app string           The application the text was selected in
-  --client-id string     Idempotency key: adding the same key twice adds one task`,
+  --client-id string     Idempotency key: adding the same key twice adds one task
+  --session string       Add to this task session instead (a draft until the operator approves its plan, Ready at once after; needs --acceptance)
+  --acceptance string    With --session: how anyone will know the task is done (required)
+  --depends-on string    With --session: ids of tasks it waits for, comma separated; they must be done first
+  --parent string        With --session: the task it belongs under
+  --kind string          With --session: task (default), epic (a group, never handed out) or check
+  --executor string      With --session: the executor it suits (lead, worker or subagent)`,
 		Examples: []string{
 			"monoagentcli --profile work task add Fix the flaky test",
 			`monoagentcli --profile work task add "Review the invoice" --notes "From Sam, due Friday"`,
 			"pbpaste | monoagentcli --profile work task add --stdin",
 			`monoagentcli --profile work task add "Timeout in the deploy log" --as claude-7f3a`,
+			`monoagentcli --profile work task add "Parse the flag" --session 3 --acceptance "go test ./cmd -run Flag passes" --depends-on 11`,
 		},
 	},
 	{
 		Name:  "task list",
 		Short: "List the profile's tasks (the operator: the five columns; an AI agent: ready, in progress and review, and the Inbox too if the operator allowed it with task agents allow)",
-		Usage: "monoagentcli [--profile P] task list [--status S[,S...]] [--source K] [--claimed-by NAME] [--stale] [--limit N] [--as NAME]",
+		Usage: "monoagentcli [--profile P] task list [--status S[,S...]] [--source K] [--claimed-by NAME] [--stale] [--limit N] [--session N] [--as NAME]",
 		Flags: `  --status string      Only these columns, comma separated: inbox, ready, in_progress, review, done, archived (the archive, and for an agent the Inbox and Done, only when named; the Inbox is listed to an agent without being named when the operator allowed viewing with task agents allow)
   --source string      Only tasks from this source: cli, app, chrome, os, agent
   --claimed-by string  Only tasks held by this agent
   --stale              Only claims whose lease has run out
-  --limit int          At most this many tasks (default 500, at most 2,000); in text, a list that is cut says how many more there are`,
+  --limit int          At most this many tasks (default 500, at most 2,000); in text, a list that is cut says how many more there are
+  --session string     List this task session's tasks instead of the personal board's`,
 		Examples: []string{
 			"monoagentcli --profile work --json task list --status ready",
 			"monoagentcli --profile work task list --stale --as claude-7f3a",
 		},
 	},
 	{
-		Name:     "task board",
-		Short:    "The whole board: the five columns, the counts and the revision (the operator; an AI agent uses task list, unless the operator allowed viewing with task agents allow)",
-		Usage:    "monoagentcli [--profile P] task board [--done-limit N]",
-		Flags:    `  --done-limit int  Show at most this many Done cards (default 50; 0 shows them all)`,
+		Name:  "task board",
+		Short: "The whole board: the five columns, the counts and the revision (the operator; an AI agent uses task list, unless the operator allowed viewing with task agents allow)",
+		Usage: "monoagentcli [--profile P] task board [--done-limit N] [--session N]",
+		Flags: `  --done-limit int  Show at most this many Done cards (default 50; 0 shows them all)
+  --session string  Show this task session's board instead of the personal one`,
 		Examples: []string{"monoagentcli --profile work task board", "monoagentcli --profile work --json task board --done-limit 10"},
 	},
 	{
@@ -132,9 +141,10 @@ var taskCommandDocs = []cmdDoc{
 	{
 		Name:  "task next",
 		Short: "The task an AI agent should work next, or take it with --claim (the task is null in --json when nothing is ready)",
-		Usage: "monoagentcli --profile P task next [--claim --as NAME [--lease 30m]]",
+		Usage: "monoagentcli --profile P task next [--claim --as NAME [--lease 30m]] [--session N]",
 		Flags: `  --claim           Take the task for yourself in one step (needs --as NAME)
-  --lease duration  How long you hold it (default 30m, at most 24h; above zero, and only with --claim); a comment extends it only to 30 minutes from the comment`,
+  --lease duration  How long you hold it (default 30m, at most 24h; above zero, and only with --claim); a comment extends it only to 30 minutes from the comment
+  --session string  Work this session instead: a Ready task whose dependencies are done, of a running session (nothing from a draft or a paused one)`,
 		Examples: []string{
 			"monoagentcli --profile work task next",
 			"monoagentcli --profile work task next --claim --as claude-7f3a",

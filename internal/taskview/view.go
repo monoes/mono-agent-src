@@ -46,6 +46,23 @@ type View struct {
 	LastEvent            *tasks.LastEvent `json:"last_event"`
 	CreatedAt            time.Time        `json:"created_at"`
 	UpdatedAt            time.Time        `json:"updated_at"`
+
+	// Of a task of a task session; nil, and so left out of the JSON, for a task of the personal board.
+	*SessionPart
+}
+
+// SessionPart is what a task of a task session adds to its view.
+type SessionPart struct {
+	SessionID           int64   `json:"session_id"`
+	Kind                string  `json:"kind"`
+	ParentID            int64   `json:"parent_id"`
+	AcceptanceUntrusted string  `json:"acceptance_untrusted"`
+	Assignee            string  `json:"assignee"`
+	SuggestedExecutor   string  `json:"suggested_executor"`
+	Blocked             bool    `json:"blocked"`
+	Verified            bool    `json:"verified"`
+	Retries             int     `json:"retries"`
+	DependsOn           []int64 `json:"depends_on"`
 }
 
 // EventView is one event of a task's history. Its note is a comment, a result,
@@ -62,12 +79,23 @@ type EventView struct {
 
 // Of is the view of one task.
 func Of(t tasks.Task) View {
-	return View{
+	v := View{
 		ID: t.ID, ProfileID: t.ProfileID, TitleUntrusted: t.Title, NotesUntrusted: t.Notes,
 		Status: t.Status, Position: t.Position, SourceKind: t.Source.Kind,
 		SourceURLUntrusted: t.Source.URL, SourceTitleUntrusted: t.Source.Title, SourceAppUntrusted: t.Source.App,
 		Author: t.Author, Claim: t.Claim, LastEvent: t.LastEvent, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
+	if t.SessionID != 0 {
+		deps := t.DependsOn
+		if deps == nil {
+			deps = []int64{}
+		}
+		v.SessionPart = &SessionPart{
+			SessionID: t.SessionID, Kind: t.Kind, ParentID: t.ParentID, AcceptanceUntrusted: t.Acceptance, Assignee: t.Assignee,
+			SuggestedExecutor: t.SuggestedExecutor, Blocked: t.Blocked, Verified: t.Verified, Retries: t.Retries, DependsOn: deps,
+		}
+	}
+	return v
 }
 
 // Ptr is Of for a task that may be absent (nothing to take).

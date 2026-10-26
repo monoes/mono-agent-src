@@ -59,6 +59,10 @@ func (sup *chatSupervisor) startHostTurn(h *chatTurnHandle, message string, atta
 	for _, p := range attachments {
 		args = append(args, "--attach="+p)
 	}
+	if h.mission {
+		// Before the "--": the confirmation is the send command's own flag, not text in the message.
+		args = append(args, "--mission")
+	}
 	args = append(args, "--", h.conversationID, message)
 	var res struct {
 		CommandID int64 `json:"commandId"`

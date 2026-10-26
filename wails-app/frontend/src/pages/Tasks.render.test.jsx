@@ -9,6 +9,8 @@ const { api, bus } = vi.hoisted(() => ({
   api: { board: vi.fn(), show: vi.fn(), add: vi.fn(), edit: vi.fn(), move: vi.fn(), approve: vi.fn(), archive: vi.fn(), comment: vi.fn(), agentShell: vi.fn() },
 }))
 vi.mock('../services/tasks.js', () => ({ tasksApi: api, onTasksChanged: (f) => { bus.fire = f; return () => {} } }))
+// No sessions to list: a list that cannot be read now shows its own alert, which this page's board-error test is not about.
+vi.mock('../services/taskSessions.js', () => ({ sessionsApi: { list: async () => ({ sessions: [] }) } }))
 import Tasks from './Tasks.jsx'
 import TaskDrawer from '../components/TaskDrawer.jsx'
 

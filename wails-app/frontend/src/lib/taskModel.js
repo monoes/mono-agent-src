@@ -3,6 +3,8 @@
 // search, what changed between two reads, and what a card shows. No React
 // and no DOM: the tests drive all of it.
 
+import { splitNotes } from './taskNotes.js'
+
 export const COLUMNS = ['inbox', 'ready', 'in_progress', 'review', 'done']
 
 // A card new to these columns goes on top (newest first); Ready and In
@@ -153,7 +155,7 @@ export function keyMove(shown, id, key) {
 // agents act on a task's whole text (spec D6). The card shows its whole
 // title (no clamp), so the notes are what it can hide.
 export function readFirst(task) {
-  return !!String(task?.notes ?? '').trim()
+  return !!splitNotes(task?.notes).text.trim()
 }
 
 // focusTarget is the card a plain arrow moves the focus to: above or below
@@ -179,7 +181,7 @@ export function focusTarget(shown, id, key) {
 // task 12 exactly.
 export function matches(t, query) {
   const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean)
-  const hay = [t.title, t.notes, t.source?.url, t.source?.title, t.source?.app, t.claim?.by]
+  const hay = [t.title, splitNotes(t.notes).text, t.source?.url, t.source?.title, t.source?.app, t.claim?.by]
     .filter(Boolean).join('\n').toLowerCase()
   return words.every(w => (/^#\d+$/.test(w) ? t.id === Number(w.slice(1)) : hay.includes(w)))
 }

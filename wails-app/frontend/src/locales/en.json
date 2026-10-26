@@ -1342,6 +1342,38 @@
         "checkinWaiting_one": "Waiting for you: {{count}} check-in turn ran with no message from you. Write to this chat to let them continue.",
         "checkinWaiting_other": "Waiting for you: {{count}} check-in turns ran with no message from you. Write to this chat to let them continue."
       }
+    },
+    "mission": {
+      "proposeLabel": "Mission proposal: {{title}}",
+      "planLabel": "Mission plan: {{title}}",
+      "reportLabel": "Mission report",
+      "stripLabel": "Mission {{title}}",
+      "start": "Start mission",
+      "notNow": "Not now",
+      "started": "Mission started.",
+      "declined": "Not now. You can still ask for a mission in your next message.",
+      "confirmMessage": "Yes, start the mission: {{title}}",
+      "approve": "Approve plan",
+      "edit": "Edit in Tasks",
+      "reject": "Reject",
+      "tasks_one": "{{count}} task",
+      "tasks_other": "{{count}} tasks",
+      "estimate": "about ${{usd}}",
+      "round": "review round {{round}}",
+      "sessionGone": "This mission is no longer in Tasks.",
+      "planUnavailable": "Plan not available.",
+      "planUnavailableLabel": "Mission plan",
+      "report": "Mission report",
+      "openReport": "Open in Tasks",
+      "templates": "Mission templates",
+      "templateHint": "Looks like a mission: use a template?",
+      "template": {
+        "feature": "Feature",
+        "bugfix": "Bug fix",
+        "refactor": "Refactor",
+        "research": "Research",
+        "migration": "Migration"
+      }
     }
   },
   "agentRow": {
@@ -1713,6 +1745,9 @@
     "close": "Close",
     "drawer": {
       "title": "Title",
+      "metaFiles": "Files",
+      "metaSize": "Size",
+      "metaRisk": "Risk",
       "notes": "Notes",
       "save": "Save",
       "history": "History",
@@ -1756,7 +1791,65 @@
     },
     "markDone": "Done",
     "backToReady": "Back to Ready",
-    "inProfile": "in {{name}}"
+    "inProfile": "in {{name}}",
+    "session": {
+      "switcher": "Task sessions",
+      "personal": "Personal",
+      "header": "Session {{title}}",
+      "state": {
+        "draft": "Draft",
+        "running": "Running",
+        "paused": "Paused",
+        "done": "Done",
+        "stopped": "Stopped",
+        "failed": "Failed"
+      },
+      "budget_near": "Near budget",
+      "budget_over": "Budget reached",
+      "archived": "Archived",
+      "progress": "{{done}} done",
+      "spendOf": "{{spent}} of {{budget}}",
+      "spendNoBudget": "{{spent}} spent, no budget",
+      "view": "View",
+      "view_board": "Board",
+      "view_plan": "Plan",
+      "action": {
+        "approve": "Approve plan",
+        "pause": "Pause",
+        "resume": "Resume",
+        "stop": "Stop",
+        "archive": "Archive",
+        "budget": "Edit budget",
+        "conversation": "Open conversation"
+      },
+      "confirmStop": "Stop this session for good? Every claim is released and its workers stop; the tasks stay where they are.",
+      "budgetLabel": "Budget (USD)",
+      "budgetHint": "0 for no budget",
+      "cancel": "Cancel",
+      "blocked": "Blocked",
+      "verified": "Verified",
+      "retries": "Retries: {{n}}",
+      "waitsFor": "Waits for {{ids}}",
+      "after": "after {{ids}}",
+      "kind": {
+        "epic": "Epic",
+        "check": "Check",
+        "task": "Task"
+      },
+      "acceptance": "Acceptance",
+      "noAcceptance": "No acceptance criteria",
+      "dependsOn": "Depends on",
+      "assignee": "Assignee",
+      "retriesLabel": "Retries",
+      "none": "None",
+      "artifacts": "Artifacts",
+      "noArtifacts": "No artifacts yet",
+      "events": "Session events",
+      "listError": "Could not read sessions",
+      "retry": "Retry",
+      "planError": "Could not read the plan",
+      "planEmpty": "No tasks in this plan yet"
+    }
   },
   "publication": {
     "title": "Publication",
@@ -2134,6 +2227,7 @@
     "stillActive_one": "{{count}} chat was kept: it is still running. Stop its turn first.",
     "stillActive_other": "{{count}} chats were kept: they are still running. Stop their turns first.",
     "deleteFailed": "Could not delete {{count}}: {{message}}",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "mission": "Mission: {{state}}"
   }
 }

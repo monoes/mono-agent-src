@@ -397,6 +397,20 @@ func TestRefTasksJSONSectionShowsTheDocumentsTheCommandsPrint(t *testing.T) {
 		{`{"profile","tasks"}`, "unarchive", []string{"unarchive", "1"}},
 		{`{"profile","archived"}`, "archive --status", []string{"archive", "--status", "ready"}},
 		{`{"profile","ready","next"}`, "digest", []string{"digest"}},
+		// A session: planned as a draft, opened by the operator, worked, verified and stopped.
+		{`{"profile","session"}`, "session new", []string{"session", "new", "ship it"}},
+		{`{"profile","created","task"}`, "add", []string{"add", "step", "--session", "1", "--acceptance", "it works"}},
+		{`{"profile","sessions"}`, "session list", []string{"session", "list"}},
+		{`{"profile","session","tasks"}`, "session plan", []string{"session", "plan", "1"}},
+		{`{"profile","session"}`, "session approve", []string{"session", "approve", "1"}},
+		{`{"profile","session","task"}`, "next --session", []string{"next", "--session", "1", "--claim", "--as", "bot"}},
+		{`{"profile","artifact"}`, "artifact", []string{"artifact", "2", "--kind", "file", "--ref", "x.go", "--as", "bot"}},
+		{`{"profile","task"}`, "finish", []string{"finish", "2", "--result", "done", "--as", "bot"}},
+		{`{"profile","task"}`, "verify", []string{"verify", "2", "--pass", "--as", "checker"}},
+		{`{"profile","session","events"}`, "session show", []string{"session", "show", "1"}},
+		{`{"profile","session_id","tasks"}`, "list --session", []string{"list", "--session", "1"}},
+		{`{"profile","session","rev","counts","tasks"}`, "board --session", []string{"board", "--session", "1"}},
+		{`{"profile","session"}`, "session stop", []string{"session", "stop", "1"}},
 	} {
 		call := "task " + strings.Join(step.args, " ")
 		out, _, err := runTask(t, db, "default", true, "", step.args...)

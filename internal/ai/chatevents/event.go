@@ -40,6 +40,14 @@ const (
 	EventAgentMessage    EventType = "agent.message"
 	EventAgentReassigned EventType = "agent.reassigned"
 	EventAgentFinished   EventType = "agent.finished"
+
+	// Missions (docs/mastermind/plans/2026-10-25-coder-missions-task-sessions.md):
+	// the coder lead proposes a mission for the user to confirm, and shows
+	// its draft plan as a card the operator approves.
+	EventMissionPropose EventType = "mission.propose"
+	EventMissionPlan    EventType = "mission.plan"
+	// EventMissionReport is the final report of a finished mission.
+	EventMissionReport EventType = "mission.report"
 )
 
 // Event is one journaled/emitted line — the outer envelope. Payload is kept
@@ -407,4 +415,48 @@ type AgentFinishedPayload struct {
 	CostEstimated bool     `json:"costEstimated,omitempty"`
 	DurationMs    int64    `json:"durationMs,omitempty"`
 	FilesChanged  []string `json:"filesChanged,omitempty"`
+}
+
+// MissionProposePayload is mission.propose's payload: the lead thinks the
+// goal is big enough for a planned mission and asks the user to confirm it
+// with one click.
+type MissionProposePayload struct {
+	Title  string `json:"title"`
+	Goal   string `json:"goal"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// MissionPlanPayload is mission.plan's payload, the plan card: the draft
+// session the operator can approve. It is emitted again, with the same
+// SessionID, each time the plan changes; the latest one is the card.
+type MissionPlanPayload struct {
+	SessionID int64  `json:"sessionId"`
+	Title     string `json:"title"`
+	Goal      string `json:"goal"`
+	TaskCount int    `json:"taskCount"`
+	// EstimatedBudgetUSD is a rough estimate from the tasks' size labels.
+	EstimatedBudgetUSD float64 `json:"estimatedBudgetUsd"`
+	// Round counts the review rounds applied so far (0 = the first draft).
+	Round int `json:"round"`
+}
+
+// MissionReportPayload is mission.report's payload: the final report of a mission
+// whose tasks are all verified or done, emitted once when the session is closed as
+// done. Report is the full text (markdown), also attached to the integration task as
+// a report artifact.
+type MissionReportPayload struct {
+	SessionID int64  `json:"sessionId"`
+	Title     string `json:"title"`
+	State     string `json:"state"`
+	TaskCount int    `json:"taskCount"`
+	Done      int    `json:"done"`
+	Verified  int    `json:"verified"`
+	// Unfinished lists task ids that are neither done nor verified (empty when the
+	// session closed as done).
+	Unfinished []int64 `json:"unfinished"`
+	// Artifacts counts the evidence artifacts across the mission's tasks.
+	Artifacts int     `json:"artifacts"`
+	SpentUSD  float64 `json:"spentUsd"`
+	BudgetUSD float64 `json:"budgetUsd"`
+	Report    string  `json:"report"`
 }

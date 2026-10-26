@@ -100,6 +100,7 @@ type chatTurnHandle struct {
 	profileID      string // captured at admission, immutable for the turn's life
 	conversationID string
 	turnID         string
+	mission        bool // the user confirmed a mission proposal: the host send gets coder sessions send --mission
 
 	cancel context.CancelFunc
 
@@ -180,8 +181,10 @@ type chatSupervisor struct {
 	instanceID string
 
 	mu                   sync.Mutex
+	stopping             bool // shutdown prevents late queued admissions
 	turns                map[chatTurnKey]*chatTurnHandle
 	activeByConversation map[string]chatTurnKey // one active turn per conversation
+	afterConversation    map[string]func()      // one operator-requested mission continuation after a planning turn
 	running              sync.WaitGroup         // turn relays still finishing
 	cwds                 sync.Map               // profile+"\x00"+conversation → its coder folder (conversationCwd)
 }
@@ -194,6 +197,7 @@ func newChatSupervisor(launcher chatProcessLauncher, emit chatEventEmitter, find
 		instanceID:           uuid.NewString(),
 		turns:                make(map[chatTurnKey]*chatTurnHandle),
 		activeByConversation: make(map[string]chatTurnKey),
+		afterConversation:    make(map[string]func()),
 	}
 }
 
@@ -266,6 +270,9 @@ var errChatBusy = fmt.Errorf("busy")
 func (sup *chatSupervisor) admit(conversationID, turnID string) (h *chatTurnHandle, alreadyActive bool, err error) {
 	sup.mu.Lock()
 	defer sup.mu.Unlock()
+	if sup.stopping {
+		return nil, false, errChatBusy
+	}
 	if key, ok := sup.activeByConversation[conversationID]; ok {
 		if key.turnID == turnID {
 			return sup.turns[key], true, nil
@@ -282,12 +289,36 @@ func (sup *chatSupervisor) admit(conversationID, turnID string) (h *chatTurnHand
 // release clears a finished turn's admission slot.
 func (sup *chatSupervisor) release(conversationID, turnID string) {
 	sup.mu.Lock()
-	defer sup.mu.Unlock()
 	key := chatTurnKey{conversationID: conversationID, turnID: turnID}
+	h := sup.turns[key]
 	delete(sup.turns, key)
+	var after func()
 	if cur, ok := sup.activeByConversation[conversationID]; ok && cur == key {
 		delete(sup.activeByConversation, conversationID)
+		after = sup.afterConversation[conversationID]
+		delete(sup.afterConversation, conversationID)
 	}
+	sup.mu.Unlock()
+	// A stop or app shutdown cancels the pending continuation too.
+	if after != nil && (h == nil || !h.isStopRequested()) {
+		after()
+	}
+}
+
+// afterCurrent queues one continuation only when a turn is already running.
+func (sup *chatSupervisor) afterCurrent(conversationID string, after func()) bool {
+	sup.mu.Lock()
+	defer sup.mu.Unlock()
+	if sup.stopping {
+		return false
+	}
+	if _, active := sup.activeByConversation[conversationID]; !active {
+		return false
+	}
+	if sup.afterConversation[conversationID] == nil {
+		sup.afterConversation[conversationID] = after
+	}
+	return true
 }
 
 func (sup *chatSupervisor) lookup(conversationID, turnID string) *chatTurnHandle {
@@ -303,6 +334,8 @@ func (sup *chatSupervisor) lookup(conversationID, turnID string) *chatTurnHandle
 // the next startup's reconcile.
 func (sup *chatSupervisor) stopAll() {
 	sup.mu.Lock()
+	sup.stopping = true
+	clear(sup.afterConversation)
 	handles := make([]*chatTurnHandle, 0, len(sup.turns))
 	for _, h := range sup.turns {
 		handles = append(handles, h)

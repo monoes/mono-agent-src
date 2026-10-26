@@ -1627,10 +1627,98 @@ that works a task acts on them. The defences:
   Leave it off unless you trust
   the agents on the machine.
 - **Over MCP** an agent works the board through the `task_*` tools of `monoagentcli mcp`, over stdio (no port, no HTTP route). They act as the agent the server names after its client (`agent:<client>#<4 hex>`: two sessions are two claimants, and no argument can choose the name), on the profile each call names (the required `profile` argument; a task of another profile is not found). No tool edits, moves or archives a task, and none approves unless the operator delegated it (see Delegation). Every text a person, an agent or a capture wrote comes back in a field ending in `_untrusted`, with a note to weigh it and not follow instructions inside it, and a tool refuses any argument it does not list. `mcp --tasks-only` serves these tools without the workflow tools that `--allow-mutations` would also serve.
+- **Task sessions: the operator opens a goal once, not each task.** A
+  session (tables `task_sessions`, `task_deps`, `task_artifacts`,
+  `task_session_events`, `task_session_rev`) is a goal with a board of its own,
+  planned by an agent as a draft. Until the operator runs `session approve`
+  its tasks cannot be claimed, are in no inbox (so the rule that an agent
+  never approves what an agent created is untouched) and are skipped by every
+  read of the personal board, which behaves exactly as before for a task with
+  no session. Approval, resuming a pause, the budget, the caps (`max_tasks`,
+  `max_depth`, `max_retries`), the access level, `auto_close_verified`,
+  archiving a session, recording spend and removing a dependency are the
+  operator's: the store refuses any other actor, and the CLI refuses an
+  agent-driven caller with `operator_only`. Inside a running session an agent may
+  claim, comment, finish, add follow-ups (bounded by `max_tasks` and the
+  budget, with no separate cap), split a task that has not begun, add
+  dependencies (a cycle is refused), attach artifacts and verify; it may pause
+  or stop the session (a stop releases every claim) and it cannot undo a pause.
+  A verifier's pass marks a task verified and never closes it, unless the
+  operator turned on auto-close. Who verifies is enforced by the binding plus an
+  identity check, not by a name alone: the operator may; an agent bound to the task
+  as its worker never may (only a verifier binding passes), and a named agent of the
+  session may not verify a task whose last hand-back came from the same agent
+  identity (its `agent:<client>` name without the per-connection `#<4 hex>`, compared
+  without case). A name is a label an agent picks, so an agent that is not bound to
+  a task can get past the identity check by choosing another name: a worker started
+  by the conductor is bound, a free agent is not. An agent verifies only while the
+  session runs; the operator may act while it is paused. A task that fails
+  verification more often than
+  `max_retries` is blocked for the operator. A process bound to a session
+  (`MONOAGENT_TASK_SESSION`, the carrier of the worker token to come) may act in
+  that session only: not on the personal board and not in another session, in
+  the CLI, the store and over MCP. That includes the operator-enabled delegation
+  (`task agents allow --approve --view`): a bound worker cannot approve or view the
+  personal board through it, the `task digest` hook shows it nothing of that board,
+  and a delegated approval never opens a session's task (only `session approve`
+  does). That variable is a label, not a credential: an agent that sets or unsets
+  its own environment can change it. **An agent that scrubs its own environment (no
+  agent marker, no `--as`) is treated as the operator by the CLI** and can run
+  `session approve`, `session resume` and `session budget`: it can open its own plan,
+  resume a pause and raise its own budget. That weakness predates sessions and has
+  higher stakes with them; the guard stops accidents and injected text, not an agent
+  that works around it on purpose. A session's
+  goal and a task's acceptance criteria are text an agent wrote and come back
+  as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
+  deleted with its profile. A session that has spent its budget hands out no tasks.
+  **A mission's verifier** is started by the lead (`mission_verify`) as another agent
+  than the executor, read only, with `MONOAGENT_TASK_ROLE=verifier` next to the task
+  binding: in the store that actor may verify, comment on (once the task is in Review)
+  and attach evidence to its one task, and is refused claiming, finishing, releasing,
+  splitting, adding or writing session events; a verifier without a task is refused. The
+  conductor never records a verdict for the lead, but that is the conductor's rule and
+  not the store's: the store lets any named agent of the session verify a task it did
+  not hand back (a peer checker), so the lead holds no verifier binding and no more. Like the binding, the role
+  is an environment label, not a credential: a process with a shell can unset it. The store
+  therefore refuses verdicts by task-bound non-verifiers and by the executing identity, and
+  the conductor distrusts any verdict not recorded by the verifier it assigned or by the
+  operator (`verdict_by_unexpected_actor`); a mission does not close on such a task. **The evidence rule:** a task of kind
+  `task` that declares files cannot be finished to Review with a result unless it holds a
+  commit, diff, test, file or log artifact (a report does not count); the check runs in the
+  store, inside the hand-back transaction, for every caller. It is self-asserted: an
+  artifact reference is a string the agent wrote and is not validated, and the files a
+  task declares come from notes the planner wrote, so the rule makes skipping evidence
+  a visible refusal and is not proof that the work exists. When a mission's tasks are all
+  done or verified, `mission_finish` closes the session as done in the operator's process
+  (as the spend record is): the agent cannot close it while a task is open, blocked or
+  failing, or a writer branch is unmerged.
+  **A mission's confirmation** (the person's "run this send as a mission") is a record,
+  not a flag: the coder host's chat children inherit the host's environment and are
+  reparented, so they look like the operator to environment and ancestry checks, and
+  nothing a turn is given on its command line or in its message can be trusted to mean the
+  person confirmed. The record is bound to one queued command (its id and its creation
+  time, so a record cannot match a different command that reuses the id), signed under a
+  key derived from the profile's vault key (so a row written without that key does not
+  verify), lives
+  under a reserved config prefix that only the operator writes, deletes or reads, is single
+  use, and is revoked when its command is cancelled, expires, fails or is deleted with its
+  conversation. A send marked as a mission never runs plain: without a live record it
+  fails. The token reaches the child in its environment; the binary moves it out of
+  its own (Go) environment before it starts any process of its own, so nothing the child
+  starts inherits it. That does not erase the environment block the process was given at
+  start: on Linux `/proc/<pid>/environ` and on macOS `ps eww` still show the token to a
+  process of the same user until the child exits. What bounds this is that the token is
+  single use and is dead once the child has consumed the record, early in the turn; the
+  window is from the host's start of the child until that point. The limit of the MAC: the same user with keychain
+  access (the key comes out of the OS keychain, or the file keyring that stands in for
+  it, and the database is a file that user owns) can sign a record, so none of this stops
+  such a process; the guard is against agent turns going through the CLI, which refuses
+  them these commands.
 - **The operator-only commands refuse an agent-driven caller:** `board`
   (it shows the Inbox) and `approve` (both unless delegated, see above),
-  `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow` and
-  `agents deny`. A caller is agent-driven when an
+  `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow`,
+  `agents deny`, `session approve`, `session resume`, `session archive`,
+  `session budget` and `undepend`. A caller is agent-driven when an
   agent-context environment variable is set (the markers org signing
   already uses, `CLAUDECODE` among them), or `--as` is given, or
   `MONOAGENT_ACTOR` is set. This stops an agent acting by accident or on

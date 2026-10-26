@@ -49,6 +49,11 @@ func ToolSpecs(appAccess bool) []monomind.ToolSpec {
 
 // toolSpecs are the lead's org tools, offering these access profiles.
 func toolSpecs(profiles []string) []monomind.ToolSpec {
+	return orgToolSpecs(profiles)
+}
+
+// orgToolSpecs are the org tools of every lead.
+func orgToolSpecs(profiles []string) []monomind.ToolSpec {
 	return []monomind.ToolSpec{
 		{Name: ToolRoster, Description: "List what you can staff workers with: the ready models (runtime, model, effort levels, access), the access profiles, the built-in roles, the registry agents by category, cost/quality hints per model, the limits, and the workers so far. Pass brief to get the smallest suggested team for it (an empty team means do it yourself).",
 			Schema: obj(map[string]any{"brief": str("Optional: the task, to get a suggested team.")})},
@@ -75,7 +80,8 @@ func toolSpecs(profiles []string) []monomind.ToolSpec {
 // worker's doesn't (its sub-workers can't spawn).
 func spawnSpec(lead bool, profiles []string) monomind.ToolSpec {
 	props := map[string]any{
-		"brief":       str("What the worker should do, with everything it needs to know. It can't see this conversation."),
+		"brief":       str("What the worker should do, with everything it needs to know. It can't see this conversation. Optional with task_id: it then adds to the brief built from the task."),
+		"task_id":     map[string]any{"type": "integer", "description": "A Ready task of the mission's task session: the worker takes it (claimed under its own name), its brief is built from the task (acceptance, earlier results, files), its report is attached to the task, and the task goes to review."},
 		"role":        str("A role: a monomind agent id (e.g. engineering-code-reviewer) or a built-in role (coder, reviewer, tester, researcher, planner, task-manager, doc-writer, people-researcher, vault-keeper, workflow-builder, automation-operator, browser-operator, org-designer, data-analyst, security-reviewer)."),
 		"skills":      strList("Skill names to give the worker."),
 		"runtime":     str("Runtime to run on (e.g. claude, codex). Must have a ready model; see org_roster."),
@@ -87,12 +93,18 @@ func spawnSpec(lead bool, profiles []string) monomind.ToolSpec {
 		"wait":        map[string]any{"type": "boolean", "description": "Wait for the worker to finish (up to 100s) before returning."},
 	}
 	desc := "Start a worker agent on a brief. It runs in the background in this chat's folder; use org_wait to read its report. Leave role, skills, model, effort or access out to have them picked for you."
+	if !lead {
+		delete(props, "task_id") // only the lead hands out mission tasks
+	}
 	if lead {
 		props["allow_spawn"] = map[string]any{"type": "boolean", "description": "Let this worker start sub-workers of its own (they can't spawn further, and their access never exceeds the worker's)."}
 	} else {
 		desc = "Start a sub-worker on a brief. Its access can't exceed yours, and it can't start workers of its own. Use org_wait to read its report."
 	}
-	return monomind.ToolSpec{Name: ToolSpawn, Description: desc, Schema: obj(props, "brief")}
+	if !lead {
+		return monomind.ToolSpec{Name: ToolSpawn, Description: desc, Schema: obj(props, "brief")}
+	}
+	return monomind.ToolSpec{Name: ToolSpawn, Description: desc, Schema: obj(props)} // brief or task_id
 }
 
 // accessDesc is org_spawn's access argument, naming the profiles offered.
@@ -228,6 +240,16 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 			return "", err
 		}
 		return marshal(res)
+	// --- mission execution tools (mission_exec_tools.go) ---
+	case ToolMissionNext, ToolMissionAssign, ToolMissionReport:
+		return c.handleMissionExec(ctx, name, args)
+	// --- end of mission execution tools ---
+	// --- mission verification and closing tools (mission_verify.go, mission_final.go) ---
+	case ToolMissionVerify:
+		return c.handleMissionVerify(ctx, args)
+	case ToolMissionFinish:
+		return c.handleMissionFinish(ctx, args)
+	// --- end of mission verification and closing tools ---
 	case ToolMerge:
 		var a struct {
 			AgentID string `json:"agent_id"`
@@ -240,6 +262,9 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 			return "", err
 		}
 		return marshal(res)
+	// --- mission planning tools (mission_tools_plan.go) ---
+	case ToolMissionPropose, ToolMissionPlan, ToolMissionAddTasks, ToolMissionSplit, ToolMissionStatus, ToolMissionReplan:
+		return c.handleMission(ctx, name, args)
 	}
 	return "", fmt.Errorf("unknown org tool %q", name)
 }

@@ -28,6 +28,7 @@ func (f *fakeTurn) Stop()           { f.stopped = true; f.end() }
 type fakeLauncher struct {
 	mu       sync.Mutex
 	started  []string
+	tokens   []string
 	turns    map[string]*fakeTurn
 	finished []string
 	alive    map[int]*fakeTurn
@@ -40,7 +41,7 @@ func newFakeLauncher() *fakeLauncher {
 	return &fakeLauncher{turns: map[string]*fakeTurn{}, alive: map[int]*fakeTurn{}, next: 100}
 }
 
-func (l *fakeLauncher) Start(profile, conv, turn, msg string, att []string) (Turn, error) {
+func (l *fakeLauncher) Start(profile, conv, turn, msg string, att []string, token string) (Turn, error) {
 	if l.onStart != nil {
 		l.onStart()
 	}
@@ -52,6 +53,7 @@ func (l *fakeLauncher) Start(profile, conv, turn, msg string, att []string) (Tur
 	l.next++
 	t := newFakeTurn(l.next)
 	l.started = append(l.started, turn+":"+msg)
+	l.tokens = append(l.tokens, token)
 	l.turns[turn] = t
 	return t, nil
 }

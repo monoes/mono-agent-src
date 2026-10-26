@@ -9,6 +9,9 @@ import { useFlip } from '../lib/useFlip.js'
 import { useCardDrag } from '../lib/useCardDrag.js'
 import { useMarks } from '../lib/useMarks.js'
 import { usePageVisible } from '../lib/usePageVisible.js'
+import { boardEditable } from '../lib/taskSessionModel.js'
+import CardBadges from '../components/tasksessions/CardBadges.jsx'
+import TasksShell from '../components/tasksessions/TasksShell.jsx'
 
 const ARROWS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
@@ -58,7 +61,7 @@ function span(minutes, t) {
 // marker, and its Inbox button reads "Read and approve" (plan ruling F6). A
 // Review card has Done and Back to Ready. A press on it can start the ghost
 // drag (useCardDrag); while it is dragged it stays as a faded placeholder.
-function Card({ task, status, readOnly, selected, dragging, pulse, now, onOpen, onKey, onPress, onApprove, onMove, onArchive, t }) {
+function Card({ task, status, readOnly, selected, dragging, pulse, now, badges, onOpen, onKey, onPress, onApprove, onMove, onArchive, t }) {
   const chip = sourceChip(task)
   const Icon = SOURCE_ICONS[chip.kind] || Terminal
   const age = shortAge(task.created_at, now)
@@ -90,6 +93,7 @@ function Card({ task, status, readOnly, selected, dragging, pulse, now, onOpen, 
         {notes && <span data-testid="notes-marker" title={t('tasks.hasNotes')} style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}><NotebookText size={11} aria-hidden="true" />{t('tasks.notesMarker')}</span>}
         {tag && <span data-testid="tag" style={{ color: tag === 'question' ? 'var(--orange, #f59e0b)' : 'var(--green, #10b981)' }}>{t(`tasks.tag.${tag}`)}</span>}
       </div>
+      {badges}
       {cs && (
         <div style={{ ...meta, marginTop: 4 }} title={cs.stale ? t('tasks.leaseEnded') : undefined}>
           <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, border: `1.5px ${cs.stale ? 'dashed var(--orange, #f59e0b)' : `solid ${actorColor(cs.by)}`}` }}>{cs.initial}</span>
@@ -116,9 +120,12 @@ function Card({ task, status, readOnly, selected, dragging, pulse, now, onOpen, 
   )
 }
 
-export default function Tasks({ isActive = true }) {
+// The board page of Personal (no session) or of one task session: session is
+// the CLI's session document, and the rest are what TasksShell puts around it
+// (the switcher, the session header, the plan view in place of the columns).
+export function TaskBoard({ isActive = true, switcher = null, session = null, sessionEvents = [], sessionHeader = null, renderPlan = null, openTaskId = null }) {
   const { t } = useTranslation()
-  const b = useTaskBoard(isActive)
+  const b = useTaskBoard(isActive, session?.id ?? null)
   const [query, setQuery] = useState('')
   const [openId, setOpenId] = useState(null)
   // readFor: the card the drawer opened for to be read before it leaves
@@ -143,7 +150,9 @@ export default function Tasks({ isActive = true }) {
     return () => clearInterval(timer)
   }, [isActive, visible])
   useEffect(() => { tasksApi.agentShell().then(v => setShell(v || '')) }, [])
-  const readOnly = shell === null || !!shell
+  const agentLocked = shell === null || !!shell
+  // Only a running session's board takes moves; the others are read until the operator acts in the header.
+  const readOnly = agentLocked || !boardEditable(session)
   const shown = useMemo(() => filterBoard(b.board, query), [b.board, query])
   const [archiving, setArchiving] = useState(null)
   const [archiveError, setArchiveError] = useState('')
@@ -206,6 +215,12 @@ export default function Tasks({ isActive = true }) {
   // on any column open its drawer, where the person approves or moves it
   // with the notes in front of them.
   const openCard = (id) => { setReadFor(null); setOpenId(id) }
+  // A task another page asks for (the report link of a chat) opens once its board has loaded.
+  const askedFor = useRef(null)
+  useEffect(() => {
+    if (!openTaskId || !b.board || askedFor.current === openTaskId) return
+    if (findTask(b.board, openTaskId)) { askedFor.current = openTaskId; setReadFor(null); setOpenId(openTaskId) }
+  }, [openTaskId, b.board])
   const openToRead = (id, to = 'ready', place = { where: '' }) => { setOpenId(id); setReadFor({ id, to, place }) }
   const guarded = (task, from, to) => from === 'inbox' && to !== 'inbox' && readFirst(task)
   const approveCard = (task) => {
@@ -257,8 +272,11 @@ export default function Tasks({ isActive = true }) {
   const { drag, onCardMouseDown, consumeClick } = useCardDrag({ rootRef: root, onDrop, canDrag: () => !readOnly, layoutKey: shown })
   const dragged = drag && findTask(shown, drag.id)?.task
 
-  if (!b.board) {
-    return <div className="page" style={{ padding: 16 }}>{b.error ? <div role="alert">{t('tasks.loadError')}: {b.error}</div> : t('tasks.loading')}</div>
+  // Personal reads as it always did while it loads. A session keeps its page (and so the switcher and the
+  // header, with whatever a person has typed in them) from the first paint: a board that is slow to load
+  // or fails to read never takes them away, and they are not remounted when it arrives.
+  if (!b.board && !session) {
+    return <div className="page" style={{ padding: 16 }}>{switcher}{b.error ? <div role="alert">{t('tasks.loadError')}: {b.error}</div> : t('tasks.loading')}</div>
   }
 
   return (
@@ -266,26 +284,28 @@ export default function Tasks({ isActive = true }) {
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">{t('tasks.title')}</h1>
-          {b.board.profile?.name && <span className="tb-profile-pill" data-testid="tb-profile">{t('tasks.inProfile', { name: b.board.profile.name })}</span>}
+          {b.board?.profile?.name && <span className="tb-profile-pill" data-testid="tb-profile">{t('tasks.inProfile', { name: b.board.profile.name })}</span>}
         </div>
         <div className="page-header-right">
           <span className="tb-search">
             <input ref={searchRef} className="search-input" type="search" aria-label={t('tasks.search')} aria-keyshortcuts="/" placeholder={t('tasks.search')} value={query} onChange={e => setQuery(e.target.value)} />
             <kbd className="tb-kbd" aria-hidden="true">/</kbd>
           </span>
-          {!readOnly && <button type="button" className="btn btn-primary btn-sm" aria-keyshortcuts="N" onClick={openQuickAdd}><Plus size={12} /> {t('tasks.newTask')} <kbd className="tb-kbd">N</kbd></button>}
+          {!readOnly && !session && <button type="button" className="btn btn-primary btn-sm" aria-keyshortcuts="N" onClick={openQuickAdd}><Plus size={12} /> {t('tasks.newTask')} <kbd className="tb-kbd">N</kbd></button>}
         </div>
       </div>
       <div role="status" aria-live="polite" data-testid="tb-live" className="tb-live">{announcement}</div>
       <div className="tb-body">
-      <CaptureHelp t={t} />
-      {readOnly && <div role="note">{t('tasks.readOnly')}</div>}
+      {switcher}
+      {sessionHeader}
+      {!session && <CaptureHelp t={t} />}
+      {agentLocked && <div role="note">{t('tasks.readOnly')}</div>}
       {b.error && <div role="alert">{t('tasks.loadError')}: {b.error}</div>}
       {b.notice && (
         <div role="alert" onClick={b.clearNotice}>{t('tasks.refused', { error: b.notice.error })}</div>
       )}
       <div className="tb-main">
-        <div className="tb-cols" data-tb-board-scroll>
+        {!b.board ? (b.error ? null : <div className="tb-cols">{t('tasks.loading')}</div>) : renderPlan ? <div className="tb-cols">{renderPlan({ openTask: openCard })}</div> : <div className="tb-cols" data-tb-board-scroll>
           {COLUMNS.map(status => {
             const over = drag?.overStatus === status
             const lineAt = over ? (shown.columns[status].filter(x => x.id !== drag.id)[drag.overIndex]?.id ?? 'end') : null
@@ -298,13 +318,13 @@ export default function Tasks({ isActive = true }) {
                 className="tb-col"
               >
                 <h2 className="tb-col-head">{t(`tasks.column.${status}`)} <span className="tb-count">{shown.counts[status] ?? shown.columns[status].length}</span></h2>
-                {!readOnly && (status === 'inbox' || status === 'ready') && <QuickAdd status={status} onAdd={b.add} t={t} />}
-                {shown.columns[status].length === 0 && <div className="tb-empty">{t(`tasks.emptyBy.${status}`, { defaultValue: t('tasks.empty') })}</div>}
+                {!readOnly && !session && (status === 'inbox' || status === 'ready') && <QuickAdd status={status} onAdd={b.add} t={t} />}
+                {shown.columns[status].length === 0 && <div className="tb-empty">{session ? t('tasks.empty') : t(`tasks.emptyBy.${status}`, { defaultValue: t('tasks.empty') })}</div>}
                 {shown.columns[status].map(task => (
                   <Fragment key={task.id}>
                     {lineAt === task.id && <div className="tb-drop-line" data-testid="tb-drop-line" aria-hidden="true" />}
                     <Card
-                      task={task} status={status} readOnly={readOnly} selected={openId === task.id} dragging={drag?.id === task.id} now={now}
+                      task={task} status={status} readOnly={readOnly} selected={openId === task.id} badges={session ? <CardBadges task={task} board={b.board} /> : null} dragging={drag?.id === task.id} now={now}
                       pulse={status === 'done' && marks.done.has(task.id) ? 'done-pulse' : status === 'in_progress' && task.claim && marks.claimed.has(task.id) ? 'claim-pulse' : ''}
                       onOpen={id => { if (!consumeClick()) openCard(id) }} onKey={onKey} onPress={onCardMouseDown}
                       onApprove={approveCard} onMove={(id, to) => { refocus.current = id; moveCard(id, to, { where: '' }) }} onArchive={archiveRes} t={t}
@@ -315,8 +335,8 @@ export default function Tasks({ isActive = true }) {
               </section>
             )
           })}
-        </div>
-        {open && <TaskDrawer task={open} status={findTask(b.board, open.id)?.status} readFirst={readFor?.id === open.id} readOnly={readOnly}
+        </div>}
+        {open && <TaskDrawer task={open} focusArtifacts={open.id === openTaskId} sessionEvents={sessionEvents} status={findTask(b.board, open.id)?.status} readFirst={readFor?.id === open.id} readOnly={readOnly}
           moveTo={readFor?.id === open.id && readFor.to !== 'ready' ? readFor.to : null} onMoveTo={() => moveCard(open.id, readFor.to, readFor.place)}
           onClose={() => setOpenId(null)} onEdit={b.edit} onComment={b.comment} onApprove={() => approveNow(open.id)} onArchive={() => archiveRes(open.id)} archiving={archiving === open.id} archiveError={archiveError} />}
       </div>
@@ -329,4 +349,9 @@ export default function Tasks({ isActive = true }) {
       )}
     </div>
   )
+}
+
+// The Tasks tab: the board of Personal, with the task sessions beside it.
+export default function Tasks({ isActive = true, navData = null }) {
+  return <TasksShell isActive={isActive} Board={TaskBoard} sessionHint={navData?.sessionId || null} reportHint={!!navData?.report} />
 }

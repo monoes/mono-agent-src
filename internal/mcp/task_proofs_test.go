@@ -250,7 +250,7 @@ func TestGrantModeServesNoTaskTool(t *testing.T) {
 			names = append(names, tl.name)
 		}
 	}
-	if len(names) != 8 {
+	if len(names) != 13 {
 		t.Fatalf("%d tools start with task_: %v", len(names), names)
 	}
 	lines := []string{request(100, "tools/list", map[string]interface{}{})}

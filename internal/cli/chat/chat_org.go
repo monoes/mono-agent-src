@@ -158,12 +158,15 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		Bin: opts.Bin, Settings: monomind.CoderSettings, MaxTurns: settings.MaxTurns, Timeout: settings.timeout(),
 		EffortFlag: opts.EffortFlag, Env: agentSendEnv(journal, "", ""),
 	}
-	if settings.OrgWriters == dynorg.WritersIsolated {
+	mission := missionConfig(ctx, db.DB, cfg.ProfileID(), journal.conversationID, t)
+	limits.MaxAgents = missionMaxAgents(settings, mission)
+	writers := missionWriters(ctx, settings, mission, t.cwd)
+	if writers == dynorg.WritersIsolated {
 		reconcileTurnWorktrees(ctx, journal, t.cwd)
 	}
 	cond := dynorg.New(ctx, dynorg.Config{
 		Cwd: t.cwd, Limits: limits, Staffer: staffer, Base: base, Exec: taskExec,
-		Writers: settings.OrgWriters, TurnID: journal.turnID,
+		Writers: writers, TurnID: journal.turnID,
 		ReadAccess: st.caps.Has(monomind.CapAgentExecAccessRead),
 		Emit:       journal,
 		Answers:    journalAnswers{journal},
@@ -174,6 +177,8 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 			_ = agentroster.RecordQuality(context.WithoutCancel(ctx), db.DB, e)
 		}},
 		Remember: journal.rememberWorker,
+		Mission:  mission,
+		Missions: missionRun(mission),
 	})
 	cond.AddVeterans(journal.veterans())
 	opts.Tools = dynorg.ToolSpecs(settings.appAccess())
@@ -181,6 +186,9 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	opts.ToolTimeout = dynorg.ToolTimeout
 	// The profile context is already in the lead's prompt (coderLeadSystemPrompt).
 	opts.SystemPrompt += dynorg.LeadPrompt(limits, settings.appAccess()) + dynorg.LeadExtras(settings.OrgRouter)
+	opts.Tools = append(opts.Tools, dynorg.MissionPlanToolSpecs(cond.Mission())...)
+	opts.Tools = append(opts.Tools, dynorg.MissionRunToolSpecs(ctx, cond.Mission())...)
+	opts.SystemPrompt += dynorg.MissionPrompt(cond.Mission())
 	if cond.Isolated() {
 		opts.Tools = append(opts.Tools, dynorg.MergeToolSpec())
 		opts.SystemPrompt += dynorg.IsolatedLeadPrompt

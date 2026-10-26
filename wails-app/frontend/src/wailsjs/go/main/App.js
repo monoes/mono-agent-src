@@ -290,6 +290,10 @@ export function CoderStopBackground(arg1, arg2) {
   return window['go']['main']['App']['CoderStopBackground'](arg1, arg2);
 }
 
+export function CoderConfirmMission(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CoderConfirmMission'](arg1, arg2, arg3);
+}
+
 export function CoderWorkspaceDefault(arg1) {
   return window['go']['main']['App']['CoderWorkspaceDefault'](arg1);
 }
@@ -1576,6 +1580,50 @@ export function TaskMove(arg1, arg2, arg3, arg4) {
 
 export function TaskPulse() {
   return window['go']['main']['App']['TaskPulse']();
+}
+
+export function TaskSessionApprove(arg1) {
+  return window['go']['main']['App']['TaskSessionApprove'](arg1);
+}
+
+export function TaskSessionArchive(arg1) {
+  return window['go']['main']['App']['TaskSessionArchive'](arg1);
+}
+
+export function TaskSessionBoard(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionBoard'](arg1, arg2);
+}
+
+export function TaskSessionBudget(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionBudget'](arg1, arg2);
+}
+
+export function TaskSessionPause(arg1) {
+  return window['go']['main']['App']['TaskSessionPause'](arg1);
+}
+
+export function TaskSessionPlan(arg1) {
+  return window['go']['main']['App']['TaskSessionPlan'](arg1);
+}
+
+export function TaskSessionPulse(arg1) {
+  return window['go']['main']['App']['TaskSessionPulse'](arg1);
+}
+
+export function TaskSessionResume(arg1) {
+  return window['go']['main']['App']['TaskSessionResume'](arg1);
+}
+
+export function TaskSessionShow(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionShow'](arg1, arg2);
+}
+
+export function TaskSessionStop(arg1) {
+  return window['go']['main']['App']['TaskSessionStop'](arg1);
+}
+
+export function TaskSessions(arg1) {
+  return window['go']['main']['App']['TaskSessions'](arg1);
 }
 
 export function TaskShow(arg1) {

@@ -72,6 +72,19 @@ func (a *App) CreateChatConversation(workflowID, runtimeID, model, effort string
 // coder turn (SaveChatAttachment's paths, or any file the user picked),
 // passed to the CLI as --attach.
 func (a *App) StartChatTurn(conversationID, turnID, message string, tools, allowRuns bool, attachments []string) string {
+	return a.startChatTurn(conversationID, turnID, message, tools, allowRuns, attachments, false)
+}
+
+// CoderConfirmMission is the follow-up turn that confirms a mission
+// proposal (docs/mastermind/plans/2026-10-25-coder-missions-task-sessions.md
+// section 9): a coder conversation's send through the host with
+// `coder sessions send --mission`, which records the operator's confirmation
+// for that one send. The CLI decides what that allows. Coder turns never take tools.
+func (a *App) CoderConfirmMission(conversationID, turnID, message string) string {
+	return a.startChatTurn(conversationID, turnID, message, false, false, nil, true)
+}
+
+func (a *App) startChatTurn(conversationID, turnID, message string, tools, allowRuns bool, attachments []string, mission bool) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
@@ -90,6 +103,7 @@ func (a *App) StartChatTurn(conversationID, turnID, message string, tools, allow
 		return fmt.Sprintf(`{"ok":true,"turnId":%q,"status":"active"}`, turnID)
 	}
 	h.profileID = pid
+	h.mission = mission
 	if a.isCoderConversation(pid, conversationID) {
 		resp, err := a.chatSup.startHostTurn(h, message, attachments)
 		if err != nil {
@@ -97,6 +111,12 @@ func (a *App) StartChatTurn(conversationID, turnID, message string, tools, allow
 			return a.chatBindingError(err)
 		}
 		return resp
+	}
+	if mission {
+		// A mission is confirmed only through the coder host's operator-gated send; the
+		// direct turn has no such record, and no flag stands in for it.
+		a.chatSup.release(conversationID, turnID)
+		return a.chatBindingError(fmt.Errorf("a mission needs a coder conversation: confirm it through the coder host"))
 	}
 	resp, err := a.chatSup.startTurn(h, message, tools, allowRuns, attachments)
 	if err != nil {

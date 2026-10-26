@@ -187,7 +187,7 @@ func (s *Store) SetStatus(ctx context.Context, profileID, id string, to Status, 
 		return fmt.Errorf("applications.SetStatus: begin tx: %w", err)
 	}
 	defer tx.Close()
-	if _, err := tx.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+	if err := beginImmediate(ctx, tx); err != nil {
 		return fmt.Errorf("applications.SetStatus: begin tx: %w", err)
 	}
 	committed := false

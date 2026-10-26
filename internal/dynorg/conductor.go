@@ -47,6 +47,13 @@ type Config struct {
 	// worktrees and branches.
 	Writers string
 	TurnID  string
+
+	// Mission turns the lead into a mission planner (mission_plan.go); nil
+	// leaves it as it was.
+	Mission *MissionConfig
+	// Missions connects the conductor to a profile's task store for mission
+	// tasks (mission_sched.go); nil: org_spawn has no task_id.
+	Missions *MissionRun
 }
 
 // Conductor runs one lead turn's workers.
@@ -63,8 +70,11 @@ type Conductor struct {
 	workers map[string]*worker
 	order   []string
 	spawned int
-	seq     int // the highest worker number so far, veterans included
-	cost    float64
+	// taskRuns: tasks that already had a worker this turn; a retry of one does not count
+	// against Limits.MaxAgents in a mission turn (mission_cap.go).
+	taskRuns map[int64]bool
+	seq      int // the highest worker number so far, veterans included
+	cost     float64
 	// costEstimated: some of cost is estimated from tokens (estimate.go).
 	costEstimated bool
 	// The lead's own file edits (#260): the call ids of its edit tool
@@ -85,6 +95,8 @@ type Conductor struct {
 	profileMu    sync.Mutex
 	profileText  string
 	profileFresh bool
+	// msched is the scheduler's state (mission_sched.go).
+	msched missionState
 }
 
 type worker struct {
@@ -105,6 +117,9 @@ type worker struct {
 	hasTok  bool
 	cost    float64
 	hasCost bool
+	// liveCost is what the running exec has cost so far (not yet in cost); a mission's
+	// session is charged for it as it grows (recordSpend).
+	liveCost float64
 	// costEstimated: some of cost is estimated from tokens (estimate.go).
 	costEstimated bool
 	started       time.Time
@@ -152,7 +167,11 @@ type worker struct {
 	// (worktree.go): it runs in workDir, inside worktree, on branch.
 	// merging is set while org_merge commits and merges its branch.
 	worktree, branch, workDir string
+	verifyTree                string // a verifier's detached checkout of the executor's branch
 	merging                   bool
+	merged                    bool // org_merge brought its branch into the chat folder
+	// task is the mission task it works, if any (mission_exec.go).
+	task *missionBind
 }
 
 // MaxFollowups caps org_message runs per worker, so follow-ups can't stand
@@ -212,6 +231,7 @@ func New(ctx context.Context, cfg Config) *Conductor {
 func (c *Conductor) Close() {
 	c.cancel()
 	c.wg.Wait()
+	c.missionClose()
 	c.leadStopsEditing()
 	c.cleanupWorktrees()
 }
@@ -274,9 +294,10 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 		}
 	}
 	c.mu.Lock()
-	if c.spawned >= c.cfg.Limits.MaxAgents {
+	free := c.capFreeLocked(req)
+	if !free && c.spawned >= c.cfg.Limits.MaxAgents {
 		c.mu.Unlock()
-		return WorkerInfo{}, fmt.Errorf("this turn already has its %d workers; wait for them and use org_message for follow-ups", c.cfg.Limits.MaxAgents)
+		return WorkerInfo{}, c.capError()
 	}
 	if err := c.budgetErrLocked(); err != nil {
 		c.mu.Unlock()
@@ -284,6 +305,19 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 	}
 	c.mu.Unlock()
 
+	var task *missionBind
+	if req.TaskID != 0 {
+		var err error
+		prepare := func(ctx context.Context, r SpawnRequest, p *worker) (*missionBind, SpawnRequest, error) {
+			return c.missionPrepare(ctx, r, p)
+		}
+		if req.verify {
+			prepare = c.verifyPrepare
+		}
+		if task, req, err = prepare(ctx, req, parent); err != nil {
+			return WorkerInfo{}, err
+		}
+	}
 	st, err := c.cfg.Staffer.Staff(ctx, req)
 	if err != nil {
 		return WorkerInfo{}, err
@@ -293,22 +327,32 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 			return WorkerInfo{}, err
 		}
 	}
-	c.mu.Lock()
-	if c.spawned >= c.cfg.Limits.MaxAgents { // another spawn won the race
-		c.mu.Unlock()
-		return WorkerInfo{}, fmt.Errorf("this turn already has its %d workers", c.cfg.Limits.MaxAgents)
+	if task != nil && !task.verifier { // a verifier holds no claim: it only checks
+		if err := c.missionClaim(ctx, task); err != nil {
+			return WorkerInfo{}, err
+		}
 	}
-	c.spawned++
+	c.mu.Lock()
+	if !free && c.spawned >= c.cfg.Limits.MaxAgents { // another spawn won the race
+		c.mu.Unlock()
+		c.missionUnclaim(task, "the turn's worker cap was reached first")
+		return WorkerInfo{}, c.capError()
+	}
+	c.countSpawnLocked(req, free)
 	c.seq++
 	w := &worker{
 		id: fmt.Sprintf("w%d", c.seq), staff: st, brief: req.Brief, files: req.Files,
 		model: st.Model, status: chatevents.AgentQueued, changed: map[string]bool{}, started: c.cfg.Now(),
 		parent: parent, allowSpawn: req.AllowSpawn && parent == nil, cwd: c.cfg.Cwd,
 		mustConfine: parent != nil && st.Access == ProfileResearch && parent.staff.Access == ProfileResearch,
+		task:        task,
 	}
 	c.workers[w.id] = w
 	c.order = append(c.order, w.id)
 	c.mu.Unlock()
+	if task != nil && !task.verifier {
+		c.missionStarted(task, task.executor+":"+w.id)
+	}
 
 	c.addWorktree(w)
 	skills := make([]string, len(st.Skills))

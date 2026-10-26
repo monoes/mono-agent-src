@@ -34,7 +34,7 @@ func (f *taskFixture) listedTools() []string {
 	return names
 }
 
-var tasksOnlyToday = "task_add,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release"
+var tasksOnlyToday = "task_add,task_artifact,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release,task_session_get,task_session_list,task_split,task_verify"
 
 func TestTaskToolListIsUnchangedWhileApproveIsOff(t *testing.T) {
 	f := newTaskFixture(t, taskSetup{tasksOnly: true})
@@ -61,7 +61,7 @@ func TestTaskToolListIsUnchangedWhileApproveIsOff(t *testing.T) {
 func TestTaskApproveAppearsOnlyWhileAllowedForTheProfile(t *testing.T) {
 	f := newTaskFixture(t, taskSetup{tasksOnly: true})
 	f.setAccess("default", tasks.AgentAccess{View: true, Approve: true})
-	want := "task_add,task_approve,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release"
+	want := "task_add,task_approve,task_artifact,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release,task_session_get,task_session_list,task_split,task_verify"
 	if got := strings.Join(f.listedTools(), ","); got != want {
 		t.Fatalf("tools with approve: %s", got)
 	}
@@ -152,7 +152,7 @@ func TestTaskNoMCPToolChangesTheAgentAccess(t *testing.T) {
 	for _, tl := range f.Server.servedTools() {
 		served = append(served, tl)
 	}
-	if len(served) != 9 {
+	if len(served) != 14 {
 		t.Fatalf("%d tools served", len(served))
 	}
 	evil := []map[string]any{

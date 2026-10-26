@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api, notify } from '../../services/api.js'
+import { api, notify, onChatEvent } from '../../services/api.js'
 import { useChatStream, loadTurnState } from '../chat/useChatStream.js'
 import { newTurnId } from '../chat/turnIds.js'
 import { composeLiveAnnouncement } from '../chat/liveAnnouncement.js'
@@ -31,10 +31,23 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
   // sending is set before send's first await, so a second Enter while the
   // conversation is being created (or the turn started) doesn't send twice.
   const sending = useRef(false)
+  const pendingExternal = useRef(null)
   const accessRef = useRef(access)
   accessRef.current = access
 
   useEffect(() => { if (conversationId) setConvId(conversationId) }, [conversationId])
+  useEffect(() => { pendingExternal.current = null }, [convId])
+
+  // Approving or resuming a mission starts its bound lead in the backend.
+  // Adopt that turn just like a sent turn; useChatStream fills its journal.
+  useEffect(() => onChatEvent(ev => {
+    if (ev?.conversationId !== convId || ev.type !== 'turn.started' || !ev.turnId || sending.current || ev.turnId === activeRef.current) return
+    if (activeRef.current) { pendingExternal.current = ev; return }
+    activeRef.current = ev.turnId
+    setMessages(msgs => [...msgs, { role: 'user', content: ev.payload?.text || '' }])
+    setStopRequested(false)
+    setActiveTurnId(ev.turnId)
+  }), [convId])
 
   // Load the transcript once per conversation (re-expanding a bubble mounts
   // this again and reloads from the journal).
@@ -80,12 +93,16 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
   const [announcement, setAnnouncement] = useState('')
   const announcedNotices = useRef(0)
   useEffect(() => {
-    if (!activeTurnId) return
+    if (!activeTurnId || liveTurn.scope?.turnId !== activeTurnId) return
     if (liveTurn.terminal) {
       setMessages(msgs => [...msgs, { role: 'turn', turnId: activeTurnId, state: liveTurn }])
       setAnnouncement(composeLiveAnnouncement(liveTurn, announcedNotices.current))
       announcedNotices.current = 0
-      setActiveTurnId('')
+      const next = pendingExternal.current
+      pendingExternal.current = null
+      activeRef.current = next?.turnId || ''
+      setActiveTurnId(next?.turnId || '')
+      if (next) setMessages(msgs => [...msgs, { role: 'user', content: next.payload?.text || '' }])
       setStopRequested(false)
       return
     }
@@ -101,7 +118,7 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
   // a turn is already starting or running. attachments are the composer's
   // (chatAttachments.js readAttachment): each is saved to the chat spool and
   // the turn gets their paths.
-  const send = useCallback(async (text, attachments = []) => {
+  const send = useCallback(async (text, attachments = [], opts = {}) => {
     const prompt = String(text || '').trim()
     if (!prompt || activeRef.current || sending.current) return null
     sending.current = true
@@ -129,9 +146,11 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
       const scoped = accessRef.current === 'scoped'
       const tools = scoped && getAssistantTools()
       const allowRuns = scoped && getAssistantAllowRuns()
-      const res = await (paths.length
-        ? api.startChatTurn(id, turnId, prompt, tools, allowRuns, paths)
-        : api.startChatTurn(id, turnId, prompt, tools, allowRuns))
+      const res = await (opts.mission
+        ? api.confirmMission(id, turnId, prompt)
+        : paths.length
+          ? api.startChatTurn(id, turnId, prompt, tools, allowRuns, paths)
+          : api.startChatTurn(id, turnId, prompt, tools, allowRuns))
       if (res?.ok === false) {
         setMessages(msgs => [...msgs, { role: 'error', content: t('bubbles.couldNotStart', { status: res.status }) }])
         return false

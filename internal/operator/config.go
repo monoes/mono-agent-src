@@ -25,6 +25,13 @@ import "strings"
 //     the person's submit at once (internal/applypark; `application fill queue`).
 //   - coder_projects: the folder a site's queued coder chats work in, with
 //     full access (`coder projects map|unmap`).
+//   - every row under ReservedConfigPrefixes: families of rows named by a
+//     prefix. coder-mission-confirm/ holds the operator's per-send mission
+//     confirmations, which the coder host and its chat turns accept as proof
+//     that the person asked for a mission; a write by anything else would be
+//     a forged confirmation. Their values are also hidden from `config get`,
+//     `config list` and whatever else shows rows to a non-operator
+//     (HiddenConfig).
 //
 // Not reserved: memory.runs (the run-memory opt-out), workflow.error_workflow
 // (the default error workflow, which any workflow can also name for itself)
@@ -41,12 +48,33 @@ var reservedConfigs = []string{
 	"applications.max_parked",
 }
 
+// ReservedConfigPrefixes are the reserved families of config rows: a name that
+// starts with one (in any case, with spaces before it) is reserved.
+var ReservedConfigPrefixes = []string{
+	"coder-mission-confirm/",
+}
+
 // ReservedConfig reports whether name is a reserved config row, in any case
-// and with spaces around it.
+// and with spaces around it, or is under a reserved prefix.
 func ReservedConfig(name string) bool {
 	name = strings.TrimSpace(name)
 	for _, r := range reservedConfigs {
 		if strings.EqualFold(name, r) {
+			return true
+		}
+	}
+	return HiddenConfig(name)
+}
+
+// HiddenConfig reports whether name is under a reserved prefix: such rows are
+// reserved, and their values are not shown to a non-operator either (they hold
+// live single-use material).
+func HiddenConfig(name string) bool {
+	name = strings.TrimSpace(name)
+	for _, p := range ReservedConfigPrefixes {
+		// Compare as runes with case folding, so a differently cased or
+		// folded spelling is the same name here as it is for a reader that folds.
+		if rs := []rune(name); len(rs) >= len([]rune(p)) && strings.EqualFold(string(rs[:len([]rune(p))]), p) {
 			return true
 		}
 	}

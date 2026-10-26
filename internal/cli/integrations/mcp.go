@@ -37,7 +37,7 @@ workflow_status, node_list, node_schema, hil_list, vault_item_list,
 vault_item_get_path, profile_document_search, secret_list, person_list,
 person_get, message_list, message_get, social_list_list, template_list,
 org_list, org_get, org_validate, api_key_list, api_models_list, api_status,
-api_config_get, task_list, task_get, task_next, docs.
+api_config_get, task_list, task_get, task_next, task_session_list, task_session_get, docs.
 
 Mutating tools (workflow_run, workflow_create/delete/set_active/node_add,
 hil_approve, hil_reject, secret_add/update/delete, person_upsert/delete,
@@ -45,7 +45,7 @@ org_create and every org_role_*/org_reload tool, api_key_create/update/revoke,
 which change none of the OpenAI-compatible API's keys (below), api_config_set and
 api_config_apply, which save its server's settings and restart the daemon that
 reads them, api_auto_set, which switches its auto model on or off, and
-task_claim/comment/finish/release/add, which work the user's task board) are only
+task_claim/comment/finish/release/add/split/verify/artifact, which work the user's task board) are only
 exposed with --allow-mutations or MONOAGENT_MCP_ALLOW_MUTATIONS=1 — without it they are
 omitted from tools/list and refuse with an explanatory error if called by
 name. This includes workflow_run/hil_approve/hil_reject, which were exposed
@@ -88,7 +88,7 @@ on. A host that has tools of its own, such as a shell tool, is not stopped by it
 (task_*) and no other: no workflow, vault, secret, person, org, API or
 documentation tool. It is for an agent that is to work the board and nothing
 else: --allow-mutations, which task_claim, task_comment, task_finish,
-task_release and task_add need, also serves workflow tools that can run a
+task_release, task_add, task_split, task_verify and task_artifact need, also serves workflow tools that can run a
 command as you, and with --tasks-only it does not. The task tools act on the
 profile each call names, as the agent agent:<client>#<4 hex digits>, named after
 the MCP client and the session; no tool approves, edits, moves or archives a task.

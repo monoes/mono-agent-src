@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -66,6 +67,9 @@ func (s *Store) Edit(ctx context.Context, profileID string, id int64, e Edit, ac
 		if err := s.bump(ctx, x, profileID); err != nil {
 			return err
 		}
+		if err := s.bumpSessionsOf(ctx, x, id); err != nil {
+			return err
+		}
 		out, err = s.getTx(ctx, x, profileID, id)
 		return err
 	})
@@ -79,8 +83,9 @@ func (s *Store) Edit(ctx context.Context, profileID string, id int64, e Edit, ac
 // ids and their positions. The card except (0 for none) is left out.
 func (s *Store) columnOf(ctx context.Context, x dbx, profileID string, st Status, except int64) ([]int64, []int64, error) {
 	rows, err := x.QueryContext(ctx,
-		`SELECT id, position FROM tasks WHERE profile_id = ? AND status = ? AND id <> ? ORDER BY position, id`,
-		profileID, string(st), except)
+		`SELECT id, position FROM tasks WHERE profile_id = ? AND status = ? AND id <> ?
+		   AND session_id IS (SELECT session_id FROM tasks WHERE id = ?) ORDER BY position, id`,
+		profileID, string(st), except, except)
 	if err != nil {
 		return nil, nil, fmt.Errorf("tasks: reading a column: %w", err)
 	}
@@ -202,8 +207,12 @@ func (s *Store) moveTx(ctx context.Context, x dbx, profileID string, cur Task, t
 		}
 	}
 	if _, err := x.ExecContext(ctx,
-		`UPDATE tasks SET status = ?, position = ?, claimed_by = ?, claim_until = ?, updated_at = ? WHERE id = ? AND profile_id = ?`,
-		string(to), pos, claimedBy, until, stamp, cur.ID, profileID); err != nil {
+		`UPDATE tasks SET status = ?, position = ?, claimed_by = ?, claim_until = ?, updated_at = ?,
+		        retries = CASE WHEN ? = 'ready' AND blocked = 1 THEN 0 ELSE retries END,
+		        blocked = CASE WHEN ? = 'review' THEN blocked ELSE 0 END,
+		        verified = CASE WHEN ? = 'done' OR (? = 'review' AND ? <> 'done') THEN verified ELSE 0 END
+		 WHERE id = ? AND profile_id = ?`,
+		string(to), pos, claimedBy, until, stamp, string(to), string(to), string(to), string(to), string(cur.Status), cur.ID, profileID); err != nil {
 		return fmt.Errorf("tasks: moving #%d: %w", cur.ID, err)
 	}
 	return s.event(ctx, x, cur.ID, stamp, actor.Label(), kind, string(cur.Status), string(to), note)
@@ -237,6 +246,9 @@ func (s *Store) Move(ctx context.Context, profileID string, id int64, to Status,
 			return err
 		}
 		if err := s.bump(ctx, x, profileID); err != nil {
+			return err
+		}
+		if err := s.bumpSessionsOf(ctx, x, id); err != nil {
 			return err
 		}
 		out, err = s.getTx(ctx, x, profileID, id)
@@ -293,6 +305,9 @@ func (s *Store) each(ctx context.Context, profileID string, ids []int64, reverse
 		if err := s.bump(ctx, x, profileID); err != nil {
 			return err
 		}
+		if err := s.bumpSessionsOf(ctx, x, ids...); err != nil {
+			return err
+		}
 		out = make([]Task, 0, len(ids))
 		for _, id := range ids {
 			t, err := s.getTx(ctx, x, profileID, id)
@@ -319,6 +334,10 @@ func (s *Store) each(ctx context.Context, profileID string, ids []int64, reverse
 func (s *Store) Approve(ctx context.Context, profileID string, ids []int64, top bool, actor Actor) ([]Task, error) {
 	note := "approved"
 	if actor.Kind != Human {
+		// A worker bound to a session reaches the personal board through no delegation.
+		if err := bound(actor, 0); err != nil {
+			return nil, err
+		}
 		// A delegate approves only what it can see: approve needs view as well.
 		if !s.agentMay(ctx, profileID, actor, func(a AgentAccess) bool { return a.Approve && a.View }) {
 			return nil, operatorOnly("approve a task")
@@ -342,6 +361,10 @@ func (s *Store) Approve(ctx context.Context, profileID string, ids []int64, top 
 				return invalid("task #%d is %s, not inbox: only an inbox task is approved", cur.ID, cur.Status)
 			}
 			if actor.Kind != Human {
+				// A session's tasks are opened by `session approve`, the operator's.
+				if cur.SessionID != 0 {
+					return invalid("task #%d belongs to session #%d: only the operator opens a session's tasks (session approve)", cur.ID, cur.SessionID)
+				}
 				return s.refuseAgentCreated(ctx, cur)
 			}
 			return nil
@@ -361,11 +384,44 @@ func (s *Store) Archive(ctx context.Context, profileID string, ids []int64, acto
 			if cur.Status == StatusArchived {
 				return invalid("task #%d is already archived", cur.ID)
 			}
-			return nil
+			return s.refuseArchiveOfDependency(ctx, cur, ids)
 		},
 		func(x dbx, cur Task) error {
 			return s.moveTx(ctx, x, profileID, cur, StatusArchived, Placement{Bottom: true}, actor, "archived", "")
 		})
+}
+
+// refuseArchiveOfDependency refuses to archive a task of a session while open tasks that are
+// not archived in the same call still wait for it: an archived task never settles, so they
+// would stall for good. The operator archives them with it, or finishes them first.
+func (s *Store) refuseArchiveOfDependency(ctx context.Context, cur Task, archiving []int64) error {
+	if cur.SessionID == 0 {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT t.id FROM task_deps d JOIN tasks t ON t.id = d.task_id
+		 WHERE d.depends_on_task_id = ? AND t.status NOT IN ('done', 'archived') ORDER BY t.id`, cur.ID)
+	if err != nil {
+		return fmt.Errorf("tasks: reading what waits for #%d: %w", cur.ID, err)
+	}
+	defer rows.Close()
+	var waiting []string
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("tasks: reading what waits for #%d: %w", cur.ID, err)
+		}
+		if !slices.Contains(archiving, id) {
+			waiting = append(waiting, "#"+strconv.FormatInt(id, 10))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("tasks: reading what waits for #%d: %w", cur.ID, err)
+	}
+	if len(waiting) > 0 {
+		return invalid("task #%d cannot be archived: %s still wait for it, and an archived task never settles (archive them with it, or finish them first)", cur.ID, strings.Join(waiting, ", "))
+	}
+	return nil
 }
 
 // ArchiveStatus archives every task of one column, in the order it is in, and

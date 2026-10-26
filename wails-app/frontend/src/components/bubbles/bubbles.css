@@ -204,6 +204,10 @@
    selector row and composer stay clear of the bubbles. */
 body:has(.bubble-dock) .bubble-overlay.narrow { width: calc(100vw - 76px); }
 body:has(.bubble-overlay.narrow) .bubble-dock.left { left: auto; right: 18px; }
+/* The task drawer sits at the window's right edge, where the right-hand dock
+   stands: keep a column (18px + the 50px bubble + a gap, as above) clear so
+   the drawer's close button, actions and notes are never under a bubble. */
+body:has(.bubble-dock.right) .tb-drawer { margin-right: 76px; }
 
 .bubble-divider {
   height: 7px;

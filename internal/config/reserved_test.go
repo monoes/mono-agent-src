@@ -45,7 +45,7 @@ func generateNamed(t *testing.T, name string) (*recordingStore, error) {
 // The local AI names the config it generates: a name that is a reserved
 // setting is refused, neither saved nor cached; an ordinary one saves.
 func TestGeneratedConfigCannotNameAReservedSetting(t *testing.T) {
-	for _, name := range []string{"coder_mode", "browser_agent_permissions", "Sandbox.Fallback"} {
+	for _, name := range []string{"coder_mode", "browser_agent_permissions", "Sandbox.Fallback", "coder-mission-confirm/default/c/t/1", "Coder-Mission-CONFIRM/x"} {
 		store, err := generateNamed(t, name)
 		if err == nil || !strings.Contains(err.Error(), "reserved setting") {
 			t.Errorf("%s: %v", name, err)
@@ -68,13 +68,13 @@ func TestGeneratedConfigCannotNameAReservedSetting(t *testing.T) {
 func TestDBConfigStoreRefusesReservedRows(t *testing.T) {
 	db := testdb.Open(t)
 	s := &DBConfigStore{DB: db}
-	for _, name := range []string{"coder_mode", "browser_agent_permissions", " BROWSER_AGENT_ALLOWLIST "} {
+	for _, name := range []string{"coder_mode", "browser_agent_permissions", " BROWSER_AGENT_ALLOWLIST ", "coder-mission-confirm/default/c/t/1", "  CODER-MISSION-CONFIRM/x"} {
 		if err := s.SaveConfig(name, `{"enabled":true}`); err == nil || !strings.Contains(err.Error(), "reserved setting") {
 			t.Errorf("%q: %v", name, err)
 		}
 	}
 	var n int
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM configs WHERE lower(trim(name)) IN ('coder_mode', 'browser_agent_permissions', 'browser_agent_allowlist')`).Scan(&n); err != nil || n != 0 {
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM configs WHERE lower(trim(name)) IN ('coder_mode', 'browser_agent_permissions', 'browser_agent_allowlist') OR lower(trim(name)) LIKE 'coder-mission-confirm/%'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("reserved rows written: %d %v", n, err)
 	}
 	if err := s.SaveConfig("linkedin_login", `{"config_name":"linkedin_login","fields":{}}`); err != nil {

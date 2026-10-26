@@ -214,6 +214,9 @@ export const api = {
   // attachments: file paths for a coder turn (see saveChatAttachment).
   startChatTurn: (conversationID, turnID, message, tools, allowRuns, attachments = []) =>
     GoApp.StartChatTurn(conversationID, turnID, message, tools, allowRuns, attachments || []).then(parseStreamResult),
+  // The follow-up turn that confirms a mission proposal: a normal coder turn run with `chat --mission`.
+  confirmMission: (conversationID, turnID, message) =>
+    GoApp.CoderConfirmMission(conversationID, turnID, message).then(parseStreamResult),
   // A coder chat's attachment, base64 (≤ 20 MB) → a spool file path; and an
   // image inside the chat's folder (≤ 10 MB) → a data URL. Both reject on
   // error.

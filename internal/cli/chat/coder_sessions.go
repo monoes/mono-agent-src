@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -119,7 +120,7 @@ func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command,
 func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 	var turn string
 	var attach []string
-	var noHost bool
+	var noHost, mission bool
 	cmd := &cobra.Command{
 		Use:   "send CONVERSATION MESSAGE",
 		Short: "Queue a message; the host starts the turn when the session is free",
@@ -127,6 +128,12 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clicore.RequireOperator(cfg.RequireOperator, "send to a coder session, which starts a full-access turn"); err != nil {
 				return err
+			}
+			if mission {
+				// the flag confirms a mission for the user: an agent cannot confirm its own
+				if err := clicore.RequireOperator(cfg.RequireOperator, "confirm a mission (--mission)"); err != nil {
+					return err
+				}
 			}
 			profileID, err := coderConversation(cfg, args[0])
 			if err != nil {
@@ -139,15 +146,33 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 			if turn == "" {
 				turn = "t-" + uuid.NewString()
 			}
-			c, err := enqueue(cfg, coderhost.Command{ProfileID: profileID, ConversationID: args[0], Kind: coderhost.KindSend, TurnID: turn, Message: args[1], Attachments: atts}, !noHost)
-			if err != nil {
-				return err
+			// A mission send is queued marked as one, then its confirmation is recorded for
+			// that command: a mission send never runs without it (the host fails it instead),
+			// and the record is revoked if the command is cancelled, expires or fails.
+			session := int64(0)
+			if mission {
+				session = openMissionSessionID(context.Background(), cfg, profileID, args[0])
+			}
+			c, qerr := enqueue(cfg, coderhost.Command{ProfileID: profileID, ConversationID: args[0], Kind: coderhost.KindSend, TurnID: turn, Message: args[1], Attachments: atts, WantsMission: mission}, !noHost)
+			if mission && c.ID > 0 { // queued, even if starting the host failed afterwards
+				if err := confirmMission(cfg, c, session); err != nil {
+					failQueuedMission(cfg, c.ID, "mission confirmation could not be recorded: send again")
+					return err
+				}
+			}
+			if qerr != nil {
+				if mission && c.ID > 0 {
+					return fmt.Errorf("the mission send was queued as command %d with its confirmation and runs when a coder host does; the host could not be started: %w", c.ID, qerr)
+				}
+				return qerr
 			}
 			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "turnId": c.TurnID, "hostStarted": !noHost})
 		},
 	}
 	cmd.Flags().StringVar(&turn, "turn", "", "Turn id (default: a new one)")
 	cmd.Flags().StringArrayVar(&attach, "attach", nil, "A file to attach to the turn (repeatable)")
+	cmd.Flags().BoolVar(&mission, "mission", false, "The user confirmed a mission for this turn: records a single-use confirmation the host's turn verifies (operator only)")
+	_ = cmd.Flags().MarkHidden("mission")
 	cmd.Flags().BoolVar(&noHost, "no-host", false, "Queue only; do not start the host")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd

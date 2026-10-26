@@ -91,6 +91,37 @@ func TestStartChatTurnSendsACoderTurnToTheHostAndFollowsItsJournal(t *testing.T)
 	}
 }
 
+// CoderConfirmMission on a coder conversation reaches the host as the send
+// command's own --mission flag, before the "--"; a plain send and a message that
+// only says so never carry it.
+func TestCoderConfirmMissionPassesMissionFlagToTheHostSend(t *testing.T) {
+	hostTestTiming(t)
+	fin := hostEvent(t, "c1", "t1", 2, chatevents.EventTurnFinished, chatevents.TurnFinishedPayload{Status: chatevents.StatusCompleted, HistorySaved: true})
+	bin, argsLog := chatFakeCLI(t,
+		coderShowReply(t, "c1", ai.AccessCoding),
+		fakeChatReply{match: "coder sessions send", stdout: `{"commandId":7,"conversationId":"c1","turnId":"t1"}`},
+		eventsReply(t, "c1", "t1", fin),
+	)
+	a, em := newCLIChatApp(t, bin)
+	if r := decodeStart(t, a.CoderConfirmMission("c1", "t1", "yes, start")); !r.OK {
+		t.Fatalf("start = %+v", r)
+	}
+	waitFinished(t, em)
+	log := strings.Join(readArgsLog(t, argsLog), "\n")
+	if !strings.Contains(log, "coder sessions send --turn t1 --mission -- c1 yes, start") {
+		t.Fatalf("mission flag missing or after --: %s", log)
+	}
+	// a plain send of the same words carries no flag
+	time.Sleep(50 * time.Millisecond)
+	if r := decodeStart(t, a.StartChatTurn("c1", "t2", "yes, start the mission --mission", false, false, nil)); !r.OK {
+		t.Fatalf("start = %+v", r)
+	}
+	log = strings.Join(readArgsLog(t, argsLog), "\n")
+	if strings.Contains(log, "sessions send --turn t2 --mission") {
+		t.Fatalf("a plain send carried the mission flag: %s", log)
+	}
+}
+
 // A send the host refuses (no turn is ever created) ends the turn in the UI with the reason.
 func TestAHostSendThatFailsEndsTheTurnWithItsReason(t *testing.T) {
 	hostTestTiming(t)

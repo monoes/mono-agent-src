@@ -40,7 +40,7 @@ func (l *execLauncher) args(profileID string, rest ...string) []string {
 	return append([]string{"--db-path", l.dbPath, "--profile", profileID, "--json"}, rest...)
 }
 
-func (l *execLauncher) Start(profileID, conversationID, turnID, message string, attachments []string) (coderhost.Turn, error) {
+func (l *execLauncher) Start(profileID, conversationID, turnID, message string, attachments []string, missionToken string) (coderhost.Turn, error) {
 	if !hostID.MatchString(conversationID) || !hostID.MatchString(turnID) {
 		return nil, fmt.Errorf("conversation and turn ids must be letters, digits, '.', '_' and '-'")
 	}
@@ -83,7 +83,18 @@ func (l *execLauncher) Start(profileID, conversationID, turnID, message string, 
 	for _, a := range attachments {
 		rest = append(rest, "--attach="+a)
 	}
+	if missionToken != "" && !hostID.MatchString(missionToken) {
+		return nil, fmt.Errorf("the mission confirmation is not a valid token")
+	}
 	cmd := exec.Command(l.bin, l.args(profileID, rest...)...)
+	if missionToken != "" {
+		// In the child's environment, not its arguments (which any process of the user lists):
+		// the child verifies the operator's signed record and consumes it, and drops the variable
+		// from its own environment. The variable stays in the environment block the process was
+		// started with (readable by the same user until it exits); the token is single use and
+		// dead once the record is consumed.
+		cmd.Env = append(os.Environ(), coderhost.MissionTokenEnv+"="+missionToken)
+	}
 	cmd.Dir = filepath.Dir(l.logDir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
 	if err := clicore.DetachStart(cmd); err != nil {
@@ -251,6 +262,7 @@ func (t *execTurn) Wait() error   { <-t.done; return t.err }
 func (t *execTurn) Stop() {
 	t.once.Do(func() {
 		_ = terminateGroup(t.pid) // t is this process's child: its pid is not reused before cmd.Wait reaps it
+		grace := hostTurnGrace // read here: the goroutine below can outlive a test that swaps it
 		go func() {
 			select {
 			case <-t.done:
@@ -258,7 +270,7 @@ func (t *execTurn) Stop() {
 				// the SIGTERM goes with it. The pid is free from the reap on, so this runs at
 				// once, and the window in which it could name a new process is that short.
 				_ = killGroup(t.pid)
-			case <-time.After(hostTurnGrace):
+			case <-time.After(grace):
 				_ = killGroup(t.pid)
 			}
 		}()
@@ -271,6 +283,7 @@ type adoptedTurn struct {
 	pid   int
 	stamp string
 	once  sync.Once
+	bg    sync.WaitGroup // the stop goroutine; tests wait for it before restoring the variables it reads
 }
 
 func (t *adoptedTurn) PID() int      { return t.pid }
@@ -299,7 +312,9 @@ var adoptedPoll = time.Second
 
 func (t *adoptedTurn) Stop() {
 	t.once.Do(func() {
+		t.bg.Add(1)
 		go func() {
+			defer t.bg.Done()
 			signalAdopted(t.pid, t.stamp, terminateGroup)
 			// Not this process's child, so the group is signalled only while the leader is
 			// verifiably the same process. A leader that ends first leaves any child that

@@ -62,7 +62,7 @@ func needName(a Actor) error {
 func (s *Store) pickNext(ctx context.Context, x dbx, profileID string, now time.Time) (int64, error) {
 	var id int64
 	err := x.QueryRowContext(ctx,
-		`SELECT id FROM tasks WHERE profile_id = ? AND status = 'ready'
+		`SELECT id FROM tasks WHERE profile_id = ? AND session_id IS NULL AND status = 'ready'
 		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
 		 ORDER BY position, id LIMIT 1`, profileID, MaxEventsToClaim).Scan(&id)
 	if err == nil {
@@ -72,7 +72,7 @@ func (s *Store) pickNext(ctx context.Context, x dbx, profileID string, now time.
 		return 0, fmt.Errorf("tasks: picking the next task: %w", err)
 	}
 	err = x.QueryRowContext(ctx,
-		`SELECT id FROM tasks WHERE profile_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
+		`SELECT id FROM tasks WHERE profile_id = ? AND session_id IS NULL AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
 		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
 		 ORDER BY claim_until, id LIMIT 1`, profileID, now.Format(timeFmt), MaxEventsToClaim).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -92,6 +92,9 @@ func (s *Store) pickNext(ctx context.Context, x dbx, profileID string, now time.
 // set back between two readings must not make a task that was found stale a task that is held. A nil
 // task and a nil error mean there is nothing to do.
 func (s *Store) Next(ctx context.Context, profileID string, actor Actor, claim bool, lease time.Duration) (*Task, error) {
+	if err := bound(actor, 0); err != nil {
+		return nil, err
+	}
 	if !claim {
 		switch actor.Kind {
 		case Human, Agent:
@@ -153,7 +156,16 @@ func (s *Store) Next(ctx context.Context, profileID string, actor Actor, claim b
 // Claim takes a Ready task for an agent, or a task whose claim has gone stale, or renews the lease of a
 // task the agent holds already; never one that another agent holds, nor one the operator works on.
 func (s *Store) Claim(ctx context.Context, profileID string, id int64, actor Actor, lease time.Duration) (Task, error) {
+	return s.claimIn(ctx, profileID, 0, id, actor, lease, nil)
+}
+
+// claimIn is Claim on the board of session (0 for the personal board): the task must be of
+// that board, and pre, when there is one, may refuse the claim in the same transaction.
+func (s *Store) claimIn(ctx context.Context, profileID string, session, id int64, actor Actor, lease time.Duration, pre func(x dbx) error) (Task, error) {
 	if err := needName(actor); err != nil {
+		return Task{}, err
+	}
+	if err := noVerifier(actor, "claim a task"); err != nil {
 		return Task{}, err
 	}
 	var out Task
@@ -161,18 +173,26 @@ func (s *Store) Claim(ctx context.Context, profileID string, id int64, actor Act
 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
 			return err
 		}
+		if err := s.checkScope(ctx, x, profileID, id, session, actor); err != nil {
+			return err
+		}
+		if pre != nil {
+			if err := pre(x); err != nil {
+				return err
+			}
+		}
 		t, err := s.claimTx(ctx, x, profileID, id, actor, s.now().UTC(), lease)
 		if err != nil {
 			return err
 		}
-		if err := s.bump(ctx, x, profileID); err != nil {
+		if err := s.bumpScope(ctx, x, profileID, session); err != nil {
 			return err
 		}
 		out = t
 		return nil
 	})
 	if err != nil {
-		return Task{}, err
+		return Task{}, inSessionWords(session, err)
 	}
 	return out, nil
 }
@@ -304,6 +324,11 @@ func (s *Store) heldBy(ctx context.Context, x dbx, profileID string, id int64, a
 // shortens it. A comment is refused once the task has MaxEventsPerTask events: a change of state is always
 // recorded, a comment is not.
 func (s *Store) Comment(ctx context.Context, profileID string, id int64, text string, actor Actor) (Task, error) {
+	return s.commentIn(ctx, profileID, 0, id, text, actor)
+}
+
+// commentIn is Comment on the board of session (0 for the personal board).
+func (s *Store) commentIn(ctx context.Context, profileID string, session, id int64, text string, actor Actor) (Task, error) {
 	switch actor.Kind {
 	case Agent:
 		if err := needName(actor); err != nil {
@@ -322,11 +347,14 @@ func (s *Store) Comment(ctx context.Context, profileID string, id int64, text st
 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
 			return err
 		}
+		if err := s.checkScope(ctx, x, profileID, id, session, actor); err != nil {
+			return err
+		}
 		t, err := s.commentTx(ctx, x, profileID, id, text, actor)
 		if err != nil {
 			return err
 		}
-		if err := s.bump(ctx, x, profileID); err != nil {
+		if err := s.bumpScope(ctx, x, profileID, session); err != nil {
 			return err
 		}
 		out = t
@@ -345,10 +373,14 @@ func (s *Store) Comment(ctx context.Context, profileID string, id int64, text st
 // the agent holds, so no read can make a comment shorten a lease or touch one that is not the agent's.
 func (s *Store) commentTx(ctx context.Context, x dbx, profileID string, id int64, text string, actor Actor) (Task, error) {
 	var err error
-	if actor.Kind == Agent {
+	if actor.Kind == Agent && !actor.Verifier {
 		_, err = s.heldBy(ctx, x, profileID, id, actor)
 	} else {
-		_, err = s.getTx(ctx, x, profileID, id)
+		var cur Task
+		cur, err = s.getTx(ctx, x, profileID, id)
+		if err == nil && actor.Verifier && cur.Status != StatusReview {
+			err = notClaimant("task #%d is %s: a verifier comments on a task in Review", id, cur.Status)
+		}
 	}
 	if err != nil {
 		return Task{}, err
@@ -382,6 +414,11 @@ func (s *Store) commentTx(ctx context.Context, x dbx, profileID string, id int64
 
 // Finish hands a held task back to the operator, in Review, with a result or a question (exactly one).
 func (s *Store) Finish(ctx context.Context, profileID string, id int64, o Outcome, actor Actor) (Task, error) {
+	return s.finishIn(ctx, profileID, 0, id, o, actor)
+}
+
+// finishIn is Finish on the board of session (0 for the personal board).
+func (s *Store) finishIn(ctx context.Context, profileID string, session, id int64, o Outcome, actor Actor) (Task, error) {
 	if err := needName(actor); err != nil {
 		return Task{}, err
 	}
@@ -394,28 +431,60 @@ func (s *Store) Finish(ctx context.Context, profileID string, id int64, o Outcom
 	if question != "" {
 		kind, note = "question", question
 	}
-	return s.handBack(ctx, profileID, id, actor, StatusReview, kind, note)
+	return s.handBack(ctx, profileID, session, id, actor, StatusReview, kind, note, nil)
 }
 
 // Release gives a held task back to Ready, behind the others, so that the agent that gave it up is not
 // offered it again at once.
 func (s *Store) Release(ctx context.Context, profileID string, id int64, note string, actor Actor) (Task, error) {
+	return s.releaseIn(ctx, profileID, 0, id, note, actor)
+}
+
+// releaseIn is Release on the board of session (0 for the personal board).
+func (s *Store) releaseIn(ctx context.Context, profileID string, session, id int64, note string, actor Actor) (Task, error) {
 	if err := needName(actor); err != nil {
 		return Task{}, err
 	}
-	return s.handBack(ctx, profileID, id, actor, StatusReady, "released", cutBytes(cleanText(note), MaxCommentBytes))
+	return s.handBack(ctx, profileID, session, id, actor, StatusReady, "released", cutBytes(cleanText(note), MaxCommentBytes), nil)
 }
 
 // handBack ends the agent's claim: the task goes to `to` (Review at the top, Ready at the bottom), both
-// claim columns are emptied, and the event says why.
-func (s *Store) handBack(ctx context.Context, profileID string, id int64, actor Actor, to Status, kind, note string) (Task, error) {
+// claim columns are emptied, and the event says why. When only is set the claim must still be that
+// one (same holder, same lease end), checked in the same transaction: else errClaimMoved. A claim
+// retaken under the same name whose lease ends at the very same stored instant is not told apart:
+// a narrow edge, as the claim row holds no sequence number.
+func (s *Store) handBack(ctx context.Context, profileID string, session, id int64, actor Actor, to Status, kind, note string, only *Claim) (Task, error) {
+	if err := noVerifier(actor, "finish or release a task"); err != nil {
+		return Task{}, err
+	}
 	var out Task
 	err := s.tx(ctx, func(x dbx) error {
 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
 			return err
 		}
-		if _, err := s.heldBy(ctx, x, profileID, id, actor); err != nil {
+		if err := s.checkScope(ctx, x, profileID, id, session, actor); err != nil {
 			return err
+		}
+		if session != 0 && to == StatusReview {
+			se, err := s.sessionTx(ctx, x, profileID, session)
+			if err != nil {
+				return err
+			}
+			if err := writableBy(se, actor, "finish a task"); err != nil {
+				return err
+			}
+		}
+		cur, err := s.heldBy(ctx, x, profileID, id, actor)
+		if err != nil {
+			return err
+		}
+		if only != nil && (cur.Claim.By != only.By || !cur.Claim.Until.Equal(only.Until)) {
+			return errClaimMoved
+		}
+		if session != 0 && kind == "result" {
+			if err := s.needsEvidence(ctx, x, profileID, id); err != nil {
+				return err
+			}
 		}
 		pos, err := s.edgePosition(ctx, x, profileID, to, atTop(to), id)
 		if err != nil {
@@ -430,7 +499,7 @@ func (s *Store) handBack(ctx context.Context, profileID string, id int64, actor 
 		if err := s.event(ctx, x, id, stamp, actor.Label(), kind, string(StatusInProgress), string(to), note); err != nil {
 			return err
 		}
-		if err := s.bump(ctx, x, profileID); err != nil {
+		if err := s.bumpScope(ctx, x, profileID, session); err != nil {
 			return err
 		}
 		out, err = s.getTx(ctx, x, profileID, id)

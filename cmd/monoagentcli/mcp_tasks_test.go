@@ -90,7 +90,7 @@ func TestMCPCommandHelpNamesEveryTaskTool(t *testing.T) {
 	clearNarrowModes(t)
 	db := newAPITestDB(t)
 	served := taskToolsServed(t, db, true)
-	if len(served) != 8 {
+	if len(served) != 13 {
 		t.Fatalf("the server lists %d task tools: %v", len(served), served)
 	}
 	readOnly := map[string]bool{}

@@ -14,7 +14,7 @@ import (
 // calls stopTaskWatcher), as restartDocumentWatcher does. The watcher reads
 // the board revision, a primary-key read, every two seconds, and the counts
 // when it moves (spec D12); tasks:changed {profile_id, rev, inbox, review}
-// feeds the sidebar badge and makes the Tasks page read the board again.
+// (plus drafts, the session plans awaiting approval) feeds the sidebar badge and makes the Tasks page read the board again.
 func (a *App) restartTaskWatcher() {
 	a.taskWatchMu.Lock()
 	defer a.taskWatchMu.Unlock()
@@ -64,7 +64,9 @@ func (a *App) startTaskWatcher(profileID string, interval time.Duration, emit fo
 			if ctx.Err() != nil {
 				return
 			}
-			emit("tasks:changed", taskPulseData(profileID, c))
+			pulse := taskPulseData(profileID, c)
+			pulse["drafts"] = draftSessions(ctx, store, profileID)
+			emit("tasks:changed", pulse)
 		})
 		if err != nil {
 			a.emitLog("SYSTEM", "WARN", fmt.Sprintf("profile %s: task board watcher stopped: %v", profileID, err))
@@ -120,5 +122,42 @@ func (a *App) TaskPulse() map[string]interface{} {
 	if err != nil {
 		return map[string]interface{}{}
 	}
-	return taskPulseData(profileID, tasks.Change{Rev: rev, Counts: counts})
+	pulse := taskPulseData(profileID, tasks.Change{Rev: rev, Counts: counts})
+	pulse["drafts"] = draftSessions(ctx, store, profileID)
+	return pulse
+}
+
+// TaskSessionPulse is the session's revision and state, read now in process:
+// the page reads the board again when the revision moves. {} without a
+// database or for a session that is not there.
+func (a *App) TaskSessionPulse(id int64) map[string]interface{} {
+	if a.signedOut() != nil {
+		return nil
+	}
+	if a.db == nil || id <= 0 {
+		return map[string]interface{}{}
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pid, err := a.profileID()
+	if err != nil {
+		return map[string]interface{}{}
+	}
+	se, err := tasks.NewStore(a.db).GetSession(ctx, pid, id, tasks.Actor{Kind: tasks.Human})
+	if err != nil {
+		return map[string]interface{}{}
+	}
+	return map[string]interface{}{"session_id": se.ID, "rev": se.Rev, "state": string(se.State)}
+}
+
+// draftSessions counts the profile's drafts awaiting approval: the plans the
+// sidebar badge adds to Inbox and Review. 0 on a failed read.
+func draftSessions(ctx context.Context, store *tasks.Store, profileID string) int {
+	ss, err := store.ListSessions(ctx, profileID, tasks.SessionFilter{State: tasks.SessionDraft}, tasks.Actor{Kind: tasks.Human})
+	if err != nil {
+		return 0
+	}
+	return len(ss)
 }

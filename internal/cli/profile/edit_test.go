@@ -161,6 +161,7 @@ var seedOverrides = map[string]map[string]any{
 	"application_fills":      {"status": "filled"},
 	"application_tabs":       {"state": "parked"},
 	"application_links":      {"kind": "task"},
+	"task_deps":              {"task_id": 1, "depends_on_task_id": 2},
 	"coder_session_commands": {"kind": "send"},
 }
 

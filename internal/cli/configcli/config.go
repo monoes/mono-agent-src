@@ -58,6 +58,9 @@ func (d Deps) newConfigListCmd() *cobra.Command {
 				if err := rows.Scan(&c.Name, &c.ConfigData, &c.CreatedAt, &c.UpdatedAt); err != nil {
 					return fmt.Errorf("scanning config: %w", err)
 				}
+				if operator.HiddenConfig(c.Name) && d.guardReserved("read", c.Name) != nil {
+					c.ConfigData = hiddenValue // live single-use material: the operator's terminal only
+				}
 				configs = append(configs, c)
 			}
 			if err := rows.Err(); err != nil {
@@ -98,6 +101,11 @@ func (d Deps) newConfigGetCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			if operator.HiddenConfig(name) {
+				if err := d.guardReserved("read", name); err != nil {
+					return err
+				}
+			}
 
 			db, err := d.OpenDB()
 			if err != nil {
@@ -214,6 +222,10 @@ func (d Deps) newConfigDeleteCmd() *cobra.Command {
 		},
 	}
 }
+
+// hiddenValue stands for the value of a row under a reserved prefix in a
+// listing shown to anything but the operator.
+const hiddenValue = "(hidden: operator only)"
 
 // guardReserved refuses verb on a reserved row (operator.ReservedConfig: it
 // gates approvals, permissions or sandboxing) to whatever is not the

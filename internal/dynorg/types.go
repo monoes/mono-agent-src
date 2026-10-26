@@ -122,6 +122,16 @@ type SpawnRequest struct {
 	// AllowSpawn gives the worker org_spawn, org_wait and org_message for
 	// sub-workers of its own (#230); only the lead may set it.
 	AllowSpawn bool `json:"allow_spawn,omitempty"`
+	// TaskID makes the worker a mission worker: it takes that task of a task
+	// session, its brief is built from the task, and it is bound to the task
+	// (mission_exec.go). Brief then only adds to the generated one.
+	TaskID int64 `json:"task_id,omitempty"`
+	// executor is who carries the task out (lead, worker, subagent): set by the
+	// scheduler, never by the lead's JSON.
+	executor string
+	// verify makes the worker the verifier of TaskID (a task in Review): bound to verify
+	// that task and nothing else; set by mission_verify, never by the lead's JSON.
+	verify bool
 }
 
 // Skill is one skill given to a worker: its name and the text put in its

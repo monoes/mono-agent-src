@@ -136,7 +136,7 @@ export default function CoderBubbles({ store, onNavigate, onCloseOrg, onOpenArti
           onCloseChat={() => closeChat(expanded.key)}
           titleOf={titleOf}
           onOpenArtifact={onOpenArtifact}
-          onNavigate={(page) => { collapse(); onNavigate?.(page) }}
+          onNavigate={(...args) => { collapse(); onNavigate?.(...args) }}
         />
       )}
       {!expanded && <QueuedCoderStack items={queue.items} side={store.side} onStart={startQueued} onDismiss={dismissQueued} />}

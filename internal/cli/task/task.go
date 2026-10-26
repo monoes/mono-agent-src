@@ -62,6 +62,12 @@ monoagentcli ref tasks`,
 		d.newTaskFinishCmd(),
 		d.newTaskReleaseCmd(),
 		d.newTaskDigestCmd(),
+		d.newTaskSessionCmd(),
+		d.newTaskSplitCmd(),
+		d.newTaskVerifyCmd(),
+		d.newTaskArtifactCmd(),
+		d.newTaskDependCmd(),
+		d.newTaskUndependCmd(),
 	)
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
@@ -178,8 +184,18 @@ func (d Deps) callerFor(as string) Caller {
 		envBlank = env != "" && name == ""
 	}
 	marker := d.agentContextMarker()
+	// A task binding is itself an agent marker, including a damaged binding:
+	// losing the usual runtime marker must not turn a worker into the operator.
+	if marker == "" {
+		for _, key := range []string{boundSessionEnv, boundTaskEnv} {
+			if strings.TrimSpace(d.Getenv(key)) != "" {
+				marker = key
+				break
+			}
+		}
+	}
 	if name != "" || marker != "" || blank || envBlank {
-		return Caller{d: d, actor: tasks.Actor{Kind: tasks.Agent, Name: name}, marker: marker, asBlank: blank && name == "", envBlank: envBlank}
+		return Caller{d: d, actor: tasks.Actor{Kind: tasks.Agent, Name: name, Session: d.boundSession(), Task: d.boundTask(), Verifier: d.boundVerifier()}, marker: marker, asBlank: blank && name == "", envBlank: envBlank}
 	}
 	return Caller{d: d, actor: tasks.Actor{Kind: tasks.Human}}
 }
@@ -211,7 +227,7 @@ func (d Deps) author(c Caller) tasks.Actor {
 	if tasks.CheckAgentName(by) != nil {
 		by, _, _ = strings.Cut(by, ":") // a run marker no name can hold
 	}
-	return tasks.Actor{Kind: tasks.Agent, Name: by}
+	return tasks.Actor{Kind: tasks.Agent, Name: by, Session: d.boundSession(), Task: d.boundTask(), Verifier: d.boundVerifier()}
 }
 
 // notOperator is NotOperator's answer; without one the caller isn't the
@@ -302,8 +318,9 @@ func columnLabel(s tasks.Status) string {
 func (d Deps) newTaskAddCmd() *cobra.Command {
 	var notes, source, link, sourceTitle, app, clientID string
 	var fromStdin, ready bool
+	var sf sessionTaskFlags
 	cmd := &cobra.Command{
-		Use:   "add [TITLE...] [--stdin] [--notes TEXT] [--ready]",
+		Use:   "add [TITLE...] [--stdin] [--notes TEXT] [--ready] [--session N --acceptance TEXT]",
 		Short: "Add a task to the profile's Inbox (to Ready with --ready, for you)",
 		Long: `Adds a task to the profile's Inbox, where you read it and approve it. Give a
 title, or send text on standard input with --stdin: its first line becomes the
@@ -314,6 +331,16 @@ adding idempotent (the same key adds nothing a second time).`,
   monoagentcli task add "Review the invoice" --notes "From Sam, due Friday"
   pbpaste | monoagentcli task add --stdin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			session, inSession, err := d.sessionFlag(cmd, sf.session)
+			if err != nil {
+				return err
+			}
+			if inSession {
+				return d.runSessionAdd(cmd, args, session, &sf, notes, ready, fromStdin)
+			}
+			if sf.stray(cmd) {
+				return d.InvalidInput("--acceptance, --depends-on, --parent, --kind and --executor are for a session task: add --session N")
+			}
 			caller := d.callerFor(flagAs(cmd))
 			// What needs neither the database nor the text is refused first, so that
 			// a refused call never waits for standard input. The store enforces
@@ -370,5 +397,6 @@ adding idempotent (the same key adds nothing a second time).`,
 	cmd.Flags().StringVar(&sourceTitle, "source-title", "", "The title of that page")
 	cmd.Flags().StringVar(&app, "app", "", "The application the text was selected in")
 	cmd.Flags().StringVar(&clientID, "client-id", "", "An idempotency key: adding the same key twice adds one task")
+	sf.bind(cmd)
 	return cmd
 }

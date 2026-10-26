@@ -23,6 +23,12 @@ func (c *Conductor) resetCheckLocked(id string) (*worker, error) {
 	if running(w.status) {
 		return nil, fmt.Errorf("%s is still working; org_wait for it first", id)
 	}
+	if w.task != nil {
+		// A mission worker's session and report are what a retry, a verification and the
+		// final report of its task build on; the mission tools, not the lead's reset tools,
+		// decide what happens to them.
+		return nil, fmt.Errorf("%s works on mission task #%d: its context is part of the task's evidence; the mission tools manage it", id, w.task.task.ID)
+	}
 	if w.merging {
 		return nil, fmt.Errorf("%s's branch is being merged; try again once org_merge returns", id)
 	}

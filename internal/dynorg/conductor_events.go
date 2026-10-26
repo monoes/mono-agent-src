@@ -105,6 +105,7 @@ func (c *Conductor) setStatusLocked(w *worker, to, detail string) {
 }
 
 func (c *Conductor) finish(w *worker, outcome, report, errText string) {
+	c.missionFinish(w, outcome, report, errText) // while the worker still counts as running
 	c.mu.Lock()
 	w.report, w.errText = boundText(report, maxReport), errText
 	payload := chatevents.AgentFinishedPayload{

@@ -49,7 +49,7 @@ resp "$out" 4 | jq -e '.result.isError!=true' >/dev/null || fail "task_list with
 echo "== without --allow-mutations: only the read tools are listed, a verb refuses"
 out="$({ echo "$init"; echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; call 3 task_claim '{"next":true}'; } | rpc)"
 names="$(resp "$out" 2 | jq -r '[.result.tools[].name]|sort|join(",")')"
-[ "$names" = "task_get,task_list,task_next" ] || fail "read-only tools/list: $names"
+[ "$names" = "task_get,task_list,task_next,task_session_get,task_session_list" ] || fail "read-only tools/list: $names"
 resp "$out" 3 | jq -e '.result.isError==true and (.result.content[0].text|contains("--allow-mutations"))' >/dev/null || fail "task_claim not refused without --allow-mutations"
 
 echo "== with --allow-mutations: exactly the eight task_* tools; claim, comment, finish; a workflow tool refused"
@@ -77,7 +77,7 @@ exec 3>&-
 wait "$srv" || true
 out="$(cat "$outf")"
 names="$(resp "$out" 2 | jq -r '[.result.tools[].name]|sort|join(",")')"
-[ "$names" = "task_add,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release" ] || fail "tools/list: $names"
+[ "$names" = "task_add,task_artifact,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release,task_session_get,task_session_list,task_split,task_verify" ] || fail "tools/list: $names"
 resp "$out" 3 | jq -e '.result.isError!=true and (.result.content[0].text|contains("agent:smoke-client#"))' >/dev/null || fail "task_claim: $(resp "$out" 3)"
 resp "$out" 4 | jq -e '.result.isError!=true' >/dev/null || fail "task_comment: $(resp "$out" 4)"
 resp "$out" 5 | jq -e '.result.isError!=true' >/dev/null || fail "task_finish: $(resp "$out" 5)"
@@ -93,7 +93,7 @@ if run --profile "$prof" task agents allow --approve --as bot >/dev/null 2>"$roo
 grep -q "only the operator" "$root/err" || fail "agents allow by an agent: $(cat "$root/err")"
 run --profile "$prof" --json task agents show | jq -e '.view==false and .approve==false' >/dev/null || fail "delegation is not off by default"
 out="$({ echo "$init"; echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; } | rpc --allow-mutations)"
-[ "$(resp "$out" 2 | jq -r '[.result.tools[].name]|sort|join(",")')" = "task_add,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release" ] || fail "tools/list changed while delegation is off"
+[ "$(resp "$out" 2 | jq -r '[.result.tools[].name]|sort|join(",")')" = "task_add,task_artifact,task_claim,task_comment,task_finish,task_get,task_list,task_next,task_release,task_session_get,task_session_list,task_split,task_verify" ] || fail "tools/list changed while delegation is off"
 # allow needs a terminal on standard input: refused here (no terminal), done below through a pseudo-terminal.
 if run --profile "$prof" task agents allow --view --approve </dev/null >/dev/null 2>"$root/err"; then fail "task agents allow ran without a terminal"; fi
 grep -q "your own terminal" "$root/err" || fail "allow without a terminal: $(cat "$root/err")"

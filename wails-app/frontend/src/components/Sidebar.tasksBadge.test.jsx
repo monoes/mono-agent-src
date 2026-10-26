@@ -37,6 +37,12 @@ describe('Tasks sidebar badge', () => {
     await waitFor(() => expect(badge()).toHaveTextContent('3'))
   })
 
+  it('adds the session plans awaiting approval to the badge', async () => {
+    api.pulse.mockResolvedValue({ profile_id: 'default', rev: 3, inbox: 2, review: 1, drafts: 2 })
+    mount()
+    await waitFor(() => expect(badge()).toHaveTextContent('5'))
+  })
+
   it('never lets an older revision of the same profile replace a newer one', async () => {
     let answer
     api.pulse.mockReturnValue(new Promise(r => { answer = r }))

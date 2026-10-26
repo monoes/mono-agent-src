@@ -252,7 +252,11 @@ func printTask(w io.Writer, p tasks.Profile, as string, t tasks.Task, events []t
 		fmt.Fprintf(w, "Held by:  %s\n", heldNote(t))
 	}
 	fmt.Fprintf(w, "Created:  %s\n", t.CreatedAt.Local().Format("2006-01-02 15:04"))
+	if t.SessionID != 0 {
+		fmt.Fprintf(w, "Session:  #%d (%s%s%s)\n", t.SessionID, t.Kind, flagWord(t.Blocked, ", blocked"), flagWord(t.Verified, ", verified"))
+	}
 	printNotes(w, t.Notes)
+	printAcceptance(w, t)
 	if len(events) == 0 {
 		return
 	}
@@ -280,8 +284,15 @@ func printTask(w io.Writer, p tasks.Profile, as string, t tasks.Task, events []t
 	}
 }
 
+func flagWord(on bool, word string) string {
+	if on {
+		return word
+	}
+	return ""
+}
+
 func (d Deps) newTaskListCmd() *cobra.Command {
-	var statuses, source, claimedBy string
+	var statuses, source, claimedBy, session string
 	var stale bool
 	var limit int
 	cmd := &cobra.Command{
@@ -309,6 +320,11 @@ func (d Deps) newTaskListCmd() *cobra.Command {
 				f.Statuses = append(f.Statuses, st)
 			}
 			caller := d.callerFor(flagAs(cmd))
+			if sid, ok, err := d.sessionFlag(cmd, session); err != nil {
+				return err
+			} else if ok {
+				return d.runSessionList(cmd, caller, sid, f, shown)
+			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
 				ts, err := store.List(ctx, p.ID, f, caller.actor)
 				if err != nil {
@@ -323,6 +339,7 @@ func (d Deps) newTaskListCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().StringVar(&session, "session", "", "List this session's tasks instead of the personal board's")
 	cmd.Flags().StringVar(&statuses, "status", "", "Only these columns, comma separated (inbox, ready, in_progress, review, done, archived)")
 	cmd.Flags().StringVar(&source, "source", "", "Only tasks from this source (cli, app, chrome, os, agent)")
 	cmd.Flags().StringVar(&claimedBy, "claimed-by", "", "Only tasks held by this agent")
@@ -333,6 +350,7 @@ func (d Deps) newTaskListCmd() *cobra.Command {
 
 func (d Deps) newTaskBoardCmd() *cobra.Command {
 	var doneLimit int
+	var session string
 	cmd := &cobra.Command{
 		Use:   "board [--done-limit N]",
 		Short: "Show the whole board: the five columns, the counts and the revision (for you; for agents only if you allowed it)",
@@ -360,6 +378,11 @@ func (d Deps) newTaskBoardCmd() *cobra.Command {
 				inbox := taskCommand(tasks.Profile{ID: "<profile-id>"}, as, "list --status inbox")
 				return d.operatorOnlyError("%v. The board shows the Inbox, which agents read only by naming it: use task list instead (if you really need the Inbox: %s)", err, inbox)
 			}
+			if sid, ok, err := d.sessionFlag(cmd, session); err != nil {
+				return err
+			} else if ok {
+				return d.runSessionBoard(cmd, operator, sid, doneLimit)
+			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
 				b, err := store.Board(ctx, p.ID, doneLimit, operator)
 				if err != nil {
@@ -373,6 +396,7 @@ func (d Deps) newTaskBoardCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().StringVar(&session, "session", "", "Show this session's board instead of the personal one")
 	cmd.Flags().IntVar(&doneLimit, "done-limit", 50, "Show at most this many Done cards (0 for all)")
 	return cmd
 }
@@ -395,10 +419,27 @@ func (d Deps) newTaskShowCmd() *cobra.Command {
 				if err != nil {
 					return d.taskErr(err)
 				}
+				if caller.actor.Session != 0 && t.SessionID == 0 {
+					return d.taskErr(tasks.ErrNotFound)
+				}
+				var artifacts []tasks.Artifact
+				if t.SessionID != 0 {
+					// A task of a session is read through its session, as the actor may.
+					det, err := store.SessionTask(ctx, p.ID, t.SessionID, id, caller.actor)
+					if err != nil {
+						return d.taskErr(err)
+					}
+					t, artifacts = det.Task, det.Artifacts
+				}
 				if d.JSONOutput() {
-					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "task": t, "events": events})
+					out := map[string]any{"profile": p, "task": t, "events": events}
+					if t.SessionID != 0 {
+						out["artifacts"] = artifacts
+					}
+					return d.WriteJSON(cmd.OutOrStdout(), out)
 				}
 				printTask(cmd.OutOrStdout(), p, caller.actor.Name, t, events)
+				printArtifacts(cmd.OutOrStdout(), artifacts)
 				return nil
 			})
 		},

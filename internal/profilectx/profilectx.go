@@ -143,7 +143,7 @@ func section(ctx context.Context, db *sql.DB, countQ, listQ, profileID string, n
 
 func tasksSection(ctx context.Context, db *sql.DB, profileID string, n int) Section {
 	s := Section{Recent: []string{}, ByStatus: map[string]int{}}
-	rows, err := db.QueryContext(ctx, `SELECT status, COUNT(*) FROM tasks WHERE profile_id = ? GROUP BY status`, profileID)
+	rows, err := db.QueryContext(ctx, `SELECT status, COUNT(*) FROM tasks WHERE profile_id = ? AND session_id IS NULL GROUP BY status`, profileID)
 	if err != nil {
 		return s
 	}
@@ -158,7 +158,7 @@ func tasksSection(ctx context.Context, db *sql.DB, profileID string, n int) Sect
 	rows.Close()
 	// Recent lists open work only; finished tasks are counted.
 	open, err := db.QueryContext(ctx, `SELECT title, status FROM tasks
-		WHERE profile_id = ? AND status IN ('inbox','ready','in_progress','review')
+		WHERE profile_id = ? AND session_id IS NULL AND status IN ('inbox','ready','in_progress','review')
 		ORDER BY updated_at DESC, id DESC LIMIT ?`, profileID, n)
 	if err != nil {
 		return s

@@ -94,7 +94,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 			if orgMax <= 0 || orgMax > 20 {
 				return clicore.InvalidInput("--org-max-agents must be 1-20")
 			}
-			s.OrgMaxAgents = orgMax
+			s.OrgMaxAgents, s.orgMaxAgentsDefaulted = orgMax, false
 		}
 		if f.Changed("org-max-concurrent") {
 			if orgConc <= 0 || orgConc > 10 {
@@ -124,7 +124,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 			if writers != dynorg.WritersShared && writers != dynorg.WritersIsolated {
 				return clicore.InvalidInput("--org-writers must be %q or %q", dynorg.WritersShared, dynorg.WritersIsolated)
 			}
-			s.OrgWriters = writers
+			s.OrgWriters, s.orgWritersDefaulted = writers, false
 		}
 		if f.Changed("default-access") {
 			if !ai.ValidAccess(defAcc) {

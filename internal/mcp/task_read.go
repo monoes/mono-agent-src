@@ -30,8 +30,9 @@ func taskReadTools() []tool {
 				"(columns come in the order above, so a full Ready can hide later columns: name the ones you want in status). " +
 				"Refusals: invalid_input (an unknown status, an argument this tool does not take).",
 			schema: objSchema(map[string]interface{}{
-				"status": strParam("Columns to list, comma-separated: inbox, ready, in_progress, review, done, archived (default: ready, in_progress and review)"),
-				"limit":  intParam("At most this many tasks (default 50, at most 200); the result says truncated when more match"),
+				"status":  strParam("Columns to list, comma-separated: inbox, ready, in_progress, review, done, archived (default: ready, in_progress and review)"),
+				"limit":   intParam("At most this many tasks (default 50, at most 200); the result says truncated when more match"),
+				"session": sessionArg(),
 			}),
 			annotations: map[string]bool{"readOnlyHint": true, "idempotentHint": true},
 			handler:     toolTaskList,
@@ -45,7 +46,8 @@ func taskReadTools() []tool {
 				"(kinds: created, edited, moved, claimed, reclaimed, comment, question, result, released, archived, unarchived). " +
 				"id: the task's number. Refusals: not_found (no such task in this profile; a task of another profile is not found either), invalid_input.",
 			schema: objSchema(map[string]interface{}{
-				"id": intParam("The task's number, as task_list shows it"),
+				"id":      intParam("The task's number, as task_list shows it"),
+				"session": sessionArg(),
 			}, "id"),
 			annotations: map[string]bool{"readOnlyHint": true, "idempotentHint": true},
 			handler:     toolTaskGet,
@@ -56,7 +58,7 @@ func taskReadTools() []tool {
 				"The task task_claim with next: true would take now, without claiming it: {profile, task or null, note}. " +
 				"It is the top of Ready, else a claim whose lease has run out; never an Inbox task. " +
 				"Two agents that look may see the same task: only a claim gives it to you. No arguments.",
-			schema:      objSchema(nil),
+			schema:      objSchema(map[string]interface{}{"session": sessionArg()}),
 			annotations: map[string]bool{"readOnlyHint": true, "idempotentHint": true},
 			handler:     toolTaskNext,
 		},
@@ -65,8 +67,9 @@ func taskReadTools() []tool {
 
 func toolTaskList(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
 	var a struct {
-		Status statusArg `json:"status"`
-		Limit  numberArg `json:"limit"`
+		Status  statusArg `json:"status"`
+		Limit   numberArg `json:"limit"`
+		Session taskIDArg `json:"session"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -83,7 +86,13 @@ func toolTaskList(ctx context.Context, s *Server, args json.RawMessage) (interfa
 		return nil, err
 	}
 	// One more than the limit is asked for, to see whether the limit cut anything.
-	ts, err := store.List(ctx, p.ID, tasks.Filter{Statuses: a.Status, Limit: limit + 1}, actor)
+	f := tasks.Filter{Statuses: a.Status, Limit: limit + 1}
+	var ts []tasks.Task
+	if a.Session > 0 {
+		ts, err = store.SessionTasks(ctx, p.ID, int64(a.Session), f, actor)
+	} else {
+		ts, err = store.List(ctx, p.ID, f, actor)
+	}
 	if err != nil {
 		return nil, taskToolErr(err)
 	}
@@ -96,7 +105,8 @@ func toolTaskList(ctx context.Context, s *Server, args json.RawMessage) (interfa
 
 func toolTaskGet(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
 	var a struct {
-		ID taskIDArg `json:"id"`
+		ID      taskIDArg `json:"id"`
+		Session taskIDArg `json:"session"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -105,7 +115,7 @@ func toolTaskGet(ctx context.Context, s *Server, args json.RawMessage) (interfac
 	if err != nil {
 		return nil, err
 	}
-	store, p, _, err := s.taskBoard(ctx)
+	store, p, actor, err := s.taskBoard(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -113,19 +123,42 @@ func toolTaskGet(ctx context.Context, s *Server, args json.RawMessage) (interfac
 	if err != nil {
 		return nil, taskToolErr(err)
 	}
+	if actor.Session != 0 && t.SessionID == 0 {
+		return nil, taskToolErr(tasks.ErrNotFound)
+	}
+	// A task of a session is read through its session, as the caller may; one that is not of the
+	// session asked for is not found.
+	if t.SessionID != 0 || a.Session > 0 {
+		if int64(a.Session) > 0 && int64(a.Session) != t.SessionID {
+			return nil, taskToolErr(tasks.ErrNotFound)
+		}
+		det, err := store.SessionTask(ctx, p.ID, t.SessionID, id, actor)
+		if err != nil {
+			return nil, taskToolErr(err)
+		}
+		t = det.Task
+	}
 	recent, omitted := recentEvents(events)
 	return taskGetResult{Profile: p, Task: viewOf(t), Events: eventViews(recent), EventsOmitted: omitted, Note: untrustedNote}, nil
 }
 
 func toolTaskNext(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
-	if err := decodeTaskArgs(args, &struct{}{}); err != nil {
+	var a struct {
+		Session taskIDArg `json:"session"`
+	}
+	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
 	}
 	store, p, actor, err := s.taskBoard(ctx)
 	if err != nil {
 		return nil, err
 	}
-	t, err := store.Next(ctx, p.ID, actor, false, 0)
+	var t *tasks.Task
+	if a.Session > 0 {
+		t, err = store.SessionNext(ctx, p.ID, int64(a.Session), actor, false, 0)
+	} else {
+		t, err = store.Next(ctx, p.ID, actor, false, 0)
+	}
 	if err != nil {
 		return nil, taskToolErr(err)
 	}

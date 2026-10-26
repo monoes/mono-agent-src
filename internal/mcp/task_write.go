@@ -54,6 +54,7 @@ func taskWriteTools() []tool {
 				"id":            intParam("A ready task's number (give id or next, not both)"),
 				"next":          boolParam("true: take the top of Ready (give id or next, not both)"),
 				"lease_minutes": intParam("How long you hold it, in minutes (default 30, at most 1440)"),
+				"session":       sessionArg(),
 			}),
 			annotations: write,
 			mutating:    true,
@@ -67,8 +68,9 @@ func taskWriteTools() []tool {
 				"id: the task's number; text: what you did or found (at most 8 KiB; longer is cut). " +
 				"Refusals: not_claimant (you do not hold the task: claim it first), limit (the task has 500 events: finish or release it), not_found, invalid_input (no text).",
 			schema: objSchema(map[string]interface{}{
-				"id":   intParam("The number of a task you hold"),
-				"text": strParam("Your progress note"),
+				"id":      intParam("The number of a task you hold"),
+				"text":    strParam("Your progress note"),
+				"session": sessionArg(),
 			}, "id", "text"),
 			annotations: write,
 			mutating:    true,
@@ -85,6 +87,7 @@ func taskWriteTools() []tool {
 				"id":       intParam("The number of a task you hold"),
 				"result":   strParam("What you did (give result or question)"),
 				"question": strParam("What you need to know before you can go on (give result or question)"),
+				"session":  sessionArg(),
 			}, "id"),
 			annotations: write,
 			mutating:    true,
@@ -97,8 +100,9 @@ func taskWriteTools() []tool {
 				"the task's notes cut at 1000 characters as in task_list. " +
 				"note: why (optional). Your claim ends. Refusals: not_claimant, not_found.",
 			schema: objSchema(map[string]interface{}{
-				"id":   intParam("The number of a task you hold"),
-				"note": strParam("Why you give it back (optional)"),
+				"id":      intParam("The number of a task you hold"),
+				"note":    strParam("Why you give it back (optional)"),
+				"session": sessionArg(),
 			}, "id"),
 			annotations: write,
 			mutating:    true,
@@ -108,12 +112,18 @@ func taskWriteTools() []tool {
 			name: "task_add",
 			description: taskBoardIntro +
 				"Adds a task to this profile's Inbox, where the operator reads it and decides whether it is worked: {profile, created, task, note}. " +
-				"You cannot add to Ready. " +
+				"You cannot add to Ready. With session it adds to that task session instead: a draft task until the operator approves the plan, Ready at once in a running session (the session's max_tasks bounds it); it needs acceptance. " +
 				"title: at most 200 characters; notes: optional, at most 64 KiB (longer is cut). " +
 				"Refusals: limit (the board is full: 2,000 open tasks), invalid_input (no title).",
 			schema: objSchema(map[string]interface{}{
-				"title": strParam("The task, in one line"),
-				"notes": strParam("More about it (optional)"),
+				"title":              strParam("The task, in one line"),
+				"notes":              strParam("More about it (optional)"),
+				"session":            sessionArg(),
+				"acceptance":         strParam("With session: how anyone will know the task is done (required for a session task)"),
+				"depends_on":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "With session: numbers of session tasks that must be done first"},
+				"parent":             intParam("With session: the number of the session task it belongs under"),
+				"kind":               strParam("With session: task (the default), epic (a group, never handed out) or check (a verifier's task)"),
+				"suggested_executor": strParam("With session: the executor it suits: lead, worker or subagent"),
 			}, "title"),
 			annotations: write,
 			mutating:    true,
@@ -158,6 +168,7 @@ func toolTaskClaim(ctx context.Context, s *Server, args json.RawMessage) (interf
 		ID           taskIDArg `json:"id"`
 		Next         bool      `json:"next"`
 		LeaseMinutes numberArg `json:"lease_minutes"`
+		Session      taskIDArg `json:"session"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -171,11 +182,14 @@ func toolTaskClaim(ctx context.Context, s *Server, args json.RawMessage) (interf
 	}
 	lease := leaseOf(int64(a.LeaseMinutes))
 	var t *tasks.Task
-	if a.Next {
+	switch {
+	case a.Next && a.Session > 0:
+		t, err = store.SessionNext(ctx, p.ID, int64(a.Session), actor, true, lease)
+	case a.Next:
 		t, err = store.Next(ctx, p.ID, actor, true, lease)
-	} else {
+	default:
 		var claimed tasks.Task
-		if claimed, err = store.Claim(ctx, p.ID, int64(a.ID), actor, lease); err == nil {
+		if claimed, err = claimTask(ctx, store, p.ID, int64(a.Session), int64(a.ID), actor, lease); err == nil {
 			t = &claimed
 		}
 	}
@@ -187,8 +201,9 @@ func toolTaskClaim(ctx context.Context, s *Server, args json.RawMessage) (interf
 
 func toolTaskComment(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
 	var a struct {
-		ID   taskIDArg `json:"id"`
-		Text string    `json:"text"`
+		ID      taskIDArg `json:"id"`
+		Text    string    `json:"text"`
+		Session taskIDArg `json:"session"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -201,7 +216,7 @@ func toolTaskComment(ctx context.Context, s *Server, args json.RawMessage) (inte
 	if err != nil {
 		return nil, err
 	}
-	t, err := store.Comment(ctx, p.ID, id, a.Text, actor)
+	t, err := commentTask(ctx, store, p.ID, int64(a.Session), id, a.Text, actor)
 	if err != nil {
 		return nil, taskToolErr(err)
 	}
@@ -214,6 +229,7 @@ func toolTaskFinish(ctx context.Context, s *Server, args json.RawMessage) (inter
 		ID       taskIDArg `json:"id"`
 		Result   string    `json:"result"`
 		Question string    `json:"question"`
+		Session  taskIDArg `json:"session"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -226,7 +242,7 @@ func toolTaskFinish(ctx context.Context, s *Server, args json.RawMessage) (inter
 	if err != nil {
 		return nil, err
 	}
-	t, err := store.Finish(ctx, p.ID, id, tasks.Outcome{Result: a.Result, Question: a.Question}, actor)
+	t, err := finishTask(ctx, store, p.ID, int64(a.Session), id, tasks.Outcome{Result: a.Result, Question: a.Question}, actor)
 	if err != nil {
 		return nil, taskToolErr(err)
 	}
@@ -236,8 +252,9 @@ func toolTaskFinish(ctx context.Context, s *Server, args json.RawMessage) (inter
 
 func toolTaskRelease(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
 	var a struct {
-		ID   taskIDArg `json:"id"`
-		Note string    `json:"note"`
+		ID      taskIDArg `json:"id"`
+		Note    string    `json:"note"`
+		Session taskIDArg `json:"session"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -250,7 +267,7 @@ func toolTaskRelease(ctx context.Context, s *Server, args json.RawMessage) (inte
 	if err != nil {
 		return nil, err
 	}
-	t, err := store.Release(ctx, p.ID, id, a.Note, actor)
+	t, err := releaseTask(ctx, store, p.ID, int64(a.Session), id, a.Note, actor)
 	if err != nil {
 		return nil, taskToolErr(err)
 	}
@@ -260,8 +277,14 @@ func toolTaskRelease(ctx context.Context, s *Server, args json.RawMessage) (inte
 
 func toolTaskAdd(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
 	var a struct {
-		Title string `json:"title"`
-		Notes string `json:"notes"`
+		Title             string      `json:"title"`
+		Notes             string      `json:"notes"`
+		Session           taskIDArg   `json:"session"`
+		Acceptance        string      `json:"acceptance"`
+		DependsOn         []taskIDArg `json:"depends_on"`
+		Parent            taskIDArg   `json:"parent"`
+		Kind              string      `json:"kind"`
+		SuggestedExecutor string      `json:"suggested_executor"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -269,6 +292,23 @@ func toolTaskAdd(ctx context.Context, s *Server, args json.RawMessage) (interfac
 	store, p, actor, err := s.taskBoard(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if a.Session > 0 {
+		deps := make([]int64, 0, len(a.DependsOn))
+		for _, d := range a.DependsOn {
+			deps = append(deps, int64(d))
+		}
+		t, err := store.AddSessionTask(ctx, p.ID, int64(a.Session), tasks.SessionTaskInput{
+			Title: a.Title, Notes: a.Notes, Acceptance: a.Acceptance, Kind: a.Kind, ParentID: int64(a.Parent),
+			DependsOn: deps, SuggestedExecutor: a.SuggestedExecutor,
+		}, actor)
+		if err != nil {
+			return nil, taskToolErr(err)
+		}
+		return taskAddResult{Profile: p, Created: true, Task: viewOf(t), Note: untrustedNote}, nil
+	}
+	if a.Acceptance != "" || len(a.DependsOn) > 0 || a.Parent > 0 || a.Kind != "" || a.SuggestedExecutor != "" {
+		return nil, invalidArgs("acceptance, depends_on, parent, kind and suggested_executor belong to a session task: give session")
 	}
 	t, created, err := store.Add(ctx, p.ID, tasks.AddInput{Title: a.Title, Notes: a.Notes}, actor)
 	if err != nil {

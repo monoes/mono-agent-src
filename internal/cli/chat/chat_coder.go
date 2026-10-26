@@ -49,6 +49,9 @@ type coderTurn struct {
 	confine *confinement
 	// attachments are the files attached to the turn, already copied into cwd.
 	attachments []chatevents.TurnAttachment
+	// missionConfirmed: the user confirmed a mission for this conversation
+	// (mission.propose), so the lead plans one (dynorg.MissionPrompt).
+	missionConfirmed bool
 }
 
 // coderSystemPrompt is appended to the runtime's own system prompt (not a

@@ -50,7 +50,7 @@ func (s *Store) Counts(ctx context.Context, profileID string) (Counts, error) {
 // ask for every status: the archive has no limit, and a count of the profile's whole range reads all of it,
 // at every Counts, every Board and every poll of a Watch, while five equalities are five seeks in
 // idx_tasks_board, bounded by the 2,000 open tasks (as openTasksSQL).
-const countsSQL = `SELECT status, COUNT(*) FROM tasks WHERE profile_id = ? AND status IN ('inbox', 'ready', 'in_progress', 'review', 'done') GROUP BY status`
+const countsSQL = `SELECT status, COUNT(*) FROM tasks WHERE profile_id = ? AND session_id IS NULL AND status IN ('inbox', 'ready', 'in_progress', 'review', 'done') GROUP BY status`
 
 func (s *Store) countsOf(ctx context.Context, x dbx, profileID string) (Counts, error) {
 	var c Counts
@@ -84,7 +84,7 @@ func (s *Store) countsOf(ctx context.Context, x dbx, profileID string) (Counts, 
 	// The loop ran to its end, which closes rows: the next statement is not run
 	// beside an open one.
 	err = x.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM tasks WHERE profile_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?`,
+		`SELECT COUNT(*) FROM tasks WHERE profile_id = ? AND session_id IS NULL AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?`,
 		profileID, s.stamp()).Scan(&c.Stale)
 	if err != nil {
 		return Counts{}, fmt.Errorf("tasks: counting stale claims: %w", err)
@@ -185,6 +185,9 @@ func (s *Store) List(ctx context.Context, profileID string, f Filter, actor Acto
 	default:
 		return nil, invalid("unknown actor")
 	}
+	if err := bound(actor, 0); err != nil {
+		return nil, err
+	}
 	// The names are parsed and the parsed statuses are queried: "progress" and
 	// "In-Progress" are accepted as in_progress, so they must find it. A status
 	// named twice is asked for once, which keeps the query to six slots however
@@ -216,7 +219,7 @@ func (s *Store) List(ctx context.Context, profileID string, f Filter, actor Acto
 	if n > MaxListLimit {
 		n = MaxListLimit
 	}
-	q := `SELECT ` + taskCols + ` FROM tasks WHERE profile_id = ? AND status IN (` + placeholders(len(statuses)) + `)`
+	q := `SELECT ` + taskCols + ` FROM tasks WHERE profile_id = ? AND session_id IS NULL AND status IN (` + placeholders(len(statuses)) + `)`
 	args := []any{profileID}
 	for _, st := range statuses {
 		args = append(args, string(st))
@@ -257,6 +260,9 @@ func (s *Store) List(ctx context.Context, profileID string, f Filter, actor Acto
 func (s *Store) Board(ctx context.Context, profileID string, doneLimit int, actor Actor) (Board, error) {
 	// Who is asking comes before what is asked, as in Edit.
 	if actor.Kind != Human {
+		if err := bound(actor, 0); err != nil {
+			return Board{}, err
+		}
 		if !s.agentMay(ctx, profileID, actor, func(a AgentAccess) bool { return a.View }) {
 			return Board{}, operatorOnly("show the board")
 		}
@@ -274,7 +280,7 @@ func (s *Store) Board(ctx context.Context, profileID string, doneLimit int, acto
 			return err
 		}
 		for _, st := range BoardStatuses {
-			q := `SELECT ` + taskCols + ` FROM tasks WHERE profile_id = ? AND status = ? ORDER BY position, id`
+			q := `SELECT ` + taskCols + ` FROM tasks WHERE profile_id = ? AND session_id IS NULL AND status = ? ORDER BY position, id`
 			args := []any{profileID, string(st)}
 			if st == StatusDone && doneLimit > 0 {
 				q += ` LIMIT ?`

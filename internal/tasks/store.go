@@ -174,11 +174,16 @@ func gapBelow(pos int64) (int64, error) {
 // edgePosition is a position above every other card of the column (top) or
 // below every one (bottom), ignoring the card except. It is refused, with
 // errPositionRange, where the end card leaves no room for a gap.
+//
+// The column is the one of the card's own board: the personal board's, or its session's
+// (a new card, except 0, goes to the personal board; a session's new card is placed by
+// edgePositionIn).
 func (s *Store) edgePosition(ctx context.Context, x dbx, profileID string, status Status, top bool, except int64) (int64, error) {
 	var lo, hi sql.NullInt64
 	err := x.QueryRowContext(ctx,
-		`SELECT MIN(position), MAX(position) FROM tasks WHERE profile_id = ? AND status = ? AND id <> ?`,
-		profileID, string(status), except).Scan(&lo, &hi)
+		`SELECT MIN(position), MAX(position) FROM tasks WHERE profile_id = ? AND status = ? AND id <> ?
+		   AND session_id IS (SELECT session_id FROM tasks WHERE id = ?)`,
+		profileID, string(status), except, except).Scan(&lo, &hi)
 	if err != nil {
 		return 0, fmt.Errorf("tasks: reading a column: %w", err)
 	}
@@ -193,7 +198,7 @@ func (s *Store) edgePosition(ctx context.Context, x dbx, profileID string, statu
 
 func placeholders(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",") }
 
-const taskCols = `id, profile_id, title, notes, status, position, source_kind, source_url, source_title, source_app, claimed_by, claim_until, created_at, updated_at`
+const taskCols = `id, profile_id, title, notes, status, position, source_kind, source_url, source_title, source_app, claimed_by, claim_until, created_at, updated_at, session_id, kind, parent_id, acceptance, assignee, suggested_executor, blocked, verified, retries`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
@@ -202,10 +207,17 @@ type rowScanner interface{ Scan(dest ...any) error }
 // is shown, and is not stale.
 func (s *Store) scanTask(row rowScanner) (Task, error) {
 	var t Task
-	var status, claimedBy, until, created, updated string
+	var status, claimedBy, until, created, updated, kind string
+	var session, parent sql.NullInt64
+	var blocked, verified int
 	if err := row.Scan(&t.ID, &t.ProfileID, &t.Title, &t.Notes, &status, &t.Position,
-		&t.Source.Kind, &t.Source.URL, &t.Source.Title, &t.Source.App, &claimedBy, &until, &created, &updated); err != nil {
+		&t.Source.Kind, &t.Source.URL, &t.Source.Title, &t.Source.App, &claimedBy, &until, &created, &updated,
+		&session, &kind, &parent, &t.Acceptance, &t.Assignee, &t.SuggestedExecutor, &blocked, &verified, &t.Retries); err != nil {
 		return Task{}, err
+	}
+	if session.Valid {
+		t.SessionID, t.Kind, t.ParentID = session.Int64, kind, parent.Int64
+		t.Blocked, t.Verified = blocked == 1, verified == 1
 	}
 	t.Status = Status(status)
 	var err error
@@ -370,7 +382,7 @@ func sourceKindFor(actor Actor, requested string) (string, error) {
 // no limit, and a range that leaves one value out is read entry by entry, archive
 // included, by every add and by every card that comes back from it, while five
 // equalities are five seeks in the index, bounded by the 2,000 open tasks.
-const openTasksSQL = `SELECT COUNT(*) FROM tasks WHERE profile_id = ? AND status IN ('inbox', 'ready', 'in_progress', 'review', 'done')`
+const openTasksSQL = `SELECT COUNT(*) FROM tasks WHERE profile_id = ? AND session_id IS NULL AND status IN ('inbox', 'ready', 'in_progress', 'review', 'done')`
 
 // checkAddLimits refuses a task that would pass the board's size. Agents add
 // as many tasks as they need: there is no hourly allowance.
@@ -394,6 +406,9 @@ func (s *Store) Add(ctx context.Context, profileID string, in AddInput, actor Ac
 	// text, the title or the source say.
 	if in.Ready && actor.Kind != Human {
 		return Task{}, false, operatorOnly("add a task straight to Ready")
+	}
+	if err := bound(actor, 0); err != nil {
+		return Task{}, false, err
 	}
 	title, notes, err := deriveTitleNotes(in.Title, in.Notes, in.Text)
 	if err != nil {

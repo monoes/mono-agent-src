@@ -297,6 +297,12 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 	// transaction: the commands still waiting for it, its session row, and its children's link to it
 	// (they stay, as sessions of their own). A turn the host is running is an active turn: the check
 	// above has refused the delete before this point.
+	// The mission confirmations of its waiting sends (configs under the coder host's reserved
+	// prefix, "coder-mission-confirm/<profile>/<conversation>/...") go with them.
+	confirmPrefix := "coder-mission-confirm/" + profileID + "/" + id + "/"
+	if _, err := conn.ExecContext(ctx, `DELETE FROM configs WHERE substr(name, 1, length(?)) = ?`, confirmPrefix, confirmPrefix); err != nil {
+		return fmt.Errorf("delete mission confirmations: %w", err)
+	}
 	for _, q := range []string{
 		`DELETE FROM coder_session_commands WHERE conversation_id = ? AND profile_id = ?`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,

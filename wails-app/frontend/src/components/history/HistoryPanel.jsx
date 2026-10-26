@@ -7,6 +7,7 @@ import { useSendToCoder } from '../bubbles/CoderBubbleContext.jsx'
 import { useHistory } from './useHistory.js'
 import { onHistoryRequest } from './historyBus.js'
 import HistoryRow from './HistoryRow.jsx'
+import { useMissionBadges } from './useMissionBadges.js'
 import {
   KIND_FILTERS, STATUS_FILTERS, bubbleKeyOf, liveStatus, deleteOutcome, chatIdsOnly, toFilter, orgRunOpening,
 } from '../../lib/historyModel.js'
@@ -36,6 +37,7 @@ export default function HistoryPanel({ store, onNavigate }) {
 
   const h = useHistory({ open, kind, status, query, linked })
   const items = h.items
+  const missionBadges = useMissionBadges(open, items.filter(r => r.kind !== 'org').map(r => r.id))
 
   useEffect(() => onHistoryRequest(mode => {
     setOpen(prev => {
@@ -255,6 +257,7 @@ export default function HistoryPanel({ store, onNavigate }) {
                 <HistoryRow
                   key={`${row.kind}:${row.id}`}
                   row={row}
+                  mission={missionBadges[row.id]}
                   live={liveStatus(row, isOpen ? store.summaryOf(store.bubbles.some(b => b.key === key) ? key : `org:${row.orgName}`) : null)}
                   selected={selected.has(row.id)}
                   onToggle={toggle}

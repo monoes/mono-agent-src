@@ -245,6 +245,7 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		opts.Env = map[string]string{}
 	}
 	opts.Env["MONOAGENT_AGENT_ROLE"], opts.Env["MONOAGENT_AGENT_ID"] = w.staff.Role, w.id
+	missionEnv(w, opts.Env) // a mission worker is bound to its session and task
 	// A coder chat's worker: the coder kind of browser permissions, vouched
 	// for by a token of its own that counts while this run does.
 	kindEnv, _, kindDone := browserctl.IssueAgentKind(browserctl.KindCoder)
@@ -304,7 +305,22 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		opts.BudgetUSD = remaining
 	}
 	c.mu.Unlock()
-	opts.SystemPrompt = workerSystemPrompt(w.staff, dir, w.files, c.spawnsOn(w, m, opts.Access)) + c.profileSection() + c.worktreeRule(w)
+	if w.task != nil {
+		// a mission worker is also capped by what its session has left (the operator's budget)
+		left, bounded, err := c.missionExecCap(ctx, w)
+		if err != nil {
+			return nil, err
+		}
+		if bounded {
+			if left <= 0 {
+				return nil, fmt.Errorf("%w: the mission's budget is spent", errBudgetRefused)
+			}
+			if opts.BudgetUSD <= 0 || left < opts.BudgetUSD {
+				opts.BudgetUSD = left
+			}
+		}
+	}
+	opts.SystemPrompt = workerSystemPrompt(w.staff, dir, w.files, c.spawnsOn(w, m, opts.Access)) + c.profileSection() + c.worktreeRule(w) + missionRule(w)
 	c.workerTools(w, m, &opts)
 	var run monomind.TurnResult
 	ectx, ecancel := context.WithCancel(ctx)
@@ -320,6 +336,9 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 			}
 		}
 		monomind.ApplyEventToResult(&run, ev)
+		if w.task != nil {
+			c.liveSpend(w, m, &run)
+		}
 		if overEstimate(m, &run, opts.BudgetUSD) && overBudget.CompareAndSwap(false, true) {
 			ecancel()
 		}
@@ -340,6 +359,7 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		w.hasTok = true
 	}
 	c.addRunCostLocked(w, m, &run)
+	w.liveCost = 0 // it is in cost now
 	c.mu.Unlock()
 	// A run that completed anyway stays done; budgetErrLocked refuses
 	// what comes next.

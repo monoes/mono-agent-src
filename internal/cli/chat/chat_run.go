@@ -16,6 +16,7 @@ import (
 	aichat "github.com/monoes/mono-agent/internal/ai/chat"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/workflowio"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -27,6 +28,13 @@ import (
 // conversation's runtime, model or session changes only its own run.
 func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr error) {
 	runtime, model, effort, resume, canvasID, historyID, timeoutS, budget, tools, noHistory, promptStdin, conversationID, turnID, instanceID, mode, coderCwd, newWorkspace, coderRoot, profileFold, attach := f.runtime, f.model, f.effort, f.resume, f.canvasID, f.historyID, f.timeoutS, f.budget, f.tools, f.noHistory, f.promptStdin, f.conversationID, f.turnID, f.instanceID, f.mode, f.coderCwd, f.newWorkspace, f.coderRoot, f.profileFold, f.attach
+	// The coder host hands a turn the token of its mission confirmation in the
+	// environment, not in the arguments; the binary moves it out of the environment before
+	// it can start any process (coderhost.StashMissionToken, called first in main's run), and
+	// it is taken here (and cleared from Go's environment, should a caller not have stashed it)
+	// before anything this turn starts can inherit it. The process's original environment block
+	// still shows it until exit; the token is dead once the confirmation is consumed. There is no flag that confirms a mission.
+	missionToken := coderhost.TakeMissionToken()
 	prompt := strings.Join(args, " ")
 	if promptStdin {
 		p, perr := readPromptStdin(cmd.InOrStdin())
@@ -123,7 +131,7 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 			if task.err != nil {
 				return task.err
 			}
-			err := runCoderTurn(cmd, cfg, journal, coderTurn{runtime: conv.RuntimeID, prompt: prompt, model: model, effort: conv.Effort, resume: resume, cwd: conv.Cwd, orgMode: conv.OrgMode, access: access, attachments: atts, budget: turnCap, env: task.env, agentKind: task.kind, confine: task.confine})
+			err := runCoderTurn(cmd, cfg, journal, coderTurn{runtime: conv.RuntimeID, prompt: prompt, model: model, effort: conv.Effort, resume: resume, cwd: conv.Cwd, orgMode: conv.OrgMode, access: access, attachments: atts, budget: turnCap, env: task.env, agentKind: task.kind, confine: task.confine, missionConfirmed: hostMissionConfirmed(cfg, jprofile, conv.ID, turnID, missionToken, access)})
 			task.end(err)
 			enforceLoweredAccess(cfg, jstore, jprofile, conv)
 			return err

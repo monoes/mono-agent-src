@@ -136,3 +136,43 @@ func TestTurnStartedAttachmentsRoundTrip(t *testing.T) {
 		t.Errorf("payload without attachments = %s", plain.Payload)
 	}
 }
+
+func TestMissionEventsRoundTrip(t *testing.T) {
+	at := time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
+	ev, err := New("p", "c", "t", 1, at, EventMissionPlan, MissionPlanPayload{SessionID: 4, Title: "T", Goal: "G", TaskCount: 3, EstimatedBudgetUSD: 1.5, Round: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Type != "mission.plan" || EventMissionPropose != "mission.propose" {
+		t.Errorf("kinds %q %q", ev.Type, EventMissionPropose)
+	}
+	var p MissionPlanPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil || p.SessionID != 4 || p.TaskCount != 3 || p.EstimatedBudgetUSD != 1.5 {
+		t.Errorf("payload %+v %v", p, err)
+	}
+	var raw map[string]any
+	_ = json.Unmarshal(ev.Payload, &raw)
+	for _, k := range []string{"sessionId", "title", "goal", "taskCount", "estimatedBudgetUsd", "round"} {
+		if _, ok := raw[k]; !ok {
+			t.Errorf("plan card lacks %s", k)
+		}
+	}
+}
+
+func TestMissionReportEventShape(t *testing.T) {
+	at := time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
+	ev, err := New("p", "c", "t", 2, at, EventMissionReport, MissionReportPayload{SessionID: 4, Title: "T", State: "done", TaskCount: 3, Done: 2, Verified: 1, Unfinished: []int64{}, Artifacts: 5, SpentUSD: 1.25, BudgetUSD: 10, Report: "# r"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Type != "mission.report" {
+		t.Errorf("kind %q", ev.Type)
+	}
+	var raw map[string]any
+	_ = json.Unmarshal(ev.Payload, &raw)
+	for _, k := range []string{"sessionId", "title", "state", "taskCount", "done", "verified", "unfinished", "artifacts", "spentUsd", "budgetUsd", "report"} {
+		if _, ok := raw[k]; !ok {
+			t.Errorf("report card lacks %s", k)
+		}
+	}
+}

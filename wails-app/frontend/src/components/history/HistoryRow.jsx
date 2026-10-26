@@ -5,7 +5,7 @@ import { relativeTime, orgRunLabel } from '../../lib/historyModel.js'
 // One session in the history list: a chat or an org run. The row's main
 // button opens it; the checkbox (chats only) selects it for deletion; the
 // application link goes to that application.
-export default function HistoryRow({ row, live, selected, onToggle, onOpen, onOpenOrgs, onOpenApplication }) {
+export default function HistoryRow({ row, live, mission, selected, onToggle, onOpen, onOpenOrgs, onOpenApplication }) {
   const { t } = useTranslation()
   const isOrg = row.kind === 'org'
   const title = row.title || (isOrg ? row.orgName : t('history.kindChatIcon'))
@@ -32,6 +32,7 @@ export default function HistoryRow({ row, live, selected, onToggle, onOpen, onOp
           <span className="hist-title">{title}</span>
           <span className="hist-meta">
             {runtime && <span>{runtime}</span>}
+            {mission && <span className="hist-access" data-testid="hist-mission" data-mission={mission}>{t('history.mission', { state: t(`tasks.session.state.${mission}`, { defaultValue: mission }) })}</span>}
             {row.access && <span className="hist-access" data-access={row.access}>{t(`history.access_${row.access}`, { defaultValue: row.access })}</span>}
             {isOrg && row.orgName && row.orgName !== title && <span>{row.orgName}</span>}
             {isOrg && (row.runId || row.updatedAt) && <span className="hist-run">{orgRunLabel(row)}</span>}

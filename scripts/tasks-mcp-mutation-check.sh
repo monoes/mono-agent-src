@@ -61,15 +61,34 @@ mutate "a grant server accepts another profile" internal/mcp/grant.go 'if id != 
 scope() { # tool file call-prefix
   mutate "$1 ignores the profile" "internal/mcp/$2" "$3(ctx, p.ID," "$3(ctx, \"\","
 }
+# The session-aware tools reach the store through a helper (claimTask, commentTask, ...) that takes the
+# profile after the store: the same replacement, on that call.
+helper() { # tool file helper-name
+  mutate "$1 ignores the profile" "internal/mcp/$2" "$3(ctx, store, p.ID," "$3(ctx, store, \"\","
+}
+# One line per tool and per store function it calls; the anchor must occur in the file (mutate stops the
+# script otherwise) and only its first occurrence is replaced.
 scope task_list task_read.go store.List
+scope "task_list (session)" task_read.go store.SessionTasks
 scope task_get task_read.go store.Get
+scope "task_get (session)" task_read.go store.SessionTask
 scope task_next task_read.go store.Next
+scope "task_next (session)" task_read.go store.SessionNext
 scope "task_claim (next)" task_write.go store.Next
-scope task_claim task_write.go store.Claim
-scope task_comment task_write.go store.Comment
-scope task_finish task_write.go store.Finish
-scope task_release task_write.go store.Release
+scope "task_claim (next, session)" task_write.go store.SessionNext
+helper task_claim task_write.go claimTask
+helper task_comment task_write.go commentTask
+helper task_finish task_write.go finishTask
+helper task_release task_write.go releaseTask
 scope task_add task_write.go store.Add
+scope "task_add (session)" task_write.go store.AddSessionTask
 scope task_approve task_approve.go store.Approve
+scope task_session_list task_session.go store.ListSessions
+scope task_session_get task_session.go store.PlanOfSession
+scope "task_session_get (events)" task_session.go store.SessionEvents
+scope "task_split (session of task)" task_session.go store.SessionOfTask
+scope task_split task_session.go store.SplitTask
+scope task_verify task_session.go store.VerifySessionTask
+scope task_artifact task_session.go store.AddArtifact
 
 exit "$survived"

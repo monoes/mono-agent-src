@@ -80,9 +80,25 @@ const (
 // empty, "chrome" or "os". An Agent's Name is the name it holds claims under; it
 // may not be a label the store writes for others (you, agent, capture, chrome,
 // os), in any case.
+//
+// Session, when not 0, binds the actor to one task session (a worker's token
+// carries it): it may act on that session's tasks and on nothing else, not on
+// the personal board and not on another session.
+//
+// Task, when not 0, narrows that binding to one task of the session (a mission worker's
+// token carries it): the actor may claim, comment on, finish, release and attach evidence
+// to that task and to no other, and adds no task of its own.
+//
+// Verifier, with Task, makes the binding a verifier's: the actor may record a verdict on that
+// one task (once it is in Review), comment on it there and attach evidence to it, and may
+// not claim, finish, release, split or assign anything. A Verifier without a Task is refused.
+// A Task binding without Verifier never records a verdict, on its own task or another.
 type Actor struct {
-	Kind ActorKind
-	Name string
+	Kind     ActorKind
+	Name     string
+	Session  int64
+	Task     int64
+	Verifier bool
 }
 
 // Label is how the actor is written in an event and in a claim.
@@ -158,6 +174,19 @@ type Task struct {
 	LastEvent *LastEvent `json:"last_event"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
+
+	// Of a task of a session (session_id is not NULL); all are left out of the
+	// JSON of a personal task, which reads as it always did.
+	SessionID         int64   `json:"session_id,omitempty"`
+	Kind              string  `json:"kind,omitempty"`
+	ParentID          int64   `json:"parent_id,omitempty"`
+	Acceptance        string  `json:"acceptance,omitempty"`
+	Assignee          string  `json:"assignee,omitempty"`
+	SuggestedExecutor string  `json:"suggested_executor,omitempty"`
+	Blocked           bool    `json:"blocked,omitempty"`
+	Verified          bool    `json:"verified,omitempty"`
+	Retries           int     `json:"retries,omitempty"`
+	DependsOn         []int64 `json:"depends_on,omitempty"`
 }
 
 // Event is one change of a task.

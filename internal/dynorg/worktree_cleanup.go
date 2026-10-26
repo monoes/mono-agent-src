@@ -18,6 +18,7 @@ func (c *Conductor) cleanupWorktrees() {
 	if c.iso == nil {
 		return
 	}
+	c.removeVerifierTrees()
 	ctx := context.WithoutCancel(c.ctx)
 	type tree struct{ id, path, branch string }
 	var trees []tree

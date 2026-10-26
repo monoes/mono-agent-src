@@ -76,6 +76,10 @@ type Command struct {
 	Error          string   `json:"error,omitempty"`
 	CreatedAt      string   `json:"createdAt"`
 	UpdatedAt      string   `json:"updatedAt"`
+	// WantsMission says the person asked for this send to run as a mission. It is a
+	// marker, never a confirmation: it only makes a missing or expired confirmation
+	// record fail the command instead of running it as a plain turn.
+	WantsMission bool `json:"wantsMission,omitempty"`
 }
 
 // Session is a coder conversation as the host tracks it.
@@ -142,9 +146,16 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	if waiting >= MaxPendingPerChat {
 		return c, ErrQueueFull
 	}
+	if c.WantsMission && (c.Kind != KindSend || HostMade(c.TurnID)) {
+		return c, errors.New("coder host: only a person's send can ask for a mission")
+	}
+	mark := ""
+	if c.WantsMission {
+		mark = wantsMissionMark // lives in the error column while the command is pending
+	}
 	now := s.stamp()
-	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`, c.ProfileID, c.ConversationID, string(c.Kind), c.TurnID, c.Message, string(att), now, now)
+	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`, c.ProfileID, c.ConversationID, string(c.Kind), c.TurnID, c.Message, string(att), mark, now, now)
 	if err != nil {
 		return c, err
 	}
@@ -176,6 +187,7 @@ func (s *Store) Pending() ([]Command, error) {
 		}
 		c.Kind = Kind(kind)
 		_ = json.Unmarshal([]byte(att), &c.Attachments)
+		c.readMark()
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -185,6 +197,7 @@ func (s *Store) Pending() ([]Command, error) {
 // before command beforeID (a stop), so a stopped session does not start the
 // next queued turn. It returns how many it cancelled.
 func (s *Store) CancelPendingSends(profileID, conversationID string, beforeID int64, reason string) (int, error) {
+	ids := s.pendingMissionIDs(`profile_id = ? AND conversation_id = ? AND id < ?`, profileID, conversationID, beforeID)
 	res, err := s.db.Exec(`UPDATE coder_session_commands SET status = 'failed', error = ?, updated_at = ?
 		WHERE profile_id = ? AND conversation_id = ? AND kind = 'send' AND status = 'pending' AND id < ?`,
 		reason, s.stamp(), profileID, conversationID, beforeID)
@@ -192,15 +205,18 @@ func (s *Store) CancelPendingSends(profileID, conversationID string, beforeID in
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
+	s.revokeCommands(ids)
 	return int(n), nil
 }
 
 // ExpireSends fails the sends that have waited longer than MaxSendAge, so a
 // message queued while no host ran does not start a full-access turn days later.
 func (s *Store) ExpireSends() error {
+	ids := s.pendingMissionIDs(`created_at < ?`, s.now().Add(-MaxSendAge).UTC().Format(timeLayout))
 	_, err := s.db.Exec(`UPDATE coder_session_commands SET status = 'failed', error = 'expired before the host could run it', updated_at = ?
 		WHERE kind = 'send' AND status = 'pending' AND (created_at < ? OR (substr(turn_id, 1, 8) = 'checkin-' AND created_at < ?))`,
 		s.stamp(), s.now().Add(-MaxSendAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout))
+	s.revokeCommands(ids)
 	return err
 }
 
@@ -222,6 +238,7 @@ func (s *Store) GetCommand(id int64) (Command, bool, error) {
 	}
 	c.Kind = Kind(kind)
 	_ = json.Unmarshal([]byte(att), &c.Attachments)
+	c.readMark()
 	return c, true, nil
 }
 
@@ -274,6 +291,8 @@ func (s *Store) ConversationExists(profileID, conversationID string) (bool, erro
 // a command it had read just before the delete. It returns how many rows it removed.
 func (s *Store) SweepOrphans() (int, error) {
 	total := 0
+	// The records of the mission sends that go are revoked once they are gone.
+	defer s.revokeCommands(s.pendingMissionIDs(`NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`))
 	for _, q := range []string{
 		`DELETE FROM coder_session_commands WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`,
 		`DELETE FROM coder_sessions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_sessions.conversation_id AND c.profile_id = coder_sessions.profile_id)`,

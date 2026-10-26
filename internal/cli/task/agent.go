@@ -74,18 +74,24 @@ func printClaimed(w io.Writer, p tasks.Profile, t tasks.Task, name string) {
 		fmt.Fprintf(w, "Link: %s\n", t.Source.URL)
 	}
 	printNotes(w, t.Notes) // Task 9's helper: the notice, the notes indented, an end line
+	printAcceptance(w, t)
 	continueHelp(w, p, t, name)
 }
 
 // printNext prints the task an agent would take, and how to take it. as is the name of the agent that
-// looks, "" for a caller that has none (see takeCommand).
-func printNext(w io.Writer, p tasks.Profile, t tasks.Task, as string) {
+// looks, "" for a caller that has none (see takeCommand); session is the session it is asked of (0: the personal board).
+func printNext(w io.Writer, p tasks.Profile, t tasks.Task, as string, session int64) {
 	fmt.Fprintf(w, "Next task: #%d %s   [%s, from %s]\n", t.ID, t.Title, t.Status, t.Source.Kind)
 	if t.Source.URL != "" {
 		fmt.Fprintf(w, "Link: %s\n", t.Source.URL)
 	}
 	printNotes(w, t.Notes) // Task 9's helper: the notice, the notes indented, an end line
-	fmt.Fprintf(w, "\nTake it:\n  %s\n  %s\n", takeCommand(p, as, "next --claim"), takeCommand(p, as, fmt.Sprintf("claim %d", t.ID)))
+	printAcceptance(w, t)
+	next := "next --claim"
+	if session != 0 { // a session's next is asked of that session
+		next = fmt.Sprintf("next --session %d --claim", session)
+	}
+	fmt.Fprintf(w, "\nTake it:\n  %s\n  %s\n", takeCommand(p, as, next), takeCommand(p, as, fmt.Sprintf("claim %d", t.ID)))
 }
 
 // checkLease refuses a --lease that was given and is not a positive time. The store reads zero and
@@ -101,6 +107,7 @@ func (d Deps) checkLease(cmd *cobra.Command, lease time.Duration) error {
 func (d Deps) newTaskNextCmd() *cobra.Command {
 	var claim bool
 	var lease time.Duration
+	var session string
 	cmd := &cobra.Command{
 		Use:   "next [--claim --as NAME [--lease 30m]]",
 		Short: "Show the task an AI agent should work next, or claim it",
@@ -129,6 +136,11 @@ a null task.`,
 			if !claim && cmd.Flags().Changed("lease") {
 				return d.InvalidInput("--lease only applies with --claim: a look at the next task takes no lease")
 			}
+			if sid, ok, err := d.sessionFlag(cmd, session); err != nil {
+				return err
+			} else if ok {
+				return d.runSessionNext(cmd, caller, actor, sid, claim, lease)
+			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
 				t, err := store.Next(ctx, p.ID, actor, claim, lease)
 				if err != nil {
@@ -145,12 +157,13 @@ a null task.`,
 				case claim:
 					printClaimed(w, p, *t, actor.Name)
 				default:
-					printNext(w, p, *t, caller.actor.Name)
+					printNext(w, p, *t, caller.actor.Name, 0)
 				}
 				return nil
 			})
 		},
 	}
+	cmd.Flags().StringVar(&session, "session", "", "Work this session's tasks instead of the personal board: a Ready task whose dependencies are done, of a running session")
 	cmd.Flags().BoolVar(&claim, "claim", false, "Take the task for yourself (needs --as NAME)")
 	cmd.Flags().DurationVar(&lease, "lease", 0, "How long you hold it (default 30m, at most 24h); a comment extends it to 30 minutes from the comment, if that is later")
 	return cmd
@@ -177,7 +190,7 @@ func (d Deps) newTaskClaimCmd() *cobra.Command {
 				return err
 			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
-				t, err := store.Claim(ctx, p.ID, taskID, actor, lease)
+				t, err := store.ClaimAny(ctx, p.ID, taskID, actor, lease)
 				if err != nil {
 					return d.taskErr(err)
 				}
@@ -218,7 +231,7 @@ func (d Deps) newTaskCommentCmd() *cobra.Command {
 			}
 			text := strings.Join(args[1:], " ")
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
-				t, err := store.Comment(ctx, p.ID, taskID, text, actor)
+				t, err := store.CommentAny(ctx, p.ID, taskID, text, actor)
 				if err != nil {
 					return d.taskErr(err)
 				}
@@ -253,7 +266,7 @@ func (d Deps) newTaskFinishCmd() *cobra.Command {
 				return d.InvalidInput("give exactly one of --result TEXT (what you did) and --question TEXT (what you need to know before you can go on)")
 			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
-				t, err := store.Finish(ctx, p.ID, taskID, tasks.Outcome{Result: result, Question: question}, actor)
+				t, err := store.FinishAny(ctx, p.ID, taskID, tasks.Outcome{Result: result, Question: question}, actor)
 				if err != nil {
 					return d.taskErr(err)
 				}
@@ -284,7 +297,7 @@ func (d Deps) newTaskReleaseCmd() *cobra.Command {
 				return err
 			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
-				t, err := store.Release(ctx, p.ID, taskID, note, actor)
+				t, err := store.ReleaseAny(ctx, p.ID, taskID, note, actor)
 				if err != nil {
 					return d.taskErr(err)
 				}
@@ -312,14 +325,20 @@ monoagentcli --profile <id> task digest`,
 				fmt.Fprintf(cmd.ErrOrStderr(), "task digest: takes no arguments (got %q)\n", cutArg(args[0]))
 				return nil
 			}
+			// A worker bound to a session or a task reads nothing of the personal board: no counts, no title.
+			binding := d.callerFor(flagAs(cmd)).actor
+			look := tasks.Actor{Kind: tasks.Agent, Session: binding.Session, Task: binding.Task, Verifier: binding.Verifier}
 			err := d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
-				c, err := store.Counts(ctx, p.ID)
-				if err != nil {
-					return err
+				var c tasks.Counts
+				var err error
+				if look.Session == 0 && look.Task == 0 {
+					if c, err = store.Counts(ctx, p.ID); err != nil {
+						return err
+					}
 				}
 				var next *tasks.Task
 				if c.Ready > 0 {
-					if next, err = store.Next(ctx, p.ID, tasks.Actor{Kind: tasks.Agent}, false, 0); err != nil {
+					if next, err = store.Next(ctx, p.ID, look, false, 0); err != nil {
 						return err
 					}
 				}

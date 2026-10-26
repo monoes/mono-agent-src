@@ -12,8 +12,8 @@ import (
 )
 
 // The task tools, written out, so that a tool added to the family without a decision shows here.
-var taskReadOnlyTools = []string{"task_list", "task_get", "task_next"}
-var taskMutatingTools = []string{"task_claim", "task_comment", "task_finish", "task_release", "task_add"}
+var taskReadOnlyTools = []string{"task_list", "task_get", "task_next", "task_session_list", "task_session_get"}
+var taskMutatingTools = []string{"task_claim", "task_comment", "task_finish", "task_release", "task_add", "task_split", "task_verify", "task_artifact"}
 
 func TestTasksOnlyServesTheTaskToolsAndNoOther(t *testing.T) {
 	for name, c := range map[string]struct {
@@ -70,7 +70,7 @@ func TestTasksOnlyRefusesEveryOtherToolByName(t *testing.T) {
 	}
 }
 
-// The family and the filter agree, and the family is exactly the eight tools: none approves,
+// The family and the filter agree, and the family is exactly the thirteen tools: none approves,
 // edits, moves or archives a task.
 func TestTheTaskToolsAreTheToolsCalledTask(t *testing.T) {
 	names := taskToolNames()
