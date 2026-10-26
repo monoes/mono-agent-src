@@ -52,6 +52,10 @@ var evidenceBudget = 5 * time.Second
 
 const evidenceMaxCommits = 5
 
+// BaseUnborn is the start point recorded for a work tree that had no commit yet when the task
+// started: it names no commit, so every commit of the work tree is new work.
+const BaseUnborn = "none"
+
 // ArtifactCommit is the artifact kind the checker validates.
 const ArtifactCommit = "commit"
 

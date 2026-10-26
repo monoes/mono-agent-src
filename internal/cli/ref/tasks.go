@@ -131,7 +131,7 @@ WHO MAY DO WHAT
   In a git work tree the evidence must be a commit artifact (hex sha) that exists, is reachable from
   HEAD or a mission branch and changes at least one declared file or a path under a declared folder;
   it is checked when attached and again before finish and verify. Test, file, log and diff artifacts
-  are not checked and do not carry a code task alone there; outside git the old rule applies. The
+  are not checked and do not carry a code task alone there; outside git the old rule applies, but a mission whose folder is gone, unreadable or has no recorded start point is refused (ask the operator to close the task). The
   declared files themselves come from the planner's notes and are self-asserted.
   MISSIONS. A coder chat's lead runs a session with the mission tools (a send confirmed with
   coder sessions send --mission, operator only; an open session of the conversation implies it): mission_plan, mission_add_tasks,

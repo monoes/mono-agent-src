@@ -459,7 +459,7 @@ func (s *Store) handBack(ctx context.Context, profileID string, session, id int6
 	}
 	var pre *evidenceVerdict
 	if session != 0 && kind == "result" {
-		pre = s.precheckEvidence(ctx, profileID, session, id) // git runs before the write lock is taken
+		pre = s.precheckAuthorized(ctx, profileID, session, id, actor, "finish a task", authHolder) // git runs after the cheap refusals, before the write lock
 	}
 	var out Task
 	err := s.tx(ctx, func(x dbx) error {

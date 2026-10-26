@@ -1695,17 +1695,35 @@ that works a task acts on them. The defences:
   (at least one, not all), by its own diff or against its merge base with HEAD. The work tree
   is the folder of the session's conversation, read by the store from its database; the
   process's working directory, which an agent can change, is never consulted for a mission
-  session. A conversation folder that is not a git work tree (or is unknown) keeps the old rule
-  (any artifact of an evidence kind); a session with no conversation (the operator's own)
+  session. Git, not a file-name walk, decides whether that folder is a work tree. Only an
+  existing folder that git says is no repository, with no start point recorded for the task,
+  keeps the old rule (any artifact of an evidence kind). For a mission session every other
+  case is a refusal that the operator can resolve by closing the task: a conversation that is
+  gone or whose folder is empty or relative, a folder that no longer exists, a work tree git
+  cannot read, a repository that disappeared after the task started, and a repository for
+  which no start point was recorded. A session with no conversation (the operator's own)
   is checked in the process's working directory. When a task first starts, the operator's
   process records the folder's HEAD as a `base` artifact (an agent cannot write one; the first
-  stands); a commit that is part of it is refused. The git checks run before the write
+  stands; a repository with no commit yet records a stand-in; the record is retried at each
+  start of the task); a commit that is part of it is refused. The cheap refusals (who the
+  caller is, the session state, the claim) are made before git is run for a caller.
+  A declared glob is read as the folder before its first wildcard segment, and a glob that
+  starts with a wildcard names no folder. The git checks run before the write
   transaction opens, under one 5 second deadline over the newest five commits, and the
   transaction confirms the task and its evidence are unchanged, else refuses with a retryable
   error. The same check runs again before an agent can verify a task; the operator is never
   held to it (it verifies, or closes with a move, without it). Git runs as an argument list
-  without a shell, with repository-redirecting and object-replacement variables dropped.
-  Still self-asserted: test, file, log and diff artifacts (not accepted alone in a git work
+  without a shell, with repository-redirecting and object-replacement variables dropped. A work
+  folder is written by the agent, and repository-local configuration, hooks and some environment
+  variables can make git run a program (a file system monitor, a hook, a signature verifier, a
+  pager, an editor, an external diff, ssh), so every git call of the checker and of the
+  scheduler's worktree handling pins those settings to inert values and drops those
+  variables (`internal/gitsafe`), and the checker reads history with plumbing that does not
+  verify signatures. Not covered: content filters and merge drivers, which git cannot switch off;
+  the scheduler's checkpoint (`add`) and merge of an isolated writer's worktree still honour them.
+  A task started before a start point could be recorded cannot be told from older work. Still
+  forgeable: a rebased copy of old work is a new commit; a commit made for another task after this
+  task's start point is new to it; commit dates and authors are not read. Still self-asserted: test, file, log and diff artifacts (not accepted alone in a git work
   tree, but not checked), the declared files themselves (planner-written notes), whether a
   commit that touches a declared file is the work that was asked for, and who made it
   (commit dates and authors are not read, and a worker can commit a trivial change to a

@@ -42,3 +42,30 @@ func TestMissionRecordsTheFolderHeadWhenATaskFirstStarts(t *testing.T) {
 		return false
 	})
 }
+
+func TestMissionRecordsAStandInStartForARepositoryWithNoCommit(t *testing.T) {
+	repo := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "-b", "main")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	r := newRig(t, rigOpts{})
+	r.c.cfg.Cwd = repo
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	eventually(t, "the worker", func() bool { return r.c.taskWorker(a.ID) != nil })
+	eventually(t, "the stand-in start point", func() bool {
+		d, err := r.store.SessionTask(tbg, "default", r.sid, a.ID, operator)
+		if err != nil {
+			return false
+		}
+		for _, x := range d.Artifacts {
+			if x.Kind == tasks.ArtifactBase && x.Ref == tasks.BaseUnborn {
+				return true
+			}
+		}
+		return false
+	})
+}

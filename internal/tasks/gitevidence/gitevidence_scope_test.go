@@ -105,7 +105,7 @@ func TestCommitFromBeforeTheTaskStartedIsRefused(t *testing.T) {
 }
 
 func TestMissionChecksUseTheSessionFolderNotTheProcessDirectory(t *testing.T) {
-	dir, _, _, target := repoWith(t)
+	dir, start, _, target := repoWith(t)
 	other, _, _, _ := repoWith(t)
 	write(t, other, "p/p.go", "package p // the process directory's own work")
 	run(t, other, "add", "-A")
@@ -115,25 +115,25 @@ func TestMissionChecksUseTheSessionFolderNotTheProcessDirectory(t *testing.T) {
 
 	// the process sits in a folder with no repository: a mission is still checked
 	t.Chdir(t.TempDir())
-	if err := c(bg, scoped(dir, "", strings.Repeat("a", 40), "p/p.go")); err == nil || errors.Is(err, tasks.ErrEvidenceNotApplicable) {
+	if err := c(bg, scoped(dir, start, strings.Repeat("a", 40), "p/p.go")); err == nil || errors.Is(err, tasks.ErrEvidenceNotApplicable) {
 		t.Fatalf("a non-git process directory switched the check off: %v", err)
 	}
-	if err := c(bg, scoped(dir, "", target, "p/p.go")); err != nil {
+	if err := c(bg, scoped(dir, start, target, "p/p.go")); err != nil {
 		t.Fatalf("the session folder's commit: %v", err)
 	}
 	// the process sits in another repository: its commits are not the mission's
 	if err := os.Chdir(other); err != nil {
 		t.Fatal(err)
 	}
-	if err := c(bg, scoped(dir, "", foreign, "p/p.go")); err == nil || !strings.Contains(err.Error(), "no such commit") {
+	if err := c(bg, scoped(dir, start, foreign, "p/p.go")); err == nil || !strings.Contains(err.Error(), "no such commit") {
 		t.Fatalf("a commit of the process directory's repository was accepted: %v", err)
 	}
 	// and a session folder that is no repository (or unknown) keeps the old rule
 	if err := c(bg, scoped(t.TempDir(), "", foreign, "p/p.go")); !errors.Is(err, tasks.ErrEvidenceNotApplicable) {
 		t.Fatalf("a non-git session folder: %v", err)
 	}
-	if err := c(bg, scoped("", "", foreign, "p/p.go")); !errors.Is(err, tasks.ErrEvidenceNotApplicable) {
-		t.Fatalf("an unresolved session folder fell back to the process directory: %v", err)
+	if err := c(bg, scoped("", "", foreign, "p/p.go")); err == nil || errors.Is(err, tasks.ErrEvidenceNotApplicable) {
+		t.Fatalf("an unresolved session folder fell back to the process directory or the old rule: %v", err)
 	}
 	// without a conversation the process directory is still what is checked
 	if err := c(bg, commitCheck(foreign, "p/p.go")); err != nil {

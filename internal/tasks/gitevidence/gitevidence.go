@@ -9,7 +9,13 @@
 // the commit is the work the task asked for (only that it touches a declared path), nor that
 // the declared paths are right (the planner wrote them), nor who made the commit: author and
 // committer fields are not read, and an agent can commit a trivial change to a declared file.
-// A work folder that is not a git work tree keeps the old rule (any artifact of an evidence kind).
+// Every call runs with the program-naming settings of the repository's configuration and of the
+// environment pinned to inert values (internal/gitsafe), and history is read with plumbing that
+// never verifies signatures. Git decides whether a folder is a work tree: only an existing folder
+// that git reports is no repository keeps the old rule (any artifact of an evidence kind), and
+// only when no start point was recorded for the task. A mission folder that is gone, a work tree
+// git cannot read, a repository that vanished after the task started, a repository with no
+// recorded start point, or a conversation with no usable folder is refused (fail closed).
 package gitevidence
 
 import (
@@ -25,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/gitsafe"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -49,8 +56,8 @@ func Checker(dir string) tasks.EvidenceChecker {
 		defer cancel()
 		d := dir
 		if c.Scoped {
-			if c.Dir == "" {
-				return tasks.ErrEvidenceNotApplicable
+			if c.Dir == "" || !filepath.IsAbs(c.Dir) {
+				return errors.New("the mission's work folder is unknown (its conversation has no usable folder): ask the operator to close the task")
 			}
 			d = c.Dir
 		}
@@ -66,8 +73,8 @@ func check(ctx context.Context, dir string, c tasks.EvidenceCheck) error {
 		}
 		dir = wd
 	}
-	if !insideRepo(dir) {
-		return tasks.ErrEvidenceNotApplicable
+	if err := decide(ctx, dir, c); err != nil {
+		return err
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		return errors.New("this is a git work tree but git is not available to check the evidence")
@@ -180,22 +187,43 @@ func isAncestor(ctx context.Context, root, a, b string) (bool, error) {
 	return false, err
 }
 
-// insideRepo walks up from dir looking for a .git entry; it reads the file system only.
-func insideRepo(dir string) bool {
-	d, err := filepath.Abs(dir)
-	if err != nil {
-		return false
-	}
-	for {
-		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
-			return true
+// decide lets git say whether dir is a work tree. nil: it is one and the check goes on;
+// ErrEvidenceNotApplicable: it is an existing folder that is no repository and nothing says it
+// was one; anything else is a refusal. A mission (Scoped) never falls back to the old rule for
+// a folder that is gone, that git cannot read, that lost its repository after a start point was
+// recorded, or that is a repository with no start point recorded.
+func decide(ctx context.Context, dir string, c tasks.EvidenceCheck) error {
+	fi, serr := os.Stat(dir)
+	if serr != nil || !fi.IsDir() {
+		if c.Scoped {
+			return errors.New("the mission's work folder no longer exists: ask the operator to close the task")
 		}
-		up := filepath.Dir(d)
-		if up == d {
-			return false
-		}
-		d = up
+		return tasks.ErrEvidenceNotApplicable
 	}
+	if _, err := exec.LookPath("git"); err != nil {
+		if c.Scoped {
+			return errors.New("git is not available to decide whether the mission's work folder is a repository")
+		}
+		return tasks.ErrEvidenceNotApplicable
+	}
+	_, err := git(ctx, dir, "rev-parse", "--git-dir")
+	if err == nil {
+		if c.Scoped && c.Base == "" {
+			return errors.New("no start point was recorded for this task in the work tree, so work done since cannot be told from older work: ask the operator to close or re-run the task")
+		}
+		return nil
+	}
+	var ge *gitError
+	if errors.As(err, &ge) && strings.Contains(strings.ToLower(ge.stderr), "not a git repository") {
+		if c.Scoped && c.Base != "" {
+			return errors.New("the mission's work folder was a repository when the task started and is not one now: ask the operator to close the task")
+		}
+		return tasks.ErrEvidenceNotApplicable
+	}
+	if c.Scoped {
+		return unreadable(err)
+	}
+	return tasks.ErrEvidenceNotApplicable
 }
 
 func reachable(ctx context.Context, root, full string) bool {
@@ -260,13 +288,25 @@ func changedBy(ctx context.Context, root, full, base string) ([]string, error) {
 	if mb = strings.TrimSpace(mb); mb == "" || mb == full {
 		return names, nil
 	}
-	rng := []string{"-c", "core.quotepath=off", "log", "--no-merges", "-z", "--name-only", "--format=", "--max-count=" + maxBranchCommits, full, "^" + mb}
+	// the commits of the branch since the merge base (and since the task's start), as plumbing:
+	// rev-list and diff-tree read objects and never verify signatures or run external programs
+	rng := []string{"rev-list", "--no-merges", "--max-count=" + maxBranchCommits, full, "^" + mb}
 	if commitRef.MatchString(base) {
 		if b, err := resolveCommit(ctx, root, strings.ToLower(base)); err == nil {
 			rng = append(rng, "^"+b)
 		}
 	}
-	if more, err := git(ctx, root, append(rng, "--")...); err == nil {
+	ids, err := git(ctx, root, append(rng, "--")...)
+	if err != nil || strings.TrimSpace(ids) == "" {
+		return names, nil
+	}
+	var in strings.Builder
+	for _, id := range strings.Fields(ids) {
+		if commitRef.MatchString(id) {
+			in.WriteString(id + "\n")
+		}
+	}
+	if more, err := gitIn(ctx, root, in.String(), "-c", "core.quotepath=off", "diff-tree", "--stdin", "-r", "-z", "--name-only", "--no-commit-id", "--root"); err == nil {
 		names = append(names, splitZ(more)...)
 	}
 	return names, nil
@@ -282,7 +322,8 @@ func splitZ(s string) []string {
 	return out
 }
 
-// cleanDeclared turns declared entries into exact paths and folder prefixes ending in "/".
+// cleanDeclared turns declared entries into exact paths and folder prefixes ending in "/". A
+// glob (a segment with * ? or [) becomes the folder before its first wildcard segment.
 func cleanDeclared(declared []string) (files, folders []string) {
 	for _, raw := range declared {
 		p := strings.TrimSpace(strings.Trim(strings.TrimSpace(raw), "`'\""))
@@ -290,6 +331,21 @@ func cleanDeclared(declared []string) (files, folders []string) {
 			continue
 		}
 		folder := false
+		if strings.ContainsAny(p, "*?[") {
+			// a pattern stands for the folder before its first wildcard segment: the commit
+			// must change a path under it; a pattern that starts with a wildcard names no folder
+			var dirs []string
+			for _, seg := range strings.Split(p, "/") {
+				if strings.ContainsAny(seg, "*?[") {
+					break
+				}
+				dirs = append(dirs, seg)
+			}
+			p, folder = strings.Join(dirs, "/"), true
+			if p == "" {
+				continue
+			}
+		}
 		for _, suf := range []string{"/**", "/*", "/"} {
 			if strings.HasSuffix(p, suf) {
 				p, folder = strings.TrimSuffix(p, suf), true
@@ -319,13 +375,22 @@ type gitError struct {
 func (e *gitError) Error() string { return e.err.Error() }
 func (e *gitError) Unwrap() error { return e.err }
 
-// git runs one git command in dir. Repository-redirecting variables are dropped, hooks and
-// the file system monitor are off, replacement objects are ignored and nothing is read from
-// a terminal.
+// git runs one git command in dir; see gitIn.
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	full := append([]string{"-C", dir, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"}, args...)
+	return gitIn(ctx, dir, "", args...)
+}
+
+// gitIn runs one git command in dir with stdin as its input. The settings of the repository's
+// configuration and of the environment that name a program are pinned (gitsafe), repository-
+// redirecting variables are dropped, replacement objects are ignored and nothing is read from
+// a terminal.
+func gitIn(ctx context.Context, dir, stdin string, args ...string) (string, error) {
+	full := append(append([]string{"-C", dir}, gitsafe.Args()...), args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Env = cleanEnv()
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -340,15 +405,5 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 func cleanEnv() []string {
-	var env []string
-	for _, e := range os.Environ() {
-		k, _, _ := strings.Cut(e, "=")
-		switch k {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-			"GIT_CEILING_DIRECTORIES", "GIT_NAMESPACE", "GIT_REPLACE_REF_BASE", "GIT_NO_REPLACE_OBJECTS":
-			continue
-		}
-		env = append(env, e)
-	}
-	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_REPLACE_OBJECTS=1")
+	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_REPLACE_OBJECTS=1", "LC_ALL=C")
 }
