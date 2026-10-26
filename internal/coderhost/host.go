@@ -184,6 +184,16 @@ func (h *Host) Tick() error {
 			token := ""
 			if c.WantsMission {
 				if mc, ok := h.Store.PeekConfirm(c); ok {
+					// The child checks the bound session too (defence in depth); the host
+					// re-checks it here so a changed mission state starts nothing.
+					match, err := h.Store.confirmMatchesMission(mc)
+					if err != nil {
+						return err
+					}
+					if !match {
+						h.end(c, CmdFailed, errMissionChanged)
+						continue
+					}
 					token = mc.Token()
 				} else if t, err := time.Parse(timeLayout, c.CreatedAt); err == nil && h.Store.now().Sub(t) < MissionConfirmGrace {
 					blocked[k] = true
