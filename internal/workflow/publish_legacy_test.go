@@ -549,7 +549,59 @@ func TestAdoptableFileCountsWhatItHoldsAndFlagsCuts(t *testing.T) {
 		t.Fatalf("%+v %v", shown, err)
 	}
 	a := shown[0]
-	if a.Nodes != len(w.Nodes) || !a.Cut || !a.HasSettings || !a.ErrorWorkflow || a.Refs < 2 || a.ConfigBytes < 600 {
+	if a.Nodes != len(w.Nodes) || !a.Cut || !a.HasSettings || !a.ErrorWorkflow || a.Refs != 1 || a.ConfigBytes < 600 {
 		t.Fatalf("counts: %+v", a)
+	}
+}
+
+// Template markers are counted once each, whatever they contain; this is a count of syntax.
+func TestCountRefsCountsEachMarkerOnce(t *testing.T) {
+	for text, want := range map[string]int{
+		"":                          0,
+		"${secret.token}":           1,
+		"{{ $vars.x }}":             1,
+		"{{ 1 + 1 }}":               1,
+		"@secret:api-key":           1,
+		"uses secret.password here": 1,
+		"${a} and {{b}} and @secret:c and secret.d": 4,
+		"plain text": 0,
+	} {
+		if got := countRefs(text); got != want {
+			t.Errorf("countRefs(%q) = %d, want %d", text, got, want)
+		}
+	}
+}
+
+// The folder is never created by opening it for reading.
+func TestOpenWorkflowFileStoreDoesNotCreateTheFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "workflows")
+	if _, err := OpenWorkflowFileStore(dir); !os.IsNotExist(err) {
+		t.Fatalf("%v", err)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Fatal("the folder was created")
+	}
+}
+
+// The drift scan stops when it is cancelled and says so, and does not parse a file whose bytes are
+// what the database last reconciled.
+func TestFileDriftScanIsBoundedAndSkipsReconciledFiles(t *testing.T) {
+	h, s, _, _ := guardedRig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if r, err := h.FileDriftScan(ctx); err == nil && !r.Incomplete {
+		t.Fatalf("a cancelled scan ran to the end: %+v", r)
+	}
+	// The file no longer parses, yet its bytes are what the database recorded: it is not read as a workflow.
+	junk := []byte("not json at all")
+	if err := os.WriteFile(h.files.dir+"/wf-g.json", junk, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE workflow_file_state SET file_sha = ? WHERE workflow_id = 'wf-g'`, shaHex(junk)); err != nil {
+		t.Fatal(err)
+	}
+	r, err := h.FileDriftScan(context.Background())
+	if err != nil || len(r.Unreadable) != 0 || len(r.Pending) != 0 || r.Incomplete {
+		t.Fatalf("%+v %v", r, err)
 	}
 }

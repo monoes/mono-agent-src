@@ -231,6 +231,10 @@ type AdoptableListing struct {
 	More      int
 	HiddenIDs []string
 	Truncated bool
+	// Incomplete says the listing may have missed or left unnamed files that have no stored copy:
+	// it stopped at the entry cap, or more files were held back than could be named. One file can
+	// be looked at by its id with AdoptableFile.
+	Incomplete bool
 }
 
 // AdoptableFiles lists workflow files that have no rows and so wait to be adopted (see
@@ -303,8 +307,9 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 		}
 		return cands[i].id < cands[j].id
 	})
-	reads := 0
+	reads, hiddenCands := 0, 0
 	hide := func(id string) {
+		hiddenCands++
 		out.More++
 		if len(out.HiddenIDs) < maxHiddenNamed {
 			out.HiddenIDs = append(out.HiddenIDs, id)
@@ -336,7 +341,40 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 		}
 		out.Shown = append(out.Shown, describeAdoptable(h.files, c.id, wf, raw))
 	}
+	out.Incomplete = out.Truncated || hiddenCands > len(out.HiddenIDs)
 	return out, nil
+}
+
+// AdoptableFile looks at the one file named id, which must be a plain id with no stored copy: the
+// bounded way to reach a file the listing did not show. When the file cannot be shown, why says so.
+func (h *HybridWorkflowStore) AdoptableFile(ctx context.Context, id string) (a *AdoptableFile, why string, err error) {
+	if h.files == nil {
+		return nil, "there are no workflow files here", nil
+	}
+	if !safeFileID.MatchString(id) {
+		return nil, "the name is not a plain workflow id", nil
+	}
+	var n int
+	if err := h.sql.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n); err != nil {
+		return nil, "", err
+	}
+	if n > 0 {
+		return nil, "the workflow has a stored copy; this file is not waiting to be adopted", nil
+	}
+	info := regularFileInfo(h.files, id)
+	if info == nil || info.Size() > maxAdoptableBytes {
+		return nil, "there is no such plain file, or it is larger than 1 MiB", nil
+	}
+	raw, existed, rerr := h.files.readRaw(id)
+	if rerr != nil || !existed {
+		return nil, "the file cannot be read", nil
+	}
+	wf, perr := parseWorkflowFile(raw)
+	if perr != nil || wf == nil || wf.ID != id || !safeFileID.MatchString(wf.ProfileID) || graphIDProblem(wf) != "" {
+		return nil, "the file is not a workflow that can be adopted (it does not parse, names another id, has no safe profile id or has bad node ids)", nil
+	}
+	d := describeAdoptable(h.files, id, wf, raw)
+	return &d, "", nil
 }
 
 // describeAdoptable counts and cuts what a parsed file holds, for an operator to look at.
@@ -371,14 +409,18 @@ func describeAdoptable(files *WorkflowFileStore, id string, wf *Workflow, raw []
 	return a
 }
 
-// countRefs counts the places a text refers to a secret or a variable by the spellings the engine
-// uses. It is a floor, not a proof: it is shown as "at least".
+var (
+	refTemplate = regexp.MustCompile(`\$\{[^}]*\}|\{\{.*?\}\}|@secret:[A-Za-z0-9_.-]+`)
+	refSecret   = regexp.MustCompile(`secret\.[A-Za-z0-9_]+`)
+)
+
+// countRefs counts the template expressions (${...}, {{...}}), @secret: references and bare secret.x
+// mentions in a text, each place once. It counts syntax, not references: an expression with no
+// variable in it counts too, and a spelling it does not know is not counted, so it is shown as a
+// count of markers and never as proof either way.
 func countRefs(s string) int {
-	n := 0
-	for _, marker := range []string{"secret.", "${", "@secret:", "{{", "$vars", "$env"} {
-		n += strings.Count(s, marker)
-	}
-	return n
+	n := len(refTemplate.FindAllString(s, -1))
+	return n + len(refSecret.FindAllString(refTemplate.ReplaceAllString(s, " "), -1))
 }
 
 // ImportedInactive lists workflows an operator adopted from files and that are still inactive.

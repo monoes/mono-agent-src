@@ -944,7 +944,7 @@ func TestRowsOnlyDeactivateSucceedsWhenTheLockIsReleasedInTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := publicationWait
-	publicationWait = 5 * time.Second
+	publicationWait = 20 * time.Second
 	t.Cleanup(func() { publicationWait = old })
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
@@ -953,7 +953,9 @@ func TestRowsOnlyDeactivateSucceedsWhenTheLockIsReleasedInTime(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		t.Fatal(err)
 	}
-	time.AfterFunc(400*time.Millisecond, func() { _, _ = conn.ExecContext(context.Background(), `ROLLBACK`); conn.Close() })
+	// Held past the database's own busy timeout (5 s), so the first attempt really fails busy and
+	// only the retry can succeed.
+	time.AfterFunc(5600*time.Millisecond, func() { _, _ = conn.ExecContext(context.Background(), `ROLLBACK`); conn.Close() })
 	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
 	if err != nil || note != RowsOnlyNote {
 		t.Fatalf("%q %v", note, err)
