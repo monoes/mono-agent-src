@@ -26,9 +26,12 @@ func newCoderSessionsCmd(cfg *Deps) *cobra.Command {
 			"only limit, so `list` shows it.",
 	}
 	cmd.AddCommand(newCoderSessionsListCmd(cfg), newCoderSessionsSendCmd(cfg), newCoderSessionsCommandCmd(cfg), newCoderSessionsSettingsCmd(cfg),
+		newCoderSessionsSpawnCmd(cfg), newCoderSessionsStatusCmd(cfg),
 		newCoderSessionsControlCmd(cfg, coderhost.KindStop, "Stop the session's running turn"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindPause, "Start no new turn until resumed (a running turn finishes)"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindResume, "Lift a pause"))
+	cmd.AddCommand(newCoderSessionsDecisionsCmd(cfg), newCoderSessionsQuestionsCmd(cfg),
+		newCoderSessionsParkCmd(cfg), newCoderSessionsRecordCmd(cfg))
 	return cmd
 }
 
@@ -60,8 +63,15 @@ func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			visible, verr := visibleToToken(cfg) // with a session token: the caller's own tree only
+			if verr != nil {
+				return verr
+			}
 			rows := []sessionRow{}
 			for _, s := range sessions {
+				if visible != nil && !visible(s.ConversationID) {
+					continue
+				}
 				r := sessionRow{Session: s, Waiting: cs.PendingFor(s.ProfileID, s.ConversationID)}
 				if conv, err := store.GetConversation(s.ConversationID, profileID); err == nil {
 					r.Access, r.Cwd = string(conv.Access), conv.Cwd
@@ -126,6 +136,9 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 		Short: "Queue a message; the host starts the turn when the session is free",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if sessionTokenFromEnv() != "" { // a master's turn: its descendants only
+				return masterSend(cfg, cmd, args[0], args[1], attach, mission)
+			}
 			if err := clicore.RequireOperator(cfg.RequireOperator, "send to a coder session, which starts a full-access turn"); err != nil {
 				return err
 			}
@@ -184,6 +197,9 @@ func newCoderSessionsControlCmd(cfg *Deps, kind coderhost.Kind, short string) *c
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if sessionTokenFromEnv() != "" { // a master's turn: its descendants only
+				return masterControl(cfg, cmd, args[0], kind)
+			}
 			if err := clicore.RequireOperator(cfg.RequireOperator, string(kind)+" a coder session"); err != nil {
 				return err
 			}
@@ -223,7 +239,12 @@ func newCoderSessionsCommandCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !ok || c.ProfileID != cfg.ProfileID() {
+			visible, verr := visibleToToken(cfg)
+			if verr != nil {
+				return verr
+			}
+			// with a session token a command of a session outside its tree reads as no command at all
+			if !ok || c.ProfileID != cfg.ProfileID() || (visible != nil && !visible(c.ConversationID)) {
 				return clicore.NotFound("no command %d", id)
 			}
 			c.Message, c.Attachments = "", nil // the message is the caller's own; the status is what is asked for

@@ -305,12 +305,22 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 	}
 	for _, q := range []string{
 		`DELETE FROM coder_session_commands WHERE conversation_id = ? AND profile_id = ?`,
+		`DELETE FROM coder_session_decisions WHERE conversation_id = ? AND profile_id = ?`,
+		`DELETE FROM coder_session_questions WHERE conversation_id = ? AND profile_id = ?`,
+		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
+		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
+		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
 	} {
 		if _, err := conn.ExecContext(ctx, q, id, profileID); err != nil {
 			return fmt.Errorf("delete coder session: %w", err)
 		}
+	}
+	// Its spawn log goes with it as a parent. A deleted CHILD's row stays: removing it would hand its
+	// master the rate slot back, so spawn-and-delete could outrun the spawn rate limit (the row ages out).
+	if _, err := conn.ExecContext(ctx, `DELETE FROM coder_session_spawns WHERE parent = ? AND profile_id = ?`, id, profileID); err != nil {
+		return fmt.Errorf("delete coder session: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("commit delete conversation: %w", err)
