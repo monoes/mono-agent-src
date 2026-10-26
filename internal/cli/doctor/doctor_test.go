@@ -108,6 +108,11 @@ func TestDoctorReportShowsFilePreviewsOnlyOnATerminal(t *testing.T) {
 	var piped, tty bytes.Buffer
 	printDoctorReportWith(&piped, rep, false, false)
 	printDoctorReportWith(&tty, rep, false, true)
+	var plain bytes.Buffer
+	printDoctorReport(&plain, rep, false) // a writer that is not a terminal file
+	if strings.Contains(plain.String(), "core.set") {
+		t.Fatalf("a preview reached a writer that is not a terminal:\n%s", plain.String())
+	}
 	if strings.Contains(piped.String(), "core.set") {
 		t.Fatalf("a preview reached a pipe:\n%s", piped.String())
 	}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
@@ -327,7 +328,8 @@ var statusMark = map[health.Status]string{
 
 func printDoctorReport(w io.Writer, rep *health.Report, fixed bool) {
 	f, isFile := w.(*os.File)
-	printDoctorReportWith(w, rep, fixed, isFile && term.IsTerminal(int(f.Fd())))
+	// A pty an agent drives is a terminal too: previews go only to the operator's own.
+	printDoctorReportWith(w, rep, fixed, isFile && term.IsTerminal(int(f.Fd())) && operator.Marker() == "")
 }
 
 // printDoctorReportWith prints the text report. previews says whether text taken from files

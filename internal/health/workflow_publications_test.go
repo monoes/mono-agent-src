@@ -149,7 +149,7 @@ func TestWorkflowPublicationsDoNotPrintRecordTextBare(t *testing.T) {
 	info := &WorkflowPublicationsInfo{
 		Open: []OpenWorkflowPublication{
 			{WorkflowID: bad, Kind: "save", State: "unresolved", Note: bad},
-			{WorkflowID: "wf-ok", Kind: "save", State: "pending", Origin: bad, OwnerGone: true, Note: strings.Repeat("n", 5000)},
+			{WorkflowID: "wf-ok", Kind: bad, State: "pending", Origin: bad, OwnerGone: true, Note: strings.Repeat("n", 5000)},
 		},
 		Unreadable: []string{bad}, Pending: []string{bad}, ImportedInactive: many,
 	}
@@ -164,7 +164,7 @@ func TestWorkflowPublicationsDoNotPrintRecordTextBare(t *testing.T) {
 			t.Errorf("a note is not capped: %d bytes", len(c.Detail))
 		}
 	}
-	if n := len(res.Children); n > maxListedIDs+10 {
+	if n := len(res.Children); n > 60 {
 		t.Errorf("%d rows: the listing is not capped", n)
 	}
 	last := res.Children[len(res.Children)-1]
@@ -189,10 +189,13 @@ func TestWorkflowPublicationsJSONCarriesNoFileText(t *testing.T) {
 	if strings.Contains(out, "IGNORE PREVIOUS") {
 		t.Fatalf("file text reached the JSON report: %s", out)
 	}
+	if strings.Contains(out, "Preview") {
+		t.Fatalf("the preview field is serialized: %s", out)
+	}
 	if res.Children[0].Preview == "" {
 		t.Fatal("the terminal preview was dropped altogether")
 	}
-	for _, want := range []string{"wf-x.json", a.SHA, "12 node(s)", "4096 byte", "INCOMPLETE: read /data/workflows/wf-x.json before adopting", "error workflow: true", "references: 3"} {
+	for _, want := range []string{"wf-x.json", a.SHA, "12 node(s)", "4096 byte", "INCOMPLETE: read /data/workflows/wf-x.json before adopting", "error workflow: true", "references: at least 3"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the row lacks %q: %s", want, out)
 		}

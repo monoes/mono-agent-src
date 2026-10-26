@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Workflow definitions live in a file and in database rows; a change is published to both through
@@ -36,6 +37,8 @@ type WorkflowPublicationsInfo struct {
 	// used until an operator adopts them. MoreAdoptable counts the rest.
 	Adoptable     []AdoptableWorkflowFile
 	MoreAdoptable int
+	// HiddenAdoptable names (plain ids only) the first few of the files counted in MoreAdoptable.
+	HiddenAdoptable []string
 }
 
 // AdoptableWorkflowFile is what an operator needs to see before adopting a file.
@@ -110,7 +113,7 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 	res := Result{Status: StatusOK, Summary: "workflow files and database agree"}
 	stale, unresolved, unsafe := 0, 0, 0
 	for _, o := range info.Open {
-		if !safeWorkflowID.MatchString(o.WorkflowID) {
+		if !safeWorkflowID.MatchString(o.WorkflowID) || len(res.Children) >= maxListedIDs {
 			unsafe++
 			continue
 		}
@@ -126,11 +129,11 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 		case o.OwnerGone:
 			stale++
 			child.Status = StatusWarn
-			child.Summary = fmt.Sprintf("a %s by %s did not finish (%s ago)", o.Kind, quotedOrDefault(o.Origin, "an earlier run"), o.Age.Round(time.Second))
+			child.Summary = fmt.Sprintf("a %q by %s did not finish (%s ago)", o.Kind, quotedOrDefault(o.Origin, "an earlier run"), o.Age.Round(time.Second))
 			child.FixID = FixWorkflowPublicationsRecover
 		default:
 			child.Status = StatusInfo
-			child.Summary = fmt.Sprintf("a %s is in progress", o.Kind)
+			child.Summary = fmt.Sprintf("a %q is in progress", o.Kind)
 		}
 		res.Children = append(res.Children, child)
 	}
@@ -147,14 +150,15 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 			Status: StatusInfo,
 			Summary: fmt.Sprintf("a workflow file with no stored copy: profile %q, %d node(s), types %s; it is not used until you adopt it (inactive, unapproved)",
 				a.ProfileID, a.Nodes, quotedList(a.NodeTypes)),
-			Detail: fmt.Sprintf("file %q\nsha256 %s (check with: sha256sum <file>)\n%s%d node(s), %d byte(s) of node configuration, %d unknown node type(s); workflow settings: %t, error workflow: %t, secret or variable references: %d\nadopt it only after reading the file; an operator's own terminal is required, with --profile naming the file's profile:\n%s",
+			Detail: fmt.Sprintf("file %q\nsha256 %s (check with: sha256sum <file>)\n%s%d node(s), %d byte(s) of node configuration, %d unknown node type(s); workflow settings: %t, error workflow: %t, secret or variable references: at least %d\nadopt it only after reading the file; an operator's own terminal is required, with --profile naming the file's profile:\n%s",
 				a.Path, a.SHA, incomplete, a.Nodes, a.ConfigBytes, a.Unknown, a.HasSettings, a.ErrorWorkflow, a.Refs, cmd),
 			Preview: previewText(a.Preview),
 			FixID:   FixWorkflowPublicationsAdopt + ":" + arg, FixCommand: cmd})
 	}
 	if info.MoreAdoptable > 0 {
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".adopt.more", Title: "more files",
-			Status: StatusInfo, Summary: fmt.Sprintf("and %d more workflow file(s) with no stored copy (or with names that are not safe to print)", info.MoreAdoptable)})
+			Status: StatusInfo, Summary: fmt.Sprintf("and %d more workflow file(s) with no stored copy (not shown: names that are not safe to print, too big, not parsing, or beyond the listing)", info.MoreAdoptable),
+			Detail: hiddenAdoptDetail(info.HiddenAdoptable)})
 	}
 	unsafe += appendIDRows(&res, info.ImportedInactive, ".imported.", StatusInfo, "imported from an outside file, inactive; activate it to use it")
 	if unsafe > 0 {
@@ -215,7 +219,7 @@ func quotedOrDefault(s, def string) string {
 func capText(s string) string {
 	q := fmt.Sprintf("%q", s)
 	if len(q) > 300 {
-		q = q[:300] + `…"`
+		q = cutAtRune(q, 300) + `…"`
 	}
 	return q
 }
@@ -239,9 +243,34 @@ const maxPreviewBytes = 2048
 func previewText(lines []string) string {
 	out := quotedLines(lines)
 	if len(out) > maxPreviewBytes {
-		out = out[:maxPreviewBytes] + "\n  (cut)"
+		out = cutAtRune(out, maxPreviewBytes) + "\n  (cut)"
 	}
 	return out
+}
+
+// hiddenAdoptDetail names files that were not shown and says how one of them is still adopted.
+func hiddenAdoptDetail(ids []string) string {
+	var safe []string
+	for _, id := range ids {
+		if safeWorkflowID.MatchString(id) {
+			safe = append(safe, id)
+		}
+	}
+	if len(safe) == 0 {
+		return ""
+	}
+	return "not shown: " + strings.Join(safe, ", ") + "\nto adopt one anyway, read the file, take its sha256 (sha256sum) and run: monoagentcli --profile <the file's profile> doctor fix " + FixWorkflowPublicationsAdopt + ":<id>:<profile>:<sha256>"
+}
+
+// cutAtRune cuts s at most n bytes long without splitting a UTF-8 character.
+func cutAtRune(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // quotedLines prints one escaped line per entry, indented.

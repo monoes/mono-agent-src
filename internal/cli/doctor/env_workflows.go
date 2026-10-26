@@ -63,9 +63,10 @@ func addWorkflowPublicationHooks(env *health.Env, requireOperator func(what stri
 		if info.ImportedInactive, err = store.ImportedInactive(ctx); err != nil {
 			return info, err
 		}
-		var shown []workflow.AdoptableFile
-		shown, info.MoreAdoptable, err = store.AdoptableFiles(ctx)
-		for _, a := range shown {
+		var listing workflow.AdoptableListing
+		listing, err = store.AdoptableListing(ctx)
+		info.MoreAdoptable, info.HiddenAdoptable = listing.More, listing.HiddenIDs
+		for _, a := range listing.Shown {
 			known := func(types []string) (keep []string, unknown int) {
 				for _, t := range types {
 					if isKnown(t) {
