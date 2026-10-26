@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -47,7 +48,7 @@ func (e *e2eRig) exec(ctx context.Context, o monomind.ExecOptions, on func(monom
 		return e.ex.exec(ctx, o, on)
 	}
 	if m := taskRE.FindStringSubmatch(o.Prompt + o.SystemPrompt); m != nil {
-		act := verifierActorOf(e.t, o.Env) // the binding of the worker's environment
+		act := verifierActorOf(e.t, e.db, o.Env) // the binding of the worker's environment
 		d, err := e.store.SessionTask(tbg, "default", act.Session, act.Task, act)
 		if err != nil {
 			e.t.Errorf("a worker reading its own task: %v", err)
@@ -101,10 +102,11 @@ func newE2E(t *testing.T) *e2eRig {
 	// run goes through the fake exec (counted by the tests)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("MONOES_BASE_URL", "http://127.0.0.1:9")
-	store := tasks.NewStore(openMissionDB(t))
-	r := &missionRig{t: t, store: store, clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
+	db := openMissionDB(t)
+	store := tasks.NewStore(db)
+	r := &missionRig{t: t, db: db, store: store, clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
 	store.SetClock(r.clk.now)
-	r.mc = &MissionRun{Store: store, ProfileID: "default", Poll: 10 * time.Millisecond, Lease: time.Minute}
+	r.mc = &MissionRun{Store: store, ProfileID: "default", Tokens: agenttokens.NewStore(db), Poll: 10 * time.Millisecond, Lease: time.Minute}
 	e := &e2eRig{missionRig: r}
 	// another conversation's mission, with a task ready to take
 	se, err := store.CreateSession(tbg, "default", tasks.SessionInput{Title: "someone else's", Goal: "g", ConversationID: "conv-other"}, operator)

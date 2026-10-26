@@ -213,11 +213,11 @@ func (c *Conductor) release(sid, taskID int64, name string, held *tasks.Claim, w
 	}
 }
 
-// missionEnv binds a task worker's process to its session and task: the task commands it
-// runs then act in that session on that one task, as that name. The binding is a convention
-// of the environment, not a sandbox: a shell-capable worker can unset the variables and act
-// as an unbound agent. What the store refuses by role, and the checks the Conductor makes
-// afterwards (a verdict by an unexpected actor is not trusted), do not rely on it.
+// missionEnv puts the labels of a task worker's process in its environment: the brief's text
+// and an agent-context marker for the operator guard. They bind nothing, because the process
+// can change them; what binds it to its session, task, role and name is the mission token
+// bindMission hands it. The checks the Conductor makes afterwards (a verdict by an unexpected
+// actor is not trusted) do not rely on either.
 func missionEnv(w *worker, env map[string]string) {
 	if w.task == nil {
 		return
@@ -226,7 +226,7 @@ func missionEnv(w *worker, env map[string]string) {
 	env["MONOAGENT_TASK_ID"] = fmt.Sprint(w.task.task.ID)
 	env["MONOAGENT_ACTOR"] = w.task.name
 	if w.task.verifier {
-		env["MONOAGENT_TASK_ROLE"] = "verifier" // verify, comment and attach evidence to this task only
+		env["MONOAGENT_TASK_ROLE"] = "verifier"
 	}
 }
 

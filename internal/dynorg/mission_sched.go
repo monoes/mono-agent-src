@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -29,6 +30,12 @@ const (
 type MissionRun struct {
 	Store     *tasks.Store
 	ProfileID string
+	// Tokens mints the token that binds each worker's and verifier's process to its task
+	// (mission_token.go). Nil: nothing is minted, and a process is an ordinary agent.
+	Tokens *agenttokens.Store
+	// ownerOnce guards owner, the name of this run on the tokens it mints.
+	ownerOnce sync.Once
+	owner     string
 	// Session is the session the mission tools work when a call names none.
 	Session int64
 	// Poll is how often the watcher looks at the session: its state, its budget, the

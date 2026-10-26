@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -149,6 +151,7 @@ func (g *gateExec) exec(ctx context.Context, o monomind.ExecOptions, on func(mon
 // missionRig is a conductor over a real task store (a database of its own).
 type missionRig struct {
 	t     *testing.T
+	db    *sql.DB
 	store *tasks.Store
 	clk   *missionClock
 	ex    *gateExec
@@ -170,14 +173,14 @@ type rigOpts struct {
 func newRig(t *testing.T, o rigOpts) *missionRig {
 	t.Helper()
 	db := openMissionDB(t)
-	r := &missionRig{t: t, store: tasks.NewStore(db), clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
+	r := &missionRig{t: t, db: db, store: tasks.NewStore(db), clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
 	r.store.SetClock(r.clk.now)
 	se, err := r.store.CreateSession(tbg, "default", tasks.SessionInput{Title: "mission", Goal: "ship the feature", BudgetUSD: o.budget, ConversationID: o.conv}, operator)
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.sid = se.ID
-	r.mc = &MissionRun{Store: r.store, ProfileID: "default", Session: se.ID, Poll: 10 * time.Millisecond, Lease: orDur(o.lease, time.Minute), TaskTimeout: o.timeout, VerifierTimeout: o.vtimeout}
+	r.mc = &MissionRun{Store: r.store, ProfileID: "default", Session: se.ID, Tokens: agenttokens.NewStore(db), Poll: 10 * time.Millisecond, Lease: orDur(o.lease, time.Minute), TaskTimeout: o.timeout, VerifierTimeout: o.vtimeout}
 	if o.lim.MaxAgents == 0 {
 		o.lim = Limits{MaxAgents: 20, MaxConcurrent: 5}
 	}
