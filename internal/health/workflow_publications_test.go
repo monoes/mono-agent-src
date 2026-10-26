@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -133,5 +134,40 @@ func TestWorkflowPublicationsEscapesAndCapsWhatFilesSay(t *testing.T) {
 	}
 	if last := res.Children[len(res.Children)-1]; !strings.Contains(last.Summary, "7 more") {
 		t.Fatalf("the cap is not reported: %q", last.Summary)
+	}
+}
+
+// Names, origins and notes in the records come from files and other processes: none of them is
+// printed bare, and a name that is not a plain id is counted, not shown.
+func TestWorkflowPublicationsDoNotPrintRecordTextBare(t *testing.T) {
+	bad := "x\n\x1b[32mOK: all good"
+	many := make([]string, 80)
+	for i := range many {
+		many[i] = fmt.Sprintf("wf-%d", i)
+	}
+	info := &WorkflowPublicationsInfo{
+		Open: []OpenWorkflowPublication{
+			{WorkflowID: bad, Kind: "save", State: "unresolved", Note: bad},
+			{WorkflowID: "wf-ok", Kind: "save", State: "pending", Origin: bad, OwnerGone: true, Note: strings.Repeat("n", 5000)},
+		},
+		Unreadable: []string{bad}, Pending: []string{bad}, ImportedInactive: many,
+	}
+	res := checkWorkflowPublications(context.Background(), publicationsEnv(info, nil))
+	for _, c := range res.Children {
+		for _, s := range []string{c.Title, c.Summary, c.Detail, c.ID} {
+			if strings.ContainsAny(s, "\x1b") || strings.Contains(s, "\nOK") {
+				t.Fatalf("record text reached the report bare: %+v", c)
+			}
+		}
+		if len(c.Detail) > 1200 {
+			t.Errorf("a note is not capped: %d bytes", len(c.Detail))
+		}
+	}
+	if n := len(res.Children); n > maxListedIDs+10 {
+		t.Errorf("%d rows: the listing is not capped", n)
+	}
+	last := res.Children[len(res.Children)-1]
+	if !strings.Contains(last.Summary, "not safe to print") {
+		t.Errorf("what was left out is not counted: %+v", last)
 	}
 }

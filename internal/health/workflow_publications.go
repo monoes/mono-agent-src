@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -99,21 +100,25 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 		return Result{Status: StatusWarn, Summary: "cannot read the workflow change records", Detail: err.Error()}
 	}
 	res := Result{Status: StatusOK, Summary: "workflow files and database agree"}
-	stale, unresolved := 0, 0
+	stale, unresolved, unsafe := 0, 0, 0
 	for _, o := range info.Open {
+		if !safeWorkflowID.MatchString(o.WorkflowID) {
+			unsafe++
+			continue
+		}
 		child := Result{ID: CheckWorkflowPublications + "." + rowID(o.WorkflowID), Title: o.WorkflowID}
 		switch {
 		case o.State == "unresolved":
 			unresolved++
 			child.Status = StatusWarn
 			child.Summary = "the file changed while a change was in progress; choose which to keep"
-			child.Detail = o.Note + "\nkeep the committed rows (rewrites the file): monoagentcli doctor fix workflows.publications.resolve:" + o.WorkflowID + ":keep-rows" +
+			child.Detail = capText(o.Note) + "\nkeep the committed rows (rewrites the file): monoagentcli doctor fix workflows.publications.resolve:" + o.WorkflowID + ":keep-rows" +
 				"\nkeep the file as it is (the rows follow it): monoagentcli doctor fix workflows.publications.resolve:" + o.WorkflowID + ":keep-file"
 			// No default fix: either choice discards something, so the person picks (see Detail).
 		case o.OwnerGone:
 			stale++
 			child.Status = StatusWarn
-			child.Summary = fmt.Sprintf("a %s by %s did not finish (%s ago)", o.Kind, orDefault(o.Origin, "an earlier run"), o.Age.Round(time.Second))
+			child.Summary = fmt.Sprintf("a %s by %s did not finish (%s ago)", o.Kind, quotedOrDefault(o.Origin, "an earlier run"), o.Age.Round(time.Second))
 			child.FixID = FixWorkflowPublicationsRecover
 		default:
 			child.Status = StatusInfo
@@ -121,14 +126,8 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 		}
 		res.Children = append(res.Children, child)
 	}
-	for _, id := range info.Unreadable {
-		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".unreadable." + rowID(id), Title: id,
-			Status: StatusWarn, Summary: "the workflow file does not parse; it is not used until it is fixed"})
-	}
-	for _, id := range info.Pending {
-		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".pending." + rowID(id), Title: id,
-			Status: StatusInfo, Summary: "edited outside the app; it is picked up by the next command that opens the workflows"})
-	}
+	unsafe += appendIDRows(&res, info.Unreadable, ".unreadable.", StatusWarn, "the workflow file does not parse; it is not used until it is fixed")
+	unsafe += appendIDRows(&res, info.Pending, ".pending.", StatusInfo, "edited outside the app; it is picked up by the next command that opens the workflows")
 	for _, a := range info.Adoptable {
 		arg := a.ID + ":" + a.ProfileID + ":" + a.SHA
 		cmd := "monoagentcli --profile " + a.ProfileID + " doctor fix " + FixWorkflowPublicationsAdopt + ":" + arg
@@ -144,9 +143,10 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".adopt.more", Title: "more files",
 			Status: StatusInfo, Summary: fmt.Sprintf("and %d more workflow file(s) with no stored copy (or with names that are not safe to print)", info.MoreAdoptable)})
 	}
-	for _, id := range info.ImportedInactive {
-		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".imported." + rowID(id), Title: id,
-			Status: StatusInfo, Summary: "imported from an outside file, inactive; activate it to use it"})
+	unsafe += appendIDRows(&res, info.ImportedInactive, ".imported.", StatusInfo, "imported from an outside file, inactive; activate it to use it")
+	if unsafe > 0 {
+		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".unsafe", Title: "more files",
+			Status: StatusInfo, Summary: fmt.Sprintf("%d workflow file(s) or change(s) with names that are not safe to print or beyond the listing cap; look in the workflows folder", unsafe)})
 	}
 	switch {
 	case unresolved > 0 || stale > 0 || len(info.Unreadable) > 0:
@@ -167,6 +167,44 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 		res.Status, res.Summary = StatusInfo, fmt.Sprintf("%d change(s) in progress or waiting", len(res.Children))
 	}
 	return res
+}
+
+// safeWorkflowID is what a workflow id may look like to be printed bare or put in a command.
+var safeWorkflowID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// maxListedIDs bounds how many rows one kind of finding adds to the report.
+const maxListedIDs = 50
+
+// appendIDRows adds one row per id whose name is safe to print (up to maxListedIDs) and returns how
+// many it left out, so a folder full of odd names cannot flood or forge the report.
+func appendIDRows(res *Result, ids []string, mid string, status Status, summary string) (left int) {
+	shown := 0
+	for _, id := range ids {
+		if !safeWorkflowID.MatchString(id) || shown >= maxListedIDs {
+			left++
+			continue
+		}
+		shown++
+		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + mid + rowID(id), Title: id, Status: status, Summary: summary})
+	}
+	return left
+}
+
+// quotedOrDefault prints text from a record escaped, or def when it is empty.
+func quotedOrDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return fmt.Sprintf("%q", s)
+}
+
+// capText escapes text from a record and cuts it at a few hundred bytes.
+func capText(s string) string {
+	q := fmt.Sprintf("%q", s)
+	if len(q) > 300 {
+		q = q[:300] + `…"`
+	}
+	return q
 }
 
 // quotedList prints names escaped, so a name from a file cannot move the cursor or fake a line.
