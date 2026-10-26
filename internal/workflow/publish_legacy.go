@@ -175,13 +175,13 @@ type AdoptableFile struct {
 }
 
 const (
-	maxAdoptableShown   = 20
-	maxAdoptableBudget  = 16 << 20 // bytes read in one listing, across all candidate files
-	maxAdoptableBytes   = 1 << 20
-	maxNameShown        = 48
-	maxNamesShown       = 10
-	maxPreviewNodes     = 10
-	maxPreviewChars     = 240
+	maxAdoptableShown  = 20
+	maxAdoptableBudget = 16 << 20 // bytes read in one listing, across all candidate files
+	maxAdoptableBytes  = 1 << 20
+	maxNameShown       = 48
+	maxNamesShown      = 10
+	maxPreviewNodes    = 10
+	maxPreviewChars    = 240
 )
 
 func cut(s string, n int) string {
