@@ -2394,6 +2394,77 @@ copies, other mounts, a different config directory) remain readable. A
 stricter design would build the filesystem from an explicit list of system
 directories and give the turn a controlled outbound path; it is not built.
 
+### Persistent coder sessions (`coder host`, `coder sessions`)
+
+A coder turn used to be a child of the desktop app and died with it. A **session** is a coder conversation
+the **coder host** carries on: the host is one detached process per database that runs each turn as its own
+detached `chat --conversation` process, takes its commands from the database, and leaves running turns alone
+when it stops (the next host finds them again by pid and start time). The app sends a coder conversation's
+turn to the host and follows the turn's journal; closing the app does not stop it. Scoped chats do not use the
+host.
+
+```bash
+monoagentcli --profile work coder sessions send <conv> "run the tests and fix what fails"   # starts the host if none runs
+monoagentcli --profile work coder sessions list --json            # sessions, state, access, waiting commands, and whether the host runs
+monoagentcli --profile work coder sessions stop|pause|resume <conv>
+monoagentcli --profile work coder sessions command <id>            # how one queued command ended: pending, done, or failed with the reason
+monoagentcli --profile work coder host status --json               # running? pid, since when
+monoagentcli --profile work coder host stop                        # the host only; running turns keep going
+```
+
+- **Operator only (exit 3, `operator_only`):** `sessions send|stop|pause|resume`, `sessions settings set`,
+  `host run|stop`. An agent can neither start a full-access turn nor steer a session; reading (`list`,
+  `command`, `settings get`, `host status`) is open. A queued send expires after 6 hours; at most 50 sends and
+  50 control commands wait per conversation; a message is at most 256 KiB.
+- **State:** `idle`, `running` and `paused` (no new turn starts; a running one finishes). `waiting_user` and
+  `stopped` exist in the schema and nothing sets them yet. Sends to a busy or paused conversation wait, in order. `stop` ends the running turn **and drops the sends queued before
+  it**. Commands run in the order they were queued.
+- **Unattended:** a session may be run by the host with nobody there, at the access level of its conversation
+  (the only limit besides the `coder set` caps). Today the flag gates one thing: the host's own scheduled
+  check-ins (below); a message a person queues runs either way. The desktop pane always shows
+  `Unattended: on · <access>`; `sessions settings set <conv> --unattended false` turns the check-ins off.
+- **Settings** (`sessions settings get|set`, JSON in `--patch`, only the named settings change, a name that is
+  not a setting is refused): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`, `silent_minutes`,
+  `active_hours` (`HH:MM-HH:MM`, local time), `checkin_limit`, `autonomy_preset`, `autonomy_classes`,
+  `max_children`, `max_concurrent`, `max_depth`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
+  are operator-only and the values each allows. The autonomy settings and `max_concurrent` are stored,
+  validated and shown; nothing acts on them yet. `max_children` and `max_depth` hold when a child is linked.
+- **Masters and children:** `sessions settings set <conv> --role master`, then `--role child --parent <master>`
+  for each child (the master must be a master with room under its `max_children`; depth is 2; a session with
+  children cannot change role).
+- **Check-ins:** the host looks at each unattended, idle master that has children and queues one short turn
+  for it with a digest, when `checkin_minutes` (default 15, 0 = off) have passed since the last look, or when
+  a child finished, failed, was paused or went silent (`checkin_triggers`, `silent_minutes`). With
+  `skip_if_unchanged` (default) a quiet interval is only a look. At most one per minute, counted from the later of
+  the last look and the master's newest turn; never while the master is busy (it gets one catch-up afterwards); after a check-in
+  turn that failed or was interrupted only the timer brings the next. After `checkin_limit` (default 48) check-in turns in a
+  row (a failed or interrupted one counts) with no message from a person, the master waits for one (the pane
+  says so, within about 15 seconds). A queued check-in lives 15
+  minutes and is checked again when it runs. The digest holds only the host's records (conversation ids, state
+  and turn-status words, counts, ages), never text an agent wrote. Host-made turns carry the turn-id prefix
+  `checkin-`; the limit counts it, so a later path that starts turns without a person must use its own prefix.
+  `child_question` and `budget_80` are accepted settings that do not fire yet.
+- **Mesh** (needs monomind 2.29+; the host does not check the version, it just tries `monomind mesh who` to
+  start the hub): with `mesh_visible` (default on) the host keeps the session on monomind's mesh between turns
+  (until it has been idle for 6 hours), as `coder-<folder>-<start time>` (or `mesh_alias`), with a state word as
+  its task and nothing else (no prompt text, no access level, no path). What other agents sent it is put, sealed as
+  untrusted peer content, in front of its next turn, and only marked read once that turn has started; it never
+  starts a turn or grants anything. `mesh_accept` decides who is heard: `subtree` (default: its master and
+  children), `project` (any local process that claims this project: the project id is the sender's own
+  claim) or `none`. `MONOAGENT_MESH=0` or monomind's `MONOMIND_MESH_AUTOJOIN=0`, set where the host starts, stops the host's
+  presence; a running turn still registers itself through monomind under its own name. A block that would not
+  fit under the 256 KiB prompt limit stays unread; a fresh message from an unknown sender is left alone for up to
+  10 minutes while a relative has not joined the mesh.
+- **Good to know:** the host and the turns it starts keep the environment of the terminal that started the host.
+  `host stop` leaves turns running: `sessions stop <conv>` first if you want them ended. Queued sends only
+  expire while a host runs. `send` prints `hostStarted: true` unless you pass `--no-host`.
+- **Files:** `<db dir>/coder-host/` holds `host.lock`, `host.json`, `host.log` and `turns/<turn>.log`; the
+  logs hold turn output and are never pruned.
+- **Not run by agents:** like `wails dev` and the real coder run, starting the host is the user's own act from
+  a terminal; an agent shell is refused. Every `coder host` and `coder sessions` command names `--profile`
+  (the host serves the whole database, but the profile gate treats them as profile commands) and needs the
+  monoes.me sign-in like the rest of the CLI.
+
 ## How AI works in mono-agent
 
 Every AI feature runs through the **monomind runner** (`monomind agent
@@ -3643,9 +3714,19 @@ monoagentcli --profile P aitask fail <id> --reason TEXT                   # the 
   session the root refuses a `--profile` other than the task's or given twice, `--db-path`, `--config-dir`, `--output-dir`,
   `--log-file`, `--all-profiles` and `workflow validate --file`; the agent hands the result back with
   `aitask complete --result-json JSON` or `--result FILE` from the task's own work folder (any other path is refused); on every
-  other kind the access level is recorded and hashed but `qa` is not enforced on the turn. A confined turn (first or follow-up)
+  other kind the access level is the conversation's real level (below). A confined turn (first or follow-up)
   refuses to start (`confinement_unenforceable`, exit 3) on a monomind older than `monomind.MinConfinedMonomindVersion` (2.27.0),
   because the allow-list rests on monomind's shell scanner and older versions can be bypassed; the global minimum is unchanged.
+- Access levels (`--access`, a kind's `DefaultAccess`): a confined kind keeps its confined profile whatever the level.
+  Its conversation row is still created as a full-access coder conversation (`--mode coder`); the narrowing is applied per
+  turn, keyed by the task, so a conversation of a confined kind that is resumed outside the task flow is not narrowed.
+  Only a kind that is not confined has its conversation level set from the task's access: such a conversation is created at the level it asked for: `coding` -> `chat history create --access coding`,
+  `workspace` -> `--access workspace`; `qa` has no read-only profile to run in outside a confined kind, so it is refused
+  (`access_unenforceable`, no conversation made) instead of running with a shell. A kind's `MaxAccess` (default: its
+  `DefaultAccess`) is the most a submit may ask for; a higher `--access` is refused (`access_above_kind`), a lower one is
+  allowed, and the ceiling is part of the capabilities hash. `--unattended` with a full-access level is still refused.
+  `start` checks the rule again, so a queued `qa` task of a kind that has since stopped being confined is refused.
+  Raising a task conversation's level later stays the operator's (`chat history set-access`).
 - The extension's kinds (`internal/aitask/kinds_extension.go`): `extension-fill` ("Fill with coder": multi-page forms, uploads, custom widgets; result `{summary, fields:[{label,value,source,generated}], stopped_before_submit}` and a result without `stopped_before_submit: true` is refused) and `extension-ask` ("Ask coder": `{summary, answer, suggested_actions}`; default access `qa`). The side panel queues them through the bridge request `coder.task` -> `aitask submit-page --kind extension-fill|extension-ask --tab N --stdin-json` (operator-only; it only ever QUEUES, the person presses Start in the app; the goal carries nothing the page wrote). They are browser-capable confined kinds that run as the `apply` browser kind on the one tab that was queued: the tab, browser and origin are the queue record (`posting/target.json`), `browser --tab/--browser` naming anything else is refused (`tab_pinned`), a tab that has left its origin stops the turn (`tab_moved`) and `aitask start` refuses it too (`tab_moved`, `tab_gone`, `tab_unknown`); the pin is by top-level ORIGIN only (scheme, host and port): a page of the same origin, a path change or a link within the site is still the queued tab; form submits wait for a person on local pages too; the pin also covers approved `browser fill|upload --hil` items, a session whose task or apply token cannot be established is refused (never run unscoped), and uploads come only from the task's `document/` folder; `extension-fill` may run `browser a11y|screenshot|wait|click|type|fill|upload`, `extension-ask` only `browser a11y|screenshot|wait`. `stopped_before_submit` is the agent's own statement: what backs it is that allow-list and the held approvals, and a control that is not a form button is not held.
   They run as confined, claude-only turns like `application-apply` (`confinedVerbs`), need monomind 2.27.0 or newer, and hand the result back with `aitask complete --result-json`.
 - Context goes to `<conversation folder>/.monoagent/context/<task>/<class>/` with a README that says it is data, never
@@ -3706,6 +3787,25 @@ result via `aitask complete --result-json`); they are never unattended, treat co
 | `workflow-generate` | the brief | `{summary, workflow:{name, description?, is_active:false, nodes, connections}, validation}` | CONFINED: `workflow search/templates list|show/get`, `node list/schema`, `ref`; the agent writes nothing. `Kind.Check` recomputes the verdict with the `workflow validate` validator; `workflow save-draft <task>` (operator) saves it as a new inactive, unapproved draft |
 | `recording-analyze` | recording id + title | `{recordingId, summary, suggestions[≤12], risks?}` | CONFINED: `record show` only; `Kind.Check` verifies the recording is in the profile; changes nothing |
 | `failed-run-fix` | workflow id, execution id, failing node ids, redacted error | `{summary, diagnosis, workflowId, executionId, fix:{kind:workflow-edit\|advice\|none, description, edits?:[{node, config}]}}` | CONFINED: `workflow get/list/search/executions/execution`; `Kind.Check` plans the edits against the workflow now (`internal/workflowfix`); `workflow apply-fix <task> [--dry-run] [--allow-active]` (operator) applies them |
+
+### Agent API and client mode
+
+An agent that has no access to the user's database finishes and reads its own AI task through the daemon's API
+(`internal/httpapi/handlers_aitask.go`): `GET /profiles/{profile}/agent/v1/aitask/kinds`, `GET …/aitask/{id}` and
+`…/{id}/result` (scope read), `POST …/{id}/complete|fail|cancel` (scope write). They call the same `internal/aitask`
+service as the commands, so validation, the kind's schema and check, and the single terminal state are the same. They take
+scoped agent tokens only (never the profile's own bearer), and act on a task only for a token bound to it:
+`agent-mode token create --name N --scope write --task ID --conversation ID` (operator-only; migration 127). A bound token reaches those routes and no other route of the API (every other route refuses it), and both credentials (the bearer and the task token) are hidden by value in stored results, failure reasons and error answers. `complete`,
+`fail` and `cancel` also need the task's own token in the `X-Aitask-Token` header, as the commands need
+`MONOAGENT_AITASK_TOKEN`; the API checks its hash but not the holder's process tree (`Service.Remote`). The result of
+`complete` is the request body, the bytes `--result FILE` reads. Every call is audited under the token's name.
+
+Client mode: with `MONOAGENT_API_URL` and `MONOAGENT_API_TOKEN` both set (`agent-mode env` prints them), `monoagentcli`
+runs `aitask kinds|status|result|complete|fail|cancel` through that API (`internal/agentclient`) and never opens the local
+database or key store. The URL must be https, or http to 127.0.0.1, [::1] or localhost; redirects are not followed; `complete` takes `--result-json` or `--result -` there, not a file. Every other command is classified in `clientModeClasses` (`cmd/monoagentcli/client_mode_table.go`):
+local-safe ones (`help`, `version`, `ref`) run as ever; the rest exit 3 with code `not_available_in_agent_mode`, are never
+forwarded and never pass an operator check. A new command, or a new subcommand of a mapped or local-safe one, fails
+`TestEveryCommandIsClassifiedForClientMode` until it is classified. The token variables are never printed.
 
 # monomind:start instructions:opencode
 # Monomind

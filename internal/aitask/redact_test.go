@@ -335,3 +335,19 @@ func TestRedactResultWorkIsLinear(t *testing.T) {
 		t.Errorf("keys lost: %d of %d", len(out), len(keys))
 	}
 }
+
+func TestScrubJSONCatchesEscapedSecretsInValuesAndKeys(t *testing.T) {
+	tok := "mat-" + strings.Repeat("Ab1_-", 8)
+	esc := `\u006d` + tok[1:] // "m" written as an escape: invisible to a replacement on the text
+	raw := []byte(`{"` + esc + `":1,"n":12345678901234567890,"a":["x ` + esc + `",{"deep":"` + tok + `"}],"s":"` + esc + `"}`)
+	out := string(ScrubJSON(raw, RedactAgentTokens))
+	if strings.Contains(out, tok) || strings.Contains(out, "Ab1_-Ab1_-") || strings.Contains(out, `\u006d`) {
+		t.Fatalf("not scrubbed: %s", out)
+	}
+	if !strings.Contains(out, "12345678901234567890") || !json.Valid([]byte(out)) {
+		t.Fatalf("document changed: %s", out)
+	}
+	if got := string(ScrubJSON([]byte("not json "+tok), RedactAgentTokens)); strings.Contains(got, tok) {
+		t.Fatalf("text: %s", got)
+	}
+}

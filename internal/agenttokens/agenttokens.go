@@ -94,6 +94,9 @@ var (
 	ErrInvalid = errors.New("invalid agent token")
 	// ErrNameTaken means an unrevoked token of the profile has the name.
 	ErrNameTaken = errors.New("an active agent token with that name already exists in this profile")
+	// ErrBinding means a binding that names only one of the task and the conversation, or a scope
+	// a bound token cannot have.
+	ErrBinding = errors.New("a bound token needs both a task and a conversation, and a scope of read or write")
 	// ErrInvalidName means the name breaks the naming rule.
 	ErrInvalidName = errors.New("token name must be 1-64 characters: letters, digits, '.', '_' or '-', starting with a letter or digit, and not holding mat-")
 )
@@ -115,6 +118,24 @@ type Token struct {
 	ExpiresAt  *time.Time `json:"expires_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	RevokedAt  *time.Time `json:"revoked_at"`
+	// BoundConversation and BoundTask tie the token to one AI task and the conversation that
+	// runs it; both are empty for a token with no binding (see Binding).
+	BoundConversation string `json:"bound_conversation,omitempty"`
+	BoundTask         string `json:"bound_task,omitempty"`
+}
+
+// Binding ties a token to one AI task and the conversation that runs it.
+type Binding struct {
+	ConversationID string
+	TaskID         string
+}
+
+// Bound reports whether the token carries a binding.
+func (t Token) Bound() bool { return t.BoundTask != "" && t.BoundConversation != "" }
+
+// BoundTo reports whether the token is bound to exactly this task and conversation.
+func (t Token) BoundTo(taskID, conversationID string) bool {
+	return t.Bound() && t.BoundTask == taskID && t.BoundConversation == conversationID
 }
 
 // Use is one audited request.
@@ -170,6 +191,15 @@ func newID() (string, error) {
 // Create issues a token for the profile. ttl <= 0 means it never expires. The
 // returned secret is the only time the token exists in the clear here.
 func (s *Store) Create(ctx context.Context, profileID, name string, scope Scope, ttl time.Duration) (Token, string, error) {
+	return s.CreateBound(ctx, profileID, name, scope, ttl, Binding{})
+}
+
+// CreateBound is Create for a token bound to one task and its conversation. A binding names
+// both or neither, and a bound token is read or write: running workflows is not a task's business.
+func (s *Store) CreateBound(ctx context.Context, profileID, name string, scope Scope, ttl time.Duration, b Binding) (Token, string, error) {
+	if (b.TaskID == "") != (b.ConversationID == "") || (b.TaskID != "" && scope != ScopeRead && scope != ScopeWrite) {
+		return Token{}, "", ErrBinding
+	}
 	if profileID == "" {
 		return Token{}, "", errors.New("agent token needs a profile")
 	}
@@ -193,8 +223,8 @@ func (s *Store) Create(ctx context.Context, profileID, name string, scope Scope,
 		exp = now.Add(ttl).Format(timeFmt)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agent_tokens (id, profile_id, name, scope, prefix, token_hash, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)`,
-		id, profileID, name, string(scope), secret[:prefixLen], Hash(secret), now.Format(timeFmt), exp)
+		`INSERT INTO agent_tokens (id, profile_id, name, scope, prefix, token_hash, created_at, expires_at, bound_conversation, bound_task) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		id, profileID, name, string(scope), secret[:prefixLen], Hash(secret), now.Format(timeFmt), exp, b.ConversationID, b.TaskID)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: agent_tokens.profile_id, agent_tokens.name") {
 		return Token{}, "", ErrNameTaken
 	}
@@ -205,7 +235,7 @@ func (s *Store) Create(ctx context.Context, profileID, name string, scope Scope,
 	return t, secret, err
 }
 
-const selectToken = `SELECT id, profile_id, name, scope, prefix, created_at, expires_at, last_used_at, revoked_at FROM agent_tokens`
+const selectToken = `SELECT id, profile_id, name, scope, prefix, created_at, expires_at, last_used_at, revoked_at, bound_conversation, bound_task FROM agent_tokens`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -226,7 +256,7 @@ func scanToken(row scanner) (Token, error) {
 		scope, created          string
 		expires, lastUsed, revk sql.NullString
 	)
-	if err := row.Scan(&t.ID, &t.ProfileID, &t.Name, &scope, &t.Prefix, &created, &expires, &lastUsed, &revk); err != nil {
+	if err := row.Scan(&t.ID, &t.ProfileID, &t.Name, &scope, &t.Prefix, &created, &expires, &lastUsed, &revk, &t.BoundConversation, &t.BoundTask); err != nil {
 		return Token{}, err
 	}
 	t.Scope = Scope(scope)

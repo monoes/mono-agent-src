@@ -262,6 +262,7 @@ export function GetChatEvents(arg1:string,arg2:string,arg3:number,arg4:number):P
 
 export function GetChatTurns(arg1:string,arg2:string,arg3:number):Promise<string>;
 
+export function GetCoderSessionSettings(arg1:string):Promise<string>;
 export function GetConnectionsForPlatform(arg1:string):Promise<Array<connections.SafeConnection>>;
 
 export function GetDBPath():Promise<string>;
@@ -716,6 +717,7 @@ export function SetChatAccess(arg1:string,arg2:string,arg3:string,arg4:boolean):
 
 export function SetChatOrgMode(arg1:string,arg2:string):Promise<string>;
 
+export function SetCoderSessionSettings(arg1:string,arg2:string,arg3:string):Promise<string>;
 export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetOrgAutonomy(arg1:string,arg2:string):Promise<string>;

@@ -100,7 +100,8 @@ func (s *Server) scoped(tok agenttokens.Token, need agenttokens.Scope, h http.Ha
 		}
 	}()
 	if tok.Scope.Allows(need) {
-		h(sw, r.WithContext(context.WithValue(r.Context(), scopeCtxKey{}, tok.Scope)))
+		rctx := context.WithValue(r.Context(), scopeCtxKey{}, tok.Scope)
+		h(sw, r.WithContext(context.WithValue(rctx, tokenCtxKey{}, tok)))
 	} else {
 		writeError(sw, http.StatusForbidden, fmt.Sprintf("this token's scope (%s) does not allow this request (needs %s)", tok.Scope, need))
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/agentclient"
 	aitaskcli "github.com/monoes/mono-agent/internal/cli/aitask"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -17,5 +18,6 @@ func newAitaskCmd(cfg *globalConfig) *cobra.Command {
 		DBPath:          func() string { return cfg.DBPath },
 		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
 		RequireOperator: requireOperator,
+		API:             agentclient.FromEnv,
 	})
 }

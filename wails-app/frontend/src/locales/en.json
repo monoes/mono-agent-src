@@ -1283,7 +1283,65 @@
       "accessFailed": "Could not read this chat's access level, so it cannot be used yet.",
       "retryAccess": "Try again",
       "accessChanged": "Its access had already changed to {{level}}. Nothing was changed.",
-      "accessRefused": "The change was refused. Nothing was changed."
+      "accessRefused": "The change was refused. Nothing was changed.",
+      "session": {
+        "title": "Session",
+        "unattended": "Unattended",
+        "unattendedOn": "Unattended: on",
+        "unattendedOff": "Unattended: off",
+        "unattendedWhy": "On, the host may start turns for this chat on its own (scheduled check-ins) with nobody here, at the access level shown. A message you send runs either way.",
+        "checkins": "Check-ins",
+        "checkinEvery": "Check in every",
+        "checkinOff": "Off",
+        "checkinMinutes": "{{count}} min",
+        "skipUnchanged": "Skip when nothing changed",
+        "autonomy": "Autonomy",
+        "preset": "When it hits a gap",
+        "presetOptions": {
+          "ask-always": "Always ask me",
+          "ask-on-risk": "Ask me when it is risky",
+          "decide-and-log": "Decide and log"
+        },
+        "classes": "By kind of gap",
+        "inherit": "Follow the setting above",
+        "class": {
+          "ambiguity": "Unclear request",
+          "scope_growth": "Scope grows",
+          "risky_action": "Risky action",
+          "verification_failed": "Check failed",
+          "missing_credential": "Missing credential",
+          "child_conflict": "Sessions disagree"
+        },
+        "who": {
+          "user": "Ask me",
+          "master": "Master decides",
+          "model": "Model decides"
+        },
+        "fallback": {
+          "park": "Wait for an answer",
+          "take_default": "Take the default"
+        },
+        "limits": "Limits",
+        "maxChildren": "Max child sessions",
+        "maxConcurrent": "At once",
+        "depth": "Depth {{depth}}",
+        "mesh": "Mesh",
+        "meshVisible": "Visible to other agents",
+        "meshAlias": "Name",
+        "meshAccept": "Accepts messages from",
+        "accept": {
+          "none": "Nobody",
+          "project": "This project (any local process claiming it)",
+          "subtree": "Its master and children"
+        },
+        "loadFailed": "Could not read the session settings.",
+        "saveFailed": "Not saved: {{error}}",
+        "saved": "Saved.",
+        "checkinLimit": "Check-ins in a row",
+        "checkinLimitWhy": "After this many check-ins with no message from you, the master waits for one.",
+        "checkinWaiting_one": "Waiting for you: {{count}} check-in turn ran with no message from you. Write to this chat to let them continue.",
+        "checkinWaiting_other": "Waiting for you: {{count}} check-in turns ran with no message from you. Write to this chat to let them continue."
+      }
     }
   },
   "agentRow": {

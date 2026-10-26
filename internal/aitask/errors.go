@@ -26,6 +26,8 @@ const (
 	CodeNoBudget           = "no_budget"
 	CodeContextChanged     = "context_changed"
 	CodeCapsChanged        = "capabilities_changed"
+	CodeAccessRaised       = "access_above_kind"
+	CodeAccessUnenforced   = "access_unenforceable"
 )
 
 // Error is a refusal with a machine-readable code. Fields are added to the

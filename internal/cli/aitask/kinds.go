@@ -53,7 +53,19 @@ func (c *cli) kinds() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			list := []kindInfo{}
 			var lines []string
-			for _, k := range aitask.All() {
+			kinds := aitask.All()
+			if api := c.remote(); api != nil { // client mode: the daemon's registry
+				infos, err := api.Kinds(cmd.Context())
+				if err != nil {
+					return cliErr(err)
+				}
+				kinds = kinds[:0:0]
+				for _, i := range infos {
+					kinds = append(kinds, aitask.Kind{Name: i.Name, Description: i.Description, DefaultAccess: i.DefaultAccess,
+						UnattendedOK: i.UnattendedOK, Schema: i.Schema})
+				}
+			}
+			for _, k := range kinds {
 				info := describeKind(k)
 				list = append(list, info)
 				lines = append(lines, fmt.Sprintf("%-20s %-9s %s", info.Name, info.DefaultAccess, info.Description))

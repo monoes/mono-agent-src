@@ -29,7 +29,7 @@ func (a *App) chatBindingError(err error) string { return aiError(err) }
 // neither is an active turn with no recorded owner (a row predating
 // ownership), which falls back to "treat as mine".
 func isForeignActiveTurn(t ai.Turn, instanceID string) bool {
-	return t.Status == "active" && t.OwnerInstanceID != "" && t.OwnerInstanceID != instanceID
+	return t.Status == "active" && t.OwnerInstanceID != "" && t.OwnerInstanceID != instanceID && !isHostOwner(t.OwnerInstanceID)
 }
 
 // chatTurnListItem is one GetChatTurns response entry: the stored turn plus
@@ -90,6 +90,14 @@ func (a *App) StartChatTurn(conversationID, turnID, message string, tools, allow
 		return fmt.Sprintf(`{"ok":true,"turnId":%q,"status":"active"}`, turnID)
 	}
 	h.profileID = pid
+	if a.isCoderConversation(pid, conversationID) {
+		resp, err := a.chatSup.startHostTurn(h, message, attachments)
+		if err != nil {
+			a.chatSup.release(conversationID, turnID)
+			return a.chatBindingError(err)
+		}
+		return resp
+	}
 	resp, err := a.chatSup.startTurn(h, message, tools, allowRuns, attachments)
 	if err != nil {
 		a.chatSup.release(conversationID, turnID)
@@ -111,11 +119,17 @@ func (a *App) StopChatTurn(conversationID, turnID string) string {
 		return a.chatBindingError(fmt.Errorf("chat supervisor not initialized"))
 	}
 	if h := a.chatSup.lookup(conversationID, turnID); h != nil {
+		if h.host {
+			return a.stopHostTurn(conversationID)
+		}
 		h.requestStop()
 		return `{"ok":true}`
 	}
 	var rec ai.TurnRecord
 	if err := a.chatCLI(&rec, "chat", "history", "turn", conversationID, turnID); err == nil {
+		if rec.Status == "active" && isHostOwner(rec.OwnerInstanceID) {
+			return a.stopHostTurn(conversationID)
+		}
 		if isForeignActiveTurn(rec.Turn(), a.chatSup.instanceID) {
 			return `{"ok":false,"error":"this turn is running in another window and can only be stopped there"}`
 		}
@@ -205,9 +219,13 @@ func (a *App) GetChatTurns(conversationID, cursor string, limit int) string {
 		}
 		return a.chatBindingError(err)
 	}
+	hostPID, _ := a.profileID()
 	out := make([]chatTurnListItem, 0, len(page.Items))
 	for _, r := range page.Items {
 		t := r.Turn()
+		if t.Status == "active" && isHostOwner(t.OwnerInstanceID) {
+			a.chatSup.followHostTurn(hostPID, conversationID, t.ID, t.LastCommittedSeq)
+		}
 		out = append(out, chatTurnListItem{Turn: t, OwnedByThisInstance: !isForeignActiveTurn(t, a.chatSup.instanceID)})
 	}
 	b, _ := json.Marshal(map[string]any{"items": out, "nextCursor": page.NextCursor})

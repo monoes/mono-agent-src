@@ -19,19 +19,31 @@ type fakeLauncher struct {
 	readyErr  error
 	cwd       string
 	created   int
+	kind      string
+	access    string
 	detached  []string
 	tokens    []string
 	detachErr error
 	policy    string
 	confined  bool
 	budget    float64
+	// refuse, when set, is what Enforceable and CreateConversation answer.
+	refuse   error
+	attempts int
 }
+
+func (f *fakeLauncher) Enforceable(string, string) error { return f.refuse }
 
 func (f *fakeLauncher) Ready(context.Context) error                    { return f.readyErr }
 func (f *fakeLauncher) Confined(context.Context) bool                  { return f.confined }
 func (f *fakeLauncher) DefaultBudget(context.Context) (float64, error) { return f.budget, nil }
 func (f *fakeLauncher) Policy(context.Context) (string, error)         { return f.policy, nil }
-func (f *fakeLauncher) CreateConversation(context.Context, string) (Conversation, error) {
+func (f *fakeLauncher) CreateConversation(_ context.Context, _, kind, access string) (Conversation, error) {
+	f.attempts++
+	if f.refuse != nil {
+		return Conversation{}, f.refuse
+	}
+	f.kind, f.access = kind, access
 	f.created++
 	return Conversation{ID: "conv-1", Cwd: f.cwd, Runtime: "claude"}, nil
 }
@@ -676,4 +688,105 @@ func TestUnknownKindListsDescriptions(t *testing.T) {
 	if d["test-desc"] != "says what it does" {
 		t.Fatalf("%v", d)
 	}
+}
+
+// A submit may lower a kind's access but never raise it above the kind's
+// ceiling, and the launcher is handed the level the task has.
+func TestSubmitAccessCeilingAndLauncherLevel(t *testing.T) {
+	svc, l := newService(t)
+	cases := []struct{ kind, access, wantCode, wantLevel string }{
+		{"generic", "workspace", "", "workspace"},
+		{"generic", "qa", "", "qa"},
+		{"generic", "", "", "coding"},
+		{"draft-reply", "coding", CodeAccessRaised, ""},
+		{"draft-reply", "workspace", CodeAccessRaised, ""},
+		{"draft-reply", "", "", "qa"},
+		{"extension-ask", "coding", CodeAccessRaised, ""},
+		{"extension-fill", "coding", "", "coding"},
+		{"extension-fill", "workspace", "", "workspace"},
+	}
+	for _, c := range cases {
+		before := l.created
+		_, err := svc.Submit(context.Background(), SubmitInput{Kind: c.kind, Goal: "g", Access: c.access, QueueOnly: true})
+		if code(err) != c.wantCode {
+			t.Fatalf("%s/%q: err = %v, want code %q", c.kind, c.access, err, c.wantCode)
+		}
+		if c.wantCode != "" {
+			if l.created != before {
+				t.Fatalf("%s/%q: a refused submit still made a conversation", c.kind, c.access)
+			}
+			continue
+		}
+		if l.kind != c.kind || l.access != c.wantLevel {
+			t.Fatalf("%s/%q: launcher got %s/%s, want level %s", c.kind, c.access, l.kind, l.access, c.wantLevel)
+		}
+	}
+}
+
+// Unattended full access stays refused whatever the ceiling says.
+func TestUnattendedFullAccessStillRefused(t *testing.T) {
+	svc, _ := newService(t)
+	_, err := svc.Submit(context.Background(), SubmitInput{Kind: "generic", Goal: "g", Access: "workspace", Unattended: true, QueueOnly: true})
+	if code(err) != CodeUnattendedFull {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A launcher refusal at submit leaves nothing behind: no task row, no context
+// folder, and the conversation is not made.
+func TestSubmitRefusedByLauncherLeavesNothing(t *testing.T) {
+	svc, l := newService(t)
+	l.refuse = &Error{Code: CodeAccessUnenforced, Message: "no"}
+	_, err := svc.Submit(context.Background(), SubmitInput{Kind: "generic", Goal: "g", Access: "qa", QueueOnly: true})
+	if code(err) != CodeAccessUnenforced {
+		t.Fatalf("err = %v", err)
+	}
+	if l.attempts != 1 || l.created != 0 || count(t, svc) != 0 {
+		t.Fatalf("attempts=%d created=%d tasks=%d", l.attempts, l.created, count(t, svc))
+	}
+	if _, statErr := os.Stat(filepath.Join(l.cwd, filepath.FromSlash(ContextDir))); statErr == nil {
+		t.Fatal("a refused submit wrote a context folder")
+	}
+}
+
+// A queued task whose kind can no longer be held to its level is refused at
+// start (the kind left the confined set after submit).
+func TestStartRechecksThatTheAccessCanBeEnforced(t *testing.T) {
+	s, l := newService(t)
+	task, _ := queued(t, s, l)
+	l.refuse = &Error{Code: CodeAccessUnenforced, Message: "no longer confined"}
+	if _, err := s.Start(context.Background(), task.ID); code(err) != CodeAccessUnenforced || len(l.detached) != 0 {
+		t.Fatalf("err = %v, detached %v", err, l.detached)
+	}
+}
+
+func TestCapsHashFollowsTheKindCeiling(t *testing.T) {
+	task := Task{Kind: "generic", Access: AccessCoding}
+	a := Kind{Name: "generic", DefaultAccess: AccessCoding, MaxAccess: AccessCoding}
+	b := a
+	b.MaxAccess = AccessWorkspace
+	if CapsHash(task, a, "") == CapsHash(task, b, "") {
+		t.Fatal("a different MaxAccess gave the same capabilities hash")
+	}
+}
+
+func TestKindCeilingAndRegisterGuards(t *testing.T) {
+	for _, c := range []struct {
+		k    Kind
+		want string
+	}{
+		{Kind{MaxAccess: AccessWorkspace, DefaultAccess: AccessQA}, AccessWorkspace},
+		{Kind{DefaultAccess: AccessQA}, AccessQA},
+		{Kind{}, AccessCoding},
+	} {
+		if got := c.k.Ceiling(); got != c.want {
+			t.Errorf("%+v ceiling = %s, want %s", c.k, got, c.want)
+		}
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a kind whose max is below its default registered")
+		}
+	}()
+	Register(Kind{Name: "ceiling-below-default", DefaultAccess: AccessWorkspace, MaxAccess: AccessQA})
 }

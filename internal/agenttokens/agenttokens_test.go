@@ -233,6 +233,41 @@ func TestAuditPruneIsPerToken(t *testing.T) {
 	}
 }
 
+func TestBoundTokenCarriesItsBindingAndNeverRun(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	b := Binding{TaskID: "at-1", ConversationID: "conv-1"}
+	tok, secret, err := s.CreateBound(ctx, "default", "turn", ScopeWrite, time.Hour, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Verify(ctx, secret)
+	if err != nil || !got.Bound() || !got.BoundTo("at-1", "conv-1") || got.ID != tok.ID {
+		t.Fatalf("verify: %+v err %v", got, err)
+	}
+	if got.BoundTo("at-2", "conv-1") || got.BoundTo("at-1", "conv-2") || got.BoundTo("", "") {
+		t.Errorf("binding matched something else: %+v", got)
+	}
+	// Half a binding, and a scope a task has no business with, are refused.
+	for _, c := range []struct {
+		b  Binding
+		sc Scope
+	}{
+		{Binding{TaskID: "at-1"}, ScopeRead}, {Binding{ConversationID: "c"}, ScopeRead}, {b, ScopeRun},
+	} {
+		if _, _, err := s.CreateBound(ctx, "default", "x", c.sc, time.Hour, c.b); !errors.Is(err, ErrBinding) {
+			t.Errorf("%+v %s: err %v, want ErrBinding", c.b, c.sc, err)
+		}
+	}
+	plain, psecret, _ := s.Create(ctx, "default", "plain", ScopeRead, time.Hour)
+	if plain.Bound() {
+		t.Error("an unbound token reports a binding")
+	}
+	if g, _ := s.Verify(ctx, psecret); g.BoundTo("at-1", "conv-1") {
+		t.Error("an unbound token matched a task")
+	}
+}
+
 func auditCountOf(t *testing.T, s *Store, tok Token, refused bool) int {
 	t.Helper()
 	q := `SELECT COUNT(*) FROM agent_token_audit WHERE token_id = ? AND status IN (401, 403)`

@@ -231,6 +231,19 @@ func (s *Store) SetHolder(id string, pid int) error {
 // one that runs the task's turn or inside it (ProcessWithin) once that process
 // is recorded. A task with no token (never started) accepts none.
 func (s *Store) CheckToken(id, token string) bool {
+	return s.checkToken(id, token, true)
+}
+
+// CheckTokenRemote is CheckToken for a caller that is not a process of this
+// machine's tree: the daemon API, where the request arrives from a process the
+// task runs in but that the daemon cannot place in the task's process tree.
+// The hash is checked as for CheckToken; the process-tree check is not made,
+// and the API route requires an agent token bound to this task in its place.
+func (s *Store) CheckTokenRemote(id, token string) bool {
+	return s.checkToken(id, token, false)
+}
+
+func (s *Store) checkToken(id, token string, local bool) bool {
 	var stored, conv string
 	var pid int
 	if err := s.DB.QueryRow(`SELECT token_hash, conversation_id, holder_pid FROM ai_tasks WHERE id = ? AND profile_id = ?`,
@@ -243,7 +256,7 @@ func (s *Store) CheckToken(id, token string) bool {
 	if subtle.ConstantTimeCompare([]byte(stored), []byte(HashToken(s.Profile, id, conv, token))) != 1 {
 		return false
 	}
-	return pid == 0 || ProcessWithin(pid)
+	return !local || pid == 0 || ProcessWithin(pid)
 }
 
 // OpenForConversation returns the profile's task on conversation convID that

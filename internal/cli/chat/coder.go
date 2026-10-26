@@ -299,7 +299,7 @@ func newCoderCmd(cfg *Deps) *cobra.Command {
 			"`coder queue add` for the app's Start.",
 	}
 	cmd.AddCommand(newCoderStatusCmd(cfg), newCoderEnableCmd(cfg), newCoderDisableCmd(cfg), newCoderSetCmd(cfg), newCoderWorkspaceCmd(cfg), newCoderStopBackgroundCmd(cfg),
-		newCoderQueueCmd(cfg), newCoderProjectsCmd(cfg), newCoderListCmd(cfg))
+		newCoderQueueCmd(cfg), newCoderProjectsCmd(cfg), newCoderListCmd(cfg), newCoderHostCmd(cfg), newCoderSessionsCmd(cfg))
 	return cmd
 }
 

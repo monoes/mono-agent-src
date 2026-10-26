@@ -9,6 +9,7 @@ import { getAssistantTools, getAssistantAllowRuns } from '../../lib/assistantToo
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { money } from '../settings/aitaskBudgetApi.js'
 import { CapLower } from './PaneCapLower.jsx'
+import { SessionSettings } from './SessionSettings.jsx'
 import { useBrowserLevel, useCostVsCap } from './useChatPaneData.js'
 
 const mono = 'var(--font-mono)'
@@ -173,6 +174,7 @@ export function PaneSettings({ bubble, access, store, confined, onNavigate, onCl
         <button type="button" className="btn btn-ghost btn-sm" style={linkBtn} onClick={toSettings}>{t('bubbles.pane.browserLink', { kind: browserKind })}</button>
       </div>
       {coder && !confined && <OrgRow bubble={bubble} store={store} />}
+      {coder && !confined && bubble.conversationId && <SessionSettings conversationId={bubble.conversationId} access={access} />}
       {access === 'scoped' && (
         <div style={row} data-testid="pane-tools">
           <span style={label}>{t('bubbles.pane.tools')}</span>

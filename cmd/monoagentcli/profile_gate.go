@@ -86,6 +86,9 @@ func readOnlyURI(path string) string {
 // gate's message. Best effort: it never creates or migrates a database, and
 // any failure means no list.
 func listProfilesReadOnly(dbPath string) ([]profilegate.ProfileRef, error) {
+	if inClientMode() { // not even to read it (client_mode.go)
+		return nil, errClientModeDB
+	}
 	path := expandPath(dbPath)
 	if _, err := os.Stat(path); err != nil {
 		return nil, err

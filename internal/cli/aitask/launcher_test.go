@@ -2,6 +2,7 @@ package aitask
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/aitask"
+	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	"github.com/monoes/mono-agent/internal/operator"
 )
 
@@ -51,7 +53,7 @@ func runningTask(t *testing.T, d *Deps) (*aitask.Service, func(), aitask.Task) {
 func TestCreateConversationReadsChatHistoryCreate(t *testing.T) {
 	log := fakeSelf(t, "exit 0")
 	d := deps(t, nil)
-	conv, err := (selfLauncher{d}).CreateConversation(context.Background(), "codex")
+	conv, err := (selfLauncher{d}).CreateConversation(context.Background(), "codex", "draft-reply", "qa")
 	if err != nil || conv.ID != "conv-7" || conv.Runtime != "claude" || conv.Cwd == "" {
 		t.Fatalf("%+v %v", conv, err)
 	}
@@ -153,7 +155,7 @@ func TestCreateConversationChildCarriesNoOperatorMarker(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	d := deps(t, nil)
-	if _, err := (selfLauncher{d}).CreateConversation(context.Background(), ""); err != nil {
+	if _, err := (selfLauncher{d}).CreateConversation(context.Background(), "", "draft-reply", "qa"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(log + ".env")
@@ -166,5 +168,83 @@ func TestCreateConversationChildCarriesNoOperatorMarker(t *testing.T) {
 				t.Errorf("the child carries %s=%s, so `chat history create` would be refused as not the operator's", k, v)
 			}
 		}
+	}
+}
+
+// Each level a task can ask for becomes a real conversation level; a confined
+// kind keeps the coder conversation (its turns are narrowed to its own profile),
+// and qa on any other kind is refused with no conversation made.
+func TestCreateConversationAppliesTheTaskAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, access, want, refuse string
+	}{
+		{"coding", "generic", "coding", "chat history create --access coding --profile-folder", ""},
+		{"workspace", "generic", "workspace", "chat history create --access workspace --profile-folder", ""},
+		{"qa generic is refused", "generic", "qa", "", "access_unenforceable"},
+		{"empty access is refused", "generic", "", "", "access_unenforceable"},
+		{"confined qa unchanged", "draft-reply", "qa", "chat history create --mode coder --profile-folder", ""},
+		{"confined workspace unchanged", "workflow-generate", "workspace", "chat history create --mode coder --profile-folder", ""},
+		{"apply unchanged", "application-apply", "coding", "chat history create --mode coder --profile-folder", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			log := fakeSelf(t, "exit 0")
+			_, err := (selfLauncher{deps(t, nil)}).CreateConversation(context.Background(), "", tc.kind, tc.access)
+			b, _ := os.ReadFile(log)
+			if tc.refuse != "" {
+				var ae *aitask.Error
+				if !errors.As(err, &ae) || ae.Code != tc.refuse {
+					t.Fatalf("err = %v, want %s", err, tc.refuse)
+				}
+				if len(b) != 0 {
+					t.Fatalf("a refused task still ran the CLI: %s", b)
+				}
+				return
+			}
+			if err != nil || !strings.Contains(string(b), tc.want) {
+				t.Fatalf("err = %v, argv = %s, want %q", err, b, tc.want)
+			}
+		})
+	}
+}
+
+// The bound that matters: over every kind and level, a conversation with a
+// shell (anything but the confined mode) is never made for qa. Dropping the
+// switch's refusal (or the confined-kind test) fails this for every pair.
+func TestNoUnconfinedQAConversationForAnyKind(t *testing.T) {
+	made := 0
+	for _, k := range aitask.All() {
+		for _, a := range []string{aitask.AccessQA, ""} {
+			args, err := conversationLevel(k.Name, a)
+			if err == nil {
+				made++
+				if !chatcli.ConfinedKind(k.Name) {
+					t.Errorf("kind %s at %q got a conversation (%v) without being confined", k.Name, a, args)
+				}
+			}
+		}
+	}
+	if made == 0 {
+		t.Fatal("no confined kind is registered here: the test checked nothing")
+	}
+}
+
+// The refusal only suggests levels the kind allows, and Enforceable agrees
+// with the creation rule (start uses it).
+func TestEnforceableAndRefusalMessage(t *testing.T) {
+	l := selfLauncher{deps(t, nil)}
+	if err := l.Enforceable("generic", "qa"); err == nil {
+		t.Fatal("generic at qa is enforceable")
+	}
+	if err := l.Enforceable("draft-reply", "qa"); err != nil {
+		t.Fatal(err)
+	}
+	err := l.Enforceable("generic", "qa")
+	if !strings.Contains(err.Error(), "coding or workspace") {
+		t.Fatalf("message = %v", err)
+	}
+	aitask.Register(aitask.Kind{Name: "qa-only-test", DefaultAccess: aitask.AccessQA})
+	err = l.Enforceable("qa-only-test", "qa")
+	if err == nil || strings.Contains(err.Error(), "--access coding") {
+		t.Fatalf("a qa-ceiling kind was told to raise: %v", err)
 	}
 }

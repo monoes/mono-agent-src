@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -297,5 +298,44 @@ func TestRevokeDropsTheReservedVaultEntry(t *testing.T) {
 	}
 	if n := vaultNames(t, p); len(n) != 0 {
 		t.Errorf("vault after revoke: %v", n)
+	}
+}
+
+func TestCreateBindsATokenToAnExistingTaskOfTheConversation(t *testing.T) {
+	p := newDB(t)
+	db, err := storage.NewDatabase(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := &aitask.Store{DB: db.DB, Profile: "default"}
+	if _, err := tasks.Insert(aitask.Task{ID: "at-1", Kind: "generic", ConversationID: "conv-1", Status: aitask.StatusRunning}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"task only", []string{"--task", "at-1"}},
+		{"conversation only", []string{"--conversation", "conv-1"}},
+		{"no such task", []string{"--task", "at-9", "--conversation", "conv-1"}},
+		{"other conversation", []string{"--task", "at-1", "--conversation", "conv-2"}},
+		{"run scope", []string{"--task", "at-1", "--conversation", "conv-1", "--scope", "run"}},
+	} {
+		args := append([]string{"token", "create", "--name", "bad", "--scope", "write"}, c.args...)
+		if _, _, err := run(t, p, "", args...); err == nil {
+			t.Errorf("%s: a bad binding was issued", c.name)
+		}
+	}
+	out, errOut, err := run(t, p, "", "token", "create", "--name", "turn", "--scope", "write", "--task", "at-1", "--conversation", "conv-1")
+	if err != nil {
+		t.Fatal(err, errOut)
+	}
+	st, closeDB := storeOf(t, p)
+	defer closeDB()
+	tok, err := st.Verify(context.Background(), strings.TrimSpace(out))
+	if err != nil || !tok.BoundTo("at-1", "conv-1") {
+		t.Fatalf("%+v %v", tok, err)
 	}
 }

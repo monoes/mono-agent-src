@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
@@ -88,7 +89,7 @@ func (d Deps) tokenErr(err error) error {
 	switch {
 	case errors.Is(err, agenttokens.ErrNotFound):
 		return d.NotFound("%v", err)
-	case errors.Is(err, agenttokens.ErrNameTaken), errors.Is(err, agenttokens.ErrInvalidName):
+	case errors.Is(err, agenttokens.ErrNameTaken), errors.Is(err, agenttokens.ErrInvalidName), errors.Is(err, agenttokens.ErrBinding):
 		return d.InvalidInput("%v", err)
 	}
 	return err
@@ -119,12 +120,14 @@ type createdToken struct {
 }
 
 func (d Deps) newTokenCreateCmd() *cobra.Command {
-	var name, scope, expires string
+	var name, scope, expires, taskID, conversationID string
 	cmd := &cobra.Command{
-		Use:   "create --name <name> --scope read|write|run [--expires 24h|7d|never]",
+		Use:   "create --name <name> --scope read|write|run [--expires 24h|7d|never] [--task ID --conversation ID]",
 		Short: "Create a scoped token for the profile named by --profile (shown once)",
 		Long: "Creates a token for the HTTP API and prints it once. Without --json stdout is the token alone and the notes " +
-			"go to stderr. Hand it to an agent with `agent-mode env --token <name>`. " + clicore.OperatorOnlyHelp,
+			"go to stderr. Hand it to an agent with `agent-mode env --token <name>`. --task and --conversation (both, scope read or " +
+			"write) bind the token to one AI task and the conversation that runs it: the agent API routes of that task accept it " +
+			"and no other task's. " + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli --profile work agent-mode token create --name reviewer --scope read --expires 24h",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -139,8 +142,21 @@ func (d Deps) newTokenCreateCmd() *cobra.Command {
 			if err != nil {
 				return d.InvalidInput("%v", err)
 			}
+			if (taskID == "") != (conversationID == "") {
+				return d.InvalidInput("--task and --conversation go together")
+			}
 			return d.withTokens(cmd, func(ctx context.Context, h *dbHandle, profileID string) error {
-				tok, secret, err := h.Store.Create(ctx, profileID, name, sc, ttl)
+				bind := agenttokens.Binding{TaskID: taskID, ConversationID: conversationID}
+				if taskID != "" {
+					t, err := (&aitask.Store{DB: h.DB, Profile: profileID}).Get(taskID)
+					if err != nil {
+						return d.NotFound("%v", err)
+					}
+					if t.ConversationID != conversationID {
+						return d.InvalidInput("task %s does not run in conversation %s", taskID, conversationID)
+					}
+				}
+				tok, secret, err := h.Store.CreateBound(ctx, profileID, name, sc, ttl, bind)
 				if err != nil {
 					return d.tokenErr(err)
 				}
@@ -169,6 +185,8 @@ func (d Deps) newTokenCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Token name: 1-64 characters, unique among the profile's unrevoked tokens")
 	cmd.Flags().StringVar(&scope, "scope", "", "What the token may do: read, write or run")
 	cmd.Flags().StringVar(&expires, "expires", defaultExpiry.String(), "How long it lasts: a duration (24h), days (7d) or never")
+	cmd.Flags().StringVar(&taskID, "task", "", "Bind the token to this AI task (with --conversation)")
+	cmd.Flags().StringVar(&conversationID, "conversation", "", "The conversation that runs the task (with --task)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("scope")
 	return cmd

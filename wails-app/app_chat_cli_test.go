@@ -61,6 +61,19 @@ func readArgsLog(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimSpace(string(raw)), "\n")
 }
 
+// withoutCoderProbe drops the `chat history show` StartChatTurn makes first to
+// learn whether the conversation is a coder one (the host's) or a scoped chat;
+// the tests that use it are about what follows.
+func withoutCoderProbe(calls []string) []string {
+	var out []string
+	for _, l := range calls {
+		if !strings.Contains(l, "chat history show") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 // newCLIChatApp builds an App whose chat supervisor runs real processes
 // against bin.
 func newCLIChatApp(t *testing.T, bin string) (*App, *collectingEmitter) {
@@ -119,7 +132,7 @@ func TestApp_StartChatTurn_RunsTheCLITurnAndRelaysItsEvents(t *testing.T) {
 	if n := len(emitter.snapshot()); n != 3 {
 		t.Errorf("emitted %d events, want 3", n)
 	}
-	got := readArgsLog(t, argsLog)
+	got := withoutCoderProbe(readArgsLog(t, argsLog))
 	want := "--profile work --json chat --conversation conv-1 --turn turn-1 --instance " + a.chatSup.instanceID + " --tools monoagent,runs -- hello world"
 	if len(got) != 1 || got[0] != want {
 		t.Errorf("CLI calls = %q\nwant one: %q (a turn that finished itself needs no finish call)", got, want)
@@ -158,7 +171,7 @@ func TestApp_StartChatTurn_BusyAndDuplicateResponsesIncludeTurnID_ThenStop(t *te
 		t.Errorf("turn.finished after Stop = %+v seq %d", p, finished[0].Seq)
 	}
 	waitReleased(t, a.chatSup, "conv-1", "turn-1")
-	calls := readArgsLog(t, argsLog)
+	calls := withoutCoderProbe(readArgsLog(t, argsLog))
 	if len(calls) != 2 || calls[1] != "--profile default --json chat history finish conv-1 turn-1 --status cancelled --reason stopped" {
 		t.Errorf("CLI calls = %q, want the turn then its cancelled finish", calls)
 	}
@@ -266,7 +279,7 @@ func TestApp_TurnProcessDyingUnfinished_IsFinishedThroughTheCLI(t *testing.T) {
 				t.Errorf("status = %s, want %s", p.Status, tc.wantStatus)
 			}
 			waitReleased(t, a.chatSup, "conv-1", "turn-1")
-			calls := readArgsLog(t, argsLog)
+			calls := withoutCoderProbe(readArgsLog(t, argsLog))
 			want := "--profile default --json chat history finish conv-1 turn-1 " + tc.wantArgs
 			if len(calls) != 2 || calls[1] != want {
 				t.Errorf("finish call = %q\nwant %q", calls, want)

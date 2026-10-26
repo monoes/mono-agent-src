@@ -1241,7 +1241,65 @@
       "accessFailed": "No se pudo leer el nivel de acceso de este chat, así que aún no se puede usar.",
       "retryAccess": "Reintentar",
       "accessChanged": "Su acceso ya había cambiado a {{level}}. No se cambió nada.",
-      "accessRefused": "Se rechazó el cambio. No se cambió nada."
+      "accessRefused": "Se rechazó el cambio. No se cambió nada.",
+      "session": {
+        "title": "Sesión",
+        "unattended": "Desatendida",
+        "unattendedOn": "Desatendida: sí",
+        "unattendedOff": "Desatendida: no",
+        "unattendedWhy": "Si está activada, el host puede iniciar turnos de este chat por sí mismo (revisiones programadas) sin nadie aquí, con el nivel de acceso indicado. Un mensaje tuyo se ejecuta en cualquier caso.",
+        "checkins": "Revisiones",
+        "checkinEvery": "Revisar cada",
+        "checkinOff": "No",
+        "checkinMinutes": "{{count}} min",
+        "skipUnchanged": "Omitir si nada cambió",
+        "autonomy": "Autonomía",
+        "preset": "Ante un hueco",
+        "presetOptions": {
+          "ask-always": "Preguntarme siempre",
+          "ask-on-risk": "Preguntarme si hay riesgo",
+          "decide-and-log": "Decidir y registrar"
+        },
+        "classes": "Por tipo de hueco",
+        "inherit": "Seguir el ajuste de arriba",
+        "class": {
+          "ambiguity": "Petición poco clara",
+          "scope_growth": "El alcance crece",
+          "risky_action": "Acción arriesgada",
+          "verification_failed": "Falló una comprobación",
+          "missing_credential": "Falta una credencial",
+          "child_conflict": "Las sesiones discrepan"
+        },
+        "who": {
+          "user": "Preguntarme",
+          "master": "Decide el principal",
+          "model": "Decide el modelo"
+        },
+        "fallback": {
+          "park": "Esperar respuesta",
+          "take_default": "Usar el valor por defecto"
+        },
+        "limits": "Límites",
+        "maxChildren": "Máx. sesiones hijas",
+        "maxConcurrent": "A la vez",
+        "depth": "Profundidad {{depth}}",
+        "mesh": "Mesh",
+        "meshVisible": "Visible para otros agentes",
+        "meshAlias": "Nombre",
+        "meshAccept": "Acepta mensajes de",
+        "accept": {
+          "none": "Nadie",
+          "project": "Este proyecto (cualquier proceso local que lo declare)",
+          "subtree": "Su principal y sus hijas"
+        },
+        "loadFailed": "No se pudieron leer los ajustes de la sesión.",
+        "saveFailed": "No se guardó: {{error}}",
+        "saved": "Guardado.",
+        "checkinLimit": "Revisiones seguidas",
+        "checkinLimitWhy": "Tras tantas revisiones sin un mensaje tuyo, el principal espera uno.",
+        "checkinWaiting_one": "Esperando por ti: se hizo {{count}} turno de revisión sin un mensaje tuyo. Escribe en este chat para que continúen.",
+        "checkinWaiting_other": "Esperando por ti: se hicieron {{count}} turnos de revisión sin un mensaje tuyo. Escribe en este chat para que continúen."
+      }
     }
   },
   "agentRow": {

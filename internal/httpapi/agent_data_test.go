@@ -153,7 +153,7 @@ func TestEveryRouteIsClassified(t *testing.T) {
 		case method != "GET" && rc.Need == agenttokens.ScopeRead:
 			t.Errorf("%s changes things and is open to a read token", rc.Pattern)
 		}
-		if !matrixCovers(rc.Pattern) {
+		if !rc.Task && !matrixCovers(rc.Pattern) {
 			t.Errorf("%s is not in scopeRoutes: the scope matrix does not try it", rc.Pattern)
 		}
 	}

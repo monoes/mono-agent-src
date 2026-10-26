@@ -258,6 +258,10 @@ export const api = {
     GoApp.AnswerAgentQuestion(conversationID, turnID, agentID, questionID, text).then(parseStreamResult),
   setChatOrgMode: (conversationID, mode) =>
     GoApp.SetChatOrgMode(conversationID, mode).then(parseStreamResult),
+  getCoderSessionSettings: (conversationID) =>
+    GoApp.GetCoderSessionSettings(conversationID).then(parseStreamResult),
+  setCoderSessionSettings: (conversationID, patch, unattended = '') =>
+    GoApp.SetCoderSessionSettings(conversationID, patch ? JSON.stringify(patch) : '', unattended).then(parseStreamResult),
   coderStopBackground: (conversationID, turnID) =>
     GoApp.CoderStopBackground(conversationID, turnID).then(parseStreamResult),
   // The active profile's own folder, set up for the runtime: {path, profile:{id,name}, source, init}.

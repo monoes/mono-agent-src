@@ -63,7 +63,7 @@ func HashDir(root string) (string, error) {
 func CapsHash(t Task, k Kind, policy string) string {
 	schema, _ := json.Marshal(k.Schema)
 	doc, _ := json.Marshal([]any{t.Kind, t.Access, t.Runtime, t.Unattended, t.BudgetUSD, FullAccess(t.Access), k.UnattendedOK,
-		k.DefaultAccess, k.PromptTemplate, string(schema), policy})
+		k.DefaultAccess, k.Ceiling(), k.PromptTemplate, string(schema), policy})
 	sum := sha256.Sum256(doc)
 	return hex.EncodeToString(sum[:])
 }

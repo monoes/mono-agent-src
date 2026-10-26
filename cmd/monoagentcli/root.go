@@ -58,14 +58,17 @@ func buildRootCmd(installProvider bool) *cobra.Command {
 			// The way in (the root's help, help, version and the open commands of the
 			// account gate) reads no action and does no first-run work, and neither
 			// does a serving command while the account is locked.
-			open := !cmd.HasParent() || commandClass(cmd) == classOpen || !needsAutomations(cmd)
+			// Client mode (client_mode.go) does none of the first-run work: it touches nothing local.
+			open := !cmd.HasParent() || commandClass(cmd) == classOpen || !needsAutomations(cmd) || inClientMode()
 			// Best-effort: install Claude Code skill on first run if Claude is detected.
 			if !open && account.Require(cmd.Context()) == nil {
 				runClaudeFirstRunCheck()
 			}
 			// Put monoagent's managed Node on PATH for every child process
 			// (monomind, npm, agent CLIs). One stat when none is installed.
-			nodemgr.Activate(cmd.Context())
+			if !inClientMode() {
+				nodemgr.Activate(cmd.Context())
+			}
 			// Installed automation packages, before anything reads actions.
 			if !open {
 				bootAutomationsFor(cmd)
@@ -226,6 +229,9 @@ func expandPath(path string) string { return clicore.ExpandPath(path) }
 // initDB creates and returns a database connection, applying migrations.
 // It also resolves cfg.ProfileID from --profile (id or name); without the flag it stays empty.
 func initDB(cfg *globalConfig) (*storage.Database, error) {
+	if inClientMode() { // client mode never opens the local database (client_mode.go)
+		return nil, errClientModeDB
+	}
 	dbPath := expandPath(cfg.DBPath)
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		return nil, err

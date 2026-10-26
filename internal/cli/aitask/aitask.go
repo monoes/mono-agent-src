@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/agentclient"
 	"github.com/monoes/mono-agent/internal/aitask"
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -33,6 +34,10 @@ type Deps struct {
 	RequireOperator func(what string) error
 	// Launcher builds the conversation and turn launcher; nil runs this binary.
 	Launcher func() aitask.Launcher
+	// API is the agent API client in client mode (MONOAGENT_API_URL and MONOAGENT_API_TOKEN set), else nil.
+	// With a client, kinds, status, result, complete, fail and cancel go through it and never open the
+	// database; the root refuses every other command before it runs.
+	API func() *agentclient.Client
 }
 
 // New is `monoagentcli aitask`.
@@ -58,6 +63,23 @@ func New(d Deps) *cobra.Command {
 }
 
 type cli struct{ d *Deps }
+
+// remote is the agent API client when this process is in client mode, else nil.
+func (c *cli) remote() *agentclient.Client {
+	if c.d.API == nil {
+		return nil
+	}
+	return c.d.API()
+}
+
+// remoteTask runs op against the agent API and prints the task it returns.
+func (c *cli) remoteTask(cmd *cobra.Command, api *agentclient.Client, op func(*agentclient.Client) (aitask.Task, error)) error {
+	t, err := op(api)
+	if err != nil {
+		return cliErr(err)
+	}
+	return c.print(cmd, t, human(t))
+}
 
 // open returns the service for the profile; closeDB must be called.
 func (c *cli) open() (*aitask.Service, func(), error) {
@@ -238,6 +260,17 @@ func (c *cli) readTask(use, short string, resultOnly bool) *cobra.Command {
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if api := c.remote(); api != nil {
+				if resultOnly {
+					r, err := api.Result(cmd.Context(), args[0])
+					if err != nil {
+						return cliErr(err)
+					}
+					return c.print(cmd, map[string]any{"taskId": r.TaskID, "status": r.Status, "result": r.Result, "error": r.Error},
+						human(aitask.Task{ID: r.TaskID, Status: r.Status, Result: r.Result, Error: r.Error}))
+				}
+				return c.remoteTask(cmd, api, func(a *agentclient.Client) (aitask.Task, error) { return a.Task(cmd.Context(), args[0]) })
+			}
 			svc, closeDB, err := c.open()
 			if err != nil {
 				return err
@@ -299,6 +332,11 @@ func (c *cli) cancel() *cobra.Command {
 		Short: "Stop a task that is not over",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if api := c.remote(); api != nil {
+				return c.remoteTask(cmd, api, func(a *agentclient.Client) (aitask.Task, error) {
+					return a.Cancel(cmd.Context(), args[0], os.Getenv(aitask.EnvToken))
+				})
+			}
 			svc, closeDB, err := c.open()
 			if err != nil {
 				return err
@@ -474,13 +512,28 @@ func (c *cli) complete() *cobra.Command {
 				}
 				b = []byte(resultJSON)
 			} else {
-				path, err := c.resultPathAllowed(args[0], resultFile)
-				if err != nil {
-					return err
+				path := resultFile
+				if c.remote() != nil {
+					// Client mode cannot look the task up to tell whether it is confined, so a file is
+					// refused (a confined agent must not probe the user's files): stdin and --result-json work.
+					if path != "-" {
+						return clicore.InvalidInput("in agent mode hand the result back with --result-json JSON or --result - (stdin)")
+					}
+				} else {
+					var err error
+					if path, err = c.resultPathAllowed(args[0], resultFile); err != nil {
+						return err
+					}
 				}
+				var err error
 				if b, err = readResultFile(cmd, path); err != nil {
 					return err
 				}
+			}
+			if api := c.remote(); api != nil {
+				return c.remoteTask(cmd, api, func(a *agentclient.Client) (aitask.Task, error) {
+					return a.Complete(cmd.Context(), args[0], os.Getenv(aitask.EnvToken), b)
+				})
 			}
 			return c.withTask(cmd, args[0], func(svc *aitask.Service) (aitask.Task, error) {
 				return svc.Complete(args[0], os.Getenv(aitask.EnvToken), b)
@@ -499,6 +552,11 @@ func (c *cli) fail() *cobra.Command {
 		Short: "Say a task can't be done (only the task's own session)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if api := c.remote(); api != nil {
+				return c.remoteTask(cmd, api, func(a *agentclient.Client) (aitask.Task, error) {
+					return a.Fail(cmd.Context(), args[0], os.Getenv(aitask.EnvToken), reason)
+				})
+			}
 			return c.withTask(cmd, args[0], func(svc *aitask.Service) (aitask.Task, error) {
 				return svc.Fail(args[0], os.Getenv(aitask.EnvToken), reason)
 			})

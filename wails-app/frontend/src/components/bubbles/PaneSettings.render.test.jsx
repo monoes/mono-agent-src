@@ -15,6 +15,7 @@ const { api, chatAccess, budget, mockConfirm } = vi.hoisted(() => ({
     getChatTurns: vi.fn(), getChatEvents: vi.fn(), startChatTurn: vi.fn(), stopChatTurn: vi.fn(), coderStatus: vi.fn(),
     coderWorkspaceList: vi.fn(), getAgentRuntimeModels: vi.fn(), getProfiles: vi.fn(), listChatConversations: vi.fn(),
     browserPermissions: vi.fn(), setChatOrgMode: vi.fn(), getActiveProfile: vi.fn(),
+    getCoderSessionSettings: vi.fn(), setCoderSessionSettings: vi.fn(),
   },
 }))
 vi.mock('../../services/api.js', () => ({
@@ -44,6 +45,11 @@ const open = async (conv, task) => {
   render(<Harness conv={conv} task={task} />)
   await waitFor(() => expect(overlay()).toBeInTheDocument())
 }
+const sessionView = {
+  conversationId: 'k1', role: 'solo', unattended: true, access: 'coding', operatorOnly: [],
+  allowed: { autonomy_preset: ['ask-always', 'ask-on-risk', 'decide-and-log'], gap_classes: ['ambiguity'], mesh_accept: ['none', 'project', 'subtree'] },
+  settings: { checkin_minutes: 15, skip_if_unchanged: true, autonomy_preset: 'ask-on-risk', autonomy_classes: {}, max_children: 4, max_concurrent: 2, max_depth: 2, checkin_limit: 48, mesh_visible: true, mesh_alias: '', mesh_accept: 'project' },
+}
 const kinds = [{ kind: 'apply', label: 'Apply', level: 'ask', isDefault: true }, { kind: 'chat', label: 'Chat', level: 'ask', isDefault: true }, { kind: 'coder', label: 'Coder', level: 'dev', isDefault: false }]
 
 beforeEach(() => {
@@ -56,6 +62,7 @@ beforeEach(() => {
   api.coderWorkspaceList.mockResolvedValue([])
   api.getProfiles.mockResolvedValue([])
   api.getActiveProfile.mockResolvedValue(null)
+  api.getCoderSessionSettings.mockResolvedValue(sessionView)
   api.listChatConversations.mockResolvedValue({ items: [] })
   api.browserPermissions.mockResolvedValue({ kinds, catalog: [{ id: 'ask', label: 'Ask first' }, { id: 'dev', label: 'Developer' }] })
   api.setChatOrgMode.mockResolvedValue({ ok: true })
@@ -176,6 +183,19 @@ describe('settings popover', () => {
     fireEvent.click(gear())
     await waitFor(() => expect(within(screen.getByTestId('pane-browser')).getByText('Developer')).toBeInTheDocument())
     expect(within(screen.getByTestId('pane-browser')).queryByRole('combobox')).toBeNull()
+  })
+
+  it('shows the unattended state of a coding chat with its access level, and reads no session settings for a scoped one', async () => {
+    await open(scoped)
+    fireEvent.click(gear())
+    expect(screen.queryByTestId('pane-unattended')).toBeNull()
+    expect(api.getCoderSessionSettings).not.toHaveBeenCalled()
+    cleanup()
+    await open(coding)
+    fireEvent.click(gear())
+    const row = await screen.findByTestId('pane-unattended')
+    expect(row).toHaveTextContent('Unattended: on')
+    expect(api.getCoderSessionSettings).toHaveBeenCalledWith('k1')
   })
 
   it('shows the assistant tools for a scoped chat with a link, not a toggle, and the org switch for a coding chat only', async () => {

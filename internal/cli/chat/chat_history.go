@@ -41,7 +41,7 @@ func chatStoreErr(err error) error {
 	case errors.Is(err, ai.ErrConversationNotFound), errors.Is(err, ai.ErrTurnNotFound):
 		return clicore.NotFound("%v", err)
 	case errors.Is(err, ai.ErrTurnActive):
-		return clicore.InvalidInput("%v: stop the turn before deleting the conversation", err)
+		return clicore.InvalidInput("%v: stop the turn before deleting the conversation (a coder session: `coder sessions stop <conversation-id>`; a turn whose process is gone: `chat history reconcile`)", err)
 	case errors.Is(err, ai.ErrTurnOwnedByOtherInstance):
 		return clicore.InvalidInput("%v", err)
 	}
@@ -281,7 +281,7 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <conversation-id>",
-		Short: "Delete a conversation with its turns and events (refused while a turn is active)",
+		Short: "Delete a conversation with its turns, events and coder session (refused while a turn is active)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, profileID, closeDB, err := openChatHistory(cfg)

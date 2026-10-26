@@ -293,6 +293,19 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 	if _, err := conn.ExecContext(ctx, `DELETE FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, id, profileID); err != nil {
 		return fmt.Errorf("delete conversation: %w", err)
 	}
+	// What the coder host (internal/coderhost) keeps about the conversation goes with it, in the same
+	// transaction: the commands still waiting for it, its session row, and its children's link to it
+	// (they stay, as sessions of their own). A turn the host is running is an active turn: the check
+	// above has refused the delete before this point.
+	for _, q := range []string{
+		`DELETE FROM coder_session_commands WHERE conversation_id = ? AND profile_id = ?`,
+		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
+		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
+	} {
+		if _, err := conn.ExecContext(ctx, q, id, profileID); err != nil {
+			return fmt.Errorf("delete coder session: %w", err)
+		}
+	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("commit delete conversation: %w", err)
 	}

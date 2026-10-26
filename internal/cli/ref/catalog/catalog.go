@@ -23,7 +23,7 @@ var NodeDocs = buildNodeDocs()
 // CommandDocs is the `ref commands` catalogue, in order.
 var CommandDocs = joinCommandDocs(
 	cliDocs, dbCommandDocs, accountCommandDocs, integrationCommandDocs,
-	libraryCommandDocs, taskCommandDocs, taskOSCommandDocs,
+	libraryCommandDocs, taskCommandDocs, taskOSCommandDocs, coderCommandDocs,
 )
 
 func buildNodeDocs() []nodeDoc {

@@ -377,6 +377,13 @@ const ReconciledReason = "interrupted at backend startup (previous app instance)
 // It cannot tell a dead previous instance from a second live one, since no
 // liveness signal exists. Per-row failures are collected, not fatal.
 func (s *AIStore) ReconcileActiveTurns(exceptOwner string) (reconciled []Turn, errs []error) {
+	return s.ReconcileActiveTurnsSkipping(exceptOwner, nil)
+}
+
+// ReconcileActiveTurnsSkipping is ReconcileActiveTurns that also leaves alone
+// the turns skip reports true for: turns whose process is known to be alive
+// somewhere else (the coder host's), which a starting app must not interrupt.
+func (s *AIStore) ReconcileActiveTurnsSkipping(exceptOwner string, skip func(Turn) bool) (reconciled []Turn, errs []error) {
 	rows, err := s.QueryActiveTurns()
 	if err != nil {
 		return nil, []error{fmt.Errorf("list active turns: %w", err)}
@@ -384,6 +391,9 @@ func (s *AIStore) ReconcileActiveTurns(exceptOwner string) (reconciled []Turn, e
 	reconciled = []Turn{}
 	for _, row := range rows {
 		if exceptOwner != "" && row.OwnerInstanceID == exceptOwner {
+			continue
+		}
+		if skip != nil && skip(row) {
 			continue
 		}
 		_, already, err := s.FinalizeTurn(row.ProfileID, row.ConversationID, row.ID, chatevents.StatusInterrupted, ReconciledReason, nil, true)

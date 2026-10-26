@@ -535,6 +535,129 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /profiles/{profile}/agent/v1/aitask/kinds:
+    parameters: [{ $ref: "#/components/parameters/Profile" }]
+    get:
+      operationId: agentAitaskKinds
+      summary: List the AI task kinds (agent token only)
+      description: >
+        The agent routes (`/agent/v1/...`) are for scoped agent tokens only: the profile's own
+        bearer is answered 403. This one is open to any scoped token of the profile.
+      x-agent-token-only: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kinds: { type: array, items: { $ref: "#/components/schemas/AitaskKind" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /profiles/{profile}/agent/v1/aitask/{id}:
+    parameters: [{ $ref: "#/components/parameters/Profile" }, { $ref: "#/components/parameters/AitaskID" }]
+    get:
+      operationId: agentAitaskStatus
+      summary: An AI task (agent token bound to that task)
+      description: >
+        Needs a scoped token of scope read or above that is bound to this task and its
+        conversation (`agent-mode token create --task ID --conversation ID`). Any other token,
+        and the profile's own bearer, is answered 403, also for a task that does not exist.
+      x-agent-token-only: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AitaskTask" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /profiles/{profile}/agent/v1/aitask/{id}/result:
+    parameters: [{ $ref: "#/components/parameters/Profile" }, { $ref: "#/components/parameters/AitaskID" }]
+    get:
+      operationId: agentAitaskResult
+      summary: An AI task's result (agent token bound to that task)
+      x-agent-token-only: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  taskId: { type: string }
+                  status: { type: string }
+                  result: {}
+                  error: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /profiles/{profile}/agent/v1/aitask/{id}/complete:
+    parameters: [{ $ref: "#/components/parameters/Profile" }, { $ref: "#/components/parameters/AitaskID" }, { $ref: "#/components/parameters/AitaskToken" }]
+    post:
+      operationId: agentAitaskComplete
+      summary: Hand a task's result back (agent token bound to that task)
+      description: >
+        Needs scope write or above, a token bound to this task, and the task's own token in
+        `X-Aitask-Token`. The body is the result JSON, checked as `aitask complete --result`
+        checks it: against the kind's schema and check, once; a second completion is `task_closed`.
+      x-agent-token-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "200":
+          description: Completed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AitaskTask" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/AitaskRefused" }
+        "422": { $ref: "#/components/responses/AitaskRefused" }
+  /profiles/{profile}/agent/v1/aitask/{id}/fail:
+    parameters: [{ $ref: "#/components/parameters/Profile" }, { $ref: "#/components/parameters/AitaskID" }, { $ref: "#/components/parameters/AitaskToken" }]
+    post:
+      operationId: agentAitaskFail
+      summary: Say a task cannot be done (agent token bound to that task)
+      x-agent-token-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        "200":
+          description: Failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AitaskTask" }
+        "400": { $ref: "#/components/responses/AitaskRefused" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/AitaskRefused" }
+  /profiles/{profile}/agent/v1/aitask/{id}/cancel:
+    parameters: [{ $ref: "#/components/parameters/Profile" }, { $ref: "#/components/parameters/AitaskID" }, { $ref: "#/components/parameters/AitaskToken" }]
+    post:
+      operationId: agentAitaskCancel
+      summary: Stop a task that is not over (agent token bound to that task)
+      x-agent-token-only: true
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AitaskTask" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/AitaskRefused" }
   /org-endpoint/{id}:
     post:
       operationId: deliverToAutomationRole
@@ -1017,6 +1140,8 @@ components:
         `run` = also run, activate and deactivate; approve and reject need the
         full scope. A request above the token's scope is answered 403, and every
         request made with a scoped token is audited (name, method, path, status), also one refused 403, 404 or 400 and one that names another profile's path (401).
+        The `/agent/v1/...` routes take scoped tokens only, never the profile's own
+        bearer, and act on a task only for a token bound to it (`--task`, `--conversation`).
         The server refuses the profile's own token when started with
         MONOAGENT_HTTPAPI_DISABLE_PROFILE_BEARER=1.
     apiKeyAuth:
@@ -1028,6 +1153,17 @@ components:
         `Authorization: Bearer sk-ma-…`. Used by the `/v1` paths only: it never
         opens the other routes, and the token above never opens `/v1`.
   parameters:
+    AitaskID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    AitaskToken:
+      name: X-Aitask-Token
+      in: header
+      required: true
+      description: The task's own token (the value of MONOAGENT_AITASK_TOKEN in its session).
+      schema: { type: string }
     Profile:
       name: profile
       in: path
@@ -1079,6 +1215,19 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    AitaskRefused:
+      description: >
+        A refusal of the AI task service, with its machine-readable `code`: bad_token (403, the
+        task's own token is missing or wrong), task_closed (409, already over), schema_invalid
+        (422, the result is not JSON, does not match the kind's schema or was refused by its
+        check; the task stays open), invalid_input (400), not_found (404).
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string }
     NotFound:
       description: Not found
       content:
@@ -1097,6 +1246,27 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/OpenAIError" }
   schemas:
+    AitaskKind:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        defaultAccess: { type: string }
+        unattendedOk: { type: boolean }
+        schema: { type: object, description: The JSON Schema the kind's result must match }
+    AitaskTask:
+      type: object
+      properties:
+        taskId: { type: string }
+        kind: { type: string }
+        conversationId: { type: string }
+        status: { type: string, enum: [queued, running, needs_user, complete, failed, cancelled] }
+        goal: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        applicationId: { type: string }
+        result: {}
+        error: { type: string }
     Error:
       type: object
       properties:

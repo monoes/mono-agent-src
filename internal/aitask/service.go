@@ -49,7 +49,16 @@ type Launcher interface {
 	// DefaultBudget is the spend cap, in USD, a task gets when submit names
 	// none (the operator's coder budget).
 	DefaultBudget(ctx context.Context) (float64, error)
-	CreateConversation(ctx context.Context, runtime string) (Conversation, error)
+	// Enforceable is nil when a turn of this kind can be held to this access
+	// level, else the refusal (CodeAccessUnenforced). Submit's
+	// CreateConversation applies it, and Start checks it again, so a kind
+	// that stops being confined while a task is queued does not start as an
+	// unconfined shell turn.
+	Enforceable(kind, access string) error
+	// CreateConversation makes the task's conversation at the level the task's
+	// access stands for, or refuses with CodeAccessUnenforced when the kind
+	// cannot be held to that level.
+	CreateConversation(ctx context.Context, runtime, kind, access string) (Conversation, error)
 	// Detach starts the process that runs task id's turn, with EnvTaskID and
 	// EnvToken in its environment, and returns without waiting for it.
 	Detach(ctx context.Context, taskID, token string) error
@@ -69,6 +78,18 @@ type Service struct {
 	// Admit, when set, reserves the task's spend cap at start and returns the
 	// cap its turn runs under; its refusal keeps the task queued (budget).
 	Admit func(context.Context, Task) (float64, error)
+	// Remote says the caller is the daemon API acting for a task's session
+	// rather than that session's own process: Complete and Fail check the task
+	// token's hash but not the process tree (Store.CheckTokenRemote).
+	Remote bool
+}
+
+// holds says whether token is task id's token for this service's caller.
+func (s *Service) holds(id, token string) bool {
+	if s.Remote {
+		return s.Store.CheckTokenRemote(id, token)
+	}
+	return s.Store.CheckToken(id, token)
 }
 
 // SubmitInput is `aitask submit`.
@@ -112,6 +133,9 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 	if access == "" {
 		access = AccessCoding
 	}
+	if AccessRank(access) > AccessRank(kind.Ceiling()) {
+		return Task{}, errf(CodeAccessRaised, "kind %s allows at most --access %s, not %s", kind.Name, kind.Ceiling(), access)
+	}
 	if err := s.checkUnattended(ctx, kind, access, in.Unattended); err != nil {
 		return Task{}, err
 	}
@@ -122,7 +146,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	conv, err := s.Launcher.CreateConversation(ctx, in.Runtime)
+	conv, err := s.Launcher.CreateConversation(ctx, in.Runtime, kind.Name, access)
 	if err != nil {
 		return Task{}, err
 	}
@@ -245,6 +269,9 @@ func (s *Service) verifyAtStart(ctx context.Context, t Task) error {
 	if err := s.checkUnattended(ctx, kind, t.Access, t.Unattended); err != nil {
 		return err
 	}
+	if err := s.Launcher.Enforceable(kind.Name, t.Access); err != nil {
+		return err
+	}
 	if t.BudgetUSD <= 0 {
 		return errf(CodeNoBudget, "task %s has no budget: 0 means no spend, so it does not run; %s", t.ID, BudgetHint)
 	}
@@ -266,7 +293,7 @@ func (s *Service) Complete(id, token string, result []byte) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	if !s.Store.CheckToken(id, token) {
+	if !s.holds(id, token) {
 		return Task{}, errf(CodeBadToken, "this process does not hold task %s's token: only the task's own session may complete it", id)
 	}
 	if t.Status != StatusRunning && t.Status != StatusNeedsUser {
@@ -318,7 +345,7 @@ func (s *Service) Fail(id, token, reason string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	if !s.Store.CheckToken(id, token) {
+	if !s.holds(id, token) {
 		return Task{}, errf(CodeBadToken, "this process does not hold task %s's token: only the task's own session may fail it", id)
 	}
 	if strings.TrimSpace(reason) == "" {

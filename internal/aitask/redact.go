@@ -1,6 +1,8 @@
 package aitask
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/monoes/mono-agent/internal/workflow"
 	"regexp"
@@ -446,4 +448,51 @@ func init() {
 	// Free text a marked process is shown (workflow run output and errors) goes
 	// through the same scanner as a task's result.
 	workflow.AgentTextScrubber = RedactText
+}
+
+// agentTokenShape is the shape of a scoped agent token (agenttokens.Prefix and 32 random bytes in
+// base64url): whatever has it is hidden whoever it belongs to, whether or not the caller presented it.
+var agentTokenShape = regexp.MustCompile(`mat-[A-Za-z0-9_-]{16,}`)
+
+// RedactAgentTokens replaces everything shaped like an agent token.
+func RedactAgentTokens(s string) string { return agentTokenShape.ReplaceAllString(s, RedactedValue) }
+
+// ScrubJSON applies redact to every string value and key of the JSON document raw, then writes it
+// again. Working on the decoded document is what catches a secret written with escapes
+// ("\u006dat-...") that a replacement on the text would miss. Numbers keep their digits. A document
+// that is not JSON is redacted as text.
+func ScrubJSON(raw []byte, redact func(string) string) []byte {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return raw
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil || dec.More() {
+		return []byte(redact(string(raw)))
+	}
+	out, err := json.Marshal(scrubDecoded(v, redact))
+	if err != nil {
+		return []byte(redact(string(raw)))
+	}
+	return out
+}
+
+func scrubDecoded(v any, redact func(string) string) any {
+	switch t := v.(type) {
+	case string:
+		return redact(t)
+	case []any:
+		for i := range t {
+			t[i] = scrubDecoded(t[i], redact)
+		}
+		return t
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[redact(k)] = scrubDecoded(e, redact)
+		}
+		return out
+	}
+	return v
 }

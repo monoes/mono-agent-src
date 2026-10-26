@@ -98,6 +98,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if args == nil {
 		args = []string{} // cobra reads os.Args for a nil slice
 	}
+	// Client mode (client_mode.go) comes first: before the logger can open a --log-file, a guard, a
+	// gate or a database exists.
+	if inClientMode() {
+		return runClientModeProcess(args, stdout, stderr)
+	}
 	// The root logger, before anything can log (see internal/logging).
 	logging.SetLineFilter(agentLogFilter())
 	logging.Init(args, os.Getenv, os.Stderr)
@@ -108,6 +113,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// docs/i18n.md.
 	i18n.SetLocale(i18n.Detect(args))
 
+	return runLocal(args, stdout, stderr)
+}
+
+// runLocal is run from the account guard on: the command against this machine's own state.
+func runLocal(args []string, stdout, stderr io.Writer) int {
 	// The guard is installed before anything of a command can run, and released after it has returned:
 	// Require and CurrentStatus with no guard judge the enforcement date on the clock alone (the
 	// clock-guard record is read only through a guard), and every gate site of this binary runs inside

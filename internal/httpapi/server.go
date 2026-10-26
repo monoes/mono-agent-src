@@ -201,6 +201,10 @@ func (s *Server) routes() *http.ServeMux {
 	reg.scoped("GET /profiles/{profile}/tasks/next", agenttokens.ScopeRead, s.handleTaskNext)
 	reg.scoped("GET /profiles/{profile}/tasks/{id}", agenttokens.ScopeRead, s.handleTaskGet)
 
+	// The AI task routes change nothing a token bound to a task could not: they are not behind the
+	// mutation opt-in, which governs running workflows and approvals.
+	s.registerAitaskRoutes(reg)
+
 	if s.opts.AllowMutations {
 		reg.scoped("POST /profiles/{profile}/workflows/{id}/run", agenttokens.ScopeRun, s.handleWorkflowRun)
 		reg.scoped("POST /profiles/{profile}/workflows/{id}/activate", agenttokens.ScopeRun, s.handleWorkflowActivate)
@@ -245,8 +249,18 @@ func (g *registrar) scoped(pattern string, need agenttokens.Scope, h http.Handle
 	if strings.Contains(pattern, "{profile}") {
 		auth = g.s.profileAuth
 	}
-	g.mux.Handle(pattern, auth(need, h))
+	g.mux.Handle(pattern, auth(need, refuseBoundToken(h)))
 	g.s.routeTable = append(g.s.routeTable, routeClass{Pattern: pattern, Need: need})
+}
+
+// task registers a route that acts on one AI task. Unlike scoped, it is open to an agent token
+// bound to that task (the handler checks the binding); every other route refuses a bound token.
+func (g *registrar) task(pattern string, need agenttokens.Scope, h http.HandlerFunc) {
+	if !need.Valid() || !strings.Contains(pattern, "{profile}") {
+		panic("httpapi: task route " + pattern + " needs a scope class and a profile")
+	}
+	g.mux.Handle(pattern, g.s.profileAuth(need, h))
+	g.s.routeTable = append(g.s.routeTable, routeClass{Pattern: pattern, Need: need, Task: true})
 }
 
 // open registers a route with no bearer at all: the health check and the answer to
@@ -261,6 +275,7 @@ type routeClass struct {
 	Pattern string
 	Need    agenttokens.Scope // the narrowest scope that may call it; empty for an open route
 	Open    bool
+	Task    bool // reachable by a token bound to a task (registrar.task)
 }
 
 // handleRemovedRoute answers the unprefixed /workflows and /hil routes, which

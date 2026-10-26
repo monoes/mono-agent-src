@@ -28,7 +28,9 @@ func (f *fake) Ready(context.Context) error                    { return nil }
 func (f *fake) Confined(context.Context) bool                  { return false }
 func (f *fake) DefaultBudget(context.Context) (float64, error) { return 5, nil }
 func (f *fake) Policy(context.Context) (string, error)         { return "p", nil }
-func (f *fake) CreateConversation(_ context.Context, runtime string) (aitask.Conversation, error) {
+func (f *fake) Enforceable(string, string) error               { return nil }
+
+func (f *fake) CreateConversation(_ context.Context, runtime, _, _ string) (aitask.Conversation, error) {
 	f.runtimes = append(f.runtimes, runtime)
 	return aitask.Conversation{ID: "conv-9", Cwd: f.cwd, Runtime: "claude"}, nil
 }
