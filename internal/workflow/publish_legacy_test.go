@@ -453,59 +453,91 @@ func TestAReadOnlyStoreWritesNothingWhenItReads(t *testing.T) {
 	}
 }
 
+// sparseJunk writes a file of the largest size that may be shown, beginning like a JSON object and
+// not a workflow, with the given modification time. It takes no disk space to speak of.
+func sparseJunk(t *testing.T, path string, mtime time.Time) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxAdoptableBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Files that cannot be adopted do not use up the listing: invalid files of the largest allowed
-// size, however many and however they sort, do not hide the real one.
+// size that look like workflows at a glance, however many, however dated, do not hide the real one
+// and cost a bounded number of full reads.
 func TestManyInvalidFilesDoNotHideTheRealOne(t *testing.T) {
 	ctx := context.Background()
 	h, _, _, _ := guardedRig(t)
 	dir := h.files.dir
-	junk := make([]byte, maxAdoptableBytes) // as big as a file may be, and not a workflow
-	for i := 0; i < 20; i++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("000-big-%02d.json", i)), junk, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for i := 0; i < 250; i++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("000-%03d.json", i)), []byte("not json"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	future := time.Now().Add(24 * time.Hour)
+	for i := 0; i < 230; i++ {
+		sparseJunk(t, filepath.Join(dir, fmt.Sprintf("000-big-%03d.json", i)), future.Add(time.Duration(i)*time.Second))
 	}
 	dropFile(t, h, "zzz-real", false)
-	// The real file is the oldest: nothing but being counted fairly lets it through.
 	old := time.Now().Add(-48 * time.Hour)
 	if err := os.Chtimes(filepath.Join(dir, "zzz-real.json"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	shown, more, err := h.AdoptableFiles(ctx)
-	if err != nil || len(shown) != 1 || shown[0].ID != "zzz-real" || more != 270 {
-		t.Fatalf("shown %+v, more %d, %v", shown, more, err)
+	l, err := h.AdoptableListing(ctx)
+	if err != nil || len(l.Shown) != 1 || l.Shown[0].ID != "zzz-real" || l.More != 230 {
+		t.Fatalf("shown %d, more %d, %v", len(l.Shown), l.More, err)
+	}
+	if max := int(maxAdoptableBudget/maxAdoptableBytes) + 1; l.Reads > max {
+		t.Fatalf("%d full reads of 1 MiB files, want at most %d", l.Reads, max)
 	}
 }
 
-// Valid-looking files that fill the listing hide nobody silently: the rest are counted and the
-// first few are named, so one of them can still be adopted by naming it.
+// Valid-looking files that fill the listing hide nobody silently, whatever times they carry: files
+// are taken from both ends of the order, and both ends of what is held back are named.
 func TestFilesBeyondTheListingAreNamed(t *testing.T) {
 	ctx := context.Background()
 	h, _, _, _ := guardedRig(t)
 	dir := h.files.dir
-	dropFile(t, h, "real-but-old", false)
+	future := time.Now().Add(24 * time.Hour)
+	for i := 0; i < 60; i++ {
+		dropFile(t, h, fmt.Sprintf("decoy-%02d", i), false)
+		ts := future.Add(time.Duration(i) * time.Second)
+		if err := os.Chtimes(filepath.Join(dir, fmt.Sprintf("decoy-%02d.json", i)), ts, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dropFile(t, h, "real-oldest", false)
 	old := time.Now().Add(-72 * time.Hour)
-	if err := os.Chtimes(filepath.Join(dir, "real-but-old.json"), old, old); err != nil {
+	if err := os.Chtimes(filepath.Join(dir, "real-oldest.json"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < maxAdoptableShown+5; i++ {
-		dropFile(t, h, fmt.Sprintf("decoy-%02d", i), false)
-	}
 	l, err := h.AdoptableListing(ctx)
-	if err != nil || len(l.Shown) != maxAdoptableShown || l.More != 6 {
-		t.Fatalf("shown %d, more %d, %v", len(l.Shown), l.More, err)
+	if err != nil || len(l.Shown) != maxAdoptableShown || l.More != 41 || !l.Incomplete {
+		t.Fatalf("shown %d, more %d, incomplete %v, %v", len(l.Shown), l.More, l.Incomplete, err)
 	}
-	named := false
-	for _, id := range l.HiddenIDs {
-		named = named || id == "real-but-old"
+	found := false
+	for _, a := range l.Shown {
+		found = found || a.ID == "real-oldest"
 	}
-	if !named {
-		t.Fatalf("the file that was not shown is not named: %v", l.HiddenIDs)
+	if !found {
+		t.Fatal("the oldest file, dated far back, was not shown")
+	}
+	if len(l.HiddenIDs) != maxHiddenNamed {
+		t.Fatalf("named %d, want %d", len(l.HiddenIDs), maxHiddenNamed)
+	}
+	// A file in the middle is held back and not named: the listing says it is incomplete, and the
+	// file can still be reached by its id.
+	dropFile(t, h, "real-middle", false)
+	mid := future.Add(30*time.Second + 500*time.Millisecond)
+	if err := os.Chtimes(filepath.Join(dir, "real-middle.json"), mid, mid); err != nil {
+		t.Fatal(err)
+	}
+	if l, _ = h.AdoptableListing(ctx); !l.Incomplete {
+		t.Fatal("a listing that holds files back without naming them says it is complete")
+	}
+	if a, why, err := h.AdoptableFile(ctx, "real-middle"); err != nil || a == nil {
+		t.Fatalf("the file cannot be reached by its id: %q %v", why, err)
 	}
 }
 

@@ -186,9 +186,11 @@ type AdoptableFile struct {
 
 const (
 	maxAdoptableShown   = 20
-	maxAdoptableEntries = 5000 // directory names looked at in one listing
-	maxAdoptableReads   = 200  // files read in full and parsed in one listing
-	maxHiddenNamed      = 20   // ids of files not shown that are named
+	maxAdoptableNames   = 100000   // directory names passed over in one listing
+	maxAdoptableEntries = 5000     // candidate files (.json, no stored copy) looked at in one listing
+	maxAdoptableBudget  = 32 << 20 // bytes read in full in one listing
+	maxAdoptableReads   = 200      // files read in full and parsed in one listing
+	maxHiddenNamed      = 20       // ids of files not shown that are named
 	maxAdoptableBytes   = 1 << 20
 	maxNameShown        = 48
 	maxNamesShown       = 10
@@ -231,6 +233,8 @@ type AdoptableListing struct {
 	More      int
 	HiddenIDs []string
 	Truncated bool
+	// Reads is how many files were read in full to produce Shown and More.
+	Reads int
 	// Incomplete says the listing may have missed or left unnamed files that have no stored copy:
 	// it stopped at the entry cap, or more files were held back than could be named. One file can
 	// be looked at by its id with AdoptableFile.
@@ -268,20 +272,27 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 	}
 	type candidate struct {
 		id    string
+		size  int64
 		mtime time.Time
 	}
 	var cands []candidate
-	seen := 0
+	seen, counted := 0, 0
 	for !out.Truncated {
 		names, rerr := dir.Readdirnames(256)
 		for _, name := range names {
-			if seen++; seen > maxAdoptableEntries {
+			// Every name costs a little, so there is a cap on all of them; only the files that could be
+			// adopted (a .json name with no stored copy) count toward the smaller cap on candidates.
+			if seen++; seen > maxAdoptableNames {
 				out.Truncated = true
 				break
 			}
 			id, ok := strings.CutSuffix(name, ".json")
 			if !ok || strings.HasSuffix(id, ".ai-backup") || stored[id] {
 				continue
+			}
+			if counted++; counted > maxAdoptableEntries {
+				out.Truncated = true
+				break
 			}
 			if !safeFileID.MatchString(id) {
 				out.More++
@@ -292,7 +303,7 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 				out.More++
 				continue
 			}
-			cands = append(cands, candidate{id, info.ModTime()})
+			cands = append(cands, candidate{id, info.Size(), info.ModTime()})
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {
@@ -307,16 +318,24 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 		}
 		return cands[i].id < cands[j].id
 	})
-	reads, hiddenCands := 0, 0
-	hide := func(id string) {
-		hiddenCands++
-		out.More++
-		if len(out.HiddenIDs) < maxHiddenNamed {
-			out.HiddenIDs = append(out.HiddenIDs, id)
+	// File times are the writer's to set, so neither end of the order is trusted: the files are
+	// taken alternately from the newest and the oldest end, and both ends of what is held back are
+	// named.
+	order := make([]candidate, 0, len(cands))
+	for lo, hi := 0, len(cands)-1; lo <= hi; lo, hi = lo+1, hi-1 {
+		order = append(order, cands[lo])
+		if lo != hi {
+			order = append(order, cands[hi])
 		}
 	}
-	for _, c := range cands {
-		if len(out.Shown) >= maxAdoptableShown || reads >= maxAdoptableReads {
+	var held []string
+	hide := func(id string) {
+		out.More++
+		held = append(held, id)
+	}
+	spent := int64(0)
+	for _, c := range order {
+		if len(out.Shown) >= maxAdoptableShown || out.Reads >= maxAdoptableReads || spent+c.size > maxAdoptableBudget {
 			hide(c.id)
 			continue
 		}
@@ -328,9 +347,12 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 			hide(c.id)
 			continue
 		}
-		reads++
-		raw, existed, rerr := h.files.readRaw(c.id)
-		if rerr != nil || !existed {
+		// The bytes are paid for before they are read, and what is read is cut at the largest file
+		// that may be shown, whatever the file has grown to since it was measured.
+		out.Reads++
+		spent += c.size
+		raw, rerr := readRegularPrefix(path, maxAdoptableBytes+1)
+		if rerr != nil || len(raw) > maxAdoptableBytes {
 			hide(c.id)
 			continue
 		}
@@ -341,7 +363,14 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 		}
 		out.Shown = append(out.Shown, describeAdoptable(h.files, c.id, wf, raw))
 	}
-	out.Incomplete = out.Truncated || hiddenCands > len(out.HiddenIDs)
+	// Name some of what was held back from each end of the order it was taken in.
+	if len(held) <= maxHiddenNamed {
+		out.HiddenIDs = held
+	} else {
+		half := maxHiddenNamed / 2
+		out.HiddenIDs = append(append([]string{}, held[:half]...), held[len(held)-half:]...)
+	}
+	out.Incomplete = out.Truncated || len(held) > len(out.HiddenIDs)
 	return out, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -40,6 +41,8 @@ type WorkflowPublicationsInfo struct {
 	// Incomplete: a limit stopped a scan (the listing of files with no stored copy, or the comparison
 	// of files with the database), so something may be missing from the report.
 	Incomplete bool
+	// FolderTooLarge: the workflows folder has more files than the scan covers.
+	FolderTooLarge bool
 	// FocusWhy says why the file asked for with --workflow cannot be shown ("" when it can, or when
 	// none was asked for).
 	FocusWhy string
@@ -120,7 +123,19 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 	stale, unresolved, unsafe := 0, 0, 0
 	// Every record is counted (severity and the recovery fix depend on all of them); only the rows
 	// shown are capped.
-	for _, o := range info.Open {
+	// The most urgent records are drawn first, so the row cap never hides one of them.
+	open := append([]OpenWorkflowPublication(nil), info.Open...)
+	rank := func(o OpenWorkflowPublication) int {
+		switch {
+		case o.State == "unresolved":
+			return 0
+		case o.OwnerGone:
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(open, func(i, j int) bool { return rank(open[i]) < rank(open[j]) })
+	for _, o := range open {
 		switch {
 		case o.State == "unresolved":
 			unresolved++
@@ -176,7 +191,7 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 	}
 	if info.MoreAdoptable > 0 {
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".adopt.more", Title: "more files",
-			Status: StatusInfo, Summary: fmt.Sprintf("and %d more workflow file(s) with no stored copy (not shown: names that are not safe to print, too big, not parsing, or beyond the listing)", info.MoreAdoptable),
+			Status: StatusInfo, Summary: fmt.Sprintf("and %s more workflow file(s) with no stored copy (not shown: names that are not safe to print, too big, not parsing, or beyond the listing)", moreCount(info.MoreAdoptable, info.Incomplete)),
 			Detail: hiddenAdoptDetail(info.HiddenAdoptable)})
 	}
 	unsafe += appendIDRows(&res, info.ImportedInactive, ".imported.", StatusInfo, "imported from an outside file, inactive; activate it to use it")
@@ -188,8 +203,12 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".focus", Title: "that file", Status: StatusInfo, Summary: info.FocusWhy})
 	}
 	if info.Incomplete {
+		why := "the scan of the workflow files stopped at a limit, so files may be missing from this report"
+		if info.FolderTooLarge {
+			why = "the workflows folder has more files than the scan covers: look in the folder itself, files may be missing from this report"
+		}
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".incomplete", Title: "scan incomplete", Status: StatusInfo,
-			Summary: "the scan of the workflow files stopped at a limit, so files may be missing from this report",
+			Summary: why,
 			Detail:  "look at one file by its id with: monoagentcli doctor --check " + CheckWorkflowPublications + " --workflow <id>"})
 	}
 	switch {
@@ -285,6 +304,14 @@ func previewText(lines []string) string {
 		out = cutAtRune(out, maxPreviewBytes) + "\n  (cut)"
 	}
 	return out
+}
+
+// moreCount prints a count that is a lower bound as "N+".
+func moreCount(n int, lowerBound bool) string {
+	if lowerBound {
+		return fmt.Sprintf("%d+", n)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 // hiddenAdoptDetail names files that were not shown and says how one of them is still adopted.

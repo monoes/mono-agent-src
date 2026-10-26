@@ -222,8 +222,8 @@ func TestStampEligibilityFollowsTheClaimAndOpenChanges(t *testing.T) {
 	if _, err := db.DB.Exec(`INSERT INTO settings (key, value) VALUES ('workflow_files.legacy_import_done', '1')`); err != nil {
 		t.Fatal(err)
 	}
-	if eligible("w-legacy") {
-		t.Fatal("a file with no rows was stamped after the claim was recorded mid-pass")
+	if eligible("w-other") {
+		t.Fatal("a second file with no rows was stamped after the claim was recorded between two files")
 	}
 	if _, err := db.DB.Exec(`INSERT INTO workflows (id, name, profile_id) VALUES ('w-rows', 'r', 'default')`); err != nil {
 		t.Fatal(err)

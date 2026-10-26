@@ -72,6 +72,7 @@ func addWorkflowPublicationHooks(env *health.Env, requireOperator func(what stri
 		listing, err = store.AdoptableListing(ctx)
 		info.MoreAdoptable, info.HiddenAdoptable = listing.More, listing.HiddenIDs
 		info.Incomplete = info.Incomplete || listing.Incomplete
+		info.FolderTooLarge = listing.Truncated
 		shown := listing.Shown
 		if env.WorkflowFocus != "" {
 			one, why, ferr := store.AdoptableFile(ctx, env.WorkflowFocus)

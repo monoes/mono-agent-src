@@ -1034,3 +1034,40 @@ func TestAPausedActivationCannotCommitOverTheKillSwitch(t *testing.T) {
 		t.Fatalf("the paused change is %q, want it left for the operator", state)
 	}
 }
+
+// A change that was running when the kill switch gave up waiting does not commit when it wakes up:
+// the workflow stays off, and the change is left for the operator.
+func TestAHungSaveCannotCommitAfterTheKillSwitch(t *testing.T) {
+	ctx := context.Background()
+	h, s, hash, nodes := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := h.GetWorkflow(ctx, "wf-g")
+	hash, _ = ReviewHash(cur) // the review hash includes the active flag
+	entered, release := make(chan struct{}), make(chan struct{})
+	guardedCommitFault = func() error { close(entered); <-release; return nil }
+	old := publicationWait
+	publicationWait = 150 * time.Millisecond
+	t.Cleanup(func() { publicationWait = old })
+	done := make(chan error, 1)
+	go func() { done <- h.SaveNodesGuarded(ctx, "wf-g", nodes, SaveGuard{ExpectHash: hash}) }()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("the save ended before its commit step: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the save never reached its commit step")
+	}
+	guardedCommitFault = nil
+	if note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil || note != RowsOnlyNote {
+		t.Fatalf("%q %v", note, err)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("the hung save committed after the kill switch")
+	}
+	if rows, _ := s.GetWorkflow(ctx, "wf-g"); rows.IsActive || sqlConfig(t, s, "wf-g", "g-set") == "edited" {
+		t.Fatal("the hung save changed the workflow after the kill switch")
+	}
+}

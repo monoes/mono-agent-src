@@ -174,7 +174,7 @@ func TestWorkflowDoctorSaysWhenTheScanStoppedAndFocusesOneFile(t *testing.T) {
 	}
 	dir := filepath.Join(env.DataDir, "workflows")
 	for i := 0; i < 5200; i++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("n-%05d.txt", i)), nil, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("n-%05d.json", i)), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -189,7 +189,7 @@ func TestWorkflowDoctorSaysWhenTheScanStoppedAndFocusesOneFile(t *testing.T) {
 		t.Fatalf("incomplete=%v %v", info != nil && info.Incomplete, err)
 	}
 	res := health.Default().Run(ctx, env, health.Options{IDs: []string{health.CheckWorkflowPublications}})
-	if b, _ := json.Marshal(res); !strings.Contains(string(b), "incomplete") {
+	if b, _ := json.Marshal(res); !strings.Contains(string(b), "incomplete") || !strings.Contains(string(b), "more files than the scan covers") {
 		t.Fatalf("the report does not say the scan was incomplete: %s", b)
 	}
 	env.WorkflowFocus = "wf-far"

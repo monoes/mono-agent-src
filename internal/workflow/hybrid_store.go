@@ -359,7 +359,7 @@ var _ ActiveNoter = (*HybridWorkflowStore)(nil)
 
 // RowsOnlyNote is what a caller tells the person when SetWorkflowActiveNoted could only switch the
 // rows off: the workflow is off, but its file and the unfinished change were left as they are.
-const RowsOnlyNote = "deactivated in the database; the file was left as it is; run doctor to settle the unfinished change"
+const RowsOnlyNote = "deactivated in the database; the file was left as it is and the unfinished change may still be running; run doctor to settle it"
 
 // SetWorkflowActiveNoted is SetWorkflowActive that also returns a note ("" when nothing needs
 // saying). Every caller that deactivates must pass a note on: RowsOnlyNote means the file was left.
