@@ -253,6 +253,11 @@ func (s *Store) VerifySessionTask(ctx context.Context, profileID string, session
 		if err := writableBy(se, actor, "verify a task"); err != nil {
 			return err
 		}
+		// A session a conversation manages is judged by the verifier the conductor bound to the
+		// task, or by the operator: an agent with no binding, whatever it says it is, is neither.
+		if actor.Kind == Agent && !actor.Verifier && se.ConversationID != "" {
+			return operatorOnly("record a verdict in a session that a conversation manages: its task's verifier does, or the operator")
+		}
 		if err := s.checkScope(ctx, x, profileID, id, sessionID, actor); err != nil {
 			return err
 		}
