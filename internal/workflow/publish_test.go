@@ -807,3 +807,33 @@ func TestANewWorkflowStartsInactiveUnlessTheOperatorCreatesIt(t *testing.T) {
 		t.Fatal("the operator's create lost its flag")
 	}
 }
+
+// A read-only store (a polled path) never puts a file back: an abandoned change is left for a
+// command that may write, and its workflow is skipped in the meantime.
+func TestReadOnlyStoreDoesNotRecoverAbandonedChanges(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	prev := fileBytes(t, h, "wf-g")
+	proposed := []byte("{}")
+	if err := os.WriteFile(h.files.dir+"/wf-g.json", proposed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications
+		(workflow_id, kind, state, target_sha, prev_sha, prev_bytes, prev_existed, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'pending', ?, ?, ?, 1, 0, ?)`, shaHex(proposed), shaHex(prev), prev, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	h.SetReadOnly()
+	if _, err := h.GetWorkflow(ctx, "wf-g"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.ListWorkflows(ctx, "default"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.RecoverPublications(ctx); err != nil || n != 0 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if !bytes.Equal(fileBytes(t, h, "wf-g"), proposed) || openIntentCount(t, s) != 1 {
+		t.Fatal("a read-only store changed a file or settled a change")
+	}
+}

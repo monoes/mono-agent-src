@@ -1,7 +1,7 @@
 package summarycli
 
 import (
-	"encoding/json"
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +10,7 @@ import (
 	"github.com/monoes/mono-agent/internal/testdb"
 )
 
-func TestReadOnlyHybridStoreStampsOwnerlessWorkflowFiles(t *testing.T) {
+func TestReadOnlyHybridStoreLeavesWorkflowFilesAlone(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dir := filepath.Join(home, ".monoagent", "workflows")
@@ -26,13 +26,10 @@ func TestReadOnlyHybridStoreStampsOwnerlessWorkflowFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	before, _ := os.ReadFile(path)
 	readOnlyHybridStore(db)
-	b, _ := os.ReadFile(path)
-	var doc struct {
-		ProfileID string `json:"profile_id"`
-	}
-	_ = json.Unmarshal(b, &doc)
-	if doc.ProfileID != "default" {
-		t.Fatalf("file owner = %q, want default", doc.ProfileID)
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("the polled store rewrote a workflow file:\n%s\n->\n%s", before, after)
 	}
 }

@@ -1,7 +1,6 @@
 package summarycli
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/automation"
-	"github.com/monoes/mono-agent/internal/cli/workflowio"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/operator"
@@ -86,7 +84,8 @@ func (d Deps) newSummaryCmd() *cobra.Command {
 
 // readOnlyHybridStore is openWorkflowStore without its file→SQLite backfill:
 // summary is polled and must not write workflow rows. SetReadOnly keeps the store's own reads from
-// writing them too (it neither takes in the files older versions left nor imports an outside edit).
+// writing them too (it neither takes in the files older versions left nor imports an outside edit,
+// and it neither recovers an unfinished change nor stamps an owner into a file: a poll writes nothing).
 func readOnlyHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 	sqlStore := workflow.NewSQLiteWorkflowStore(db.DB)
 	dir := expandPath("~/.monoagent/workflows")
@@ -94,8 +93,6 @@ func readOnlyHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 	if err != nil {
 		return workflow.NewHybridWorkflowStore(nil, sqlStore)
 	}
-	// Stamping touches only ownerless files, never workflow rows.
-	_ = workflowio.StampFileWorkflows(context.Background(), db.DB, dir)
 	store := workflow.NewHybridWorkflowStore(fileStore, sqlStore)
 	store.SetReadOnly()
 	return store
