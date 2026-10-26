@@ -1803,12 +1803,18 @@ passes it; workers the conductor starts are bound. Only
 the user approves, resumes, sets the budget, caps, access level and auto-close
 (`session budget`), archives (`session archive`) and removes dependencies
 (`undepend`); an agent may pause and stop a session (stop releases every claim).
-Setting `MONOAGENT_TASK_SESSION=N` binds a process to session N: its agent may act in
-that session only, on the CLI and over MCP, including the delegated approve and view of
-`task agents allow`: a bound worker reaches the personal board through neither, and `task digest`
-shows it nothing of it. That binding is an environment label: an agent that scrubs its own
-environment (no agent marker, no `--as`) is treated as the operator by the CLI and can run
-`session approve`, `resume` and `budget`; that weakness is old and matters more now. The MCP tools are `task_session_list` and
+What binds a process to a session, a task and a role is a mission token (`internal/agenttokens`,
+`mission.go`; `MONOAGENT_TASK_TOKEN`): the conductor mints one per worker or verifier run
+(`internal/dynorg/mission_token.go`), bound to profile, session, task, role and the name the process
+acts under, valid a little longer than the task timeout, revoked when the run ends, and never accepted
+by the HTTP API. The CLI (`internal/cli/task/mission_token.go`) and MCP (`boundTaskActor`) read the
+binding only through `internal/taskbind`, from the database; the `MONOAGENT_TASK_*` labels are the
+brief's text and an agent marker, and bind nothing. A token that does not verify binds to nothing that
+exists (every act refused); no token is an ordinary agent, which cannot verify a task of a session a chat
+conversation manages. A bound worker reaches the personal board through neither the delegated approve and
+view of `task agents allow` nor `task digest`. Whoever can read the token can use it, for that one
+task until the run ends (SECURITY.md, "Honest limits"). An agent that scrubs its own environment (no agent
+marker, no `--as`) is still treated as the operator by the CLI; that weakness is old and matters more now. The MCP tools are `task_session_list` and
 `task_session_get` (read) and, with `--allow-mutations`, `task_split`, `task_verify`
 and `task_artifact`, with `task_add`, `task_claim`, `task_comment`, `task_finish`,
 `task_release`, `task_list`, `task_get` and `task_next` taking `session`. Goals and
@@ -1833,7 +1839,7 @@ acceptance is the final checks). Once the conversation has a session it also get
 the lead names no session, the conversation's is the only one it reaches. A review round is
 a `plan_revised` event of the session, so a restart keeps the count. `mission_verify
 {task_id}` starts a verifier on a task in Review: another agent, on another model when one
-is ready, read only, started with `MONOAGENT_TASK_ROLE=verifier` besides the task binding,
+is ready, read only, started with a verifier-role mission token for that task,
 which lets it comment on, attach evidence to and verify that one task and nothing else.
 It records its own verdict with `task verify`; the lead never does. A pass marks the task
 verified (auto-close closes it if the operator set it); a fail sends it back to Ready with
