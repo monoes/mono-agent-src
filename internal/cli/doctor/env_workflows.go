@@ -37,7 +37,10 @@ func addWorkflowPublicationHooks(env *health.Env, requireOperator func(what stri
 		if _, err := os.Stat(dir); err != nil {
 			return nil, nil
 		}
-		files, err := workflow.NewWorkflowFileStore(dir)
+		files, err := workflow.OpenWorkflowFileStore(dir)
+		if os.IsNotExist(err) {
+			return nil, nil // gone since the check above: nothing to report, and nothing is created
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -57,16 +60,31 @@ func addWorkflowPublicationHooks(env *health.Env, requireOperator func(what stri
 			info.Open = append(info.Open, health.OpenWorkflowPublication{WorkflowID: p.WorkflowID, Kind: p.Kind,
 				Origin: p.Origin, State: p.State, Age: p.Age, OwnerGone: p.OwnerGone, Note: p.Note})
 		}
-		if info.Unreadable, info.Pending, err = store.FileDrift(ctx); err != nil {
+		drift, err := store.FileDriftScan(ctx)
+		if err != nil {
 			return info, err
 		}
+		info.Unreadable, info.Pending, info.Incomplete = drift.Unreadable, drift.Pending, drift.Incomplete
 		if info.ImportedInactive, err = store.ImportedInactive(ctx); err != nil {
 			return info, err
 		}
 		var listing workflow.AdoptableListing
 		listing, err = store.AdoptableListing(ctx)
 		info.MoreAdoptable, info.HiddenAdoptable = listing.More, listing.HiddenIDs
-		for _, a := range listing.Shown {
+		info.Incomplete = info.Incomplete || listing.Incomplete
+		shown := listing.Shown
+		if env.WorkflowFocus != "" {
+			one, why, ferr := store.AdoptableFile(ctx, env.WorkflowFocus)
+			if ferr != nil {
+				return info, ferr
+			}
+			info.FocusWhy = why
+			shown = nil
+			if one != nil {
+				shown = []workflow.AdoptableFile{*one}
+			}
+		}
+		for _, a := range shown {
 			known := func(types []string) (keep []string, unknown int) {
 				for _, t := range types {
 					if isKnown(t) {

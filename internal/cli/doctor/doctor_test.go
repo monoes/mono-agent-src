@@ -3,6 +3,9 @@ package doctor
 import (
 	"bytes"
 	"context"
+	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/workflow"
+	"os"
 	"strings"
 	"testing"
 
@@ -118,5 +121,34 @@ func TestDoctorReportShowsFilePreviewsOnlyOnATerminal(t *testing.T) {
 	}
 	if !strings.Contains(tty.String(), "core.set") {
 		t.Fatalf("a terminal does not get the preview:\n%s", tty.String())
+	}
+}
+
+// The real gate: a terminal alone is not enough, the process must not be marked as an agent's (a pty
+// an agent drives is a terminal).
+func TestPreviewsNeedAnOperatorOnATerminal(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	old := stdoutIsTerminal
+	stdoutIsTerminal = func(*os.File) bool { return true }
+	t.Cleanup(func() { stdoutIsTerminal = old })
+	for _, k := range operator.MarkerEnv() {
+		t.Setenv(k, "")
+	}
+	if !previewsAllowed(f) {
+		t.Fatal("the operator's own terminal gets no previews")
+	}
+	if previewsAllowed(&bytes.Buffer{}) {
+		t.Fatal("a writer that is not a file gets previews")
+	}
+	t.Setenv(workflow.EnvWorkflowRun, "exec-1") // as a process a workflow started
+	if operator.Marker() == "" {
+		t.Fatal("test setup: the process is not marked")
+	}
+	if previewsAllowed(f) {
+		t.Fatal("a marked process on a terminal gets previews")
 	}
 }

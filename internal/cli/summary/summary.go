@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -90,10 +89,7 @@ func (d Deps) newSummaryCmd() *cobra.Command {
 func readOnlyHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 	sqlStore := workflow.NewSQLiteWorkflowStore(db.DB)
 	dir := expandPath("~/.monoagent/workflows")
-	if _, err := os.Stat(dir); err != nil {
-		return workflow.NewHybridWorkflowStore(nil, sqlStore) // a poll never creates the folder
-	}
-	fileStore, err := workflow.NewWorkflowFileStore(dir)
+	fileStore, err := workflow.OpenWorkflowFileStore(dir) // never creates the folder
 	if err != nil {
 		return workflow.NewHybridWorkflowStore(nil, sqlStore)
 	}

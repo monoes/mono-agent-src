@@ -37,6 +37,12 @@ type WorkflowPublicationsInfo struct {
 	// used until an operator adopts them. MoreAdoptable counts the rest.
 	Adoptable     []AdoptableWorkflowFile
 	MoreAdoptable int
+	// Incomplete: a limit stopped a scan (the listing of files with no stored copy, or the comparison
+	// of files with the database), so something may be missing from the report.
+	Incomplete bool
+	// FocusWhy says why the file asked for with --workflow cannot be shown ("" when it can, or when
+	// none was asked for).
+	FocusWhy string
 	// HiddenAdoptable names (plain ids only) the first few of the files counted in MoreAdoptable.
 	HiddenAdoptable []string
 }
@@ -112,28 +118,41 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 	}
 	res := Result{Status: StatusOK, Summary: "workflow files and database agree"}
 	stale, unresolved, unsafe := 0, 0, 0
+	// Every record is counted (severity and the recovery fix depend on all of them); only the rows
+	// shown are capped.
 	for _, o := range info.Open {
-		if !safeWorkflowID.MatchString(o.WorkflowID) || len(res.Children) >= maxListedIDs {
-			unsafe++
-			continue
-		}
-		child := Result{ID: CheckWorkflowPublications + "." + rowID(o.WorkflowID), Title: o.WorkflowID}
 		switch {
 		case o.State == "unresolved":
 			unresolved++
-			child.Status = StatusWarn
-			child.Summary = "the file changed while a change was in progress; choose which to keep"
-			child.Detail = capText(o.Note) + "\nkeep the committed rows (rewrites the file): monoagentcli doctor fix workflows.publications.resolve:" + o.WorkflowID + ":keep-rows" +
-				"\nkeep the file as it is (the rows follow it): monoagentcli doctor fix workflows.publications.resolve:" + o.WorkflowID + ":keep-file"
-			// No default fix: either choice discards something, so the person picks (see Detail).
 		case o.OwnerGone:
 			stale++
+		}
+		if len(res.Children) >= maxListedIDs {
+			unsafe++
+			continue
+		}
+		title, plain := o.WorkflowID, openRecordID.MatchString(o.WorkflowID)
+		if !plain {
+			title = capQuoted(o.WorkflowID, 64)
+		}
+		child := Result{ID: CheckWorkflowPublications + "." + rowID(cutAtRune(o.WorkflowID, 64)), Title: title}
+		switch {
+		case o.State == "unresolved":
 			child.Status = StatusWarn
-			child.Summary = fmt.Sprintf("a %q by %s did not finish (%s ago)", o.Kind, quotedOrDefault(o.Origin, "an earlier run"), o.Age.Round(time.Second))
+			child.Summary = "the file changed while a change was in progress; choose which to keep"
+			child.Detail = capQuoted(o.Note, 300)
+			if plain {
+				child.Detail += "\nkeep the committed rows (rewrites the file): monoagentcli doctor fix workflows.publications.resolve:" + o.WorkflowID + ":keep-rows" +
+					"\nkeep the file as it is (the rows follow it): monoagentcli doctor fix workflows.publications.resolve:" + o.WorkflowID + ":keep-file"
+			}
+			// No default fix: either choice discards something, so the person picks (see Detail).
+		case o.OwnerGone:
+			child.Status = StatusWarn
+			child.Summary = fmt.Sprintf("a %s by %s did not finish (%s ago)", capQuoted(o.Kind, 32), quotedOrDefault(capText64(o.Origin), "an earlier run"), o.Age.Round(time.Second))
 			child.FixID = FixWorkflowPublicationsRecover
 		default:
 			child.Status = StatusInfo
-			child.Summary = fmt.Sprintf("a %q is in progress", o.Kind)
+			child.Summary = fmt.Sprintf("a %s is in progress", capQuoted(o.Kind, 32))
 		}
 		res.Children = append(res.Children, child)
 	}
@@ -150,7 +169,7 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 			Status: StatusInfo,
 			Summary: fmt.Sprintf("a workflow file with no stored copy: profile %q, %d node(s), types %s; it is not used until you adopt it (inactive, unapproved)",
 				a.ProfileID, a.Nodes, quotedList(a.NodeTypes)),
-			Detail: fmt.Sprintf("file %q\nsha256 %s (check with: sha256sum <file>)\n%s%d node(s), %d byte(s) of node configuration, %d unknown node type(s); workflow settings: %t, error workflow: %t, secret or variable references: at least %d\nadopt it only after reading the file; an operator's own terminal is required, with --profile naming the file's profile:\n%s",
+			Detail: fmt.Sprintf("file %q\nsha256 %s (check with: sha256sum <file>)\n%s%d node(s), %d byte(s) of node configuration, %d unknown node type(s); workflow settings: %t, error workflow: %t, template or secret markers (syntax only, not a verdict): %d\nadopt it only after reading the file; an operator's own terminal is required, with --profile naming the file's profile:\n%s",
 				a.Path, a.SHA, incomplete, a.Nodes, a.ConfigBytes, a.Unknown, a.HasSettings, a.ErrorWorkflow, a.Refs, cmd),
 			Preview: previewText(a.Preview),
 			FixID:   FixWorkflowPublicationsAdopt + ":" + arg, FixCommand: cmd})
@@ -164,6 +183,14 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 	if unsafe > 0 {
 		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".unsafe", Title: "more files",
 			Status: StatusInfo, Summary: fmt.Sprintf("%d workflow file(s) or change(s) with names that are not safe to print or beyond the listing cap; look in the workflows folder", unsafe)})
+	}
+	if info.FocusWhy != "" {
+		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".focus", Title: "that file", Status: StatusInfo, Summary: info.FocusWhy})
+	}
+	if info.Incomplete {
+		res.Children = append(res.Children, Result{ID: CheckWorkflowPublications + ".incomplete", Title: "scan incomplete", Status: StatusInfo,
+			Summary: "the scan of the workflow files stopped at a limit, so files may be missing from this report",
+			Detail:  "look at one file by its id with: monoagentcli doctor --check " + CheckWorkflowPublications + " --workflow <id>"})
 	}
 	switch {
 	case unresolved > 0 || stale > 0 || len(info.Unreadable) > 0:
@@ -180,14 +207,32 @@ func checkWorkflowPublications(ctx context.Context, env *Env) Result {
 			parts = append(parts, fmt.Sprintf("%d unreadable file(s)", n))
 		}
 		res.Summary = strings.Join(parts, ", ")
-	case len(res.Children) > 0:
+	case len(res.Children) > 0 && !(info.Incomplete && len(res.Children) == 1):
 		res.Status, res.Summary = StatusInfo, fmt.Sprintf("%d change(s) in progress or waiting", len(res.Children))
+	case info.Incomplete:
+		res.Status, res.Summary = StatusInfo, "no unfinished changes found, but the scan of the workflow files is incomplete"
 	}
 	return res
 }
 
 // safeWorkflowID is what a workflow id may look like to be printed bare or put in a command.
 var safeWorkflowID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// openRecordID is what a workflow id of a change record may look like to be printed bare and put
+// in a command (ids in the database may contain dots, unlike file names).
+var openRecordID = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
+
+// capQuoted escapes s and cuts the result at n bytes, on a character boundary.
+func capQuoted(s string, n int) string {
+	q := fmt.Sprintf("%q", s)
+	if len(q) > n {
+		q = cutAtRune(q, n) + `…"`
+	}
+	return q
+}
+
+// capText64 cuts a record field before it is quoted.
+func capText64(s string) string { return strings.ToValidUTF8(cutAtRune(s, 64), "") }
 
 // maxListedIDs bounds how many rows one kind of finding adds to the report.
 const maxListedIDs = 50
@@ -216,13 +261,7 @@ func quotedOrDefault(s, def string) string {
 }
 
 // capText escapes text from a record and cuts it at a few hundred bytes.
-func capText(s string) string {
-	q := fmt.Sprintf("%q", s)
-	if len(q) > 300 {
-		q = cutAtRune(q, 300) + `…"`
-	}
-	return q
-}
+func capText(s string) string { return capQuoted(s, 300) }
 
 // quotedList prints names escaped, so a name from a file cannot move the cursor or fake a line.
 func quotedList(names []string) string {

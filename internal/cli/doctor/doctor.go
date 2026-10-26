@@ -27,6 +27,7 @@ func runHealth(ctx context.Context, cfg *Deps, reg *health.Registry, opts health
 	env, closeEnv := cfg.NewEnv(cfg.projects)
 	defer closeEnv()
 	env.AgentAccount = cfg.agentAccount
+	env.WorkflowFocus = cfg.workflowFile
 	if env.AgentAccount == "" {
 		env.AgentAccount = os.Getenv(health.AgentAccountEnv)
 	}
@@ -168,6 +169,7 @@ Exit code 1 means a required check failed.`,
 	cmd.Flags().BoolVar(&fix, "fix", false, "Apply fixes: auto ones directly, confirm ones after asking")
 	cmd.Flags().BoolVar(&yes, "yes", false, "With --fix: accept confirm fixes without asking")
 	cmd.Flags().BoolVar(&projects, "projects", false, "Also run monomind's checks, for the profile folder and every monomind project inside it (without the rest of --deep)")
+	cmd.Flags().StringVar(&cfg.workflowFile, "workflow", "", "Also show this workflow file (by its id) in full, for a file the report did not list")
 	cmd.Flags().StringVar(&cfg.agentAccount, "agent-account", "", "Windows account the agent runs as: check that it has no access to the state folder ($"+health.AgentAccountEnv+" is the default; run \"monoagentcli agent-mode windows\")")
 	cmd.Flags().StringSliceVar(&cfg.projects, "project", nil, "Only these monomind projects (path relative to the profile folder, or folder name); implies --projects")
 	cmd.AddCommand(newDoctorFixCmd(cfg))
@@ -327,9 +329,18 @@ var statusMark = map[health.Status]string{
 }
 
 func printDoctorReport(w io.Writer, rep *health.Report, fixed bool) {
+	printDoctorReportWith(w, rep, fixed, previewsAllowed(w))
+}
+
+// stdoutIsTerminal is a variable so a test can stand in for a terminal.
+var stdoutIsTerminal = func(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
+
+// previewsAllowed says whether text taken from files may be shown on w: only on a terminal that is
+// the operator's own. A pty an agent drives is a terminal too, so the process must also not be
+// marked as an agent's.
+func previewsAllowed(w io.Writer) bool {
 	f, isFile := w.(*os.File)
-	// A pty an agent drives is a terminal too: previews go only to the operator's own.
-	printDoctorReportWith(w, rep, fixed, isFile && term.IsTerminal(int(f.Fd())) && operator.Marker() == "")
+	return isFile && stdoutIsTerminal(f) && operator.Marker() == ""
 }
 
 // printDoctorReportWith prints the text report. previews says whether text taken from files

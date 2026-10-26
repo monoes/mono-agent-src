@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -160,5 +161,44 @@ func TestWorkflowDoctorNamesOnlyRegisteredNodeTypes(t *testing.T) {
 	a := info.Adoptable[0]
 	if strings.Join(a.NodeTypes, ",") != "trigger.manual" || a.Unknown != 1 {
 		t.Fatalf("types %v, unknown %d", a.NodeTypes, a.Unknown)
+	}
+}
+
+// A folder with more names than the scan covers is reported as incomplete, and the file a person
+// names with --workflow is shown whatever the listing did.
+func TestWorkflowDoctorSaysWhenTheScanStoppedAndFocusesOneFile(t *testing.T) {
+	ctx := context.Background()
+	env, _, store := workflowDoctorEnv(t)
+	if err := store.SaveWorkflow(ctx, &workflow.Workflow{ID: "wf-base", Name: "b", ProfileID: "default"}); err != nil { // the claim is recorded
+		t.Fatal(err)
+	}
+	dir := filepath.Join(env.DataDir, "workflows")
+	for i := 0; i < 5200; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("n-%05d.txt", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, _ := workflow.NewWorkflowFileStore(dir)
+	wf := &workflow.Workflow{ID: "wf-far", Name: "far", ProfileID: "default", Nodes: []workflow.WorkflowNode{
+		{ID: "n1", WorkflowID: "wf-far", Type: "trigger.manual", Name: "n1", Config: map[string]any{}}}}
+	if err := files.SaveWorkflow(ctx, wf); err != nil {
+		t.Fatal(err)
+	}
+	info, err := env.WorkflowPublications(ctx)
+	if err != nil || !info.Incomplete {
+		t.Fatalf("incomplete=%v %v", info != nil && info.Incomplete, err)
+	}
+	res := health.Default().Run(ctx, env, health.Options{IDs: []string{health.CheckWorkflowPublications}})
+	if b, _ := json.Marshal(res); !strings.Contains(string(b), "incomplete") {
+		t.Fatalf("the report does not say the scan was incomplete: %s", b)
+	}
+	env.WorkflowFocus = "wf-far"
+	info, err = env.WorkflowPublications(ctx)
+	if err != nil || len(info.Adoptable) != 1 || info.Adoptable[0].ID != "wf-far" {
+		t.Fatalf("%+v %v", info, err)
+	}
+	env.WorkflowFocus = "missing"
+	if info, _ = env.WorkflowPublications(ctx); info.FocusWhy == "" || len(info.Adoptable) != 0 {
+		t.Fatalf("a file that is not there is not explained: %+v", info)
 	}
 }

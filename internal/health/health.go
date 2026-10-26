@@ -168,7 +168,10 @@ type Env struct {
 	// WorkflowPublications reads the unfinished workflow changes; RecoverWorkflowPublications
 	// resolves the abandoned ones (what any command that opens the workflows does anyway) and
 	// returns how many it looked at.
-	WorkflowPublications        func(ctx context.Context) (*WorkflowPublicationsInfo, error)
+	WorkflowPublications func(ctx context.Context) (*WorkflowPublicationsInfo, error)
+	// WorkflowFocus is `doctor --workflow <id>`: also show that one workflow file in full, however
+	// the listing of files with no stored copy came out.
+	WorkflowFocus               string
 	RecoverWorkflowPublications func(ctx context.Context) (int, error)
 	// ResolveWorkflowPublication ends an unresolved change: keep is "keep-rows" or "keep-file".
 	ResolveWorkflowPublication func(ctx context.Context, workflowID, keep string) error
