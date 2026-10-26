@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -23,7 +24,7 @@ func newCoderSessionsCmd(cfg *Deps) *cobra.Command {
 			"from starting and `resume` lifts that. Turns run unattended: the access level of the conversation is the " +
 			"only limit, so `list` shows it.",
 	}
-	cmd.AddCommand(newCoderSessionsListCmd(cfg), newCoderSessionsSendCmd(cfg),
+	cmd.AddCommand(newCoderSessionsListCmd(cfg), newCoderSessionsSendCmd(cfg), newCoderSessionsCommandCmd(cfg),
 		newCoderSessionsControlCmd(cfg, coderhost.KindStop, "Stop the session's running turn"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindPause, "Start no new turn until resumed (a running turn finishes)"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindResume, "Lift a pause"))
@@ -178,6 +179,38 @@ func newCoderSessionsControlCmd(cfg *Deps, kind coderhost.Kind, short string) *c
 				return err
 			}
 			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "kind": kind})
+		},
+	}
+	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
+	return cmd
+}
+
+// newCoderSessionsCommandCmd reports how one queued command ended: the app asks
+// it for a send whose turn never appeared, to show the reason.
+func newCoderSessionsCommandCmd(cfg *Deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "command ID",
+		Short: "Show a queued command: pending, done, or failed with the reason",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil || id <= 0 {
+				return clicore.InvalidInput("%q is not a command id", args[0])
+			}
+			db, err := cfg.OpenDB()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			c, ok, err := coderhost.NewStore(db.DB).GetCommand(id)
+			if err != nil {
+				return err
+			}
+			if !ok || c.ProfileID != cfg.ProfileID() {
+				return clicore.NotFound("no command %d", id)
+			}
+			c.Message, c.Attachments = "", nil // the message is the caller's own; the status is what is asked for
+			return printQueueJSON(cmd, c)
 		},
 	}
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)

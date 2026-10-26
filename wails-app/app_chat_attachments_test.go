@@ -155,7 +155,7 @@ func TestApp_StartChatTurn_PassesAttachments(t *testing.T) {
 		t.Fatalf("Start = %+v", r)
 	}
 	waitForType(t, emitter, chatevents.EventTurnFinished, 5*time.Second)
-	got := readArgsLog(t, argsLog)
+	got := withoutCoderProbe(readArgsLog(t, argsLog))
 	if len(got) == 0 || !strings.HasSuffix(got[0], "--instance "+a.chatSup.instanceID+" --attach=/s/a b.png --attach=/s/-x.txt -- look") {
 		t.Errorf("argv = %q", got)
 	}

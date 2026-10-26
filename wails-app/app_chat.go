@@ -103,6 +103,8 @@ type chatTurnHandle struct {
 
 	cancel context.CancelFunc
 
+	host bool // run by the coder host: the app only relays its journal and sends it commands
+
 	mu            sync.Mutex
 	stopRequested bool
 	proc          chatProcess // nil until the subprocess is launched
@@ -307,6 +309,10 @@ func (sup *chatSupervisor) stopAll() {
 	}
 	sup.mu.Unlock()
 	for _, h := range handles {
+		if h.host {
+			h.detach() // the host's turn outlives the app: stop following it, not the turn
+			continue
+		}
 		h.requestStop()
 	}
 	done := make(chan struct{})
