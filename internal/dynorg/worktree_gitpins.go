@@ -23,7 +23,7 @@ const noHooksPath = "/dev/null"
 
 // emptyHooksDir is the hooks directory for the conductor's git calls. On
 // Windows, which has no such device, it is a folder under the operator's own
-// state folder (created private), checked to be empty on every use; if
+// state folder (its mode bits do not protect it there; see SECURITY.md), checked to be empty on every use; if
 // anything is in it the operation is refused. It is never derived from a
 // relative path or a temporary folder, and a failure is not remembered.
 func emptyHooksDir() (string, error) {
@@ -54,5 +54,7 @@ func gitPins() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no empty hooks directory could be used, so git was not run: %v", err)
 	}
-	return []string{"-c", "core.hooksPath=" + hooks, "-c", "core.fsmonitor=false"}, nil
+	return []string{"-c", "core.hooksPath=" + hooks, "-c", "core.fsmonitor=false",
+		// Merges and checkouts never descend into submodules.
+		"-c", "submodule.recurse=false"}, nil
 }

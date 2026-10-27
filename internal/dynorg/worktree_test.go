@@ -846,7 +846,7 @@ func TestWithIdentityRespectsTheEnvironment(t *testing.T) {
 	}
 }
 
-func TestStoppingTheTurnMidMergeLeavesTheRepoConsistent(t *testing.T) {
+func TestStoppingTheTurnBeforeTheMergeStillMergesAndLeavesTheRepoConsistent(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell hook")
 	}
@@ -855,9 +855,8 @@ func TestStoppingTheTurnMidMergeLeavesTheRepoConsistent(t *testing.T) {
 	defer c.Close()
 	spawnWriter(t, c, "write one.txt x")
 	c.Wait(context.Background(), nil, 10*time.Second)
-	// The repository's hooks are off for the conductor's git, so nothing
-	// slows the merge: the turn is stopped before it, and the merge must
-	// still run to the end.
+	// The turn is stopped before the merge starts; the merge must still run
+	// to the end (the stop after it has started is the next test).
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	res, err := c.Merge(ctx, "w1")
@@ -876,6 +875,63 @@ func TestStoppingTheTurnMidMergeLeavesTheRepoConsistent(t *testing.T) {
 	}
 	if st := gitT(t, repo, "status", "--porcelain"); st != "" {
 		t.Errorf("tree not clean:\n%s", st)
+	}
+}
+
+// The turn is stopped after the merge command has started: a wrapper first
+// on PATH holds only the merge subcommand open, so the stop lands inside it.
+func TestStoppingTheTurnAfterTheMergeStartedLetsItFinish(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell wrapper")
+	}
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := newRepo(t)
+	c, _ := newWriterConductor(t, &fileExec{}, repo, WritersIsolated, "m11")
+	defer c.Close()
+	spawnWriter(t, c, "write one.txt x")
+	c.Wait(context.Background(), nil, 10*time.Second)
+	started := filepath.Join(t.TempDir(), "started")
+	bin := t.TempDir()
+	wrapper := "#!/bin/sh\nfor a in \"$@\"; do\n if [ \"$a\" = merge ]; then echo $$ > '" + started + "'; sleep 1; break; fi\ndone\nexec '" + realGit + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type out struct {
+		res MergeResult
+		err error
+	}
+	done := make(chan out, 1)
+	go func() {
+		r, e := c.Merge(ctx, "w1")
+		done <- out{r, e}
+	}()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the merge command never started")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	o := <-done
+	if o.err != nil || !o.res.Merged {
+		t.Errorf("merge = %+v, %v; want it to finish after the stop", o.res, o.err)
+	}
+	gitDir := gitT(t, repo, "rev-parse", "--absolute-git-dir")
+	if _, err := os.Stat(filepath.Join(gitDir, "index.lock")); !os.IsNotExist(err) {
+		t.Errorf("index.lock left behind: %v", err)
+	}
+	if _, err := gitRun(context.Background(), repo, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); err == nil {
+		t.Error("a merge is still in progress")
 	}
 }
 

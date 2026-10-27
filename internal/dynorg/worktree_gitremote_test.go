@@ -73,7 +73,7 @@ func TestLazyFetchRunsTheProgramWithoutThePin(t *testing.T) {
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	_ = cmd.Run()
 	if _, err := os.Stat(marker); err != nil {
-		t.Skipf("this git does not lazy-fetch this shape, so the pin cannot be shown: %v", err)
+		t.Fatalf("git behaviour changed: it no longer lazy-fetches this shape, so the baseline proof that the pin matters no longer holds: %v", err)
 	}
 }
 
@@ -118,6 +118,15 @@ func TestRefuseProgramConfigNetworkAndHelperKeys(t *testing.T) {
 		{"url.https://example.com/.pushInsteadOf", "ext::sh -c x"},
 		{"protocol.ext.allow", "always"},
 		{"protocol.allow", "always"},
+		{"protocol.foo.allow", "user"},
+		{"protocol.file.allow", "always"},
+		{"protocol.allow", "user"},
+		{"remote.o.url", "foo::bar"},
+		{"remote.o.pushurl", "foo::bar"},
+		{"core.askPass", "some-program"},
+		{"core.alternateRefsCommand", "some-program"},
+		{"trailer.t.command", "some-program"},
+		{"submodule.s.update", "!some-program"},
 		{"branch.main.mergeOptions", "--no-verify-signatures"},
 	}
 	for _, c := range cases {
@@ -136,7 +145,8 @@ func TestRefuseProgramConfigNetworkAndHelperKeys(t *testing.T) {
 	for _, kv := range [][2]string{
 		{"remote.o.url", "https://example.com/r.git"}, {"remote.o.fetch", "+refs/heads/*:refs/remotes/o/*"},
 		{"remote.o.promisor", "false"}, {"remote.o.uploadpack", ""}, {"core.sshCommand", ""},
-		{"url.https://example.com/.insteadOf", "ex:"}, {"protocol.ext.allow", "never"}, {"protocol.file.allow", "always"},
+		{"url.https://example.com/.insteadOf", "ex:"}, {"protocol.ext.allow", "never"}, {"protocol.file.allow", "never"}, {"protocol.foo.allow", ""},
+		{"core.askPass", ""}, {"core.alternateRefsCommand", ""}, {"trailer.t.command", ""}, {"submodule.s.update", "checkout"},
 		{"branch.main.remote", "o"}, {"branch.main.mergeOptions", ""},
 	} {
 		gitT(t, repo, "config", kv[0], kv[1])
@@ -147,6 +157,53 @@ func TestRefuseProgramConfigNetworkAndHelperKeys(t *testing.T) {
 }
 
 // The refusal message is built from agent-controlled key text.
+func TestGitEnvClosesTheUserProtocolPolicy(t *testing.T) {
+	found := false
+	for _, kv := range gitEnv() {
+		if kv == "GIT_PROTOCOL_FROM_USER=0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("gitEnv does not carry GIT_PROTOCOL_FROM_USER=0")
+	}
+}
+
+// Under git's "user" policy a plain fetch of a helper-scheme address starts
+// the helper; the conductor's environment closes that policy.
+func TestUserProtocolPolicyStartsAHelperOnlyWithoutTheEnvSetting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the test program is a POSIX shell script")
+	}
+	isolateGit(t)
+	repo := newRepo(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git-remote-foo"), []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	gitT(t, repo, "config", "protocol.foo.allow", "user")
+	gitT(t, repo, "config", "remote.o.url", "foo::bar")
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_PROTOCOL_FROM_USER=") {
+			env = append(env, kv)
+		}
+	}
+	cmd := exec.Command("git", "-C", repo, "fetch", "o")
+	cmd.Env = append(env, "GIT_TERMINAL_PROMPT=0")
+	_ = cmd.Run()
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("git behaviour changed: the user policy no longer starts the helper, so the baseline proof no longer holds: %v", err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = gitRun(context.Background(), repo, "fetch", "o")
+	noMarker(t, marker)
+}
+
 func TestRefusalMessageDropsControlCharactersAndQuotesTheKey(t *testing.T) {
 	got := printableKey("remote.a\nb\x1b[31m.uploadpack\u0007‮")
 	if strings.ContainsAny(got, "\n\x1b\a‮") {
@@ -154,6 +211,17 @@ func TestRefusalMessageDropsControlCharactersAndQuotesTheKey(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, `"`) || !strings.HasSuffix(got, `"`) {
 		t.Fatalf("not quoted: %s", got)
+	}
+	// A token in the subsection never reaches the message.
+	got = printableKey("credential.https://user:s3cr3tt0ken@host.example/.helper")
+	if strings.Contains(got, "s3cr3tt0ken") || strings.Contains(got, "host.example") || got != `"credential.<subsection>.helper"` {
+		t.Fatalf("subsection echoed: %s", got)
+	}
+	isolateGit(t)
+	tr := newRepo(t)
+	gitT(t, tr, "config", "credential.https://user:s3cr3tt0ken@host.example/.helper", "some-program")
+	if err := refuseProgramConfig(context.Background(), tr); err == nil || strings.Contains(err.Error(), "s3cr3tt0ken") {
+		t.Fatalf("refusal = %v, want a refusal without the token", err)
 	}
 	// And through a real configuration file.
 	isolateGit(t)

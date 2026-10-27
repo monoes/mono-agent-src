@@ -80,6 +80,9 @@ func TestGitCallsCarryTheHooksAndMonitorPins(t *testing.T) {
 	if v := gitT(t, repo, "config", "--get", "core.fsmonitor"); v != "false" {
 		t.Fatalf("fsmonitor = %q", v)
 	}
+	if v := gitT(t, repo, "config", "--get", "submodule.recurse"); v != "false" {
+		t.Fatalf("submodule.recurse = %q, want false", v)
+	}
 }
 
 func TestRepositoryHooksDoNotRunForTheConductorsGit(t *testing.T) {

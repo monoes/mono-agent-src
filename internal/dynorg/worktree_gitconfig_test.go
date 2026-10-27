@@ -38,6 +38,7 @@ func noMarker(t *testing.T, marker string) {
 
 func wantRefusal(t *testing.T, err error, key string) {
 	t.Helper()
+	key = strings.Trim(printableKey(key), `"`) // the message omits any subsection
 	if err == nil || !strings.Contains(err.Error(), "names a program") || !strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "operator") {
 		t.Fatalf("err = %v, want a refusal naming %s", err, key)
 	}
@@ -119,7 +120,7 @@ func TestSpawningAWriterRefusesAFilterDefinitionAndMakesNoWorktree(t *testing.T)
 		t.Fatalf("a branch was made: %s", b)
 	}
 	msgs := notices(em, NoticeGitConfigRefused)
-	if len(msgs) != 1 || !strings.Contains(msgs[0], "names a program") || !strings.Contains(msgs[0], "filter.x.smudge") ||
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "names a program") || !strings.Contains(msgs[0], "filter.<subsection>.smudge") ||
 		!strings.Contains(msgs[0], "works in the chat folder instead") {
 		t.Fatalf("notices = %v", msgs)
 	}
@@ -233,8 +234,8 @@ func TestRefuseProgramConfigKeys(t *testing.T) {
 			gitT(t, repo, "config", c.key, "some-program")
 			err := refuseProgramConfig(context.Background(), repo)
 			wantRefusal(t, err, "")
-			if !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(c.want)) {
-				t.Fatalf("err = %v, want %s", err, c.want)
+			if want := strings.Trim(printableKey(c.want), `"`); !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(want)) {
+				t.Fatalf("err = %v, want %s", err, want)
 			}
 			if strings.Contains(err.Error(), "some-program") {
 				t.Fatalf("the value is in the message: %v", err)

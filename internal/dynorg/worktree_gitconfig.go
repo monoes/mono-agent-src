@@ -67,6 +67,9 @@ func programEntry(key, value string, set bool) bool {
 			return !set || value != ""
 		case "promisor":
 			return !set || !isFalse(value, true)
+		case "url", "pushurl":
+			// A helper scheme in an address selects a program.
+			return strings.Contains(value, "::")
 		}
 	case "credential":
 		return variable == "helper" && (!set || value != "")
@@ -75,7 +78,14 @@ func programEntry(key, value string, set bool) bool {
 		return hasSub && (variable == "insteadof" || variable == "pushinsteadof") &&
 			(strings.Contains(key, "::") || strings.Contains(value, "::"))
 	case "protocol":
-		return variable == "allow" && strings.EqualFold(strings.TrimSpace(value), "always") && (!hasSub || strings.EqualFold(key[first+1:last], "ext"))
+		// Any policy other than an explicit never (or an empty value) is
+		// refused, whatever the protocol.
+		v := strings.TrimSpace(value)
+		return variable == "allow" && (!set || !(v == "" || strings.EqualFold(v, "never")))
+	case "trailer":
+		return hasSub && variable == "command" && (!set || value != "")
+	case "submodule":
+		return hasSub && variable == "update" && strings.HasPrefix(strings.TrimSpace(value), "!")
 	case "branch":
 		// Merge options stored for a branch are added to git merge.
 		return hasSub && variable == "mergeoptions" && (!set || value != "")
@@ -84,7 +94,7 @@ func programEntry(key, value string, set bool) bool {
 			return false
 		}
 		switch variable {
-		case "sshcommand", "gitproxy":
+		case "sshcommand", "gitproxy", "askpass", "alternaterefscommand":
 			return !set || value != ""
 		case "fsmonitor":
 			return !set || !isFalse(value, true)
@@ -96,9 +106,16 @@ func programEntry(key, value string, set bool) bool {
 }
 
 // printableKey is a configuration key made safe to show: the key is agent
-// text, so anything that is not printable is dropped, the length is
-// bounded and the result is quoted.
+// text, so only the section and the variable name are kept (a subsection
+// or URL part can carry text that must not reach notices or logs),
+// anything that is not printable is dropped, the length is bounded and the
+// result is quoted.
 func printableKey(k string) string {
+	if first, last := strings.Index(k, "."), strings.LastIndex(k, "."); first >= 0 {
+		if last > first {
+			k = k[:first] + ".<subsection>." + k[last+1:]
+		}
+	}
 	k = strings.Map(func(r rune) rune {
 		if unicode.IsPrint(r) {
 			return r
