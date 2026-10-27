@@ -35,7 +35,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/twmb/franz-go v1.22.2
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20261013022759-7b6cac30a57a
-	github.com/yalue/onnxruntime_go v1.37.0
+	github.com/yalue/onnxruntime_go v1.38.0
 	github.com/ysmood/gson v0.7.3
 	github.com/yuin/goldmark v1.8.6
 	github.com/zalando/go-keyring v0.2.8

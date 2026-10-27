@@ -45,7 +45,7 @@ func (m *MissionConfig) Enabled() bool { return m != nil && m.Store != nil && Mi
 func (m *MissionConfig) Planning() bool { return m.Enabled() && m.Confirmed }
 
 func (m *MissionConfig) actor(session int64) tasks.Actor {
-	return tasks.Actor{Kind: tasks.Agent, Name: m.Actor, Session: session}
+	return tasks.Actor{Kind: tasks.Agent, Name: m.Actor, Session: session, Conversation: m.ConversationID}
 }
 
 // round is how many review rounds the draft has had: the plan_revised events of the

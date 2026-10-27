@@ -93,12 +93,17 @@ const (
 // one task (once it is in Review), comment on it there and attach evidence to it, and may
 // not claim, finish, release, split or assign anything. A Verifier without a Task is refused.
 // A Task binding without Verifier never records a verdict, on its own task or another.
+//
+// Conversation is the chat the agent runs in. Only trusted code sets it (the in-process
+// mission lead from its own config, the CLI from a verified session token), never an
+// environment label: an agent may link a session only to this chat.
 type Actor struct {
-	Kind     ActorKind
-	Name     string
-	Session  int64
-	Task     int64
-	Verifier bool
+	Kind         ActorKind
+	Name         string
+	Session      int64
+	Task         int64
+	Verifier     bool
+	Conversation string
 }
 
 // Label is how the actor is written in an event and in a claim.

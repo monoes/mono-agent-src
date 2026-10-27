@@ -1786,7 +1786,8 @@ TEXT`, then `task add TITLE --session N --acceptance TEXT [--depends-on IDS]
 [--parent ID] [--kind task|epic|check]` (acceptance criteria are required). A
 draft's tasks sit in the inbox column and nothing hands them out until the user
 runs `task session approve N`, which moves them to Ready and sets the session
-running; an agent cannot approve its own plan. In a running session an agent uses
+running; an agent cannot approve its own plan. An agent may link a session (`--conversation`)
+only to its own chat, which it proves with its coder-session token; without one it links none. In a running session an agent uses
 `task next --session N [--claim --as NAME]` (a Ready task whose dependencies are
 all done, never a draft's, a paused session's or an epic), `claim`, `comment`,
 `finish` and `release` by task id, adds follow-ups (Ready at once; the session's

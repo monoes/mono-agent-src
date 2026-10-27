@@ -246,21 +246,32 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 			return err
 		}
 		if c, ok := conv.(string); ok && actor.Kind == Agent {
+			if actor.Conversation == "" || c != actor.Conversation {
+				return invalid("an agent links a session only to its own chat")
+			}
 			var n int
 			if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, c, profileID).Scan(&n); err != nil {
 				return fmt.Errorf("tasks: looking up the conversation: %w", err)
 			}
 			if n == 0 {
-				return invalid("conversation %q is not a chat of this profile: an agent links a session only to its own chat", echo(c))
+				return invalid("conversation %q is not a chat of this profile", echo(c))
 			}
 		}
 		if clientID != "" {
 			var existing int64
 			err := x.QueryRowContext(ctx, `SELECT id FROM task_sessions WHERE profile_id = ? AND client_id = ?`, profileID, clientID).Scan(&existing)
 			if err == nil {
-				out, err = s.sessionTx(ctx, x, profileID, existing)
-				out.Deduped = true
-				return err
+				found, err := s.sessionTx(ctx, x, profileID, existing)
+				if err != nil {
+					return err
+				}
+				// An agent never gets back a session of another chat (or of none, when it asked
+				// for a chat): a key another chat used is refused, whatever the session holds.
+				if actor.Kind == Agent && found.ConversationID != strings.TrimSpace(in.ConversationID) {
+					return invalid("client id %q is already used: pick another", echo(clientID))
+				}
+				out, out.Deduped = found, true
+				return nil
 			}
 			if !errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("tasks: looking up a session by client id: %w", err)

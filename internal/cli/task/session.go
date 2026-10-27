@@ -248,6 +248,13 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 					return err
 				}
 			}
+			if actor.Kind == tasks.Agent && strings.TrimSpace(conversation) != "" {
+				chat, err := d.ownChat()
+				if err != nil {
+					return err
+				}
+				actor.Conversation = chat
+			}
 			in := tasks.SessionInput{
 				Title: strings.Join(args, " "), Goal: goal, ConversationID: conversation,
 				AccessLevel: access, BudgetUSD: budget, MaxTasks: maxTasks, MaxDepth: maxDepth, ClientID: clientID,
@@ -262,7 +269,7 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&goal, "goal", "", "What the session is for (the plan card shows it)")
-	cmd.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the session belongs to")
+	cmd.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the session belongs to (an agent: only its own chat)")
 	cmd.Flags().StringVar(&clientID, "client-id", "", "An idempotency key (up to 64 letters, digits, - or _): a repeat in the profile returns the same session, with deduped true")
 	cmd.Flags().Float64Var(&budget, "budget-usd", 0, "Budget in dollars (you only; 0 for none)")
 	cmd.Flags().IntVar(&maxTasks, "max-tasks", 0, "Most tasks the session holds (you only; default 200)")
