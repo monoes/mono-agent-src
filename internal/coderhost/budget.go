@@ -96,6 +96,9 @@ func (s *Store) Spent(profileID, conversationID string) (float64, error) {
 
 // spentIn is Spent read through q (a transaction, when the number must agree with the rows read beside it).
 func (s *Store) spentIn(q querier, profileID, conversationID string) (float64, error) {
+	if s.onSpent != nil {
+		s.onSpent(q)
+	}
 	caps := map[string]float64{}
 	rows, err := q.Query(`SELECT turn_id, cap_usd FROM coder_session_turn_caps WHERE profile_id = ? AND conversation_id = ? AND started = 1`, profileID, conversationID)
 	if err != nil {

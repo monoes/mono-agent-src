@@ -1,6 +1,8 @@
 package coderhost
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -283,29 +285,89 @@ func TestFindOrphanCarvesListsOnlyCarvesNoRowPointsAt(t *testing.T) {
 	}
 }
 
-// Reserve's first statement must take the write lock even though it changes nothing; otherwise the reads
-// after it are not protected from a writer that comes in between.
-func TestReservesFirstStatementTakesTheWriteLock(t *testing.T) {
-	f := newMC(t, true)
-	tx, err := f.st.db.Begin()
+// secondWriter opens another handle on the store's database file with a short busy timeout, to stand for
+// another process writing (the operator's, or another lead's).
+func secondWriter(t *testing.T, st *Store) *sql.DB {
+	t.Helper()
+	var seq int
+	var name, file string
+	if err := st.db.QueryRow(`PRAGMA database_list`).Scan(&seq, &name, &file); err != nil || file == "" {
+		t.Fatalf("database file: %q %v", file, err)
+	}
+	db2, err := sql.Open("sqlite", "file:"+file+"?_pragma=busy_timeout(150)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`UPDATE coder_mission_children SET id = id WHERE 0`); err != nil {
+	t.Cleanup(func() { db2.Close() })
+	return db2
+}
+
+// Reserve holds the database's write lock from its first statement until it commits: a writer that comes in
+// between its reads and its reserving statement does not get through, and every read goes through the
+// transaction (with one connection in the pool, a read through the pool would wait for the transaction forever).
+func TestReserveHoldsTheWriteLockWhileItDecides(t *testing.T) {
+	f := newMC(t, true)
+	f.mark(t, 0)
+	db2 := secondWriter(t, f.st)
+	f.st.db.SetMaxOpenConns(1)
+	var ran bool
+	var through error
+	f.st.afterReserveReads = func() {
+		ran = true
+		_, through = db2.Exec(`UPDATE coder_mission_policy SET max_children = 1 WHERE session_id = ?`, f.se.ID)
+	}
+	var err error
+	boundedly(t, 10*time.Second, func() { _, err = f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[0]) })
+	if err != nil || !ran {
+		t.Fatalf("reserve: ran=%v err=%v", ran, err)
+	}
+	if through == nil {
+		t.Fatal("another writer got through between Reserve's reads and its reserving statement")
+	}
+	if _, err := db2.Exec(`UPDATE coder_mission_policy SET max_children = 1 WHERE session_id = ?`, f.se.ID); err != nil {
+		t.Fatalf("the lock was not released at the commit: %v", err)
+	}
+}
+
+// Reserve sums the lead's spend before it takes the write lock: a long event log does not hold other
+// writers up. Every Spent read must come before the lock, and a writer must get through while it runs.
+func TestReserveReadsTheSpendBeforeTakingTheWriteLock(t *testing.T) {
+	f := newMC(t, true)
+	if err := f.st.SetBudget("p", f.lead.ConversationID, 10); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := f.st.db.Exec(`INSERT INTO coder_mission_events (profile_id, session_id, kind, who, at) VALUES ('p', 1, 'mark', 'x', 'now')`)
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("another writer got in while the reserving transaction held its first statement")
-		}
-	case <-time.After(300 * time.Millisecond):
+	conn, err := f.st.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	_ = tx.Rollback()
-	boundedly(t, 10*time.Second, func() { <-done })
+	if _, err := conn.ExecContext(context.Background(), `PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200000)
+		INSERT INTO ai_chat_events (profile_id, conversation_id, turn_id, seq, created_at, version, type, payload)
+		SELECT 'p', ?, 't1', i, 'now', 1, 'usage.updated', printf('{"agentId":"","costUsd":%f}', i * 0.00001) FROM n`, f.lead.ConversationID); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 1}); err != nil {
+		t.Fatal(err)
+	}
+	db2 := secondWriter(t, f.st)
+	reads, inTx := 0, 0
+	var blocked error
+	f.st.onSpent = func(q querier) {
+		reads++
+		if _, ok := q.(*sql.Tx); ok {
+			inTx++
+		}
+		if _, err := db2.Exec(`UPDATE coder_mission_policy SET max_children = 2 WHERE session_id = ?`, f.se.ID); err != nil {
+			blocked = err
+		}
+	}
+	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	if reads == 0 || inTx != 0 || blocked != nil {
+		t.Fatalf("spend reads=%d inside the transaction=%d, a writer during them: %v", reads, inTx, blocked)
+	}
 }

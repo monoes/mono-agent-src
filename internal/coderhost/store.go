@@ -113,6 +113,10 @@ type Store struct {
 	afterPolicyRead func()
 	// beforeReserveTx lets a test act between Reserve's checks and the transaction that reserves.
 	beforeReserveTx func()
+	// afterReserveReads runs inside Reserve's transaction, after its reads and before the reserving statement.
+	afterReserveReads func()
+	// onSpent sees the handle every Spent read goes through.
+	onSpent func(q querier)
 }
 
 // NewStore wraps an open, migrated database.
