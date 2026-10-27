@@ -607,6 +607,36 @@ func TestFilteredEnvironStripsMonomindOverrides(t *testing.T) {
 	}
 }
 
+// A mission token (and its labels) in the ambient environment is not passed on: only opts.Env,
+// which the conductor fills for the one worker the token was minted for, carries it.
+func TestFilteredEnvironDropsAmbientMissionTokens(t *testing.T) {
+	for _, k := range []string{"MONOAGENT_TASK_TOKEN", "MONOAGENT_TASK_SESSION", "MONOAGENT_TASK_ID", "MONOAGENT_TASK_ROLE"} {
+		t.Setenv(k, "inherited")
+	}
+	t.Setenv("MONOAGENT_OTHER", "keep")
+	var other bool
+	for _, kv := range FilteredEnviron() {
+		key, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(key, "MONOAGENT_TASK_") {
+			t.Errorf("%s was passed on to a child", key)
+		}
+		other = other || key == "MONOAGENT_OTHER"
+	}
+	if !other {
+		t.Error("an unrelated MONOAGENT_ variable was dropped")
+	}
+	// the explicit value for the worker the token was minted for still reaches it
+	got := append(FilteredEnviron(), envSlice(map[string]string{"MONOAGENT_TASK_TOKEN": "mine"})...)
+	if last := got[len(got)-1]; last != "MONOAGENT_TASK_TOKEN=mine" {
+		t.Errorf("the worker's own token is not last: %q", last)
+	}
+	for _, kv := range got[:len(got)-1] {
+		if strings.HasPrefix(kv, "MONOAGENT_TASK_") {
+			t.Errorf("an inherited label precedes the worker's own: %q", kv)
+		}
+	}
+}
+
 func fields(s string) []string {
 	var out []string
 	cur := ""

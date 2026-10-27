@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os/exec"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -34,11 +35,12 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 // mission_report, mission_verify, mission_finish, org_spawn's task_id) to the profile's
 // task store. It is nil unless the lead is a confirmed mission planner; the session is
 // resolved from the conversation by the conductor, never named by the lead.
-func missionRun(m *dynorg.MissionConfig) *dynorg.MissionRun {
+func missionRun(m *dynorg.MissionConfig, db *sql.DB) *dynorg.MissionRun {
 	if !m.Planning() {
 		return nil
 	}
-	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID}
+	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID, Tokens: agenttokens.NewStore(db),
+		Owner: dynorg.ConversationOwner(m.ProfileID, m.ConversationID)}
 }
 
 // missionMaxAgents is the per-turn worker cap of a turn: a confirmed mission gets the larger

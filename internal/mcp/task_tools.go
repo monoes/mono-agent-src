@@ -34,7 +34,7 @@ func (s *Server) taskBoard(ctx context.Context) (*tasks.Store, tasks.Profile, ta
 	if err != nil {
 		return nil, tasks.Profile{}, tasks.Actor{}, taskToolErr(err)
 	}
-	return store, p, s.taskActor(), nil
+	return store, p, s.boundTaskActor(ctx, rt.db.DB, p.ID), nil
 }
 
 // taskToolNames is the family by name: what a server started with --tasks-only

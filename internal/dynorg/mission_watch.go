@@ -16,6 +16,7 @@ func (c *Conductor) missionWatch(sid int64) {
 	if err != nil {
 		return
 	}
+	c.sweepMissionTokens(mc)
 	c.msched.mu.Lock()
 	c.msched.init()
 	c.msched.sessions[sid] = true

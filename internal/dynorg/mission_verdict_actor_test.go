@@ -13,7 +13,7 @@ import (
 // A verifier that unset its binding and recorded the verdict under another name.
 func (r *missionRig) forgedVerdicts(as string) {
 	r.ex.verify = func(ctx context.Context, id int64, o monomind.ExecOptions) (*monomind.TurnResult, error) {
-		bound := verifierActorOf(r.t, o.Env)
+		bound := verifierActorOf(r.t, r.db, o.Env)
 		forged := tasks.Actor{Kind: tasks.Agent, Name: as, Session: bound.Session, Task: id, Verifier: true}
 		if _, err := r.store.VerifySessionTask(tbg, "default", bound.Session, id, true, "all fine", forged); err != nil {
 			return nil, err
@@ -92,7 +92,7 @@ func TestOperatorCloseRefusesATaskJudgedByAnotherName(t *testing.T) {
 	r.approve()
 	r.autoClose()
 	honest := func(ctx context.Context, id int64, o monomind.ExecOptions) (*monomind.TurnResult, error) {
-		actor := verifierActorOf(r.t, o.Env)
+		actor := verifierActorOf(r.t, r.db, o.Env)
 		if _, err := r.store.VerifySessionTask(tbg, "default", actor.Session, id, true, "ok", actor); err != nil {
 			return nil, err
 		}
@@ -102,7 +102,7 @@ func TestOperatorCloseRefusesATaskJudgedByAnotherName(t *testing.T) {
 		if id != a.ID {
 			return honest(ctx, id, o)
 		}
-		bound := verifierActorOf(r.t, o.Env)
+		bound := verifierActorOf(r.t, r.db, o.Env)
 		forged := tasks.Actor{Kind: tasks.Agent, Name: "someone-else", Session: bound.Session, Task: id, Verifier: true}
 		if _, err := r.store.VerifySessionTask(tbg, "default", bound.Session, id, true, "fine", forged); err != nil {
 			return nil, err

@@ -122,6 +122,9 @@ type Token struct {
 	// runs it; both are empty for a token with no binding (see Binding).
 	BoundConversation string `json:"bound_conversation,omitempty"`
 	BoundTask         string `json:"bound_task,omitempty"`
+	// Mission is the role of a token a conductor minted for a worker or verifier it started;
+	// nil for every other token (see mission.go).
+	Mission *MissionBinding `json:"mission,omitempty"`
 }
 
 // Binding ties a token to one AI task and the conversation that runs it.
@@ -235,7 +238,7 @@ func (s *Store) CreateBound(ctx context.Context, profileID, name string, scope S
 	return t, secret, err
 }
 
-const selectToken = `SELECT id, profile_id, name, scope, prefix, created_at, expires_at, last_used_at, revoked_at, bound_conversation, bound_task FROM agent_tokens`
+const selectToken = `SELECT id, profile_id, name, scope, prefix, created_at, expires_at, last_used_at, revoked_at, bound_conversation, bound_task, mission_session, mission_task, mission_role, mission_actor, mission_owner FROM agent_tokens`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -255,9 +258,14 @@ func scanToken(row scanner) (Token, error) {
 		t                       Token
 		scope, created          string
 		expires, lastUsed, revk sql.NullString
+		m                       MissionBinding
 	)
-	if err := row.Scan(&t.ID, &t.ProfileID, &t.Name, &scope, &t.Prefix, &created, &expires, &lastUsed, &revk, &t.BoundConversation, &t.BoundTask); err != nil {
+	if err := row.Scan(&t.ID, &t.ProfileID, &t.Name, &scope, &t.Prefix, &created, &expires, &lastUsed, &revk, &t.BoundConversation, &t.BoundTask,
+		&m.Session, &m.Task, &m.Role, &m.Actor, &m.Owner); err != nil {
 		return Token{}, err
+	}
+	if m.Role != "" {
+		t.Mission = &m
 	}
 	t.Scope = Scope(scope)
 	t.CreatedAt, _ = time.Parse(timeFmt, created)
@@ -281,9 +289,18 @@ func (t Token) Active(now time.Time) bool {
 	return t.ExpiresAt == nil || now.Before(*t.ExpiresAt)
 }
 
-// Verify finds the token presented as a bearer. Unknown, malformed, expired and
-// revoked tokens are one error, so the caller cannot tell which.
+// Verify finds the token presented as a bearer of the HTTP API. Unknown, malformed, expired and
+// revoked tokens are one error, so the caller cannot tell which. A mission token is one more
+// of them: it is read by the task commands (VerifyMission), never by the API.
 func (s *Store) Verify(ctx context.Context, presented string) (Token, error) {
+	t, err := s.verify(ctx, presented)
+	if err == nil && t.Mission != nil {
+		return Token{}, ErrInvalid
+	}
+	return t, err
+}
+
+func (s *Store) verify(ctx context.Context, presented string) (Token, error) {
 	hash := Hash(presented)
 	var stored string
 	row := s.db.QueryRowContext(ctx, `SELECT token_hash, id FROM agent_tokens WHERE token_hash = ?`, hash)

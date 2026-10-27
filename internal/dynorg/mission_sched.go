@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -29,6 +30,18 @@ const (
 type MissionRun struct {
 	Store     *tasks.Store
 	ProfileID string
+	// Tokens mints the token that binds each worker's and verifier's process to its task
+	// (mission_token.go). Nil: nothing is minted, and a process is an ordinary agent.
+	Tokens *agenttokens.Store
+	// ownerOnce guards owner, the name of this run on the tokens it mints.
+	ownerOnce sync.Once
+	owner     string
+	// Owner names this run on the tokens it mints. A chat sets it from its conversation
+	// (ConversationOwner), so that it is the same across conductors and a later one can revoke
+	// what a crashed one left. Empty: a random name per run.
+	Owner string
+	// revokeFn replaces the token store's revoke (tests).
+	revokeFn func(ctx context.Context, id string) error
 	// Session is the session the mission tools work when a call names none.
 	Session int64
 	// Poll is how often the watcher looks at the session: its state, its budget, the
@@ -128,13 +141,14 @@ type ownedClaim struct {
 }
 
 type missionState struct {
-	mu       sync.Mutex
-	once     sync.Once
-	sessions map[int64]bool       // sessions the watcher looks after
-	owned    map[int64]ownedClaim // task -> the claim this Conductor holds
-	pending  map[int64]bool       // tasks claimed whose worker is not registered yet
-	failures map[int64]int        // task -> crashed or timed-out runs this turn
-	starts   map[int64]int        // task -> workers started for it this turn
+	mu        sync.Mutex
+	once      sync.Once
+	sweepOnce sync.Once            // the sweep of an earlier run's tokens (mission_token.go)
+	sessions  map[int64]bool       // sessions the watcher looks after
+	owned     map[int64]ownedClaim // task -> the claim this Conductor holds
+	pending   map[int64]bool       // tasks claimed whose worker is not registered yet
+	failures  map[int64]int        // task -> crashed or timed-out runs this turn
+	starts    map[int64]int        // task -> workers started for it this turn
 	// leadRenewed: task -> when the watcher last renewed the lead's claim on it
 	leadRenewed map[int64]time.Time
 	warned      map[int64]bool // sessions the 90 percent notice went out for

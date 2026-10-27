@@ -176,6 +176,9 @@ func (s *Store) claimIn(ctx context.Context, profileID string, session, id int64
 		if err := s.checkScope(ctx, x, profileID, id, session, actor); err != nil {
 			return err
 		}
+		if err := s.noUnboundInManaged(ctx, x, profileID, session, actor, "claim a task"); err != nil {
+			return err
+		}
 		if pre != nil {
 			if err := pre(x); err != nil {
 				return err
@@ -463,6 +466,9 @@ func (s *Store) handBack(ctx context.Context, profileID string, session, id int6
 			return err
 		}
 		if err := s.checkScope(ctx, x, profileID, id, session, actor); err != nil {
+			return err
+		}
+		if err := s.noUnboundInManaged(ctx, x, profileID, session, actor, "finish or release a task"); err != nil {
 			return err
 		}
 		if session != 0 && to == StatusReview {

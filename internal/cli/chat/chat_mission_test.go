@@ -39,15 +39,15 @@ func TestMissionConfigGates(t *testing.T) {
 func TestMissionRunOnlyForAConfirmedLead(t *testing.T) {
 	db := testdb.Open(t).DB
 	ctx := context.Background()
-	if mr := missionRun(nil); mr != nil {
+	if mr := missionRun(nil, db); mr != nil {
 		t.Errorf("no mission setup: %+v", mr)
 	}
-	if mr := missionRun(missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"})); mr != nil {
+	if mr := missionRun(missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}), db); mr != nil {
 		t.Errorf("unconfirmed lead got the mission engine: %+v", mr)
 	}
 	m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true})
-	mr := missionRun(m)
-	if mr == nil || mr.Store == nil || mr.ProfileID != "default" || mr.Session != 0 {
+	mr := missionRun(m, db)
+	if mr == nil || mr.Store == nil || mr.Tokens == nil || mr.ProfileID != "default" || mr.Session != 0 {
 		t.Fatalf("confirmed lead: %+v (the session is the conversation's, never preset)", mr)
 	}
 }
