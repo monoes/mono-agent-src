@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
@@ -31,17 +32,25 @@ func (m *MissionRun) runOwner() string {
 	return m.owner
 }
 
-// ConversationOwner is the stable owner of the mission tokens of a conversation of a profile.
+// ConversationOwner names the runs of a conversation of a profile: the group a sweep covers.
 func ConversationOwner(profileID, conversationID string) string {
 	h := sha256.Sum256([]byte(profileID + "\x00" + conversationID))
 	return "conv-" + hex.EncodeToString(h[:8])
 }
 
-// sweepMissionTokens revokes the tokens an earlier conductor of this conversation left behind
-// (it crashed, or was killed, so nothing revoked them), and purges the expired ones. It runs
-// once per Conductor, before this one mints its first token: a new Conductor has no live
-// workers of an earlier process, so every still-active token of the owner is stale. A failure
-// is journalled; the stale tokens then end at their expiry.
+// TurnOwner is the owner of the mission tokens one turn of a conversation mints: stable for the
+// turn, so a conductor that resumes it names the same owner, and different from the owner of any
+// other turn, so a sweep by one run can tell another run's tokens from its own.
+func TurnOwner(profileID, conversationID, turnID string) string {
+	return ConversationOwner(profileID, conversationID) + "/" + turnID
+}
+
+// sweepMissionTokens revokes the tokens an earlier run of this conversation left behind (it
+// crashed, or was killed, so nothing revoked them), and purges the expired ones. It runs once per
+// Conductor, before this one mints its first token. It takes only the tokens of a run that
+// MissionRun.Live does not report as running: a second conductor of the conversation (a second
+// turn the chat admitted) must not end the first one's workers. With no Live check, every other
+// run's tokens count as stale. A failure is journalled; the stale tokens then end at their expiry.
 func (c *Conductor) sweepMissionTokens(mc *MissionRun) {
 	if mc == nil || mc.Tokens == nil {
 		return
@@ -49,7 +58,8 @@ func (c *Conductor) sweepMissionTokens(mc *MissionRun) {
 	c.msched.sweepOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
 		defer cancel()
-		if _, err := mc.Tokens.SweepMissions(ctx, mc.runOwner()); err != nil {
+		group, _, _ := strings.Cut(mc.runOwner(), "/")
+		if _, err := mc.Tokens.SweepMissions(ctx, group, mc.runOwner(), mc.Live); err != nil {
 			c.notice("mission_token_sweep_failed",
 				"Tokens of an earlier run of this mission could not be revoked ("+err.Error()+"); they end when they expire.", chatevents.SeverityWarning)
 		}

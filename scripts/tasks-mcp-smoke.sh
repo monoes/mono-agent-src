@@ -173,7 +173,7 @@ resp "$out" 2 | jq -e '.result.isError!=true and (.result.content[0].text|fromjs
 
 echo "== an environment label binds nothing: a server given MONOAGENT_TASK_SESSION but no token is an ordinary agent"
 # What binds a server to a session, a task and a role is a mission token the conductor mints per run
-# (MONOAGENT_TASK_TOKEN); the MONOAGENT_TASK_* labels scope nothing, so a server that carries only one
+# (MONOAGENT_TASK_BINDING); the MONOAGENT_TASK_* labels scope nothing, so a server that carries only one
 # reads other sessions and the personal board as any unbound agent does. The bound-token cases (a worker
 # held to its task, a verifier, a token that does not verify, an unbound agent in a managed session) need
 # a minted token and are covered by Go tests: internal/mcp TestWorkerTokenBindsTheServerToItsTask,

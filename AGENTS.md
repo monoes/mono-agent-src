@@ -1804,11 +1804,11 @@ session runs. The identity check is a name check, so an unbound agent that picks
 passes it; workers the conductor starts are bound. Only
 the user approves, resumes, closes (`session close`), sets the budget, caps, access level and auto-close
 (`session budget`), archives (`session archive`) and removes dependencies
-(`undepend`); an agent may pause and stop a session (stop releases every claim).
+(`undepend`); an agent may pause and stop a session (stop releases every claim) unless it is an agent with no mission token in a session a chat conversation manages: there only the operator and the conversation's lead (bound to its session) may.
 What binds a process to a session, a task and a role is a mission token (`internal/agenttokens`,
-`mission.go`; `MONOAGENT_TASK_TOKEN`): the conductor mints one per worker or verifier run
+`mission.go`; `MONOAGENT_TASK_BINDING`, a name with no key, secret or token in it so that a runtime's name-based environment filter keeps it; whether each runtime passes it on to its shells and tool servers is not verifiable from this repository and is unverified live: a runtime that dropped it would leave its worker unbound, which fails closed): the conductor mints one per worker or verifier run
 (`internal/dynorg/mission_token.go`), bound to profile, session, task, role and the name the process
-acts under, valid a little longer than the task timeout, revoked when the run ends or expires (a starting conductor revokes what a crashed run of its conversation left), and never accepted
+acts under, valid a little longer than the task timeout, revoked when the run ends or expires (a starting conductor revokes what an earlier run of its conversation left, but only the runs whose chat turn is no longer active: a second conductor of a conversation never ends the first one's workers; a crashed turn's tokens end when it is reconciled or they expire), and never accepted
 by the HTTP API. The CLI (`internal/cli/task/mission_token.go`) and MCP (`boundTaskActor`) read the
 binding only through `internal/taskbind`, from the database; the `MONOAGENT_TASK_*` labels are the
 brief's text and an agent marker, and bind nothing. A token that does not verify binds to nothing that

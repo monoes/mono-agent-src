@@ -113,7 +113,7 @@ func tokenValid(t *testing.T, r *missionRig, secret string) bool {
 // the tokens it mints itself afterwards survive.
 func TestANewConductorRevokesTheTokensOfACrashedRun(t *testing.T) {
 	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
-	r.mc.Owner = ConversationOwner("default", "conv-1")
+	r.mc.Owner = TurnOwner("default", "conv-1", "turn-1")
 	a := r.add(spec{title: "a", files: "a.go"})
 	r.approve()
 	r.next(r.c)
@@ -127,7 +127,7 @@ func TestANewConductorRevokesTheTokensOfACrashedRun(t *testing.T) {
 	w := r.c.taskWorker(a.ID)
 
 	// The turn is restarted: a new conductor over the same store and conversation.
-	mc2 := &MissionRun{Store: r.store, ProfileID: "default", Session: r.sid, Tokens: agenttokens.NewStore(r.db), Owner: r.mc.Owner,
+	mc2 := &MissionRun{Store: r.store, ProfileID: "default", Session: r.sid, Tokens: agenttokens.NewStore(r.db), Owner: TurnOwner("default", "conv-1", "turn-2"),
 		Poll: 10 * time.Millisecond, TaskTimeout: 10 * time.Minute}
 	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
 		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: mc2})
@@ -157,7 +157,7 @@ func TestANewConductorRevokesTheTokensOfACrashedRun(t *testing.T) {
 // A token another conversation's conductor holds is not swept.
 func TestTheSweepLeavesAnotherConversationsTokensAlone(t *testing.T) {
 	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
-	r.mc.Owner = ConversationOwner("default", "conv-1")
+	r.mc.Owner = TurnOwner("default", "conv-1", "turn-1")
 	a := r.add(spec{title: "a", files: "a.go"})
 	r.approve()
 	r.next(r.c)
@@ -165,7 +165,7 @@ func TestTheSweepLeavesAnotherConversationsTokensAlone(t *testing.T) {
 	r.ex.mu.Lock()
 	theirs := r.ex.envs[a.ID][agenttokens.EnvMissionToken]
 	r.ex.mu.Unlock()
-	mc2 := &MissionRun{Store: r.store, ProfileID: "default", Tokens: agenttokens.NewStore(r.db), Owner: ConversationOwner("default", "conv-2")}
+	mc2 := &MissionRun{Store: r.store, ProfileID: "default", Tokens: agenttokens.NewStore(r.db), Owner: TurnOwner("default", "conv-2", "turn-1")}
 	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 2, MaxConcurrent: 1}, Staffer: &Staffer{Roster: []Model{opus}, Lead: opus},
 		Exec: r.ex.exec, Emit: r.em, Missions: mc2})
 	t.Cleanup(c2.Close)
@@ -191,5 +191,50 @@ func TestAFailedRevokeIsSurfaced(t *testing.T) {
 	eventually(t, "the failure to be journalled", func() bool { return countNotices(r.em, "mission_token_revoke_failed") == 1 })
 	if !tokenValid(t, r, secret) {
 		t.Fatal("the stub failed the revoke, so the token should still be live (and end by expiry)")
+	}
+}
+
+// A second conductor of the same conversation, while the first one's turn still runs, does not
+// end the first one's workers; once the first turn is over, the next conductor's sweep does.
+func TestASecondConductorOfARunningConversationLeavesItsTokens(t *testing.T) {
+	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
+	r.mc.Owner = TurnOwner("default", "conv-1", "turn-1")
+	running := map[string]bool{r.mc.Owner: true}
+	r.mc.Live = func(_ context.Context, o string) bool { return running[o] }
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	eventually(t, "a running", func() bool { return r.ex.runCount(a.ID) == 1 })
+	r.ex.mu.Lock()
+	first := r.ex.envs[a.ID][agenttokens.EnvMissionToken]
+	r.ex.mu.Unlock()
+	w := r.c.taskWorker(a.ID)
+
+	mc2 := &MissionRun{Store: r.store, ProfileID: "default", Session: r.sid, Tokens: agenttokens.NewStore(r.db), Owner: TurnOwner("default", "conv-1", "turn-2"),
+		Live: r.mc.Live, Poll: 10 * time.Millisecond, TaskTimeout: 10 * time.Minute}
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: mc2})
+	t.Cleanup(c2.Close)
+	env := map[string]string{}
+	unbind, err := c2.bindMission(tbg, w, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unbind()
+	if !tokenValid(t, r, first) {
+		t.Fatal("a second conductor revoked the token of a worker whose turn is still running")
+	}
+	if !tokenValid(t, r, env[agenttokens.EnvMissionToken]) {
+		t.Fatal("the second conductor's own token is not live")
+	}
+
+	// The first turn ends (a crash, reconciled): a third conductor's sweep takes its token.
+	running[r.mc.Owner] = false
+	mc3 := &MissionRun{Store: r.store, ProfileID: "default", Tokens: agenttokens.NewStore(r.db), Owner: TurnOwner("default", "conv-1", "turn-3"), Live: r.mc.Live}
+	c3 := New(tbg, Config{Cwd: "/w", Exec: r.ex.exec, Emit: r.em, Missions: mc3})
+	t.Cleanup(c3.Close)
+	c3.sweepMissionTokens(mc3)
+	if tokenValid(t, r, first) {
+		t.Fatal("the token of a turn that ended survived the next sweep")
 	}
 }

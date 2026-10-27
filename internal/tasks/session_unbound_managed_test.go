@@ -87,3 +87,38 @@ func TestUnboundAgentStillWorksAnUnmanagedSession(t *testing.T) {
 		t.Fatalf("add: %v", err)
 	}
 }
+
+// Pausing or stopping a session a conversation manages is the operator's and the lead's (bound to
+// the session); an agent with no binding is refused, and an unmanaged session keeps its rule.
+func TestUnboundAgentCannotPauseOrStopAManagedSession(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	se, err := s.CreateSession(bg, "default", SessionInput{Title: "managed", Goal: "g", ConversationID: "conv-1"}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustTask(t, s, "default", se.ID, "a")
+	mustRun(t, s, "default", se)
+	stranger := bot("stranger")
+	if _, err := s.PauseSession(bg, "default", se.ID, stranger); !errors.Is(err, ErrOperatorOnly) {
+		t.Errorf("pause by an unbound agent: %v", err)
+	}
+	if _, err := s.StopSession(bg, "default", se.ID, stranger); !errors.Is(err, ErrOperatorOnly) {
+		t.Errorf("stop by an unbound agent: %v", err)
+	}
+	lead := Actor{Kind: Agent, Name: "lead", Session: se.ID}
+	if _, err := s.PauseSession(bg, "default", se.ID, lead); err != nil {
+		t.Errorf("the lead pauses its session: %v", err)
+	}
+	if got, err := s.StopSession(bg, "default", se.ID, human); err != nil || got.State != SessionStopped {
+		t.Errorf("the operator stops it: %+v %v", got, err)
+	}
+	free, err := s.CreateSession(bg, "default", SessionInput{Title: "free", Goal: "g"}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustTask(t, s, "default", free.ID, "a")
+	mustRun(t, s, "default", free)
+	if _, err := s.StopSession(bg, "default", free.ID, stranger); err != nil {
+		t.Errorf("an agent stops an unmanaged session: %v", err)
+	}
+}

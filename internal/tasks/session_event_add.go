@@ -22,6 +22,10 @@ var writableEventKinds = map[string]bool{EventPlanRevised: true, EventNote: true
 // AddSessionEvent writes one event of an allowed kind (plan_revised, note) to a session's
 // history. The operator and a named agent may; an agent bound to a session writes only to
 // its own. A closed session takes none.
+//
+// It does not call noUnboundInManaged: it is reached only from the conductor (internal/dynorg),
+// never from the CLI, MCP or HTTP, so no agent without a binding gets here. Do not expose it
+// to those without adding that check.
 func (s *Store) AddSessionEvent(ctx context.Context, profileID string, sessionID int64, kind, note string, actor Actor) error {
 	if err := actorIn(actor, sessionID); err != nil {
 		return err

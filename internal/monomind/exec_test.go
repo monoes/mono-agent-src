@@ -610,7 +610,7 @@ func TestFilteredEnvironStripsMonomindOverrides(t *testing.T) {
 // A mission token (and its labels) in the ambient environment is not passed on: only opts.Env,
 // which the conductor fills for the one worker the token was minted for, carries it.
 func TestFilteredEnvironDropsAmbientMissionTokens(t *testing.T) {
-	for _, k := range []string{"MONOAGENT_TASK_TOKEN", "MONOAGENT_TASK_SESSION", "MONOAGENT_TASK_ID", "MONOAGENT_TASK_ROLE"} {
+	for _, k := range []string{"MONOAGENT_TASK_BINDING", "MONOAGENT_TASK_SESSION", "MONOAGENT_TASK_ID", "MONOAGENT_TASK_ROLE"} {
 		t.Setenv(k, "inherited")
 	}
 	t.Setenv("MONOAGENT_OTHER", "keep")
@@ -626,8 +626,8 @@ func TestFilteredEnvironDropsAmbientMissionTokens(t *testing.T) {
 		t.Error("an unrelated MONOAGENT_ variable was dropped")
 	}
 	// the explicit value for the worker the token was minted for still reaches it
-	got := append(FilteredEnviron(), envSlice(map[string]string{"MONOAGENT_TASK_TOKEN": "mine"})...)
-	if last := got[len(got)-1]; last != "MONOAGENT_TASK_TOKEN=mine" {
+	got := append(FilteredEnviron(), envSlice(map[string]string{"MONOAGENT_TASK_BINDING": "mine"})...)
+	if last := got[len(got)-1]; last != "MONOAGENT_TASK_BINDING=mine" {
 		t.Errorf("the worker's own token is not last: %q", last)
 	}
 	for _, kv := range got[:len(got)-1] {

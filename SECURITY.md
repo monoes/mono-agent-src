@@ -1688,11 +1688,11 @@ that works a task acts on them. The defences:
   **Mission tokens.** What binds a worker's or verifier's process to its session, task, role and
   name is a token the conductor mints for that run (`internal/agenttokens`, the same table and
   hashing as the HTTP API's agent tokens, with its own binding columns), passed in the
-  process's environment (`MONOAGENT_TASK_TOKEN`). The CLI and the MCP tools take the binding
+  process's environment (`MONOAGENT_TASK_BINDING`; its name has no key, secret or token in it so that an agent runtime's default environment filter, which drops variables by such words, does not strip it. Each runtime's own policy is outside this repository, so that every runtime passes it to its shells and tool servers is **unverified live**: a runtime that drops it leaves its worker unbound, which fails closed). The CLI and the MCP tools take the binding
   only from a token the database verifies for the call's profile; the `MONOAGENT_TASK_*` labels
   that stay in the environment (the brief's text, an agent marker) scope nothing. The token is
   short-lived (a little over the run's timeout), revoked when the run ends or expires (a conductor that
-  starts or resumes a conversation also revokes the tokens an earlier, crashed run of it left, and
+  starts or resumes a conversation also revokes the tokens an earlier run of it left, taking only those of a run whose chat turn is no longer active (it assumes a crashed turn is reconciled, which ends it; until then those tokens end at their expiry, and a second conductor of a running conversation never revokes the first one's), and
   expired ones are purged), bound to one task, and not accepted by the HTTP API; a token that is unknown, expired, revoked, another profile's or
   another kind refuses every act, and no token is an ordinary agent that cannot record a verdict,
   and cannot claim, take the next task, finish, release, split, add a task or a dependency or attach evidence, in a session a

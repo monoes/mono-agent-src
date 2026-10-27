@@ -82,6 +82,11 @@ func (s *Store) transition(ctx context.Context, profileID string, id int64, acto
 		}
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		// In a session a conversation manages, only the operator and the lead (bound to the
+		// session) may pause or stop it: an agent with no binding may not end the others' work.
+		if err := s.noUnboundInManaged(ctx, x, profileID, id, actor, kind+" a session"); err != nil {
+			return err
+		}
 		if !slices.Contains(from, se.State) || se.Archived {
 			return sessionNotReady("session #%d is %s: it cannot %s now", id, se.State, kind)
 		}

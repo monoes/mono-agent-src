@@ -87,11 +87,17 @@ var startHostProcess = func(cfg *Deps) error {
 		return err
 	}
 	defer logFile.Close()
-	cmd := exec.Command(exe, "--db-path", cfg.DBPath(), "--profile", cfg.ProfileID(), "coder", "host", "run")
+	cmd := hostCommand(exe, cfg)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	// A host started from a session's shell must not carry that session's identity.
-	cmd.Env = hostProcessEnv(os.Environ())
 	return clicore.DetachStart(cmd)
+}
+
+// hostCommand is the command that runs the detached host. A host started from a session's shell
+// must not carry that session's identity.
+func hostCommand(exe string, cfg *Deps) *exec.Cmd {
+	cmd := exec.Command(exe, "--db-path", cfg.DBPath(), "--profile", cfg.ProfileID(), "coder", "host", "run")
+	cmd.Env = hostProcessEnv(os.Environ())
+	return cmd
 }
 
 // hostProcessEnv is the environment the detached host starts with: a host started from a session's

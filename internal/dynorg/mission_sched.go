@@ -36,10 +36,14 @@ type MissionRun struct {
 	// ownerOnce guards owner, the name of this run on the tokens it mints.
 	ownerOnce sync.Once
 	owner     string
-	// Owner names this run on the tokens it mints. A chat sets it from its conversation
-	// (ConversationOwner), so that it is the same across conductors and a later one can revoke
-	// what a crashed one left. Empty: a random name per run.
+	// Owner names this run on the tokens it mints. A chat sets it from its conversation and
+	// turn (TurnOwner): the same for a conductor that resumes the turn, different from any other
+	// turn's, and in the conversation's group, so a later run can revoke what a crashed one left.
+	// Empty: a random name per run.
 	Owner string
+	// Live reports whether the run that owns the tokens of owner is still running; the sweep
+	// leaves those alone. Nil means no other run is.
+	Live func(ctx context.Context, owner string) bool
 	// revokeFn replaces the token store's revoke (tests).
 	revokeFn func(ctx context.Context, id string) error
 	// Session is the session the mission tools work when a call names none.

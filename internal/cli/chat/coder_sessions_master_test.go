@@ -293,7 +293,9 @@ func TestExecLauncherPassesTheBudgetCapAndBindsTheTokenToTheTurnProcess(t *testi
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args.log")
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\ncat > /dev/null\necho \"$*\" >> '" + argsLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
+	t.Setenv(agenttokens.EnvMissionToken, "a-workers-binding")
+	envLog := filepath.Join(dir, "env.log")
+	script := "#!/bin/sh\ncat > /dev/null\necho \"$*\" >> '" + argsLog + "'\necho \"binding=${" + agenttokens.EnvMissionToken + ":-none}\" >> '" + envLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -312,6 +314,10 @@ func TestExecLauncherPassesTheBudgetCapAndBindsTheTokenToTheTurnProcess(t *testi
 	}
 	if boundPID != turn.PID() || (coderhost.ProcStamp(boundPID) != boundStamp) {
 		t.Fatalf("bound %d %q for turn %d", boundPID, boundStamp, turn.PID())
+	}
+	// the launcher's own environment carried a mission binding: the turn does not get it
+	if e, _ := os.ReadFile(envLog); !strings.Contains(string(e), "binding=none") {
+		t.Fatalf("the turn inherited a mission binding: %s", e)
 	}
 	// an uncapped start passes no cap
 	os.Remove(argsLog)
@@ -364,5 +370,20 @@ func TestAHostInsideASessionTurnStartsTurnsWithoutABoundTokenAndTinyCapsAreRefus
 	}
 	if _, err := l.StartCapped("p", "c1", "t2", "hi", nil, "", 5e-7); err == nil || !strings.Contains(err.Error(), "used up") {
 		t.Fatalf("a 0.0000005 cap: %v", err)
+	}
+}
+
+// The host a CLI starts is not handed the mission binding of the process that started it.
+func TestHostCommandDropsTheMissionBinding(t *testing.T) {
+	t.Setenv(agenttokens.EnvMissionToken, "a-workers-binding")
+	t.Setenv(coderhost.SessionTokenEnv, "mst-x")
+	cmd := hostCommand("/bin/true", testDeps(&testConfig{DBPath: "/db/x.db", ProfileID: "default"}))
+	for _, kv := range cmd.Env {
+		if strings.HasPrefix(kv, agenttokens.EnvMissionToken+"=") || strings.HasPrefix(kv, coderhost.SessionTokenEnv+"=") {
+			t.Fatalf("the host would carry %s", kv)
+		}
+	}
+	if len(cmd.Env) == 0 {
+		t.Fatal("the host has no environment at all")
 	}
 }

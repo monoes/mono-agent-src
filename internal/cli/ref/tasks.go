@@ -120,7 +120,7 @@ WHO MAY DO WHAT
   waits in Review for the operator. A task is verified by the operator or an agent that did not do it: one bound to
   the task as its worker never verifies it, nor the same agent identity as the last hand-back (agent:<client>
   without its #suffix); an agent verifies only while the session runs. What binds a process to a session, a task and a role is the
-  mission token the conductor mints for each worker or verifier run (MONOAGENT_TASK_TOKEN, checked against
+  mission token the conductor mints for each worker or verifier run (MONOAGENT_TASK_BINDING, checked against
   the database, short-lived, revoked when the run ends or expires, and refused by the HTTP API); the MONOAGENT_TASK_*
   labels in the same environment bind nothing. A worker's token lets its process claim, comment on, finish,
   release and attach evidence to its one task, and add and take no other; a verifier's lets it verify, comment on

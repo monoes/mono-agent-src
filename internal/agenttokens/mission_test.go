@@ -143,7 +143,7 @@ func TestSweepMissionsRevokesTheOwnersAndPurgesTheExpired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.SweepMissions(ctx, "run-a")
+	n, err := s.SweepMissions(ctx, "run-a", "run-a/new", nil)
 	if err != nil || n != 2 { // the expired one was never revoked, so it counts
 		t.Fatalf("swept %d: %v", n, err)
 	}
@@ -182,5 +182,45 @@ func TestMissionTokenNameSuffixIsLong(t *testing.T) {
 		if _, _, err := s.CreateMission(ctx, "default", missionB, time.Hour); err != nil {
 			t.Fatalf("mint %d: %v", i, err)
 		}
+	}
+}
+
+// The carrier's name must not look like a secret to a runtime that drops such variables by name.
+func TestMissionCarrierNameEscapesNameBasedEnvFilters(t *testing.T) {
+	up := strings.ToUpper(EnvMissionToken)
+	for _, w := range []string{"KEY", "SECRET", "TOKEN", "PASSWORD", "CREDENTIAL", "AUTH"} {
+		if strings.Contains(up, w) {
+			t.Errorf("%s contains %s: a runtime's default environment policy would drop it", EnvMissionToken, w)
+		}
+	}
+}
+
+// A run that is still running keeps its tokens through another run's sweep; the sweeper's own are
+// never taken; a run the liveness check does not know is dead.
+func TestSweepMissionsSparesRunningAndOwnRuns(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	mint := func(owner string) string {
+		b := missionB
+		b.Owner = owner
+		_, secret, err := s.CreateMission(ctx, "default", b, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return secret
+	}
+	running, dead, self, other := mint("conv-1/t1"), mint("conv-1/t2"), mint("conv-1/t3"), mint("conv-2/t1")
+	live := func(_ context.Context, o string) bool { return o == "conv-1/t1" }
+	n, err := s.SweepMissions(ctx, "conv-1", "conv-1/t3", live)
+	if err != nil || n != 1 {
+		t.Fatalf("swept %d: %v", n, err)
+	}
+	for name, sec := range map[string]string{"running": running, "own": self, "other conversation": other} {
+		if _, err := s.VerifyMission(ctx, "default", sec); err != nil {
+			t.Errorf("the %s token was revoked: %v", name, err)
+		}
+	}
+	if _, err := s.VerifyMission(ctx, "default", dead); !errors.Is(err, ErrInvalid) {
+		t.Errorf("the dead run's token survived: %v", err)
 	}
 }

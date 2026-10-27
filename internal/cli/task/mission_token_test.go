@@ -155,3 +155,50 @@ func revoke(t *testing.T, dbPath, tokenID string) {
 		t.Fatal(err)
 	}
 }
+
+// In a session nobody manages an unbound agent may judge a peer's task, so a refusal of a token
+// that does not verify can only come from the binding that token yields (bound to nothing that
+// exists), not from the managed-session rule. Each bad token is refused where no token is not.
+func TestInvalidTokenIsNotNoTokenInAnUnmanagedSession(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	one := sessionNew(t, db, "T")
+	sessionAdd(t, db, one, "seed")
+	var d sessionDoc
+	mustTaskJSON(t, db, "default", &d, "", "session", "approve", id(one))
+	var got sessionTaskDoc
+	setenv(t, "MONOAGENT_ACTOR", "someone")
+	setenv(t, agenttokens.EnvMissionToken, "")
+	handedBack := func(title string) int64 {
+		task := sessionAdd(t, db, one, title)
+		mustTaskJSON(t, db, "default", &got, "", "claim", id(task), "--as", "w1")
+		mustTaskJSON(t, db, "default", &got, "", "finish", id(task), "--result", "done", "--as", "w1")
+		return task
+	}
+	b := agenttokens.MissionBinding{Session: one, Task: 1, Role: agenttokens.RoleVerifier, Actor: "v1"}
+	for _, c := range []struct {
+		name, secret string
+	}{
+		{"garbled", "not-a-token"},
+		{"expired", func() string {
+			_, s := mintToken(t, db, "default", b, time.Hour, time.Now().Add(-2*time.Hour))
+			return s
+		}()},
+		{"another profile", func() string { _, s := mintToken(t, db, "p-other", b, time.Hour, time.Time{}); return s }()},
+		{"revoked", func() string {
+			tok, s := mintToken(t, db, "default", b, time.Hour, time.Time{})
+			revoke(t, db, tok.ID)
+			return s
+		}()},
+	} {
+		task := handedBack(c.name)
+		setenv(t, agenttokens.EnvMissionToken, c.secret)
+		if _, _, err := runTask(t, db, "default", true, "", "verify", id(task), "--pass", "--note", "ok", "--as", "someone"); err == nil {
+			t.Errorf("%s token: the verdict was recorded as if the process had no token", c.name)
+		}
+		setenv(t, agenttokens.EnvMissionToken, "")
+	}
+	// the baseline: with no token the same agent judges the same kind of task
+	task := handedBack("control")
+	mustTaskJSON(t, db, "default", &got, "", "verify", id(task), "--pass", "--note", "ok", "--as", "someone")
+}

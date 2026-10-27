@@ -18,8 +18,11 @@ import (
 // API does not accept it (Verify), and a token of another kind is not one (VerifyMission).
 
 // EnvMissionToken is the environment variable that carries a mission token to the process it
-// was minted for.
-const EnvMissionToken = "MONOAGENT_TASK_TOKEN"
+// was minted for. Its name holds none of the words (key, secret, token, password) by which an
+// agent runtime's default shell policy drops variables from the environment of the shells and
+// tool servers it starts: the one process this is minted for has to see it, so a name-based
+// filter must not take it out. The runtimes' own policies live outside this repository.
+const EnvMissionToken = "MONOAGENT_TASK_BINDING"
 
 // Mission roles.
 const (
@@ -120,19 +123,51 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 	return int(n), nil
 }
 
-// SweepMissions is what a conductor does when it starts or resumes: it revokes every token the
-// owner still holds (a conductor that is starting has minted none yet, so what is active
-// belongs to a run that ended without revoking: a crash or a kill) and purges the mission
-// tokens that have expired, so the list does not grow. It returns how many it revoked.
-func (s *Store) SweepMissions(ctx context.Context, owner string) (int, error) {
-	n, err := s.RevokeOwner(ctx, owner)
+// SweepMissions is what a conductor does when it starts or resumes. group names the runs of one
+// conversation: an owner that is group, or group followed by "/" and a run id. It revokes the
+// unrevoked tokens of every other owner in the group that live does not report as running (a run
+// that ended without revoking: a crash or a kill), leaves the tokens of a run that is still
+// running (a second conductor of the conversation must not end the first one's workers) and
+// those of self, and purges the mission tokens that have expired, so the list does not grow.
+// A nil live reports no owner as running. It returns how many tokens it revoked.
+func (s *Store) SweepMissions(ctx context.Context, group, self string, live func(ctx context.Context, owner string) bool) (int, error) {
+	if group == "" {
+		return 0, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT mission_owner FROM agent_tokens WHERE revoked_at IS NULL AND mission_session > 0
+		   AND (mission_owner = ? OR mission_owner LIKE ?) AND mission_owner <> ?`, group, group+"/%", self)
 	if err != nil {
-		return n, err
+		return 0, fmt.Errorf("listing mission token owners: %w", err)
+	}
+	var owners []string
+	for rows.Next() {
+		var o string
+		if err := rows.Scan(&o); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		owners = append(owners, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, o := range owners {
+		if live != nil && live(ctx, o) {
+			continue
+		}
+		n, err := s.RevokeOwner(ctx, o)
+		total += n
+		if err != nil {
+			return total, err
+		}
 	}
 	if _, err := s.db.ExecContext(ctx, purgeExpiredMissions, s.now().UTC().Format(timeFmt)); err != nil {
-		return n, fmt.Errorf("purging expired mission tokens: %w", err)
+		return total, fmt.Errorf("purging expired mission tokens: %w", err)
 	}
-	return n, nil
+	return total, nil
 }
 
 const purgeExpiredMissions = `DELETE ` + `FROM agent_tokens WHERE mission_session > 0 AND expires_at IS NOT NULL AND expires_at < ?`
