@@ -180,8 +180,12 @@ func printSummaryText(out io.Writer, s summary.Summary) {
 		fmt.Fprintf(out, "next run      %s %s%s\n", sc.Upcoming[0].NextRun, sc.Upcoming[0].WorkflowName, state)
 	}
 	if h := s.HIL; h != nil {
-		fmt.Fprintf(out, "needs you     %d (approvals %d, leads %d, drafts %d, links %d)\n",
-			h.Total, h.WorkflowPending, h.PeopleReview, h.Drafts, h.LinkSuggestions)
+		coder := 0
+		for _, n := range h.CoderItems {
+			coder += n
+		}
+		fmt.Fprintf(out, "needs you     %d (approvals %d, leads %d, drafts %d, links %d, coder requests %d)\n",
+			h.Total, h.WorkflowPending, h.PeopleReview, h.Drafts, h.LinkSuggestions, coder)
 	}
 	if p := s.People; p != nil {
 		fmt.Fprintf(out, "people        %d (+%d this week, %d lists)\n", p.Total, p.Added7d, p.Lists)

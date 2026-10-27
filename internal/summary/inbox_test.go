@@ -88,3 +88,31 @@ func TestHILScopeAndOrgRows(t *testing.T) {
 		t.Fatalf("hil = %+v (want h1 and h2 only)", h)
 	}
 }
+
+// An item counts while the person has to act on it: its question is open, the person is its answerer
+// now (no live master) and its session is not stopped. Per kind, ids only, never text.
+func TestHILCountsCoderItemsTheCurrentAnswererIsThePerson(t *testing.T) {
+	db := testDB(t)
+	exec(t, db,
+		`INSERT INTO coder_sessions (profile_id, conversation_id, state, role, parent_conversation_id, created_at, updated_at) VALUES
+		 ('default','solo','waiting_user','solo','','t','t'), ('default','orphan','waiting_user','child','','t','t'),
+		 ('default','stopped','stopped','solo','','t','t'), ('default','boss','idle','master','','t','t'),
+		 ('default','kid','waiting_user','child','boss','t','t'), ('default','dead','waiting_user','child','boss2','t','t')`,
+		`INSERT INTO coder_session_questions (id, profile_id, conversation_id, class, question, status, created_at) VALUES
+		 (1,'default','solo','risky_action','q1','open','t'), (2,'default','solo','risky_action','q2','answered','t'),
+		 (3,'default','orphan','missing_credential','q3','open','t'), (4,'other','solo2','risky_action','q4','open','t'),
+		 (5,'default','kid','risky_action','q5','open','t'), (6,'default','stopped','risky_action','q6','open','t'),
+		 (7,'default','dead','risky_action','q7','open','t')`,
+		`INSERT INTO coder_session_person_items (id, profile_id, conversation_id, kind, ref_id, created_at) VALUES
+		 (11,'default','solo','parked_question',1,'t'), (12,'default','solo','parked_question',2,'t'),
+		 (13,'default','orphan','parked_question',3,'t'), (14,'other','solo2','parked_question',4,'t'),
+		 (15,'default','kid','parked_question',5,'t'), (16,'default','stopped','parked_question',6,'t'),
+		 (17,'default','dead','parked_question',7,'t')`,
+	)
+	h := Build(context.Background(), Options{DB: db.DB, ProfileID: "default", Now: now, Sections: map[string]bool{"hil": true}}).HIL
+	// solo (1), the orphaned child (3) and the child of a master that is gone (7) are the person's;
+	// the answered one, the other profile's, the live master's child and the stopped session are not.
+	if h.Error != "" || h.CoderItems["parked_question"] != 3 || h.Total != 3 || len(h.CoderItemIDs) != 3 || h.CoderItemIDs[0] != 11 {
+		t.Fatalf("hil = %+v", h)
+	}
+}
