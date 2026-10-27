@@ -26,6 +26,7 @@ User decisions (settled): option B (tasks marked `own_session`) is the base, opt
 | D6 | Pay | The child cap is **carved** from the lead's cap (`carveBudget`). Unmarked work stays in-turn and is paid from the lead's own budget. |
 | D7 | Result | The child finishes its task to Review with the normal verb under its own task-bound mission token. If the child ends without finishing, the lead's conductor hands back the child's report in `missionReconcile` (as `handBackReport` does for a worker), or records a failure. A verifier still verifies; no self-verification. |
 | D8 | Depth | A lead is a master at level 1 and a task child is at level 2, so it fits `MaxSessionDepth=2` with no change. A lead that is itself a child cannot spawn (`MaxChildren=0`); it falls back to in-turn workers with a notice. |
+| D10 | More budget | When a budget is used up the lead can always ask the person for more through a HIL request (2.6). Nothing raises a budget without the person's answer. |
 | D9 | Size | `LargeChildBudgetUSD = 3.00`. An explicit `size` from the lead wins; otherwise a child is `large` when its carve is at least $3. A child with an open parked question or a failed state is always shown as a bubble. |
 
 ## 2. Architecture
@@ -170,6 +171,7 @@ Files:
 | **P-B host** | `coderhost/children_task.go` (`SpawnForTask`, `spawnWith(onCreated)` refactor in `children.go`), `coderhost/missionchild.go` (Tick reconciler, cascade, recovery), `checkin_mission.go` (digest numbers), guard tests; and in `internal/cli/chat/coder_host_exec.go` the token mint, revoke, sweep and env | B1 now; the `coder_host_exec.go` part (B2) after #1072 merges | yes (token and env) |
 | **P-C conductor and lead tools** | `dynorg/mission_exec.go` (`startTask`/`childWanted`), `mission_sched.go` (`cannotStart` reason, `missionReconcile`), `mission_tools_plan.go` (schema), new `mission_tools_child.go`, `mission_prompt.go` (a short lead rule), `internal/cli/chat/chat_mission.go` (wire a `ChildSpawner` interface into `MissionRun`), `internal/mcp/session_tools.go` | after #1072 and P-A/P-B interfaces | yes |
 | **P-D UI** | the files in section 4 | after P-A's JSON shape is fixed (can use a fixture first) | no |
+| **P-F budget requests through HIL** | `coderhost/budgetreq*.go`, the `budget_request` kind of the HIL link (from `feat/coder-park-hil`), `coder sessions budget grant|list`, one lead tool `mission_budget_request`, pane text | after P-A and the HIL link merge | yes |
 | **P-E docs, ref, smoke** | `AGENTS.md` (the "Missions in the host" paragraph that says it "does not start a child coder session per task yet" is replaced), `SECURITY.md` (new surfaces S-MC1 to S-MC4), `internal/cli/ref/*`, `docs/`; the smoke script only through the PR #1072 owner | last | no, but a diff-only check that no claim goes beyond the tests |
 
 Dependencies: A -> B -> C -> E; D needs only A's output shape.
@@ -203,9 +205,21 @@ Not verifiable without the user (the first real run, from a terminal): start the
 | R9 | A merge conflict with #1072 in `coder_host_exec.go`, `mission_sched.go`, `chat_mission.go` | high, low | P-B2 and P-C start after #1072 merges; P-A and P-B1 touch none of them |
 | R10 | The migration number is taken before this lands | medium, low | take the next free number and update the file; the table names do not change |
 
-## 9. Open questions (only those that block; each with a default)
+## 9. Open questions: settled by the user on 2026-10-27
 
-1. **Who may turn on rule mode (C)?** The plan assumes the operator only (default), which narrows "the lead decides". If the lead should be able to turn it on too, say so. The risk is R2, bounded by the ceiling.
-2. **How large may a mission be by default?** The defaults are 2 children and 50% of the lead's remaining budget, with the operator's `max_children` (default 4) as the hard cap. A mission of 30 tasks mostly runs in-turn or queues. A higher default `max_children` is an operator setting, not a lead one.
-3. **Does an unspent carve return to the lead when a child ends?** Default is yes (R7). If no, a stopped child's whole cap stays spent for the lead.
-4. **Writers in `isolated` worktree mode:** the default is that writer tasks stay in-turn unless the worktree is inside the lead's folder. Is that acceptable for the first release?
+1. **Rule mode (C)** is turned on by the operator only (as planned). The lead can lower it, not raise it.
+2. **Defaults and budget requests.** The defaults stay 2 children and 50% of the lead's remaining budget, with the operator's `max_children` (default 4) as the hard cap. **When a budget is used up, the lead can always ask for more through a HIL request** (see D10 and 2.6); nothing raises a budget without the person's answer.
+3. **An unspent carve returns to the lead when a child ends** (as planned, R7).
+4. **Writers in `isolated` worktree mode** stay in-turn unless the worktree is inside the lead's folder, for the first release.
+
+## 2.6 Budget requests through HIL (decision D10, from the user's answer to Q2)
+
+When the lead's budget (or a child's cap) is used up, or a raise would exceed `ShareHardMax`, the lead (or a task child, for its own cap) may file a **budget request**:
+
+- It is a HIL item with no timeout (the same mechanism as a risky parked question without a master, built in `feat/coder-park-hil`; its link table carries a `kind`, so `budget_request` is a second kind and not a second mechanism).
+- The request carries only host-validated fields: the requester's session id, the target (the lead's own session budget, or one child's cap), the amount asked, the amount spent so far and a short reason that is cleaned and capped (never raw model text). The person sees the numbers, not instructions.
+- Only the person's answer can grant it, through the operator surface (the HIL answer, or `coder sessions budget grant <conv> --usd N`, operator-only). An agent cannot approve its own request, a peer's, or a child's. The grant is applied by operator-side code as an increase of exactly the approved amount on exactly the target in the request; it cannot be replayed (one request id, one grant), cannot target another session or profile, and expires with the request.
+- A request filed while one is open for the same target is refused (one open request per target); requests are rate-limited and capped in number per mission.
+- Not granted means nothing changes: the lead finishes what it can in-turn within its remaining budget and tells the person what is waiting. The mission is never stopped by a pending request on its own.
+- Security tests: `TestBudgetRequestOnlyTheOperatorGrants`, `TestBudgetRequestCannotBeSelfApproved`, `TestBudgetGrantAppliesToTheRequestedTargetOnly`, `TestBudgetGrantOnce`, `TestBudgetRequestTextIsSealed`, `TestPendingRequestDoesNotStopTheMission`; the no-approval guards stay: a budget request or grant starts no turn that carries a mission confirmation or plan approval.
+- Phase: P-F (after P-A and the HIL link from `feat/coder-park-hil` are merged); security review required.
