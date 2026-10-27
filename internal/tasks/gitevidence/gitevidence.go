@@ -134,7 +134,7 @@ func unreadable(err error) error {
 func resolveCommit(ctx context.Context, root, id string) (string, error) {
 	out, err := git(ctx, root, "rev-parse", "--verify", "--quiet", "--end-of-options", id+"^{commit}")
 	if err != nil {
-		return "", errors.New("no such commit in this work tree")
+		return "", &resolveError{cause: err}
 	}
 	out = strings.ToLower(strings.TrimSpace(out))
 	if !commitRef.MatchString(out) {
@@ -142,6 +142,16 @@ func resolveCommit(ctx context.Context, root, id string) (string, error) {
 	}
 	return out, nil
 }
+
+var errNoSuchCommit = errors.New("no such commit in this work tree")
+
+// resolveError is errNoSuchCommit that keeps git's own failure for the caller that must tell a
+// clean "not found" from a broken git.
+type resolveError struct{ cause error }
+
+func (e *resolveError) Error() string   { return errNoSuchCommit.Error() }
+func (e *resolveError) Is(t error) bool { return t == errNoSuchCommit }
+func (e *resolveError) Unwrap() error   { return e.cause }
 
 // parents counts the parents of a commit.
 func parents(ctx context.Context, root, full string) (int, error) {
@@ -161,7 +171,13 @@ func newSince(ctx context.Context, root, full, base string) error {
 	}
 	b, err := resolveCommit(ctx, root, strings.ToLower(base))
 	if err != nil {
-		return nil
+		// only git's clean "no such object" lets the rule lapse; a timeout or a failing git
+		// refuses, so that breaking git is not a way past the rule
+		var ge *gitError
+		if errors.Is(err, errNoSuchCommit) && ctx.Err() == nil && errors.As(errors.Unwrap(err), &ge) && ge.code == 1 {
+			return nil
+		}
+		return errors.New("git could not resolve the start of the task")
 	}
 	old, err := isAncestor(ctx, root, full, b)
 	if err != nil {
@@ -388,12 +404,17 @@ func gitIn(ctx context.Context, dir, stdin string, args ...string) (string, erro
 	full := append(append([]string{"-C", dir}, gitsafe.Args()...), args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Env = cleanEnv()
+	cmd.WaitDelay = time.Second
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	lo := &cappedWriter{w: &out, max: maxGitOutput}
+	cmd.Stdout, cmd.Stderr = lo, &cappedWriter{w: &errb, max: 64 << 10}
 	if err := cmd.Run(); err != nil {
+		if lo.over {
+			return "", errors.New("git printed more than the check reads")
+		}
 		code := -1
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -404,6 +425,24 @@ func gitIn(ctx context.Context, dir, stdin string, args ...string) (string, erro
 	return out.String(), nil
 }
 
+// maxGitOutput bounds what one check keeps of git's output; more refuses the check.
+const maxGitOutput = 1 << 20
+
+// cappedWriter keeps the first max bytes; past that it errors, which ends the process's pipe.
+type cappedWriter struct {
+	w    *bytes.Buffer
+	max  int
+	over bool
+}
+
+func (c *cappedWriter) Write(p []byte) (int, error) {
+	if c.w.Len()+len(p) > c.max {
+		c.over = true
+		return 0, errors.New("output cap reached")
+	}
+	return c.w.Write(p)
+}
+
 func cleanEnv() []string {
-	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_REPLACE_OBJECTS=1", "LC_ALL=C")
+	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
 }
