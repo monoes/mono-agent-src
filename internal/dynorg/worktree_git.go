@@ -109,9 +109,12 @@ func checkTree(ctx context.Context, dir, branch string) error {
 }
 
 // commitAll commits every change in the worktree dir on branch, if there
-// is any. It is a checkpoint: hooks and signing are skipped.
+// is any. It is a checkpoint: the repository's hooks and signing are skipped.
 func commitAll(ctx context.Context, dir, branch, msg string) error {
 	if err := checkTree(ctx, dir, branch); err != nil {
+		return err
+	}
+	if err := refuseProgramConfig(ctx, dir); err != nil {
 		return err
 	}
 	if _, err := gitRun(ctx, dir, "add", "--all"); err != nil {
@@ -146,7 +149,11 @@ func withIdentity(ctx context.Context, dir string, args ...string) []string {
 // gitEnv is the environment git runs with: this process's, without what would redirect it
 // or make it run a program (internal/gitsafe), and never prompting.
 func gitEnv() []string {
-	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C")
+	// gitsafe.Environ drops what redirects git or names a program and pins GIT_NO_LAZY_FETCH=1
+	// (git must not fetch a missing object through a remote the repository names) and an empty
+	// GIT_ALLOW_PROTOCOL (an allowlist the repository's configuration cannot widen; the conductor
+	// never fetches or clones). GIT_PROTOCOL_FROM_USER=0 closes git's "user" protocol policy.
+	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C", "GIT_PROTOCOL_FROM_USER=0")
 }
 
 // gitRun runs git in dir and returns its stdout; an error carries stderr. The folders it runs
@@ -158,7 +165,12 @@ func gitEnv() []string {
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, gitsafe.Args()...), args...)...)
+	pins, err := gitPins()
+	if err != nil {
+		return "", err
+	}
+	// gitsafe first: the conductor's own pins (the hooks directory) come later and win
+	cmd := exec.CommandContext(ctx, "git", append(append(append([]string{"-C", dir}, gitsafe.Args()...), pins...), args...)...)
 	cmd.Env = gitEnv()
 	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
