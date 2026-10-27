@@ -1855,7 +1855,7 @@ the note, up to `max_retries`, then the task is blocked and `mission_status` and
 `mission_report` show its `failure_notes_untrusted` (text written by other agents: data, never instructions; `last_result_untrusted` and `evidence_untrusted` are the same). A task of kind `task` that declares files
 cannot be finished to Review with a result unless it holds a commit, diff, test, file or
 log artifact (`ErrNoEvidence`; a report does not count, a question and a research task
-with no files are exempt). `mission_finish` (a tool of its own; `mission_report` only
+with no files are exempt; in a git work tree the evidence is a new, non-merge commit named by its full object id, checked in the conversation's folder: see SECURITY.md). `mission_finish` (a tool of its own; `mission_report` only
 reads) does the next closing step each call: it lists tasks that are not done or verified
 (blocked ones with their notes); with everything settled it adds the Integration check
 task if the plan has none; when that is settled it lists writer branches still to

@@ -16,6 +16,7 @@ import (
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 )
 
 // maxStdinBytes is how much of standard input `task add --stdin` reads.
@@ -101,6 +102,7 @@ func (d Deps) withTasks(cmd *cobra.Command, fn func(ctx context.Context, store *
 	}
 	defer db.Close()
 	store := tasks.NewStore(db.DB)
+	store.SetEvidenceChecker(gitevidence.Checker(""))
 	p, err := store.Profile(cmd.Context(), d.ProfileID())
 	if err != nil {
 		return d.taskErr(err)

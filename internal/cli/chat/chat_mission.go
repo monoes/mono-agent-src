@@ -10,6 +10,7 @@ import (
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 )
 
 // missionActor is the name the coder lead plans missions under.
@@ -23,8 +24,10 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 	if !dynorg.MissionAccess(t.access) || conversationID == "" {
 		return nil
 	}
+	store := tasks.NewStore(db)
+	store.SetEvidenceChecker(gitevidence.Checker(""))
 	m := &dynorg.MissionConfig{
-		Store: tasks.NewStore(db), ProfileID: profileID, ConversationID: conversationID,
+		Store: store, ProfileID: profileID, ConversationID: conversationID,
 		Actor: missionActor, Access: t.access, Confirmed: t.missionConfirmed,
 	}
 	if !m.Confirmed && m.HasOpenSession(ctx) {
