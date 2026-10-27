@@ -162,9 +162,9 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	if c.WantsMission && (c.Kind != KindSend || HostMade(c.TurnID) || c.Issuer != "") {
 		return c, errors.New("coder host: only a person's send can ask for a mission")
 	}
-	mark := ""
+	mark := 0
 	if c.WantsMission {
-		mark = wantsMissionMark // lives in the error column while the command is pending
+		mark = 1
 	}
 	now := s.stamp()
 	// Everything a master queues for a child (sends, pause, resume; not stop, which always has room) shares MaxPendingMaster
@@ -174,7 +174,7 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	// MaxPendingMasterStops for a child, so a master cannot fill the person's slots; taken by the INSERT itself.
 	masterStop := c.Kind == KindStop && c.Issuer != ""
 	masterMade := (c.Issuer != "" && c.Kind != KindStop) || (c.Kind == KindSend && strings.HasPrefix(c.TurnID, MasterTurnPrefix))
-	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at, issuer)
+	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
 		SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?
 		WHERE (? = 0 OR (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
 			AND ((issuer != '' AND kind != 'stop') OR (kind = 'send' AND substr(turn_id, 1, ?) = ?))) < ?)
@@ -212,7 +212,7 @@ func (s *Store) Pending() ([]Command, error) { return s.pendingWhere("", nil) }
 
 // pendingWhere is Pending narrowed by extra (a SQL condition on c, or "") and its args.
 func (s *Store) pendingWhere(extra string, args []any) ([]Command, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at, issuer
+	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
 		FROM coder_session_commands c WHERE status = 'pending'
 		AND (kind != 'send' OR NOT EXISTS (SELECT 1 FROM coder_sessions s
 			WHERE s.profile_id = c.profile_id AND s.conversation_id = c.conversation_id AND (s.state = 'paused' OR s.turn_pid > 0 OR s.turn_id != '')))`+extra+`
@@ -225,7 +225,7 @@ func (s *Store) pendingWhere(extra string, args []any) ([]Command, error) {
 	for rows.Next() {
 		var c Command
 		var kind, att string
-		if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.CreatedAt, &c.UpdatedAt, &c.Issuer); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.WantsMission, &c.CreatedAt, &c.UpdatedAt, &c.Issuer); err != nil {
 			return nil, err
 		}
 		c.Kind = Kind(kind)
@@ -278,7 +278,7 @@ func (s *Store) ExpireSends() error {
 
 // GetCommand returns one command.
 func (s *Store) GetCommand(id int64) (Command, bool, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at, issuer
+	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
 		FROM coder_session_commands WHERE id = ?`, id)
 	if err != nil {
 		return Command{}, false, err
@@ -289,7 +289,7 @@ func (s *Store) GetCommand(id int64) (Command, bool, error) {
 	}
 	var c Command
 	var kind, att string
-	if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.CreatedAt, &c.UpdatedAt, &c.Issuer); err != nil {
+	if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.WantsMission, &c.CreatedAt, &c.UpdatedAt, &c.Issuer); err != nil {
 		return Command{}, false, err
 	}
 	c.Kind = Kind(kind)

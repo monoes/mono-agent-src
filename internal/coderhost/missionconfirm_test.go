@@ -333,3 +333,38 @@ func TestAMissionSendThatWaitedForALongTurnStillStartsConfirmed(t *testing.T) {
 		t.Fatalf("after a long wait: started=%v token=%q", started, tok)
 	}
 }
+
+// The mission request is a column of its own: a pending mission send has
+// wants_mission = 1 and an empty error, and no reader of error shows a marker.
+func TestWantsMissionIsAColumnNotTheErrorText(t *testing.T) {
+	_, _, st := newHost(t)
+	c, _ := sendMission(t, st, "c", "t1")
+	var wm int
+	var e string
+	if err := st.db.QueryRow(`SELECT wants_mission, error FROM coder_session_commands WHERE id = ?`, c.ID).Scan(&wm, &e); err != nil || wm != 1 || e != "" {
+		t.Fatalf("stored wants_mission=%d error=%q (%v)", wm, e, err)
+	}
+	got, _, _ := st.GetCommand(c.ID)
+	pend, _ := st.Pending()
+	if !got.WantsMission || got.Error != "" || len(pend) != 1 || !pend[0].WantsMission || pend[0].Error != "" {
+		t.Fatalf("readers: %+v %+v", got, pend)
+	}
+	// a plain send is not a mission, and a failed mission send reports its own reason only
+	p := send(t, st, "d", "t2", "hi")
+	if g, _, _ := st.GetCommand(p.ID); g.WantsMission {
+		t.Fatal("a plain send reads as a mission")
+	}
+	if err := st.SetCommand(c.ID, CmdFailed, "why"); err != nil {
+		t.Fatal(err)
+	}
+	if g, _, _ := st.GetCommand(c.ID); g.WantsMission || g.Error != "why" {
+		t.Fatalf("after failing: %+v", g)
+	}
+	// text in error is never read as the request
+	if _, err := st.db.Exec(`UPDATE coder_session_commands SET error = 'wants-mission' WHERE id = ?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if g, _, _ := st.GetCommand(p.ID); g.WantsMission {
+		t.Fatal("the old marker text still counts")
+	}
+}

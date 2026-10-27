@@ -305,8 +305,8 @@ func TestDefaultWaitsOnceTheCheckinLimitIsReached(t *testing.T) {
 // real queued command row marked as a mission cannot be confirmed either.
 func TestAnswerTurnNeverHonoursAGenuinelySignedConfirmation(t *testing.T) {
 	_, _, st := newHost(t)
-	res, err := st.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at)
-		VALUES ('p', 'c', 'send', 'answer-x', 'm', '[]', 'pending', ?, 'now', 'now')`, wantsMissionMark)
+	res, err := st.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at)
+		VALUES ('p', 'c', 'send', 'answer-x', 'm', '[]', 'pending', 1, 'now', 'now')`)
 	if err != nil {
 		t.Fatal(err)
 	}
