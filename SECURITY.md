@@ -1706,8 +1706,10 @@ that works a task acts on them. The defences:
   under a reserved config prefix that only the operator writes, deletes or reads, is single
   use, and is revoked when its command is cancelled, expires, fails or is deleted with its
   conversation. A send marked as a mission never runs plain: without a live record it
-  fails. The token reaches the child over an inherited pipe, not in its
-  environment or arguments: the host writes it to a fresh pipe, closes the write end and
+  fails. The record also names the mission state it was confirmed in; both the host (before
+  it starts the turn) and the chat child re-check it against the conversation's current
+  state, and a mismatch fails the send instead of starting it. The token reaches the child
+  over an inherited pipe, not in its environment or arguments: the host writes it to a fresh pipe, closes the write end and
   passes the read end; the child checks that the descriptor is a pipe, reads at most a few
   hundred bytes once, with a deadline, closes it before it starts any process of its own,
   and refuses anything malformed. A value in a process environment can be read by other
