@@ -1714,7 +1714,11 @@ that works a task acts on them. The defences:
   and signing is off (the conductor's merge commits are unsigned by design). Git is told
   not to fetch a missing object from a configured remote (a lazy fetch of that kind can
   run a program the repository's configuration names), and its "user" protocol policy
-  is closed in the environment. Second, before a staging, checkout or merge step, and
+  is closed in the environment. The environment also carries an empty transport
+  allowlist, which repository configuration cannot widen (a per-transport allow setting
+  in the repository beats a generic one, but not this list); the conductor never
+  fetches or clones, so no transport and no helper program can be started, on any git
+  version. Second, before a staging, checkout or merge step, and
   before a finished worker's worktree is inspected or removed, the conductor reads the
   repository-local configuration (includes resolved, the per-worktree file too unless
   its switch is plainly false) and refuses, naming the section and variable but never
@@ -1729,8 +1733,8 @@ that works a task acts on them. The defences:
   pins would override a repository-local hooks path or monitor anyway, and refusing is
   the fail-safe choice, so the operator removes the entry. A repository that sets its
   hooks path locally (husky-style tooling) needs it set globally instead, or removed,
-  for mission repositories. The refusal is the only control on a git that predates the
-  lazy-fetch switch. A refusal is journaled as its own notice and fails closed: no
+  for mission repositories. On a git that predates the lazy-fetch switch,
+  the transport allowlist and the refusal are the controls. A refusal is journaled as its own notice and fails closed: no
   worktree is made, a worktree that already exists is kept as it is and reported as not
   inspected, and the operator removes the entry. Nothing is cached between steps.
   Filters and merge drivers have no command-line switch, so that check is best effort:

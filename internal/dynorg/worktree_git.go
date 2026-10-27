@@ -170,7 +170,13 @@ func gitEnv() []string {
 		"GIT_NO_LAZY_FETCH=1",
 		// Closes git's "user" protocol policy, under which a repository-local
 		// allow setting could let a plain fetch start a helper program.
-		"GIT_PROTOCOL_FROM_USER=0")
+		"GIT_PROTOCOL_FROM_USER=0",
+		// An allowlist of transports that repository configuration cannot widen
+		// (a more specific per-transport allow setting beats a generic one).
+		// The conductor never fetches or clones, so the list is empty: no
+		// transport, and so no helper program, can be started. This also holds
+		// on git too old for GIT_NO_LAZY_FETCH.
+		"GIT_ALLOW_PROTOCOL=")
 }
 
 // gitRun runs git in dir and returns its stdout; an error carries stderr.
