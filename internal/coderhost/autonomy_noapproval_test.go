@@ -279,7 +279,7 @@ func runNoApprovalScenario(t *testing.T, h *Host, l *fakeLauncher, st *Store, n 
 		t.Errorf("%s: an answer-%s- note was queued and never started (started: %v)", name, queued, started)
 	}
 	// 2. no queued command of the autonomy paths asks for a mission, and they are all host-made
-	cmds := tableDump(t, st.db, `SELECT turn_id, issuer, error FROM coder_session_commands WHERE conversation_id = '`+child+`'`)
+	cmds := tableDump(t, st.db, `SELECT turn_id, issuer, wants_mission FROM coder_session_commands WHERE conversation_id = '`+child+`'`)
 	for _, line := range strings.Split(cmds, "\n") {
 		f := strings.SplitN(line, "|", 3)
 		if len(f) < 3 || f[0] == missionTurn {
@@ -288,7 +288,7 @@ func runNoApprovalScenario(t *testing.T, h *Host, l *fakeLauncher, st *Store, n 
 		if !HostMade(f[0]) {
 			t.Errorf("%s: a command that is not host-made: %s", name, line)
 		}
-		if strings.Contains(f[2], wantsMissionMark) {
+		if f[2] != "0" {
 			t.Errorf("%s: an autonomy command asks for a mission: %s", name, line)
 		}
 	}
