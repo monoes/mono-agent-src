@@ -1723,7 +1723,7 @@ that works a task acts on them. The defences:
   pager, an editor, an external diff, ssh), so every git call of the checker and of the
   scheduler's worktree handling pins those settings to inert values and drops those
   variables (`internal/gitsafe`), and the checker reads history with plumbing that does not
-  verify signatures. Every git call also runs with lazy object fetching off and only the `file` protocol allowed (an environment allowlist the repository's configuration cannot widen). Not covered: content filters and merge drivers, which git cannot switch off;
+  verify signatures. Every git call also runs with lazy object fetching off and no transport allowed (an empty environment allowlist the repository's configuration cannot widen). Not covered: content filters and merge drivers, which git cannot switch off;
   the scheduler's checkpoint (`add`) and merge of an isolated writer's worktree still honour them.
   A task started before a start point could be recorded cannot be told from older work. Still
   forgeable: a rebased copy of old work is a new commit; a commit made for another task after this

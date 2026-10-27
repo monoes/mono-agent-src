@@ -1,6 +1,9 @@
 package gitsafe
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -32,5 +35,38 @@ func TestArgsPinSignatureVerificationAndHooksOff(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %s", want)
 		}
+	}
+}
+
+// A repository's own protocol.ext.allow=always beats protocol.allow=never, so a plain git runs an
+// ext:: transport program named by the repository; the pinned environment (empty allowlist) refuses.
+func TestEnvRefusesATransportTheRepositoryAllows(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	repo := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "ran")
+	prog := filepath.Join(t.TempDir(), "transport")
+	if err := os.WriteFile(prog, []byte("#!/bin/sh\n: > '"+marker+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	g := func(env []string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = env
+		_ = cmd.Run()
+	}
+	base := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1"}
+	g(base, "init", "-q")
+	g(base, "config", "protocol.ext.allow", "always")
+	g(base, "ls-remote", "ext::"+prog)
+	if _, err := os.Stat(marker); err != nil {
+		t.Skip("this git does not run the helper with plain settings; nothing to prove")
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	g(append(Env(base), "GIT_TERMINAL_PROMPT=0"), append(Args(), "ls-remote", "ext::"+prog)...)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the transport program ran under the pinned environment")
 	}
 }

@@ -56,8 +56,8 @@ var dropped = map[string]bool{
 // Env returns environ without the variables that redirect git, inject configuration
 // (GIT_CONFIG_COUNT and its KEY/VALUE pairs) or name a program (GIT_SSH*, pager, editor,
 // external diff). It then pins two more: GIT_NO_LAZY_FETCH=1, so a partial clone's missing object
-// is an error rather than a fetch through the repository's own remote, and GIT_ALLOW_PROTOCOL=file,
-// an explicit allowlist that the environment holds over every protocol.<name>.allow of the
+// is an error rather than a fetch through the repository's own remote, and GIT_ALLOW_PROTOCOL= (empty: nothing is fetched or cloned here),
+// an allowlist that the environment holds over every protocol.<name>.allow of the
 // configuration (a more specific protocol.ext.allow=always still beats protocol.allow=never).
 func Env(environ []string) []string {
 	out := make([]string, 0, len(environ))
@@ -70,7 +70,7 @@ func Env(environ []string) []string {
 		}
 		out = append(out, kv)
 	}
-	return append(out, "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=file")
+	return append(out, "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=")
 }
 
 // Environ is Env of this process's environment.
