@@ -135,7 +135,10 @@ personal="$inbox_id" # a task of the personal board
 
 # One long-lived server over named pipes, as above: the worker, which claims, comments, attaches and finishes.
 worker_in="$root/w_in"; worker_out="$root/w_out"; mkfifo "$worker_in"; : >"$worker_out"
-rpc --allow-mutations <"$worker_in" >"$worker_out" 2>"$root/w.err" &
+# The evidence rule checks a commit against git: the worker's server runs in a scratch repository with one commit.
+mkdir -p "$root/repo" && git -C "$root/repo" init -q && git -C "$root/repo" -c user.name=smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m "smoke" || fail "scratch repository"
+commit="$(git -C "$root/repo" rev-parse HEAD)"
+(cd "$root/repo" && rpc --allow-mutations) <"$worker_in" >"$worker_out" 2>"$root/w.err" &
 wsrv=$!
 exec 3>"$worker_in"
 outf="$worker_out"
@@ -148,7 +151,7 @@ call 6 task_claim "{\"id\":$tc,\"session\":$s1}" >&3; await 6
 call 7 task_claim "{\"next\":true,\"session\":$s1}" >&3; await 7
 call 8 task_next "{\"session\":$s1}" >&3; await 8
 call 9 task_comment "{\"id\":$ta,\"session\":$s1,\"text\":\"halfway\"}" >&3; await 9
-call 10 task_artifact "{\"id\":$ta,\"kind\":\"commit\",\"ref\":\"abc123\",\"note\":\"the change\"}" >&3; await 10
+call 10 task_artifact "{\"id\":$ta,\"kind\":\"commit\",\"ref\":\"$commit\",\"note\":\"the change\"}" >&3; await 10
 call 11 task_finish "{\"id\":$ta,\"session\":$s1,\"result\":\"done\"}" >&3; await 11
 call 12 task_verify "{\"id\":$ta,\"pass\":true,\"note\":\"my own work\"}" >&3; await 12
 exec 3>&-
