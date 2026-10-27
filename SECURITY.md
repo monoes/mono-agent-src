@@ -1707,10 +1707,52 @@ that works a task acts on them. The defences:
   and is not recognised as an agent is still treated as the operator by the CLI (above). **The evidence rule:** a task of kind
   `task` that declares files cannot be finished to Review with a result unless it holds a
   commit, diff, test, file or log artifact (a report does not count); the check runs in the
-  store, inside the hand-back transaction, for every caller. It is self-asserted: an
-  artifact reference is a string the agent wrote and is not validated, and the files a
-  task declares come from notes the planner wrote, so the rule makes skipping evidence
-  a visible refusal and is not proof that the work exists. When a mission's tasks are all
+  store for every caller (the git work before the write transaction opens, a scope check inside it). The CLI, the MCP server and
+  the mission conductor install a git-backed checker (the store has no git access and
+  stays pure; a store without one, as in personal callers and tests, behaves as before).
+  In a git work tree the checker requires a `commit` artifact, named by its full object id
+  (40 hex digits, 64 in a sha256 repository: never an abbreviation, option, ref name or path;
+  the stored reference is the normalised id), that exists, is reachable from the work tree's
+  HEAD or a `monoagent/<id>/<id>` branch, is not a merge commit, is not part of the history the
+  task started from, and changes at least one declared file or a path under a declared folder
+  (at least one, not all), by its own diff or, for a branch commit, by the branch's net change against the later of its merge base with HEAD and the task's start (a change made and reverted shows nothing). The work tree
+  is the folder of the session's conversation, read by the store from its database; the
+  process's working directory, which an agent can change, is never consulted for a mission
+  session. Git, not a file-name walk, decides whether that folder is a work tree. Only an
+  existing folder that git says is no repository, with no start point recorded for the task,
+  keeps the old rule (any artifact of an evidence kind). For a mission session every other
+  case is a refusal that the operator can resolve by closing the task: a conversation that is
+  gone or whose folder is empty or relative, a folder that no longer exists, a work tree git
+  cannot read (only git's own "not a git repository" answer, with no `.git` entry, counts as no repository), a repository that disappeared or was replaced after the task started (a recorded start point that the repository does not hold), a shallow repository or one with a grafts file (both rewrite what git reports as a commit's ancestry), and a repository for
+  which no start point was recorded. A session with no conversation (the operator's own)
+  is checked in the process's working directory. When a task first starts, the operator's
+  process records the folder's HEAD as a `base` artifact (an agent cannot write one; the first
+  stands; a repository with no commit and no ref at all records a stand-in, an unreadable HEAD that is not proven unborn, or a folder git cannot read at all, records a refusing `unreadable` marker; the record is retried at each
+  start of the task); a commit that is part of it is refused. The cheap refusals (who the
+  caller is, the session state, the claim) are made before git is run for a caller.
+  A declared glob is read as the folder before its first wildcard segment, and a glob that
+  starts with a wildcard names no folder. The git checks run before the write
+  transaction opens, under one 5 second deadline over the newest five commits, and the
+  transaction confirms the task and its evidence are unchanged, else refuses with a retryable
+  error. The same check runs again before an agent can verify a task; the operator is never
+  held to it (it verifies, or closes with a move, without it). Git runs as an argument list
+  without a shell, with repository-redirecting and object-replacement variables dropped. A work
+  folder is written by the agent, and repository-local configuration, hooks and some environment
+  variables can make git run a program (a file system monitor, a hook, a signature verifier, a
+  pager, an editor, an external diff, ssh), so every git call of the checker and of the
+  scheduler's worktree handling pins those settings to inert values and drops those
+  variables (`internal/gitsafe`), and the checker reads history with plumbing that does not
+  verify signatures. Every git call also runs with lazy object fetching off and no transport allowed (an empty environment allowlist the repository's configuration cannot widen). With lazy fetching off, a partial (blobless) clone with missing objects fails closed on the operator's checkout. Commit-graph files are ignored. Not covered: content filters and merge drivers, which git cannot switch off;
+  the scheduler's checkpoint (`add`) and merge of an isolated writer's worktree still honour them.
+  A task started before a start point could be recorded cannot be told from older work. Still
+  forgeable: a rebased copy of old work is a new commit; a commit made for another task after this
+  task's start point is new to it; commit dates and authors are not read. Still self-asserted: test, file, log and diff artifacts (not accepted alone in a git work
+  tree, but not checked), the declared files themselves (planner-written notes), whether a
+  commit that touches a declared file is the work that was asked for, and who made it
+  (commit dates and authors are not read, and a worker can commit a trivial change to a
+  declared file after the start). A session an agent links to another chat of its profile is
+  checked in that chat's folder. A process that installs no checker (the desktop app) does
+  not run the check. When a mission's tasks are all
   done or verified, `mission_finish` only proposes the close (it attaches the final report and
   emits `mission.report`); the session stays running and only the operator closes it
   (`session close`, which refuses an agent). No code path of the conductor closes a session.
