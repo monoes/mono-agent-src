@@ -209,7 +209,8 @@ with eq only. "workflow evaluations <id>" lists past runs.`,
 		Short:    "Run this workflow when another workflow fails (its error workflow)",
 		Description: `Makes this workflow an error workflow. A workflow whose settings.error_workflow
 names it (by ID), or every workflow when the config default is set
-("monoagentcli config set workflow.error_workflow <id>"), starts it once a run
+("monoagentcli config set workflow.error_workflow <id>", which only the
+operator's own terminal may run), starts it once a run
 finishes FAILED. Cancelled, rejected and successful runs start nothing, and a
 failing error workflow starts no other. The workflow need not be active.`,
 		Config: `{}`,

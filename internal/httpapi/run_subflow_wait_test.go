@@ -83,7 +83,7 @@ func TestRunRouteWaitsThroughASubWorkflowWhenAsked(t *testing.T) {
 			},
 			Connections: []workflow.WorkflowConnection{{SourceNodeID: "t", SourceHandle: "main", TargetNodeID: "x", TargetHandle: "main"}}},
 	} {
-		if err := s.rt.store.CreateWorkflow(ctx, wf); err != nil {
+		if err := s.rt.store.CreateWorkflow(workflow.WithApproval(ctx), wf); err != nil {
 			t.Fatal(err)
 		}
 	}

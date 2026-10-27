@@ -1323,6 +1323,9 @@
       "planUnavailableLabel": "Plan de la misión",
       "report": "Informe de misión",
       "openReport": "Abrir en Tareas",
+      "closeProposed": "El líder de la misión propuso cerrarla.",
+      "closed": "Cerrada",
+      "readyToClose": "Lista para cerrar",
       "templates": "Plantillas de misión",
       "templateHint": "Parece una misión: ¿usar una plantilla?",
       "template": {
@@ -1776,10 +1779,12 @@
         "pause": "Pausar",
         "resume": "Reanudar",
         "stop": "Detener",
+        "close": "Cerrar misión",
         "archive": "Archivar",
         "budget": "Editar presupuesto",
         "conversation": "Abrir conversación"
       },
+      "confirmClose": "¿Cerrar esta misión? Sus tareas se quedan como están; los agentes dejan de empezar trabajo.",
       "confirmStop": "¿Detener esta sesión para siempre? Se liberan todas las reclamaciones y sus agentes paran; las tareas se quedan donde están.",
       "budgetLabel": "Presupuesto (USD)",
       "budgetHint": "0 para sin presupuesto",

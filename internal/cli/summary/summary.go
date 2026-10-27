@@ -85,7 +85,8 @@ func (d Deps) newSummaryCmd() *cobra.Command {
 }
 
 // readOnlyHybridStore is openWorkflowStore without its file→SQLite backfill:
-// summary is polled and must not write workflow rows.
+// summary is polled and must not write workflow rows. SetReadOnly keeps the store's own reads from
+// writing them too (it neither takes in the files older versions left nor imports an outside edit).
 func readOnlyHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 	sqlStore := workflow.NewSQLiteWorkflowStore(db.DB)
 	dir := expandPath("~/.monoagent/workflows")
@@ -95,7 +96,9 @@ func readOnlyHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 	}
 	// Stamping touches only ownerless files, never workflow rows.
 	_ = workflowio.StampFileWorkflows(context.Background(), db.DB, dir)
-	return workflow.NewHybridWorkflowStore(fileStore, sqlStore)
+	store := workflow.NewHybridWorkflowStore(fileStore, sqlStore)
+	store.SetReadOnly()
+	return store
 }
 
 func (d Deps) parseSummarySections(csv string) (map[string]bool, error) {

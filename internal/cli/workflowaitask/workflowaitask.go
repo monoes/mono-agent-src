@@ -331,8 +331,6 @@ func (d Deps) saveDraft() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// A new workflow has no approvals; revoking is the rule for everything this command writes.
-			_ = d.WorkflowStore(db).RevokeApprovals(context.Background(), wf.ID)
 			return d.print(cmd, map[string]any{"ok": true, "workflowId": wf.ID, "name": wf.Name, "nodeCount": len(wf.Nodes), "needsApproval": true},
 				fmt.Sprintf("saved draft %s (%s), inactive; approve it by saving or activating it", wf.Name, wf.ID))
 		},
@@ -364,7 +362,8 @@ func (d Deps) save(ctx context.Context, db *storage.Database, t aitask.Task, doc
 	}
 	// The apply-once claim is written in the save's own transaction.
 	ctx = workflow.WithTxHook(ctx, d.claimHook(t, wf.ID, len(wf.Nodes)))
-	if err := d.WorkflowStore(db).SaveWorkflow(ctx, wf); err != nil {
+	// Revoking is the rule for everything this command writes; it commits with the rows.
+	if err := d.WorkflowStore(db).SaveWorkflowRevoking(ctx, wf, ""); err != nil {
 		var he *workflow.TxHookError
 		if errors.As(err, &he) {
 			return nil, he.Err

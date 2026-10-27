@@ -2,10 +2,10 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -52,8 +52,8 @@ func TestHybridWorkflowStore_DeleteWorkflow_SurfacesFileCleanupError(t *testing.
 	if err == nil {
 		t.Fatal("expected DeleteWorkflow to surface the file store's permission error, got nil")
 	}
-	if !strings.Contains(err.Error(), "file store") {
-		t.Fatalf("expected the error to identify the file store half, got: %v", err)
+	if !errors.Is(err, ErrFileSyncFailed) {
+		t.Fatalf("expected the error to say the file step failed, got: %v", err)
 	}
 
 	// The file must still be there — deletion genuinely failed, not just
@@ -62,21 +62,17 @@ func TestHybridWorkflowStore_DeleteWorkflow_SurfacesFileCleanupError(t *testing.
 		t.Fatalf("expected the leftover file to still exist after the failed delete: %v", statErr)
 	}
 
-	// The SQL half is unaffected by the file store's permission problem and
-	// must have actually deleted its row — a caller must be able to trust
-	// that a partial success (SQL cleaned up, file leftover) is exactly
-	// what gets reported, not silently upgraded to "all failed" or hidden
-	// as "all succeeded".
+	// A delete is one publication: when the file cannot go, the rows stay, so the workflow is
+	// still whole (it used to be left as a file without rows) and no change is left open.
 	var n int
 	if scanErr := rawDB.QueryRow(`SELECT COUNT(*) FROM workflows WHERE id = 'wf-cleanup'`).Scan(&n); scanErr != nil {
 		t.Fatalf("count workflows row: %v", scanErr)
 	}
-	if n != 0 {
-		t.Fatalf("expected the SQL row to be deleted despite the file cleanup failure, got %d rows", n)
+	if n != 1 {
+		t.Fatalf("expected the row to stay when the file could not be removed, got %d rows", n)
 	}
-
-	if wf, sqlErr := sqlStore.GetWorkflow(ctx, "wf-cleanup"); sqlErr != nil || wf != nil {
-		t.Fatalf("expected the SQL row gone (nil, nil), got wf=%+v err=%v", wf, sqlErr)
+	if openIntentCount(t, sqlStore) != 0 {
+		t.Fatal("an unfinished change was left open")
 	}
 }
 
@@ -89,11 +85,14 @@ func TestHybridWorkflowStore_NodeCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorkflowFileStore: %v", err)
 	}
-	sqlStore, _ := newMigratedStore(t)
+	sqlStore, rawDB := newMigratedStore(t)
+	if _, err := rawDB.Exec(`INSERT INTO profiles (id, name) VALUES ('p1', 'p1')`); err != nil {
+		t.Fatal(err)
+	}
 	store := NewHybridWorkflowStore(files, sqlStore)
 	ctx := context.Background()
 
-	// A file-backed workflow, saved with its nodes.
+	// A file-backed workflow, saved with its nodes (an older version's file: taken in on first use).
 	fileWF := &Workflow{
 		ID: "from-file", Name: "from-file", ProfileID: "p1",
 		Nodes: []WorkflowNode{testNode("a", "trigger.manual"), testNode("b", "gemini.chat_session")},

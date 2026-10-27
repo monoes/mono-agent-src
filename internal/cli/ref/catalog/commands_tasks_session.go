@@ -81,6 +81,13 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session stop 3"},
 	},
 	{
+		Name:     "task session close",
+		Short:    "End a running or paused session as done and release its claims (the operator only: a mission's lead only proposes the close)",
+		Usage:    "monoagentcli [--profile P] task session close ID [--note TEXT]",
+		Flags:    "  --note string   Why it is closed (kept in the session's history)",
+		Examples: []string{"monoagentcli --profile work task session close 3 --note \"reviewed\""},
+	},
+	{
 		Name:     "task session archive",
 		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only)",
 		Usage:    "monoagentcli [--profile P] task session archive ID",

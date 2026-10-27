@@ -1365,6 +1365,9 @@
       "planUnavailableLabel": "Mission plan",
       "report": "Mission report",
       "openReport": "Open in Tasks",
+      "closeProposed": "The mission lead proposed closing it.",
+      "closed": "Closed",
+      "readyToClose": "Ready to close",
       "templates": "Mission templates",
       "templateHint": "Looks like a mission: use a template?",
       "template": {
@@ -1818,10 +1821,12 @@
         "pause": "Pause",
         "resume": "Resume",
         "stop": "Stop",
+        "close": "Close mission",
         "archive": "Archive",
         "budget": "Edit budget",
         "conversation": "Open conversation"
       },
+      "confirmClose": "Close this mission? Its tasks stay as they are; workers stop starting.",
       "confirmStop": "Stop this session for good? Every claim is released and its workers stop; the tasks stay where they are.",
       "budgetLabel": "Budget (USD)",
       "budgetHint": "0 for no budget",

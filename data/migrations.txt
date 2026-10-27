@@ -111,6 +111,7 @@
 125_vault_agent_access_levels.sql
 126_task_sessions.sql
 127_agent_token_binding.sql
+128_workflow_publications.sql
 129_coder_sessions.sql
 130_coder_session_settings.sql
 131_coder_session_checkin.sql

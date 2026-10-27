@@ -15,15 +15,19 @@ const ICONS = { pause: Pause, resume: Play, stop: Square }
 // The mission strip above the composer: while this conversation's session is
 // not over it shows phase, progress, spend against budget, the tasks in
 // progress with their workers, and Pause / Resume / Stop. Once the report
-// arrived (reported) the finished session reads Done. Another
+// arrived (reported) the finished session reads Done; a session its lead
+// proposed closing (closeProposed: session ids) reads Ready to close until the
+// operator closes it. Another
 // conversation's session never shows here.
-export default function MissionStrip({ conversationId, enabled = true, bump = 0, reported = false }) {
+export default function MissionStrip({ conversationId, enabled = true, bump = 0, reported = false, closeProposed = [] }) {
   const { t } = useTranslation()
   const { session, board, reload } = useConversationSession(conversationId, { enabled, bump })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   if (!stripFor(session, reported) || session.conversation_id !== conversationId) return null
   const { spent, budget } = spendParts(session)
+  // The lead proposed closing and the operator has not: the session is still open.
+  const readyToClose = closeProposed.includes(session.id) && (session.state === 'running' || session.state === 'paused')
   const working = session.state === 'running' ? workingOn(board) : []
   const run = async (verb) => {
     if (verb === 'stop' && !(await confirm(t('tasks.session.confirmStop')))) return
@@ -38,7 +42,9 @@ export default function MissionStrip({ conversationId, enabled = true, bump = 0,
     <section className="ms-strip" data-testid="mission-strip" aria-label={t('bubbles.mission.stripLabel', { title: session.title })}>
       <div className="ms-strip-row">
         <strong className="ms-strip-title">{session.title}</strong>
-        <StateChip session={session} />
+        {readyToClose
+          ? <span className="ts-chip ts-chip--running" data-testid="ts-state">{t('bubbles.mission.readyToClose')}</span>
+          : <StateChip session={session} />}
         <span data-testid="mission-strip-progress">{t('tasks.session.progress', { done: progress(session) })}</span>
         <span data-testid="mission-strip-spend" className={nearBudget(session) ? 'ts-near' : undefined}>
           {budget ? t('tasks.session.spendOf', { spent, budget }) : t('tasks.session.spendNoBudget', { spent })}

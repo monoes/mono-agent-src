@@ -219,8 +219,8 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 		var n int
 		conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+e.Table+`"`).Scan(&n)
 		before[e.Table] = n
-		if e.Table == "settings" {
-			continue
+		if e.Table == "settings" || e.Table == "workflow_publications" {
+			continue // publications block the delete (TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen)
 		}
 		cols, vals := []string{}, []any{}
 		var pkCols int // a lone INTEGER primary key is the rowid; part of a composite one needs a value
@@ -292,7 +292,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	}
 	defer db.Close()
 	for _, e := range scope {
-		if e.Table == "settings" {
+		if e.Table == "settings" || e.Table == "workflow_publications" {
 			continue
 		}
 		var n int
@@ -684,5 +684,28 @@ func TestCreateNormalizesToNFC(t *testing.T) {
 	json.Unmarshal([]byte(out), &p)
 	if p.Name != "José" {
 		t.Fatalf("stored %q, want the NFC form José", p.Name)
+	}
+}
+
+// A profile with an unfinished workflow change is not deleted: the change's record is the only way
+// to put a half-written workflow file right, and deleting it would strand the file.
+func TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "busy")
+	createTestProfile(t, dbPath, "other")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO workflow_publications (workflow_id, profile_id, kind, state, started_at)
+		VALUES ('wf-new', ?, 'save', 'pending', datetime('now'))`, id); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if _, err := runProfileCmd(t, dbPath, "delete", id, "--yes-delete-profile", "busy"); err == nil || !strings.Contains(err.Error(), "unfinished workflow change") {
+		t.Fatalf("err = %v, want a refusal naming the unfinished change", err)
+	}
+	if _, err := runCaptured(t, dbPath, "get", id); err != nil {
+		t.Fatalf("the profile must still exist: %v", err)
 	}
 }

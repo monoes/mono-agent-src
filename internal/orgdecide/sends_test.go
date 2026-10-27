@@ -217,6 +217,9 @@ func TestAFileOnlyWorkflowCalledByNameIsFound(t *testing.T) {
 	}}
 	dec := &scriptedDecider{replies: map[string]string{KindApproval: `{"verdict":"approve","rationale":"fine"}`}}
 	s := newTestService(t, org, dec)
+	if _, err := s.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p', 'p')`); err != nil {
+		t.Fatal(err)
+	}
 	files, err := workflow.NewWorkflowFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

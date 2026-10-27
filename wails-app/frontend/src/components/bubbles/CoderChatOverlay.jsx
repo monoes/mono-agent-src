@@ -338,7 +338,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             accessState={verify.state}
             onRetryAccess={verify.retry}
             setup={setup}
-            onSetupChange={patch => setSetup(s => ({ ...s, ...patch }))}
+            onSetupChange={patch => setSetup(s => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }))}
             draft={draft}
             onDraftChange={setDraft}
             initialScrollTop={view.scrollTop}

@@ -30,6 +30,7 @@ func TestWorkflowRunHidesAResumeURLInNodeData(t *testing.T) {
 			{"id": "c3", "source_node_id": "w", "source_handle": "main", "target_node_id": "m", "target_handle": "main"},
 		},
 	}}, &saved)
+	activateForTest(t, s, saved.ID)
 
 	var run struct {
 		ExecutionID string `json:"execution_id"`

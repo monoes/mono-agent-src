@@ -13,7 +13,7 @@ import (
 
 func resolveFixture(t *testing.T, rows ...[3]string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "r.db"))
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "r.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		t.Fatal(err)
 	}

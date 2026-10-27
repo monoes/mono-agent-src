@@ -149,10 +149,8 @@ func TestWorkflowSaveRejects(t *testing.T) {
 // profile counts as "default"), with node counts, and [] when empty.
 func TestWorkflowListProfileAndNodeCount(t *testing.T) {
 	home, cfg := persistTestEnv(t)
-	if out := strings.TrimSpace(runWorkflowSubcmd(t, cfg, "list")); out != "[]" {
-		t.Fatalf("empty list = %q", out)
-	}
-	saved := saveDoc(t, cfg, editorDoc)
+	other := otherProfileCfg(t, cfg) // the profile exists before the files are taken in
+	// Files older versions left (they exist before the workflow store is first used).
 	files, err := workflow.NewWorkflowFileStore(filepath.Join(home, ".monoagent", "workflows"))
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +163,7 @@ func TestWorkflowListProfileAndNodeCount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	saved := saveDoc(t, cfg, editorDoc)
 
 	var rows []struct {
 		ID        string `json:"id"`
@@ -181,7 +180,6 @@ func TestWorkflowListProfileAndNodeCount(t *testing.T) {
 	if len(rows) != 2 || counts[saved.ID] != 2 || counts["unowned"] != 1 {
 		t.Fatalf("list = %s", out)
 	}
-	other := otherProfileCfg(t, cfg)
 	out = runWorkflowSubcmd(t, other, "list")
 	if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 1 || rows[0].ID != "theirs" {
 		t.Fatalf("other profile's list = %s", out)

@@ -80,3 +80,22 @@ func TestRunHealthPassesTheAgentAccount(t *testing.T) {
 		t.Errorf("flag must win: %q", seen)
 	}
 }
+
+// A workflow file that appeared by itself is adopted only when an operator names it: no "fix
+// everything" path (doctor --fix --yes, setup --yes, the app's Fix issues) runs the adopt fix.
+func TestApplyReportFixesNeverAdoptsAWorkflowFile(t *testing.T) {
+	reg := health.Default()
+	adopt, ok := reg.Fix("workflows.publications.adopt:wf-new:default:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	if !ok {
+		t.Fatal("the adopt fix is not registered")
+	}
+	rep := &health.Report{Results: []health.Result{
+		{ID: "workflows.publications.adopt.wf-new", Status: health.StatusInfo, Fix: &adopt.FixInfo},
+	}}
+	t.Setenv("HOME", t.TempDir())
+	outcomes := applyReportFixes(context.Background(), testDeps(false), reg, rep,
+		map[string]bool{}, func(health.FixInfo) bool { return true }, func(string) {}, false)
+	if len(outcomes) != 0 {
+		t.Fatalf("a fix-everything pass touched the adopt fix: %v", outcomes)
+	}
+}

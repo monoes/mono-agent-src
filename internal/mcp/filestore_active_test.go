@@ -20,6 +20,7 @@ func TestSetActiveAndDeleteReachTheWorkflowFile(t *testing.T) {
 	}
 	var saved savedWorkflow
 	callInto(t, s, "workflow_save", map[string]interface{}{"workflow": doc}, &saved)
+	approveForTest(t, s, saved.ID) // the operator approved it: a tool cannot switch on what nobody approved
 	callInto(t, s, "workflow_set_active", map[string]interface{}{"workflow_id": saved.ID, "active": true}, nil)
 	text := callInto(t, s, "workflow_get", map[string]interface{}{"id": saved.ID}, nil)
 	var got struct {

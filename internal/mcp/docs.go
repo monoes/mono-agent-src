@@ -138,7 +138,7 @@ Example: filter condition  {{ eq $json.status "open" }}
 Example: URL templating    https://api.example.com/{{ $json.id }}
 Example: nested access     {{ $node["Fetch"].json.items }}`,
 
-	"workflow": `WORKFLOW JSON FORMAT (file store: ~/.monoagent/workflows/<id>.json)
+	"workflow": `WORKFLOW JSON FORMAT (file store: ~/.monoagent/workflows/<id>.json; create new workflows with workflow import or the workflow tools: a new file dropped into the folder is not picked up)
 
 {
   "id":   "my-workflow-v1",       // must match the filename

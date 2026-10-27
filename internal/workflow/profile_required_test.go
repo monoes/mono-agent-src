@@ -17,7 +17,12 @@ func profiledWF(id, profile string) *Workflow {
 // explicit way to see everything.
 func TestHybridStoreListsPerProfileAndRefusesNone(t *testing.T) {
 	ctx := context.Background()
-	h, _ := newHybridForTest(t)
+	h, sqlStore := newHybridForTest(t)
+	for _, p := range []string{"pa", "pb"} {
+		if _, err := sqlStore.db.Exec(`INSERT INTO profiles (id, name) VALUES (?, ?)`, p, p); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := h.CreateWorkflow(ctx, profiledWF("wf-a", "pa")); err != nil {
 		t.Fatal(err)
 	}

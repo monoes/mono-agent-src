@@ -75,7 +75,7 @@ func TestAnUnapprovedWorkflowResolvesNoSecret(t *testing.T) {
 	trig := add("trigger.manual", `{}`)
 	stop := add("core.stop_error", `{"message":"@secret:vs"}`)
 	runWorkflowSubcmd(t, cfg, "connect", created.ID, "--from", trig, "--to", stop)
-	runWorkflowSubcmd(t, cfg, "activate", created.ID)
+	activateUnapprovedForTest(t, cfg, created.ID)
 	t.Setenv(browserctl.EnvAICaller, "")
 
 	cfg.JSONOutput = false

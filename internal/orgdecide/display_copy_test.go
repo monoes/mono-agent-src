@@ -149,6 +149,9 @@ func TestPendingRederivesGrantTierFromTheWorkflow(t *testing.T) {
 		Tool: orggrant.Tool{Alias: "summarize", WorkflowID: "wf-sum", Tier: orgdesign.TierConsequential}}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p', 'p')`); err != nil {
+		t.Fatal(err)
+	}
 	files, err := workflow.NewWorkflowFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

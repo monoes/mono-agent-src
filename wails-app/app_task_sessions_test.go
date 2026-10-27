@@ -30,6 +30,7 @@ func TestTaskSessionBindingsRunTheirVerbs(t *testing.T) {
 		a.TaskSessionShow(4, 20), a.TaskSessionPlan(4), a.TaskSessionBoard(4, 0),
 		a.TaskSessionApprove(4), a.TaskSessionPause(4), a.TaskSessionResume(4),
 		a.TaskSessionStop(4), a.TaskSessionArchive(4),
+		a.TaskSessionClose(4, ""), a.TaskSessionClose(4, "-all done"),
 		a.TaskSessionBudget(4, `{"usd":12.5}`), a.TaskSessionBudget(4, `{"usd":0}`),
 	} {
 		if got != `{"ok":true}` {
@@ -42,6 +43,7 @@ func TestTaskSessionBindingsRunTheirVerbs(t *testing.T) {
 		"task|board|--session|4|--done-limit|50|",
 		"task|session|approve|4|", "task|session|pause|4|", "task|session|resume|4|",
 		"task|session|stop|4|", "task|session|archive|4|",
+		"task|session|close|4|", "task|session|close|4|--note=-all done|",
 		"task|session|budget|4|--usd=12.5|", "task|session|budget|4|--usd=0|",
 	}
 	got := readCalls(t, log)
@@ -62,6 +64,8 @@ func TestTaskSessionBindingsRefuseBadInput(t *testing.T) {
 	for name, got := range map[string]string{
 		"zero id":         a.TaskSessionApprove(0),
 		"negative id":     a.TaskSessionStop(-3),
+		"close zero":      a.TaskSessionClose(0, "x"),
+		"close negative":  a.TaskSessionClose(-1, ""),
 		"show zero":       a.TaskSessionShow(0, 5),
 		"board zero":      a.TaskSessionBoard(0, 5),
 		"budget no usd":   a.TaskSessionBudget(2, `{}`),

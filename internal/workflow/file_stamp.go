@@ -23,6 +23,12 @@ import (
 // workflow JSON, or already name a profile, are left untouched, which also
 // makes the pass idempotent. It returns the ids it stamped.
 func StampFileWorkflowProfiles(dir, fallbackID string, ownerOf func(workflowID string) string) ([]string, error) {
+	return StampFileWorkflowProfilesFor(dir, fallbackID, ownerOf, nil)
+}
+
+// StampFileWorkflowProfilesFor is StampFileWorkflowProfiles for the files eligible names (all of
+// them when eligible is nil); a file that is not eligible is not opened.
+func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowID string) string, eligible func(fileID string) bool) ([]string, error) {
 	if fallbackID == "" && ownerOf == nil {
 		return nil, ErrNoProfile
 	}
@@ -38,8 +44,14 @@ func StampFileWorkflowProfiles(dir, fallbackID string, ownerOf func(workflowID s
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		if eligible != nil && !eligible(strings.TrimSuffix(e.Name(), ".json")) {
+			continue
+		}
 		path := filepath.Join(dir, e.Name())
-		raw, err := os.ReadFile(path)
+		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+			continue // a link, pipe or device is not stamped (and never opened)
+		}
+		raw, err := readRegularFile(path)
 		if err != nil {
 			continue
 		}

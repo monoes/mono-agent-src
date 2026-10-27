@@ -105,6 +105,7 @@ func TestWorkflowRunReportsProgressWhenAskedTo(t *testing.T) {
 		},
 		"connections": []map[string]interface{}{{"id": "c", "source_node_id": "t", "source_handle": "main", "target_node_id": "s", "target_handle": "main"}},
 	}}, &saved)
+	activateForTest(t, s, saved.ID)
 
 	req := request(7, "tools/call", map[string]interface{}{
 		"name": "workflow_run", "arguments": map[string]interface{}{"id": saved.ID, "timeout_seconds": 30, "profile": testProfile},

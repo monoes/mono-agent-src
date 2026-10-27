@@ -12,10 +12,16 @@ import (
 func newVersionsEngine(t *testing.T) (*WorkflowEngine, *HybridWorkflowStore, *SQLiteWorkflowStore) {
 	t.Helper()
 	h, s := newHybridForTest(t)
-	eng := NewWorkflowEngineWithStore(h, s.RawDB(), &fakeScheduler{}, NewNodeTypeRegistry(),
+	return newVersionsEngineOver(t, h, s), h, s
+}
+
+// newVersionsEngineOver is the engine over store (h, or a wrapper of it).
+func newVersionsEngineOver(t *testing.T, store WorkflowStore, s *SQLiteWorkflowStore) *WorkflowEngine {
+	t.Helper()
+	eng := NewWorkflowEngineWithStore(store, s.RawDB(), &fakeScheduler{}, NewNodeTypeRegistry(),
 		EngineConfig{ProfileID: "default"}, zerolog.Nop())
 	t.Cleanup(func() { _ = eng.Stop() })
-	return eng, h, s
+	return eng
 }
 
 // scheduledWF is trigger.schedule → core.set with set's value v.
@@ -38,6 +44,7 @@ func createActiveScheduled(t *testing.T, eng *WorkflowEngine, id string) {
 	if err := eng.CreateWorkflow(ctx, scheduledWF(id, "old")); err != nil {
 		t.Fatal(err)
 	}
+	approveForTest(t, eng, id)
 	if err := eng.ActivateWorkflow(ctx, id); err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, ListChecks, Square, Flag, ExternalLink } from 'lucide-react'
+import { Check, ListChecks, Square, CircleCheck, Flag, ExternalLink } from 'lucide-react'
 import { confirm } from '../../ConfirmDialog.jsx'
 import { sessionsApi } from '../../../services/taskSessions.js'
 import { isTerminal } from '../../../lib/missionModel.js'
@@ -93,14 +93,38 @@ export function PlanCard({ item, conversationId, onNavigate }) {
   )
 }
 
-export function ReportCard({ item, onNavigate }) {
+// ReportCard: when the payload says the lead proposed closing, the live
+// session (not the payload) decides: an open session of this conversation gets
+// the operator's Close mission button, a done one reads Closed, any other
+// session or a foreign one shows nothing extra.
+export function ReportCard({ item, conversationId, onNavigate }) {
   const { t } = useTranslation()
   const p = item.payload
+  const proposed = p.closeProposed === true
+  const { session, reload } = useSessionLive(p.sessionId, { enabled: proposed })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const mine = proposed && !!session && session.conversation_id === conversationId && !session.archived
+  const open = mine && (session.state === 'running' || session.state === 'paused')
+  const closed = mine && session.state === 'done'
+  const close = async () => {
+    if (!(await confirm(t('tasks.session.confirmClose')))) return
+    setBusy(true)
+    try {
+      const res = await sessionsApi.close(session.id)
+      setError(res?.error || '')
+      await reload()
+    } finally { setBusy(false) }
+  }
   return (
     <section className="ms-card" data-testid="mission-report" aria-label={t('bubbles.mission.reportLabel')}>
       <div className="ms-card-head"><Flag size={12} aria-hidden="true" /> <strong>{t('bubbles.mission.report')}</strong></div>
       <div className="ms-text"><ChatMarkdown content={p.report ?? p.summary ?? ''} /></div>
+      {open && <p className="ms-muted" data-testid="mission-close-hint">{t('bubbles.mission.closeProposed')}</p>}
+      {error && <p className="ms-error" role="alert">{error}</p>}
       <div className="ms-actions">
+        {open && <button type="button" className="btn btn-primary btn-sm" data-testid="mission-close" disabled={busy} onClick={close}><CircleCheck size={12} aria-hidden="true" /> {t('tasks.session.action.close')}</button>}
+        {closed && <span className="ms-muted" data-testid="mission-closed">{t('bubbles.mission.closed')}</span>}
         <button type="button" className="btn btn-secondary btn-sm" data-testid="mission-open-report" onClick={() => onNavigate?.('tasks', { sessionId: p.sessionId, report: true })}>
           <ExternalLink size={12} aria-hidden="true" /> {t('bubbles.mission.openReport')}
         </button>
@@ -116,7 +140,7 @@ export default function MissionCards({ items, conversationId, busy, started, onC
     <div className="ms-cards" data-testid="mission-cards">
       {items.map(it => it.type === 'propose' ? <ProposalCard key={it.id} item={it} conversationId={conversationId} busy={busy} started={started?.has(it.id)} onConfirm={(p) => onConfirm(it.id, p)} />
         : it.type === 'plan' ? <PlanCard key={it.id} item={it} conversationId={conversationId} onNavigate={onNavigate} />
-          : <ReportCard key={it.id} item={it} onNavigate={onNavigate} />)}
+          : <ReportCard key={it.id} item={it} conversationId={conversationId} onNavigate={onNavigate} />)}
     </div>
   )
 }

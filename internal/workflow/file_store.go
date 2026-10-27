@@ -3,7 +3,6 @@ package workflow
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,7 +87,7 @@ func NewWorkflowFileStore(dir string) (*WorkflowFileStore, error) {
 // the store directory (e.g. an imported workflow whose "id" is "../../etc/foo").
 func (s *WorkflowFileStore) filePath(id string) (string, error) {
 	if id == "" || id == "." || id == ".." ||
-		strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		strings.ContainsAny(id, `/\:`) || strings.Contains(id, "..") || reservedFileName(id) {
 		return "", fmt.Errorf("file_store: invalid workflow id %q", id)
 	}
 	return filepath.Join(s.dir, id+".json"), nil
@@ -103,12 +102,26 @@ func (s *WorkflowFileStore) SaveWorkflow(ctx context.Context, wf *Workflow) erro
 	return s.saveWorkflow(ctx, wf)
 }
 
-// saveWorkflowDurable is kept for the guarded save; every save is atomic and flushed now.
-func (s *WorkflowFileStore) saveWorkflowDurable(ctx context.Context, wf *Workflow) error {
-	return s.saveWorkflow(ctx, wf)
+func (s *WorkflowFileStore) saveWorkflow(ctx context.Context, wf *Workflow) error {
+	data, err := s.renderWorkflow(wf)
+	if err != nil {
+		return err
+	}
+	path, err := s.filePath(wf.ID)
+	if err != nil {
+		return err
+	}
+	// Write atomically: write to a temp file then rename over the target, so a
+	// crash mid-write cannot truncate/corrupt an existing workflow definition.
+	if err := writeFileAtomic(path, data); err != nil {
+		return fmt.Errorf("file_store: write %s: %w", wf.ID, err)
+	}
+	s.invalidate(path)
+	return nil
 }
 
-func (s *WorkflowFileStore) saveWorkflow(ctx context.Context, wf *Workflow) error {
+// renderWorkflow numbers and stamps wf as a save does and returns the bytes of its file.
+func (s *WorkflowFileStore) renderWorkflow(wf *Workflow) ([]byte, error) {
 	if wf.ID == "" {
 		wf.ID = uuid.New().String()
 		wf.CreatedAt = time.Now().UTC()
@@ -166,19 +179,9 @@ func (s *WorkflowFileStore) saveWorkflow(ctx context.Context, wf *Workflow) erro
 
 	data, err := json.MarshalIndent(wfFile, "", "  ")
 	if err != nil {
-		return fmt.Errorf("file_store: marshal %s: %w", wf.ID, err)
+		return nil, fmt.Errorf("file_store: marshal %s: %w", wf.ID, err)
 	}
-	path, err := s.filePath(wf.ID)
-	if err != nil {
-		return err
-	}
-	// Write atomically: write to a temp file then rename over the target, so a
-	// crash mid-write cannot truncate/corrupt an existing workflow definition.
-	if err := writeFileAtomic(path, data); err != nil {
-		return fmt.Errorf("file_store: write %s: %w", wf.ID, err)
-	}
-	s.invalidate(path)
-	return nil
+	return data, nil
 }
 
 // writeFileAtomic replaces path with data so that a reader sees the old file or the new one and a
@@ -187,49 +190,59 @@ func (s *WorkflowFileStore) saveWorkflow(ctx context.Context, wf *Workflow) erro
 // are flushed, the temp file is renamed over path, and the folder is flushed. The temp file is
 // removed on every failure.
 func writeFileAtomic(path string, data []byte) (err error) {
+	tmp, err := stageFile(path, data)
+	if err != nil {
+		return err
+	}
+	return installStaged(tmp, path)
+}
+
+// stageWriteHook is a test seam: an error here is a failed write of the staged file.
+var stageWriteHook func(*os.File) error
+
+// stageFile writes data to a fresh, flushed temp file beside path and returns its name; the caller
+// installs it with installStaged or removes it.
+func stageFile(path string, data []byte) (string, error) {
 	dir := filepath.Dir(path)
 	if err := statedir.MkdirAll(dir); err != nil {
-		return err
+		return "", err
 	}
 	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
-		return err
+		return "", err
 	}
-	tmp := f.Name()
-	defer func() {
-		if err != nil {
-			_ = os.Remove(tmp)
+	name := f.Name() // kept apart from the results so every failure path can still remove it
+	fail := func(err error) (string, error) {
+		f.Close()
+		_ = os.Remove(name)
+		return "", err
+	}
+	if stageWriteHook != nil {
+		if err := stageWriteHook(f); err != nil {
+			return fail(err)
 		}
-	}()
-	if _, err = f.Write(data); err != nil {
-		f.Close()
-		return err
 	}
-	if err = f.Sync(); err != nil {
-		f.Close()
-		return err
+	if _, err := f.Write(data); err != nil {
+		return fail(err)
 	}
-	if err = f.Close(); err != nil {
-		return err
+	if err := f.Sync(); err != nil {
+		return fail(err)
 	}
-	if err = os.Rename(tmp, path); err != nil {
-		return err
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", err
 	}
-	return syncDir(dir)
+	return name, nil
 }
 
-// syncDir flushes a directory's entries (the rename) to disk. Platforms that cannot open a
-// directory for this (Windows) keep the rename as it is.
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return nil
-	}
-	defer d.Close()
-	if err := d.Sync(); err != nil && !errors.Is(err, os.ErrInvalid) {
+// installStaged renames a staged temp file over path and flushes the folder; the temp file is
+// removed when that fails.
+func installStaged(tmp, path string) error {
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
-	return nil
+	return syncDir(filepath.Dir(path))
 }
 
 // readRaw returns the workflow file's bytes as they are on disk, and whether
@@ -239,7 +252,7 @@ func (s *WorkflowFileStore) readRaw(id string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readRegularFile(path)
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}
@@ -276,7 +289,7 @@ func (s *WorkflowFileStore) GetWorkflow(ctx context.Context, id string) (*Workfl
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readRegularFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -290,6 +303,12 @@ func (s *WorkflowFileStore) GetWorkflow(ctx context.Context, id string) (*Workfl
 // UpdatedAt desc. Parsed workflows are cached per file and reused while the
 // file's modtime and size are unchanged.
 func (s *WorkflowFileStore) ListWorkflows(ctx context.Context) ([]*Workflow, error) {
+	return s.listWorkflows(ctx, nil)
+}
+
+// listWorkflows is ListWorkflows limited to the ids in only (all of them when only is nil): a file
+// whose id is not wanted is not opened.
+func (s *WorkflowFileStore) listWorkflows(ctx context.Context, only map[string]bool) ([]*Workflow, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		return nil, fmt.Errorf("file_store: readdir %s: %w", s.dir, err)
@@ -299,9 +318,12 @@ func (s *WorkflowFileStore) ListWorkflows(ctx context.Context) ([]*Workflow, err
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue
 		}
-		wf, err := s.cachedWorkflow(e)
-		if err != nil {
+		if only != nil && !only[strings.TrimSuffix(e.Name(), ".json")] {
 			continue
+		}
+		wf, err := s.cachedWorkflow(e)
+		if err != nil || wf.ID != strings.TrimSuffix(e.Name(), ".json") {
+			continue // unreadable, or a file whose content names another workflow than its name does
 		}
 		wfs = append(wfs, wf)
 	}
@@ -325,7 +347,7 @@ func (s *WorkflowFileStore) cachedWorkflow(e os.DirEntry) (*Workflow, error) {
 	if ok && c.size == info.Size() && c.modTime.Equal(info.ModTime()) {
 		return c.wf, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := readRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -435,4 +457,91 @@ func NormalizeConnectionHandles(conns []WorkflowConnection) {
 			conns[i].TargetHandle = "main"
 		}
 	}
+}
+
+// writeRaw publishes data as the workflow's file, atomically and durably.
+func (s *WorkflowFileStore) writeRaw(id string, data []byte) error {
+	path, err := s.filePath(id)
+	if err != nil {
+		return err
+	}
+	defer s.invalidate(path)
+	if err := writeFileAtomic(path, data); err != nil {
+		return fmt.Errorf("file_store: write %s: %w", id, err)
+	}
+	return nil
+}
+
+// removeFile removes the workflow's file; a missing file is fine.
+func (s *WorkflowFileStore) removeFile(id string) error {
+	return s.restoreRaw(id, nil, false)
+}
+
+// stageRaw prepares data as the workflow's next file (see stageFile).
+func (s *WorkflowFileStore) stageRaw(id string, data []byte) (string, error) {
+	path, err := s.filePath(id)
+	if err != nil {
+		return "", err
+	}
+	return stageFile(path, data)
+}
+
+// installRaw makes a staged file the workflow's file.
+func (s *WorkflowFileStore) installRaw(id, tmp string) error {
+	path, err := s.filePath(id)
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	defer s.invalidate(path)
+	return installStaged(tmp, path)
+}
+
+// quarantineKeep is how many quarantined copies are kept per workflow.
+const quarantineKeep = 20
+
+// quarantine keeps a copy of bytes that are about to be, or have been, set aside: written whole and
+// flushed (with its folder), under the quarantine folder beside the workflows folder. The oldest
+// copies of the same workflow beyond quarantineKeep are removed.
+func (s *WorkflowFileStore) quarantine(id string, data []byte) (string, error) {
+	dir := s.quarantineDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	final := filepath.Join(dir, fmt.Sprintf("%s.%d.json", id, time.Now().UnixNano()))
+	tmp, err := stageFile(final, data)
+	if err != nil {
+		return "", err
+	}
+	if err := installStaged(tmp, final); err != nil {
+		return "", err
+	}
+	if old, _ := filepath.Glob(filepath.Join(dir, id+".*.json")); len(old) > quarantineKeep {
+		sort.Strings(old) // the name carries the time, oldest first
+		for _, f := range old[:len(old)-quarantineKeep] {
+			_ = os.Remove(f)
+		}
+	}
+	return final, nil
+}
+
+// ReadRawForMigrate reports whether the workflow has a file already (and its bytes), for the
+// one-off DB-to-files migration, which must not overwrite a canonical file.
+func (s *WorkflowFileStore) ReadRawForMigrate(id string) ([]byte, bool, error) { return s.readRaw(id) }
+
+// reservedFileName reports a name Windows treats as a device (CON, NUL, COM1, ...), with or
+// without an extension. Such an id is refused everywhere so a workflow moves between machines.
+func reservedFileName(id string) bool {
+	base := strings.ToUpper(id)
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	switch base {
+	case "CON", "PRN", "AUX", "NUL", "CLOCK$":
+		return true
+	}
+	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '0' && base[3] <= '9' {
+		return true
+	}
+	return false
 }

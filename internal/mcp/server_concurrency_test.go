@@ -185,7 +185,7 @@ func TestServeConcurrentDispatchPingDuringSlowRun(t *testing.T) {
 			TargetNodeID: "w", TargetHandle: "main",
 		}},
 	}
-	if err := rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatalf("save workflow: %v", err)
 	}
 
