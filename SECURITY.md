@@ -1696,7 +1696,7 @@ that works a task acts on them. The defences:
   the stored reference is the normalised id), that exists, is reachable from the work tree's
   HEAD or a `monoagent/<id>/<id>` branch, is not a merge commit, is not part of the history the
   task started from, and changes at least one declared file or a path under a declared folder
-  (at least one, not all), by its own diff or against its merge base with HEAD. The work tree
+  (at least one, not all), by its own diff or, for a branch commit, by the branch's net change against the later of its merge base with HEAD and the task's start (a change made and reverted shows nothing). The work tree
   is the folder of the session's conversation, read by the store from its database; the
   process's working directory, which an agent can change, is never consulted for a mission
   session. Git, not a file-name walk, decides whether that folder is a work tree. Only an
@@ -1704,11 +1704,11 @@ that works a task acts on them. The defences:
   keeps the old rule (any artifact of an evidence kind). For a mission session every other
   case is a refusal that the operator can resolve by closing the task: a conversation that is
   gone or whose folder is empty or relative, a folder that no longer exists, a work tree git
-  cannot read, a repository that disappeared after the task started, and a repository for
+  cannot read (only git's own "not a git repository" answer, with no `.git` entry, counts as no repository), a repository that disappeared or was replaced after the task started (a recorded start point that the repository does not hold), a shallow repository or one with a grafts file (both rewrite what git reports as a commit's ancestry), and a repository for
   which no start point was recorded. A session with no conversation (the operator's own)
   is checked in the process's working directory. When a task first starts, the operator's
   process records the folder's HEAD as a `base` artifact (an agent cannot write one; the first
-  stands; a repository with no commit yet records a stand-in; the record is retried at each
+  stands; a repository with no commit and no ref at all records a stand-in, any other unreadable HEAD records nothing; the record is retried at each
   start of the task); a commit that is part of it is refused. The cheap refusals (who the
   caller is, the session state, the claim) are made before git is run for a caller.
   A declared glob is read as the folder before its first wildcard segment, and a glob that
@@ -1723,7 +1723,7 @@ that works a task acts on them. The defences:
   pager, an editor, an external diff, ssh), so every git call of the checker and of the
   scheduler's worktree handling pins those settings to inert values and drops those
   variables (`internal/gitsafe`), and the checker reads history with plumbing that does not
-  verify signatures. Not covered: content filters and merge drivers, which git cannot switch off;
+  verify signatures. Every git call also runs with lazy object fetching off and only the `file` protocol allowed (an environment allowlist the repository's configuration cannot widen). Not covered: content filters and merge drivers, which git cannot switch off;
   the scheduler's checkpoint (`add`) and merge of an isolated writer's worktree still honour them.
   A task started before a start point could be recorded cannot be told from older work. Still
   forgeable: a rebased copy of old work is a new commit; a commit made for another task after this

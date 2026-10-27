@@ -83,9 +83,9 @@ func TestCommitFromBeforeTheTaskStartedIsRefused(t *testing.T) {
 	if err := c(bg, scoped(dir, target, fresh, "q/q.go")); err != nil {
 		t.Fatalf("a commit after the start: %v", err)
 	}
-	// a start point git cannot read is not held against the commit
-	if err := c(bg, scoped(dir, strings.Repeat("a", 40), fresh, "q/q.go")); err != nil {
-		t.Fatalf("an unreadable start point: %v", err)
+	// a start point this repository does not hold refuses
+	if err := c(bg, scoped(dir, strings.Repeat("a", 40), fresh, "q/q.go")); err == nil {
+		t.Fatal("a start point missing from the repository lapsed the rule")
 	}
 	// a branch's earlier commits that the start already held do not count for the tip
 	run(t, dir, "checkout", "-q", "-b", "monoagent/t1/w1", base)
@@ -255,7 +255,7 @@ func TestScopedCheckFailsClosedWhenGitCannotAnswer(t *testing.T) {
 	}
 }
 
-// A start point git fails to resolve (as opposed to one it reports is absent) refuses.
+// A recorded start point that does not resolve refuses, whether git failed or reports it absent.
 func TestUnresolvableStartRefusesRatherThanLapses(t *testing.T) {
 	dir, _, _, target := repoWith(t)
 	ctx, cancel := context.WithCancel(bg)
@@ -264,8 +264,8 @@ func TestUnresolvableStartRefusesRatherThanLapses(t *testing.T) {
 	if err == nil {
 		t.Fatal("a start point git could not be asked about lapsed the rule")
 	}
-	if err := newSince(bg, dir, target, strings.Repeat("a", 40)); err != nil {
-		t.Fatalf("a start point git reports absent: %v", err)
+	if err := newSince(bg, dir, target, strings.Repeat("a", 40)); err == nil {
+		t.Fatal("a start point git reports absent lapsed the rule")
 	}
 }
 

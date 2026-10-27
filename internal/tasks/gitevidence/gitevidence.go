@@ -164,20 +164,16 @@ func parents(ctx context.Context, root, full string) (int, error) {
 
 // newSince refuses a commit that is part of the history the task started from: work done
 // for the task is a commit that history did not hold. A start point git cannot resolve (it
-// was pruned) is not held against the commit.
+// was pruned or the repository replaced) refuses.
 func newSince(ctx context.Context, root, full, base string) error {
 	if !commitRef.MatchString(base) {
 		return nil
 	}
 	b, err := resolveCommit(ctx, root, strings.ToLower(base))
 	if err != nil {
-		// only git's clean "no such object" lets the rule lapse; a timeout or a failing git
-		// refuses, so that breaking git is not a way past the rule
-		var ge *gitError
-		if errors.Is(err, errNoSuchCommit) && ctx.Err() == nil && errors.As(errors.Unwrap(err), &ge) && ge.code == 1 {
-			return nil
-		}
-		return errors.New("git could not resolve the start of the task")
+		// a recorded start point that this repository does not hold (replaced repository, pruned
+		// history) or that git cannot be asked about is not a reason to skip the rule: refuse
+		return errors.New("the start of the task is not in this work tree's history (the repository was replaced or its history changed): ask the operator to close the task")
 	}
 	old, err := isAncestor(ctx, root, full, b)
 	if err != nil {
@@ -224,13 +220,18 @@ func decide(ctx context.Context, dir string, c tasks.EvidenceCheck) error {
 	}
 	_, err := git(ctx, dir, "rev-parse", "--git-dir")
 	if err == nil {
+		if c.Scoped {
+			if err := rewrittenHistory(ctx, dir); err != nil {
+				return err
+			}
+		}
 		if c.Scoped && c.Base == "" {
 			return errors.New("no start point was recorded for this task in the work tree, so work done since cannot be told from older work: ask the operator to close or re-run the task")
 		}
 		return nil
 	}
 	var ge *gitError
-	if errors.As(err, &ge) && strings.Contains(strings.ToLower(ge.stderr), "not a git repository") {
+	if errors.As(err, &ge) && cleanNoRepository(dir, ge) {
 		if c.Scoped && c.Base != "" {
 			return errors.New("the mission's work folder was a repository when the task started and is not one now: ask the operator to close the task")
 		}
@@ -240,6 +241,38 @@ func decide(ctx context.Context, dir string, c tasks.EvidenceCheck) error {
 		return unreadable(err)
 	}
 	return tasks.ErrEvidenceNotApplicable
+}
+
+// cleanNoRepository is git's own "not a repository" answer: exit status 128, that sentence as the
+// first line of stderr (a line an include file's name or a bad config key cannot lead with), and
+// no .git entry in the folder itself.
+func cleanNoRepository(dir string, ge *gitError) bool {
+	first, _, _ := strings.Cut(strings.TrimSpace(ge.stderr), "\n")
+	if ge.code != 128 || !strings.HasPrefix(strings.ToLower(first), "fatal: not a git repository") {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return errors.Is(err, os.ErrNotExist)
+}
+
+// rewrittenHistory refuses a repository whose ancestry an agent can rewrite without a trace in
+// the objects: grafts and a shallow boundary change what git reports as a commit's parents.
+func rewrittenHistory(ctx context.Context, dir string) error {
+	if out, err := git(ctx, dir, "rev-parse", "--is-shallow-repository"); err != nil || strings.TrimSpace(out) != "false" {
+		return errors.New("the mission's work tree is shallow or its depth cannot be read, so the age of a commit cannot be trusted: ask the operator to close the task")
+	}
+	out, err := git(ctx, dir, "rev-parse", "--git-path", "info/grafts")
+	if err != nil {
+		return errors.New("git could not locate the repository's grafts file")
+	}
+	p := strings.TrimSpace(out)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
+	}
+	if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("the mission's work tree rewrites history with a grafts file, so the age of a commit cannot be trusted: ask the operator to close the task")
+	}
+	return nil
 }
 
 func reachable(ctx context.Context, root, full string) bool {
@@ -287,45 +320,37 @@ func touchesDeclared(ctx context.Context, root, full, base string, declared []st
 	return errors.New("the commit changes none of the declared files")
 }
 
-// maxBranchCommits bounds how many commits of a branch are read for their files.
-const maxBranchCommits = "100"
-
+// changedBy lists the files a commit stands for. A commit on the work tree's history stands for
+// its own change. A commit on a branch stands for the branch's net change against the later of
+// its merge base with HEAD and the task's start: a change that was made and reverted shows
+// nothing.
 func changedBy(ctx context.Context, root, full, base string) ([]string, error) {
-	// the commit is not a merge here (refused before), so its own changes are against its parent
-	out, err := git(ctx, root, "-c", "core.quotepath=off", "diff-tree", "-r", "-z", "--name-only", "--no-commit-id", "--root", "--end-of-options", full)
-	if err != nil {
-		return nil, errors.New("git could not list the files of the commit")
-	}
-	names := splitZ(out)
 	mb, err := git(ctx, root, "merge-base", full, "HEAD")
-	if err != nil {
-		return names, nil
+	if mb = strings.TrimSpace(mb); err != nil || mb == "" || mb == full {
+		// the commit is not a merge here (refused before), so its own changes are against its parent
+		out, err := git(ctx, root, "-c", "core.quotepath=off", "diff-tree", "-r", "-z", "--name-only", "--no-commit-id", "--root", "--end-of-options", full)
+		if err != nil {
+			return nil, errors.New("git could not list the files of the commit")
+		}
+		return splitZ(out), nil
 	}
-	if mb = strings.TrimSpace(mb); mb == "" || mb == full {
-		return names, nil
-	}
-	// the commits of the branch since the merge base (and since the task's start), as plumbing:
-	// rev-list and diff-tree read objects and never verify signatures or run external programs
-	rng := []string{"rev-list", "--no-merges", "--max-count=" + maxBranchCommits, full, "^" + mb}
+	from := mb
 	if commitRef.MatchString(base) {
 		if b, err := resolveCommit(ctx, root, strings.ToLower(base)); err == nil {
-			rng = append(rng, "^"+b)
+			if cb, err := git(ctx, root, "merge-base", full, b); err == nil {
+				if cb = strings.TrimSpace(cb); commitRef.MatchString(cb) {
+					if later, err := isAncestor(ctx, root, mb, cb); err == nil && later {
+						from = cb
+					}
+				}
+			}
 		}
 	}
-	ids, err := git(ctx, root, append(rng, "--")...)
-	if err != nil || strings.TrimSpace(ids) == "" {
-		return names, nil
+	out, err := git(ctx, root, "-c", "core.quotepath=off", "diff-tree", "-r", "-z", "--name-only", "--no-commit-id", "--end-of-options", from, full)
+	if err != nil {
+		return nil, errors.New("git could not list the files of the branch")
 	}
-	var in strings.Builder
-	for _, id := range strings.Fields(ids) {
-		if commitRef.MatchString(id) {
-			in.WriteString(id + "\n")
-		}
-	}
-	if more, err := gitIn(ctx, root, in.String(), "-c", "core.quotepath=off", "diff-tree", "--stdin", "-r", "-z", "--name-only", "--no-commit-id", "--root"); err == nil {
-		names = append(names, splitZ(more)...)
-	}
-	return names, nil
+	return splitZ(out), nil
 }
 
 func splitZ(s string) []string {
@@ -444,5 +469,5 @@ func (c *cappedWriter) Write(p []byte) (int, error) {
 }
 
 func cleanEnv() []string {
-	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_REPLACE_OBJECTS=1", "GIT_NO_LAZY_FETCH=1", "LC_ALL=C")
+	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_REPLACE_OBJECTS=1", "LC_ALL=C")
 }

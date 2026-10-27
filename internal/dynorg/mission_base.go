@@ -29,6 +29,9 @@ func (c *Conductor) recordBase(ctx context.Context, mc *MissionRun, b *missionBi
 	out, err := gitRun(ctx, c.cfg.Cwd, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
 	head := strings.ToLower(strings.TrimSpace(out))
 	if err != nil {
+		if !c.unbornHead(ctx) {
+			return // a HEAD that cannot be read in a populated repository records nothing: the task stays refused
+		}
 		head = tasks.BaseUnborn // a work tree with no commit yet: every commit is new work
 	} else if !fullObjectID.MatchString(head) {
 		return
@@ -37,4 +40,18 @@ func (c *Conductor) recordBase(ctx context.Context, mc *MissionRun, b *missionBi
 	if _, err := mc.Store.AddArtifact(ctx, mc.ProfileID, b.session, b.task.ID, art, operatorActor()); err != nil {
 		c.notice("mission.artifact", fmt.Sprintf("Task #%d: its start point could not be recorded: %v", b.task.ID, err), chatevents.SeverityWarning)
 	}
+}
+
+// unbornHead is true only for a repository that has no commit at all: HEAD names a branch that
+// does not exist and no ref exists anywhere. A corrupt HEAD of a populated repository is not.
+func (c *Conductor) unbornHead(ctx context.Context) bool {
+	ref, err := gitRun(ctx, c.cfg.Cwd, "symbolic-ref", "-q", "HEAD")
+	if err != nil || strings.TrimSpace(ref) == "" {
+		return false
+	}
+	if _, err := gitRun(ctx, c.cfg.Cwd, "rev-parse", "--verify", "--quiet", strings.TrimSpace(ref)+"^{commit}"); err == nil {
+		return false
+	}
+	refs, err := gitRun(ctx, c.cfg.Cwd, "for-each-ref", "--count=1")
+	return err == nil && strings.TrimSpace(refs) == ""
 }
