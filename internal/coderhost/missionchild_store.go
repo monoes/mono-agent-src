@@ -759,6 +759,16 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if s.beforeReserveTx != nil {
 		s.beforeReserveTx()
 	}
+	// The lead's spend is summed from its event log, which can be long, so it is read here, before the
+	// write lock is taken, and only the cheap reads (policy, settings, budget, counts) happen under the lock.
+	// The spend can only grow, and a turn that finishes in between is at most one turn's cost: accepted.
+	var spent float64
+	if b, err := s.Budget(profileID, m.lead); err == nil && b > 0 {
+		if spent, err = s.Spent(profileID, m.lead); err != nil {
+			return ChildRow{}, err
+		}
+	}
+	spentFn := func() (float64, error) { return spent, nil }
 	now := s.stamp()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -787,8 +797,8 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	case have && cur.Attempts >= MaxChildAttempts:
 		return ChildRow{}, fmt.Errorf("%w: the task was started %d times already", ErrLimit, cur.Attempts)
 	}
-	carve := s.childBudgetIn(tx, pol, cur.BudgetUSD, m.lead)
-	room, err := s.roomIn(tx, pol, carve)
+	carve := s.childBudgetIn(tx, pol, cur.BudgetUSD, m.lead, spentFn)
+	room, err := s.roomIn(tx, pol, carve, spentFn)
 	if err != nil {
 		return ChildRow{}, err
 	}
@@ -804,6 +814,9 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	shareCap := -1.0
 	if room.Capped {
 		shareCap = room.AllowedUSD
+	}
+	if s.afterReserveReads != nil {
+		s.afterReserveReads()
 	}
 	won, err := takeReservation(tx, profileID, sessionID, taskID, m.lead, room.Ceiling, carve, shareCap, now)
 	if err != nil {
@@ -1155,10 +1168,13 @@ func (s *Store) releaseCarveIn(db execer, profileID, childConversationID string,
 // childBudget is the carve to ask for: the task's wish, else the policy's default, else (for a lead with a
 // cap) max(0.50, remaining x share / max_children / 100); 0 (no cap of its own) for a lead without one.
 func (s *Store) childBudget(p Policy, wish float64, lead string) float64 {
-	return s.childBudgetIn(s.db, p, wish, lead)
+	return s.childBudgetIn(s.db, p, wish, lead, func() (float64, error) { return s.spentIn(s.db, p.ProfileID, lead) })
 }
 
-func (s *Store) childBudgetIn(q querier, p Policy, wish float64, lead string) float64 {
+// spendFn gives the lead's spend; a caller holding a write lock passes the number it read before taking it.
+type spendFn func() (float64, error)
+
+func (s *Store) childBudgetIn(q querier, p Policy, wish float64, lead string, spentOf spendFn) float64 {
 	if wish > 0 {
 		return wish
 	}
@@ -1169,7 +1185,7 @@ func (s *Store) childBudgetIn(q querier, p Policy, wish float64, lead string) fl
 	if err := q.QueryRow(`SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, p.ProfileID, lead).Scan(&budget); err != nil || budget <= 0 {
 		return 0
 	}
-	spent, _ := s.spentIn(q, p.ProfileID, lead)
+	spent, _ := spentOf()
 	n := p.MaxChildren
 	if n < 1 {
 		n = 1
@@ -1196,11 +1212,11 @@ func (s *Store) RoomFor(profileID string, sessionID int64, newUSD float64) (Room
 	if err != nil {
 		return Room{}, err
 	}
-	return s.roomIn(s.db, pol, newUSD)
+	return s.roomIn(s.db, pol, newUSD, func() (float64, error) { return s.spentIn(s.db, pol.ProfileID, pol.LeadConversationID) })
 }
 
 // roomIn is RoomFor for a policy already read, with every other read going through q.
-func (s *Store) roomIn(q querier, pol Policy, newUSD float64) (Room, error) {
+func (s *Store) roomIn(q querier, pol Policy, newUSD float64, spentOf spendFn) (Room, error) {
 	var r Room
 	profileID := pol.ProfileID
 	if pol.LeadConversationID == "" {
@@ -1235,7 +1251,7 @@ func (s *Store) roomIn(q querier, pol Policy, newUSD float64) (Room, error) {
 			return r, err
 		}
 		if budget > 0 {
-			spent, err := s.spentIn(q, profileID, pol.LeadConversationID)
+			spent, err := spentOf()
 			if err != nil {
 				return r, err
 			}
