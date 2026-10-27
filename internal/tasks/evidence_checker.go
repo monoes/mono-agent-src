@@ -56,6 +56,11 @@ const evidenceMaxCommits = 5
 // started: it names no commit, so every commit of the work tree is new work.
 const BaseUnborn = "none"
 
+// BaseUnreadable is the start point recorded for a work folder git could not read when the task
+// started (and that is not cleanly "no repository"): such a folder is never held to the old
+// self-asserted rule, whatever it looks like later.
+const BaseUnreadable = "unreadable"
+
 // ArtifactCommit is the artifact kind the checker validates.
 const ArtifactCommit = "commit"
 

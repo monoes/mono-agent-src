@@ -70,3 +70,10 @@ func TestEnvRefusesATransportTheRepositoryAllows(t *testing.T) {
 		t.Fatal("the transport program ran under the pinned environment")
 	}
 }
+
+// A forged commit-graph file rewrites what git reports as ancestry; every call ignores it.
+func TestArgsIgnoreTheCommitGraph(t *testing.T) {
+	if !strings.Contains(strings.Join(Args(), " "), "core.commitGraph=false") {
+		t.Fatal("core.commitGraph is not pinned off")
+	}
+}

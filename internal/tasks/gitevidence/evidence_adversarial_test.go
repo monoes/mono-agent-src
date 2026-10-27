@@ -1,6 +1,7 @@
 package gitevidence
 
 import (
+	"errors"
 	"github.com/monoes/mono-agent/internal/tasks"
 	"os"
 	"path/filepath"
@@ -168,5 +169,14 @@ func TestFinalReviewerCheckerDoesNotRunAttributePrograms(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("attribute program executed by readonly checker")
+	}
+}
+
+func TestUnreadableBaseRefusesWhateverTheFolderLooksLikeLater(t *testing.T) {
+	for _, dir := range []string{t.TempDir(), func() string { d, _, _, _ := repoWith(t); return d }()} {
+		err := Checker("")(bg, tasks.EvidenceCheck{Scoped: true, Dir: dir, Base: tasks.BaseUnreadable})
+		if err == nil || errors.Is(err, tasks.ErrEvidenceNotApplicable) {
+			t.Fatalf("%s: %v", dir, err)
+		}
 	}
 }

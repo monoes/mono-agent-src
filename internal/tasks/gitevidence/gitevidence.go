@@ -218,6 +218,9 @@ func decide(ctx context.Context, dir string, c tasks.EvidenceCheck) error {
 		}
 		return tasks.ErrEvidenceNotApplicable
 	}
+	if c.Scoped && c.Base == tasks.BaseUnreadable {
+		return errors.New("the mission's work folder could not be read when the task started, so work since cannot be told from older work: ask the operator to close the task")
+	}
 	_, err := git(ctx, dir, "rev-parse", "--git-dir")
 	if err == nil {
 		if c.Scoped {

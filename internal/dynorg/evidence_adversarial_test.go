@@ -58,3 +58,35 @@ func TestFinalReviewerLazyFetchCannotRunAnAgentTransport(t *testing.T) {
 		t.Fatal("PROGRAM EXECUTION: operator worktree checkout lazily fetched through agent-configured ext transport despite protocol.allow=never")
 	}
 }
+
+// A folder git cannot read when the task starts records a refusing marker rather than nothing, so
+// removing .git afterwards cannot bring back the self-asserted rule.
+func TestUnreadableRepositoryAtStartRecordsARefusingBase(t *testing.T) {
+	repo := newRepo(t)
+	r := newRig(t, rigOpts{})
+	r.c.cfg.Cwd = repo
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	cfg := filepath.Join(repo, ".git", "config")
+	original, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte("[unterminated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.c.recordBase(tbg, r.mc, &missionBind{session: r.sid, task: a})
+	if err := os.WriteFile(cfg, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := r.store.SessionTask(tbg, "default", r.sid, a.ID, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range detail.Artifacts {
+		if artifact.Kind == tasks.ArtifactBase && artifact.Ref == tasks.BaseUnreadable {
+			return
+		}
+	}
+	t.Fatalf("an unreadable repository recorded no refusing base: %+v", detail.Artifacts)
+}

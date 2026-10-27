@@ -1708,7 +1708,7 @@ that works a task acts on them. The defences:
   which no start point was recorded. A session with no conversation (the operator's own)
   is checked in the process's working directory. When a task first starts, the operator's
   process records the folder's HEAD as a `base` artifact (an agent cannot write one; the first
-  stands; a repository with no commit and no ref at all records a stand-in, any other unreadable HEAD records nothing; the record is retried at each
+  stands; a repository with no commit and no ref at all records a stand-in, any other unreadable HEAD records nothing; a folder git cannot read at all records a refusing `unreadable` marker; the record is retried at each
   start of the task); a commit that is part of it is refused. The cheap refusals (who the
   caller is, the session state, the claim) are made before git is run for a caller.
   A declared glob is read as the folder before its first wildcard segment, and a glob that
@@ -1723,7 +1723,7 @@ that works a task acts on them. The defences:
   pager, an editor, an external diff, ssh), so every git call of the checker and of the
   scheduler's worktree handling pins those settings to inert values and drops those
   variables (`internal/gitsafe`), and the checker reads history with plumbing that does not
-  verify signatures. Every git call also runs with lazy object fetching off and no transport allowed (an empty environment allowlist the repository's configuration cannot widen). Not covered: content filters and merge drivers, which git cannot switch off;
+  verify signatures. Every git call also runs with lazy object fetching off and no transport allowed (an empty environment allowlist the repository's configuration cannot widen). With lazy fetching off, a partial (blobless) clone with missing objects fails closed on the operator's checkout. Commit-graph files are ignored. Not covered: content filters and merge drivers, which git cannot switch off;
   the scheduler's checkpoint (`add`) and merge of an isolated writer's worktree still honour them.
   A task started before a start point could be recorded cannot be told from older work. Still
   forgeable: a rebased copy of old work is a new commit; a commit made for another task after this

@@ -29,6 +29,7 @@ func Args() []string {
 		"-c", "core.sshCommand=false",
 		"-c", "core.gitProxy=false",
 		"-c", "protocol.allow=never",
+		"-c", "core.commitGraph=false", // a forged commit-graph file rewrites ancestry
 		"-c", "credential.helper=",
 		"-c", "log.showSignature=false",
 		"-c", "commit.gpgSign=false",

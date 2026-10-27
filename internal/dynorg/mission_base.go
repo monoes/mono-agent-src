@@ -2,7 +2,10 @@ package dynorg
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -24,7 +27,19 @@ func (c *Conductor) recordBase(ctx context.Context, mc *MissionRun, b *missionBi
 		return
 	}
 	if _, err := gitRun(ctx, c.cfg.Cwd, "rev-parse", "--git-dir"); err != nil {
-		return // not a git work tree: nothing to record
+		if ctx.Err() != nil {
+			return // retried at the next start
+		}
+		if fi, serr := os.Stat(c.cfg.Cwd); serr != nil || !fi.IsDir() {
+			return // no folder: nothing to record, and the check refuses a missing folder itself
+		}
+		_, lerr := os.Lstat(filepath.Join(c.cfg.Cwd, ".git"))
+		if strings.HasPrefix(strings.ToLower(err.Error()), "fatal: not a git repository") && errors.Is(lerr, os.ErrNotExist) {
+			return // not a git work tree: nothing to record
+		}
+		// a folder git cannot read (a broken configuration, say) must not look like no repository later
+		c.addBase(ctx, mc, b, tasks.BaseUnreadable, operatorActor())
+		return
 	}
 	out, err := gitRun(ctx, c.cfg.Cwd, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
 	head := strings.ToLower(strings.TrimSpace(out))
@@ -36,8 +51,12 @@ func (c *Conductor) recordBase(ctx context.Context, mc *MissionRun, b *missionBi
 	} else if !fullObjectID.MatchString(head) {
 		return
 	}
+	c.addBase(ctx, mc, b, head, operatorActor())
+}
+
+func (c *Conductor) addBase(ctx context.Context, mc *MissionRun, b *missionBind, head string, actor tasks.Actor) {
 	art := tasks.ArtifactInput{Kind: tasks.ArtifactBase, Ref: head, Note: "the work folder's HEAD when the task first started"}
-	if _, err := mc.Store.AddArtifact(ctx, mc.ProfileID, b.session, b.task.ID, art, operatorActor()); err != nil {
+	if _, err := mc.Store.AddArtifact(ctx, mc.ProfileID, b.session, b.task.ID, art, actor); err != nil {
 		c.notice("mission.artifact", fmt.Sprintf("Task #%d: its start point could not be recorded: %v", b.task.ID, err), chatevents.SeverityWarning)
 	}
 }
