@@ -1836,7 +1836,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   recorded model decision. A park the policy leaves to the model is refused, and so is a park by a session with
   no master (solo, master, orphaned child) for any gap but a hard one; a hard gap of such a session waits for the
   person with no timeout and no autonomy path can answer it (the person sees it in `sessions questions`, in the
-  session's `waiting_user` state and in the per-kind count (`coder_items`) of the `summary` "needs you" line, which the app also raises as a
+  session's `waiting_user` state and in the per-kind count (`coder_items`, derived from the current answerer) of the `summary` "needs you" line, which the app also raises as a
   desktop notification; no workflow Human-in-Loop row is made, so no approval surface is involved). `record` takes any
   non-hard class whatever the preset; the ledger and its revert are the control. They start no turn and carry no
   approval. The `reversible` flag is the model's claim, is trusted, and is shown as such in the ledger. A model's ledger rows rotate only among its own and `record` is limited to 20 an hour per session. A master answers

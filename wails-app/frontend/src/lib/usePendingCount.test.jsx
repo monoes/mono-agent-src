@@ -28,7 +28,7 @@ describe('usePendingCount', () => {
     const shown = []
     globalThis.Notification = class { constructor(title, o) { shown.push([title, o.body]) } static permission = 'granted' }
     try {
-      api.getSummarySections.mockResolvedValueOnce({ hil: { coder_items: {} } }).mockResolvedValueOnce({ hil: { coder_items: { parked_question: 1 } } })
+      api.getSummarySections.mockResolvedValueOnce({ hil: { coder_item_ids: [4] } }).mockResolvedValueOnce({ hil: { coder_item_ids: [5] } })
       const { result } = renderHook(() => usePendingCount())
       await waitFor(() => expect(api.getSummarySections).toHaveBeenCalledTimes(1))
       await result.current.reload()

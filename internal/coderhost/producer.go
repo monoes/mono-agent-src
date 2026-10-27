@@ -18,7 +18,7 @@ import (
 //     recorded as a model's decision: they are parked, and the master or the user answers;
 //   - Park consults the policy (Decide): when it lets the model settle the gap, ParkOwn returns
 //     ErrModelDecides and the model is to decide and call RecordOwn;
-//   - a session with no master (solo, master, orphaned child) has nobody to ask but the person, so
+//   - a session with no master (solo, master, orphaned child, or a child whose master is stopped or gone) has nobody to ask but the person, so
 //     ParkOwn refuses to park any gap but a hard one (ErrNoMasterDecide): the model decides and
 //     records it, or stops. A hard gap is parked for the person and waits without a timeout;
 //   - RecordOwn records any class but a hard one, whatever the preset (so ask-always governs
@@ -46,7 +46,7 @@ var ErrRecordRate = fmt.Errorf("%w: a session may record at most %d decisions an
 // as the model's decision; it is parked instead.
 var ErrPolicyReserves = errors.New("coder host: the model may not decide this gap (risky_action, missing_credential); park it as a question instead")
 
-// ErrNoMasterDecide: the session has no master to answer, and the gap is not one that waits for the
+// ErrNoMasterDecide: the session has no live master (none, or stopped or gone) to answer, and the gap is not one that waits for the
 // person, so nothing is parked.
 var ErrNoMasterDecide = errors.New("coder host: no master to answer: decide and call record, or stop")
 
@@ -99,8 +99,13 @@ func (s *Store) ParkOwn(c Caller, r ParkRequest) (Question, error) {
 	if HardClass(r.Class) && r.Reversible {
 		return Question{}, fmt.Errorf("%w: a %s gap is never reversible", ErrInvalid, r.Class)
 	}
-	if _, has := s.hasMaster(c.ProfileID, c.ConversationID); !has && !HardClass(r.Class) {
-		return Question{}, ErrNoMasterDecide
+	if _, has := s.hasLiveMaster(c.ProfileID, c.ConversationID); !has {
+		if !HardClass(r.Class) {
+			return Question{}, ErrNoMasterDecide
+		}
+		if s.recentPersonItems(c.ProfileID, c.ConversationID) >= MaxPersonItemsPerHour {
+			return Question{}, ErrPersonItemRate
+		}
 	}
 	return s.Park(c.ProfileID, c.ConversationID, r.Class, r.Question, r.Options, r.Default, r.Reversible)
 }

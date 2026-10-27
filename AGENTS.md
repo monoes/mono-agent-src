@@ -2550,7 +2550,7 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Autonomy** (`autonomy_preset`, `autonomy_classes`, operator only): when a session meets a gap
   (`ambiguity`, `scope_growth`, `risky_action`, `verification_failed`, `missing_credential`, `child_conflict`),
   the policy says only WHO answers: `user`, `master` or `model`, and what happens when nobody does
-  (`park` or `take_default`). `ask-always`: the user. `ask-on-risk` (default): the model settles reversible
+  (`park` or `take_default`). `ask-always`: the user (for `park`; `record` takes any non-hard class whatever the preset). `ask-on-risk` (default): the model settles reversible
   `ambiguity`, `scope_growth` and `verification_failed`; the master (the user, without one) gets the rest.
   `decide-and-log`: the model also settles irreversible ones and `child_conflict`. Code enforces, whatever the
   preset or override: `risky_action` and `missing_credential` are never answered by the model and never take
@@ -2657,20 +2657,21 @@ monoagentcli --profile work coder host stop                        # the host on
   the ledger shows every model-made decision as `madeBy: model` together with the `reversible` flag the model
   claimed, and the operator can revert the reversible ones; the `reversible` claim is trusted (a model that
   mislabels a gap as reversible gets it recorded as its own), which is the residual trust (hard classes are not
-  claimable). A session with no master (a solo or master session, or a child whose master is gone) has nobody
-  to ask but the person, so `park` is refused for it (`ErrNoMasterDecide`; MCP `no_master`: "no master to answer:
-  decide and call record, or stop") for every class but `risky_action` and `missing_credential`, and nothing is
-  written. Those two are parked as before, for the person only, and wait with NO timeout: no default is ever taken
-  (Decide clamps the fallback to park and `ApplyDefaults` also skips a hard class outright). The person sees such a
-  question in `sessions questions list` (answered with `questions answer`, the single source of truth), as the
-  session's `waiting_user` state, and as `coder_items` (a count per kind) in `summary --section hil` (counted in
-  "needs you"; the app raises a desktop notification when it goes up). Each such request is a row of
-  `coder_session_person_items` (migration 137): a `kind` (today `parked_question`; the shape is generic, other
-  kinds can be added in `coderhost/parked_items.go`) and a `ref_id` into that kind's table. The item has no
-  status of its own: it is open while its referent is, so `questions answer` and `AnswerItem` (which dispatches
-  by kind to the kind's own delivery) close the same row once and queue one note. It is not a `hil_pending` row:
-  those belong to workflow runs and a `hil approve` must never answer a session. The count and the
-  notification carry no text.
+  claimable). A session with no live master (a solo or master session, an orphaned child, or a child whose
+  master is gone or stopped: the answerer is derived with `hasLiveMaster`, everywhere) has nobody to ask but the
+  person, so `park` is refused for it (`ErrNoMasterDecide`; MCP `no_master`: "no master to answer: decide and call
+  record, or stop") for every class but `risky_action` and `missing_credential`, and nothing is written. Those two
+  are parked, for the person, and wait with NO timeout (at most 3 an hour per session without a live master,
+  `ErrPersonItemRate`): no default is ever taken (`Decide` clamps the fallback to park, and `ApplyDefaults` skips
+  any question that is a person item). The person sees such a question in `sessions questions list` (answered
+  with `questions answer`), as the session's `waiting_user` state, and in `summary --section hil` as `coder_items`
+  (a count per kind) and `coder_item_ids` (counted in "needs you"; the app raises a desktop notification when an
+  id appears that was not there). Every hard-class parked question gets a row in `coder_session_person_items`
+  (migration 137: `kind`, today `parked_question`, and `ref_id` into that kind's table; other kinds can be added
+  in `coderhost/parked_items.go`). The row has no status: whether the person has to act is derived each time (the
+  question is open, its answerer is now the user, its session is not stopped), so a role change or a stopped
+  master moves it in both directions. It is not a `hil_pending` row: those belong to workflow runs and a `hil
+  approve` must never answer a session. The count, the ids and the notification carry no text.
 - **First-run checks** (for the operator's first real run; none of this is verified live). `spawn` works only
   with a master's session token, so the steps that spawn are done by asking the master, in its chat, to run the
   command in its turn; the rest is the operator's own terminal:

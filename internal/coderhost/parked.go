@@ -114,6 +114,21 @@ func (s *Store) hasMaster(profileID, conversationID string) (parent string, ok b
 	return x.Parent, true
 }
 
+// hasLiveMaster says whether the session has a master that can be asked now: its parent exists, is
+// a master and is not stopped. A child of a stopped or deleted master has none (the link stays), so
+// the person is who answers; every place that derives the answerer uses this, not hasMaster.
+func (s *Store) hasLiveMaster(profileID, conversationID string) (parent string, ok bool) {
+	parent, linked := s.hasMaster(profileID, conversationID)
+	if !linked {
+		return "", false
+	}
+	m, found, err := s.GetSession(profileID, parent)
+	if err != nil || !found || m.Role != "master" || m.State == StateStopped {
+		return "", false
+	}
+	return parent, true
+}
+
 // answererNow is who may answer a parked question under the settings as they are
 // now. A question already parked never goes to the model by way of an answer:
 // when the policy now says model, a master answers it (or the user, without one).
@@ -122,7 +137,7 @@ func (s *Store) answererNow(q Question) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, has := s.hasMaster(q.ProfileID, q.ConversationID)
+	_, has := s.hasLiveMaster(q.ProfileID, q.ConversationID)
 	who := Decide(settings, q.Class, q.Reversible, has).Answerer
 	if who == WhoModel {
 		who = WhoMaster
@@ -163,7 +178,7 @@ func (s *Store) Park(profileID, conversationID, class, question string, options 
 	if err != nil {
 		return Question{}, err
 	}
-	_, has := s.hasMaster(profileID, conversationID)
+	_, has := s.hasLiveMaster(profileID, conversationID)
 	if Decide(settings, class, reversible, has).Answerer == WhoModel {
 		return Question{}, ErrModelDecides
 	}
@@ -192,8 +207,8 @@ func (s *Store) Park(profileID, conversationID, class, question string, options 
 		return Question{}, err
 	}
 	id, _ := res.LastInsertId()
-	if !has { // nobody but the person can answer it: they are told, and nothing times it out
-		if err := s.addPersonItem(profileID, conversationID, ItemParkedQuestion, id); err != nil {
+	if HardClass(class) { // the person may have to answer it (now or after a role change): they are told, and nothing times it out
+		if err := s.addPersonItem(profileID, conversationID, ItemParkedQuestion, class, id); err != nil {
 			s.dropQuestion(id)
 			return Question{}, err
 		}
@@ -294,7 +309,7 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 		return q, Command{}, fmt.Errorf("%w (the policy names the %s)", ErrNotAnswerer, who)
 	}
 	if who == WhoMaster {
-		if parent, ok := s.hasMaster(q.ProfileID, q.ConversationID); !ok || scope.ConversationID() != parent {
+		if parent, ok := s.hasLiveMaster(q.ProfileID, q.ConversationID); !ok || scope.ConversationID() != parent {
 			return q, Command{}, ErrNotAnswerer
 		}
 	}

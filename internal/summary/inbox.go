@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/peoplereview"
 )
 
@@ -13,12 +14,14 @@ type HILSection struct {
 	PeopleReview    int `json:"people_review"`
 	Drafts          int `json:"drafts"`
 	LinkSuggestions int `json:"link_suggestions"`
-	// CoderItems counts, per kind, the requests of coder sessions that only the person answers and that
+	// CoderItems counts, per kind, the requests of coder sessions that the person has to answer now and that
 	// nothing times out (today "parked_question"; a kind is added in coderhost). Counts only, never text.
-	CoderItems         map[string]int `json:"coder_items,omitempty"`
-	Total              int            `json:"total"`
-	OldestWaitingSince string         `json:"oldest_waiting_since"`
-	Error              string         `json:"error,omitempty"`
+	CoderItems map[string]int `json:"coder_items,omitempty"`
+	// CoderItemIDs are those items' ids, so a surface can tell when a NEW one appears. Numbers only.
+	CoderItemIDs       []int64 `json:"coder_item_ids,omitempty"`
+	Total              int     `json:"total"`
+	OldestWaitingSince string  `json:"oldest_waiting_since"`
+	Error              string  `json:"error,omitempty"`
 }
 
 type PeopleSection struct {
@@ -92,12 +95,12 @@ func hilSection(ctx context.Context, o Options) *HILSection {
 			return s
 		}
 	}
-	items, err := coderItems(ctx, o)
+	items, ids, err := coderItems(ctx, o)
 	if err != nil {
 		s.Error = err.Error()
 		return s
 	}
-	s.CoderItems = items
+	s.CoderItems, s.CoderItemIDs = items, ids
 	coder := 0
 	for _, n := range items {
 		coder += n
@@ -224,24 +227,17 @@ func applicationsSection(ctx context.Context, o Options) *ApplicationsSection {
 	return s
 }
 
-// coderOpen is, per kind of coderhost person item, the query counting its open items: an item is
-// open exactly while the row it points at is.
-var coderOpen = map[string]string{
-	"parked_question": `SELECT COUNT(*) FROM coder_session_person_items i
-		JOIN coder_session_questions q ON q.id = i.ref_id AND q.profile_id = i.profile_id
-		WHERE i.kind = 'parked_question' AND i.profile_id = ? AND q.status = 'open'`,
-}
-
-func coderItems(ctx context.Context, o Options) (map[string]int, error) {
-	out := map[string]int{}
-	for kind, q := range coderOpen {
-		var n int
-		if err := o.DB.QueryRowContext(ctx, q, o.ProfileID).Scan(&n); err != nil {
-			return nil, err
-		}
-		if n > 0 {
-			out[kind] = n
-		}
+// coderItems counts, per kind, the requests of coder sessions that the person has to act on now. What
+// is open is decided by coderhost (the question's answerer today and the session's state), not here.
+func coderItems(ctx context.Context, o Options) (map[string]int, []int64, error) {
+	items, err := coderhost.NewStore(o.DB).OpenPersonItems(o.ProfileID)
+	if err != nil {
+		return nil, nil, err
 	}
-	return out, nil
+	counts, ids := map[string]int{}, []int64{}
+	for _, it := range items {
+		counts[it.Kind]++
+		ids = append(ids, it.ID)
+	}
+	return counts, ids, nil
 }

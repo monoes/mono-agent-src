@@ -6,10 +6,12 @@ import (
 )
 
 // Person items: a request of a session that only the person answers, and that no timeout, default,
-// master or model ever answers. An item links to the row it is about by (kind, ref_id) and has no
-// status of its own: it is open exactly while that row is open, so answering the row (through any
-// surface) closes the item and the answer is delivered once, by that kind's own path. A new kind
-// adds an entry to itemKinds (what "open" means for it, how it is answered) and nothing else.
+// master or model ever answers. An item links to the row it is about by (kind, ref_id); it is made
+// when the row is made (a hard-class question always has one) and has no status of its own. Whether
+// it is OPEN, that is whether the person has to act now, is derived each time from the row and the
+// session as they are now, so a change of role, a stopped master or a stopped session can neither
+// leave an unanswerable item counted nor an answerable one unseen. A new kind adds an entry to
+// itemKinds (how its open items are found) and its own answer path.
 //
 // The item carries no text. What the person is shown comes from the row it points at, which the
 // host has validated and cleaned.
@@ -17,24 +19,20 @@ import (
 // Kinds of person item.
 const ItemParkedQuestion = "parked_question"
 
-// ErrUnknownItem: no such item, or of another profile.
-var ErrUnknownItem = errors.New("coder host: no such item")
+// MaxPersonItemsPerHour is how many hard parks a session with no master may make an hour, so a model
+// cannot inflate what "needs you" shows.
+const MaxPersonItemsPerHour = 3
+
+// ErrPersonItemRate: the session has parked as many hard questions in the last hour as it may.
+var ErrPersonItemRate = fmt.Errorf("%w: a session with no master may park at most %d risky questions an hour", ErrLimit, MaxPersonItemsPerHour)
 
 type itemKind struct {
-	// openSQL selects the ids of this kind's open rows of a profile (? = profile id).
-	openSQL string
-	// answer settles the row ref with the person's answer by the kind's own delivery path.
-	answer func(s *Store, profileID string, ref int64, answer string) (Command, error)
+	// open lists this kind's items of a profile that the person has to act on now.
+	open func(s *Store, profileID string) ([]PersonItem, error)
 }
 
 var itemKinds = map[string]itemKind{
-	ItemParkedQuestion: {
-		openSQL: `SELECT id FROM coder_session_questions WHERE profile_id = ? AND status = 'open'`,
-		answer: func(s *Store, profileID string, ref int64, answer string) (Command, error) {
-			_, cmd, err := s.Answer(profileID, ref, answer, OperatorScope{})
-			return cmd, err
-		},
-	},
+	ItemParkedQuestion: {open: (*Store).openParkedQuestionItems},
 }
 
 // PersonItem is a request waiting for the person.
@@ -47,58 +45,87 @@ type PersonItem struct {
 	CreatedAt      string `json:"createdAt"`
 }
 
-// addPersonItem links a request to the person. It is idempotent per (kind, ref).
-func (s *Store) addPersonItem(profileID, conversationID, kind string, ref int64) error {
+// addPersonItem links a hard-class question to the person. It is idempotent per (kind, ref).
+func (s *Store) addPersonItem(profileID, conversationID, kind, class string, ref int64) error {
 	if _, ok := itemKinds[kind]; !ok {
 		return fmt.Errorf("coder host: %q is not a kind of item", kind)
+	}
+	if kind == ItemParkedQuestion && !HardClass(class) {
+		return errors.New("coder host: only a risky_action or missing_credential question is a person item")
 	}
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES (?, ?, ?, ?, ?)`,
 		profileID, conversationID, kind, ref, s.stamp())
 	return err
 }
 
-// OpenPersonItems lists the profile's items that are still open.
+// hasPersonItem says whether the question is a person item: then no default is ever taken for it.
+func (s *Store) hasPersonItem(profileID string, questionID int64) bool {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND kind = ? AND ref_id = ?`,
+		profileID, ItemParkedQuestion, questionID).Scan(&n); err != nil {
+		return true // unreadable counts as an item: the safe direction
+	}
+	return n > 0
+}
+
+// recentPersonItems counts the items a conversation made in the last hour.
+func (s *Store) recentPersonItems(profileID, conversationID string) int {
+	var n int
+	since := s.now().Add(-recordWindow).UTC().Format(timeLayout)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND created_at >= ?`,
+		profileID, conversationID, since).Scan(&n); err != nil {
+		return 1 << 30
+	}
+	return n
+}
+
+// OpenPersonItems lists the profile's items that the person has to act on now, oldest first.
 func (s *Store) OpenPersonItems(profileID string) ([]PersonItem, error) {
 	var out []PersonItem
-	for kind, k := range itemKinds {
-		rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, ref_id, created_at FROM coder_session_person_items
-			WHERE profile_id = ? AND kind = ? AND ref_id IN (`+k.openSQL+`) ORDER BY id LIMIT ?`, profileID, kind, profileID, listLimitMax)
+	for _, k := range itemKinds {
+		items, err := k.open(s, profileID)
 		if err != nil {
 			return nil, err
 		}
-		for rows.Next() {
-			var it PersonItem
-			if err := rows.Scan(&it.ID, &it.ProfileID, &it.ConversationID, &it.Kind, &it.RefID, &it.CreatedAt); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			out = append(out, it)
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return nil, err
-		}
+		out = append(out, items...)
 	}
 	return out, nil
 }
 
-// AnswerItem is the person's answer to an item: it dispatches by kind to that kind's own path, so
-// the answer is queued once, as the same host-made sealed note, whichever surface it came from.
-// Only the person answers (there is no scope argument to widen that).
-func (s *Store) AnswerItem(profileID string, id int64, answer string) (PersonItem, Command, error) {
-	var it PersonItem
-	err := s.db.QueryRow(`SELECT id, profile_id, conversation_id, kind, ref_id, created_at FROM coder_session_person_items WHERE profile_id = ? AND id = ?`,
-		profileID, id).Scan(&it.ID, &it.ProfileID, &it.ConversationID, &it.Kind, &it.RefID, &it.CreatedAt)
+// openParkedQuestionItems: the question is open, its answerer is now the user and its session is
+// not stopped (a stopped session takes no answer, so counting it would call for the impossible).
+func (s *Store) openParkedQuestionItems(profileID string) ([]PersonItem, error) {
+	rows, err := s.db.Query(`SELECT i.id, i.conversation_id, i.ref_id, i.created_at FROM coder_session_person_items i
+		JOIN coder_session_questions q ON q.id = i.ref_id AND q.profile_id = i.profile_id
+		WHERE i.profile_id = ? AND i.kind = ? AND q.status = 'open' ORDER BY i.id LIMIT ?`, profileID, ItemParkedQuestion, listLimitMax)
 	if err != nil {
-		return it, Command{}, ErrUnknownItem
+		return nil, err
 	}
-	k, ok := itemKinds[it.Kind]
-	if !ok {
-		return it, Command{}, fmt.Errorf("coder host: %q is not a kind of item", it.Kind)
+	var cand []PersonItem
+	for rows.Next() {
+		it := PersonItem{ProfileID: profileID, Kind: ItemParkedQuestion}
+		if err := rows.Scan(&it.ID, &it.ConversationID, &it.RefID, &it.CreatedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		cand = append(cand, it)
 	}
-	cmd, err := k.answer(s, profileID, it.RefID, answer)
-	return it, cmd, err
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	var out []PersonItem
+	for _, it := range cand {
+		q, err := s.GetQuestion(profileID, it.RefID)
+		if err != nil {
+			continue
+		}
+		if q.Answerer == WhoUser && !s.sessionStopped(profileID, it.ConversationID) {
+			out = append(out, it)
+		}
+	}
+	return out, nil
 }
 
 // dropStaleItems removes a conversation's parked-question items whose question is gone.

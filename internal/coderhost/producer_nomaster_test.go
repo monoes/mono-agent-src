@@ -148,9 +148,9 @@ func itemCount(t *testing.T, st *Store) int {
 }
 
 // A risky park with no master makes exactly one item; a refused park, a park under a master and a
-// timeout make none and answer none; the item is open only while its question is, and is answered
-// once through the kind's own path.
-func TestNoMasterRiskyParkMakesOneItemAnsweredOnceByKind(t *testing.T) {
+// timeout make none that the person must act on and answer none; the item is open only while its
+// question is, and the answer is delivered once whichever way it came.
+func TestNoMasterRiskyParkMakesOneItemAnsweredOnce(t *testing.T) {
 	st, clk := soloStore(t)
 	if _, err := st.ParkOwn(caller("solo"), ParkRequest{Class: "ambiguity", Question: "q"}); !errors.Is(err, ErrNoMasterDecide) || itemCount(t, st) != 0 {
 		t.Fatalf("refused park = %v, items %d", err, itemCount(t, st))
@@ -165,19 +165,15 @@ func TestNoMasterRiskyParkMakesOneItemAnsweredOnceByKind(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].Kind != ItemParkedQuestion || items[0].RefID != q.ID || items[0].ConversationID != "solo" {
 		t.Fatalf("items = %+v %v", items, err)
 	}
-	if _, _, err := st.AnswerItem("other", items[0].ID, "x"); !errors.Is(err, ErrUnknownItem) {
-		t.Fatalf("another profile answered: %v", err)
+	if other, _ := st.OpenPersonItems("other"); len(other) != 0 {
+		t.Fatal("another profile sees the item")
 	}
-	_, cmd, err := st.AnswerItem("p", items[0].ID, "no")
+	_, cmd, err := st.Answer("p", q.ID, "no", OperatorScope{})
 	if err != nil || !strings.HasPrefix(cmd.TurnID, AnswerPrefix+answerFromPerson+"-") || cmd.Issuer != "" || cmd.WantsMission {
 		t.Fatalf("answer = %+v %v", cmd, err)
 	}
-	// the other surface finds it answered: no second note
 	if _, _, err := st.Answer("p", q.ID, "again", OperatorScope{}); !errors.Is(err, ErrNotOpen) {
 		t.Fatalf("second answer = %v", err)
-	}
-	if _, _, err := st.AnswerItem("p", items[0].ID, "again"); !errors.Is(err, ErrNotOpen) {
-		t.Fatalf("second item answer = %v", err)
 	}
 	if n := len(answerCommands(t, st, "solo")); n != 1 {
 		t.Fatalf("%d notes", n)
@@ -185,21 +181,7 @@ func TestNoMasterRiskyParkMakesOneItemAnsweredOnceByKind(t *testing.T) {
 	if left, _ := st.OpenPersonItems("p"); len(left) != 0 {
 		t.Fatalf("answered item still open: %+v", left)
 	}
-	// answering through the question's own verb closes the item the same way
-	q2, _ := st.ParkOwn(caller("solo"), ParkRequest{Class: "missing_credential", Question: "token?"})
-	if _, _, err := st.Answer("p", q2.ID, "here", OperatorScope{}); err != nil {
-		t.Fatal(err)
-	}
-	if left, _ := st.OpenPersonItems("p"); len(left) != 0 {
-		t.Fatalf("item open after the question was answered: %+v", left)
-	}
-	// a park under a master makes none
-	st2, _ := parkStore(t)
-	childOf(t, st2)
-	if _, err := st2.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "q"}); err != nil || itemCount(t, st2) != 0 {
-		t.Fatalf("park under a master = %v, items %d", err, itemCount(t, st2))
-	}
-	if err := st.addPersonItem("p", "solo", "budget_request", 1); err == nil {
+	if err := st.addPersonItem("p", "solo", "budget_request", "risky_action", 1); err == nil {
 		t.Fatal("an unknown kind was accepted")
 	}
 }

@@ -201,7 +201,7 @@ func (s *Store) passCtxOf(cache map[string]*passCtx, q Question) *passCtx {
 	if c.err == nil && c.exists {
 		c.stopped = s.sessionStopped(q.ProfileID, q.ConversationID)
 		c.settings, c.err = s.GetSettings(q.ProfileID, q.ConversationID)
-		_, c.has = s.hasMaster(q.ProfileID, q.ConversationID)
+		_, c.has = s.hasLiveMaster(q.ProfileID, q.ConversationID)
 	}
 	cache[k] = c
 	return c
@@ -331,7 +331,7 @@ func (s *Store) applyDefault(cache map[string]*passCtx, q Question) (bool, error
 		return false, nil
 	case c.stopped:
 		return false, nil
-	case HardClass(q.Class): // a risky or credential gap waits for a person for as long as it takes, whatever the settings say
+	case s.hasPersonItem(q.ProfileID, q.ID): // a person item waits for the person for as long as it takes, whatever the settings say
 		return false, nil
 	case Decide(c.settings, q.Class, q.Reversible, c.has).Fallback != FallbackTakeDefault:
 		return false, nil

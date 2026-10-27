@@ -175,7 +175,8 @@ func TestStoppedMasterCancelsItsAnswerAndGivesTheQuestionBack(t *testing.T) {
 	if got := questionOf(t, st, q.ID); got.Status != "open" {
 		t.Fatalf("status = %s", got.Status)
 	}
-	if _, _, err := st.Answer("p", q.ID, "yes", masterScope{conv: "m"}); !errors.Is(err, ErrMasterStopped) {
+	// a stopped master is no master to ask: the question is the person's now, so the master is refused
+	if _, _, err := st.Answer("p", q.ID, "yes", masterScope{conv: "m"}); !errors.Is(err, ErrNotAnswerer) {
 		t.Fatalf("a stopped master answered: %v", err)
 	}
 }
