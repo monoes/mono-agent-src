@@ -178,10 +178,11 @@ export function useCoderBubbles() {
 
   // openConversation shows an existing coder conversation as a bubble,
   // reusing its bubble when it already has one.
-  const openConversation = useCallback((conv) => {
+  // expand: false adds it collapsed.
+  const openConversation = useCallback((conv, { expand: open = true } = {}) => {
     if (!conv?.id) return ''
     const existing = byConversation.current[conv.id]
-    if (existing) { expand(existing); return existing }
+    if (existing) { if (open) expand(existing); return existing }
     const key = conv.id
     setBubbles(list => [...list, {
       key, conversationId: conv.id, cwd: conv.cwd || '', model: conv.model || '', runtime: conv.runtimeId || conv.runtime || '',
@@ -194,7 +195,7 @@ export function useCoderBubbles() {
     Promise.resolve().then(() => api.getChatTurns(conv.id, '', 1))
       .then(res => setSummaries(s => ({ ...s, [key]: summaryFromTurns(Array.isArray(res?.items) ? res.items : []) })))
       .catch(() => {})
-    expand(key)
+    if (open) expand(key)
     return key
   }, [expand])
 
@@ -203,11 +204,12 @@ export function useCoderBubbles() {
   // with the prompt as its draft; a conversationId opens that conversation
   // like openConversation does (the task's chat, already created) and task
   // ({ taskId, goal, status, origin }) puts the task header on it. Called
-  // with nothing, or with a click event, it is a blank new chat.
+  // with nothing, or with a click event, it is a blank new chat. collapsed: true
+  // docks a conversation's bubble without opening it.
   const openDraft = useCallback((seed) => {
     const opts = seed && typeof seed === 'object' && !seed.nativeEvent && !('target' in seed) ? seed : null
     const key = opts?.conversationId
-      ? openConversation({ id: opts.conversationId })
+      ? openConversation({ id: opts.conversationId }, { expand: !opts.collapsed })
       : (() => {
         const k = newDraftKey()
         setBubbles(list => [...list, { key: k, conversationId: '', cwd: '', model: '', runtime: '', access: '', title: '', effort: '', orgMode: '', taskId: '', taskKind: '' }])
