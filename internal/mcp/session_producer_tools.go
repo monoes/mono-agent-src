@@ -54,6 +54,8 @@ func producerToolErr(err error) error {
 		return codedErr{text: "model_decides: the policy lets you settle this gap yourself; decide, then call session_record with your choice, the alternatives and the reason", err: err}
 	case errors.Is(err, coderhost.ErrNoMasterDecide):
 		return codedErr{text: "no_master: no master to answer: decide and call session_record, or stop", err: err}
+	case errors.Is(err, coderhost.ErrPersonItemRate):
+		return codedErr{text: "limit: " + err.Error() + "; wait for the person to answer the questions already parked, or stop", err: err}
 	case errors.Is(err, coderhost.ErrPolicyReserves), errors.Is(err, coderhost.ErrNoConversation):
 		return codedErr{text: "invalid_input: " + err.Error(), err: err}
 	}

@@ -155,3 +155,17 @@ func mustRun(t *testing.T, m masterTurn, args ...string) string {
 	}
 	return out
 }
+
+// The hourly limit on risky parks of a session with no master is an input error saying why.
+func TestParkMasterlessRateIsAnInputError(t *testing.T) {
+	m := newMasterTurn(t)
+	for i := 0; i < coderhost.MaxPersonItemsPerHour; i++ {
+		if out, code := runSessionsCLI(t, m.cfg, "park", "--class", "risky_action", "--question", "q"); code != 0 {
+			t.Fatalf("park %d: %d %s", i, code, out)
+		}
+	}
+	out, code := runSessionsCLI(t, m.cfg, "park", "--class", "risky_action", "--question", "q")
+	if code == 0 || !strings.Contains(out, "risky questions an hour") {
+		t.Fatalf("over the rate: %d %s", code, out)
+	}
+}

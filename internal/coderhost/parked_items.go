@@ -1,8 +1,10 @@
 package coderhost
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 )
 
 // Person items: a request of a session that only the person answers, and that no timeout, default,
@@ -47,14 +49,23 @@ type PersonItem struct {
 
 // addPersonItem links a hard-class question to the person. It is idempotent per (kind, ref).
 func (s *Store) addPersonItem(profileID, conversationID, kind, class string, ref int64) error {
+	return addPersonItem(s.db, profileID, conversationID, kind, class, ref, s.stamp())
+}
+
+// execer is a database or a transaction.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func addPersonItem(x execer, profileID, conversationID, kind, class string, ref int64, stamp string) error {
 	if _, ok := itemKinds[kind]; !ok {
 		return fmt.Errorf("coder host: %q is not a kind of item", kind)
 	}
 	if kind == ItemParkedQuestion && !HardClass(class) {
 		return errors.New("coder host: only a risky_action or missing_credential question is a person item")
 	}
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES (?, ?, ?, ?, ?)`,
-		profileID, conversationID, kind, ref, s.stamp())
+	_, err := x.Exec(`INSERT OR IGNORE INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+		profileID, conversationID, kind, ref, stamp)
 	return err
 }
 
@@ -68,17 +79,6 @@ func (s *Store) hasPersonItem(profileID string, questionID int64) bool {
 	return n > 0
 }
 
-// recentPersonItems counts the items a conversation made in the last hour.
-func (s *Store) recentPersonItems(profileID, conversationID string) int {
-	var n int
-	since := s.now().Add(-recordWindow).UTC().Format(timeLayout)
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND created_at >= ?`,
-		profileID, conversationID, since).Scan(&n); err != nil {
-		return 1 << 30
-	}
-	return n
-}
-
 // OpenPersonItems lists the profile's items that the person has to act on now, oldest first.
 func (s *Store) OpenPersonItems(profileID string) ([]PersonItem, error) {
 	var out []PersonItem
@@ -89,11 +89,17 @@ func (s *Store) OpenPersonItems(profileID string) ([]PersonItem, error) {
 		}
 		out = append(out, items...)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
 }
 
-// openParkedQuestionItems: the question is open, its answerer is now the user and its session is
-// not stopped (a stopped session takes no answer, so counting it would call for the impossible).
+// openParkedQuestionItems: the question is open, the person is who has to answer it now (see
+// personOwns) and its session is not stopped (a stopped session takes no answer).
 func (s *Store) openParkedQuestionItems(profileID string) ([]PersonItem, error) {
 	rows, err := s.db.Query(`SELECT i.id, i.conversation_id, i.ref_id, i.created_at FROM coder_session_person_items i
 		JOIN coder_session_questions q ON q.id = i.ref_id AND q.profile_id = i.profile_id
@@ -121,7 +127,7 @@ func (s *Store) openParkedQuestionItems(profileID string) ([]PersonItem, error) 
 		if err != nil {
 			continue
 		}
-		if q.Answerer == WhoUser && !s.sessionStopped(profileID, it.ConversationID) {
+		if s.personOwns(q) && !s.sessionStopped(profileID, it.ConversationID) {
 			out = append(out, it)
 		}
 	}
@@ -132,4 +138,41 @@ func (s *Store) openParkedQuestionItems(profileID string) ([]PersonItem, error) 
 func (s *Store) dropStaleItems(profileID, conversationID string) {
 	_, _ = s.db.Exec(`DELETE FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND kind = ?
 		AND ref_id NOT IN (SELECT id FROM coder_session_questions WHERE profile_id = ?)`, profileID, conversationID, ItemParkedQuestion, profileID)
+}
+
+// personOwns says whether the person has to answer q now. A risky or credential question waits for
+// the person: its answerer is the user, or it is the master's but the master cannot take it (paused,
+// at the check-in limit, or the notes carrying its answer keep failing), so nobody else could.
+func (s *Store) personOwns(q Question) bool {
+	if q.Answerer == WhoUser {
+		return true
+	}
+	return q.Answerer == WhoMaster && HardClass(q.Class) && s.masterBlocked(q)
+}
+
+// masterBlocked says whether q's master cannot answer it now. Anything unreadable counts as blocked:
+// the safe direction is that the person is told.
+func (s *Store) masterBlocked(q Question) bool {
+	parent, ok := s.hasLiveMaster(q.ProfileID, q.ConversationID)
+	if !ok {
+		return true
+	}
+	if m, found, err := s.GetSession(q.ProfileID, parent); err != nil || !found || m.State == StatePaused {
+		return true
+	}
+	settings, err := s.GetSettings(q.ProfileID, q.ConversationID)
+	if err != nil {
+		return true
+	}
+	streak, _, _, err := s.CheckinStreak(q.ProfileID, q.ConversationID)
+	if err != nil || streak+s.pendingGatedAnswers(q.ProfileID, q.ConversationID) >= settings.CheckinLimit {
+		return true
+	}
+	if n, err := s.reopenCount(q.ID); err != nil || n >= MaxAnswerReopens {
+		return true
+	}
+	if n, err := s.expiredReopenCount(q.ID); err != nil || n >= MaxExpiredReopens {
+		return true
+	}
+	return s.keepsFailing(q, s.now())
 }

@@ -159,6 +159,12 @@ func (s *Store) answererNow(q Question) (string, error) {
 // caller goes through ParkOwn (producer.go), which validates the class and never lets a hard
 // class be reversible.
 func (s *Store) Park(profileID, conversationID, class, question string, options []string, def string, reversible bool) (Question, error) {
+	return s.park(profileID, conversationID, class, question, options, def, reversible, false)
+}
+
+// park is Park; own is set by ParkOwn (a session's model parking about itself), which adds the rules
+// for a session with no live master. The master is looked at once, here, and every rule uses that answer.
+func (s *Store) park(profileID, conversationID, class, question string, options []string, def string, reversible, own bool) (Question, error) {
 	if profileID == "" || conversationID == "" || len(conversationID) > maxConversationLen {
 		return Question{}, errors.New("coder host: a question needs a profile and a conversation")
 	}
@@ -179,6 +185,9 @@ func (s *Store) Park(profileID, conversationID, class, question string, options 
 		return Question{}, err
 	}
 	_, has := s.hasLiveMaster(profileID, conversationID)
+	if own && !has && !HardClass(class) {
+		return Question{}, ErrNoMasterDecide
+	}
 	if Decide(settings, class, reversible, has).Answerer == WhoModel {
 		return Question{}, ErrModelDecides
 	}
@@ -201,17 +210,38 @@ func (s *Store) Park(profileID, conversationID, class, question string, options 
 		rev = 1
 	}
 	now := s.stamp()
-	res, err := s.db.Exec(`INSERT INTO coder_session_questions (profile_id, conversation_id, class, question, options, default_answer, reversible, status, created_at)
+	// The question and its person item are one write: no hard question without its item, and the
+	// hourly limit is counted under the write lock the question's insert takes, so concurrent
+	// parks cannot all pass it.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Question{}, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`INSERT INTO coder_session_questions (profile_id, conversation_id, class, question, options, default_answer, reversible, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`, profileID, conversationID, class, trimTo(question, maxQuestionText), string(raw), trimTo(def, maxQuestionText), rev, now)
 	if err != nil {
 		return Question{}, err
 	}
 	id, _ := res.LastInsertId()
 	if HardClass(class) { // the person may have to answer it (now or after a role change): they are told, and nothing times it out
-		if err := s.addPersonItem(profileID, conversationID, ItemParkedQuestion, class, id); err != nil {
-			s.dropQuestion(id)
+		if own && !has {
+			since := s.now().Add(-recordWindow).UTC().Format(timeLayout)
+			var n int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND created_at >= ?`,
+				profileID, conversationID, since).Scan(&n); err != nil {
+				return Question{}, err
+			}
+			if n >= MaxPersonItemsPerHour {
+				return Question{}, ErrPersonItemRate
+			}
+		}
+		if err := addPersonItem(tx, profileID, conversationID, ItemParkedQuestion, class, id, s.stamp()); err != nil {
 			return Question{}, err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Question{}, err
 	}
 	// Only an idle session moves: a running turn settles into waiting_user itself, and
 	// pause and stop keep their meaning.
@@ -306,7 +336,11 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 		return q, Command{}, err
 	}
 	if scope.Role() != who {
-		return q, Command{}, fmt.Errorf("%w (the policy names the %s)", ErrNotAnswerer, who)
+		// A risky question the master cannot take (paused, at its limit, its notes failing) is the person's.
+		if scope.Role() != WhoUser || who != WhoMaster || !HardClass(q.Class) || !s.masterBlocked(q) {
+			return q, Command{}, fmt.Errorf("%w (the policy names the %s)", ErrNotAnswerer, who)
+		}
+		who = WhoUser
 	}
 	if who == WhoMaster {
 		if parent, ok := s.hasLiveMaster(q.ProfileID, q.ConversationID); !ok || scope.ConversationID() != parent {

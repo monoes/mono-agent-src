@@ -96,3 +96,17 @@ func TestSessionRecordIsRateLimitedPerSession(t *testing.T) {
 		t.Fatalf("over the rate = %v", err)
 	}
 }
+
+// A session with no master may park only a few risky questions an hour: the limit is a clear "limit" error.
+func TestSessionParkMasterlessRateIsALimitError(t *testing.T) {
+	sf := newSessionFixture(t)
+	for i := 0; i < coderhost.MaxPersonItemsPerHour; i++ {
+		if _, err := sf.as(t, sf.tokM, "session_park", map[string]any{"class": "risky_action", "question": "q"}); err != nil {
+			t.Fatalf("park %d: %v", i, err)
+		}
+	}
+	_, err := sf.as(t, sf.tokM, "session_park", map[string]any{"class": "missing_credential", "question": "q"})
+	if err == nil || !strings.HasPrefix(err.Error(), "limit:") || !strings.Contains(err.Error(), "risky questions an hour") {
+		t.Fatalf("over the rate = %v", err)
+	}
+}

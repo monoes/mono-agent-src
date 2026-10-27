@@ -29,7 +29,7 @@ func producerErr(err error) error {
 		return clicore.InvalidInput("the policy lets you settle this gap yourself: decide, then run `coder sessions record` with your choice, the alternatives and the reason (%v)", err)
 	case errors.Is(err, coderhost.ErrNoMasterDecide), errors.Is(err, coderhost.ErrPolicyReserves):
 		return clicore.InvalidInput("%v", err)
-	case errors.Is(err, coderhost.ErrTooManyOpen), errors.Is(err, coderhost.ErrNoConversation):
+	case errors.Is(err, coderhost.ErrTooManyOpen), errors.Is(err, coderhost.ErrNoConversation), errors.Is(err, coderhost.ErrPersonItemRate):
 		return clicore.InvalidInput("%v", err)
 	}
 	return masterErr(err)

@@ -3,6 +3,7 @@ package coderhost
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -230,5 +231,129 @@ func TestPersonItemsGoWithTheirQuestion(t *testing.T) {
 	}
 	if !strings.Contains(ErrPersonItemRate.Error(), "risky questions") {
 		t.Fatal(ErrPersonItemRate)
+	}
+}
+
+// The master cannot take a risky question when it is paused, at its check-in limit or its notes keep
+// failing: the person owns it then (counted, and the operator may answer). With a master that can
+// take it, the master answers and the operator is refused as before.
+func TestRiskyQuestionBelongsToThePersonWhenTheMasterCannotTakeIt(t *testing.T) {
+	setup := func(t *testing.T) (*Store, Question) {
+		st, _ := parkStore(t)
+		childOf(t, st)
+		q, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "go?"})
+		if err != nil || q.Answerer != WhoMaster {
+			t.Fatalf("park = %+v %v", q, err)
+		}
+		if len(openItems(t, st)) != 0 {
+			t.Fatal("counted while the master can answer")
+		}
+		if _, _, err := st.Answer("p", q.ID, "x", OperatorScope{}); !errors.Is(err, ErrNotAnswerer) {
+			t.Fatalf("the operator answered a question the master takes: %v", err)
+		}
+		return st, q
+	}
+	answered := func(t *testing.T, st *Store, q Question) {
+		t.Helper()
+		if len(openItems(t, st)) != 1 {
+			t.Fatal("not in needs-you")
+		}
+		_, cmd, err := st.Answer("p", q.ID, "no", OperatorScope{})
+		if err != nil || !strings.HasPrefix(cmd.TurnID, AnswerPrefix+answerFromPerson+"-") || cmd.Issuer != "" || cmd.WantsMission {
+			t.Fatalf("operator answer = %+v %v", cmd, err)
+		}
+		if len(openItems(t, st)) != 0 {
+			t.Fatal("still counted")
+		}
+	}
+	t.Run("paused master", func(t *testing.T) {
+		st, q := setup(t)
+		setState(t, st, "m", StatePaused)
+		answered(t, st, q)
+	})
+	t.Run("master at its check-in limit", func(t *testing.T) {
+		st, q := setup(t)
+		setSettings(t, st, "k1", `{"checkin_limit": 1}`)
+		addTurn(t, st, "k1", "checkin-aaaa", "completed", "digest", t0)
+		if _, _, err := st.AnswerAsMaster(caller("m"), "k1", q.ID, "yes"); !errors.Is(err, ErrWaitsForPerson) {
+			t.Fatalf("the master at its limit = %v", err)
+		}
+		answered(t, st, q)
+	})
+	t.Run("notes keep failing", func(t *testing.T) {
+		st, q := setup(t)
+		if _, err := st.db.Exec(`UPDATE coder_session_questions SET reopen_count = ? WHERE id = ?`, MaxAnswerReopens, q.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := st.AnswerAsMaster(caller("m"), "k1", q.ID, "yes"); !errors.Is(err, ErrAnswerKeepsFailing) {
+			t.Fatalf("the master with failing notes = %v", err)
+		}
+		answered(t, st, q)
+	})
+	t.Run("a failure in the last half hour", func(t *testing.T) {
+		st, q := setup(t)
+		if _, err := st.db.Exec(`UPDATE coder_session_questions SET last_failed_at = ? WHERE id = ?`, st.now().UTC().Format(timeLayout), q.ID); err != nil {
+			t.Fatal(err)
+		}
+		answered(t, st, q)
+	})
+}
+
+// A hard question and its item are one write: when the item cannot be written the question is not
+// left behind, and concurrent parks of a session with no master cannot pass the hourly limit.
+func TestHardParkIsOneWriteAndTheLimitIsAtomic(t *testing.T) {
+	st, _ := soloStore(t)
+	if _, err := st.db.Exec(`CREATE TRIGGER fail_item BEFORE INSERT ON coder_session_person_items BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ParkOwn(caller("solo"), ParkRequest{Class: "risky_action", Question: "q"}); err == nil {
+		t.Fatal("parked although the item could not be written")
+	}
+	if st.OpenParked("p", "solo") != 0 {
+		t.Fatal("a hard question was left without its item")
+	}
+	if _, err := st.db.Exec(`DROP TRIGGER fail_item`); err != nil {
+		t.Fatal(err)
+	}
+
+	stores := []*Store{st, NewStore(st.db), NewStore(st.db), NewStore(st.db)}
+	for _, s := range stores {
+		s.now = st.now
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	ok := 0
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func(s *Store) {
+			defer wg.Done()
+			if _, err := s.ParkOwn(caller("solo"), ParkRequest{Class: "risky_action", Question: "q"}); err == nil {
+				mu.Lock()
+				ok++
+				mu.Unlock()
+			}
+		}(stores[i%len(stores)])
+	}
+	wg.Wait()
+	if ok != MaxPersonItemsPerHour || itemCount(t, st) != MaxPersonItemsPerHour || st.OpenParked("p", "solo") != MaxPersonItemsPerHour {
+		t.Fatalf("%d parks passed, %d items, %d open (limit %d)", ok, itemCount(t, st), st.OpenParked("p", "solo"), MaxPersonItemsPerHour)
+	}
+}
+
+// The person's list is oldest first.
+func TestOpenPersonItemsAreOldestFirst(t *testing.T) {
+	st, clk := soloStore(t)
+	var ids []int64
+	for i := 0; i < 3; i++ {
+		q, err := st.ParkOwn(caller("solo"), ParkRequest{Class: "risky_action", Question: "q"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, q.ID)
+		clk.t = clk.t.Add(time.Second)
+	}
+	items := openItems(t, st)
+	if len(items) != 3 || items[0].RefID != ids[0] || items[2].RefID != ids[2] {
+		t.Fatalf("items = %+v", items)
 	}
 }

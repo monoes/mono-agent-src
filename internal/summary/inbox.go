@@ -95,9 +95,10 @@ func hilSection(ctx context.Context, o Options) *HILSection {
 			return s
 		}
 	}
+	s.Total = s.WorkflowPending + s.PeopleReview + s.Drafts + s.LinkSuggestions
 	items, ids, err := coderItems(ctx, o)
 	if err != nil {
-		s.Error = err.Error()
+		s.Error = err.Error() // the rest is still counted
 		return s
 	}
 	s.CoderItems, s.CoderItemIDs = items, ids

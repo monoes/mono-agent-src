@@ -99,15 +99,7 @@ func (s *Store) ParkOwn(c Caller, r ParkRequest) (Question, error) {
 	if HardClass(r.Class) && r.Reversible {
 		return Question{}, fmt.Errorf("%w: a %s gap is never reversible", ErrInvalid, r.Class)
 	}
-	if _, has := s.hasLiveMaster(c.ProfileID, c.ConversationID); !has {
-		if !HardClass(r.Class) {
-			return Question{}, ErrNoMasterDecide
-		}
-		if s.recentPersonItems(c.ProfileID, c.ConversationID) >= MaxPersonItemsPerHour {
-			return Question{}, ErrPersonItemRate
-		}
-	}
-	return s.Park(c.ProfileID, c.ConversationID, r.Class, r.Question, r.Options, r.Default, r.Reversible)
+	return s.park(c.ProfileID, c.ConversationID, r.Class, r.Question, r.Options, r.Default, r.Reversible, true)
 }
 
 // RecordOwn writes a decision the caller's own session made without asking, as the model's.

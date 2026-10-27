@@ -2649,8 +2649,8 @@ monoagentcli --profile work coder host stop                        # the host on
   can never be claimed reversible and can never be recorded as the model's decision (also refused inside
   `Store.Record` for `made_by=model`); `park` consults the policy (`Decide`) and, when the policy lets the model
   settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` takes ANY
-  non-hard class whatever the preset or override (it no longer consults the policy; so `ask-always` governs `park`
-  only, and the ledger with its revert is the control); `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
+  non-hard class whatever the preset or override (it ignores the autonomy preset and classes on purpose, by the
+  user's decision: `ask-always` governs `park` only, and the ledger with its revert is the control); `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
   at most 20 `record` calls per session per hour apply, and the model's ledger rows (at most 500) rotate only among
   the model's own rows, so it cannot push a master's or an operator-visible row out of the audit trail. Neither call starts a turn, queues a command, or touches access, a budget or a
   setting, and the text is only data (it is sealed when it reaches a reader as an answer note). Host-side sanity rule:
@@ -2662,10 +2662,14 @@ monoagentcli --profile work coder host stop                        # the host on
   person, so `park` is refused for it (`ErrNoMasterDecide`; MCP `no_master`: "no master to answer: decide and call
   record, or stop") for every class but `risky_action` and `missing_credential`, and nothing is written. Those two
   are parked, for the person, and wait with NO timeout (at most 3 an hour per session without a live master,
-  `ErrPersonItemRate`): no default is ever taken (`Decide` clamps the fallback to park, and `ApplyDefaults` skips
-  any question that is a person item). The person sees such a question in `sessions questions list` (answered
+  `ErrPersonItemRate`, counted in the same write that parks the question): no default is ever taken (`Decide`
+  clamps the fallback to park, and `ApplyDefaults` skips any question that is a person item). With NO live master
+  nothing but the person answers such a question. With a live master the master (a model) can answer it where
+  the policy names the master (`ask-on-risk`), but the question is the person's too, and counts in "needs you",
+  whenever the master cannot take it: it is paused, it is at its check-in limit, or the notes carrying its answer
+  keep failing (the operator may answer it then, the master still cannot). The person sees such a question in `sessions questions list` (answered
   with `questions answer`), as the session's `waiting_user` state, and in `summary --section hil` as `coder_items`
-  (a count per kind) and `coder_item_ids` (counted in "needs you"; the app raises a desktop notification when an
+  (a count per kind) and `coder_item_ids` (counted in "needs you"; oldest first; the app raises a desktop notification when an
   id appears that was not there). Every hard-class parked question gets a row in `coder_session_person_items`
   (migration 137: `kind`, today `parked_question`, and `ref_id` into that kind's table; other kinds can be added
   in `coderhost/parked_items.go`). The row has no status: whether the person has to act is derived each time (the
