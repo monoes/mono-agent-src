@@ -1718,7 +1718,7 @@ that works a task acts on them. The defences:
   between the start and the record: the token is in the worker's environment from the start of
   the process until the record is written, and a sibling polling the process table can win that
   window; passing the token to monomind over a pipe is a follow-up), and where ancestry is not
-  read (not Linux). A writer of the database can still clear the record or add a token of its own. The sweep, revocation and expiry are unchanged. The
+  read (not Linux). The binding is a courtesy layer, not a sandbox: it reads the caller's parent chain from `/proc`, which a process of the same user that runs in its own user and mount namespace can present differently, so such a process can still defeat it; a kernel-side fact (the parent process id of the first hop, or the peer credentials of a socket to the conductor) is the follow-up, together with the pipe hand-off. A tree deeper than the 64 ancestors read is refused like one outside the tree. A writer of the database can still clear the record or add a token of its own. The sweep, revocation and expiry are unchanged. The
   token is
   scoped and per run, so what it reaches is that one task until the run ends, and it is not a
   sandbox: a worker's own sub-processes inherit it. An agent that scrubs its own environment
