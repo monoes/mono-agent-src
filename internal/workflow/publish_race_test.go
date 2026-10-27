@@ -35,7 +35,8 @@ var helperActions = map[string]func(ctx context.Context, h *HybridWorkflowStore,
 	},
 	"toggle": func(ctx context.Context, h *HybridWorkflowStore, cur *Workflow) error {
 		round, _ := strconv.Atoi(os.Getenv("WF_HELPER_VALUE"))
-		return h.SetWorkflowActive(ctx, "wf-c", round%2 == 0)
+		// Activation needs the operator's approval, and the concurrent node edit revokes the earlier one.
+		return h.SetWorkflowActive(WithApproval(ctx), "wf-c", round%2 == 0)
 	},
 	"delete": func(ctx context.Context, h *HybridWorkflowStore, cur *Workflow) error {
 		return h.DeleteWorkflow(ctx, "wf-c")
