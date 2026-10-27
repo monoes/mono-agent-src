@@ -106,7 +106,7 @@ func TestSessionParkMasterlessRateIsALimitError(t *testing.T) {
 		}
 	}
 	_, err := sf.as(t, sf.tokM, "session_park", map[string]any{"class": "missing_credential", "question": "q"})
-	if err == nil || !strings.HasPrefix(err.Error(), "limit:") || !strings.Contains(err.Error(), "risky questions an hour") {
+	if err == nil || !strings.HasPrefix(err.Error(), "limit:") || !strings.Contains(err.Error(), "risky questions an hour") || !strings.Contains(err.Error(), "wait for the person") {
 		t.Fatalf("over the rate = %v", err)
 	}
 }
