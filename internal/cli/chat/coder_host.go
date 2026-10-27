@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/daemonhb"
@@ -95,7 +96,9 @@ var startHostProcess = func(cfg *Deps) error {
 
 // hostProcessEnv is the environment the detached host starts with: a host started from a session's
 // shell must not carry that session's identity.
-func hostProcessEnv(env []string) []string { return withoutEnv(env, coderhost.SessionTokenEnv) }
+func hostProcessEnv(env []string) []string {
+	return withoutEnv(env, coderhost.SessionTokenEnv, agenttokens.EnvMissionToken)
+}
 
 // ensureHost starts the host when none is running and waits for it to take its lock.
 func ensureHost(cfg *Deps) error {

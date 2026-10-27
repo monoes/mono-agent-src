@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -271,6 +272,17 @@ func TestEnvHandlingKeepsSessionTokensOutOfHostsAndTurns(t *testing.T) {
 	}
 	if len(got) != 4 {
 		t.Fatalf("hostProcessEnv = %v", got)
+	}
+}
+
+// A mission worker's task token is for that one process: a host or a coder turn it starts must not
+// inherit it.
+func TestEnvHandlingKeepsMissionTokensOutOfHostsAndTurns(t *testing.T) {
+	env := []string{"A=1", agenttokens.EnvMissionToken + "=tok", "B=2"}
+	for name, got := range map[string][]string{"turn": turnEnv(env), "host": hostProcessEnv(env)} {
+		if strings.Join(got, ",") != "A=1,B=2" {
+			t.Errorf("%s env = %v", name, got)
+		}
 	}
 }
 
