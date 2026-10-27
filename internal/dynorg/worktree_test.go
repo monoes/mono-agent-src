@@ -855,19 +855,11 @@ func TestStoppingTheTurnMidMergeLeavesTheRepoConsistent(t *testing.T) {
 	defer c.Close()
 	spawnWriter(t, c, "write one.txt x")
 	c.Wait(context.Background(), nil, 10*time.Second)
-	// A slow hook keeps git inside the merge while the turn is stopped.
-	hooks := gitT(t, repo, "rev-parse", "--git-path", "hooks")
-	if !filepath.IsAbs(hooks) {
-		hooks = filepath.Join(repo, hooks)
-	}
-	if err := os.MkdirAll(hooks, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(hooks, "pre-merge-commit"), []byte("#!/bin/sh\nsleep 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// The repository's hooks are off for the conductor's git, so nothing
+	// slows the merge: the turn is stopped before it, and the merge must
+	// still run to the end.
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(300*time.Millisecond, cancel)
+	cancel()
 	res, err := c.Merge(ctx, "w1")
 	if ctx.Err() == nil {
 		t.Fatal("the turn was not stopped during the merge")

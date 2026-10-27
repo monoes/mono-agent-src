@@ -68,11 +68,14 @@ func TestGitCallsCarryTheHooksAndMonitorPins(t *testing.T) {
 	isolateGit(t)
 	repo := newRepo(t)
 	got := gitT(t, repo, "config", "--get", "core.hooksPath")
-	if got == "" || got == filepath.Join(repo, ".git", "hooks") {
+	if got == "" || got == filepath.Join(repo, ".git", "hooks") || !(filepath.IsAbs(got) || got == "/dev/null") {
 		t.Fatalf("hooks path = %q", got)
 	}
-	if entries, err := os.ReadDir(got); err != nil || len(entries) != 0 {
-		t.Fatalf("the pinned hooks folder must exist and be empty: %v %v", entries, err)
+	if runtime.GOOS != "windows" && got != "/dev/null" {
+		t.Fatalf("hooks path = %q, want the null device", got)
+	}
+	if dir, err := emptyHooksDir(); err != nil || dir != got {
+		t.Fatalf("emptyHooksDir = %q, %v", dir, err)
 	}
 	if v := gitT(t, repo, "config", "--get", "core.fsmonitor"); v != "false" {
 		t.Fatalf("fsmonitor = %q", v)
@@ -256,5 +259,37 @@ func TestWorkerInAHostileChatFolderGetsNoGitFromTheConductor(t *testing.T) {
 	}
 	if n := notices(em, NoticeGitConfigRefused); len(n) != 1 {
 		t.Fatalf("notices = %v", n)
+	}
+}
+
+// A hook placed in a decoy folder beside where a temporary hooks folder
+// would have been made does not run, and the pinned path names no folder.
+func TestHooksInADecoyFolderDoNotRun(t *testing.T) {
+	isolateGit(t)
+	repo := newRepo(t)
+	marks := installHooks(t, repo)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TEMP", tmp)
+	decoy := filepath.Join(tmp, "monoagent-nohooks-decoy")
+	if err := os.MkdirAll(decoy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "#!/bin/sh\ntouch '" + filepath.Join(marks, "decoy") + "'\n"
+	for _, h := range allHooks {
+		if err := os.WriteFile(filepath.Join(decoy, h), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "n.txt"), []byte("n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	branch := gitT(t, repo, "rev-parse", "--abbrev-ref", "HEAD")
+	if err := commitAll(context.Background(), repo, branch, "checkpoint"); err != nil {
+		t.Fatal(err)
+	}
+	noHookRan(t, marks)
+	if entries, _ := os.ReadDir(tmp); len(entries) != 1 {
+		t.Fatalf("the conductor made something under the temp folder: %v", entries)
 	}
 }

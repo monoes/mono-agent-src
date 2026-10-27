@@ -1700,18 +1700,26 @@ that works a task acts on them. The defences:
   operator. Repository-local git configuration or hook scripts can make git run a program
   during staging, checkout and merge, and an agent that can write in those folders can
   write them. Two controls apply. First, every git command the conductor runs carries
-  command-line settings that override the repository's own file: the repository's hooks
-  directory is replaced by an empty one (so the repository's hooks do not run for the
-  conductor's own checkpoint and merge commits, checkouts and ref updates; that is a
-  behaviour change, and the project's checks are run by the lead after a merge), the file
-  system monitor is off, signature verification on a merge is off and signing is off
-  (the conductor's merge commits are unsigned by design). Second, before a staging,
-  checkout or merge step, and before a finished worker's worktree is inspected or removed,
-  the conductor reads the repository-local configuration (includes resolved, the
-  per-worktree file too unless its switch is plainly false) and refuses, naming the key,
-  when it defines a program: content filters, merge drivers, external diff and text
-  conversion, signing programs and the ssh key command, and a file system monitor or hooks
-  path other than an explicit off or empty value. A refusal is journaled as its own notice
+  command-line settings and environment that override the repository's own file: the
+  hooks path is pointed at the null device (on Windows, at an empty folder under the
+  operator's state folder that is checked to be empty on every use), so the repository's
+  hooks do not run for the conductor's own checkpoint and merge commits, checkouts and ref
+  updates, and so does an operator-level `core.hooksPath` (git-lfs hooks included), which
+  the pin overrides for the conductor's git calls; that is a behaviour change, and the
+  project's checks are run by the lead after a merge. The file system monitor is off,
+  signature verification on a merge is off and signing is off (the conductor's merge
+  commits are unsigned by design), and git is told not to fetch a missing object from a
+  configured remote (a lazy fetch of that kind can run a program the repository's
+  configuration names). Second, before a staging, checkout or merge step, and before a
+  finished worker's worktree is inspected or removed, the conductor reads the
+  repository-local configuration (includes resolved, the per-worktree file too unless its
+  switch is plainly false) and refuses, naming the key, when it defines a program or a
+  setting that leads to one: content filters, merge drivers, external diff and text
+  conversion, signing programs and the ssh key command, remote program and helper
+  settings, partial-clone and promisor settings, credential helpers, URL rewrites that
+  select a remote helper, stored merge options, and a file system monitor or hooks path
+  other than an explicit off or empty value. The refusal is the only control on a git
+  that predates the lazy-fetch switch. A refusal is journaled as its own notice
   and fails closed: no worktree is made, a worktree that already exists is kept as it is
   and reported as not inspected, and the operator removes the entry. Nothing is cached
   between steps. Filters and merge drivers have no command-line switch, so that check is

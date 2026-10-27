@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Repository-local git configuration can name a program that git runs
@@ -54,11 +56,36 @@ func programEntry(key, value string, set bool) bool {
 		return (hasSub && (variable == "textconv" || variable == "command")) || (!hasSub && variable == "external")
 	case "gpg":
 		return variable == "program" || (hasSub && variable == "defaultkeycommand")
+	case "extensions":
+		return !hasSub && variable == "partialclone" && value != ""
+	case "remote":
+		if !hasSub {
+			return false
+		}
+		switch variable {
+		case "uploadpack", "receivepack", "vcs", "partialclonefilter":
+			return !set || value != ""
+		case "promisor":
+			return !set || !isFalse(value, true)
+		}
+	case "credential":
+		return variable == "helper" && (!set || value != "")
+	case "url":
+		// A rewritten URL that selects a remote helper runs its program.
+		return hasSub && (variable == "insteadof" || variable == "pushinsteadof") &&
+			(strings.Contains(key, "::") || strings.Contains(value, "::"))
+	case "protocol":
+		return variable == "allow" && strings.EqualFold(strings.TrimSpace(value), "always") && (!hasSub || strings.EqualFold(key[first+1:last], "ext"))
+	case "branch":
+		// Merge options stored for a branch are added to git merge.
+		return hasSub && variable == "mergeoptions" && (!set || value != "")
 	case "core":
 		if hasSub {
 			return false
 		}
 		switch variable {
+		case "sshcommand", "gitproxy":
+			return !set || value != ""
 		case "fsmonitor":
 			return !set || !isFalse(value, true)
 		case "hookspath":
@@ -66,6 +93,19 @@ func programEntry(key, value string, set bool) bool {
 		}
 	}
 	return false
+}
+
+// printableKey is a configuration key made safe to show: the key is agent
+// text, so anything that is not printable is dropped, the length is
+// bounded and the result is quoted.
+func printableKey(k string) string {
+	k = strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, k)
+	return strconv.Quote(boundText(k, 120))
 }
 
 // isFalse reports whether a git boolean value is explicitly false;
@@ -156,7 +196,7 @@ func refuseProgramConfig(ctx context.Context, dir string) error {
 	for _, e := range entries {
 		if programEntry(e[0], e[1], e[1] != noValue) {
 			return &configRefusal{fmt.Sprintf("the repository's local git configuration names a program that git would run (%s); "+
-				"nothing was run - ask the operator to remove that entry", boundText(e[0], 120))}
+				"nothing was run - ask the operator to remove that entry", printableKey(e[0]))}
 		}
 	}
 	return nil

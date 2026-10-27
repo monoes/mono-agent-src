@@ -164,7 +164,10 @@ func gitEnv() []string {
 			env = append(env, kv)
 		}
 	}
-	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C")
+	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C",
+		// Git must not fetch a missing object from a configured remote: that
+		// can run a program the repository names.
+		"GIT_NO_LAZY_FETCH=1")
 }
 
 // gitRun runs git in dir and returns its stdout; an error carries stderr.
