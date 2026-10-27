@@ -310,9 +310,9 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
-		// A task a child session was running goes to "gone" (its lead learns that from the row); what the
+		// A task a child session was running (or was about to run: its conversation is still pending) goes to "gone" (its lead learns that from the row); what the
 		// conversation led as a mission lead (audit rows, marks, policy) goes with it.
-		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE child_conversation_id = ?1 AND profile_id = ?2 AND state IN ('spawning', 'spawned')`,
+		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', reserved_usd = 0, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE (child_conversation_id = ?1 OR pending_conversation_id = ?1) AND profile_id = ?2 AND state IN ('spawning', 'spawned')`,
 		`DELETE FROM coder_mission_events WHERE profile_id = ?2 AND session_id IN (SELECT session_id FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2)`,
 		`DELETE FROM coder_mission_children WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
 		`DELETE FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
