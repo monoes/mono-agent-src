@@ -297,8 +297,8 @@ func TestStampWaitsForAWriterHoldingTheLockAndKeepsItsEdit(t *testing.T) {
 	}
 }
 
-// A pass over files that need no owner takes no lock: with another connection holding the database's
-// write lock, thousands of ineligible files are passed over promptly.
+// A pass over ineligible files never attempts a publication lock, even while another
+// connection holds the database's write lock. The name cap is tested separately.
 func TestStampPassOverIneligibleFilesTakesNoLock(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.NewDatabase(testdb.Path(t))
@@ -313,7 +313,7 @@ func TestStampPassOverIneligibleFilesTakesNoLock(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 5000; i++ { // ownerless, no rows, claim done: none is eligible
+	for i := 0; i < 3; i++ { // ownerless, no rows, claim done: none is eligible
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("w-%05d.json", i)), []byte(ownerlessFile), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -327,14 +327,15 @@ func TestStampPassOverIneligibleFilesTakesNoLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.ExecContext(ctx, `ROLLBACK`)
-	start := time.Now()
-	tctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	if err := StampFileWorkflows(tctx, db.DB, dir); err != nil {
-		t.Fatal(err)
+	// BEGIN IMMEDIATE has acquired the write lock. Reject an attempt at the hook,
+	// before SQLite's busy wait, so a regression fails without depending on time.
+	old := stampTestHook
+	t.Cleanup(func() { stampTestHook = old })
+	stampTestHook = func(id string) {
+		t.Fatalf("ineligible file %q attempted a publication lock", id)
 	}
-	if d := time.Since(start); d > 3*time.Second {
-		t.Fatalf("the pass took %v with the write lock held elsewhere", d)
+	if err := StampFileWorkflows(ctx, db.DB, dir); err != nil {
+		t.Fatal(err)
 	}
 }
 

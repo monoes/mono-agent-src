@@ -5,17 +5,23 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/peoplereview"
 )
 
 type HILSection struct {
-	WorkflowPending    int    `json:"workflow_pending"`
-	PeopleReview       int    `json:"people_review"`
-	Drafts             int    `json:"drafts"`
-	LinkSuggestions    int    `json:"link_suggestions"`
-	Total              int    `json:"total"`
-	OldestWaitingSince string `json:"oldest_waiting_since"`
-	Error              string `json:"error,omitempty"`
+	WorkflowPending int `json:"workflow_pending"`
+	PeopleReview    int `json:"people_review"`
+	Drafts          int `json:"drafts"`
+	LinkSuggestions int `json:"link_suggestions"`
+	// CoderItems counts, per kind, the requests of coder sessions that the person has to answer now and that
+	// nothing times out (today "parked_question"; a kind is added in coderhost). Counts only, never text.
+	CoderItems map[string]int `json:"coder_items,omitempty"`
+	// CoderItemIDs are those items' ids, so a surface can tell when a NEW one appears. Numbers only.
+	CoderItemIDs       []int64 `json:"coder_item_ids,omitempty"`
+	Total              int     `json:"total"`
+	OldestWaitingSince string  `json:"oldest_waiting_since"`
+	Error              string  `json:"error,omitempty"`
 }
 
 type PeopleSection struct {
@@ -90,6 +96,17 @@ func hilSection(ctx context.Context, o Options) *HILSection {
 		}
 	}
 	s.Total = s.WorkflowPending + s.PeopleReview + s.Drafts + s.LinkSuggestions
+	items, ids, err := coderItems(ctx, o)
+	if err != nil {
+		s.Error = err.Error() // the rest is still counted
+		return s
+	}
+	s.CoderItems, s.CoderItemIDs = items, ids
+	coder := 0
+	for _, n := range items {
+		coder += n
+	}
+	s.Total = s.WorkflowPending + s.PeopleReview + s.Drafts + s.LinkSuggestions + coder
 	return s
 }
 
@@ -209,4 +226,19 @@ func applicationsSection(ctx context.Context, o Options) *ApplicationsSection {
 		o.ProfileID, o.ProfileID, o.ProfileID, weekAgo(o)).Scan(&s.Evaluated, &s.UnevaluatedPending, &s.Added7d)
 	s.Error = errString(err)
 	return s
+}
+
+// coderItems counts, per kind, the requests of coder sessions that the person has to act on now. What
+// is open is decided by coderhost (the question's answerer today and the session's state), not here.
+func coderItems(ctx context.Context, o Options) (map[string]int, []int64, error) {
+	items, err := coderhost.NewStore(o.DB).OpenPersonItems(o.ProfileID)
+	if err != nil {
+		return nil, nil, err
+	}
+	counts, ids := map[string]int{}, []int64{}
+	for _, it := range items {
+		counts[it.Kind]++
+		ids = append(ids, it.ID)
+	}
+	return counts, ids, nil
 }

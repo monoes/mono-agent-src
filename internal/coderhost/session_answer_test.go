@@ -120,7 +120,7 @@ func TestAnswerAsMasterFollowsThePolicyAndTheSessionStates(t *testing.T) {
 	if err := st.SaveSession(m); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.AnswerAsMaster(caller("m"), "k1", q.ID, "yes"); !errors.Is(err, ErrMasterStopped) {
+	if _, _, err := st.AnswerAsMaster(caller("m"), "k1", q.ID, "yes"); !errors.Is(err, ErrNotAnswerer) { // no live master: the person answers
 		t.Fatalf("stopped master = %v", err)
 	}
 	m.State = StateIdle
@@ -156,6 +156,9 @@ func TestOnlyTheDirectMasterAnswersNotAHigherAncestor(t *testing.T) {
 	}
 	// g hangs below k1 (a tree two levels deep, as a spawn of a depth-3 master would make it)
 	if _, err := st.db.Exec(`UPDATE coder_sessions SET parent_conversation_id = 'k1' WHERE profile_id = 'p' AND conversation_id = 'g'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'master' WHERE profile_id = 'p' AND conversation_id = 'k1'`); err != nil {
 		t.Fatal(err)
 	}
 	q, err := st.Park("p", "g", "risky_action", "q", nil, "", false)

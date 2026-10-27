@@ -375,6 +375,7 @@ func (s *Store) SweepOrphans() (int, error) {
 		`DELETE FROM coder_sessions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_sessions.conversation_id AND c.profile_id = coder_sessions.profile_id)`,
 		`DELETE FROM coder_session_decisions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_decisions.conversation_id AND c.profile_id = coder_session_decisions.profile_id)`,
 		`DELETE FROM coder_session_questions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_questions.conversation_id AND c.profile_id = coder_session_questions.profile_id)`,
+		`DELETE FROM coder_session_person_items WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_person_items.conversation_id AND c.profile_id = coder_session_person_items.profile_id)`,
 		`DELETE FROM coder_session_turn_caps WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_turn_caps.conversation_id AND c.profile_id = coder_session_turn_caps.profile_id)`,
 		`DELETE FROM coder_session_host_turns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_host_turns.conversation_id AND c.profile_id = coder_session_host_turns.profile_id)`,
 		`DELETE FROM coder_session_tokens WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_tokens.conversation_id AND c.profile_id = coder_session_tokens.profile_id)`,

@@ -531,10 +531,6 @@ func (s *Store) writePolicy(cur, next Policy, notes []MissionEvent) (bool, error
 	return true, tx.Commit()
 }
 
-type execer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
-
 // querier is what both the database and a transaction offer; the room check reads through the
 // transaction that reserves, so what it decides on cannot change before the reserving statement runs.
 type querier interface {
