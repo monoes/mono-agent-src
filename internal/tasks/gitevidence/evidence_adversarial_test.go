@@ -112,10 +112,10 @@ func TestFinalReviewerOldCommitCanBecomeVerifiedWithGrafts(t *testing.T) {
 	if err := art(t, s, se, tk, "commit", old); err != nil {
 		return // refused at the attach: the old commit never becomes evidence
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "old work"}, w1); err != nil {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "old work"}, worker(se, tk)); err != nil {
 		t.Fatalf("probe finish refused: %v", err)
 	}
-	got, err := s.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", v1)
+	got, err := s.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", verifier(se, tk))
 	if err != nil {
 		t.Fatalf("probe verify refused: %v", err)
 	}
@@ -137,10 +137,10 @@ func TestFinalReviewerMalformedIncludeCannotDisableMissionChecking(t *testing.T)
 	if err := art(t, s, se, tk, "log", "self-asserted.log"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "no checked commit"}, w1); err != nil {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "no checked commit"}, worker(se, tk)); err != nil {
 		return // refused at the hand-back: the check did not fall back to the self-asserted rule
 	}
-	got, err := s.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", v1)
+	got, err := s.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", verifier(se, tk))
 	if err != nil {
 		t.Fatalf("verify refused: %v", err)
 	}

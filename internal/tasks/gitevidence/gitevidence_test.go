@@ -188,7 +188,7 @@ func claimed(t *testing.T, s *tasks.Store, n string) (tasks.Session, tasks.Task)
 	if _, err := s.ApproveSession(bg, "default", se.ID, human); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, w1, 0); err != nil {
+	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, worker(se, tk), 0); err != nil {
 		t.Fatal(err)
 	}
 	return se, tk
@@ -196,7 +196,7 @@ func claimed(t *testing.T, s *tasks.Store, n string) (tasks.Session, tasks.Task)
 
 func art(t *testing.T, s *tasks.Store, se tasks.Session, tk tasks.Task, kind, ref string) error {
 	t.Helper()
-	_, err := s.AddArtifact(bg, "default", se.ID, tk.ID, tasks.ArtifactInput{Kind: kind, Ref: ref}, w1)
+	_, err := s.AddArtifact(bg, "default", se.ID, tk.ID, tasks.ArtifactInput{Kind: kind, Ref: ref}, worker(se, tk))
 	return err
 }
 
@@ -225,13 +225,13 @@ func TestStoreRefusesUnrealEvidence(t *testing.T) {
 	if err := art(t, s, se, tk, "test", "go test ./... ok"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); !errors.Is(err, tasks.ErrNoEvidence) {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); !errors.Is(err, tasks.ErrNoEvidence) {
 		t.Fatalf("finish on test output alone: %v", err)
 	}
 	if err := art(t, s, se, tk, "commit", other); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); !errors.Is(err, tasks.ErrNoEvidence) {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); !errors.Is(err, tasks.ErrNoEvidence) {
 		t.Fatalf("finish with a commit touching no declared file: %v", err)
 	}
 	if got := status(t, s, tk.ID); got.Status != tasks.StatusInProgress {
@@ -240,7 +240,7 @@ func TestStoreRefusesUnrealEvidence(t *testing.T) {
 	if err := art(t, s, se, tk, "commit", target); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); err != nil {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); err != nil {
 		t.Fatalf("finish with real evidence: %v", err)
 	}
 	if got := status(t, s, tk.ID); got.Status != tasks.StatusReview {
@@ -259,10 +259,10 @@ func TestVerifyRefusedWithoutCheckedEvidence(t *testing.T) {
 	if err := art(t, plain, se, tk, "commit", "deadbeef"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := plain.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); err != nil {
+	if _, err := plain.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := checked.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", v1); !errors.Is(err, tasks.ErrNoEvidence) {
+	if _, err := checked.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", verifier(se, tk)); !errors.Is(err, tasks.ErrNoEvidence) {
 		t.Fatalf("verify over a bogus commit: %v", err)
 	}
 	if status(t, plain, tk.ID).Verified {
@@ -272,7 +272,7 @@ func TestVerifyRefusedWithoutCheckedEvidence(t *testing.T) {
 	if err := art(t, plain, se, tk, "commit", other); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := checked.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", v1); !errors.Is(err, tasks.ErrNoEvidence) {
+	if _, err := checked.VerifySessionTask(bg, "default", se.ID, tk.ID, true, "", verifier(se, tk)); !errors.Is(err, tasks.ErrNoEvidence) {
 		t.Fatalf("verify over an unrelated commit: %v", err)
 	}
 	// the operator closes without verifying
@@ -284,10 +284,10 @@ func TestVerifyRefusedWithoutCheckedEvidence(t *testing.T) {
 	if err := art(t, plain, se2, tk2, "commit", target); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := plain.SessionFinish(bg, "default", se2.ID, tk2.ID, tasks.Outcome{Result: "done"}, w1); err != nil {
+	if _, err := plain.SessionFinish(bg, "default", se2.ID, tk2.ID, tasks.Outcome{Result: "done"}, worker(se2, tk2)); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := checked.VerifySessionTask(bg, "default", se2.ID, tk2.ID, true, "", v1); err != nil || !got.Verified {
+	if got, err := checked.VerifySessionTask(bg, "default", se2.ID, tk2.ID, true, "", verifier(se2, tk2)); err != nil || !got.Verified {
 		t.Fatalf("verify over a real commit: %+v %v", got, err)
 	}
 }
@@ -299,7 +299,7 @@ func TestNonGitFolderAndUnfileTasksKeepTheOldRule(t *testing.T) {
 	if err := art(t, s, se, tk, "commit", "deadbeef"); err != nil {
 		t.Fatalf("outside git an unchecked ref stays accepted: %v", err)
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); err != nil {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); err != nil {
 		t.Fatalf("outside git: %v", err)
 	}
 	// in a repo, a task that declares no files needs nothing
@@ -307,7 +307,17 @@ func TestNonGitFolderAndUnfileTasksKeepTheOldRule(t *testing.T) {
 	g := tasks.NewStore(testdb.Open(t).DB)
 	g.SetEvidenceChecker(Checker(dir))
 	se2, tk2 := claimed(t, g, "Research the options.")
-	if _, err := g.SessionFinish(bg, "default", se2.ID, tk2.ID, tasks.Outcome{Result: "done"}, w1); err != nil {
+	if _, err := g.SessionFinish(bg, "default", se2.ID, tk2.ID, tasks.Outcome{Result: "done"}, worker(se2, tk2)); err != nil {
 		t.Fatalf("a task without declared files: %v", err)
 	}
+}
+
+// worker and verifier are the actors a conversation-managed session accepts: bound by their token to
+// the session and the task (an unbound agent may not change that work).
+func worker(se tasks.Session, tk tasks.Task) tasks.Actor {
+	return tasks.Actor{Kind: tasks.Agent, Name: w1.Name, Session: se.ID, Task: tk.ID}
+}
+
+func verifier(se tasks.Session, tk tasks.Task) tasks.Actor {
+	return tasks.Actor{Kind: tasks.Agent, Name: v1.Name, Session: se.ID, Task: tk.ID, Verifier: true}
 }
