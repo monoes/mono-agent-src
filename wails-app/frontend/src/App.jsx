@@ -4,6 +4,7 @@ import { usePendingCount } from './lib/usePendingCount.js'
 import StatusBar from './components/StatusBar.jsx'
 import { startBackgroundHealth, subscribeHealth, summarize, isFixing } from './lib/health.js'
 import Toasts from './components/Toasts.jsx'
+import StartupOverlay from './components/StartupOverlay.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import ConfirmHost from './components/ConfirmDialog.jsx'
 import CoderBubbles from './components/bubbles/CoderBubbles.jsx'
@@ -298,6 +299,7 @@ export default function App({ banners = null }) {
   return (
     <CoderBubbleContext.Provider value={coderBubbleContext}>
     <div className="app-layout">
+      <StartupOverlay />
       <Sidebar
         activePage={activePage}
         onNavigate={navigate}

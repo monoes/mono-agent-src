@@ -2117,3 +2117,16 @@ body.tb-dragging, body.tb-dragging * { cursor: grabbing !important; user-select:
 .ts-list-error { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; font-size: 12px; color: var(--orange); }
 .ts-budget-flag { display: inline-flex; align-items: center; gap: 3px; color: var(--orange); font-weight: 600; white-space: nowrap; }
 .ts-facts dd .ts-badge { display: inline-block; margin: 0 4px 4px 0; overflow-wrap: anywhere; }
+
+/* ── Startup overlay: blocks the window until the backend is ready ── */
+.startup-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--base);
+}
+.startup-overlay__box { width: min(360px, 80vw); text-align: center; }
+.startup-overlay__title { color: var(--cyan-bright); font-size: 20px; font-weight: 600; letter-spacing: 0.04em; margin-bottom: 20px; }
+.startup-overlay__bar { height: 4px; border-radius: 2px; overflow: hidden; background: var(--border); }
+.startup-overlay__fill { height: 100%; width: 40%; border-radius: 2px; background: var(--cyan); animation: startup-slide 1.2s ease-in-out infinite; }
+.startup-overlay__quip { margin-top: 16px; min-height: 1.4em; color: var(--cyan-dim); font-size: 13px; }
+@keyframes startup-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }

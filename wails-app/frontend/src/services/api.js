@@ -89,7 +89,7 @@ export const api = {
   getPublicationStats: () => GoApp.GetPublicationStats().then(parseCLIJSON('publication stats')),
   getDashboardStats:    () => GoApp.GetDashboardStats().catch(guard('dashboard stats', null)),
   getSummary:           () => GoApp.GetSummary().then(parseCLIJSON('summary')).catch(e => (isNoProfileError(e) ? NO_PROFILE : guard('summary', null)(e))),
-  getSummarySections:   (csv) => GoApp.GetSummarySections(csv).then(parseCLIJSON('summary')).catch(guard('summary', null)),
+  getSummarySections:   (csv) => GoApp.GetSummarySections(csv).then(parseCLIJSON('summary')).catch(e => (isNoProfileError(e) ? null : guard('summary', null)(e))),
   // `extension status --json`: is a bridge running, and does it accept this
   // client's pairing token. Polled by the dashboard, so failures stay quiet.
   getExtensionStatus:   () => Promise.resolve(GoApp.GetExtensionStatus?.()).then(raw => (raw ? parseCLIJSON('extension status')(raw) : null)).catch(() => null),
