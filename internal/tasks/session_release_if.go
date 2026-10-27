@@ -14,6 +14,10 @@ var errClaimMoved = errors.New("tasks: the claim changed")
 // since (a restarted turn's worker) is not given back on the strength of a stale read.
 // It returns false, and changes nothing, when the claim is not the one given; that is not
 // an error.
+//
+// It does not call noUnboundInManaged: it is reached only from the conductor (internal/dynorg),
+// never from the CLI, MCP or HTTP, so no agent without a binding gets here. Do not expose it
+// to those without adding that check.
 func (s *Store) SessionReleaseIfHeld(ctx context.Context, profileID string, sessionID, id int64, held Claim, note string, actor Actor) (bool, error) {
 	if err := needName(actor); err != nil {
 		return false, err

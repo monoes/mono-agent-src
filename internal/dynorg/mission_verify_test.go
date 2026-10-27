@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -12,22 +13,17 @@ import (
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
-// verifierActorOf is who a verifier's `task` commands act as: the binding its environment
-// holds, exactly as the CLI reads it.
-func verifierActorOf(t *testing.T, env map[string]string) tasks.Actor {
+// verifierActorOf is who a verifier's `task` commands act as: the binding of the mission
+// token in its environment, exactly as the CLI verifies it.
+func verifierActorOf(t *testing.T, db *sql.DB, env map[string]string) tasks.Actor {
 	t.Helper()
-	sid, err1 := strconv.ParseInt(env["MONOAGENT_TASK_SESSION"], 10, 64)
-	tid, err2 := strconv.ParseInt(env["MONOAGENT_TASK_ID"], 10, 64)
-	if err1 != nil || err2 != nil {
-		t.Fatalf("env %v", env)
-	}
-	return tasks.Actor{Kind: tasks.Agent, Name: env["MONOAGENT_ACTOR"], Session: sid, Task: tid, Verifier: env["MONOAGENT_TASK_ROLE"] == "verifier"}
+	return actorFromEnv(t, db, env)
 }
 
 // verdictExec makes the rig's verifiers record a verdict through the store as the bound actor.
 func (r *missionRig) verdicts(pass func(task int64) (bool, string)) {
 	r.ex.verify = func(ctx context.Context, id int64, o monomind.ExecOptions) (*monomind.TurnResult, error) {
-		actor := verifierActorOf(r.t, o.Env)
+		actor := verifierActorOf(r.t, r.db, o.Env)
 		ok, note := pass(id)
 		// the verifier's binding lets it comment on the task in Review, which no other agent may
 		if _, err := r.store.SessionComment(tbg, "default", actor.Session, id, "ran the checks", actor); err != nil {
@@ -159,7 +155,7 @@ func TestMissionVerifierBindingCannotTouchOtherTasks(t *testing.T) {
 	var errsMu sync.Mutex
 	var errs []error
 	r.ex.verify = func(ctx context.Context, id int64, o monomind.ExecOptions) (*monomind.TurnResult, error) {
-		act := verifierActorOf(t, o.Env)
+		act := verifierActorOf(t, r.db, o.Env)
 		_, e1 := r.store.SessionClaim(tbg, "default", act.Session, other.ID, act, 0)
 		_, e2 := r.store.SessionFinish(tbg, "default", act.Session, id, tasks.Outcome{Result: "x"}, act)
 		_, e3 := r.store.VerifySessionTask(tbg, "default", act.Session, other.ID, true, "", act)

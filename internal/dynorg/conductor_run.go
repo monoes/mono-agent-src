@@ -245,7 +245,12 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		opts.Env = map[string]string{}
 	}
 	opts.Env["MONOAGENT_AGENT_ROLE"], opts.Env["MONOAGENT_AGENT_ID"] = w.staff.Role, w.id
-	missionEnv(w, opts.Env) // a mission worker is bound to its session and task
+	missionEnv(w, opts.Env) // a mission worker's labels (they bind nothing)
+	unbind, err := c.bindMission(ctx, w, opts.Env)
+	if err != nil {
+		return nil, err
+	}
+	defer unbind() // the token ends with the run
 	// A coder chat's worker: the coder kind of browser permissions, vouched
 	// for by a token of its own that counts while this run does.
 	kindEnv, _, kindDone := browserctl.IssueAgentKind(browserctl.KindCoder)

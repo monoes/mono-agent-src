@@ -1,6 +1,8 @@
 package dynorg
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -8,20 +10,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/taskbind"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // actorFromEnv is who the task commands a worker runs act as: what the CLI makes of the
-// worker's environment (callerFor reads MONOAGENT_ACTOR, MONOAGENT_TASK_SESSION and
-// MONOAGENT_TASK_ID).
-func actorFromEnv(t *testing.T, env map[string]string) tasks.Actor {
+// worker's environment, which is the mission token in it as the database verifies it (the
+// MONOAGENT_TASK_* labels bind nothing).
+func actorFromEnv(t *testing.T, db *sql.DB, env map[string]string) tasks.Actor {
 	t.Helper()
-	sid, err1 := strconv.ParseInt(env["MONOAGENT_TASK_SESSION"], 10, 64)
-	tid, err2 := strconv.ParseInt(env["MONOAGENT_TASK_ID"], 10, 64)
-	if err1 != nil || err2 != nil || env["MONOAGENT_ACTOR"] == "" {
+	b := taskbind.Resolve(context.Background(), db, "default", env[agenttokens.EnvMissionToken])
+	if b.State != taskbind.Valid {
 		t.Fatalf("the worker is not bound: %v", env)
 	}
-	return tasks.Actor{Kind: tasks.Agent, Name: env["MONOAGENT_ACTOR"], Session: sid, Task: tid}
+	return b.Apply(tasks.Actor{Kind: tasks.Agent, Name: env["MONOAGENT_ACTOR"]})
 }
 
 func TestMissionCrashThenResumeReconcilesOrphanClaims(t *testing.T) {
@@ -143,7 +146,7 @@ func TestMissionWorkerIsBoundToItsSessionAndTask(t *testing.T) {
 	_ = res
 	eventually(t, "a running", func() bool { return r.ex.runCount(a.ID) == 1 })
 	r.ex.mu.Lock()
-	actor := actorFromEnv(t, r.ex.envs[a.ID])
+	actor := actorFromEnv(t, r.db, r.ex.envs[a.ID])
 	r.ex.mu.Unlock()
 	if actor.Session != r.sid || actor.Task != a.ID {
 		t.Fatalf("bound to its own session and task: %+v", actor)
