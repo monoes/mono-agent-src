@@ -254,6 +254,9 @@ func (h *HybridWorkflowStore) AdoptableFiles(ctx context.Context) (shown []Adopt
 // adoptableAfterStat, set by a test, runs between the measuring of a candidate and the reading of it.
 var adoptableAfterStat func(id string)
 
+// adoptableReaddirnames lets tests supply directory order without creating junk files.
+var adoptableReaddirnames = (*os.File).Readdirnames
+
 // AdoptableListing does a bounded amount of work however many files there are: at most
 // maxAdoptableEntries names are looked at (the directory is read in batches, not all at once),
 // everything decidable from the name and the directory entry (a plain id, a regular file, small
@@ -284,7 +287,7 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 	var cands []candidate
 	seen, counted := 0, 0
 	for !out.Truncated {
-		names, rerr := dir.Readdirnames(256)
+		names, rerr := adoptableReaddirnames(dir, 256)
 		for _, name := range names {
 			// Every name costs a little, so there is a cap on all of them; only the files that could be
 			// adopted (a .json name with no stored copy) count toward the smaller cap on candidates.

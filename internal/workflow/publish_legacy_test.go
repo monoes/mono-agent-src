@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -706,33 +707,55 @@ func TestNamesThatAreNotCandidatesDoNotUseUpTheCap(t *testing.T) {
 	ctx := context.Background()
 	h, _, _, _ := guardedRig(t)
 	dir := h.files.dir
+	var names []string
 	for i := 0; i < maxAdoptableEntries+300; i++ {
-		for _, name := range []string{fmt.Sprintf("n-%05d.txt", i), fmt.Sprintf("b-%05d.ai-backup.json", i)} {
-			if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
+		names = append(names, fmt.Sprintf("n-%05d.txt", i), fmt.Sprintf("b-%05d.ai-backup.json", i))
 	}
+	// All real files come after the candidate cap in the fixed stream. Only
+	// these sixteen files exist on disk; no filesystem ordering can skip coverage.
+	want := map[string]bool{}
 	for i := 0; i < 16; i++ {
-		dropFile(t, h, fmt.Sprintf("real-%02d", i), false)
+		id := fmt.Sprintf("real-%02d", i)
+		dropFile(t, h, id, false)
+		names = append(names, id+".json")
+		want[id] = true
 	}
-	f, err := os.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names, _ := f.Readdirnames(-1)
-	f.Close()
-	beyond := 0
-	for i, n := range names {
-		if strings.HasPrefix(n, "real-") && i >= maxAdoptableEntries {
-			beyond++
+	oldRead, oldStat := adoptableReaddirnames, adoptableAfterStat
+	t.Cleanup(func() { adoptableReaddirnames = oldRead; adoptableAfterStat = oldStat })
+	cursor, batches, reads := 0, 0, 0
+	adoptableReaddirnames = func(f *os.File, n int) ([]string, error) {
+		if f.Name() != dir || n != 256 {
+			t.Fatalf("readdir %s batch %d", f.Name(), n)
 		}
+		batches++
+		if cursor == len(names) {
+			return nil, io.EOF
+		}
+		end := cursor + n
+		if end > len(names) {
+			end = len(names)
+		}
+		out := names[cursor:end]
+		cursor = end
+		return out, nil
 	}
-	if beyond == 0 {
-		t.Skip("the filesystem lists every real file early; nothing beyond the cap to look for")
+	adoptableAfterStat = func(id string) {
+		if !want[id] {
+			t.Fatalf("read an unexpected candidate %q", id)
+		}
+		reads++
 	}
 	l, err := h.AdoptableListing(ctx)
-	if err != nil || l.Truncated || len(l.Shown) != 16 {
-		t.Fatalf("truncated=%v shown=%d (%d of them beyond the cap): %v", l.Truncated, len(l.Shown), beyond, err)
+	if err != nil || l.Truncated || l.Incomplete || len(l.Shown) != len(want) || reads != len(want) || cursor != len(names) || batches < 2 {
+		t.Fatalf("truncated=%v incomplete=%v shown=%d reads=%d cursor=%d/%d batches=%d: %v", l.Truncated, l.Incomplete, len(l.Shown), reads, cursor, len(names), batches, err)
+	}
+	for _, file := range l.Shown {
+		if !want[file.ID] {
+			t.Fatalf("unexpected or duplicate shown id %q", file.ID)
+		}
+		delete(want, file.ID)
+	}
+	if len(want) != 0 {
+		t.Fatalf("not shown: %v", want)
 	}
 }

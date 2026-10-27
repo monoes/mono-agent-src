@@ -2,10 +2,12 @@ package workflowio
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -365,6 +367,78 @@ func TestStampPassNoticesAClaimRecordedBetweenFiles(t *testing.T) {
 	for _, name := range []string{"a-one.json", "b-two.json"} {
 		if got := profileOfFile(t, filepath.Join(dir, name)); got != "" {
 			t.Errorf("%s was stamped %q after the claim was recorded", name, got)
+		}
+	}
+}
+
+// A real busy write lock ends the pass, rather than charging a lock wait to
+// every eligible file. The next pass handles all the files after release.
+func TestStampPassStopsAtFirstBusyEligibleFile(t *testing.T) {
+	ctx := context.Background()
+	path := testdb.Path(t)
+	db, err := storage.NewDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// WAL is already set by NewDatabase. Each connection in this separate
+	// pool uses a short busy wait; correctness does not depend on elapsed time.
+	pass, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(1)&_pragma=synchronous(NORMAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pass.Close()
+	if err := pass.PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	ids := []string{"a-first", "b-next", "c-last"}
+	originals := map[string]string{}
+	for _, id := range ids {
+		raw := fmt.Sprintf(`{"id":%q,"nodes":[],"connections":[]}`, id)
+		originals[id] = raw
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conn, err := db.DB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.ExecContext(ctx, `ROLLBACK`)
+	old := stampTestHook
+	t.Cleanup(func() { stampTestHook = old })
+	var attempted []string
+	stampTestHook = func(id string) { attempted = append(attempted, id) }
+	if err := StampFileWorkflows(ctx, pass, dir); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(attempted, ids[:1]) {
+		t.Fatalf("lock attempts=%v, want only the first busy file %v", attempted, ids[:1])
+	}
+	for _, id := range ids {
+		raw, err := os.ReadFile(filepath.Join(dir, id+".json"))
+		if err != nil || string(raw) != originals[id] {
+			t.Fatalf("busy pass touched %s: %s (%v)", id, raw, err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	attempted = nil
+	if err := StampFileWorkflows(ctx, pass, dir); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(attempted, ids) {
+		t.Fatalf("next pass attempts=%v, want %v", attempted, ids)
+	}
+	for _, id := range ids {
+		if got := profileOfFile(t, filepath.Join(dir, id+".json")); got != "default" {
+			t.Errorf("next pass left %s profile=%q", id, got)
 		}
 	}
 }
