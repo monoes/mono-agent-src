@@ -151,6 +151,7 @@ type ChildRow struct {
 	Origin              string  `json:"origin"`
 	Size                string  `json:"size,omitempty"`
 	BudgetUSD           float64 `json:"budgetUsd"`
+	ReservedUSD         float64 `json:"reservedUsd"` // the carve held while the task is spawning
 	State               string  `json:"state"`
 	EndReason           string  `json:"endReason,omitempty"`
 	Attempts            int     `json:"attempts"`
@@ -367,7 +368,7 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 				return Policy{}, nil, fmt.Errorf("%w: the default budget must be a number of at least 0", ErrInvalid)
 			}
 			if b != cur.DefaultBudgetUSD {
-				note("lower", fmt.Sprintf("default_budget_usd %.2f -> %.2f", cur.DefaultBudgetUSD, b)) // a wish; the room check still bounds the carve
+				note("budget", fmt.Sprintf("default_budget_usd %.2f -> %.2f", cur.DefaultBudgetUSD, b)) // a wish; the room check still bounds the carve
 				next.DefaultBudgetUSD = b
 			}
 		}
@@ -379,7 +380,11 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 	// Read, decide and write against the revision that was read: a concurrent writer (the operator, or the
 	// lead) makes the write fail and the decision is made again from what it left, so neither can write back
 	// a stale copy of a field it did not mean to change.
-	for attempt := 0; attempt < 8; attempt++ {
+	tries := 8
+	if !lead {
+		tries = 64 // the operator's write is not starved by a lead that keeps writing
+	}
+	for attempt := 0; attempt < tries; attempt++ {
 		cur, err := s.GetPolicy(profileID, sessionID)
 		if err != nil {
 			return Policy{}, err
@@ -399,7 +404,7 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 			return next, nil
 		}
 	}
-	return Policy{}, fmt.Errorf("%w: the policy kept changing; try again", ErrInvalid)
+	return Policy{}, fmt.Errorf("%w: the policy kept changing under this write; try again", ErrInvalid)
 }
 
 // writePolicy stores next if the policy is still at the revision cur was read at (or still absent, when cur
@@ -439,9 +444,9 @@ type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
 
-// addMissionEvent writes an audit row. Rows of the lead are bounded: the newest MaxMissionEvents of its
-// policy changes (raise, lower, mode) and, apart, of everything else, so a loop of marks cannot push a raise
-// out. The operator's and the host's rows are never rotated out (the operator is a person, and the host's
+// addMissionEvent writes an audit row. Rows of the lead are bounded per kind: the newest MaxMissionEvents of
+// each of mark, raise, lower, mode, budget and the rest, so a loop of one kind cannot push another out (a flood
+// of raises can only push out earlier raises of the lead). The operator's and the host's rows are never rotated out (the operator is a person, and the host's
 // are bounded by tasks times attempts).
 func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
 	if len(note) > 300 {
@@ -454,23 +459,20 @@ func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind,
 	if !strings.HasPrefix(who, "lead:") {
 		return nil
 	}
-	policy := 0
-	if kind == "raise" || kind == "lower" || kind == "mode" {
-		policy = 1
-	}
-	const group = `profile_id = ? AND session_id = ? AND who LIKE 'lead:%' AND (kind IN ('raise', 'lower', 'mode')) = ?`
+	const group = `profile_id = ? AND session_id = ? AND who LIKE 'lead:%' AND kind = ?`
 	_, err := db.Exec(`DELETE FROM coder_mission_events WHERE `+group+` AND id NOT IN
 		(SELECT id FROM coder_mission_events WHERE `+group+` ORDER BY id DESC LIMIT ?)`,
-		profileID, sessionID, policy, profileID, sessionID, policy, MaxMissionEvents)
+		profileID, sessionID, kind, profileID, sessionID, kind, MaxMissionEvents)
 	return err
 }
 
-// addMarkEvent writes the audit row of a mark, or, when the newest row of that task is already a mark by the
-// same lead, updates it: marking the same task again and again leaves one row.
+// addMarkEvent writes the audit row of a mark, or, when the newest row of that task is an identical mark by
+// the same lead (same size and budget), only refreshes its time: marking the same way again and again leaves
+// one row, while a change of size or budget is a row of its own.
 func addMarkEvent(db execer, profileID string, sessionID, taskID int64, who, note, at string) error {
-	res, err := db.Exec(`UPDATE coder_mission_events SET note = ?, at = ? WHERE kind = 'mark' AND who = ? AND id =
+	res, err := db.Exec(`UPDATE coder_mission_events SET at = ? WHERE kind = 'mark' AND who = ? AND note = ? AND id =
 		(SELECT MAX(id) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND task_id = ?)`,
-		note, at, who, profileID, sessionID, taskID)
+		at, who, note, profileID, sessionID, taskID)
 	if err != nil {
 		return err
 	}
@@ -519,11 +521,11 @@ func (s *Store) taskMarkable(profileID string, sessionID, taskID int64) error {
 	return nil
 }
 
-const childColumns = `id, profile_id, session_id, task_id, lead_conversation_id, child_conversation_id, origin, size, budget_usd, state, end_reason, attempts, created_at, updated_at, spawned_at, ended_at`
+const childColumns = `id, profile_id, session_id, task_id, lead_conversation_id, child_conversation_id, origin, size, budget_usd, reserved_usd, state, end_reason, attempts, created_at, updated_at, spawned_at, ended_at`
 
 func scanChild(r interface{ Scan(...any) error }) (ChildRow, error) {
 	var c ChildRow
-	err := r.Scan(&c.ID, &c.ProfileID, &c.SessionID, &c.TaskID, &c.LeadConversationID, &c.ChildConversationID, &c.Origin, &c.Size, &c.BudgetUSD, &c.State, &c.EndReason, &c.Attempts, &c.CreatedAt, &c.UpdatedAt, &c.SpawnedAt, &c.EndedAt)
+	err := r.Scan(&c.ID, &c.ProfileID, &c.SessionID, &c.TaskID, &c.LeadConversationID, &c.ChildConversationID, &c.Origin, &c.Size, &c.BudgetUSD, &c.ReservedUSD, &c.State, &c.EndReason, &c.Attempts, &c.CreatedAt, &c.UpdatedAt, &c.SpawnedAt, &c.EndedAt)
 	return c, err
 }
 
@@ -622,7 +624,7 @@ func (s *Store) Mark(sc CallerScope, profileID string, sessionID, taskID int64, 
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ChildRow{}, fmt.Errorf("%w: that task already runs in its own session", ErrInvalid)
 	}
-	if err := addMarkEvent(tx, profileID, sessionID, taskID, who, "size="+opt.Size, now); err != nil {
+	if err := addMarkEvent(tx, profileID, sessionID, taskID, who, fmt.Sprintf("size=%s budget=%.2f", opt.Size, opt.BudgetUSD), now); err != nil {
 		return ChildRow{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -707,7 +709,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 
 // takeReservation is the one statement that moves a marked task to spawning and stores its carve on the row.
 // It holds the attempts limit, the lead's ceiling and, for a lead with a budget (shareCap >= 0), the share
-// itself: what the lead's children already hold (their sessions' caps) plus what reserved children will
+// itself, and it needs the mode not off and the mission running: what the lead's children already hold (their sessions' caps) plus what reserved children will
 // hold (reserved_usd of spawning rows, whose sessions do not exist yet) plus this carve must fit the cap.
 // So callers racing for the last slot, or reserving twice before the first child is created, cannot both win.
 // (A spawning row whose session already holds its carve is counted twice until it is linked: on the safe side.)
@@ -716,10 +718,13 @@ func takeReservation(db execer, profileID string, sessionID, taskID int64, lead 
 		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'marked' AND attempts < ?
 		AND (SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state IN ('spawning', 'spawned')) < ?
 		AND (? < 0 OR ? + (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
-			+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning') <= ? + 1e-9)`,
+			+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning') <= ? + 1e-9)
+		AND NOT EXISTS (SELECT 1 FROM coder_mission_policy WHERE profile_id = ? AND session_id = ? AND mode = 'off')
+		AND EXISTS (SELECT 1 FROM task_sessions WHERE profile_id = ? AND id = ? AND state = 'running' AND archived_at = '')`,
 		carve, now, profileID, sessionID, taskID, lead, MaxChildAttempts,
 		profileID, lead, ceiling,
-		shareCap, carve, profileID, lead, profileID, lead, shareCap)
+		shareCap, carve, profileID, lead, profileID, lead, shareCap,
+		profileID, sessionID, profileID, sessionID)
 	if err != nil {
 		return false, err
 	}
@@ -795,19 +800,19 @@ func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, p
 // that never got a conversation goes back to marked (reset). A row whose conversation was created but never
 // linked is ended as expired with that conversation attached (ended), so it is not started a second time and
 // the spawn's orphan can be stopped; its carve is returned. It is the host's.
-func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset, ended int, err error) {
+func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset int, ended []string, err error) {
 	old := s.now().Add(-maxAge).UTC().Format(timeLayout)
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'marked', reserved_usd = 0, updated_at = ?
 		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id = '' AND updated_at < ?`, s.stamp(), old)
 	if err != nil {
-		return 0, 0, err
+		return 0, nil, err
 	}
 	n, _ := res.RowsAffected()
 	reset = int(n)
 	rows, err := s.db.Query(`SELECT profile_id, session_id, task_id, pending_conversation_id FROM coder_mission_children
 		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND updated_at < ?`, old)
 	if err != nil {
-		return reset, 0, err
+		return reset, nil, err
 	}
 	type orphan struct {
 		profile, conv string
@@ -818,30 +823,66 @@ func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset, ended int, err 
 		var o orphan
 		if err := rows.Scan(&o.profile, &o.sid, &o.tid, &o.conv); err != nil {
 			rows.Close()
-			return reset, 0, err
+			return reset, nil, err
 		}
 		list = append(list, o)
 	}
 	rows.Close()
 	for _, o := range list {
-		now := s.stamp()
-		r, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'expired', child_conversation_id = pending_conversation_id, ended_at = ?, updated_at = ?
-			WHERE state = 'spawning' AND profile_id = ? AND session_id = ? AND task_id = ? AND child_conversation_id = '' AND pending_conversation_id = ?
-			AND NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND o.child_conversation_id = ?)`, now, now, o.profile, o.sid, o.tid, o.conv, o.profile, o.conv)
+		attached, err := s.expireOrphan(o.profile, o.sid, o.tid, o.conv)
 		if err != nil {
 			return reset, ended, err
 		}
-		if k, _ := r.RowsAffected(); k > 0 {
-			ended++
-			if err := addMissionEvent(s.db, o.profile, o.sid, o.tid, "end", "host", "expired: the spawn never linked its conversation", now); err != nil {
-				return reset, ended, err
-			}
-			if err := s.releaseCarve(o.profile, o.conv); err != nil {
-				return reset, ended, err
-			}
+		if attached {
+			ended = append(ended, o.conv)
 		}
 	}
 	return reset, ended, nil
+}
+
+// expireOrphan fails one stale reservation whose spawn created a conversation but never linked it, in one
+// transaction with its audit row and the lowering of the orphan's cap. The conversation is attached to the row
+// (attached true: the host should stop it) unless another task already owns it, in which case the row still
+// fails, with no conversation, and the other task's session is left alone. Either way the reservation stops
+// holding a slot and its reserved carve.
+func (s *Store) expireOrphan(profileID string, sid, tid int64, conv string) (attached bool, err error) {
+	spent, err := s.Spent(profileID, conv)
+	if err != nil {
+		return false, err
+	}
+	now := s.stamp()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	r, err := tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'expired', child_conversation_id = pending_conversation_id, reserved_usd = 0, ended_at = ?, updated_at = ?
+		WHERE state = 'spawning' AND profile_id = ? AND session_id = ? AND task_id = ? AND child_conversation_id = '' AND pending_conversation_id = ?
+		AND NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND o.child_conversation_id = ?)`, now, now, profileID, sid, tid, conv, profileID, conv)
+	if err != nil {
+		return false, err
+	}
+	if k, _ := r.RowsAffected(); k > 0 {
+		attached = true
+	} else {
+		r, err = tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'expired', reserved_usd = 0, ended_at = ?, updated_at = ?
+			WHERE state = 'spawning' AND profile_id = ? AND session_id = ? AND task_id = ? AND child_conversation_id = '' AND pending_conversation_id = ?`, now, now, profileID, sid, tid, conv)
+		if err != nil {
+			return false, err
+		}
+		if k, _ := r.RowsAffected(); k == 0 {
+			return false, nil
+		}
+	}
+	if err := addMissionEvent(tx, profileID, sid, tid, "end", "host", "expired: the spawn never linked its conversation", now); err != nil {
+		return false, err
+	}
+	if attached {
+		if err := s.releaseCarveIn(tx, profileID, conv, spent); err != nil {
+			return false, err
+		}
+	}
+	return attached, tx.Commit()
 }
 
 // endState says which terminal state a reason leads to.
@@ -865,23 +906,31 @@ func (s *Store) End(profileID, childConversationID, reason string) (bool, error)
 	if !ok {
 		return false, fmt.Errorf("%w: %q is not an end reason", ErrInvalid, reason)
 	}
+	const match = `profile_id = ? AND (child_conversation_id = ? OR pending_conversation_id = ?) AND state IN ('spawning', 'spawned')`
 	var sid, tid int64
-	err := s.db.QueryRow(`SELECT session_id, task_id FROM coder_mission_children WHERE profile_id = ? AND child_conversation_id = ? AND state IN ('spawning', 'spawned')`,
-		profileID, childConversationID).Scan(&sid, &tid)
+	err := s.db.QueryRow(`SELECT session_id, task_id FROM coder_mission_children WHERE `+match, profileID, childConversationID, childConversationID).Scan(&sid, &tid)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	spent := 0.0
+	if state != ChildGone {
+		if spent, err = s.Spent(profileID, childConversationID); err != nil {
+			return false, err
+		}
+	}
+	// The row's state, its audit row and the lowering of the child's cap stand or fall together: a failure
+	// leaves the row live, and the host's next pass ends it again.
 	now := s.stamp()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.Exec(`UPDATE coder_mission_children SET state = ?, end_reason = ?, ended_at = ?, updated_at = ?
-		WHERE profile_id = ? AND child_conversation_id = ? AND state IN ('spawning', 'spawned')`, state, reason, now, now, profileID, childConversationID)
+	res, err := tx.Exec(`UPDATE coder_mission_children SET state = ?, end_reason = ?, ended_at = ?, updated_at = ? WHERE `+match,
+		state, reason, now, now, profileID, childConversationID, childConversationID)
 	if err != nil {
 		return false, err
 	}
@@ -895,11 +944,13 @@ func (s *Store) End(profileID, childConversationID, reason string) (bool, error)
 	if err := addMissionEvent(tx, profileID, sid, tid, kind, "host", reason, now); err != nil {
 		return false, err
 	}
+	if state != ChildGone {
+		if err := s.releaseCarveIn(tx, profileID, childConversationID, spent); err != nil {
+			return false, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return false, err
-	}
-	if state != ChildGone {
-		return true, s.releaseCarve(profileID, childConversationID)
 	}
 	return true, nil
 }
@@ -919,11 +970,17 @@ func (s *Store) releaseCarve(profileID, childConversationID string) error {
 	if err != nil {
 		return err
 	}
+	return s.releaseCarveIn(s.db, profileID, childConversationID, spent)
+}
+
+// releaseCarveIn is releaseCarve with the spend already read, written through db (a transaction, when the
+// lowering must stand or fall with the row's state change and its audit row).
+func (s *Store) releaseCarveIn(db execer, profileID, childConversationID string, spent float64) error {
 	newCap := math.Max(spent, minCap)
-	_, err = s.db.Exec(`UPDATE coder_sessions SET budget_usd = ?, updated_at = ?
+	_, err := db.Exec(`UPDATE coder_sessions SET budget_usd = ?, updated_at = ?
 		WHERE profile_id = ? AND conversation_id = ? AND role = 'child' AND budget_usd > 0 AND budget_usd > ?
-		AND parent_conversation_id IN (SELECT lead_conversation_id FROM coder_mission_children WHERE profile_id = ? AND child_conversation_id = ?)`,
-		newCap, s.stamp(), profileID, childConversationID, newCap, profileID, childConversationID)
+		AND parent_conversation_id IN (SELECT lead_conversation_id FROM coder_mission_children WHERE profile_id = ? AND (child_conversation_id = ? OR pending_conversation_id = ?))`,
+		newCap, s.stamp(), profileID, childConversationID, newCap, profileID, childConversationID, childConversationID)
 	return err
 }
 

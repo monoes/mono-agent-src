@@ -1914,7 +1914,7 @@ phases: the tool layer (P-C) builds the caller with `NewLeadScope(caller, bindin
 itself a child, or a worker, must not spawn mission children (depth rule); the spawn path (P-B) calls `NotePending` when
 the child's conversation is created and `Touch` between its steps, so `ResetStaleSpawning` does not hand a slow spawn's
 task to a second child. The share is held only for children that exist (their sessions' caps) or are reserved (the carve
-stored on a `spawning` row); a task that is only marked holds nothing. Deleting a conversation or a
+stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. Migration 139 was edited in place before it merged: development databases that applied an earlier 139 must be recreated. Deleting a conversation or a
 sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it

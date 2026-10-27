@@ -77,7 +77,7 @@ func TestMarkLoopCannotEvictPolicyHistory(t *testing.T) {
 	f.setPolicy(t, OperatorScope{}, PolicyPatch{Mode: sp(ModeAll)})
 	f.setPolicy(t, f.scope(), PolicyPatch{MaxChildren: ip(4)})
 	for i := 0; i < 60; i++ {
-		if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: float64(i)}); err != nil {
+		if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 2}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -92,7 +92,7 @@ func TestMarkLoopCannotEvictPolicyHistory(t *testing.T) {
 		return n
 	}
 	if n := count("mark"); n != 1 {
-		t.Fatalf("60 marks of one task left %d rows, want 1", n)
+		t.Fatalf("60 identical marks of one task left %d rows, want 1", n)
 	}
 	// rows of many tasks, far past the cap, still leave the raise and the operator's mode row
 	for i := 0; i < 3*MaxMissionEvents; i++ {
@@ -163,7 +163,9 @@ func TestSetPolicyDoesNotWriteBackAStaleCopy(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	p, err := f.st.SetPolicy(f.scope(), "p", f.se.ID, PolicyPatch{MaxChildren: ip(3)})
+	var p Policy
+	var err error
+	boundedly(t, 20*time.Second, func() { p, err = f.st.SetPolicy(f.scope(), "p", f.se.ID, PolicyPatch{MaxChildren: ip(3)}) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,8 +219,8 @@ func TestStaleSpawningWithAPendingConversationIsEndedNotRetried(t *testing.T) {
 	real := time.Now()
 	f.st.now = func() time.Time { return real.Add(10 * time.Minute) }
 	reset, ended, err := f.st.ResetStaleSpawning(5 * time.Minute)
-	if err != nil || reset != 1 || ended != 1 {
-		t.Fatalf("reset=%d ended=%d err=%v", reset, ended, err)
+	if err != nil || reset != 1 || len(ended) != 1 || ended[0] != made.ConversationID {
+		t.Fatalf("reset=%d ended=%v err=%v: the host must be told which conversation to stop", reset, ended, err)
 	}
 	a, _, _ := f.st.Child("p", f.se.ID, f.ids[0])
 	if a.State != ChildFailed || a.EndReason != EndExpired || a.ChildConversationID != made.ConversationID {
@@ -245,8 +247,8 @@ func TestTouchKeepsASlowSpawnFromGoingStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.st.now = func() time.Time { return base.Add(8 * time.Minute) } // 4 minutes after the touch
-	if r, e, _ := f.st.ResetStaleSpawning(5 * time.Minute); r != 0 || e != 0 {
-		t.Fatalf("a touched spawn was reset: %d %d", r, e)
+	if r, e, _ := f.st.ResetStaleSpawning(5 * time.Minute); r != 0 || len(e) != 0 {
+		t.Fatalf("a touched spawn was reset: %d %v", r, e)
 	}
 	f.st.now = func() time.Time { return base.Add(20 * time.Minute) }
 	if r, _, _ := f.st.ResetStaleSpawning(5 * time.Minute); r != 1 {
