@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -109,22 +110,36 @@ func (d Deps) newGetCmd() *cobra.Command {
 				return d.NotFound("workflow %q not found", args[0])
 			}
 
+			// review_hash is what `workflow activate --expect` takes: the hash of exactly this
+			// definition, so an approval can be given for what was read here.
+			hash, err := workflow.ReviewHashOf(ctx, store, wf)
+			if err != nil {
+				return fmt.Errorf("review hash: %w", err)
+			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
-			return enc.Encode(wf)
+			return enc.Encode(struct {
+				*workflow.Workflow
+				ReviewHash string `json:"review_hash"`
+			}{wf, hash})
 		},
 	}
 }
 
 // newWorkflowActivateCmd enables a workflow and registers its triggers.
 func (d Deps) newActivateCmd() *cobra.Command {
-	return &cobra.Command{
+	var expect string
+	c := &cobra.Command{
 		Use:   "activate <id>",
 		Short: "Activate a workflow and start its triggers",
 		Long: "Activate a workflow and start its triggers.\n\n" +
 			"Schedule and webhook triggers fire from `monoagentcli daemon`. A running daemon picks " +
 			"the activation up within a few seconds — no restart needed — and it also follows later " +
-			"edits, deactivation and deletion. Without a daemon running, nothing fires until one starts.",
+			"edits, deactivation and deletion. Without a daemon running, nothing fires until one starts.\n\n" +
+			"Activating is also how you approve a workflow an agent or the chat wrote: the approval is " +
+			"recorded in the same step as the flag, for the definition as it is when this command reads it. " +
+			"A change made after that is refused, not approved. Pass --expect with the review_hash that " +
+			"`workflow get <id> --json` printed to approve exactly what you looked at.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			engine, closeBrowsers, err := d.BuildEngine(false)
@@ -139,11 +154,13 @@ func (d Deps) newActivateCmd() *cobra.Command {
 			}
 			defer engine.Stop() //nolint:errcheck
 
-			if err := engine.ActivateWorkflow(ctx, args[0]); err != nil {
+			// The operator's approval rides the activation itself: one publication writes the flag and the
+			// approval, and only for the definition this command read (or --expect named).
+			if err := engine.ActivateWorkflowWith(operator.ApprovingContext(ctx), args[0], workflow.ActivateOptions{ExpectHash: expect}); err != nil {
+				if errors.Is(err, workflow.ErrChangedSincePreview) {
+					return fmt.Errorf("activate workflow: %w: nothing was activated or approved; look at it again with `workflow get %s --json` and pass the review_hash it prints to --expect", err, args[0])
+				}
 				return fmt.Errorf("activate workflow: %w", err)
-			}
-			if err := operator.ApproveWorkflow(ctx, engine, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
 			}
 			if d.JSONOutput() {
 				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"id": args[0], "is_active": true})
@@ -158,6 +175,8 @@ func (d Deps) newActivateCmd() *cobra.Command {
 			return nil
 		},
 	}
+	c.Flags().StringVar(&expect, "expect", "", "Activate only if the workflow still has this review_hash (printed by workflow get --json): approve exactly what you reviewed")
+	return c
 }
 
 // newWorkflowDeactivateCmd disables a workflow and unregisters its triggers.

@@ -9,7 +9,7 @@ import '../../../i18n.js'
 const { api, chatAccess, sess, nav } = vi.hoisted(() => ({
   nav: vi.fn(),
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
-  sess: { list: vi.fn(), show: vi.fn(), plan: vi.fn(), board: vi.fn(), approve: vi.fn(), pause: vi.fn(), resume: vi.fn(), stop: vi.fn(), archive: vi.fn(), budget: vi.fn(), pulse: vi.fn() },
+  sess: { list: vi.fn(), show: vi.fn(), plan: vi.fn(), board: vi.fn(), approve: vi.fn(), pause: vi.fn(), resume: vi.fn(), stop: vi.fn(), archive: vi.fn(), close: vi.fn(), budget: vi.fn(), pulse: vi.fn() },
   api: {
     getChatTurns: vi.fn(), getChatEvents: vi.fn(), startChatTurn: vi.fn(), confirmMission: vi.fn(), stopChatTurn: vi.fn(), coderStatus: vi.fn(),
     coderWorkspaceList: vi.fn(), getAgentRuntimeModels: vi.fn(), hilList: vi.fn(), getProfiles: vi.fn(),

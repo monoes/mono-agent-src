@@ -11,6 +11,9 @@ import (
 // Workflow lifecycle
 // ---------------------------------------------------------------------------
 
+// wholeDefinitionCreator marks a store whose CreateWorkflow stores the nodes and the connections too.
+type wholeDefinitionCreator interface{ createsWholeDefinition() }
+
 // CreateWorkflow saves a new workflow (inactive by default).
 func (e *WorkflowEngine) CreateWorkflow(ctx context.Context, w *Workflow) error {
 	w.IsActive = false
@@ -20,14 +23,20 @@ func (e *WorkflowEngine) CreateWorkflow(ctx context.Context, w *Workflow) error 
 	if err := e.store.CreateWorkflow(ctx, w); err != nil {
 		return fmt.Errorf("engine: create workflow: %w", err)
 	}
-	if len(w.Nodes) > 0 {
-		if err := e.store.SaveWorkflowNodes(ctx, w.ID, w.Nodes); err != nil {
-			return fmt.Errorf("engine: create workflow nodes: %w", err)
+	// A store that keeps the whole definition made it in that one publication (and, with the
+	// operator's approval on ctx, approved it in the same commit). Saving the nodes and the
+	// connections again would be two more publications, each rebuilt on whatever the workflow is
+	// by then: a change made in between would end up in the definition that gets approved.
+	if _, whole := e.store.(wholeDefinitionCreator); !whole {
+		if len(w.Nodes) > 0 {
+			if err := e.store.SaveWorkflowNodes(ctx, w.ID, w.Nodes); err != nil {
+				return fmt.Errorf("engine: create workflow nodes: %w", err)
+			}
 		}
-	}
-	if len(w.Connections) > 0 {
-		if err := e.store.SaveWorkflowConnections(ctx, w.ID, w.Connections); err != nil {
-			return fmt.Errorf("engine: create workflow connections: %w", err)
+		if len(w.Connections) > 0 {
+			if err := e.store.SaveWorkflowConnections(ctx, w.ID, w.Connections); err != nil {
+				return fmt.Errorf("engine: create workflow connections: %w", err)
+			}
 		}
 	}
 	e.logger.Info().Str("workflow_id", w.ID).Str("name", w.Name).Msg("engine: workflow created")
@@ -192,8 +201,25 @@ func (e *WorkflowEngine) DeleteWorkflow(ctx context.Context, id string) error {
 	return nil
 }
 
-// ActivateWorkflow enables a workflow and registers its triggers.
+// ActivateOptions are the options of ActivateWorkflowWith.
+type ActivateOptions struct {
+	// ExpectHash is the ReviewHash (`workflow get --json` prints it as review_hash) the workflow
+	// must still have: what the operator looked at. Empty means the hash of the workflow as this
+	// call read it, so a change made after the call began is refused.
+	ExpectHash string
+}
+
+// ActivateWorkflow enables a workflow and registers its triggers. It refuses a change made since it
+// read the workflow (ErrChangedSincePreview), and a definition the operator has not approved
+// (ErrApprovalRequired) unless ctx carries the operator's approval (operator.ApprovingContext).
 func (e *WorkflowEngine) ActivateWorkflow(ctx context.Context, id string) error {
+	return e.ActivateWorkflowWith(ctx, id, ActivateOptions{})
+}
+
+// ActivateWorkflowWith is ActivateWorkflow with options. The flag and the approval (when ctx
+// carries one) are written by one publication that only lands on the hash the caller expects, so
+// nothing can be approved or armed that the caller did not see.
+func (e *WorkflowEngine) ActivateWorkflowWith(ctx context.Context, id string, opts ActivateOptions) error {
 	wf, err := e.store.GetWorkflow(ctx, id)
 	if err != nil {
 		return fmt.Errorf("engine: activate workflow: %w", err)
@@ -204,8 +230,15 @@ func (e *WorkflowEngine) ActivateWorkflow(ctx context.Context, id string) error 
 	if err := e.checkWorkflowProfile(wf); err != nil {
 		return fmt.Errorf("engine: activate workflow: %w", err)
 	}
+	hash, err := ReviewHashOf(ctx, e.store, wf)
+	if err != nil {
+		return fmt.Errorf("engine: activate workflow: %w", err)
+	}
+	if opts.ExpectHash != "" && opts.ExpectHash != hash {
+		return fmt.Errorf("engine: activate workflow: %w", ErrChangedSincePreview)
+	}
 
-	if err := e.store.SetWorkflowActive(ctx, id, true); err != nil {
+	if err := e.store.SetWorkflowActive(WithExpectHash(ctx, hash), id, true); err != nil {
 		return fmt.Errorf("engine: activate workflow: %w", err)
 	}
 	wf.IsActive = true
@@ -217,8 +250,9 @@ func (e *WorkflowEngine) ActivateWorkflow(ctx context.Context, id string) error 
 		// (nothing lists it as active) and DeleteWorkflow only deactivates
 		// `if existing.IsActive`, so the trigger would survive deletion.
 		e.triggerMgr.DeactivateWorkflow(id)
-		// Revert the active flag so the DB stays consistent.
-		if rerr := e.store.SetWorkflowActive(context.WithoutCancel(ctx), id, false); rerr != nil {
+		// Revert the active flag so the DB stays consistent. The revert carries neither the
+		// approval nor the expected hash of the activation, and survives a cancelled caller.
+		if rerr := e.store.SetWorkflowActive(context.WithoutCancel(withoutPublishIntent(ctx)), id, false); rerr != nil {
 			err = errors.Join(err, fmt.Errorf("the flag could not be reverted: %w", rerr))
 		}
 		return fmt.Errorf("engine: activate workflow: register triggers: %w", err)

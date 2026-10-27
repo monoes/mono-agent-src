@@ -31,6 +31,23 @@ func ReviewHash(w *Workflow) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// committedReviewHasher is a store that can say the ReviewHash of its committed rows.
+type committedReviewHasher interface {
+	committedReviewHash(ctx context.Context, id string) (string, error)
+}
+
+// ReviewHashOf is the hash to hand a guarded change for wf, a workflow as store served it: the hash
+// of the committed rows when the store keeps rows (what the change compares, whichever way the file
+// and the rows happen to represent an empty configuration), else ReviewHash(wf).
+func ReviewHashOf(ctx context.Context, store WorkflowStore, wf *Workflow) (string, error) {
+	if c, ok := store.(committedReviewHasher); ok {
+		if hash, err := c.committedReviewHash(ctx, wf.ID); err != nil || hash != "" {
+			return hash, err
+		}
+	}
+	return ReviewHash(wf)
+}
+
 // SaveGuard conditions SaveNodesGuarded.
 type SaveGuard struct {
 	// ExpectHash is the ReviewHash the stored workflow must still have.

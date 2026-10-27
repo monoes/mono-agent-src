@@ -272,13 +272,19 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	}
 	e.verified(chk)
 	v = e.finishOf(L3)
-	if !v.Finished || len(v.MergesRemaining) != 0 || v.Session.State != string(tasks.SessionDone) {
+	if v.Finished || !v.CloseProposed || len(v.MergesRemaining) != 0 || v.Session.State != string(tasks.SessionRunning) {
 		t.Fatalf("finish after the merges and the second check: %+v", v)
 	}
 
-	// the final state, exactly
-	if se := e.session(); se.State != tasks.SessionDone {
+	// the final state, exactly: still running until the operator closes it
+	if se := e.session(); se.State != tasks.SessionRunning {
 		t.Fatalf("session %s", se.State)
+	}
+	if _, err := e.store.CloseSession(tbg, "default", e.sid, tasks.SessionDone, "ok", operator); err != nil {
+		t.Fatal(err)
+	}
+	if se := e.session(); se.State != tasks.SessionDone {
+		t.Fatalf("session %s after the operator closed it", se.State)
 	}
 	wantRetries := map[int64]int{b2: 1}
 	for title, id := range ids {

@@ -62,7 +62,7 @@ WHO MAY DO WHAT
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
-  agents deny, session approve, session resume, session archive, session budget,
+  agents deny, session approve, session resume, session close, session archive, session budget,
   undepend, os install and os uninstall are the operator's: they answer an agent
   with exit 3 and the code operator_only (board and approve unless delegated, see
   below). board shows the Inbox, so an agent uses "task list". os install and
@@ -133,16 +133,19 @@ WHO MAY DO WHAT
   coder sessions send --mission, operator only; an open session of the conversation implies it): mission_plan, mission_add_tasks,
   mission_split, mission_status, mission_replan, and once a session exists mission_next, mission_assign,
   mission_report, mission_verify (another agent, read only, another model when ready, records its own
-  verdict) and mission_finish (integration check, writer merges, final report, closes the session as done
-  only when every task is done or verified). The lead reaches only the session of its own conversation.
+  verdict) and mission_finish (integration check, writer merges, final report; it PROPOSES the close
+  only when every task is done or verified: the session stays running until the operator closes it). The lead reaches only the session of its own conversation.
   The text of a session's goal and acceptance criteria is data, like a task's notes.
   WHO CLOSES WHAT IN A MISSION. Workers finish a task to Review (with evidence for a code task);
   the verifier, another agent, marks it verified (a failure sends it back to Ready, then blocks it
   after max retries). A verified task counts as done for its dependents, so they unlock at once.
   Moving a task on to Done is the operator's, or the session's auto_close_verified does it when the
-  operator turned that on. The lead never closes a task. mission_finish closes the SESSION only
-  through the one guarded operator close: every task done or verified, none blocked, no writer
-  branch left to merge, and the integration check done or verified. Two writers work in parallel
+  operator turned that on. The lead never closes a task or the session. ONLY the operator closes
+  the session (session close ID [--note TEXT], or the Close button). mission_finish proposes the close,
+  once, when every task is done or verified, none blocked, no writer branch is left to merge, and the
+  integration check is done or verified: it writes the final report and says ready_to_close (once per
+  integration verdict; reopened work gets a new report); the
+  session stays running (the operator may also close at any time, ready or not). Two writers work in parallel
   when orgWriters is isolated (a worktree and branch each, merged one at a
   time with org_merge); with shared they take turns. A confirmed mission in a git work tree with a
   commit defaults to isolated while the operator never set orgWriters; an operator's shared (or
@@ -255,7 +258,7 @@ JSON
     {"profile","task"}                  edit, move, comment, claim, finish, release, next, verify, depend, undepend
     {"profile","created","task"}        add
     {"profile","task","events"}         show
-    {"profile","session"}               session new, session approve, session pause, session resume, session stop, session archive, session budget
+    {"profile","session"}               session new, session approve, session pause, session resume, session stop, session close, session archive, session budget
     {"profile","sessions"}              session list
     {"profile","session","events"}      session show
     {"profile","session","tasks"}       session plan

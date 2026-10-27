@@ -231,8 +231,8 @@ func (e *e2eRig) closeOut(c *Conductor, ids map[string]int64) {
 	}
 	e.waitStatus(chk, tasks.StatusDone)
 	v = e.finishOf(c)
-	if !v.Finished || e.session().State != tasks.SessionDone || len(v.MergesRemaining) != 0 {
-		t.Fatalf("the mission closes: %+v", v)
+	if v.Finished || !v.CloseProposed || e.session().State != tasks.SessionRunning || len(v.MergesRemaining) != 0 {
+		t.Fatalf("the mission proposes its close and stays running: %+v", v)
 	}
 	if n := len(e.em.find(chatevents.EventMissionReport)); n != 1 {
 		t.Fatalf("%d mission.report events", n)
@@ -257,6 +257,15 @@ func (e *e2eRig) closeOut(c *Conductor, ids map[string]int64) {
 	}
 	if n != 1 || e.session().SpentUSD <= 0 {
 		t.Fatalf("%d integration tasks, spent %v", n, e.session().SpentUSD)
+	}
+	if again := e.finishOf(c); again.Finished || !again.ReadyToClose || len(e.em.find(chatevents.EventMissionReport)) != 1 {
+		t.Fatalf("a second mission_finish must only wait: %+v", again)
+	}
+	if _, err := e.store.CloseSession(tbg, "default", e.sid, tasks.SessionDone, "ok", operator); err != nil {
+		t.Fatal(err)
+	}
+	if se := e.session(); se.State != tasks.SessionDone {
+		t.Fatalf("session %s after the operator closed it", se.State)
 	}
 	if _, err := c.Handle(tbg, ToolMissionFinish, mustJSON(map[string]any{"session": e.otherS})); err == nil {
 		t.Fatal("the lead named another conversation's session")

@@ -134,6 +134,9 @@ func (h *HybridWorkflowStore) CreateWorkflow(ctx context.Context, w *Workflow) e
 	return h.saveDefinition(ctx, w, "")
 }
 
+// createsWholeDefinition: CreateWorkflow publishes the nodes and connections with the workflow.
+func (h *HybridWorkflowStore) createsWholeDefinition() {}
+
 // GetWorkflow looks in the file store first and then in SQLite, where
 // imported and older workflows are kept.
 func (h *HybridWorkflowStore) GetWorkflow(ctx context.Context, id string) (*Workflow, error) {
@@ -171,6 +174,16 @@ func (h *HybridWorkflowStore) committedWorkflow(ctx context.Context, id string) 
 		return nil, nil
 	}
 	return w, err
+}
+
+// committedReviewHash is the ReviewHash of the committed rows: exactly what a guarded publication
+// compares (plan and commit read the rows, not the file).
+func (h *HybridWorkflowStore) committedReviewHash(ctx context.Context, id string) (string, error) {
+	w, err := h.committedWorkflow(ctx, id)
+	if err != nil || w == nil {
+		return "", err
+	}
+	return ReviewHash(w)
 }
 
 // ListWorkflows returns the profile's file-store workflows followed by the
@@ -393,6 +406,9 @@ func (h *HybridWorkflowStore) setActivePublication(ctx context.Context, id strin
 		WorkflowID:   id,
 		Origin:       "active",
 		KeepFileless: true,
+		// Switching on arms triggers: only for a definition the operator approved (or approves with
+		// this very change). Switching off is never refused for want of one.
+		RequireApproved: active,
 		Build: func(cur *Workflow) (*Workflow, error) {
 			var next Workflow
 			switch fw := h.lockedFileCopy(ctx, id); {

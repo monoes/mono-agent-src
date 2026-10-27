@@ -83,6 +83,7 @@ func TestHybridMirrorKeepsProfile(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE workflows SET profile_id = 'work' WHERE id = 'wf-p'`); err != nil {
 		t.Fatal(err)
 	}
+	approveForTest(t, h, "wf-p")
 	if err := h.SetWorkflowActive(ctx, "wf-p", true); err != nil {
 		t.Fatal(err)
 	}

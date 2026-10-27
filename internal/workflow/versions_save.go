@@ -140,7 +140,8 @@ func (h *HybridWorkflowStore) saveDefinitionAs(ctx context.Context, w *Workflow,
 				c.IsActive = cur.IsActive
 			} else if !approvalFrom(ctx) {
 				// A new workflow starts inactive unless the operator creates it (see WithApproval): an
-				// agent's save cannot make a workflow that the daemon arms by itself.
+				// agent's save cannot make a workflow that the daemon arms by itself. Switching it on
+				// afterwards needs the operator's approval too (SetWorkflowActive: RequireApproved).
 				c.IsActive = false
 			}
 			return &c, nil

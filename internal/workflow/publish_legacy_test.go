@@ -377,32 +377,58 @@ func TestAdoptableListingIsBounded(t *testing.T) {
 	}
 }
 
-// With no profile at all the claim cannot take anything in, and it is not recorded: the files stay
-// older versions' files until a profile exists, instead of becoming adoptable-only for good.
-func TestNoClaimIsRecordedWhileThereIsNoProfile(t *testing.T) {
+// A fresh install has no profile yet. An agent drops a file in the workflows folder before the first
+// profile exists: the claim is recorded at the first use anyway, takes nothing in, and the file is
+// still not imported when the profile appears later; `doctor` lists it for an operator to adopt.
+func TestAFileDroppedBeforeTheFirstProfileIsNotSweptInLater(t *testing.T) {
 	ctx := context.Background()
 	h, s := newHybridForTest(t)
 	if _, err := s.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{profilesWipeSQL} {
-		if _, err := s.db.Exec(q); err != nil {
-			t.Skip("cannot empty the profiles table here:", err)
-		}
+	if _, err := s.db.Exec(profilesWipeSQL); err != nil {
+		t.Skip("cannot empty the profiles table here:", err)
 	}
-	dropFile(t, h, "wf-early", true)
+	dropFile(t, h, "wf-early", true) // an agent's file: active, in the folder before any profile exists
 	if created, err := h.ClaimLegacyFiles(ctx); err != nil || len(created) != 0 {
 		t.Fatalf("%v %v", created, err)
 	}
-	if markerCount(t, s) != 0 {
-		t.Fatal("a claim that took in nothing because there is no profile was recorded")
+	if markerCount(t, s) != 1 {
+		t.Fatal("the claim of a store with no profile was not recorded: the window stays open until the first profile")
 	}
 	if _, err := s.db.Exec(`INSERT INTO profiles (id, name) VALUES ('default', 'default')`); err != nil {
 		t.Fatal(err)
 	}
+	if created, err := h.ClaimLegacyFiles(ctx); err != nil || len(created) != 0 {
+		t.Fatalf("a claim after the first profile took in %v (%v)", created, err)
+	}
+	if res, err := h.ImportFile(ctx, "wf-early", nil); err != nil || res.Imported {
+		t.Fatalf("the file was imported after the profile appeared: %+v %v", res, err)
+	}
+	if wf, _ := h.GetWorkflow(ctx, "wf-early"); wf != nil {
+		t.Fatal("the file is served as a workflow")
+	}
+	files, _, err := h.AdoptableFiles(ctx)
+	if err != nil || len(files) != 1 || files[0].ID != "wf-early" {
+		t.Fatalf("doctor does not offer the file for adoption: %+v %v", files, err)
+	}
+}
+
+// An existing install has a profile: the files older versions left are still taken in at the first
+// claim, active flag kept, as before. Recording the claim without a profile changed nothing here.
+func TestAnExistingInstallStillTakesInItsFilesAtTheFirstClaim(t *testing.T) {
+	ctx := context.Background()
+	h, s := newHybridForTest(t) // the test schema has the profile 'default'
+	dropFile(t, h, "wf-old-on", true)
+	dropFile(t, h, "wf-old-off", false)
 	created, err := h.ClaimLegacyFiles(ctx)
-	if err != nil || len(created) != 1 || markerCount(t, s) != 1 {
-		t.Fatalf("after a profile exists: %v %v markers=%d", created, err, markerCount(t, s))
+	if err != nil || len(created) != 2 || markerCount(t, s) != 1 {
+		t.Fatalf("%d taken in, %v, markers=%d", len(created), err, markerCount(t, s))
+	}
+	on, _ := h.GetWorkflow(ctx, "wf-old-on")
+	off, _ := h.GetWorkflow(ctx, "wf-old-off")
+	if on == nil || !on.IsActive || off == nil || off.IsActive {
+		t.Fatalf("the legacy files were not taken in with their flags: %+v %+v", on, off)
 	}
 }
 

@@ -104,18 +104,18 @@ func TestMissionFinishIntegratesReportsAndCloses(t *testing.T) {
 	r.waitStatus(it.ID, tasks.StatusDone)
 
 	v = r.finish()
-	if !v.Finished || v.Session.State != "done" || !strings.Contains(v.Report, "Mission report") {
-		t.Fatalf("the mission closes: %+v", v)
+	if v.Finished || !v.ReadyToClose || !v.CloseProposed || v.Session.State != "running" || !strings.Contains(v.Report, "Mission report") || !strings.Contains(v.Next, "the operator closes it") {
+		t.Fatalf("the mission proposes its close: %+v", v)
 	}
-	if se := r.session(); se.State != tasks.SessionDone {
-		t.Fatalf("session %s", se.State)
+	if se := r.session(); se.State != tasks.SessionRunning {
+		t.Fatalf("session %s: mission_finish must not close it", se.State)
 	}
 	cards := r.em.find(chatevents.EventMissionReport)
 	if len(cards) != 1 {
 		t.Fatalf("%d mission.report events", len(cards))
 	}
 	rp := cards[0].(chatevents.MissionReportPayload)
-	if rp.SessionID != r.sid || rp.State != "done" || rp.TaskCount != 3 || rp.Done != 3 || len(rp.Unfinished) != 0 || rp.Artifacts < 2 || !strings.Contains(rp.Report, "#"+itoa(a.ID)) {
+	if rp.SessionID != r.sid || rp.State != "running" || !rp.CloseProposed || rp.TaskCount != 3 || rp.Done != 3 || len(rp.Unfinished) != 0 || rp.Artifacts < 2 || !strings.Contains(rp.Report, "#"+itoa(a.ID)) {
 		t.Fatalf("report payload %+v", rp)
 	}
 	d, _ := r.store.SessionTask(tbg, "default", r.sid, it.ID, operator)
@@ -126,9 +126,19 @@ func TestMissionFinishIntegratesReportsAndCloses(t *testing.T) {
 	if !found {
 		t.Fatalf("no final-report artifact on the integration task: %+v", d.Artifacts)
 	}
-	// closing again is a no-op: no second report
-	if again := r.finish(); !again.Finished || len(r.em.find(chatevents.EventMissionReport)) != 1 {
-		t.Fatalf("a closed mission re-reported: %+v", again)
+	// a second call is idempotent: no second report, still waiting for the operator
+	if again := r.finish(); again.Finished || !again.ReadyToClose || again.Report != "" || !strings.Contains(again.Next, "waiting for the operator") || len(r.em.find(chatevents.EventMissionReport)) != 1 || countRef(d.Artifacts, "final-report") != 1 {
+		t.Fatalf("a proposed mission re-reported: %+v", again)
+	}
+	if d2, _ := r.store.SessionTask(tbg, "default", r.sid, it.ID, operator); countRef(d2.Artifacts, "final-report") != 1 {
+		t.Fatalf("second final report attached: %+v", d2.Artifacts)
+	}
+	// the operator closes it; mission_finish then says so and still writes nothing
+	if _, err := r.store.CloseSession(tbg, "default", r.sid, tasks.SessionDone, "ok", operator); err != nil {
+		t.Fatal(err)
+	}
+	if after := r.finish(); !after.Finished || len(r.em.find(chatevents.EventMissionReport)) != 1 {
+		t.Fatalf("a closed mission re-reported: %+v", after)
 	}
 }
 
@@ -235,8 +245,8 @@ func TestMissionFinishListsWriterBranchesNotMerged(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.waitStatus(it.ID, tasks.StatusDone)
-	if v := r.finish(); !v.Finished || r.session().State != tasks.SessionDone {
-		t.Fatalf("after merged-tree checks it closes: %+v", v)
+	if v := r.finish(); !v.CloseProposed || r.session().State != tasks.SessionRunning {
+		t.Fatalf("after merged-tree checks it proposes the close: %+v", v)
 	}
 }
 

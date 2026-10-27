@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The whole mission flow of a coder chat, fixture events in order, services mocked:
-// propose -> Start mission -> plan (draft) -> Approve -> strip running -> report -> the report link opens the artifact drawer in Tasks.
+// propose -> Start mission -> plan (draft) -> Approve -> strip running -> report (close proposed) -> Close mission -> the report link opens the artifact drawer in Tasks.
 import React, { useEffect, useState } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
@@ -10,7 +10,7 @@ import '../../../i18n.js'
 const { api, chatAccess, sess, tasksApi, listeners } = vi.hoisted(() => ({
   listeners: { chat: new Set() },
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
-  sess: { list: vi.fn(), show: vi.fn(), plan: vi.fn(), board: vi.fn(), approve: vi.fn(), pause: vi.fn(), resume: vi.fn(), stop: vi.fn(), archive: vi.fn(), budget: vi.fn(), pulse: vi.fn() },
+  sess: { list: vi.fn(), show: vi.fn(), plan: vi.fn(), board: vi.fn(), approve: vi.fn(), pause: vi.fn(), resume: vi.fn(), stop: vi.fn(), archive: vi.fn(), close: vi.fn(), budget: vi.fn(), pulse: vi.fn() },
   tasksApi: { board: vi.fn(), show: vi.fn(), add: vi.fn(), edit: vi.fn(), move: vi.fn(), approve: vi.fn(), archive: vi.fn(), comment: vi.fn(), agentShell: vi.fn() },
   api: {
     getChatTurns: vi.fn(), getChatEvents: vi.fn(), startChatTurn: vi.fn(), confirmMission: vi.fn(), stopChatTurn: vi.fn(), coderStatus: vi.fn(),
@@ -74,6 +74,7 @@ beforeEach(() => {
   sess.pulse.mockImplementation(async () => (current ? { session_id: 7, rev: current.rev, state: current.state } : {}))
   sess.board.mockImplementation(async () => ({ rev: 2, session: current, tasks: current?.state === 'done'
     ? { done: [card(31), integ] } : { in_progress: [card(31, { assignee: 'worker-1', title: 'Write exporter' })], ready: [card(32)] } }))
+  sess.close.mockImplementation(async () => { current = doc('done', { done: 4, total: 4 }); return { session: current } })
   sess.plan.mockResolvedValue({ tasks: [card(31), integ] })
   sess.approve.mockImplementation(async () => { current = doc('running', { done: 1, total: 4 }); return { session: current } })
   tasksApi.board.mockResolvedValue({ rev: 1, counts: {}, tasks: {} })
@@ -111,13 +112,18 @@ describe('mission flow, end to end', () => {
     expect(await screen.findByTestId('mission-working')).toHaveTextContent('worker-1')
     expect(screen.queryByTestId('mission-approve')).toBeNull()
 
-    // 4. report: the session is done, the report card and the strip read Done
-    current = doc('done', { done: 4, total: 4 })
-    await emit(ev(turn, 3, 'mission.report', { sessionId: 7, summary: 'Shipped CSV export; 14 tests pass.' }))
+    // 4. report: the lead only proposed closing, so the session is still running and the strip says so;
+    // the operator's Close mission button on the report card closes it (TaskSessionClose), then both read Done
+    current = doc('running', { done: 4, total: 4 })
+    await emit(ev(turn, 3, 'mission.report', { sessionId: 7, summary: 'Shipped CSV export; 14 tests pass.', closeProposed: true }))
     await emit(ev(turn, 4, 'turn.finished', { status: 'completed' }))
     const report = await screen.findByTestId('mission-report')
     expect(report).toHaveTextContent('Shipped CSV export; 14 tests pass.')
+    await waitFor(() => expect(within(screen.getByTestId('mission-strip')).getByTestId('ts-state')).toHaveTextContent('Ready to close'))
+    fireEvent.click(await within(report).findByRole('button', { name: 'Close mission' }))
+    await waitFor(() => expect(sess.close).toHaveBeenCalledWith(7))
     await waitFor(() => expect(within(screen.getByTestId('mission-strip')).getByTestId('ts-state')).toHaveTextContent('Done'))
+    expect(await within(report).findByText('Closed')).toBeInTheDocument()
 
     // 5. the report link opens the session in Tasks and the drawer of the task with the final report
     fireEvent.click(screen.getByTestId('mission-open-report'))

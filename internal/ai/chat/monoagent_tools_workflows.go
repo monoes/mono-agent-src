@@ -215,6 +215,10 @@ func (mt *MonoagentTools) setWorkflowActive(args string) (string, error) {
 		if note != "" {
 			return marshalJSON(map[string]interface{}{"workflow_id": a.WorkflowID, "is_active": a.Active, "note": note})
 		}
+	} else if a.Active {
+		// Switching on arms triggers, and only the workflow store checks that the operator approved
+		// the definition: never with a raw UPDATE.
+		return "", fmt.Errorf("update workflow: %w: activating needs the workflow store, which checks the approval", workflow.ErrApprovalRequired)
 	} else if _, err := mt.db.Exec(
 		`UPDATE workflows SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		a.Active, a.WorkflowID); err != nil {

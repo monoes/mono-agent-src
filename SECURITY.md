@@ -1688,9 +1688,9 @@ that works a task acts on them. The defences:
   artifact reference is a string the agent wrote and is not validated, and the files a
   task declares come from notes the planner wrote, so the rule makes skipping evidence
   a visible refusal and is not proof that the work exists. When a mission's tasks are all
-  done or verified, `mission_finish` closes the session as done in the operator's process
-  (as the spend record is): the agent cannot close it while a task is open, blocked or
-  failing, or a writer branch is unmerged.
+  done or verified, `mission_finish` only proposes the close (it attaches the final report and
+  emits `mission.report`); the session stays running and only the operator closes it
+  (`session close`, which refuses an agent). No code path of the conductor closes a session.
   **A mission's confirmation** (the person's "run this send as a mission") is a record,
   not a flag: the coder host's chat children inherit the host's environment and are
   reparented, so they look like the operator to environment and ancestry checks, and
@@ -1738,8 +1738,8 @@ that works a task acts on them. The defences:
 - **The operator-only commands refuse an agent-driven caller:** `board`
   (it shows the Inbox) and `approve` (both unless delegated, see above),
   `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow`,
-  `agents deny`, `session approve`, `session resume`, `session archive`,
-  `session budget` and `undepend`. A caller is agent-driven when an
+  `agents deny`, `session approve`, `session resume`, `session close`,
+  `session archive`, `session budget` and `undepend`. A caller is agent-driven when an
   agent-context environment variable is set (the markers org signing
   already uses, `CLAUDECODE` among them), or `--as` is given, or
   `MONOAGENT_ACTOR` is set. This stops an agent acting by accident or on

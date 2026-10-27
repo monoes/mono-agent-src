@@ -45,7 +45,8 @@ const (
 // as the importer always gave them. From then on a file with no rows is just a file: it is not
 // imported, not served and not listed until an operator adopts it, so a file dropped in later (by a
 // person, a script or an agent) cannot become a workflow of any profile by itself. The claim is
-// recorded under the write lock by whichever process gets there first. The workflows created are
+// recorded under the write lock by whichever process gets there first, even when there is no profile
+// yet (then nothing is taken in and every file is left for adoption). The workflows created are
 // returned.
 func (h *HybridWorkflowStore) ClaimLegacyFiles(ctx context.Context) ([]*Workflow, error) {
 	if h.files == nil {
@@ -63,12 +64,12 @@ func (h *HybridWorkflowStore) ClaimLegacyFiles(ctx context.Context) ([]*Workflow
 	if done, err := legacyDone(ctx, tx); err != nil || done {
 		return nil, err
 	}
-	// Without any profile nothing can be taken in (every workflow belongs to one): do not record the
-	// claim, or the files that are really older versions' would become adoptable-only.
-	var profiles int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM profiles`).Scan(&profiles); err != nil || profiles == 0 {
-		return nil, err
-	}
+	// The claim is recorded at the first use whether or not a profile exists yet. Older versions
+	// needed a profile for every workflow, so a machine that has legacy files has one; a machine with
+	// none is a fresh install, where a file in this folder is not legacy at all, and it must not be
+	// swept in later, when the first profile appears, as if it were. Files the claim cannot take in
+	// (no profile exists, the file names none, ids clash) stay files: `doctor` offers them for
+	// adoption and the log says which.
 	entries, err := os.ReadDir(h.files.dir)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err

@@ -3,11 +3,15 @@ package orgbridge
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/jev"
@@ -384,42 +388,99 @@ func TestWakerJevMatchAnswersAsk(t *testing.T) {
 	}
 }
 
+// askMatchTransport keeps the real Jev request/response validation but avoids
+// HTTP scheduling and server shutdown waits in virtual-clock tests.
+type askMatchTransport func(*http.Request) (*http.Response, error)
+
+func (f askMatchTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func TestWakerJevNoneLowPOrSlowDropsAsToday(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		pick      string // "" = the ask
 		threshold float64
-		sleep     time.Duration
+		slow      bool
 	}{
 		{name: "none", pick: askNone},
 		{name: "low p", threshold: 0.95},
-		{name: "slow", sleep: 3500 * time.Millisecond},
+		{name: "slow", slow: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			db, w, resumed := wakerFixture(t)
+			// This unit exercises settings, ask matching and reply state, not the
+			// migration runner or workflow execution. Other waker tests use the
+			// fully migrated file database; keep only the two required tables here.
+			db, err := sql.Open("sqlite", ":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			db.SetMaxOpenConns(1)
+			t.Cleanup(func() { db.Close() })
+			if _, err := db.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE org_asks (
+     id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, org_name TEXT NOT NULL,
+     role_id TEXT NOT NULL, endpoint_role_id TEXT NOT NULL, execution_id TEXT NOT NULL,
+     node_id TEXT NOT NULL, status TEXT NOT NULL, reply_json TEXT, created_at TEXT NOT NULL,
+     deadline_at TEXT NOT NULL, replied_at TEXT, question TEXT);`); err != nil {
+				t.Fatal(err)
+			}
 			enableAsks(t, db, "p")
 			if tc.threshold > 0 {
 				if err := jevconf.SetThreshold(db, "p", jevconf.Asks, tc.threshold); err != nil {
 					t.Fatal(err)
 				}
 			}
-			ask := createAsk(t, db, Ask{ProfileID: "p", OrgName: "growth", EndpointRoleID: "bot", ExecutionID: "exec-ask", NodeID: "n", Question: "Which region?"})
-			pick := tc.pick
-			if pick == "" {
-				pick = ask.ID
-			}
-			srv := jevFake(t, func(jev.Request) map[string]string {
-				time.Sleep(tc.sleep)
-				return map[string]string{"ask": pick}
+			synctest.Test(t, func(t *testing.T) {
+				ask := createAsk(t, db, Ask{ProfileID: "p", OrgName: "growth", EndpointRoleID: "bot", ExecutionID: "exec-ask", NodeID: "n", Question: "Which region?"})
+				pick := tc.pick
+				if pick == "" {
+					pick = ask.ID
+				}
+				calls, resumed := 0, 0
+				start := time.Now()
+				transport := askMatchTransport(func(r *http.Request) (*http.Response, error) {
+					calls++
+					deadline, ok := r.Context().Deadline()
+					if !ok || !deadline.Equal(start.Add(3*time.Second)) {
+						t.Fatalf("request deadline = %v (%v), want the three-second match budget", deadline, ok)
+					}
+					if tc.slow {
+						// The real matcher timer advances automatically while this waits.
+						<-r.Context().Done()
+						if r.Context().Err() != context.DeadlineExceeded {
+							t.Fatalf("slow request: %v", r.Context().Err())
+						}
+						return nil, r.Context().Err()
+					}
+					var req jev.Request
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Fatal(err)
+					}
+					answer, err := jevtest.Answer(req.Questions["ask"], pick)
+					if err != nil {
+						t.Fatal(err)
+					}
+					payload, err := json.Marshal(jev.Response{Model: "jev-test", Answers: map[string]jev.Answer{"ask": answer}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(payload))), Request: r}, nil
+				})
+				w := &Waker{DB: db, Resume: func(string) error { resumed++; return nil }}
+				w.Asks = &AskMatcher{DB: db, NewClient: func(context.Context, string) (*jev.Client, error) {
+					return &jev.Client{APIKey: "test-key", BaseURL: "https://jev.invalid", Model: "jev-test", HTTP: &http.Client{Transport: transport}}, nil
+				}}
+				w.Handle(context.Background(), "p", "growth", wakerMsg("bot", "hello", "new request"))
+				wantElapsed := time.Duration(0)
+				if tc.slow {
+					wantElapsed = 3 * time.Second
+				}
+				if elapsed := time.Since(start); elapsed != wantElapsed {
+					t.Fatalf("handle took %v virtual time, want %v", elapsed, wantElapsed)
+				}
+				if calls != 1 || askStatus(t, db, ask.ID).Status != AskWaiting || resumed != 0 {
+					t.Fatalf("calls=%d resumed=%d", calls, resumed)
+				}
 			})
-			start := time.Now()
-			w.Handle(context.Background(), "p", "growth", wakerMsg("bot", "hello", "new request"))
-			if el := time.Since(start); el > 3400*time.Millisecond {
-				t.Fatalf("handle took %s", el)
-			}
-			if srv.Calls() != 1 || askStatus(t, db, ask.ID).Status != AskWaiting || len(*resumed) != 0 {
-				t.Fatalf("calls=%d resumed=%v", srv.Calls(), *resumed)
-			}
 		})
 	}
 }

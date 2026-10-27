@@ -334,7 +334,8 @@ func TestResolveUnresolvedEitherWay(t *testing.T) {
 }
 
 // Approve A, save B, put A back outside the store, then activate: the activation must not consume
-// the outside file unseen. It is imported first, which removes the old approval of A.
+// the outside file unseen. It is imported first, which removes the old approval of A, and the
+// unapproved result is refused.
 func TestPublishReconcilesAnOutsideEditBeforeBuildingOnIt(t *testing.T) {
 	ctx := context.Background()
 	h, s, _, _ := guardedRig(t)
@@ -344,13 +345,18 @@ func TestPublishReconcilesAnOutsideEditBeforeBuildingOnIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	handEdit(t, h, "wf-g", func(w *Workflow) { w.Nodes[1].Config = map[string]interface{}{"k": "v"} }) // A again
-	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
-		t.Fatal(err)
+	// The outside file is imported before anything builds on it, which removes the old approval of
+	// A: so the activation, which nobody approved, is refused (it used to go through unapproved).
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("activating the outside-edited definition: %v", err)
 	}
 	now, _ := h.GetWorkflow(ctx, "wf-g")
 	hash, _ := definitionHash(now)
 	if ok, _ := h.DefinitionApproved(ctx, "wf-g", hash); ok || approvals(t, s, "wf-g") != 0 {
-		t.Fatal("the restored definition still counts as approved after an activation")
+		t.Fatal("the restored definition still counts as approved")
+	}
+	if now.IsActive {
+		t.Fatal("a refused activation switched the workflow on")
 	}
 	if n := versionCount(t, s, "wf-g"); n < 3 {
 		t.Fatalf("the outside edit was not recorded as a version (%d versions)", n)
@@ -435,6 +441,7 @@ func TestPublicationDoesNotBuildOnAFileTheImporterDeclined(t *testing.T) {
 	if err := h.SaveWorkflow(ctx, cur); err != nil {
 		t.Fatal(err)
 	}
+	approveForTest(t, h, "wf-g") // the rows' B is approved: the refusal below is about the file
 	dir := h.files.dir
 	target := filepath.Join(dir, "elsewhere.txt")
 	if err := os.WriteFile(target, a, 0o600); err != nil {

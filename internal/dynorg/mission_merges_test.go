@@ -78,7 +78,7 @@ func TestMissionPendingMergesAreInTheStoreAndSurviveANewConductor(t *testing.T) 
 		t.Fatal(err)
 	}
 	r.waitStatus(it.ID, tasks.StatusDone)
-	if v := r.finish(); !v.Finished || r.session().State != tasks.SessionDone {
+	if v := r.finish(); !v.CloseProposed || r.session().State != tasks.SessionRunning {
 		t.Fatalf("it closes after merged-tree checks: %+v", v)
 	}
 }

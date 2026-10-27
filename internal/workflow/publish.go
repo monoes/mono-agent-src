@@ -26,6 +26,10 @@ var ErrPublicationBusy = errors.New("another change to this workflow is in progr
 // person.
 var ErrPublicationUnresolved = errors.New("an earlier change of this workflow needs a decision")
 
+// ErrApprovalRequired: switching a workflow on needs the operator's approval of its current
+// definition (an agent, MCP or the HTTP API cannot arm triggers on a definition nobody approved).
+var ErrApprovalRequired = errors.New("this definition was not approved by you")
+
 const unresolvedHelp = "run `monoagentcli doctor` and resolve it with `doctor fix workflows.publications.resolve:<workflow id>:keep-rows` (or keep-file)"
 
 // errFileChanged: the file changed between planning and the rename; nothing was written.
@@ -66,6 +70,10 @@ type Publication struct {
 	RequireGraph bool
 	// KeepFileless leaves a workflow that has no file without one (rows only).
 	KeepFileless bool
+	// RequireApproved refuses (ErrApprovalRequired) a change whose resulting definition is neither
+	// approved already nor approved by this very change (WithApproval). Checked under the write
+	// lock when the change is planned and again when it commits.
+	RequireApproved bool
 	// Build maps the committed definition (nil when there are no rows) to the one to publish.
 	Build func(cur *Workflow) (*Workflow, error)
 }
@@ -397,6 +405,11 @@ func (h *HybridWorkflowStore) plan(ctx context.Context, tx *sql.Tx, p Publicatio
 	if pl.targetHash, err = definitionHash(t); err != nil {
 		return nil, err
 	}
+	if p.RequireApproved {
+		if err := requireApproved(ctx, tx, p.WorkflowID, pl); err != nil {
+			return nil, err
+		}
+	}
 	if pl.version, err = nextVersionTx(ctx, tx, t, p.StoredVersion, pl.cur); err != nil {
 		return nil, err
 	}
@@ -657,6 +670,12 @@ func (h *HybridWorkflowStore) commitPublication(ctx context.Context, p Publicati
 	if base != pl.baseHash {
 		return nil, ErrChangedSincePreview
 	}
+	if p.RequireApproved {
+		// An approval revoked since the change was planned must not let it through.
+		if err := requireApproved(ctx, tx, p.WorkflowID, pl); err != nil {
+			return nil, err
+		}
+	}
 	if err := h.applyRows(ctx, tx, p, pl); err != nil {
 		return nil, err
 	}
@@ -736,6 +755,27 @@ func (h *HybridWorkflowStore) checkFileUnchanged(id, wantSHA string) error {
 
 type expectKey struct{}
 
+// requireApproved is the check behind Publication.RequireApproved: the change carries the
+// operator's approval (WithApproval), or the operator already approved the resulting definition.
+// A database with no approvals table (a test's schema) approves everything.
+func requireApproved(ctx context.Context, q rowQuerier, id string, pl *pubPlan) error {
+	if approvalFrom(ctx) {
+		return nil
+	}
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_approvals WHERE workflow_id = ? AND definition_hash = ?`,
+		id, pl.targetHash).Scan(&n)
+	switch {
+	case isNoTable(err):
+		return nil
+	case err != nil:
+		return fmt.Errorf("checking the approval of workflow %s: %w", id, err)
+	case n == 0:
+		return fmt.Errorf("%w: workflow %s: %s", ErrApprovalRequired, id, ActivateHint(pl.profileID(), id))
+	}
+	return nil
+}
+
 // WithExpectHash makes the next publication made with ctx refuse (ErrChangedSincePreview) unless the
 // committed workflow still has this ReviewHash: the caller read the workflow, decided on an edit, and
 // the edit (and any approval recorded with it) must not land on something else.
@@ -744,6 +784,12 @@ func WithExpectHash(ctx context.Context, hash string) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, expectKey{}, hash)
+}
+
+// withoutPublishIntent clears what WithApproval and WithExpectHash put on ctx, for a follow-up
+// publication (a rollback) that must not inherit the first one's approval or guard.
+func withoutPublishIntent(ctx context.Context) context.Context {
+	return context.WithValue(context.WithValue(ctx, approvalKey{}, false), expectKey{}, "")
 }
 
 func expectFrom(ctx context.Context) string {
