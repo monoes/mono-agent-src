@@ -34,12 +34,12 @@ func TestSessionParkAndRecordActOnTheCallersOwnSession(t *testing.T) {
 			t.Errorf("park %v = %v", args, err)
 		}
 	}
-	for i := 1; i < coderhost.MaxOpenQuestions; i++ {
-		if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "risky_action", "question": "q"}); err != nil {
+	for i := 1; i < coderhost.MaxOpenQuestions; i++ { // not risky: risky parks have their own hourly limit
+		if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "ambiguity", "question": "q"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "risky_action", "question": "q"}); err == nil || !strings.Contains(err.Error(), "limit") {
+	if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "ambiguity", "question": "q"}); err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("over the cap = %v", err)
 	}
 

@@ -177,12 +177,25 @@ func TestMasterlessHardParksAreRateLimited(t *testing.T) {
 	if _, err := st.ParkOwn(caller("solo"), ParkRequest{Class: "risky_action", Question: "q"}); err != nil {
 		t.Fatalf("after the window = %v", err)
 	}
-	// under a live master the limit does not apply (the master answers)
+	// the limit holds under a live master too (its master may be paused, at its limit or failing later);
+	// a gap that is not risky has no hourly limit
 	st2, _ := parkStore(t)
 	childOf(t, st2)
-	for i := 0; i < MaxPersonItemsPerHour+2; i++ {
+	for i := 0; i < MaxPersonItemsPerHour; i++ {
 		if _, err := st2.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "q"}); err != nil {
 			t.Fatalf("mastered park %d: %v", i, err)
+		}
+	}
+	if _, err := st2.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "q"}); !errors.Is(err, ErrPersonItemRate) {
+		t.Fatalf("mastered over the rate = %v", err)
+	}
+	setState(t, st2, "m", StatePaused)
+	if _, err := st2.ParkOwn(caller("k1"), ParkRequest{Class: "missing_credential", Question: "q"}); !errors.Is(err, ErrPersonItemRate) {
+		t.Fatalf("paused-master over the rate = %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		if _, err := st2.ParkOwn(caller("k1"), ParkRequest{Class: "ambiguity", Question: "q"}); err != nil {
+			t.Fatalf("non-risky park %d: %v", i, err)
 		}
 	}
 }
@@ -258,6 +271,13 @@ func TestRiskyQuestionBelongsToThePersonWhenTheMasterCannotTakeIt(t *testing.T) 
 		if len(openItems(t, st)) != 1 {
 			t.Fatal("not in needs-you")
 		}
+		// the question the person is told about is never answerable by the master, in any of these states
+		if _, cmd, err := st.AnswerAsMaster(caller("m"), "k1", q.ID, "yes"); err == nil {
+			t.Fatalf("the master answered a question the person owns: %+v", cmd)
+		}
+		if got, _ := st.GetQuestion("p", q.ID); got.Status != "open" || len(answerCommands(t, st, "k1")) != 0 {
+			t.Fatal("the master's refused answer closed the question or queued a note")
+		}
 		_, cmd, err := st.Answer("p", q.ID, "no", OperatorScope{})
 		if err != nil || !strings.HasPrefix(cmd.TurnID, AnswerPrefix+answerFromPerson+"-") || cmd.Issuer != "" || cmd.WantsMission {
 			t.Fatalf("operator answer = %+v %v", cmd, err)
@@ -269,6 +289,9 @@ func TestRiskyQuestionBelongsToThePersonWhenTheMasterCannotTakeIt(t *testing.T) 
 	t.Run("paused master", func(t *testing.T) {
 		st, q := setup(t)
 		setState(t, st, "m", StatePaused)
+		if _, _, err := st.AnswerAsMaster(caller("m"), "k1", q.ID, "yes"); !errors.Is(err, ErrNotAnswerer) {
+			t.Fatalf("a paused master = %v", err)
+		}
 		answered(t, st, q)
 	})
 	t.Run("master at its check-in limit", func(t *testing.T) {
@@ -295,12 +318,33 @@ func TestRiskyQuestionBelongsToThePersonWhenTheMasterCannotTakeIt(t *testing.T) 
 		if _, err := st.db.Exec(`UPDATE coder_session_questions SET last_failed_at = ? WHERE id = ?`, st.now().UTC().Format(timeLayout), q.ID); err != nil {
 			t.Fatal(err)
 		}
+		if _, _, err := st.AnswerAsMaster(caller("m"), "k1", q.ID, "yes"); !errors.Is(err, ErrNotAnswerer) {
+			t.Fatalf("a master whose note failed lately = %v", err)
+		}
 		answered(t, st, q)
 	})
 }
 
+// An item whose question cannot be read is shown to the person, not dropped.
+func TestUnreadableQuestionIsStillShown(t *testing.T) {
+	st, _ := soloStore(t)
+	if _, err := st.ParkOwn(caller("solo"), ParkRequest{Class: "risky_action", Question: "q"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`ALTER TABLE coder_session_questions RENAME COLUMN answered_at TO answered_at_x`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetQuestion("p", 1); err == nil {
+		t.Fatal("the question is readable; the test proves nothing")
+	}
+	if len(openItems(t, st)) != 1 {
+		t.Fatal("an item with an unreadable question was dropped")
+	}
+}
+
 // A hard question and its item are one write: when the item cannot be written the question is not
-// left behind, and concurrent parks of a session with no master cannot pass the hourly limit.
+// left behind, and concurrent parks (pool concurrency: several stores over one connection pool)
+// cannot pass the hourly limit.
 func TestHardParkIsOneWriteAndTheLimitIsAtomic(t *testing.T) {
 	st, _ := soloStore(t)
 	if _, err := st.db.Exec(`CREATE TRIGGER fail_item BEFORE INSERT ON coder_session_person_items BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {

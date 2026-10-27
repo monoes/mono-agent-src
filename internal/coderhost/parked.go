@@ -225,7 +225,7 @@ func (s *Store) park(profileID, conversationID, class, question string, options 
 	}
 	id, _ := res.LastInsertId()
 	if HardClass(class) { // the person may have to answer it (now or after a role change): they are told, and nothing times it out
-		if own && !has {
+		if own { // any hard park of a session's own model: what "needs you" shows cannot be inflated
 			since := s.now().Add(-recordWindow).UTC().Format(timeLayout)
 			var n int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND created_at >= ?`,
@@ -379,6 +379,11 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 			return q, Command{}, err
 		} else if !ok || m.State == StateStopped {
 			return q, Command{}, ErrMasterStopped
+		}
+		// A risky question the person is told about (personOwns) is never answered by the master: the
+		// same predicate decides both, so a paused master's held note or a recent failure cannot slip through.
+		if HardClass(q.Class) && s.masterBlocked(q) {
+			return q, Command{}, fmt.Errorf("%w (the question is the person's now: the master cannot take it)", ErrNotAnswerer)
 		}
 	}
 	by := scope.Role()

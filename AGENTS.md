@@ -2667,13 +2667,13 @@ monoagentcli --profile work coder host stop                        # the host on
   master is gone or stopped: the answerer is derived with `hasLiveMaster`, everywhere) has nobody to ask but the
   person, so `park` is refused for it (`ErrNoMasterDecide`; MCP `no_master`: "no master to answer: decide and call
   record, or stop") for every class but `risky_action` and `missing_credential`, and nothing is written. Those two
-  are parked, for the person, and wait with NO timeout (at most 3 an hour per session without a live master,
+  are parked, for the person, and wait with NO timeout (at most 3 an hour per session, whatever its master,
   `ErrPersonItemRate`, counted in the same write that parks the question): no default is ever taken (`Decide`
   clamps the fallback to park, and `ApplyDefaults` skips any question that is a person item). With NO live master
   nothing but the person answers such a question. With a live master the master (a model) can answer it where
   the policy names the master (`ask-on-risk`), but the question is the person's too, and counts in "needs you",
   whenever the master cannot take it: it is paused, it is at its check-in limit, or the notes carrying its answer
-  keep failing (the operator may answer it then, the master still cannot). The person sees such a question in `sessions questions list` (answered
+  keep failing (the operator may answer it then and the master cannot: `Answer` uses the same predicate, `masterBlocked`, for both). The person sees such a question in `sessions questions list` (answered
   with `questions answer`), as the session's `waiting_user` state, and in `summary --section hil` as `coder_items`
   (a count per kind) and `coder_item_ids` (counted in "needs you"; oldest first; the app raises a desktop notification when an
   id appears that was not there). Every hard-class parked question gets a row in `coder_session_person_items`

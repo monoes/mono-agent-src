@@ -96,12 +96,12 @@ func TestParkOwnBoundsComeFromTheStore(t *testing.T) {
 	if len(q.Question) != maxQuestionText || len(q.Options) != maxOptions || len(q.Options[0]) != maxOptionText || len(q.Default) != maxQuestionText {
 		t.Fatalf("fields were not capped: %d %d %d %d", len(q.Question), len(q.Options), len(q.Options[0]), len(q.Default))
 	}
-	for i := 1; i < MaxOpenQuestions; i++ {
-		if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "q"}); err != nil {
+	for i := 1; i < MaxOpenQuestions; i++ { // not risky: risky parks have their own hourly limit
+		if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "ambiguity", Question: "q"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "one too many"}); !errors.Is(err, ErrTooManyOpen) {
+	if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "ambiguity", Question: "one too many"}); !errors.Is(err, ErrTooManyOpen) {
 		t.Fatalf("over the cap = %v", err)
 	}
 	// another session's allowance is its own

@@ -21,12 +21,12 @@ import (
 // Kinds of person item.
 const ItemParkedQuestion = "parked_question"
 
-// MaxPersonItemsPerHour is how many hard parks a session with no master may make an hour, so a model
-// cannot inflate what "needs you" shows.
+// MaxPersonItemsPerHour is how many hard parks a session's own model may make an hour, whatever its
+// master, so a model cannot inflate what "needs you" shows.
 const MaxPersonItemsPerHour = 3
 
 // ErrPersonItemRate: the session has parked as many hard questions in the last hour as it may.
-var ErrPersonItemRate = fmt.Errorf("%w: a session with no master may park at most %d risky questions an hour", ErrLimit, MaxPersonItemsPerHour)
+var ErrPersonItemRate = fmt.Errorf("%w: a session may park at most %d risky questions an hour", ErrLimit, MaxPersonItemsPerHour)
 
 type itemKind struct {
 	// open lists this kind's items of a profile that the person has to act on now.
@@ -124,7 +124,10 @@ func (s *Store) openParkedQuestionItems(profileID string) ([]PersonItem, error) 
 	var out []PersonItem
 	for _, it := range cand {
 		q, err := s.GetQuestion(profileID, it.RefID)
-		if err != nil {
+		if err != nil { // unreadable: show it, the safe direction
+			if !s.sessionStopped(profileID, it.ConversationID) {
+				out = append(out, it)
+			}
 			continue
 		}
 		if s.personOwns(q) && !s.sessionStopped(profileID, it.ConversationID) {
