@@ -1967,6 +1967,18 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   carve returns to the lead. The share is held only for children that exist or are reserved (a marked task holds nothing), and the statement that reserves checks it. A lead's own audit rows are bounded per kind (a flood of one kind, say marks or raises, can push out only earlier rows of that kind, never a raise by a flood of marks or lowers); identical repeated marks of one task collapse and a change of size or budget is a row of its own; changes of the default budget are recorded; the operator's and the host's rows are not rotated. A child's state change, its audit row and the lowering of its cap are one transaction, so a failure leaves the row live to be ended again. Migration 139 was edited in place before merge: only fresh databases, or ones at the master head, are supported (a development database that applied an earlier 139 must be recreated). Known gap, not new: an agent can link a task session to any conversation of its profile, so a worker that holds no binding could become the lead of a session of its own; the binding check does not close that, and a mission lead that is itself a child (or a worker) must be refused by the spawn path (depth rule, next phase). The files read `tasks` and `task_sessions` and write neither; a static test lists the
   tables they may name. Not yet built or checked: the spawn, the child's token, the cascade on stop and the host
   reconciler (later phases of the plan).
+- **Mission child sessions: the host half (nothing calls it yet).** `SpawnForTask` takes the lead's `LeadScope` (see above), reserves the row
+  before it creates anything, and then uses the same spawn as a master's child, so the depth, `max_children`, rate, access
+  and budget limits are the same. It never takes an access level, a folder or a budget from its caller or from task text: the
+  child's access is the lead's capped at `workspace` (never `full`), the folder the lead's, the carve the one reserved. The
+  brief is forwarded unread as a `master-` turn: host-made, so it carries no mission confirmation, no plan approval and no
+  close. A lead that is a child (the tree has two levels) is refused before anything is reserved. A failed spawn deletes the
+  conversation it made and releases the reservation. The host pass reads `tasks` and writes no task; it queues only host
+  stops and pauses (no issuer, a fixed turn id) for the descendants of a lead whose mission ended or paused, ends a row when
+  its turn ended and returns the carve in the same transaction, and stops (never deletes) a crash orphan. A pause is weaker
+  than halting in-turn workers: a turn that is already running finishes under its cap. The files are covered by the same
+  static scan (no approval writer named, only the mission tables written). Not yet built: the launcher's per-child task
+  token, the conductor calling `SpawnForTask`, the lead's tools.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

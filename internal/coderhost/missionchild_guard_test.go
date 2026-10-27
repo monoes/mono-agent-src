@@ -13,7 +13,7 @@ import (
 // sources they name no approval writer, but they may also write their own tables. They write only
 // coder_mission_* (and, once a child's turn has ended, lower coder_sessions.budget_usd), and they only
 // read tasks, task_sessions and the sessions' questions. A change that needs more has to change this list
-// on purpose. The files take no import from the repository but internal/tasks (its status names).
+// on purpose. The files take no import from the repository but internal/tasks (its status names), and children_task.go internal/ai.
 
 var missionChildFiles = []string{"missionchild*.go", "children_task.go"}
 
@@ -21,7 +21,7 @@ var missionWritable = map[string]bool{"coder_mission_policy": true, "coder_missi
 
 var missionReadable = map[string]bool{
 	"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true,
-	"coder_sessions": true, "coder_session_questions": true, "tasks": true, "task_sessions": true,
+	"coder_sessions": true, "coder_session_questions": true, "coder_session_commands": true, "tasks": true, "task_sessions": true,
 }
 
 var (
@@ -87,8 +87,9 @@ func TestMissionChildSourcesNameNoApprovalWriterAndTouchOnlyTheirTables(t *testi
 		inChain := map[*ast.BinaryExpr]bool{}
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
-			if strings.Contains(p, "mono-agent/") && p != "github.com/monoes/mono-agent/internal/tasks" {
-				t.Errorf("%s imports %s: these files use no repository package but internal/tasks", file, p)
+			allowed := p == "github.com/monoes/mono-agent/internal/tasks" || (file == "children_task.go" && p == "github.com/monoes/mono-agent/internal/ai") // to delete a conversation it created
+			if strings.Contains(p, "mono-agent/") && !allowed {
+				t.Errorf("%s imports %s: these files use no repository package but internal/tasks (children_task.go also internal/ai)", file, p)
 			}
 		}
 		report := func(text string) {

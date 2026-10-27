@@ -1917,6 +1917,26 @@ task to a second child. The share is held only for children that exist (their se
 stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. Migration 139 was edited in place before it merged: development databases that applied an earlier 139 must be recreated. Deleting a conversation or a
 sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
 
+**Mission child sessions: the host half (the conductor does not spawn yet).** `SpawnForTask` (`coderhost/children_task.go`)
+reserves a marked task's row first, then runs the ordinary child spawn, so every child limit (depth, `max_children`, the
+spawn rate, the access cap, the folder, the carve out of the lead's budget) applies unchanged. The access argument is never
+passed (the child gets the lead's access capped at `workspace`, never `full`), the folder is the lead's, and the brief is
+forwarded as the child's first message and never read: the caller seals it. That message is a `master-` turn, which is
+host-made and cannot carry a mission confirmation or a plan approval. A lead that is itself a child, or a caller holding a
+task binding, cannot spawn. When a limit is reached nothing is reserved and the error wraps `ErrChildrenFull`, so the
+conductor leaves the task waiting; any other failure after the reservation deletes the conversation it created and ends the
+attempt as failed. The host's pass (`coderhost/missionchild.go`, every 5 s from `Tick`) only observes: it ends a child's
+row when its turn ended (`done` when the task is in Review or Done, `budget`, else `no_finish`), when a person stopped it,
+when its first message never ran or when its conversation is gone, and each end returns the unspent carve to the lead; it
+stops the children of a stopped lead or of a stopped, closed or archived mission and ends their rows once their turns have
+ended; it pauses the children of a paused mission (a turn that is running finishes under its cap, which is weaker than
+halting in-turn workers) and never resumes them by itself; it gives back reservations whose spawn died and stops what they
+left; and it stops, logging it, a crash orphan: a child of a lead with a mission policy, in no row, that never ran a turn and
+has nothing queued, idle for ten minutes (stop only, nothing is deleted; a child the lead spawned with no first message and
+did not use for ten minutes would be stopped too). It claims, finishes, verifies and approves nothing and writes no task. The
+check-in digest's mission line gains three numbers (task child sessions running, queued, failed), and a change in them counts
+as a change. The conductor does not call `SpawnForTask` yet, and the launcher does not yet mint the child a task-bound token.
+
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
 operator closes tasks to Done, or the session's `auto_close_verified` does when the

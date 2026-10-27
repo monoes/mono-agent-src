@@ -142,23 +142,24 @@ type MarkOptions struct {
 
 // ChildRow is one task marked to run in its own session.
 type ChildRow struct {
-	ID                  int64   `json:"id"`
-	ProfileID           string  `json:"profileId"`
-	SessionID           int64   `json:"sessionId"`
-	TaskID              int64   `json:"taskId"`
-	LeadConversationID  string  `json:"leadConversationId"`
-	ChildConversationID string  `json:"childConversationId,omitempty"`
-	Origin              string  `json:"origin"`
-	Size                string  `json:"size,omitempty"`
-	BudgetUSD           float64 `json:"budgetUsd"`
-	ReservedUSD         float64 `json:"reservedUsd"` // the carve held while the task is spawning
-	State               string  `json:"state"`
-	EndReason           string  `json:"endReason,omitempty"`
-	Attempts            int     `json:"attempts"`
-	CreatedAt           string  `json:"createdAt"`
-	UpdatedAt           string  `json:"updatedAt"`
-	SpawnedAt           string  `json:"spawnedAt,omitempty"`
-	EndedAt             string  `json:"endedAt,omitempty"`
+	ID                    int64   `json:"id"`
+	ProfileID             string  `json:"profileId"`
+	SessionID             int64   `json:"sessionId"`
+	TaskID                int64   `json:"taskId"`
+	LeadConversationID    string  `json:"leadConversationId"`
+	ChildConversationID   string  `json:"childConversationId,omitempty"`
+	PendingConversationID string  `json:"pendingConversationId,omitempty"` // created by a spawn that has not linked it yet
+	Origin                string  `json:"origin"`
+	Size                  string  `json:"size,omitempty"`
+	BudgetUSD             float64 `json:"budgetUsd"`
+	ReservedUSD           float64 `json:"reservedUsd"` // the carve held while the task is spawning
+	State                 string  `json:"state"`
+	EndReason             string  `json:"endReason,omitempty"`
+	Attempts              int     `json:"attempts"`
+	CreatedAt             string  `json:"createdAt"`
+	UpdatedAt             string  `json:"updatedAt"`
+	SpawnedAt             string  `json:"spawnedAt,omitempty"`
+	EndedAt               string  `json:"endedAt,omitempty"`
 }
 
 // MissionEvent is one audit row.
@@ -521,11 +522,11 @@ func (s *Store) taskMarkable(profileID string, sessionID, taskID int64) error {
 	return nil
 }
 
-const childColumns = `id, profile_id, session_id, task_id, lead_conversation_id, child_conversation_id, origin, size, budget_usd, reserved_usd, state, end_reason, attempts, created_at, updated_at, spawned_at, ended_at`
+const childColumns = `id, profile_id, session_id, task_id, lead_conversation_id, child_conversation_id, pending_conversation_id, origin, size, budget_usd, reserved_usd, state, end_reason, attempts, created_at, updated_at, spawned_at, ended_at`
 
 func scanChild(r interface{ Scan(...any) error }) (ChildRow, error) {
 	var c ChildRow
-	err := r.Scan(&c.ID, &c.ProfileID, &c.SessionID, &c.TaskID, &c.LeadConversationID, &c.ChildConversationID, &c.Origin, &c.Size, &c.BudgetUSD, &c.ReservedUSD, &c.State, &c.EndReason, &c.Attempts, &c.CreatedAt, &c.UpdatedAt, &c.SpawnedAt, &c.EndedAt)
+	err := r.Scan(&c.ID, &c.ProfileID, &c.SessionID, &c.TaskID, &c.LeadConversationID, &c.ChildConversationID, &c.PendingConversationID, &c.Origin, &c.Size, &c.BudgetUSD, &c.ReservedUSD, &c.State, &c.EndReason, &c.Attempts, &c.CreatedAt, &c.UpdatedAt, &c.SpawnedAt, &c.EndedAt)
 	return c, err
 }
 
@@ -672,7 +673,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 		return ChildRow{}, err
 	}
 	if !room.OK {
-		return ChildRow{}, fmt.Errorf("%w: %s", ErrLimit, room.Reason)
+		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, room.Reason)
 	}
 	now := s.stamp()
 	if !have { // mode all
@@ -695,7 +696,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 		return ChildRow{}, err
 	}
 	if !won {
-		return ChildRow{}, fmt.Errorf("%w: the task is already starting, or the child limit or the budget share was just reached", ErrLimit)
+		return ChildRow{}, fmt.Errorf("%w: %w: the task is already starting, or the child limit or the budget share was just reached", ErrLimit, ErrChildrenFull)
 	}
 	if err := addMissionEvent(tx, profileID, sessionID, taskID, "spawn", "lead:"+l.Caller.ConversationID, fmt.Sprintf("reserved $%.2f", carve), now); err != nil {
 		return ChildRow{}, err
