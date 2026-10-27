@@ -20,7 +20,7 @@ func TestEngineOutlivesTheRequestThatStartedIt(t *testing.T) {
 		ProfileID: "default", ID: "wf-twice", Name: "twice", IsActive: true,
 		Nodes: []workflow.WorkflowNode{{ID: "t", Type: "trigger.manual", Name: "Trigger"}},
 	}
-	if err := s.rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := s.rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {

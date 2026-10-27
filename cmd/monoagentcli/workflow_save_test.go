@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -149,10 +150,8 @@ func TestWorkflowSaveRejects(t *testing.T) {
 // profile counts as "default"), with node counts, and [] when empty.
 func TestWorkflowListProfileAndNodeCount(t *testing.T) {
 	home, cfg := persistTestEnv(t)
-	if out := strings.TrimSpace(runWorkflowSubcmd(t, cfg, "list")); out != "[]" {
-		t.Fatalf("empty list = %q", out)
-	}
-	saved := saveDoc(t, cfg, editorDoc)
+	other := otherProfileCfg(t, cfg) // the profile exists before the files are taken in
+	// Files older versions left (they exist before the workflow store is first used).
 	files, err := workflow.NewWorkflowFileStore(filepath.Join(home, ".monoagent", "workflows"))
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +164,7 @@ func TestWorkflowListProfileAndNodeCount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	saved := saveDoc(t, cfg, editorDoc)
 
 	var rows []struct {
 		ID        string `json:"id"`
@@ -181,7 +181,6 @@ func TestWorkflowListProfileAndNodeCount(t *testing.T) {
 	if len(rows) != 2 || counts[saved.ID] != 2 || counts["unowned"] != 1 {
 		t.Fatalf("list = %s", out)
 	}
-	other := otherProfileCfg(t, cfg)
 	out = runWorkflowSubcmd(t, other, "list")
 	if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 1 || rows[0].ID != "theirs" {
 		t.Fatalf("other profile's list = %s", out)
@@ -206,5 +205,32 @@ func TestWorkflowProfileScopedLookups(t *testing.T) {
 	}
 	if _, err := runWorkflowCmdIn(t, cfg, "", "get", saved.ID); exitCode(err) != 2 {
 		t.Errorf("get after delete: exit %d, want 2", exitCode(err))
+	}
+}
+
+// `workflow deactivate` under an unfinished change switches the database off and says the file was
+// left, in the JSON as well as in the text.
+func TestWorkflowDeactivateReportsARowsOnlySwitch(t *testing.T) {
+	_, cfg := persistTestEnv(t)
+	saved := saveDoc(t, cfg, editorDoc)
+	db, err := storage.NewDatabase(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES (?, 'save', 'unresolved', 0, ?)`, saved.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	var out struct {
+		Active bool   `json:"is_active"`
+		Note   string `json:"note"`
+		Left   bool   `json:"file_left_as_is"`
+	}
+	if err := json.Unmarshal([]byte(runWorkflowSubcmd(t, cfg, "deactivate", saved.ID)), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Active || !out.Left || !strings.Contains(out.Note, "the file was left as it is") {
+		t.Fatalf("%+v", out)
 	}
 }

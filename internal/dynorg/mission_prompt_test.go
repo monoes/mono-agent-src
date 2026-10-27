@@ -30,7 +30,7 @@ func TestMissionPromptOnlyForCodingAccessAndConfirmedMission(t *testing.T) {
 		}
 	}
 	p := MissionPrompt(&MissionConfig{Store: st, Access: "coding", Confirmed: true})
-	for _, must := range []string{"UNDERSTAND", "PLAN", "REVIEW", "WAIT FOR APPROVAL", "EXECUTE", "state draft", "must NOT execute", "ask_user", "mission_status", "2 review rounds", "Integration check", "mission_next", "mission_verify", "mission_finish", "evidence"} {
+	for _, must := range []string{"UNDERSTAND", "PLAN", "REVIEW", "WAIT FOR APPROVAL", "EXECUTE", "state draft", "must NOT execute", "ask_user", "mission_status", "2 review rounds", "Integration check", "mission_next", "mission_verify", "mission_finish", "evidence", "ready_to_close", "only the operator does"} {
 		if !strings.Contains(p, must) {
 			t.Errorf("prompt lacks %q", must)
 		}

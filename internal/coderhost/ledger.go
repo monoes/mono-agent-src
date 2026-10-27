@@ -70,10 +70,9 @@ const ledgerCols = `id, profile_id, conversation_id, class, question, choice, al
 // Alternatives, Reason, Reversible and MadeBy; the text fields are cut to their
 // bounds. Recording is bookkeeping: it does not carry the decision out.
 //
-// TRUST: Class, Reversible and MadeBy come from the caller. Before any model-facing
-// tool can write here, the producer must take the class from a host- or
-// master-validated source; a model that labels a risky action "ambiguity" would
-// otherwise have it recorded (and, through Decide, settled) as a low-risk one.
+// TRUST: Class, Reversible and MadeBy come from the caller. A model-facing caller goes through
+// RecordOwn (producer.go), which fixes MadeBy, and Record itself refuses a hard class as the
+// model's decision, so a model cannot have a risky action or a credential gap recorded as its own.
 func (s *Store) Record(e LedgerEntry) (LedgerEntry, error) {
 	if e.ProfileID == "" || e.ConversationID == "" || len(e.ConversationID) > maxConversationLen {
 		return e, errors.New("coder host: a decision needs a profile and a conversation")
@@ -86,6 +85,9 @@ func (s *Store) Record(e LedgerEntry) (LedgerEntry, error) {
 	}
 	if e.Choice == "" {
 		return e, errors.New("coder host: a decision needs a choice")
+	}
+	if e.MadeBy == WhoModel && HardClass(e.Class) {
+		return e, ErrPolicyReserves
 	}
 	e.Question, e.Choice, e.Reason = trimTo(e.Question, maxDecisionText), trimTo(e.Choice, maxDecisionText), trimTo(e.Reason, maxDecisionText)
 	alts := []string{}
@@ -116,9 +118,15 @@ func (s *Store) Record(e LedgerEntry) (LedgerEntry, error) {
 	// Rows rotate out so one chatty session cannot grow the table without bound. The row just
 	// written stays; then active reversible rows (the ones a person may still want to revert)
 	// are kept in preference to active irreversible ones, and those to reverted ones; within
-	// a kind the newest stay.
-	if _, err := tx.Exec(`DELETE FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND id NOT IN
-		(SELECT id FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ?
+	// a kind the newest stay. A model-made row rotates only among the model's own rows, so a
+	// model that writes rows cannot push a master's, a default's or an operator's rows out of the
+	// audit trail (its own rows are then capped by MaxDecisionsPerChat on their own).
+	scope := ""
+	if e.MadeBy == WhoModel {
+		scope = ` AND made_by = 'model'`
+	}
+	if _, err := tx.Exec(`DELETE FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ?`+scope+` AND id NOT IN
+		(SELECT id FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ?`+scope+`
 			ORDER BY (id = ?) DESC, (CASE WHEN status != 'active' THEN 0 WHEN reversible = 0 THEN 1 ELSE 2 END) DESC, id DESC LIMIT ?)`,
 		e.ProfileID, e.ConversationID, e.ProfileID, e.ConversationID, e.ID, MaxDecisionsPerChat); err != nil {
 		return e, err

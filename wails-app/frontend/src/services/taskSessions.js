@@ -25,6 +25,8 @@ export const sessionsApi = {
   pause:   (id) => run(() => GoApp.TaskSessionPause(id)),
   resume:  (id) => run(() => GoApp.TaskSessionResume(id)),
   stop:    (id) => run(() => GoApp.TaskSessionStop(id)),
+  // The operator closes a running or paused mission the lead proposed closing; note is optional.
+  close:   (id, note = '') => run(() => GoApp.TaskSessionClose(id, note)),
   archive: (id) => run(() => GoApp.TaskSessionArchive(id)),
   // budget in dollars; 0 for none.
   budget:  (id, usd) => run(() => GoApp.TaskSessionBudget(id, JSON.stringify({ usd }))),

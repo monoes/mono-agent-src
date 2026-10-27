@@ -34,6 +34,8 @@ var derivedScope = []scopeEntry{
 	{Table: "webhook_deliveries", Where: `workflow_id IN ` + wfOfProfile},
 	{Table: "workflow_static_data", Where: `workflow_id IN ` + wfOfProfile},
 	{Table: "workflow_seen_keys", Where: `workflow_id IN ` + wfOfProfile},
+	{Table: "workflow_publications", Where: `workflow_id IN ` + wfOfProfile + ` OR profile_id = @p`},
+	{Table: "workflow_file_state", Where: `workflow_id IN ` + wfOfProfile},
 	{Table: "wait_replies", Where: `workflow_id IN ` + wfOfProfile + ` OR execution_id IN ` + execOfProfile},
 	{Table: "subworkflow_runs", Where: `parent_execution_id IN ` + execOfProfile + ` OR child_execution_id IN ` + execOfProfile},
 	{Table: "workflow_daily_counters", Where: `profile_key = @p`},

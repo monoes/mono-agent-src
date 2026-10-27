@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
@@ -326,19 +328,27 @@ func TestAHostInsideASessionTurnStartsTurnsWithoutABoundTokenAndTinyCapsAreRefus
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	var logs []string
-	revoked := 0
+	// The launcher's wait goroutine also calls revoke when the fake child ends, so the
+	// counters are read and written from more than one goroutine.
+	var (
+		mu      sync.Mutex
+		logs    []string
+		revoked atomic.Int32
+	)
 	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"),
-		logf:   func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) },
+		logf:   func(f string, a ...any) { mu.Lock(); logs = append(logs, fmt.Sprintf(f, a...)); mu.Unlock() },
 		bind:   func(string, string, string, int, string) error { return coderhost.ErrHostInsideTurn },
-		revoke: func(string, string) { revoked++ }}
+		revoke: func(string, string) { revoked.Add(1) }}
 	turn, err := l.Start("p", "c1", "t1", "hi", nil, "")
 	if err != nil {
 		t.Fatalf("the turn must still run: %v", err)
 	}
 	defer turn.Stop()
-	if revoked != 1 || len(logs) != 1 || !strings.Contains(logs[0], "WARNING") {
-		t.Fatalf("revoked %d, logs %v", revoked, logs)
+	mu.Lock()
+	got := append([]string(nil), logs...)
+	mu.Unlock()
+	if revoked.Load() < 1 || len(got) != 1 || !strings.Contains(got[0], "WARNING") {
+		t.Fatalf("revoked %d, logs %v", revoked.Load(), got)
 	}
 	if _, err := l.StartCapped("p", "c1", "t2", "hi", nil, "", 5e-7); err == nil || !strings.Contains(err.Error(), "used up") {
 		t.Fatalf("a 0.0000005 cap: %v", err)

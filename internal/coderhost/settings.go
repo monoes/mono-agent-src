@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -215,8 +216,11 @@ func (s *Store) GetSettings(profileID, conversationID string) (Settings, error) 
 	def := DefaultSettings()
 	var raw string
 	err := s.db.QueryRow(`SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
-	if err != nil || raw == "" || raw == "{}" {
-		return def, nil //nolint:nilerr // no row: the defaults
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (raw == "" || raw == "{}")) {
+		return def, nil // no row, or nothing stored: the defaults
+	}
+	if err != nil {
+		return def, fmt.Errorf("coder host: reading the settings of %s: %w", conversationID, err) // a database error is not "no settings"
 	}
 	out, _, err := def.Apply([]byte(raw))
 	if err != nil {

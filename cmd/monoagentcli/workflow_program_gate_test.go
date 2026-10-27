@@ -43,7 +43,7 @@ func TestAWorkflowTheChatBuiltRunsNoCommandUntilApproved(t *testing.T) {
 	trig := add("trigger.manual", "Start")
 	step := add("system.execute_command", "Touch", "--config", string(cmdCfg))
 	runWorkflowSubcmd(t, cfg, "connect", created.ID, "--from", trig, "--to", step)
-	runWorkflowSubcmd(t, cfg, "activate", created.ID)
+	activateUnapprovedForTest(t, cfg, created.ID)
 	t.Setenv(browserctl.EnvAICaller, "")
 
 	cfg.JSONOutput = false
@@ -94,7 +94,7 @@ func TestAWorkflowTheChatBuiltWritesNoHiddenHomeFileUntilApproved(t *testing.T) 
 	step := add("data.write_binary_file", "Write", "--config", string(stepCfg))
 	runWorkflowSubcmd(t, cfg, "connect", created.ID, "--from", trig, "--to", set)
 	runWorkflowSubcmd(t, cfg, "connect", created.ID, "--from", set, "--to", step)
-	runWorkflowSubcmd(t, cfg, "activate", created.ID)
+	activateUnapprovedForTest(t, cfg, created.ID)
 	t.Setenv(browserctl.EnvAICaller, "")
 
 	cfg.JSONOutput = false
@@ -150,7 +150,7 @@ func TestAWorkflowAnUnapprovedOneCallsKeepsToItsFileRules(t *testing.T) {
 	t.Setenv(browserctl.EnvAICaller, "chat") // the chat builds and activates the caller
 	parent := build("calls-rc", [2]string{"trigger.manual", `{}`},
 		[2]string{"core.execute_workflow", `{"workflowId":"` + child + `"}`})
-	runWorkflowSubcmd(t, cfg, "activate", parent)
+	activateUnapprovedForTest(t, cfg, parent)
 	t.Setenv(browserctl.EnvAICaller, "")
 
 	cfg.JSONOutput = false

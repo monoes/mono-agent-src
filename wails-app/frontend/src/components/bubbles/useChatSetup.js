@@ -59,8 +59,10 @@ export function useChatSetup(active, setup, onChange) {
   // for the first it does.
   useEffect(() => {
     if (!active || !settled) return
-    if (setup.access !== access) onChange({ access })
-    if (options.length > 0 && !options.some(r => r.id === setup.runtime)) onChange({ runtime: options[0].id, model: '', effort: '' })
+    // Applied only if the draft's level is still the one this render saw: this effect runs
+    // after the commit, and a level the user picked in between must not be put back.
+    if (setup.access !== access) onChange(cur => (cur.access === setup.access ? { access } : {}))
+    if (options.length > 0 && !options.some(r => r.id === setup.runtime)) onChange(cur => (cur.runtime === setup.runtime ? { runtime: options[0].id, model: '', effort: '' } : {}))
     // options is rebuilt every render; optionKey is its identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, settled, access, optionKey, setup.runtime, setup.access, onChange])

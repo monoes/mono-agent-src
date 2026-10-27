@@ -17,7 +17,7 @@ func TestRunRouteInputCantPlantTheEnginesMarks(t *testing.T) {
 	tok := testToken(t, s, "default")
 	wf := &workflow.Workflow{ProfileID: "default", ID: "wf-in", Name: "in", IsActive: true,
 		Nodes: []workflow.WorkflowNode{{ID: "t", Type: "trigger.manual", Name: "Start"}}}
-	if err := s.rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := s.rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatal(err)
 	}
 	r := doReq(t, s, "POST", "/profiles/default/workflows/wf-in/run", tok, []byte(

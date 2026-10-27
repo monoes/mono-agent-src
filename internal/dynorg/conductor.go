@@ -66,7 +66,9 @@ type Conductor struct {
 	browser *lease
 	wg      sync.WaitGroup
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// closeMu serialises mission_finish proposals (mission_close.go).
+	closeMu sync.Mutex
 	workers map[string]*worker
 	order   []string
 	spawned int

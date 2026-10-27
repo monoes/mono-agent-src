@@ -63,7 +63,7 @@ func saveWorkflow(t *testing.T, s *Server, id, name string, fields map[string]in
 			TargetNodeID: "s", TargetHandle: "main",
 		}},
 	}
-	if err := rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatalf("save workflow: %v", err)
 	}
 	return wf

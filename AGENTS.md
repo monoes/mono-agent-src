@@ -13,6 +13,7 @@ from nodes (triggers, HTTP, databases, AI, comms, services), run them on
 schedule/webhook/manual, and manage everything from the CLI or an optional
 desktop GUI (`wails-app/`).
 
+- A workflow's JSON file and database rows are published together (`workflow.HybridWorkflowStore.Publish`: intent row, file, then rows plus version; recovery rolls back an unfinished change). A hand edit of an existing workflow's file is imported as a new version and removes the workflow's earlier approvals. A file with no stored copy that appears after the store was first used is neither imported, served nor listed: `doctor` shows it (profile, node types, sha) and `doctor fix workflows.publications.adopt:<id>:<profile>:<sha>` adopts it inactive; create workflows with `workflow import`/`save`/templates, not by writing files. `doctor` also lists unfinished or unresolved changes.
 - All state lives in `~/.monoagent/` (SQLite + JSON workflow files). Every
   command works from any directory — there is no per-project setup. One
   exception: `monoagentcli init` also copies skill files into
@@ -1717,7 +1718,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -1785,7 +1786,8 @@ TEXT`, then `task add TITLE --session N --acceptance TEXT [--depends-on IDS]
 [--parent ID] [--kind task|epic|check]` (acceptance criteria are required). A
 draft's tasks sit in the inbox column and nothing hands them out until the user
 runs `task session approve N`, which moves them to Ready and sets the session
-running; an agent cannot approve its own plan. In a running session an agent uses
+running; an agent cannot approve its own plan. An agent may link a session (`--conversation`)
+only to its own chat, which it proves with its coder-session token; without one it links none. In a running session an agent uses
 `task next --session N [--claim --as NAME]` (a Ready task whose dependencies are
 all done, never a draft's, a paused session's or an epic), `claim`, `comment`,
 `finish` and `release` by task id, adds follow-ups (Ready at once; the session's
@@ -1800,7 +1802,7 @@ to the task as its worker never verifies it, and the agent identity of the last 
 `agent:<client>` name without the `#<4 hex>` suffix) cannot; an agent verifies only while the
 session runs. The identity check is a name check, so an unbound agent that picks another name
 passes it; workers the conductor starts are bound. Only
-the user approves, resumes, sets the budget, caps, access level and auto-close
+the user approves, resumes, closes (`session close`), sets the budget, caps, access level and auto-close
 (`session budget`), archives (`session archive`) and removes dependencies
 (`undepend`); an agent may pause and stop a session (stop releases every claim).
 Setting `MONOAGENT_TASK_SESSION=N` binds a process to session N: its agent may act in
@@ -1847,7 +1849,13 @@ reads) does the next closing step each call: it lists tasks that are not done or
 (blocked ones with their notes); with everything settled it adds the Integration check
 task if the plan has none; when that is settled it lists writer branches still to
 `org_merge` (one at a time); then it attaches the final report to the integration task
-(artifact `final-report`), emits `mission.report` and closes the session as done. Each
+(artifact `final-report`, written by the operator's process; agents cannot attach that
+reference) and emits `mission.report` (with `closeProposed`), once per integration verdict:
+it only PROPOSES the close (`ready_to_close`), the session stays running and the operator
+closes it (`session close`, which also releases the session's claims, or the Close button).
+A second call on an unchanged state writes nothing more; work reopened after a proposal
+gets a new report and card when its integration check settles again. A `close_proposed`
+session event, written after the card, records that the card went out. Each
 mission worker's exec is capped by the session's remaining `budget_usd`.
 Worker and verifier briefs fence foreign text in a per-brief random delimiter
 (`<<<DATA-xxxxxxxx` ... `DATA-xxxxxxxx>>>`). One task gets at most 6 workers per turn and 12
@@ -1884,9 +1892,10 @@ message, and bounded by the session's `max_tasks` and budget.
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
 operator closes tasks to Done, or the session's `auto_close_verified` does when the
-operator turned it on. The conductor closes the SESSION only through the one guarded
-operator close (`mission_finish`): every task done or verified, none blocked, no writer
-branch left to merge, and the integration check done or verified. Writers run in
+operator turned it on. Only the operator closes the SESSION (`session close`, or the Close button, at any time).
+`mission_finish` proposes the close when every task is done or verified, none blocked, no
+writer branch is left to merge, and the integration check is done or verified; it never
+changes the session's state, and a mission the operator never closes stays running. Writers run in
 parallel only with `orgWriters` set to `isolated` (the operator's setting); `shared`
 takes turns.
 
@@ -2548,8 +2557,21 @@ monoagentcli --profile work coder host stop                        # the host on
   not a setting is refused): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`, `silent_minutes`,
   `active_hours` (`HH:MM-HH:MM`, local time), `checkin_limit`, `autonomy_preset`, `autonomy_classes`,
   `max_children`, `max_concurrent`, `max_depth`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
-  are operator-only and the values each allows. `max_concurrent` is stored,
-  validated and shown; nothing acts on it yet. The autonomy settings are acted on (below). `max_children` and `max_depth` hold when a child is linked.
+  are operator-only and the values each allows. `max_concurrent` (1 to 10,
+  default 2) is the most children of one master that run a turn at once: a send to a further child, from a person
+  or a master, stays pending and starts when a slot frees. Sends keep their order within a chat; across chats
+  the freed slot goes to the oldest waiting send of that master (a master's send that its paused or stopped
+  master holds does not reserve one). Only turns this host started (or
+  adopted when it restarted) are counted. A send held by the cap can expire silently, like any other waiting send (15 minutes for a master's
+  or an `answer-m-` note, 6 hours for the rest, `answer-d-` and `answer-p-` notes included) and then fails with the expiry reason; an expired answer note
+  gives its question back without counting as a failed answer (expiries are counted apart and, after 10, the
+  question stays parked: the master can no longer answer it). A re-check that cannot read (a database error: settings,
+  turns, children, the master's session or mission) holds the command for the next pass instead of failing it and logs
+  it at most once an hour; after 5 passes and a minute it fails with the real reason, so a persistent fault (stored
+  settings that are not valid) shows. A command is ended only while it is still pending, so a stop from another process
+  keeps its status. If the count or the master's settings cannot be
+  read (a database error, not just no stored settings) the cap holds, the send is tried again on the next pass
+  and the host logs it at most once an hour per master; a stop or pause on a held chat still runs. The autonomy settings are acted on (below). `max_children` and `max_depth` hold when a child is linked.
 - **Masters and children:** `sessions settings set <conv> --role master`, then `--role child --parent <master>`
   for each child (the master must be a master with room under its `max_children`; depth is 2; a session with
   children cannot change role).
@@ -2580,11 +2602,19 @@ monoagentcli --profile work coder host stop                        # the host on
   message you send still runs); `sessions questions answer <conv> <id> <text>` (operator) answers it when the
   policy names the user; the host then sends it with a turn id `answer-...`, which is host-made like
   `checkin-`: counted by the check-in limit and never a mission confirmation. After 30 minutes a question with
-  a default and a `take_default` fallback gets that default (a ledger row, made by the model). Answering as a
-  master is supported by the store (the master is the issuer) but no CLI verb or MCP tool (`session_answer`) exposes it yet, so only the operator answers. The gap class and `reversible`
-  flag come from whoever parks the question or records the decision: before any model-facing tool is added,
-  the producer must take the class from a host- or master-validated source, or a model could label a risky
-  action "ambiguity". A default is not applied while the check-in limit is reached or the session is stopped. A master's answer and
+  a default and a `take_default` fallback gets that default (a ledger row, made by the model). A master answers
+  with `sessions questions answer <child-conv> <id> <text>` under its session token, or the MCP tool `session_answer`
+  (mutating: needs `--allow-mutations`): the master is the conversation the verified token names (`master:<conv>` in
+  `answeredBy`), only for a question of its own direct child (the conversation must be a direct child of the caller, the question
+  must be that conversation's, and the policy must name the master for that class); every other case (unknown id,
+  another profile's or session's question, a peer, an ancestor or a higher ancestor of the child, the session's own
+  question, an unrelated session) is
+  refused with the same `not_yours` text, so the verb is no way to find which questions exist. The note is the same
+  host-made `answer-m-` turn (issuer = the master, counted in the streak, gated at the limit, sealed as data, never a
+  mission or approval). With no token the verb is the operator's (`RequireOperator`); a token that does not verify is a
+  refusal, never a fall-back to the operator path. A session's own model parks and records
+  through `sessions park` / `sessions record` and the MCP tools `session_park` / `session_record` (mutating; token
+  required, see "Autonomy producer" below).  A default is not applied while the check-in limit is reached or the session is stopped. A master's answer and
   an applied default are held to the check-in limit too (refused, or failed when they run); every `answer-` turn,
   including a person's own answer, counts in the streak on purpose (the safe direction). A master's answer is
   queued with the master as issuer, so it runs only while the session is still that master's child. A paused master's
@@ -2594,6 +2624,24 @@ monoagentcli --profile work coder host stop                        # the host on
   started does not reopen the question (the model may have read it). A question whose note failed twice is left
   for a person: no default, no master answer; a default is also held for 30 minutes after a failure and never
   taken when the session's budget is used up.
+- **Autonomy never approves.** No autonomy path (a preset's decide-and-log, ask-on-risk model decisions,
+  `take_default` / `ApplyDefaults`, `answer-p/m/d-` notes, master answers, `ReopenFailedAnswers` redelivery) can
+  confirm a mission, approve a plan, resolve an HIL gate, approve a task session or change an operator-only
+  setting, access or budget. Two layers check it. The behavioural backstop is
+  `coderhost/autonomy_noapproval_test.go`: it runs every preset x class x override x reversibility x answerer
+  (plus failed-start variants: the reopen path is covered there for failed starts only; expiry has its own test) with a genuinely signed mission confirmation in place, starts the notes with a
+  fake launcher, asserts that turns of each origin (`answer-p-`, `answer-m-`, `answer-d-`) really started, none
+  with a token, that only the person's own mission send had one, and that nothing outside the queue, the
+  questions, the ledger, the host-turn and turn-cap tables (`coder_session_commands`, `_questions`, `_decisions`,
+  `_host_turns`, `_turn_caps`, `sqlite_sequence`) changed, and that no setting, unattended flag, budget, role or
+  parent of any session changed. It is a host-side check against a fake launcher: it does not run real agents,
+  which are governed by the existing operator-only gates. The static guard (`autonomy_guard_test.go`,
+  `autonomy_guard_pkg_test.go`) fails when the autonomy, ledger or parked sources name an approval writer,
+  import another package, touch a table outside theirs (string pieces joined with `+` are read together; text
+  built from a variable is not seen), when any other file names a writer outside its owners, when a row of
+  the queue or of sessions is inserted outside `store.go`, or when a new place queues a command. The person's
+  own path (`internal/cli/chat/coder_sessions.go`, which confirms a mission the operator sent) is outside this
+  package's guard.
 - **Mesh** (needs monomind 2.29+; the host does not check the version, it just tries `monomind mesh who` to
   start the hub): with `mesh_visible` (default on) the host keeps the session on monomind's mesh between turns
   (until it has been idle for 6 hours), as `coder-<folder>-<start time>` (or `mesh_alias`), with a state word as
@@ -2616,7 +2664,7 @@ monoagentcli --profile work coder host stop                        # the host on
   session itself or an unrelated one is refused), `sessions spawn [--message M] [--access coding|workspace]
   [--cwd DIR] [--budget-usd N]` creates a child and `sessions status [CONV]` reads the subtree. A bad token is a
   refusal, never a fall-back to the operator path; without a token these verbs stay operator-only. The same
-  verbs exist as MCP tools `session_spawn|list|status|send|pause|resume|stop|set` (the mutating ones need
+  verbs exist as MCP tools `session_spawn|list|status|send|pause|resume|stop|set|answer` (the mutating ones need
   `--allow-mutations`). `settings set` through a token may change only `checkin_minutes`, `skip_if_unchanged`,
   `checkin_triggers`, `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias` (`AgentAdjustable`, an
   allowlist; a test fails for a setting in neither list); limits, autonomy, mesh_accept, role, access, unattended
@@ -2627,6 +2675,30 @@ monoagentcli --profile work coder host stop                        # the host on
   --budget-usd`, operator only; a capped master must give its child a positive amount that fits). Each turn of a capped session runs under what it has left (budget, less what its turns cost, less what it carved for its children) as `--budget-usd`, which is a ceiling for **that turn**; the total holds because the next turn starts with what is left. A turn's cost is the largest total it journaled; a usage event that is present with cost 0 is a reported 0 (a runtime that always reports 0 is trusted at 0; kilo cannot be capped and is refused for capped sessions). Only a turn that started and journaled no usage event at all counts as having spent its whole cap, or its workers' cost if that is more (never both); a cap row of a turn that never started charges nothing. A carve is limited by budget - spent - carved: the running turn's own cap (fixed when it started) is not reserved, so a capped master's turn can spend its cap AND carve up to budget - spent - carved to children during the same turn: exposure per master turn can reach about 2x the budget (chains do not compound); the next turn starts from the true remainder. A send with nothing left (under $0.000001) fails with the reason. Cost comes from the runtimes' own reports (a runtime that reports none counts as $0, and kilo cannot enforce a cap at all). The issuer, not the turn id, is what marks a send as a master's: an issuer-tagged send can never be a mission, counts toward the host-made streak, and a `master-` turn id without an issuer is refused. Everything a master queues for a child except a stop (sends, pause, resume) shares 5 pending slots per child; its stops are counted apart (at most 2 wait per child, and a repeated stop is a no-op). A command a master queues records the master as its issuer and runs only while the target is still that master's child; a master's queued sends (not its pause or resume) expire after 15 minutes. With a token `list`, `settings get` and `command` show only the caller's own tree; without one they need the operator (an agent that lost or dropped the variable reads nothing). A master's message is **not a person's send**: its turn
   id starts with `master-`, it can carry no mission confirmation, and, like `checkin-`, it counts toward the
   host-made turns in a row (`checkin_limit`) after which the child waits for a person.
+- **Reading questions and decisions.** `sessions questions list` and `sessions decisions list|show` need the
+  operator's terminal or a session token. Under a token they show only the caller's own session and its
+  descendants (any other session is refused with one text), and the text a model wrote (question, options,
+  default, answer, choice, alternatives, reason) is returned cleaned of brackets, angle brackets, quotes and
+  control characters on one line; the operator's terminal sees every row raw, including `madeBy` and the
+  `reversible` flag the model claimed. An agent shell without a token reads nothing.
+- **Autonomy producer** (`session_park`, `session_record`; CLI `sessions park|record`). They act on the caller's
+  OWN session, named by the verified session token: there is no conversation argument, so session A's token cannot
+  park or record for B, and a call without a valid token is refused (the operator has no session of its own and
+  uses `questions answer` / `decisions revert`). The model supplies class, text and the `reversible` flag, and the
+  host validates all of it: the class must be one of the six gap classes; `risky_action` and `missing_credential`
+  can never be claimed reversible and can never be recorded as the model's decision (also refused inside
+  `Store.Record` for `made_by=model`); `park` consults the policy (`Decide`) and, when the policy lets the model
+  settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` consults the
+  same policy and is refused (`invalid_input`) when the policy leaves that gap to a master or the user, so
+  recording is no way around asking; `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
+  at most 20 `record` calls per session per hour apply, and the model's ledger rows (at most 500) rotate only among
+  the model's own rows, so it cannot push a master's or an operator-visible row out of the audit trail. Neither call starts a turn, queues a command, or touches access, a budget or a
+  setting, and the text is only data (it is sealed when it reaches a reader as an answer note). Host-side sanity rule:
+  the ledger shows every model-made decision as `madeBy: model` together with the `reversible` flag the model
+  claimed, and the operator can revert the reversible ones; a model that mislabels a gap as reversible can have it
+  settled by itself under the preset's rules for that class, which is the residual trust (hard classes are not
+  claimable). A session with no master (a solo or master session, or an unattended child whose master is gone) that parks a
+  question has it answered by the operator (`questions answer`): the conservative choice; nothing answers for it.
 - **First-run checks** (for the operator's first real run; none of this is verified live). `spawn` works only
   with a master's session token, so the steps that spawn are done by asking the master, in its chat, to run the
   command in its turn; the rest is the operator's own terminal:
@@ -2646,10 +2718,16 @@ monoagentcli --profile work coder host stop                        # the host on
      app mid-run: workers and the board survive and the next turn resumes from `mission_status`; a check-in of a
      master with children shows the mission line; a mission lead without children is checked in on while its task session
      is running with open work and never while it is a draft or paused; a draft session starts no worker for a check-in turn.
-  5. *The autonomy backend has no model-facing producer yet:* nothing outside tests calls `Store.Park` or
-     `Store.Record` (grep of non-test code: the only definitions are in `parked.go` and `ledger.go`, no
-     callers). A first run can only check that the CLI lists and answers on an empty or hand-made state, and
-     that settings validation refuses what it should.
+  5. *Autonomy producer (ask the master, in its chat, to run these in its turn; none of it is verified live):*
+     `coder sessions park --class risky_action --question "delete the build dir?"` parks on the caller's own
+     session (the session goes to `waiting_user`; `questions list <conv>` shows it, answerer `user` for a master
+     with no master, `master` for a child); the same with `--class ambiguity --reversible` is refused with
+     "decide, then run `coder sessions record`"; `coder sessions record --class ambiguity --choice tabs --reason
+     ... --reversible` writes a ledger row shown as made by the model (`decisions list <conv>`); `record --class
+     risky_action ...` and `record` of an irreversible ambiguity (under `ask-on-risk`) are refused; `--reversible`
+     with `risky_action` is refused; 21 open questions are refused. Run without the session token (operator
+     terminal) both verbs are refused. A child asks the same, and its master answers with `questions answer
+     <child-conv> <id> TEXT` from its turn (turn id `answer-m-`, `answeredBy` `master:<conv>`). A master can read the parked questions of its whole subtree but answers only those of its direct children (a grandchild's goes to the grandchild's own master).
 - **Good to know:** the host and the turns it starts keep the environment of the terminal that started the host.
   `host stop` leaves turns running: `sessions stop <conv>` first if you want them ended. Queued sends only
   expire while a host runs. `send` prints `hostStarted: true` unless you pass `--no-host`.
@@ -3353,6 +3431,28 @@ monoagentcli --profile <id> --json browser network --tab 812 --failed
     that looks like a bare repository (git discovers it there).
   Names compare without case on Windows and macOS. A refusal names the
   `workflow activate <id>` that approves the workflow.
+- **Switching a workflow on is gated on the operator's approval** (the
+  store refuses it with `ErrApprovalRequired`, in the same transaction that
+  would write the flag, so it covers `workflow activate`, MCP
+  `workflow_set_active`, HTTP `POST .../activate` (403) and the chat). Only
+  `workflow activate` approves: it records the approval in the activation
+  itself, for the definition it read or the `review_hash` named by
+  `--expect` (`workflow get <id> --json` prints it); a change made after
+  that is `ErrChangedSincePreview` (409) and nothing is activated or
+  approved. Switching off is never refused. Approvals are written only by a
+  change made under `operator.ApprovingContext` (the CLI/GUI as the
+  operator), never by HTTP or MCP handlers: the server process's marker says
+  nothing about who called it. The refusal tells the operator to review the
+  workflow (`workflow get <id> --json`) and to pass what they saw to
+  `workflow activate <id> --expect <review_hash>`: a bare `workflow activate`
+  approves the definition as it is when it reads it. Limits: the gate is on
+  switching on (inactive to active). An agent's edit of a workflow that is
+  already active keeps its flag, so it stays armed, and its runs are AI runs
+  (no secrets, no programs, file steps under FileGuard) until the operator
+  approves it again. Approvals are plain database rows: this is a courtesy
+  layer against agents that act through the CLI, MCP, HTTP and the chat, as
+  the operator marker is, not against a process that writes the database
+  itself.
 - **The project folder is a trusted zone** (the user's choice): the
   profile's project folder is open to them, hidden folders in it included,
   and for a profile on the default folder (`~/.monoagent/profiles/<id>`)
@@ -3743,7 +3843,7 @@ change is logged in the status history. `applied` is reached only through `appli
 | 0 | run paused at a HIL node — status `WAITING` (paused for human review); the output carries a `hint` field pointing at `hil list` |
 | 1 | general error — also the exit for a run that ends `CANCELLED`, and for a run that ends `SUCCESS_WITH_ERRORS` with no successful step (every non-trigger node failed; a partial success still exits 0) |
 | 2 | not found (workflow, node type, HIL item, secret name, …). Includes `hil approve`/`hil reject`, `secret rm`/`secret update`, and `workflow delete` on unknown ids |
-| 3 | invalid input / validation failure |
+| 3 | invalid input / validation failure — including a flag the parser refuses (an unknown flag, a value that does not parse), in every command group (`{"error","code":"invalid_input"}` with `--json`) |
 | 4 | auth or connection failure — including `login_required`: no valid monoes.me sign-in (see [monoes.me account](#monoesme-account)) |
 | 5 | `chat history set-access` lowered the level but a process the conversation's turns started could not be stopped (`survivors_remain`; the JSON lists each under `lowered.survivors` with its pid, command and reason) |
 | 6 | `chat history set-access --expect L` found the conversation no longer at level L: `access_changed`, `current` is the real level, nothing was changed |

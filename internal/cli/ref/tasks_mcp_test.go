@@ -26,7 +26,7 @@ func TestRefTasksDescribesTheTaskToolsAndTheHook(t *testing.T) {
 func TestRefTasksDescribesClientIDAndFlagErrors(t *testing.T) {
 	t.Parallel()
 	text := strings.Join(strings.Fields(TasksText), " ")
-	for _, want := range []string{"session new takes an optional --client-id KEY", "deduped true", `exit 1 with {"error"} and no code`} {
+	for _, want := range []string{"session new takes an optional --client-id KEY", "deduped true", `is invalid_input (exit 3, as in every command group)`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("`ref tasks` does not say %q", want)
 		}

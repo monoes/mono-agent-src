@@ -61,6 +61,10 @@ type Host struct {
 	mu   sync.Mutex // serializes session changes between the loop and the turn watchers
 	live map[string]Turn
 	wg   sync.WaitGroup
+
+	readHolds map[int64]*readHold  // commands held for a failed read, Tick only
+	capLogged map[string]time.Time // when each unreadable cap was last logged
+	capHeld   map[string][2]string // chats whose sends the max_concurrent cap held on the last pass (profile, conversation); Tick only
 }
 
 func key(profileID, conversationID string) string { return profileID + "\x00" + conversationID }
@@ -139,18 +143,27 @@ func (h *Host) Tick() error {
 	if err := h.Store.ExpireSends(); err != nil {
 		return err
 	}
-	cmds, err := h.Store.Pending()
+	cmds, err := h.pendingOrdered()
 	if err != nil {
 		return err
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	heldNow := map[string][2]string{}
+	defer func() { h.capHeld = heldNow }()
 	if h.live == nil {
 		h.live = map[string]Turn{}
 	}
 	blocked := map[string]bool{} // an earlier send for the chat is still waiting: later sends keep their order
+	var running *childRunning    // built on the first send to a child (max_concurrent)
 	for _, c := range cmds {
 		k := key(c.ProfileID, c.ConversationID)
+		// cmds was read before the pass began: an earlier command of this pass (a stop, which fails the
+		// chat's earlier sends, or a master's stop) may have ended this one. Act only on a command that is
+		// still pending, and let an unreadable row wait for the next pass.
+		if cur, ok, err := h.Store.GetCommand(c.ID); err != nil || !ok || cur.Status != CmdPending {
+			continue
+		}
 		if h.RequireConversations {
 			// A command read just before its conversation was deleted must not bring the session
 			// back, nor start a turn on nothing.
@@ -170,7 +183,9 @@ func (h *Host) Tick() error {
 		// hold up a person's message to the same chat).
 		if c.Issuer != "" {
 			if ok, hold, reason := h.issuerStillAllowed(c, x); !ok {
-				if !hold {
+				if strings.HasPrefix(reason, readFailed) {
+					h.recheckFailed(c, reason, k, blocked) // a failed read holds the command; it fails only after repeated passes
+				} else if !hold {
 					h.end(c, CmdFailed, reason)
 				}
 				continue
@@ -190,7 +205,7 @@ func (h *Host) Tick() error {
 			// master that is still unattended, as it was when it was queued.
 			if strings.HasPrefix(c.TurnID, CheckinTurnPrefix) {
 				if reason := h.checkinStillAllowed(x, h.Store.now()); reason != "" {
-					h.end(c, CmdFailed, reason)
+					h.recheckFailed(c, reason, k, blocked)
 					continue
 				}
 			}
@@ -199,7 +214,7 @@ func (h *Host) Tick() error {
 			// session that is still a child.
 			if strings.HasPrefix(c.TurnID, MasterTurnPrefix) || c.Issuer != "" {
 				if reason := h.masterSendStillAllowed(x); reason != "" {
-					h.end(c, CmdFailed, reason)
+					h.recheckFailed(c, reason, k, blocked)
 					continue
 				}
 			}
@@ -207,7 +222,18 @@ func (h *Host) Tick() error {
 			// person's own answer is not held back.
 			if answerGated(c.TurnID) {
 				if reason := h.answerStillAllowed(x); reason != "" {
-					h.end(c, CmdFailed, reason)
+					h.recheckFailed(c, reason, k, blocked)
+					continue
+				}
+			}
+			// max_concurrent: a master's children run only so many turns at once; the rest wait, in order.
+			if x.Role == "child" && x.Parent != "" {
+				if running == nil {
+					running = h.runningChildren(cmds)
+				}
+				if h.childSlotFull(x, k, running) {
+					heldNow[k] = [2]string{c.ProfileID, c.ConversationID}
+					blocked[k] = true
 					continue
 				}
 			}
@@ -218,6 +244,18 @@ func (h *Host) Tick() error {
 			token := ""
 			if c.WantsMission {
 				if mc, ok := h.Store.PeekConfirm(c); ok {
+					// The child checks the bound session too (defence in depth); the host
+					// re-checks it here so a changed mission state starts nothing.
+					match, err := h.Store.confirmMatchesMission(mc)
+					if err != nil {
+						// Only this send fails: the other chats' commands still run this pass.
+						h.end(c, CmdFailed, "could not check the open mission: "+err.Error())
+						continue
+					}
+					if !match {
+						h.end(c, CmdFailed, errMissionChanged)
+						continue
+					}
 					token = mc.Token()
 				} else if t, err := time.Parse(timeLayout, c.CreatedAt); err == nil && h.Store.now().Sub(t) < MissionConfirmGrace {
 					blocked[k] = true
@@ -299,6 +337,9 @@ func (h *Host) Tick() error {
 			}
 			_, _ = h.unlocked(func() (Turn, error) { commit(); return nil, nil }) // the turn has the messages and is recorded: mark them read, without holding up the watchers
 			h.live[k] = t
+			if running != nil {
+				running.started(x, k)
+			}
 			h.watch(x, t)
 			h.end(c, CmdDone, "")
 		case KindStop:
@@ -355,8 +396,12 @@ func (h *Host) end(c Command, status, errText string) {
 	// The status moves first and the record is revoked after: a confirmation written
 	// while this runs either sees the command no longer pending and refuses, or is in
 	// place before the revoke.
-	if err := h.Store.SetCommand(c.ID, status, errText); err != nil {
+	// Only a command that is still pending is ended: one that another process already ended (an
+	// operator's stop) keeps the status and reason it was given.
+	if applied, err := h.Store.setCommandIfPending(c.ID, status, errText); err != nil {
 		h.logf("coder host: recording command %d: %v", c.ID, err)
+	} else if !applied {
+		h.logf("coder host: command %d was ended elsewhere; its status is left as it is", c.ID)
 	}
 	endBetweenSteps()
 	if status == CmdFailed && c.Kind == KindSend {
@@ -543,20 +588,28 @@ func (h *Host) checkinIfDue() {
 func (h *Host) checkinStillAllowed(x Session, now time.Time) string {
 	kids, err := h.liveChildren(x.ProfileID, x.ConversationID)
 	if err != nil {
-		return "the session's children do not read"
+		return readFailed + "the session's children do not read: " + err.Error()
+	}
+	if kids == 0 && x.Unattended && x.Role != "child" { // a lead is checked on while its mission has open work: a failed read is not "no mission"
+		if _, ok := h.missionOf(x.ProfileID, x.ConversationID); !ok {
+			return readFailed + "the session's mission does not read"
+		}
 	}
 	if reason := h.checkinTargetStillValid(x, kids); reason != "" {
 		return reason
 	}
 	settings, err := h.Store.GetSettings(x.ProfileID, x.ConversationID)
 	if err != nil {
-		return "the session's settings do not read"
+		return readFailed + "the session's settings do not read: " + err.Error()
 	}
 	if !withinActiveHours(settings.ActiveHours, now) {
 		return "outside the session's active hours"
 	}
 	streak, _, _, err := h.Store.CheckinStreak(x.ProfileID, x.ConversationID)
-	if err != nil || streak >= settings.CheckinLimit {
+	if err != nil {
+		return readFailed + "the session's turns do not read: " + err.Error()
+	}
+	if streak >= settings.CheckinLimit {
 		return "the session has had its check-ins in a row; it waits for a person"
 	}
 	return ""
@@ -567,10 +620,13 @@ func (h *Host) checkinStillAllowed(x Session, now time.Time) string {
 func (h *Host) answerStillAllowed(x Session) string {
 	settings, err := h.Store.GetSettings(x.ProfileID, x.ConversationID)
 	if err != nil {
-		return "the session's settings do not read"
+		return readFailed + "the session's settings do not read: " + err.Error()
 	}
 	streak, _, _, err := h.Store.CheckinStreak(x.ProfileID, x.ConversationID)
-	if err != nil || streak >= settings.CheckinLimit {
+	if err != nil {
+		return readFailed + "the session's turns do not read: " + err.Error()
+	}
+	if streak >= settings.CheckinLimit {
 		return "the session has had its host-made turns in a row; it waits for a person"
 	}
 	return ""
@@ -586,10 +642,13 @@ func (h *Host) masterSendStillAllowed(x Session) string {
 	}
 	settings, err := h.Store.GetSettings(x.ProfileID, x.ConversationID)
 	if err != nil {
-		return "the session's settings do not read"
+		return readFailed + "the session's settings do not read: " + err.Error()
 	}
 	streak, _, _, err := h.Store.CheckinStreak(x.ProfileID, x.ConversationID)
-	if err != nil || streak >= settings.CheckinLimit {
+	if err != nil {
+		return readFailed + "the session's turns do not read: " + err.Error()
+	}
+	if streak >= settings.CheckinLimit {
 		return "the session has had its host-made turns in a row; it waits for a person"
 	}
 	return ""
@@ -605,11 +664,18 @@ func (h *Host) issuerStillAllowed(c Command, x Session) (ok bool, hold bool, rea
 	if c.Issuer == "" {
 		return true, false, ""
 	}
-	if !h.Store.IsDescendant(c.ProfileID, c.Issuer, c.ConversationID) {
+	below, err := h.Store.IsDescendantErr(c.ProfileID, c.Issuer, c.ConversationID)
+	if err != nil {
+		return false, true, readFailed + "the session's place in the tree does not read: " + err.Error()
+	}
+	if !below {
 		return false, false, "the session is no longer a child of the master that sent this"
 	}
 	m, found, err := h.Store.GetSession(c.ProfileID, c.Issuer)
-	if err != nil || !found || m.State == StateStopped {
+	if err != nil {
+		return false, true, readFailed + "the session's master does not read: " + err.Error()
+	}
+	if !found || m.State == StateStopped {
 		return false, false, "the session's master is gone or stopped"
 	}
 	if m.State == StatePaused && c.Kind == KindSend {

@@ -1598,6 +1598,10 @@ export function TaskSessionBudget(arg1, arg2) {
   return window['go']['main']['App']['TaskSessionBudget'](arg1, arg2);
 }
 
+export function TaskSessionClose(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionClose'](arg1, arg2);
+}
+
 export function TaskSessionPause(arg1) {
   return window['go']['main']['App']['TaskSessionPause'](arg1);
 }

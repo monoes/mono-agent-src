@@ -44,7 +44,7 @@ func TestExecutionInFlightOfAWaitingRun(t *testing.T) {
 		{"a child it does not wait on", started, "", 0, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "w.db"))
+			db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "w.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 			if err != nil {
 				t.Fatal(err)
 			}

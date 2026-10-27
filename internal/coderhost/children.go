@@ -109,26 +109,36 @@ func (s *Store) level(profileID, conversationID string) (int, bool) {
 // from target through the parent links in the database (a cycle or a missing link
 // ends the walk with false). A session is not its own descendant.
 func (s *Store) IsDescendant(profileID, ancestor, target string) bool {
+	below, _ := s.IsDescendantErr(profileID, ancestor, target)
+	return below
+}
+
+// IsDescendantErr is IsDescendant that also says when a session could not be read (the answer is
+// then false with the error), so a caller that holds on a failed read can tell it from "not below".
+func (s *Store) IsDescendantErr(profileID, ancestor, target string) (bool, error) {
 	if ancestor == "" || target == "" || ancestor == target {
-		return false
+		return false, nil
 	}
 	seen := map[string]bool{target: true}
 	cur := target
 	for i := 0; i < maxTreeWalk; i++ {
 		x, ok, err := s.GetSession(profileID, cur)
-		if err != nil || !ok || x.Parent == "" {
-			return false
+		if err != nil {
+			return false, err
+		}
+		if !ok || x.Parent == "" {
+			return false, nil
 		}
 		if x.Parent == ancestor {
-			return true
+			return true, nil
 		}
 		if seen[x.Parent] {
-			return false
+			return false, nil
 		}
 		seen[x.Parent] = true
 		cur = x.Parent
 	}
-	return false
+	return false, nil
 }
 
 func capAccess(parent string) string {

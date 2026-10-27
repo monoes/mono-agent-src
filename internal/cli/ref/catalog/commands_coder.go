@@ -136,10 +136,33 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "coder sessions questions answer",
-		Short:    "Answer a parked question when the policy names the user (the operator only); the answer is sent to the session by the host",
+		Short:    "Answer a parked question: the operator when the policy names the user; with a session token (a master's turn) a question of the caller's own child when the policy names the master. The answer is sent to the session by the host as a host-made note",
 		Usage:    "monoagentcli [--profile P] coder sessions questions answer CONVERSATION ID ANSWER [--no-host]",
 		Flags:    `  --no-host  Queue only; do not start the host`,
 		Examples: []string{`monoagentcli --profile work coder sessions questions answer <conv> 3 "yes, only the build directory"`},
+	},
+	{
+		Name:  "coder sessions park",
+		Short: "Park a question about your own session when nobody present can answer it (needs the session token of a coder turn; the operator has no session of its own); refused when the policy lets you decide, and risky_action / missing_credential are never reversible",
+		Usage: "monoagentcli [--profile P] coder sessions park --class C --question TEXT [--option TEXT]... [--default TEXT] [--reversible]",
+		Flags: `  --class string     ambiguity, scope_growth, verification_failed, child_conflict, risky_action or missing_credential
+  --question string  The question
+  --option strings   An option you see (repeat)
+  --default string   Applied after 30 minutes only where the policy allows a default (never for risky_action or missing_credential)
+  --reversible       The choice can be undone cheaply`,
+		Examples: []string{`monoagentcli --profile work coder sessions park --class risky_action --question "delete the build dir?" --option yes --option no`},
+	},
+	{
+		Name:  "coder sessions record",
+		Short: "Record a decision you made for your own session, shown in the ledger as made by the model (needs the session token of a coder turn); refused for risky_action / missing_credential and for any class the policy leaves to a master or the user",
+		Usage: "monoagentcli [--profile P] coder sessions record --class C --choice TEXT [--question TEXT] [--alternative TEXT]... [--reason TEXT] [--reversible]",
+		Flags: `  --class string        ambiguity, scope_growth, verification_failed, child_conflict, risky_action or missing_credential
+  --choice string       What you chose
+  --question string     What had to be decided
+  --alternative strings An alternative you did not choose (repeat)
+  --reason string       Why
+  --reversible          The choice can be undone cheaply`,
+		Examples: []string{`monoagentcli --profile work coder sessions record --class ambiguity --question "tabs or spaces?" --choice tabs --alternative spaces --reason "repo style" --reversible`},
 	},
 	{
 		Name:     "coder sessions settings",

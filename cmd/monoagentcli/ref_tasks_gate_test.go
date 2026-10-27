@@ -45,6 +45,7 @@ var refTaskGate = []struct {
 	{"session pause", false, []string{"session", "pause", "1"}},
 	{"session resume", true, []string{"session", "resume", "1"}},
 	{"session stop", false, []string{"session", "stop", "1"}},
+	{"session close", true, []string{"session", "close", "1"}},
 	{"session archive", true, []string{"session", "archive", "1"}},
 	{"session budget", true, []string{"session", "budget", "1", "--usd", "5"}},
 	{"split", false, []string{"split", "1", "--into", "a|b", "--into", "c|d"}},

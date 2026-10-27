@@ -197,8 +197,8 @@ agents work inside the session only: they add follow-ups, claim, comment, finish
 split, attach artifacts and verify, and nothing outside it. A verifier marks a
 task verified; closing it to Done stays yours unless you turned on auto-close.
 
-Only you approve, resume, set the budget, the limits, the access level and
-auto-close, and archive. Pausing and stopping are open to agents; stop releases
+Only you approve, resume, close, set the budget, the limits, the access level and
+auto-close, and archive. A mission's lead only proposes the close. Pausing and stopping are open to agents; stop releases
 every claim. Add tasks with task add --session N --acceptance TEXT. See: monoagentcli ref tasks`,
 	}
 	cmd.AddCommand(
@@ -223,6 +223,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 			func(s *tasks.Store, ctx context.Context, p string, id int64, a tasks.Actor) (tasks.Session, error) {
 				return s.ArchiveSession(ctx, p, id, a)
 			}),
+		d.newSessionCloseCmd(),
 		d.newSessionBudgetCmd(),
 	)
 	for _, sub := range cmd.Commands() {
@@ -247,6 +248,13 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 					return err
 				}
 			}
+			if actor.Kind == tasks.Agent && strings.TrimSpace(conversation) != "" {
+				chat, err := d.ownChat()
+				if err != nil {
+					return err
+				}
+				actor.Conversation = chat
+			}
 			in := tasks.SessionInput{
 				Title: strings.Join(args, " "), Goal: goal, ConversationID: conversation,
 				AccessLevel: access, BudgetUSD: budget, MaxTasks: maxTasks, MaxDepth: maxDepth, ClientID: clientID,
@@ -261,7 +269,7 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&goal, "goal", "", "What the session is for (the plan card shows it)")
-	cmd.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the session belongs to")
+	cmd.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the session belongs to (an agent: only its own chat)")
 	cmd.Flags().StringVar(&clientID, "client-id", "", "An idempotency key (up to 64 letters, digits, - or _): a repeat in the profile returns the same session, with deduped true")
 	cmd.Flags().Float64Var(&budget, "budget-usd", 0, "Budget in dollars (you only; 0 for none)")
 	cmd.Flags().IntVar(&maxTasks, "max-tasks", 0, "Most tasks the session holds (you only; default 200)")

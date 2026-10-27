@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai/chat"
@@ -53,15 +54,48 @@ func TestAChatBuiltWorkflowIsTheOperatorsOnlyOnceTheyActivateIt(t *testing.T) {
 	if n := approvals(); n != 0 {
 		t.Fatalf("the chat's workflow has %d approvals", n)
 	}
+	// The chat's run cannot activate it: activating arms its triggers, and nobody approved the
+	// definition. Nothing is switched on or approved.
 	t.Setenv(browserctl.EnvAICaller, "chat")
-	runWorkflowSubcmd(t, cfg, "activate", created.ID)
+	chatCmd := newWorkflowCmd(cfg)
+	chatCmd.SetArgs([]string{"activate", created.ID})
+	var activateErr error
+	captureStdout(t, func() { activateErr = chatCmd.Execute() })
 	t.Setenv(browserctl.EnvAICaller, "")
+	if activateErr == nil || !strings.Contains(activateErr.Error(), "not approved by you") {
+		t.Fatalf("an activation from the chat's run: %v", activateErr)
+	}
 	if n := approvals(); n != 0 {
 		t.Fatalf("an activation from the chat's run approved it (%d)", n)
+	}
+	var active int
+	if err := db.DB.QueryRow(`SELECT is_active FROM workflows WHERE id = ?`, created.ID).Scan(&active); err != nil || active != 0 {
+		t.Fatalf("a refused activation switched the workflow on: %d %v", active, err)
 	}
 	runWorkflowSubcmd(t, cfg, "activate", created.ID)
 	if n := approvals(); n != 1 {
 		t.Fatalf("the operator's activation recorded %d approvals, want 1", n)
+	}
+}
+
+// activateUnapprovedForTest leaves the workflow active and unapproved, the state it is in when the
+// operator once activated it and the chat or an agent has changed it since: the chat's own run
+// cannot activate an unapproved definition, so the state is built as it arises in life. The
+// operator activates it (approval and flag together), then the approval goes, as an agent's edit
+// would remove it. The caller's agent marker is put back.
+func activateUnapprovedForTest(t *testing.T, cfg *globalConfig, id string) {
+	t.Helper()
+	caller := os.Getenv(browserctl.EnvAICaller)
+	t.Setenv(browserctl.EnvAICaller, "")
+	runWorkflowSubcmd(t, cfg, "activate", id)
+	t.Setenv(browserctl.EnvAICaller, caller)
+	db, err := storage.NewDatabase(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.DB.Exec(`DELETE FROM workflow_approvals WHERE workflow_id = ?`, id); err != nil {
+		t.Fatal(err)
 	}
 }
 

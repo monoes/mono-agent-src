@@ -133,7 +133,7 @@ func TestBatchUpsertPeopleStartsEveryProfilesSync(t *testing.T) {
 	}
 	monomind.ResetCapabilityCache()
 	t.Cleanup(monomind.ResetCapabilityCache)
-	ran := slowFakeMonomind(t)
+	ran, _ := slowFakeMonomind(t)
 	db := newUpsertPersonTestDB(t)
 	if err := db.BatchUpsertPeople([]*Person{
 		{PlatformUsername: "ada@example.com", Platform: "email", ProfileID: "pa", FullName: "Ada"},
@@ -157,12 +157,12 @@ func TestBatchUpsertPeopleStartsEveryProfilesSync(t *testing.T) {
 
 // slowFakeMonomind installs a monomind that logs each start (its
 // MONOMIND_CWD) to ran and then waits until the test ends.
-func slowFakeMonomind(t *testing.T) (ran string) {
+func slowFakeMonomind(t *testing.T) (ran, release string) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
-	ran, release := filepath.Join(dir, "ran"), filepath.Join(dir, "release")
+	ran, release = filepath.Join(dir, "ran"), filepath.Join(dir, "release")
 	script := "#!/bin/sh\necho \"$MONOMIND_CWD\" >> '" + ran + "'\n" +
 		"i=0\nwhile [ ! -e '" + release + "' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done\n"
 	bin := filepath.Join(dir, "bin", "monomind")
@@ -174,13 +174,16 @@ func slowFakeMonomind(t *testing.T) (ran string) {
 	}
 	t.Setenv(monomind.EnvOverride, bin)
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
-	return ran
+	return ran, release
 }
 
-// End to end, with a monomind that takes its time: saving a person and
-// closing returns within Settle's bound, about a second when monomind starts
-// promptly but up to 5s while it has not started (a loaded machine), and the
-// sync's monomind still ran. The 1s finish window itself is pinned by
+// End to end, with a monomind that is stuck: saving a person and closing
+// returns once Settle's bounds are spent, without waiting for the sync, and the
+// sync's monomind still ran. The bounds are shortened and nothing here measures
+// seconds: the fake monomind cannot end until the test releases it, which it
+// does only after Close has returned, so Close returning at all is the proof
+// that it did not wait for the sync (an unbounded Close would block until the
+// hang guard fails the test). The 1s finish window itself is pinned by
 // TestKGSyncStopIsBoundedAndFinal, without disk or process start-up in the way.
 func TestCloseIsBoundedForASlowMonomind(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -188,16 +191,25 @@ func TestCloseIsBoundedForASlowMonomind(t *testing.T) {
 	}
 	monomind.ResetCapabilityCache()
 	t.Cleanup(monomind.ResetCapabilityCache)
-	ran := slowFakeMonomind(t)
+	ran, release := slowFakeMonomind(t)
+	t.Cleanup(monomind.SetSettleBounds(50*time.Millisecond, 200*time.Millisecond))
 
 	db := newUpsertPersonTestDB(t)
 	if err := db.UpsertPerson(&Person{PlatformUsername: "ada@example.com", Platform: "email", ProfileID: "default", FullName: "Ada"}); err != nil {
 		t.Fatal(err)
 	}
-	begin := time.Now()
-	db.Close()
-	if waited := time.Since(begin); waited > 5500*time.Millisecond {
-		t.Fatalf("Close waited %s for a sync stuck in monomind, past Settle's 5s bound", waited)
+	closed := make(chan struct{})
+	go func() { db.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(30 * time.Second): // a hang guard, not the bound under test
+		_ = os.WriteFile(release, nil, 0o600) // let the stuck sync end so the test can clean up
+		t.Fatal("Close did not return while a sync was stuck in monomind: it is not bounded")
+	}
+	// The stuck monomind cannot have ended (it waits for release), so a Close that had
+	// waited for the sync to finish would find none running here.
+	if db.kg.group.Running() == 0 {
+		t.Fatal("Close returned only after the sync finished: it waited for the sync instead of giving up at Settle's bound")
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {

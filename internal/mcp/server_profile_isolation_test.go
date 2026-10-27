@@ -33,6 +33,9 @@ func TestCrossProfileToolsReturnNotFound(t *testing.T) {
 	ctx := context.Background()
 	const otherProfile = "other-profile"
 
+	if _, err := rt.store.RawDB().Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES (?, ?)`, otherProfile, otherProfile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
 	wf := &workflow.Workflow{
 		ID:        "wf-owned-by-other-profile",
 		Name:      "Someone else's workflow",

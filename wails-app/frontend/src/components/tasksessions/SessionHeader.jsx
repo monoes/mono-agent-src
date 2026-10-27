@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, MessageSquare, Pause, Play, Square, Archive } from 'lucide-react'
+import { Check, MessageSquare, Pause, Play, Square, Archive, CircleCheck } from 'lucide-react'
 import { confirm } from '../ConfirmDialog.jsx'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
 import { actionsFor, nearBudget, progress, spendParts } from '../../lib/taskSessionModel.js'
 
-const ICONS = { approve: Check, pause: Pause, resume: Play, stop: Square, archive: Archive }
+const ICONS = { approve: Check, pause: Pause, resume: Play, stop: Square, close: CircleCheck, archive: Archive }
 
 // The chosen session's header: state, progress, spend, its goal, the actions
 // its state offers (Approve plan, Pause, Resume, Stop, Archive, Edit budget)
@@ -23,6 +23,7 @@ export default function SessionHeader({ session, view, onView, onAct, onBudget, 
   const run = async (verb) => {
     // Stop is for good (every claim released): ask first.
     if (verb === 'stop' && !(await confirm(t('tasks.session.confirmStop')))) return
+    if (verb === 'close' && !(await confirm(t('tasks.session.confirmClose')))) return
     setBusy(true)
     try { await onAct(verb, session.id) } finally { setBusy(false) }
   }
