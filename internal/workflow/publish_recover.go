@@ -182,6 +182,9 @@ func (h *HybridWorkflowStore) pendingIntents(ctx context.Context, workflowID str
 // RecoverPublications resolves every publication whose owner is gone and returns how many it
 // looked at. Anyone may run it; a no-op query when nothing is open.
 func (h *HybridWorkflowStore) RecoverPublications(ctx context.Context) (int, error) {
+	if h.readOnly {
+		return 0, nil // putting a file back is a write
+	}
 	if h.files == nil {
 		return 0, nil
 	}
@@ -244,6 +247,9 @@ func (h *HybridWorkflowStore) openIntents(ctx context.Context) (map[string]bool,
 	open, err := read()
 	if err != nil || len(open) == 0 {
 		return nil, err
+	}
+	if h.readOnly {
+		return open, nil // a read-only store only skips the workflows with a change in flight
 	}
 	n, rerr := h.RecoverPublications(ctx)
 	if n > 0 {

@@ -81,6 +81,19 @@ func NewWorkflowFileStore(dir string) (*WorkflowFileStore, error) {
 	return &WorkflowFileStore{dir: dir, cache: make(map[string]fileCacheEntry)}, nil
 }
 
+// OpenWorkflowFileStore is NewWorkflowFileStore for read-only paths: it never creates the directory
+// (a folder that is not there is os.ErrNotExist), so a poll or a report cannot make it.
+func OpenWorkflowFileStore(dir string) (*WorkflowFileStore, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("file_store: %s is not a directory", dir)
+	}
+	return &WorkflowFileStore{dir: dir, cache: make(map[string]fileCacheEntry)}, nil
+}
+
 // filePath maps a workflow ID to its on-disk JSON file. The ID must be a plain
 // filename component: IDs containing path separators, "..", or that resolve to
 // anything other than themselves are rejected to prevent path traversal outside

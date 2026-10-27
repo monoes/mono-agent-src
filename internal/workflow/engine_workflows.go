@@ -264,20 +264,34 @@ func (e *WorkflowEngine) ActivateWorkflowWith(ctx context.Context, id string, op
 
 // DeactivateWorkflow disables a workflow and unregisters its triggers.
 func (e *WorkflowEngine) DeactivateWorkflow(ctx context.Context, id string) error {
+	_, err := e.DeactivateWorkflowNoted(ctx, id)
+	return err
+}
+
+// DeactivateWorkflowNoted is DeactivateWorkflow that also returns what the person must be told
+// ("" when nothing): RowsOnlyNote when an unfinished change meant only the database could be
+// switched off. Every command or route that deactivates passes it on.
+func (e *WorkflowEngine) DeactivateWorkflowNoted(ctx context.Context, id string) (string, error) {
 	existing, err := e.store.GetWorkflow(ctx, id)
 	if err != nil {
-		return fmt.Errorf("engine: deactivate workflow: %w", err)
+		return "", fmt.Errorf("engine: deactivate workflow: %w", err)
 	}
 	if existing == nil {
-		return fmt.Errorf("engine: deactivate workflow: %w", ErrWorkflowNotFound)
+		return "", fmt.Errorf("engine: deactivate workflow: %w", ErrWorkflowNotFound)
 	}
 	if err := e.checkWorkflowProfile(existing); err != nil {
-		return fmt.Errorf("engine: deactivate workflow: %w", err)
+		return "", fmt.Errorf("engine: deactivate workflow: %w", err)
 	}
 
 	// The store first: if it refuses (the database is busy), the triggers must stay as they were.
-	if err := e.store.SetWorkflowActive(ctx, id, false); err != nil {
-		return fmt.Errorf("engine: deactivate workflow: %w", err)
+	note := ""
+	if ns, ok := e.store.(ActiveNoter); ok {
+		var err error
+		if note, err = ns.SetWorkflowActiveNoted(ctx, id, false); err != nil {
+			return "", fmt.Errorf("engine: deactivate workflow: %w", err)
+		}
+	} else if err := e.store.SetWorkflowActive(ctx, id, false); err != nil {
+		return "", fmt.Errorf("engine: deactivate workflow: %w", err)
 	}
 	e.triggerMgr.DeactivateWorkflow(id)
 	// Hooks another process (the daemon) registered: this one has no
@@ -285,7 +299,7 @@ func (e *WorkflowEngine) DeactivateWorkflow(ctx context.Context, id string) erro
 	e.triggerMgr.unregisterStoredAppHooks(ctx, id, workflowProfile(existing))
 
 	e.logger.Info().Str("workflow_id", id).Msg("engine: workflow deactivated")
-	return nil
+	return note, nil
 }
 
 // ---------------------------------------------------------------------------

@@ -807,3 +807,266 @@ func TestANewWorkflowStartsInactiveUnlessTheOperatorCreatesIt(t *testing.T) {
 		t.Fatal("the operator's create lost its flag")
 	}
 }
+
+// A read-only store (a polled path) never puts a file back: an abandoned change is left for a
+// command that may write, and its workflow is skipped in the meantime.
+func TestReadOnlyStoreDoesNotRecoverAbandonedChanges(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	prev := fileBytes(t, h, "wf-g")
+	proposed := []byte("{}")
+	if err := os.WriteFile(h.files.dir+"/wf-g.json", proposed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications
+		(workflow_id, kind, state, target_sha, prev_sha, prev_bytes, prev_existed, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'pending', ?, ?, ?, 1, 0, ?)`, shaHex(proposed), shaHex(prev), prev, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	h.SetReadOnly()
+	if _, err := h.GetWorkflow(ctx, "wf-g"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.ListWorkflows(ctx, "default"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.RecoverPublications(ctx); err != nil || n != 0 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if !bytes.Equal(fileBytes(t, h, "wf-g"), proposed) || openIntentCount(t, s) != 1 {
+		t.Fatal("a read-only store changed a file or settled a change")
+	}
+}
+
+// The note a caller must pass on: rows-only success says so; an ordinary deactivation says nothing.
+func TestDeactivateReturnsTheRowsOnlyNote(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil || note != "" {
+		t.Fatalf("an ordinary deactivation: %q %v", note, err)
+	}
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'unresolved', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil || note != RowsOnlyNote {
+		t.Fatalf("under an unresolved change: %q %v", note, err)
+	}
+}
+
+// An abandoned change is settled first: when that works, the deactivation is an ordinary one (the
+// file goes inactive too) and there is nothing to tell the person. The abandoned change left a
+// different file behind, which the settling puts back.
+func TestDeactivateSettlesAnAbandonedChangeBeforeUsingTheBypass(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	prev := fileBytes(t, h, "wf-g")
+	proposed := []byte("{}")
+	if err := os.WriteFile(h.files.dir+"/wf-g.json", proposed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications
+		(workflow_id, kind, state, target_sha, prev_sha, prev_bytes, prev_existed, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'pending', ?, ?, ?, 1, 0, ?)`, shaHex(proposed), shaHex(prev), prev, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if err != nil || note != "" {
+		t.Fatalf("%q %v", note, err)
+	}
+	f, _ := h.files.GetWorkflow(ctx, "wf-g")
+	if f == nil || f.IsActive || len(f.Nodes) == 0 {
+		t.Fatalf("the file was not put back and switched off: %+v", f)
+	}
+	if openIntentCount(t, s) != 0 {
+		t.Fatal("the abandoned change was left")
+	}
+}
+
+// A change whose owner looks alive but never finishes does not keep a workflow on: after the wait,
+// the rows alone are switched off and the note says so.
+func TestDeactivateGivesUpWaitingOnAHungChange(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'pending', ?, ?)`, os.Getpid(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	old := publicationWait
+	publicationWait = 150 * time.Millisecond
+	t.Cleanup(func() { publicationWait = old })
+	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if err != nil || note != RowsOnlyNote {
+		t.Fatalf("%q %v", note, err)
+	}
+	if rows, _ := s.GetWorkflow(ctx, "wf-g"); rows.IsActive {
+		t.Fatal("the rows are still active")
+	}
+	if openIntentCount(t, s) != 1 {
+		t.Fatal("the other change was touched")
+	}
+}
+
+// The rows-only path does not report success for a workflow that has no rows.
+func TestRowsOnlyDeactivateOfAMissingWorkflowIsNotSuccess(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('ghost', 'save', 'unresolved', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if note, err := h.SetWorkflowActiveNoted(ctx, "ghost", false); err == nil || note != "" {
+		t.Fatalf("%q %v", note, err)
+	}
+}
+
+// A lock that is let go within the wait is waited out: the switch succeeds.
+func TestRowsOnlyDeactivateSucceedsWhenTheLockIsReleasedInTime(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'unresolved', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	old := publicationWait
+	publicationWait = 20 * time.Second
+	t.Cleanup(func() { publicationWait = old })
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	// Held past the database's own busy timeout (5 s), so the first attempt really fails busy and
+	// only the retry can succeed.
+	time.AfterFunc(5600*time.Millisecond, func() { _, _ = conn.ExecContext(context.Background(), `ROLLBACK`); conn.Close() })
+	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if err != nil || note != RowsOnlyNote {
+		t.Fatalf("%q %v", note, err)
+	}
+	if rows, _ := s.GetWorkflow(ctx, "wf-g"); rows.IsActive {
+		t.Fatal("the rows are still active")
+	}
+}
+
+// A busy database is waited out like any publication, and a lock held for longer ends as "busy",
+// not as a raw database error; the workflow stays as it was.
+func TestRowsOnlyDeactivateWaitsAndThenReportsBusy(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
+		VALUES ('wf-g', 'save', 'unresolved', 0, ?)`, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	old := publicationWait
+	publicationWait = 150 * time.Millisecond
+	t.Cleanup(func() { publicationWait = old })
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	release := time.AfterFunc(3*time.Second, func() { _, _ = conn.ExecContext(context.Background(), `ROLLBACK`); conn.Close() })
+	defer release.Stop()
+	start := time.Now()
+	_, err = h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if !errors.Is(err, ErrPublicationBusy) || time.Since(start) > 2*time.Second {
+		t.Fatalf("after %v: %v", time.Since(start), err)
+	}
+	release.Stop()
+	_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
+	conn.Close()
+	if rows, _ := s.GetWorkflow(ctx, "wf-g"); !rows.IsActive {
+		t.Fatal("the workflow changed although the switch reported busy")
+	}
+}
+
+// An activation that is paused when the kill switch gives up waiting cannot commit afterwards: the
+// workflow stays off.
+func TestAPausedActivationCannotCommitOverTheKillSwitch(t *testing.T) {
+	ctx := context.Background()
+	h, s, _, _ := guardedRig(t)
+	if _, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	guardedCommitFault = func() error { close(entered); <-release; return nil }
+	old := publicationWait
+	publicationWait = 150 * time.Millisecond
+	t.Cleanup(func() { publicationWait = old })
+	done := make(chan error, 1)
+	go func() { done <- h.SetWorkflowActive(ctx, "wf-g", true) }()
+	<-entered // the activation has written its file and waits before its commit
+	guardedCommitFault = nil
+	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
+	if err != nil || note != RowsOnlyNote {
+		t.Fatalf("%q %v", note, err)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("the paused activation committed over the kill switch")
+	}
+	if rows, _ := s.GetWorkflow(ctx, "wf-g"); rows.IsActive {
+		t.Fatal("the workflow was switched back on")
+	}
+	if state, _ := h.UnfinishedChange(ctx, "wf-g"); state != "unresolved" {
+		t.Fatalf("the paused change is %q, want it left for the operator", state)
+	}
+}
+
+// A change that was running when the kill switch gave up waiting does not commit when it wakes up,
+// even when the workflow was already off (so nothing about the definition or the flag changed): the
+// waiting change is marked unresolved, and the operator decides.
+func TestAHungSaveCannotCommitAfterTheKillSwitch(t *testing.T) {
+	ctx := context.Background()
+	h, s, hash, nodes := guardedRig(t) // the workflow is off
+	entered, release := make(chan struct{}), make(chan struct{})
+	guardedCommitFault = func() error { close(entered); <-release; return nil }
+	old := publicationWait
+	publicationWait = 150 * time.Millisecond
+	t.Cleanup(func() { publicationWait = old })
+	done := make(chan error, 1)
+	go func() { done <- h.SaveNodesGuarded(ctx, "wf-g", nodes, SaveGuard{ExpectHash: hash}) }()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("the save ended before its commit step: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the save never reached its commit step")
+	}
+	guardedCommitFault = nil
+	if note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil || note != RowsOnlyNote {
+		t.Fatalf("%q %v", note, err)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("the hung save committed after the kill switch")
+	}
+	if sqlConfig(t, s, "wf-g", "g-set") == "edited" {
+		t.Fatal("the hung save changed the workflow after the kill switch")
+	}
+	if state, _ := h.UnfinishedChange(ctx, "wf-g"); state != "unresolved" {
+		t.Fatalf("the waiting change is %q, want it left for the operator", state)
+	}
+}

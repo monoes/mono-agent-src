@@ -208,8 +208,12 @@ func (mt *MonoagentTools) setWorkflowActive(args string) (string, error) {
 	if st := mt.workflowStore(); st != nil {
 		// The workflow file is the definition the engine reads; the
 		// store updates it and its SQLite mirror together.
-		if err := st.SetWorkflowActive(context.Background(), a.WorkflowID, a.Active); err != nil {
+		note, err := setActiveNoted(context.Background(), st, a.WorkflowID, a.Active)
+		if err != nil {
 			return "", fmt.Errorf("update workflow: %w", err)
+		}
+		if note != "" {
+			return marshalJSON(map[string]interface{}{"workflow_id": a.WorkflowID, "is_active": a.Active, "note": note})
 		}
 	} else if a.Active {
 		// Switching on arms triggers, and only the workflow store checks that the operator approved
@@ -443,4 +447,15 @@ func triggerNodeTypes() []string {
 
 func isTriggerNodeType(t string) bool {
 	return slices.Contains(triggerNodeTypes(), t)
+}
+
+// setActiveNoted switches a workflow on or off and returns the note a store gives when it could
+// only switch the rows off (an unfinished change left the file as it is).
+func setActiveNoted(ctx context.Context, st interface {
+	SetWorkflowActive(context.Context, string, bool) error
+}, id string, active bool) (string, error) {
+	if ns, ok := st.(workflow.ActiveNoter); ok {
+		return ns.SetWorkflowActiveNoted(ctx, id, active)
+	}
+	return "", st.SetWorkflowActive(ctx, id, active)
 }

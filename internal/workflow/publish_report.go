@@ -2,10 +2,9 @@ package workflow
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -48,48 +47,98 @@ func (h *HybridWorkflowStore) OpenPublications(ctx context.Context) ([]OpenPubli
 	return out, rows.Err()
 }
 
+// Bounds of one FileDrift scan: how many files are read, how many bytes in all, how many names are
+// listed per kind.
+const (
+	maxDriftListed = 200
+	maxDriftFiles  = 2000
+	maxDriftBytes  = 64 << 20
+)
+
+// DriftReport is what FileDriftScan found. Incomplete says a limit stopped the scan (files, bytes
+// or cancellation) so there may be more.
+type DriftReport struct {
+	Unreadable, Pending []string
+	Incomplete          bool
+}
+
 // FileDrift compares the workflow files with what the database last reconciled them with:
 // unreadable files do not parse; pending files parse and differ, so they await an import.
 func (h *HybridWorkflowStore) FileDrift(ctx context.Context) (unreadable, pending []string, err error) {
+	r, err := h.FileDriftScan(ctx)
+	return r.Unreadable, r.Pending, err
+}
+
+// FileDriftScan is FileDrift with limits. A file whose bytes hash to what the database last
+// reconciled is not parsed at all.
+func (h *HybridWorkflowStore) FileDriftScan(ctx context.Context) (DriftReport, error) {
+	var out DriftReport
 	if h.files == nil {
-		return nil, nil, nil
+		return out, nil
 	}
-	entries, err := os.ReadDir(h.files.dir)
-	if err != nil {
+	if _, err := os.Stat(h.files.dir); err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, nil
+			return out, nil
 		}
-		return nil, nil, err
+		return out, err
 	}
-	for _, e := range entries {
-		id, ok := strings.CutSuffix(e.Name(), ".json")
-		if e.IsDir() || !ok || strings.HasSuffix(id, ".ai-backup") {
-			continue
+	// Only the files of workflows that have rows are looked at, found by their ids and not by
+	// listing the folder, so files without rows (and names that are not plain ids) cost nothing.
+	stored, err := h.workflowIDs(ctx)
+	if err != nil {
+		return out, err
+	}
+	known := map[string]string{}
+	switch rs, qerr := h.sql.db.QueryContext(ctx, `SELECT workflow_id, file_sha FROM workflow_file_state`); {
+	case qerr == nil:
+		for rs.Next() {
+			var id, sha string
+			if err := rs.Scan(&id, &sha); err != nil {
+				rs.Close()
+				return out, err
+			}
+			known[id] = sha
 		}
-		var stored int
-		if qerr := h.sql.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&stored); qerr == nil && stored == 0 {
-			continue // a file with no stored copy is reported as adoptable, not read here
+		rs.Close()
+	case isNoTable(qerr):
+		return out, nil
+	default:
+		return out, qerr
+	}
+	ids := make([]string, 0, len(stored))
+	for id := range stored {
+		if safeFileID.MatchString(id) {
+			ids = append(ids, id)
 		}
-		raw, rerr := readRegularFile(filepath.Join(h.files.dir, e.Name()))
+	}
+	sort.Strings(ids)
+	files, bytesRead := 0, 0
+	for _, id := range ids {
+		if ctx.Err() != nil || files >= maxDriftFiles || bytesRead >= maxDriftBytes {
+			out.Incomplete = true
+			break
+		}
+		files++
+		raw, rerr := readRegularFile(filepath.Join(h.files.dir, id+".json"))
 		if rerr != nil {
 			continue
 		}
+		bytesRead += len(raw)
+		sha := shaHex(append([]byte{}, raw...))
+		if known[id] == sha {
+			continue // what the database last reconciled: nothing to parse
+		}
 		if wf, perr := parseWorkflowFile(raw); perr != nil || wf == nil || wf.ID == "" || graphIDProblem(wf) != "" {
-			unreadable = append(unreadable, id)
+			if len(out.Unreadable) < maxDriftListed {
+				out.Unreadable = append(out.Unreadable, id)
+			}
 			continue
 		}
-		var known string
-		switch qerr := h.sql.db.QueryRowContext(ctx, `SELECT file_sha FROM workflow_file_state WHERE workflow_id = ?`, id).Scan(&known); {
-		case qerr == nil && known == shaHex(append([]byte{}, raw...)):
-		case qerr == nil || errors.Is(qerr, sql.ErrNoRows):
-			pending = append(pending, id)
-		case isNoTable(qerr):
-			return unreadable, nil, nil
-		default:
-			return nil, nil, qerr
+		if len(out.Pending) < maxDriftListed {
+			out.Pending = append(out.Pending, id)
 		}
 	}
-	return unreadable, pending, nil
+	return out, nil
 }
 
 // SweepStaleTemp removes staged temp files a crashed writer left in the workflows folder (they can

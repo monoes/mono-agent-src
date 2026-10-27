@@ -147,3 +147,26 @@ func TestReadRawRefusesALink(t *testing.T) {
 		t.Fatal("a link was read as a workflow file")
 	}
 }
+
+// A file edited after the stamp pass read it is not overwritten with the stale document.
+func TestStampLeavesAFileEditedAfterItWasRead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "w.json")
+	if err := os.WriteFile(path, []byte(`{"id":"w","name":"before","nodes":[],"connections":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	edit := []byte(`{"id":"w","name":"EDITED","nodes":[],"connections":[]}`)
+	stamped, err := StampFileWorkflowProfilesFor(dir, "default", func(string) string {
+		// Called between the read and the rewrite: another writer replaces the file here.
+		if werr := os.WriteFile(path, edit, 0o600); werr != nil {
+			t.Fatal(werr)
+		}
+		return ""
+	}, nil, nil)
+	if err != nil || len(stamped) != 0 {
+		t.Fatalf("%v %v", stamped, err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != string(edit) {
+		t.Fatalf("the edit was overwritten: %s", b)
+	}
+}

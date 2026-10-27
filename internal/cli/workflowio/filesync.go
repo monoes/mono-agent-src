@@ -3,6 +3,7 @@ package workflowio
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -91,6 +92,9 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 	if err != nil {
 		return err
 	}
+	if owner == "" {
+		return nil // no profile exists: nothing can be given an owner, so no file is opened
+	}
 	rowOwner := func(id string) string {
 		var p sql.NullString
 		if db.QueryRowContext(ctx, `SELECT profile_id FROM workflows WHERE id = ?`, id).Scan(&p) != nil {
@@ -98,21 +102,35 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 		}
 		return p.String
 	}
-	// Before the files older versions left are taken in, all of them may need an owner. After it,
-	// only the files of workflows that have rows do: a file with no stored copy is left unread.
-	eligible := func(id string) bool {
-		if !workflow.LegacyClaimDone(ctx, db) {
-			return true
+	eligible := stampEligible(ctx, db)
+	// A file that is not eligible costs no lock at all; an eligible one is checked again, read and
+	// replaced under the database's write lock with its
+	// publication record locked, so no publisher can replace the file between the read and the
+	// rewrite; a lock that cannot be taken leaves the file for the next pass.
+	locked := func(id string, do func() error) error {
+		if stampTestHook != nil {
+			stampTestHook(id)
 		}
-		var n int
-		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n) == nil && n > 0
+		err := workflow.WithPublicationLock(ctx, db, id, func() error {
+			if !eligible(id) {
+				return nil
+			}
+			return do()
+		})
+		if errors.Is(err, workflow.ErrPublicationBusy) {
+			return workflow.ErrStampSkipped
+		}
+		return err
 	}
-	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, eligible)
+	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, eligible, locked)
 	if len(stamped) > 0 {
 		log.Printf("workflow files: gave %d workflow(s) with no profile an owner (fallback %q)", len(stamped), owner)
 	}
 	return err
 }
+
+// stampTestHook, when set by a test, runs before each locked step of the stamp pass.
+var stampTestHook func(fileID string)
 
 func syncOneWorkflowToSQL(ctx context.Context, db *sql.DB, s *workflow.SQLiteWorkflowStore, wf *workflow.Workflow) error {
 	for _, q := range []struct {
@@ -175,4 +193,27 @@ func connIDs(cs []workflow.WorkflowConnection) []string {
 		}
 	}
 	return out
+}
+
+// stampEligible says which files the stamp pass may open. Before the files older versions left are
+// taken in, all of them may need an owner; after it, only the files of workflows that have rows do
+// (a file with no stored copy is left unread). Once the claim is recorded the question never
+// changes, so it is asked once; until then it is asked per file, because another process may finish
+// the claim while the pass runs. A workflow with a change recorded is skipped: the writer of that
+// change owns its file.
+func stampEligible(ctx context.Context, db *sql.DB) func(id string) bool {
+	claimed := workflow.LegacyClaimDone(ctx, db)
+	return func(id string) bool {
+		var open int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_publications WHERE workflow_id = ?`, id).Scan(&open); err == nil && open > 0 {
+			return false
+		}
+		if !claimed {
+			if claimed = workflow.LegacyClaimDone(ctx, db); !claimed {
+				return true
+			}
+		}
+		var n int
+		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n) == nil && n > 0
+	}
 }
