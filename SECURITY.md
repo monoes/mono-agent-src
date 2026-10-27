@@ -1698,10 +1698,22 @@ that works a task acts on them. The defences:
   and cannot claim, take the next task, finish, release, split, add a task or a dependency or attach evidence, in a session a
   chat conversation manages (it may still read; sessions the operator created keep their rules). A worker's token never records a verdict and a
   verifier's never claims or finishes. *Honest limits:* a process that can read the token (a
-  process of the same user, its own environment, the process table, the database file) can use it,
-  and so can a process that can read the database or the vault write its own; a worker can also read
-  a sibling process's token from the process table, so `verdict_by_unexpected_actor` (above) is the
-  backstop for verdicts, not the token alone; the token is
+  process of the same user, its own environment, the process table, the database file) can use it
+  where the token is not bound to its worker's process (below), and so can a process that can read
+  the database or the vault write its own; `verdict_by_unexpected_actor` (above) is the backstop
+  for verdicts, not the token alone. **Process binding.** On Linux, for a runtime whose shells and
+  tool servers all run inside the process tree monomind starts (only `claude` is listed; the
+  others are unverified live and stay unbound), the conductor records the pid and start stamp of
+  that process after it starts (`ExecOptions.OnStart`), signed under a key derived from the
+  profile's vault data key, and a token is then refused (like any token that does not verify) from
+  a caller whose parent chain does not include that process, so a sibling worker that read the
+  token from the process table or an inherited environment is refused. The worker's own shells and
+  tool servers are its descendants and keep working. It is not enforced, and the token behaves as
+  described above, for a token with no recorded process (minted before this existed, an unlisted
+  runtime, the moment between the start and the record), where ancestry is not read (not Linux),
+  and when the caller's chain cannot be read to its end; a writer of the database can still clear
+  the record or add a token of its own. The sweep, revocation and expiry are unchanged. The
+  token is
   scoped and per run, so what it reaches is that one task until the run ends, and it is not a
   sandbox: a worker's own sub-processes inherit it. An agent that scrubs its own environment
   and is not recognised as an agent is still treated as the operator by the CLI (above). **The evidence rule:** a task of kind

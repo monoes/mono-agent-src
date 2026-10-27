@@ -1814,7 +1814,11 @@ binding only through `internal/taskbind`, from the database; the `MONOAGENT_TASK
 brief's text and an agent marker, and bind nothing. A token that does not verify binds to nothing that
 exists (every act refused); no token is an ordinary agent, which in a session a chat
 conversation manages can neither verify a task nor claim, finish, release, split, add (a task or a dependency) or attach (it reads). A bound worker reaches the personal board through neither the delegated approve and
-view of `task agents allow` nor `task digest`. Whoever can read the token can use it, for that one
+view of `task agents allow` nor `task digest`. On Linux, for the runtimes listed in `ancestryRuntimes`
+(`internal/dynorg/mission_token.go`; only `claude`, the others unverified live) the token is also bound to the
+worker's process (`internal/agenttokens/mission_process.go`, pid and start stamp recorded through `ExecOptions.OnStart`
+and signed; migration 138): a caller outside that process's tree is refused. Without a recorded process (older rows,
+unlisted runtimes), off Linux, or when the caller's chain is unreadable, whoever can read the token can use it, for that one
 task until the run ends (SECURITY.md, "Honest limits"). An agent that scrubs its own environment (no agent
 marker, no `--as`) is still treated as the operator by the CLI; that weakness is old and matters more now. The MCP tools are `task_session_list` and
 `task_session_get` (read) and, with `--allow-mutations`, `task_split`, `task_verify`

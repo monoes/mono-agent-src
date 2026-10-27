@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -262,5 +263,43 @@ func TestRevokingAPurgedTokenIsNotAFailure(t *testing.T) {
 	}
 	if n := countNotices(r.em, "mission_token_revoke_failed"); n != 0 {
 		t.Fatalf("%d spurious failure notices", n)
+	}
+}
+
+// Only the runtimes whose tools all run inside the process monomind starts get a process binding.
+func TestOnlyListedRuntimesBindTheTokenToTheirProcess(t *testing.T) {
+	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
+	if f := r.c.bindMissionProcess(Model{Runtime: "codex"}, "atk_x"); f != nil {
+		t.Fatal("an unlisted runtime would be bound")
+	}
+	if f := r.c.bindMissionProcess(Model{Runtime: "claude"}, ""); f != nil {
+		t.Fatal("a run without a token would be bound")
+	}
+	if !agenttokens.MissionProcessSupported() {
+		t.Skip("process ancestry is read on Linux only")
+	}
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	eventually(t, "a running", func() bool { return r.ex.runCount(a.ID) == 1 })
+	w := r.c.taskWorker(a.ID)
+	env := map[string]string{}
+	id, unbind, err := r.c.mintMission(tbg, w, env)
+	if err != nil || id == "" {
+		t.Fatalf("mint: %q %v", id, err)
+	}
+	defer unbind()
+	f := r.c.bindMissionProcess(Model{Runtime: "claude"}, id)
+	if f == nil {
+		t.Fatal("claude is not bound")
+	}
+	// the "worker" is this test's parent: this process is inside its tree, so it still verifies
+	f(os.Getppid())
+	if !tokenValid(t, r, env[agenttokens.EnvMissionToken]) {
+		t.Fatal("a bound token was refused to a process inside the worker's tree")
+	}
+	f(os.Getpid() + 1_000_000) // not a live process: no stamp, so nothing is bound and the token stays as it was
+	if !tokenValid(t, r, env[agenttokens.EnvMissionToken]) {
+		t.Fatal("a failed bind broke the token")
 	}
 }

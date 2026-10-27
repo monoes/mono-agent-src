@@ -892,3 +892,21 @@ func TestFilteredEnvironKeepsOperatorSettings(t *testing.T) {
 		t.Error("MONOMIND_CWD must still be stripped")
 	}
 }
+
+// OnStart gets the pid of the monomind process once it has started, before the turn is read.
+func TestExecReportsTheStartedProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake monomind is a shell script")
+	}
+	pid := 0
+	_, err := Exec(context.Background(), ExecOptions{
+		Bin: fakeBin(t, "fake-monomind.sh"), Runtime: "claude", Prompt: "hi",
+		OnStart: func(p int) { pid = p },
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pid <= 1 {
+		t.Fatalf("OnStart got pid %d", pid)
+	}
+}
