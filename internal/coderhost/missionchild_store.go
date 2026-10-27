@@ -25,7 +25,7 @@ import (
 //   - Every refusal of "is this your task" is the same error (errMissionRefused), whether the session is
 //     someone else's, in another profile, or does not exist, and whether the task is in it or not.
 //   - The lead raises max_children only up to the lead session's own max_children setting (operator-only) and
-//     share_pct only up to ShareHardMax. Mode "all" is the operator's; the lead can only lower the mode.
+//     share_pct only up to ShareHardMax. Mode "all" is the operator's to turn on; the lead may switch off and marked freely and lower from all.
 //     Settings, access and the lead's own budget are never written from here.
 //   - The one write outside the coder_mission_* tables is releaseCarve: it lowers a child's budget when its
 //     turn has ended, never raises it and never to 0 (0 means uncapped).
@@ -258,7 +258,7 @@ func (s *Store) GetPolicy(profileID string, sessionID int64) (Policy, error) {
 // SetPolicy changes the policy of a task session, as the lead or as the operator.
 //
 // The lead may raise max_children up to the lead session's own max_children setting and share_pct up to
-// ShareHardMax, may lower anything, and may change the mode only to a lower one (all -> marked -> off).
+// ShareHardMax, may lower anything, and may switch the mode between off and marked or lower it from all.
 // The operator may set the mode freely (mode "all" is the operator's alone) and the same numbers within the
 // hard limits. Every changed field writes an audit row naming who changed it.
 func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, patch PolicyPatch) (Policy, error) {
@@ -301,8 +301,8 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 		if modeRank(*patch.Mode) < 0 {
 			return Policy{}, fmt.Errorf("%w: mode must be off, marked or all", ErrInvalid)
 		}
-		if lead && modeRank(*patch.Mode) > modeRank(cur.Mode) {
-			return Policy{}, fmt.Errorf("%w: a lead can lower the mode (all, marked, off) but not raise it", ErrOperatorOnly)
+		if lead && *patch.Mode == ModeAll && cur.Mode != ModeAll {
+			return Policy{}, fmt.Errorf("%w: a lead can switch between off and marked, and lower from all, but only the operator turns on mode all", ErrOperatorOnly)
 		}
 		if *patch.Mode != cur.Mode {
 			note("mode", fmt.Sprintf("mode %s -> %s", cur.Mode, *patch.Mode))
@@ -334,8 +334,8 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 	}
 	if patch.SharePct != nil {
 		n := *patch.SharePct
-		if n < 0 || n > ShareHardMax {
-			return Policy{}, fmt.Errorf("%w: share_pct must be between 0 and %d", ErrLimit, ShareHardMax)
+		if n < 1 || n > ShareHardMax {
+			return Policy{}, fmt.Errorf("%w: share_pct must be between 1 and %d; to stop spawning children use mode off", ErrLimit, ShareHardMax)
 		}
 		if n != cur.SharePct {
 			kind := "lower"

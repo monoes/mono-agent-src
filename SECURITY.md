@@ -1961,8 +1961,8 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   of another session or profile, a session that does not exist and a caller that is not the lead are refused with one
   text. A mark in a draft session is stored and reserves nothing until the person has approved the plan. The lead
   raises `max_children` only up to the session's own operator-only `max_children` setting and `share_pct` only up
-  to 80; it can lower the mode but never raise it, and mode `all` (every worker task becomes a child) is the
-  operator's alone. None of it writes a setting, access level or the lead's budget. The one write outside these
+  to 80 (1 to 80 for everyone); it can switch the mode between `off` and `marked` and lower it from `all`, and mode `all` (every worker task becomes a child) is the
+  operator's alone to turn on. None of it writes a setting, access level or the lead's budget. The one write outside these
   tables lowers a finished child's own cap to what it spent (never up, never to 0 which means uncapped) so the unspent
   carve returns to the lead. The files read `tasks` and `task_sessions` and write neither; a static test lists the
   tables they may name. Not yet built or checked: the spawn, the child's token, the cascade on stop and the host

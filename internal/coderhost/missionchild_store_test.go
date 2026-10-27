@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -292,15 +293,42 @@ func TestLeadCanLowerNotRaiseMode(t *testing.T) {
 	if _, err := f.st.SetPolicy(f.scope(), "p", f.se.ID, PolicyPatch{Mode: sp(ModeAll)}); !errors.Is(err, ErrOperatorOnly) {
 		t.Fatalf("the lead raised marked -> all: %v", err)
 	}
+	// off and marked are the lead's own choice, both ways
 	if p := f.setPolicy(t, f.scope(), PolicyPatch{Mode: sp(ModeOff)}); p.Mode != ModeOff {
-		t.Fatalf("the lead could not lower marked -> off: %+v", p)
+		t.Fatalf("marked -> off: %+v", p)
 	}
-	if _, err := f.st.SetPolicy(f.scope(), "p", f.se.ID, PolicyPatch{Mode: sp(ModeMarked)}); !errors.Is(err, ErrOperatorOnly) {
-		t.Fatalf("the lead raised off -> marked: %v", err)
-	}
-	// with the mode off nothing is marked or reserved
 	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a mark with mode off: %v", err)
+	}
+	if _, err := f.st.SetPolicy(f.scope(), "p", f.se.ID, PolicyPatch{Mode: sp(ModeAll)}); !errors.Is(err, ErrOperatorOnly) {
+		t.Fatalf("the lead raised off -> all: %v", err)
+	}
+	if p := f.setPolicy(t, f.scope(), PolicyPatch{Mode: sp(ModeMarked)}); p.Mode != ModeMarked {
+		t.Fatalf("off -> marked: %+v", p)
+	}
+	f.mark(t, 0)
+	if p := f.setPolicy(t, OperatorScope{}, PolicyPatch{Mode: sp(ModeAll)}); p.Mode != ModeAll {
+		t.Fatalf("the operator could not set all: %+v", p)
+	}
+}
+
+func TestSharePctRangeIsOneToHardMaxForEveryone(t *testing.T) {
+	f := newMC(t, true)
+	for _, sc := range []CallerScope{f.scope(), OperatorScope{}} {
+		for _, bad := range []int{0, -1, ShareHardMax + 1} {
+			_, err := f.st.SetPolicy(sc, "p", f.se.ID, PolicyPatch{SharePct: ip(bad)})
+			if !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "mode off") {
+				t.Errorf("%T share %d: %v", sc, bad, err)
+			}
+		}
+		for _, ok := range []int{1, ShareHardMax} {
+			if p := f.setPolicy(t, sc, PolicyPatch{SharePct: ip(ok)}); p.SharePct != ok {
+				t.Errorf("%T share %d: %+v", sc, ok, p)
+			}
+		}
+	}
+	if _, err := f.st.db.Exec(`UPDATE coder_mission_policy SET share_pct = 0`); err == nil {
+		t.Error("the table accepted share_pct 0")
 	}
 }
 

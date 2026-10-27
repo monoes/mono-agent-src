@@ -1898,16 +1898,16 @@ message, and bounded by the session's `max_tasks` and budget.
 **Mission child sessions: policy, marks, ceilings (store only; the spawn path comes in the next phase).** Migration
 139 adds `coder_mission_policy`, `coder_mission_children` and `coder_mission_events`, and `internal/coderhost`
 (`missionchild_store.go`) the store over them. A task session has a policy (mode `off`, `marked` (default) or `all`;
-`max_children` default 2; `share_pct` default 50, at most 80), a row per task its lead marked to run in a session of
+`max_children` default 2; `share_pct` default 50, 1 to 80), a row per task its lead marked to run in a session of
 its own (unique per profile, session and task; states `marked`, `spawning`, `spawned`, `ended`, `failed`, `gone`,
 `released`) and an audit trail. Only the lead of that session (a `LeadScope` made from its verified session token)
 marks, reserves or links a row; a caller that holds a task-bound mission binding is refused; foreign sessions,
 profiles and tasks all read as one refusal. The lead may raise `max_children` up to the lead session's own
-(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may lower the mode but not raise it,
-and only the operator sets mode `all`. `RoomFor` answers whether one more child fits: live children under
+(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked` (and lower it from `all`),
+and only the operator turns on mode `all`. `share_pct` is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live children under
 `min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the carves under
 `share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve returns to
-the lead by lowering the child's cap to what it spent (never up, never 0). Nothing starts a session yet: no CLI verb,
+the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call `Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists counts against the share. Nothing starts a session yet: no CLI verb,
 tool or host pass reads these tables, so marking has no effect on a running mission. Deleting a conversation or a
 sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
 

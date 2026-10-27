@@ -42,6 +42,9 @@ func TestMigration139AddsTheMissionChildTables(t *testing.T) {
 		if err := ins(pol, 2, "everything"); err == nil {
 			t.Error("accepted an unknown mode")
 		}
+		if err := ins(`INSERT INTO coder_mission_policy (profile_id, session_id, lead_conversation_id, share_pct, updated_at) VALUES ('p', 3, 'c', 0, 'n')`); err == nil {
+			t.Error("accepted share_pct 0")
+		}
 		if err := ins(pol, 1, "off"); err == nil {
 			t.Error("accepted a second policy for one session")
 		}

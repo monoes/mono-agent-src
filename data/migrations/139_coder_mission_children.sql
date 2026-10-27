@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS coder_mission_policy (
     lead_conversation_id TEXT NOT NULL,
     mode                 TEXT NOT NULL DEFAULT 'marked' CHECK (mode IN ('off', 'marked', 'all')),
     max_children         INTEGER NOT NULL DEFAULT 2 CHECK (max_children >= 0),
-    share_pct            INTEGER NOT NULL DEFAULT 50 CHECK (share_pct >= 0 AND share_pct <= 100),
+    share_pct            INTEGER NOT NULL DEFAULT 50 CHECK (share_pct >= 1 AND share_pct <= 80),
     default_budget_usd   REAL NOT NULL DEFAULT 0 CHECK (default_budget_usd >= 0),  -- 0 = derive from the share
     raised_by            TEXT NOT NULL DEFAULT '',
     updated_at           TEXT NOT NULL,
