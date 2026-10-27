@@ -192,6 +192,12 @@ func (s *Store) Park(profileID, conversationID, class, question string, options 
 		return Question{}, err
 	}
 	id, _ := res.LastInsertId()
+	if !has { // nobody but the person can answer it: they are told, and nothing times it out
+		if err := s.addPersonItem(profileID, conversationID, ItemParkedQuestion, id); err != nil {
+			s.dropQuestion(id)
+			return Question{}, err
+		}
+	}
 	// Only an idle session moves: a running turn settles into waiting_user itself, and
 	// pause and stop keep their meaning.
 	if _, err := s.db.Exec(`UPDATE coder_sessions SET state = 'waiting_user', updated_at = ? WHERE profile_id = ? AND conversation_id = ? AND state = 'idle'`, now, profileID, conversationID); err != nil {

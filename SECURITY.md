@@ -1833,9 +1833,13 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   answered by the model and never take a default. A model-made decision is written to the decisions ledger as the
   model's. The producer tools (`session_park`, `session_record`, `sessions park|record`) take the caller from the
   verified session token (no session argument), validate the class, refuse a hard class as reversible or as a
-  recorded model decision, and consult the policy: a park the policy leaves to the model and a record the policy
-  leaves to a master or the user are refused. They start no turn and carry no approval. The `reversible` flag is the
-  model's claim and is shown as such in the ledger. A model's ledger rows rotate only among its own and `record` is limited to 20 an hour per session. A master answers
+  recorded model decision. A park the policy leaves to the model is refused, and so is a park by a session with
+  no master (solo, master, orphaned child) for any gap but a hard one; a hard gap of such a session waits for the
+  person with no timeout and no autonomy path can answer it (the person sees it in `sessions questions`, in the
+  session's `waiting_user` state and in the per-kind count (`coder_items`) of the `summary` "needs you" line, which the app also raises as a
+  desktop notification; no workflow Human-in-Loop row is made, so no approval surface is involved). `record` takes any
+  non-hard class whatever the preset; the ledger and its revert are the control. They start no turn and carry no
+  approval. The `reversible` flag is the model's claim, is trusted, and is shown as such in the ledger. A model's ledger rows rotate only among its own and `record` is limited to 20 an hour per session. A master answers
   its direct child's question under its own token (`session_answer`); every question that is not its direct child's
   (including one of a deeper descendant) is refused with one text. Reading questions and decisions needs the operator
   or a session token, is limited to the caller's subtree, and returns model-written text cleaned.

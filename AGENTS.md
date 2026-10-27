@@ -2648,17 +2648,29 @@ monoagentcli --profile work coder host stop                        # the host on
   host validates all of it: the class must be one of the six gap classes; `risky_action` and `missing_credential`
   can never be claimed reversible and can never be recorded as the model's decision (also refused inside
   `Store.Record` for `made_by=model`); `park` consults the policy (`Decide`) and, when the policy lets the model
-  settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` consults the
-  same policy and is refused (`invalid_input`) when the policy leaves that gap to a master or the user, so
-  recording is no way around asking; `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
+  settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` takes ANY
+  non-hard class whatever the preset or override (it no longer consults the policy; so `ask-always` governs `park`
+  only, and the ledger with its revert is the control); `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
   at most 20 `record` calls per session per hour apply, and the model's ledger rows (at most 500) rotate only among
   the model's own rows, so it cannot push a master's or an operator-visible row out of the audit trail. Neither call starts a turn, queues a command, or touches access, a budget or a
   setting, and the text is only data (it is sealed when it reaches a reader as an answer note). Host-side sanity rule:
   the ledger shows every model-made decision as `madeBy: model` together with the `reversible` flag the model
-  claimed, and the operator can revert the reversible ones; a model that mislabels a gap as reversible can have it
-  settled by itself under the preset's rules for that class, which is the residual trust (hard classes are not
-  claimable). A session with no master (a solo or master session, or an unattended child whose master is gone) that parks a
-  question has it answered by the operator (`questions answer`): the conservative choice; nothing answers for it.
+  claimed, and the operator can revert the reversible ones; the `reversible` claim is trusted (a model that
+  mislabels a gap as reversible gets it recorded as its own), which is the residual trust (hard classes are not
+  claimable). A session with no master (a solo or master session, or a child whose master is gone) has nobody
+  to ask but the person, so `park` is refused for it (`ErrNoMasterDecide`; MCP `no_master`: "no master to answer:
+  decide and call record, or stop") for every class but `risky_action` and `missing_credential`, and nothing is
+  written. Those two are parked as before, for the person only, and wait with NO timeout: no default is ever taken
+  (Decide clamps the fallback to park and `ApplyDefaults` also skips a hard class outright). The person sees such a
+  question in `sessions questions list` (answered with `questions answer`, the single source of truth), as the
+  session's `waiting_user` state, and as `coder_items` (a count per kind) in `summary --section hil` (counted in
+  "needs you"; the app raises a desktop notification when it goes up). Each such request is a row of
+  `coder_session_person_items` (migration 136): a `kind` (today `parked_question`; the shape is generic, other
+  kinds can be added in `coderhost/parked_items.go`) and a `ref_id` into that kind's table. The item has no
+  status of its own: it is open while its referent is, so `questions answer` and `AnswerItem` (which dispatches
+  by kind to the kind's own delivery) close the same row once and queue one note. It is not a `hil_pending` row:
+  those belong to workflow runs and a `hil approve` must never answer a session. The count and the
+  notification carry no text.
 - **First-run checks** (for the operator's first real run; none of this is verified live). `spawn` works only
   with a master's session token, so the steps that spawn are done by asking the master, in its chat, to run the
   command in its turn; the rest is the operator's own terminal:
@@ -2681,10 +2693,12 @@ monoagentcli --profile work coder host stop                        # the host on
   5. *Autonomy producer (ask the master, in its chat, to run these in its turn; none of it is verified live):*
      `coder sessions park --class risky_action --question "delete the build dir?"` parks on the caller's own
      session (the session goes to `waiting_user`; `questions list <conv>` shows it, answerer `user` for a master
-     with no master, `master` for a child); the same with `--class ambiguity --reversible` is refused with
-     "decide, then run `coder sessions record`"; `coder sessions record --class ambiguity --choice tabs --reason
-     ... --reversible` writes a ledger row shown as made by the model (`decisions list <conv>`); `record --class
-     risky_action ...` and `record` of an irreversible ambiguity (under `ask-on-risk`) are refused; `--reversible`
+     with no master, `master` for a child; `summary --section hil` counts it in `coder_items`); a park of
+     `--class ambiguity` by a session with no master is refused with "no master to answer: decide and call
+     record, or stop"; the same with `--reversible` by a child under `ask-on-risk` is refused with "decide, then
+     run `coder sessions record`"; `coder sessions record --class ambiguity --choice tabs --reason
+     ... --reversible` writes a ledger row shown as made by the model (`decisions list <conv>`), also under
+     `ask-always`; `record --class risky_action ...` is refused; `--reversible`
      with `risky_action` is refused; 21 open questions are refused. Run without the session token (operator
      terminal) both verbs are refused. A child asks the same, and its master answers with `questions answer
      <child-conv> <id> TEXT` from its turn (turn id `answer-m-`, `answeredBy` `master:<conv>`). A master can read the parked questions of its whole subtree but answers only those of its direct children (a grandchild's goes to the grandchild's own master).

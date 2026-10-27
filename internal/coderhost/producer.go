@@ -18,17 +18,20 @@ import (
 //     recorded as a model's decision: they are parked, and the master or the user answers;
 //   - Park consults the policy (Decide): when it lets the model settle the gap, ParkOwn returns
 //     ErrModelDecides and the model is to decide and call RecordOwn;
-//   - RecordOwn consults the same policy and refuses a decision the policy reserves for a master
-//     or the user, so recording is no way around asking;
+//   - a session with no master (solo, master, orphaned child) has nobody to ask but the person, so
+//     ParkOwn refuses to park any gap but a hard one (ErrNoMasterDecide): the model decides and
+//     records it, or stops. A hard gap is parked for the person and waits without a timeout;
+//   - RecordOwn records any class but a hard one, whatever the preset (so ask-always governs
+//     parking only); the ledger (made by the model, the claimed flag, revert) is the control;
 //   - made_by is fixed to "model" here, never read from the caller, and the ledger shows it so;
 //   - the open-question cap (MaxOpenQuestions), the field caps and a rate of MaxRecordsPerHour
 //     records an hour apply, and a model's rows rotate only among the model's own rows.
 //
 // Neither call starts a turn, queues a command, changes access, a budget or a setting, or
 // carries any confirmation: they write one row each. A model that mislabels a gap as reversible
-// or low-risk can have it settled by itself under the preset's rules for that class; the rule that
-// bounds it is that the ledger shows the decision as the model's, with the flag it claimed, and
-// that the operator can revert the reversible ones (hard classes are not claimable at all).
+// or low-risk can have it recorded as its own; the claimed flag is trusted, and what bounds it is
+// that the ledger shows the decision as the model's, with the flag it claimed, and that the operator
+// can revert the reversible ones (hard classes are not claimable at all).
 
 // Rate of model-made records: at most MaxRecordsPerHour per session per hour.
 const (
@@ -39,9 +42,13 @@ const (
 // ErrRecordRate: the session has recorded as many decisions in the last hour as it may.
 var ErrRecordRate = fmt.Errorf("%w: a session may record at most %d decisions an hour", ErrLimit, MaxRecordsPerHour)
 
-// ErrPolicyReserves: the policy does not let the model settle this gap, so it cannot be recorded
+// ErrPolicyReserves: the model may never settle this gap (a hard class), so it cannot be recorded
 // as the model's decision; it is parked instead.
-var ErrPolicyReserves = errors.New("coder host: the policy does not let the model decide this gap; park it as a question instead")
+var ErrPolicyReserves = errors.New("coder host: the model may not decide this gap (risky_action, missing_credential); park it as a question instead")
+
+// ErrNoMasterDecide: the session has no master to answer, and the gap is not one that waits for the
+// person, so nothing is parked.
+var ErrNoMasterDecide = errors.New("coder host: no master to answer: decide and call record, or stop")
 
 // ParkRequest is a question a session parks about itself.
 type ParkRequest struct {
@@ -77,7 +84,8 @@ func (s *Store) ownCaller(c Caller) error {
 }
 
 // ParkOwn parks a question about the caller's own session. ErrModelDecides means the policy lets
-// the model settle it: decide, then RecordOwn.
+// the model settle it, ErrNoMasterDecide that there is no master to ask and the gap is not a hard
+// one: decide, then RecordOwn.
 func (s *Store) ParkOwn(c Caller, r ParkRequest) (Question, error) {
 	if err := s.ownCaller(c); err != nil {
 		return Question{}, err
@@ -90,6 +98,9 @@ func (s *Store) ParkOwn(c Caller, r ParkRequest) (Question, error) {
 	}
 	if HardClass(r.Class) && r.Reversible {
 		return Question{}, fmt.Errorf("%w: a %s gap is never reversible", ErrInvalid, r.Class)
+	}
+	if _, has := s.hasMaster(c.ProfileID, c.ConversationID); !has && !HardClass(r.Class) {
+		return Question{}, ErrNoMasterDecide
 	}
 	return s.Park(c.ProfileID, c.ConversationID, r.Class, r.Question, r.Options, r.Default, r.Reversible)
 }
@@ -107,14 +118,6 @@ func (s *Store) RecordOwn(c Caller, r RecordRequest) (LedgerEntry, error) {
 	}
 	if HardClass(r.Class) {
 		return LedgerEntry{}, fmt.Errorf("%w (%s gaps are parked, never decided by the model)", ErrPolicyReserves, r.Class)
-	}
-	settings, err := s.GetSettings(c.ProfileID, c.ConversationID)
-	if err != nil {
-		return LedgerEntry{}, err
-	}
-	_, has := s.hasMaster(c.ProfileID, c.ConversationID)
-	if Decide(settings, r.Class, r.Reversible, has).Answerer != WhoModel {
-		return LedgerEntry{}, ErrPolicyReserves
 	}
 	var recent int
 	since := s.now().Add(-recordWindow).UTC().Format(timeLayout)

@@ -22,13 +22,25 @@ export function notifyPending(added) {
   try { new Notification('Human in Loop', { body, tag: 'hil-pending' }) } catch { /* sandboxed webview */ }
 }
 
+// A coder session with no master that hit a risky gap waits for the person with no timeout
+// (`summary` counts it in coder_items, per kind). The notification carries a count, never the question.
+export function notifyCoderQuestions() {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  try { new Notification('Coder session', { body: 'A coder session is waiting for you (coder sessions questions)', tag: 'coder-question' }) } catch { /* sandboxed webview */ }
+}
+
 export function usePendingCount() {
   const [count, setCount] = useState(0)
   const last = useRef(null)
+  const lastCoder = useRef(null)
   const visible = usePageVisibleRef()
   const load = useCallback(async () => {
-    const n = pendingFromSummary(await api.getSummarySections('hil'))
+    const summary = await api.getSummarySections('hil')
+    const n = pendingFromSummary(summary)
     if (n == null) return // unknown: keep the last count
+    const coder = Object.values(summary.hil.coder_items || {}).reduce((a, b) => a + b, 0)
+    if (lastCoder.current != null && coder > lastCoder.current) notifyCoderQuestions()
+    lastCoder.current = coder
     if (last.current != null && n > last.current) notifyPending(n - last.current)
     last.current = n
     setCount(n)

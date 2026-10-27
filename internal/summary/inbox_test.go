@@ -88,3 +88,21 @@ func TestHILScopeAndOrgRows(t *testing.T) {
 		t.Fatalf("hil = %+v (want h1 and h2 only)", h)
 	}
 }
+
+// An item is open exactly while the row it points at is: a count per kind (never text) joins "needs you".
+func TestHILCountsCoderItemsByKindWhileTheirRowIsOpen(t *testing.T) {
+	db := testDB(t)
+	exec(t, db,
+		`INSERT INTO coder_session_questions (id, profile_id, conversation_id, class, question, status, created_at) VALUES
+		 (1,'default','solo','risky_action','q1','open','t'), (2,'default','solo','risky_action','q2','answered','t'),
+		 (3,'default','orphan','missing_credential','q3','open','t'), (4,'other','solo2','risky_action','q4','open','t'),
+		 (5,'default','kid','risky_action','q5','open','t')`,
+		`INSERT INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES
+		 ('default','solo','parked_question',1,'t'), ('default','solo','parked_question',2,'t'),
+		 ('default','orphan','parked_question',3,'t'), ('other','solo2','parked_question',4,'t')`,
+	)
+	h := Build(context.Background(), Options{DB: db.DB, ProfileID: "default", Now: now, Sections: map[string]bool{"hil": true}}).HIL
+	if h.Error != "" || h.CoderItems["parked_question"] != 2 || h.Total != 2 {
+		t.Fatalf("hil = %+v", h)
+	}
+}

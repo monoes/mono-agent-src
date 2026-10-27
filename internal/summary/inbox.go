@@ -9,13 +9,16 @@ import (
 )
 
 type HILSection struct {
-	WorkflowPending    int    `json:"workflow_pending"`
-	PeopleReview       int    `json:"people_review"`
-	Drafts             int    `json:"drafts"`
-	LinkSuggestions    int    `json:"link_suggestions"`
-	Total              int    `json:"total"`
-	OldestWaitingSince string `json:"oldest_waiting_since"`
-	Error              string `json:"error,omitempty"`
+	WorkflowPending int `json:"workflow_pending"`
+	PeopleReview    int `json:"people_review"`
+	Drafts          int `json:"drafts"`
+	LinkSuggestions int `json:"link_suggestions"`
+	// CoderItems counts, per kind, the requests of coder sessions that only the person answers and that
+	// nothing times out (today "parked_question"; a kind is added in coderhost). Counts only, never text.
+	CoderItems         map[string]int `json:"coder_items,omitempty"`
+	Total              int            `json:"total"`
+	OldestWaitingSince string         `json:"oldest_waiting_since"`
+	Error              string         `json:"error,omitempty"`
 }
 
 type PeopleSection struct {
@@ -89,7 +92,17 @@ func hilSection(ctx context.Context, o Options) *HILSection {
 			return s
 		}
 	}
-	s.Total = s.WorkflowPending + s.PeopleReview + s.Drafts + s.LinkSuggestions
+	items, err := coderItems(ctx, o)
+	if err != nil {
+		s.Error = err.Error()
+		return s
+	}
+	s.CoderItems = items
+	coder := 0
+	for _, n := range items {
+		coder += n
+	}
+	s.Total = s.WorkflowPending + s.PeopleReview + s.Drafts + s.LinkSuggestions + coder
 	return s
 }
 
@@ -209,4 +222,26 @@ func applicationsSection(ctx context.Context, o Options) *ApplicationsSection {
 		o.ProfileID, o.ProfileID, o.ProfileID, weekAgo(o)).Scan(&s.Evaluated, &s.UnevaluatedPending, &s.Added7d)
 	s.Error = errString(err)
 	return s
+}
+
+// coderOpen is, per kind of coderhost person item, the query counting its open items: an item is
+// open exactly while the row it points at is.
+var coderOpen = map[string]string{
+	"parked_question": `SELECT COUNT(*) FROM coder_session_person_items i
+		JOIN coder_session_questions q ON q.id = i.ref_id AND q.profile_id = i.profile_id
+		WHERE i.kind = 'parked_question' AND i.profile_id = ? AND q.status = 'open'`,
+}
+
+func coderItems(ctx context.Context, o Options) (map[string]int, error) {
+	out := map[string]int{}
+	for kind, q := range coderOpen {
+		var n int
+		if err := o.DB.QueryRowContext(ctx, q, o.ProfileID).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			out[kind] = n
+		}
+	}
+	return out, nil
 }

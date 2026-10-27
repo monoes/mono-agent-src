@@ -27,7 +27,7 @@ func producerErr(err error) error {
 	switch {
 	case errors.Is(err, coderhost.ErrModelDecides):
 		return clicore.InvalidInput("the policy lets you settle this gap yourself: decide, then run `coder sessions record` with your choice, the alternatives and the reason (%v)", err)
-	case errors.Is(err, coderhost.ErrPolicyReserves):
+	case errors.Is(err, coderhost.ErrNoMasterDecide), errors.Is(err, coderhost.ErrPolicyReserves):
 		return clicore.InvalidInput("%v", err)
 	case errors.Is(err, coderhost.ErrTooManyOpen), errors.Is(err, coderhost.ErrNoConversation):
 		return clicore.InvalidInput("%v", err)
@@ -42,7 +42,9 @@ func newCoderSessionsParkCmd(cfg *Deps) *cobra.Command {
 		Short: "Park a question about your own session when nobody present can answer it (needs the session token of a coder turn)",
 		Long: "Writes a question about the calling session and puts the session into waiting_user once its turn ends; the answer " +
 			"arrives later as a message. The policy decides who answers (the master, or the user without one). When the policy lets you " +
-			"settle the gap yourself nothing is parked: decide and run `coder sessions record`. risky_action and missing_credential gaps " +
+			"settle the gap yourself nothing is parked: decide and run `coder sessions record`. A session with no master (solo, master, " +
+			"orphaned child) parks only risky_action and missing_credential gaps, which wait for the person with no timeout; any other gap " +
+			"is refused (\"no master to answer\"): decide and record it, or stop. risky_action and missing_credential gaps " +
 			"are never yours to decide and are never reversible. --default is applied after 30 minutes only where the policy allows a default " +
 			"(never for those two classes).",
 		Args: cobra.NoArgs,
@@ -76,9 +78,9 @@ func newCoderSessionsRecordCmd(cfg *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "record",
 		Short: "Record a decision you made for your own session, so a person can review it (needs the session token of a coder turn)",
-		Long: "Writes a ledger row, made by the model, for the calling session. It is refused when the policy does not let the model settle that " +
-			"class of gap (then `park` it), and always for risky_action and missing_credential. It carries nothing out: it changes no access, " +
-			"budget or setting and starts no turn.",
+		Long: "Writes a ledger row, made by the model, for the calling session. Any class of gap may be recorded whatever the autonomy " +
+			"preset (the ledger and its revert are the control), except risky_action and missing_credential, which are refused (then `park` it). " +
+			"It carries nothing out: it changes no access, budget or setting and starts no turn.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			mc, err := producerCall(cfg, "record")
