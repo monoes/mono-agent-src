@@ -1,6 +1,8 @@
 package gitevidence
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"strings"
@@ -221,5 +223,60 @@ func TestStoreEnforcesTheConversationFolderFromAnyProcessDirectory(t *testing.T)
 	var ref string
 	if err := h.DB.QueryRow(`SELECT ref FROM task_artifacts WHERE task_id = ? AND kind = 'commit' ORDER BY id DESC LIMIT 1`, tk.ID).Scan(&ref); err != nil || ref != target {
 		t.Fatalf("the stored reference %q (%v), want the normalised %q", ref, err, target)
+	}
+}
+
+// A mission is never checked by the old rule because git could not answer: git missing from the
+// path, an unreadable folder, or a start point git fails to resolve all refuse.
+func TestScopedCheckFailsClosedWhenGitCannotAnswer(t *testing.T) {
+	dir, start, _, target := repoWith(t)
+	c := Checker("")
+	if err := c(bg, scoped(dir, start, target, "p/p.go")); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	// an unreadable folder
+	if os.Getuid() != 0 {
+		locked := t.TempDir()
+		run(t, locked, "init", "-q")
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(locked, 0o700)
+		if err := c(bg, scoped(locked, start, target, "p/p.go")); err == nil || errors.Is(err, tasks.ErrEvidenceNotApplicable) {
+			t.Fatalf("an unreadable mission folder: %v", err)
+		}
+	}
+
+	// git missing from the path
+	t.Setenv("PATH", t.TempDir())
+	if err := c(bg, scoped(dir, start, target, "p/p.go")); err == nil || errors.Is(err, tasks.ErrEvidenceNotApplicable) {
+		t.Fatalf("a mission with no git on the path: %v", err)
+	}
+}
+
+// A start point git fails to resolve (as opposed to one it reports is absent) refuses.
+func TestUnresolvableStartRefusesRatherThanLapses(t *testing.T) {
+	dir, _, _, target := repoWith(t)
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+	err := newSince(ctx, dir, target, strings.Repeat("a", 40))
+	if err == nil {
+		t.Fatal("a start point git could not be asked about lapsed the rule")
+	}
+	if err := newSince(bg, dir, target, strings.Repeat("a", 40)); err != nil {
+		t.Fatalf("a start point git reports absent: %v", err)
+	}
+}
+
+func TestGitOutputIsCapped(t *testing.T) {
+	dir, _, _, _ := repoWith(t)
+	if _, err := gitIn(bg, dir, "x", "hash-object", "--stdin"); err != nil {
+		t.Fatalf("small output: %v", err)
+	}
+	var w cappedWriter
+	w.w, w.max = new(bytes.Buffer), 4
+	if _, err := w.Write([]byte("12345")); err == nil || !w.over {
+		t.Fatal("cappedWriter kept writing past its cap")
 	}
 }

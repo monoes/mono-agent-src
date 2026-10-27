@@ -393,6 +393,7 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 	// The commit is checked against git before the write transaction opens; the transaction
 	// then confirms the scope it was checked in is unchanged.
 	var scope evScope
+	checked := false
 	if in.Kind == ArtifactCommit && s.checker != nil && s.authorizedForEvidence(ctx, profileID, sessionID, id, actor, "attach an artifact", authHolderOrReview) {
 		var err error
 		if scope, err = s.attachScope(ctx, profileID, sessionID, id); err != nil {
@@ -401,6 +402,7 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 		if ref, err = s.checkCommitRef(ctx, sessionID, id, ref, scope); err != nil {
 			return Artifact{}, err
 		}
+		checked = true
 	}
 	var out Artifact
 	err := s.tx(ctx, func(x dbx) error {
@@ -432,6 +434,9 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 			return limit("task #%d already has %d artifacts", id, n)
 		}
 		if in.Kind == ArtifactCommit && s.checker != nil {
+			if !checked {
+				return evidenceMoved(id)
+			}
 			if now, err := s.evidenceScope(ctx, x, profileID, sessionID, id); err != nil {
 				return err
 			} else if now != scope {

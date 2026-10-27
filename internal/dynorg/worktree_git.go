@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/gitsafe"
 )
@@ -159,6 +160,7 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, gitsafe.Args()...), args...)...)
 	cmd.Env = gitEnv()
+	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

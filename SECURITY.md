@@ -1688,7 +1688,7 @@ that works a task acts on them. The defences:
   operator (`verdict_by_unexpected_actor`); a mission does not close on such a task. **The evidence rule:** a task of kind
   `task` that declares files cannot be finished to Review with a result unless it holds a
   commit, diff, test, file or log artifact (a report does not count); the check runs in the
-  store, inside the hand-back transaction, for every caller. The CLI, the MCP server and
+  store for every caller (the git work before the write transaction opens, a scope check inside it). The CLI, the MCP server and
   the mission conductor install a git-backed checker (the store has no git access and
   stays pure; a store without one, as in personal callers and tests, behaves as before).
   In a git work tree the checker requires a `commit` artifact, named by its full object id
