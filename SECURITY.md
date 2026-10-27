@@ -1657,15 +1657,13 @@ that works a task acts on them. The defences:
   by the conductor is bound, a free agent is not. An agent verifies only while the
   session runs; the operator may act while it is paused. A task that fails
   verification more often than
-  `max_retries` is blocked for the operator. A process bound to a session
-  (`MONOAGENT_TASK_SESSION`, the carrier of the worker token to come) may act in
-  that session only: not on the personal board and not in another session, in
+  `max_retries` is blocked for the operator. A process bound by a mission token (below) may act in
+  that session, on its one task, only: not on the personal board and not in another session, in
   the CLI, the store and over MCP. That includes the operator-enabled delegation
   (`task agents allow --approve --view`): a bound worker cannot approve or view the
   personal board through it, the `task digest` hook shows it nothing of that board,
   and a delegated approval never opens a session's task (only `session approve`
-  does). That variable is a label, not a credential: an agent that sets or unsets
-  its own environment can change it. **An agent that scrubs its own environment (no
+  does). **An agent that scrubs its own environment (no
   agent marker, no `--as`) is treated as the operator by the CLI** and can run
   `session approve`, `session resume` and `session budget`: it can open its own plan,
   resume a pause and raise its own budget. That weakness predates sessions and has
@@ -1675,17 +1673,38 @@ that works a task acts on them. The defences:
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
   deleted with its profile. A session that has spent its budget hands out no tasks.
   **A mission's verifier** is started by the lead (`mission_verify`) as another agent
-  than the executor, read only, with `MONOAGENT_TASK_ROLE=verifier` next to the task
-  binding: in the store that actor may verify, comment on (once the task is in Review)
+  than the executor, read only, with a verifier-role mission token for the task:
+  in the store that actor may verify, comment on (once the task is in Review)
   and attach evidence to its one task, and is refused claiming, finishing, releasing,
   splitting, adding or writing session events; a verifier without a task is refused. The
   conductor never records a verdict for the lead, but that is the conductor's rule and
-  not the store's: the store lets any named agent of the session verify a task it did
-  not hand back (a peer checker), so the lead holds no verifier binding and no more. Like the binding, the role
-  is an environment label, not a credential: a process with a shell can unset it. The store
-  therefore refuses verdicts by task-bound non-verifiers and by the executing identity, and
-  the conductor distrusts any verdict not recorded by the verifier it assigned or by the
-  operator (`verdict_by_unexpected_actor`); a mission does not close on such a task. **The evidence rule:** a task of kind
+  not the store's alone: in a session a chat conversation manages the store refuses a
+  verdict from any agent that holds no verifier binding (only the verifier the conductor started
+  for the task, or the operator, records one), so the lead holds none and no more; only a session
+  nobody manages (the operator's own) still lets another named agent verify a task it did not hand
+  back (a peer checker). The store also refuses verdicts by task-bound non-verifiers and by the
+  executing identity, and the conductor distrusts any verdict not recorded by the verifier it assigned or by the
+  operator (`verdict_by_unexpected_actor`); a mission does not close on such a task.
+  **Mission tokens.** What binds a worker's or verifier's process to its session, task, role and
+  name is a token the conductor mints for that run (`internal/agenttokens`, the same table and
+  hashing as the HTTP API's agent tokens, with its own binding columns), passed in the
+  process's environment (`MONOAGENT_TASK_BINDING`; its name has no key, secret or token in it so that an agent runtime's default environment filter, which drops variables by such words, does not strip it. Each runtime's own policy is outside this repository, so that every runtime passes it to its shells and tool servers is **unverified live**: a runtime that drops it leaves its worker unbound, which fails closed). The CLI and the MCP tools take the binding
+  only from a token the database verifies for the call's profile; the `MONOAGENT_TASK_*` labels
+  that stay in the environment (the brief's text, an agent marker) scope nothing. The token is
+  short-lived (a little over the run's timeout), revoked when the run ends or expires (a conductor that
+  starts or resumes a conversation also revokes the tokens an earlier run of it left, taking only those of a run whose chat turn is no longer active (it assumes a crashed turn is reconciled, which ends it; until then those tokens end at their expiry, and a second conductor of a running conversation never revokes the first one's), and a conductor that resumes the same turn id under a new process leaves its predecessor's tokens to expire, since the sweep cannot tell a resumed conductor from a concurrent one of the same turn (a follow-up: a per-conductor instance with a liveness signal), and
+  expired ones are purged), bound to one task, and not accepted by the HTTP API; a token that is unknown, expired, revoked, another profile's or
+  another kind refuses every act, and no token is an ordinary agent that cannot record a verdict,
+  and cannot claim, take the next task, finish, release, split, add a task or a dependency or attach evidence, in a session a
+  chat conversation manages (it may still read; sessions the operator created keep their rules). A worker's token never records a verdict and a
+  verifier's never claims or finishes. *Honest limits:* a process that can read the token (a
+  process of the same user, its own environment, the process table, the database file) can use it,
+  and so can a process that can read the database or the vault write its own; a worker can also read
+  a sibling process's token from the process table, so `verdict_by_unexpected_actor` (above) is the
+  backstop for verdicts, not the token alone; the token is
+  scoped and per run, so what it reaches is that one task until the run ends, and it is not a
+  sandbox: a worker's own sub-processes inherit it. An agent that scrubs its own environment
+  and is not recognised as an agent is still treated as the operator by the CLI (above). **The evidence rule:** a task of kind
   `task` that declares files cannot be finished to Review with a result unless it holds a
   commit, diff, test, file or log artifact (a report does not count); the check runs in the
   store, inside the hand-back transaction, for every caller. It is self-asserted: an
@@ -1695,6 +1714,54 @@ that works a task acts on them. The defences:
   done or verified, `mission_finish` only proposes the close (it attaches the final report and
   emits `mission.report`); the session stays running and only the operator closes it
   (`session close`, which refuses an agent). No code path of the conductor closes a session.
+  **The conductor's git work in agent-writable folders** (the isolated writers' worktrees,
+  the verifiers' checkouts and the merge into the chat folder's repository) runs as the
+  operator. Repository-local git configuration or hook scripts can make git run a program
+  during staging, checkout and merge, and an agent that can write in those folders can
+  write them. Two controls apply. First, every git command the conductor runs carries
+  command-line settings and environment that override the repository's own file: the
+  hooks path is pointed at the null device, so the repository's hooks do not run for the
+  conductor's own checkpoint and merge commits, checkouts and ref updates, and so does an
+  operator-level `core.hooksPath` (git-lfs hooks included), which the pin overrides for
+  the conductor's git calls; that is a behaviour change, and the project's checks are run
+  by the lead after a merge. On Windows, which has no null device, the hooks path is an
+  empty folder under the operator's state folder. Its mode bits do not protect it on
+  NTFS: the protection is the user profile's inherited permissions plus a check that the
+  folder is empty on every use. A stray file in it makes the conductor's git calls fail
+  closed (nothing runs); the operator recovers by removing that file. The file system
+  monitor is off, submodule recursion is off, signature verification on a merge is off
+  and signing is off (the conductor's merge commits are unsigned by design). Git is told
+  not to fetch a missing object from a configured remote (a lazy fetch of that kind can
+  run a program the repository's configuration names), and its "user" protocol policy
+  is closed in the environment. The environment also carries an empty transport
+  allowlist, which repository configuration cannot widen (a per-transport allow setting
+  in the repository beats a generic one, but not this list); the conductor never
+  fetches or clones, so no transport and no helper program can be started, on any git
+  version. Second, before a staging, checkout or merge step, and
+  before a finished worker's worktree is inspected or removed, the conductor reads the
+  repository-local configuration (includes resolved, the per-worktree file too unless
+  its switch is plainly false) and refuses, naming the section and variable but never
+  the subsection, a URL or a value, when it defines a program or a setting that leads
+  to one: content filters, merge drivers, external diff and text conversion, signing
+  programs, the ssh key command, the askpass and alternate-refs programs, trailer
+  commands, submodule update commands, remote program and helper settings, remote
+  addresses that select a helper scheme, any protocol policy other than an explicit
+  never, partial-clone and promisor settings, credential helpers, URL rewrites that
+  select a remote helper, stored merge options, and a file system monitor or hooks
+  path other than an explicit off or empty value. The last of these is deliberate: the
+  pins would override a repository-local hooks path or monitor anyway, and refusing is
+  the fail-safe choice, so the operator removes the entry. A repository that sets its
+  hooks path locally (husky-style tooling) needs it set globally instead, or removed,
+  for mission repositories. On a git that predates the lazy-fetch switch,
+  the transport allowlist and the refusal are the controls. A refusal is journaled as its own notice and fails closed: no
+  worktree is made, a worktree that already exists is kept as it is and reported as not
+  inspected, and the operator removes the entry. Nothing is cached between steps.
+  Filters and merge drivers have no command-line switch, so that check is best effort:
+  an agent rewriting the configuration in the instant between the check and the git
+  command is not stopped. The operator's own global and system configuration is
+  trusted and not inspected, and a filter or driver defined there (git-lfs, for
+  example) still runs on content an agent chose, through attributes files the agent
+  controls.
   **A mission's confirmation** (the person's "run this send as a mission") is a record,
   not a flag: the coder host's chat children inherit the host's environment and are
   reparented, so they look like the operator to environment and ancestry checks, and

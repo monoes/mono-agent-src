@@ -16,6 +16,7 @@ func (c *Conductor) missionWatch(sid int64) {
 	if err != nil {
 		return
 	}
+	c.sweepMissionTokens(mc)
 	c.msched.mu.Lock()
 	c.msched.init()
 	c.msched.sessions[sid] = true
@@ -87,7 +88,7 @@ func (c *Conductor) missionHalt(ctx context.Context, se tasks.Session) {
 	c.msched.halted[se.ID] = true
 	c.msched.mu.Unlock()
 	if se.State == tasks.SessionRunning {
-		_, _ = mc.Store.PauseSession(context.WithoutCancel(ctx), mc.ProfileID, se.ID, missionActor())
+		_, _ = mc.Store.PauseSession(context.WithoutCancel(ctx), mc.ProfileID, se.ID, tasks.Actor{Kind: tasks.Agent, Name: missionConductorName, Session: se.ID})
 	}
 	c.stopSessionWorkers(se.ID, "the session's budget is spent")
 	if first {

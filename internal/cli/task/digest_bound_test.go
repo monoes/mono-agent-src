@@ -3,34 +3,30 @@ package task
 import (
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/agenttokens"
 )
 
-// A worker bound to a session or a task reads nothing of the personal board from the digest,
+// A worker bound to a task by its token reads nothing of the personal board from the digest,
 // neither the counts nor the next title, in text or in JSON.
 func TestDigestOfABoundWorkerShowsNothingOfThePersonalBoard(t *testing.T) {
 	db := newTaskTestDB(t)
 	opsAdd(t, db, "private-title-xyz", "--ready")
-	for _, env := range []map[string]string{
-		{"MONOAGENT_TASK_SESSION": "5"},
-		{"MONOAGENT_TASK_SESSION": "5", "MONOAGENT_TASK_ID": "9"},
-		{"MONOAGENT_TASK_ID": "9"},
-	} {
-		for k, v := range env {
-			setenv(t, k, v)
+	se := sessionNew(t, db)
+	tk := sessionAdd(t, db, se, "mine")
+	var d sessionDoc
+	mustTaskJSON(t, db, "default", &d, "", "session", "approve", id(se))
+	bindProcess(t, db, agenttokens.MissionBinding{Session: se, Task: tk, Role: agenttokens.RoleWorker, Actor: "w"})
+	for _, jsonOut := range []bool{false, true} {
+		out, _, err := runTask(t, db, "default", jsonOut, "", "digest")
+		if err != nil {
+			t.Fatalf("json=%v: %v", jsonOut, err)
 		}
-		for _, jsonOut := range []bool{false, true} {
-			out, _, err := runTask(t, db, "default", jsonOut, "", "digest")
-			if err != nil {
-				t.Fatalf("%v: %v", env, err)
-			}
-			if strings.Contains(out, "private-title-xyz") || strings.Contains(out, "1 ready") || strings.Contains(out, `"ready":1`) || strings.Contains(out, `"ready": 1`) {
-				t.Errorf("%v json=%v: the digest shows the personal board: %q", env, jsonOut, out)
-			}
-		}
-		for k := range env {
-			setenv(t, k, "")
+		if strings.Contains(out, "private-title-xyz") || strings.Contains(out, "1 ready") || strings.Contains(out, `"ready":1`) || strings.Contains(out, `"ready": 1`) {
+			t.Errorf("json=%v: the digest shows the personal board: %q", jsonOut, out)
 		}
 	}
+	setenv(t, agenttokens.EnvMissionToken, "")
 	// unbound, it still shows it
 	out, _, err := runTask(t, db, "default", false, "", "digest")
 	if err != nil || !strings.Contains(out, "private-title-xyz") {

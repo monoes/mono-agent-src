@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/daemonhb"
@@ -86,16 +87,24 @@ var startHostProcess = func(cfg *Deps) error {
 		return err
 	}
 	defer logFile.Close()
-	cmd := exec.Command(exe, "--db-path", cfg.DBPath(), "--profile", cfg.ProfileID(), "coder", "host", "run")
+	cmd := hostCommand(exe, cfg)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	// A host started from a session's shell must not carry that session's identity.
-	cmd.Env = hostProcessEnv(os.Environ())
 	return clicore.DetachStart(cmd)
+}
+
+// hostCommand is the command that runs the detached host. A host started from a session's shell
+// must not carry that session's identity.
+func hostCommand(exe string, cfg *Deps) *exec.Cmd {
+	cmd := exec.Command(exe, "--db-path", cfg.DBPath(), "--profile", cfg.ProfileID(), "coder", "host", "run")
+	cmd.Env = hostProcessEnv(os.Environ())
+	return cmd
 }
 
 // hostProcessEnv is the environment the detached host starts with: a host started from a session's
 // shell must not carry that session's identity.
-func hostProcessEnv(env []string) []string { return withoutEnv(env, coderhost.SessionTokenEnv) }
+func hostProcessEnv(env []string) []string {
+	return withoutEnv(env, coderhost.SessionTokenEnv, agenttokens.EnvMissionToken)
+}
 
 // ensureHost starts the host when none is running and waits for it to take its lock.
 func ensureHost(cfg *Deps) error {

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -274,6 +275,17 @@ func TestEnvHandlingKeepsSessionTokensOutOfHostsAndTurns(t *testing.T) {
 	}
 }
 
+// A mission worker's task token is for that one process: a host or a coder turn it starts must not
+// inherit it.
+func TestEnvHandlingKeepsMissionTokensOutOfHostsAndTurns(t *testing.T) {
+	env := []string{"A=1", agenttokens.EnvMissionToken + "=tok", "B=2"}
+	for name, got := range map[string][]string{"turn": turnEnv(env), "host": hostProcessEnv(env)} {
+		if strings.Join(got, ",") != "A=1,B=2" {
+			t.Errorf("%s env = %v", name, got)
+		}
+	}
+}
+
 func TestExecLauncherPassesTheBudgetCapAndBindsTheTokenToTheTurnProcess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script")
@@ -281,7 +293,9 @@ func TestExecLauncherPassesTheBudgetCapAndBindsTheTokenToTheTurnProcess(t *testi
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args.log")
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\ncat > /dev/null\necho \"$*\" >> '" + argsLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
+	t.Setenv(agenttokens.EnvMissionToken, "a-workers-binding")
+	envLog := filepath.Join(dir, "env.log")
+	script := "#!/bin/sh\ncat > /dev/null\necho \"$*\" >> '" + argsLog + "'\necho \"binding=${" + agenttokens.EnvMissionToken + ":-none}\" >> '" + envLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -300,6 +314,10 @@ func TestExecLauncherPassesTheBudgetCapAndBindsTheTokenToTheTurnProcess(t *testi
 	}
 	if boundPID != turn.PID() || (coderhost.ProcStamp(boundPID) != boundStamp) {
 		t.Fatalf("bound %d %q for turn %d", boundPID, boundStamp, turn.PID())
+	}
+	// the launcher's own environment carried a mission binding: the turn does not get it
+	if e, _ := os.ReadFile(envLog); !strings.Contains(string(e), "binding=none") {
+		t.Fatalf("the turn inherited a mission binding: %s", e)
 	}
 	// an uncapped start passes no cap
 	os.Remove(argsLog)
@@ -352,5 +370,20 @@ func TestAHostInsideASessionTurnStartsTurnsWithoutABoundTokenAndTinyCapsAreRefus
 	}
 	if _, err := l.StartCapped("p", "c1", "t2", "hi", nil, "", 5e-7); err == nil || !strings.Contains(err.Error(), "used up") {
 		t.Fatalf("a 0.0000005 cap: %v", err)
+	}
+}
+
+// The host a CLI starts is not handed the mission binding of the process that started it.
+func TestHostCommandDropsTheMissionBinding(t *testing.T) {
+	t.Setenv(agenttokens.EnvMissionToken, "a-workers-binding")
+	t.Setenv(coderhost.SessionTokenEnv, "mst-x")
+	cmd := hostCommand("/bin/true", testDeps(&testConfig{DBPath: "/db/x.db", ProfileID: "default"}))
+	for _, kv := range cmd.Env {
+		if strings.HasPrefix(kv, agenttokens.EnvMissionToken+"=") || strings.HasPrefix(kv, coderhost.SessionTokenEnv+"=") {
+			t.Fatalf("the host would carry %s", kv)
+		}
+	}
+	if len(cmd.Env) == 0 {
+		t.Fatal("the host has no environment at all")
 	}
 }

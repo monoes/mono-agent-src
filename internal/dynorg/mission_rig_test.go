@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -179,7 +180,7 @@ func newRig(t *testing.T, o rigOpts) *missionRig {
 		t.Fatal(err)
 	}
 	r.sid = se.ID
-	r.mc = &MissionRun{Store: r.store, ProfileID: "default", Session: se.ID, Poll: 10 * time.Millisecond, Lease: orDur(o.lease, time.Minute), TaskTimeout: o.timeout, VerifierTimeout: o.vtimeout}
+	r.mc = &MissionRun{Store: r.store, ProfileID: "default", Session: se.ID, Tokens: agenttokens.NewStore(db), Poll: 10 * time.Millisecond, Lease: orDur(o.lease, time.Minute), TaskTimeout: o.timeout, VerifierTimeout: o.vtimeout}
 	if o.lim.MaxAgents == 0 {
 		o.lim = Limits{MaxAgents: 20, MaxConcurrent: 5}
 	}

@@ -106,9 +106,12 @@ func checkTree(ctx context.Context, dir, branch string) error {
 }
 
 // commitAll commits every change in the worktree dir on branch, if there
-// is any. It is a checkpoint: hooks and signing are skipped.
+// is any. It is a checkpoint: the repository's hooks and signing are skipped.
 func commitAll(ctx context.Context, dir, branch, msg string) error {
 	if err := checkTree(ctx, dir, branch); err != nil {
+		return err
+	}
+	if err := refuseProgramConfig(ctx, dir); err != nil {
 		return err
 	}
 	if _, err := gitRun(ctx, dir, "add", "--all"); err != nil {
@@ -161,14 +164,30 @@ func gitEnv() []string {
 			env = append(env, kv)
 		}
 	}
-	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C")
+	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C",
+		// Git must not fetch a missing object from a configured remote: that
+		// can run a program the repository names.
+		"GIT_NO_LAZY_FETCH=1",
+		// Closes git's "user" protocol policy, under which a repository-local
+		// allow setting could let a plain fetch start a helper program.
+		"GIT_PROTOCOL_FROM_USER=0",
+		// An allowlist of transports that repository configuration cannot widen
+		// (a more specific per-transport allow setting beats a generic one).
+		// The conductor never fetches or clones, so the list is empty: no
+		// transport, and so no helper program, can be started. This also holds
+		// on git too old for GIT_NO_LAZY_FETCH.
+		"GIT_ALLOW_PROTOCOL=")
 }
 
 // gitRun runs git in dir and returns its stdout; an error carries stderr.
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	pins, err := gitPins()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, pins...), args...)...)
 	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

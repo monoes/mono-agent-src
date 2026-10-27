@@ -3,9 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -15,49 +12,9 @@ import (
 // Task sessions through the task tools (docs/mastermind/plans/2026-10-25-coder-missions-task-sessions.md).
 // A session is one goal with a board of its own: its tasks are worked inside it and never show on
 // the personal board. The operator opens a session (approves its plan); these tools never do, and they
-// never set a budget, a cap, an access level or auto-close. A server may be bound to one session with
-// MONOAGENT_TASK_SESSION (what a worker's token will carry): it then acts in that session only.
-
-// boundSessionEnv names the session an agent's process is bound to.
-const boundSessionEnv = "MONOAGENT_TASK_SESSION"
-
-// taskBindingNumber reads a process binding. An invalid nonempty value is a
-// binding to no existing row (-1), never an unbound process (0).
-func taskBindingNumber(raw string) int64 {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0
-	}
-	n, err := strconv.ParseInt(strings.TrimPrefix(raw, "#"), 10, 64)
-	if err != nil || n <= 0 {
-		return -1
-	}
-	return n
-}
-
-// boundSession reads boundSessionEnv. A task without its session is a damaged
-// binding (-1), not an unbound Personal-board caller.
-func boundSession() int64 {
-	session := taskBindingNumber(os.Getenv(boundSessionEnv))
-	if session == 0 && boundTask() != 0 {
-		return -1
-	}
-	return session
-}
-
-// boundTaskEnv narrows boundSessionEnv to one task (a mission worker's).
-const boundTaskEnv = "MONOAGENT_TASK_ID"
-
-// boundTask reads boundTaskEnv: 0 only when no binding was supplied.
-func boundTask() int64 { return taskBindingNumber(os.Getenv(boundTaskEnv)) }
-
-// boundRoleEnv narrows the task binding to a verifier's ("verifier"): verify, comment and attach
-// evidence to the one task, nothing else.
-const boundRoleEnv = "MONOAGENT_TASK_ROLE"
-
-func boundVerifier() bool {
-	return boundTask() != 0 && strings.TrimSpace(os.Getenv(boundRoleEnv)) == "verifier"
-}
+// never set a budget, a cap, an access level or auto-close. A server started by a conductor for
+// a mission worker or verifier carries a mission token (agenttokens.EnvMissionToken): it then acts in that
+// session, on that task, in that role, and the token is all that binds it (taskActor).
 
 // sessionIntro is added to the description of the tools that take a session.
 const sessionIntro = "A task session is one goal with a board of its own: the operator approves its plan, and until then its tasks " +

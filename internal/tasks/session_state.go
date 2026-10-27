@@ -77,11 +77,17 @@ func (s *Store) transition(ctx context.Context, profileID string, id int64, acto
 		}
 		if actor.Task != 0 || actor.Verifier {
 			// A worker or a verifier does its one task; stopping or pausing the whole session is
-			// for the operator and for the agent that runs the session (the lead, bound to none).
+			// for the operator and for the agent that runs the session (the lead and the conductor, whose
+			// in-process actor is bound to the session: Session set, no task).
 			return Session{}, bindingRefused("this agent is bound to task #%d: it cannot %s the session", actor.Task, kind)
 		}
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		// In a session a conversation manages, only the operator and the lead (bound to the
+		// session) may pause or stop it: an agent with no binding may not end the others' work.
+		if err := s.noUnboundInManaged(ctx, x, profileID, id, actor, kind+" a session"); err != nil {
+			return err
+		}
 		if !slices.Contains(from, se.State) || se.Archived {
 			return sessionNotReady("session #%d is %s: it cannot %s now", id, se.State, kind)
 		}
