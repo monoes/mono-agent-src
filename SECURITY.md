@@ -1697,14 +1697,28 @@ that works a task acts on them. The defences:
   (`session close`, which refuses an agent). No code path of the conductor closes a session.
   **The conductor's git work in agent-writable folders** (the isolated writers' worktrees,
   the verifiers' checkouts and the merge into the chat folder's repository) runs as the
-  operator. Repository-local git configuration can name a program that git runs during
-  staging, checkout and merge, and git has no switch that turns that off, so before each of
-  those operations the conductor reads the repository-local configuration (includes
-  resolved, the per-worktree file too) and refuses, naming the key, when it defines such a
-  program (content filters, merge drivers, external diff and text conversion, a file system
-  monitor, a hooks path; signing is switched off for the conductor's commits and merges). The operator removes the entry; nothing is
-  cached between operations. The operator's own global and system configuration is trusted
-  and not inspected.
+  operator. Repository-local git configuration or hook scripts can make git run a program
+  during staging, checkout and merge, and an agent that can write in those folders can
+  write them. Two controls apply. First, every git command the conductor runs carries
+  command-line settings that override the repository's own file: the repository's hooks
+  directory is replaced by an empty one (so the repository's hooks do not run for the
+  conductor's own checkpoint and merge commits, checkouts and ref updates; that is a
+  behaviour change, and the project's checks are run by the lead after a merge), the file
+  system monitor is off, signature verification on a merge is off and signing is off
+  (the conductor's merge commits are unsigned by design). Second, before a staging,
+  checkout or merge step, and before a finished worker's worktree is inspected or removed,
+  the conductor reads the repository-local configuration (includes resolved, the
+  per-worktree file too unless its switch is plainly false) and refuses, naming the key,
+  when it defines a program: content filters, merge drivers, external diff and text
+  conversion, signing programs and the ssh key command, and a file system monitor or hooks
+  path other than an explicit off or empty value. A refusal is journaled as its own notice
+  and fails closed: no worktree is made, a worktree that already exists is kept as it is
+  and reported as not inspected, and the operator removes the entry. Nothing is cached
+  between steps. Filters and merge drivers have no command-line switch, so that check is
+  best effort: an agent rewriting the configuration in the instant between the check and
+  the git command is not stopped. The operator's own global and system configuration is
+  trusted and not inspected, and a filter or driver defined there (git-lfs, for example)
+  still runs on content an agent chose, through attributes files the agent controls.
   **A mission's confirmation** (the person's "run this send as a mission") is a record,
   not a flag: the coder host's chat children inherit the host's environment and are
   reparented, so they look like the operator to environment and ancestry checks, and

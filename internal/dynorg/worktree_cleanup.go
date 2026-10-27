@@ -101,6 +101,13 @@ func removeTree(ctx context.Context, repo, base, path, branch string) TreeCleanu
 			r.Removed = true
 			return r
 		}
+		// Before any git call that can refresh the index or run a filter
+		// (the commit, both status calls): a worktree whose configuration
+		// names a program is kept as it is, not inspected.
+		if err := refuseProgramConfig(ctx, path); err != nil {
+			r.Error = "kept, not inspected: " + err.Error()
+			return r
+		}
 		if err := commitAll(ctx, path, branch, "mono-agent: work left in the worktree"); err != nil {
 			// Changes that can't be committed stay where they are, and so
 			// does everything when their state can't even be read.

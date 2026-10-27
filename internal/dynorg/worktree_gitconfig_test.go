@@ -118,9 +118,13 @@ func TestSpawningAWriterRefusesAFilterDefinitionAndMakesNoWorktree(t *testing.T)
 	if b := gitT(t, repo, "branch", "--list", "monoagent/*"); b != "" {
 		t.Fatalf("a branch was made: %s", b)
 	}
-	msgs := notices(em, NoticeWritersShared)
-	if len(msgs) != 1 || !strings.Contains(msgs[0], "names a program") || !strings.Contains(msgs[0], "filter.x.smudge") {
+	msgs := notices(em, NoticeGitConfigRefused)
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "names a program") || !strings.Contains(msgs[0], "filter.x.smudge") ||
+		!strings.Contains(msgs[0], "works in the chat folder instead") {
 		t.Fatalf("notices = %v", msgs)
+	}
+	if n := notices(em, NoticeWritersShared); len(n) != 0 {
+		t.Fatalf("a refusal was reported as a git hiccup: %v", n)
 	}
 }
 
@@ -216,6 +220,12 @@ func TestRefuseProgramConfigKeys(t *testing.T) {
 		{"diff.external", "diff.external"},
 		{"core.fsmonitor", "core.fsmonitor"},
 		{"core.hooksPath", "hookspath"},
+		{"gpg.program", "gpg.program"},
+		{"gpg.openpgp.program", "gpg.openpgp.program"},
+		{"gpg.x509.program", "gpg.x509.program"},
+		{"gpg.ssh.program", "gpg.ssh.program"},
+		{"gpg.ssh.defaultKeyCommand", "defaultkeycommand"},
+		{"core.fsmonitor", "core.fsmonitor"},
 	}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {
@@ -299,19 +309,4 @@ func TestRefuseProgramConfigFailsClosedOnAFolderThatIsNotARepository(t *testing.
 	if err := refuseProgramConfig(context.Background(), t.TempDir()); err == nil {
 		t.Fatal("a folder that is no repository was accepted")
 	}
-}
-
-// A signing program in the repository's configuration is not reached: the merge runs with signing off.
-func TestMergeDoesNotRunASigningProgram(t *testing.T) {
-	isolateGit(t)
-	repo := newRepo(t)
-	branchWith(t, repo, "monoagent/t1/w1", "one.txt", "from the writer\n")
-	marker := filepath.Join(t.TempDir(), "ran")
-	gitT(t, repo, "config", "commit.gpgsign", "true")
-	gitT(t, repo, "config", "gpg.program", markerCmd(marker))
-	res, err, _ := storedMerge(t, repo)
-	if err != nil || !res.Merged {
-		t.Fatalf("merge = %+v, %v", res, err)
-	}
-	noMarker(t, marker)
 }

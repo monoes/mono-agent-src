@@ -75,6 +75,10 @@ const (
 	// NoticeWritersShared: isolated writers were asked for but this turn (or
 	// this worker) runs under the write lease, with the reason.
 	NoticeWritersShared = "org_writers_shared"
+	// NoticeGitConfigRefused: the repository's local git configuration names
+	// a program, so no worktree was made or touched (a security refusal, not
+	// a git failure).
+	NoticeGitConfigRefused = "org_git_config_refused"
 	// NoticeBranchKept: a worker's branch has commits that were never
 	// merged, so it outlives its worktree.
 	NoticeBranchKept = "org_branch_kept"
@@ -253,6 +257,13 @@ func (c *Conductor) addWorktree(w *worker) {
 	if err == nil {
 		_, err = gitRun(c.ctx, c.iso.cwd, "worktree", "add", "--quiet", "-b", branch, path, "HEAD")
 	}
+	if isConfigRefusal(err) {
+		c.cfg.Emit.Emit(chatevents.EventNotice, chatevents.NoticePayload{
+			Code: NoticeGitConfigRefused, Severity: chatevents.SeverityWarning,
+			Message: fmt.Sprintf("The repository's local git configuration names a program, so git was not run for %s (%v); it works in the chat folder instead.", w.id, err),
+		})
+		return
+	}
 	if err != nil {
 		c.cfg.Emit.Emit(chatevents.EventNotice, chatevents.NoticePayload{
 			Code: NoticeWritersShared, Severity: chatevents.SeverityWarning,
@@ -407,7 +418,7 @@ func (c *Conductor) Merge(ctx context.Context, id string) (MergeResult, error) {
 	}
 	before, _ := gitRun(ctx, c.iso.cwd, "rev-parse", "HEAD")
 	msg := fmt.Sprintf("Merge %s (%s)", branch, id)
-	if _, err := gitRun(ctx, c.iso.cwd, withIdentity(ctx, c.iso.cwd, "-c", "commit.gpgsign=false", "merge", "--no-ff", "--no-edit", "-m", msg, "refs/heads/"+branch)...); err != nil {
+	if _, err := gitRun(ctx, c.iso.cwd, withIdentity(ctx, c.iso.cwd, "-c", "commit.gpgsign=false", "-c", "merge.verifySignatures=false", "merge", "--no-ff", "--no-edit", "-m", msg, "refs/heads/"+branch)...); err != nil {
 		out, _ := gitRun(ctx, c.iso.cwd, "diff", "--name-only", "--diff-filter=U")
 		conflicts := strings.Fields(out)
 		if _, merging := gitRun(ctx, c.iso.cwd, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); merging == nil {

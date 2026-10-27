@@ -685,9 +685,14 @@ func TestReconcileSkipsATurnStillRunningElsewhere(t *testing.T) {
 }
 
 func TestCheckpointIgnoresSigningConfig(t *testing.T) {
+	global := isolateGit(t)
 	repo := newRepo(t)
 	gitT(t, repo, "config", "commit.gpgsign", "true")
-	gitT(t, repo, "config", "gpg.program", "false") // signing would fail (or wait on a pinentry)
+	// signing would fail (or wait on a pinentry); a program named in the
+	// repository itself is refused, so it is the operator's own here
+	if err := os.WriteFile(global, []byte("[gpg]\n\tprogram = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	c, em := newWriterConductor(t, &fileExec{}, repo, WritersIsolated, "m5")
 	defer c.Close()
 	spawnWriter(t, c, "write one.txt signed")

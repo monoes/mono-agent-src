@@ -106,7 +106,7 @@ func checkTree(ctx context.Context, dir, branch string) error {
 }
 
 // commitAll commits every change in the worktree dir on branch, if there
-// is any. It is a checkpoint: hooks and signing are skipped.
+// is any. It is a checkpoint: the repository's hooks and signing are skipped.
 func commitAll(ctx context.Context, dir, branch, msg string) error {
 	if err := checkTree(ctx, dir, branch); err != nil {
 		return err
@@ -171,7 +171,11 @@ func gitEnv() []string {
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	pins, err := gitPins()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, pins...), args...)...)
 	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

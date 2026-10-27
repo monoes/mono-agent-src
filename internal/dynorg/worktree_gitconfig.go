@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,13 +26,18 @@ import (
 // Nothing is cached: the configuration can change between two operations,
 // so every operation asks again (one git call).
 
-// A signing program is not in the set: a checkpoint already runs with
-// signing off, and the merge is pinned the same way, so none is reached.
+// A signing program is in the set too: signing is pinned off for the
+// conductor's commits and merges, but the entry is still a program the
+// repository names, and a pin is not relied on alone.
 //
-// programKey reports whether a configuration key (section lower-cased,
-// subsection as written, variable lower-cased, as git prints it) names a
-// program that the conductor's git operations could run.
-func programKey(key string) bool {
+// programEntry reports whether a configuration entry (key with the section
+// lower-cased, subsection as written and variable lower-cased, as git
+// prints it) names a program that the conductor's git operations could
+// run. set is false for a key written without a value, which git reads as
+// true. The file system monitor and the hooks path are pinned off on every
+// call, so an explicit off value is harmless and passes; anything else
+// is refused.
+func programEntry(key, value string, set bool) bool {
 	first := strings.Index(key, ".")
 	last := strings.LastIndex(key, ".")
 	if first < 0 {
@@ -46,11 +52,36 @@ func programKey(key string) bool {
 		return hasSub && variable == "driver"
 	case "diff":
 		return (hasSub && (variable == "textconv" || variable == "command")) || (!hasSub && variable == "external")
+	case "gpg":
+		return variable == "program" || (hasSub && variable == "defaultkeycommand")
 	case "core":
-		return !hasSub && (variable == "fsmonitor" || variable == "hookspath")
+		if hasSub {
+			return false
+		}
+		switch variable {
+		case "fsmonitor":
+			return !set || !isFalse(value, true)
+		case "hookspath":
+			return !set || value != ""
+		}
 	}
 	return false
 }
+
+// isFalse reports whether a git boolean value is explicitly false;
+// emptyToo counts the empty string as false.
+func isFalse(v string, emptyToo bool) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "false", "no", "off", "0":
+		return true
+	case "":
+		return emptyToo
+	}
+	return false
+}
+
+// noValue marks a key written without a value in localConfigKeys' result.
+const noValue = "\x00"
 
 // localConfigKeys lists the keys (and their values) of one scope of the
 // repository-local configuration, includes resolved.
@@ -79,10 +110,25 @@ func localConfigKeys(ctx context.Context, dir, scope string) ([][2]string, error
 		if rec == "" {
 			continue
 		}
-		k, v, _ := strings.Cut(rec, "\n")
+		k, v, ok := strings.Cut(rec, "\n")
+		if !ok {
+			v = noValue
+		}
 		entries = append(entries, [2]string{k, v})
 	}
 	return entries, nil
+}
+
+// configRefusal is a refusal of the program-config guard, so a caller can
+// tell it from a git hiccup and say so.
+type configRefusal struct{ msg string }
+
+func (e *configRefusal) Error() string { return e.msg }
+
+// isConfigRefusal reports whether err is a refusal of refuseProgramConfig.
+func isConfigRefusal(err error) bool {
+	var r *configRefusal
+	return errors.As(err, &r)
 }
 
 // refuseProgramConfig returns an error when the repository-local git
@@ -92,24 +138,25 @@ func localConfigKeys(ctx context.Context, dir, scope string) ([][2]string, error
 func refuseProgramConfig(ctx context.Context, dir string) error {
 	entries, err := localConfigKeys(ctx, dir, "--local")
 	if err != nil {
-		return fmt.Errorf("the repository's local git configuration could not be checked (%v); nothing was run", err)
+		return &configRefusal{fmt.Sprintf("the repository's local git configuration could not be checked (%v); nothing was run", err)}
 	}
 	for _, e := range entries {
 		if strings.EqualFold(e[0], "extensions.worktreeconfig") {
-			switch strings.ToLower(strings.TrimSpace(e[1])) {
-			case "", "true", "yes", "on", "1":
+			// git reads any non-zero integer as true, so the file is read
+			// unless the value is plainly false; reading too often is harmless.
+			if e[1] == noValue || !isFalse(e[1], false) {
 				more, err := localConfigKeys(ctx, dir, "--worktree")
 				if err != nil {
-					return fmt.Errorf("the worktree's git configuration could not be checked (%v); nothing was run", err)
+					return &configRefusal{fmt.Sprintf("the worktree's git configuration could not be checked (%v); nothing was run", err)}
 				}
 				entries = append(entries, more...)
 			}
 		}
 	}
 	for _, e := range entries {
-		if programKey(e[0]) {
-			return fmt.Errorf("the repository's local git configuration names a program that git would run (%s); "+
-				"nothing was run - ask the operator to remove that entry", boundText(e[0], 120))
+		if programEntry(e[0], e[1], e[1] != noValue) {
+			return &configRefusal{fmt.Sprintf("the repository's local git configuration names a program that git would run (%s); "+
+				"nothing was run - ask the operator to remove that entry", boundText(e[0], 120))}
 		}
 	}
 	return nil
