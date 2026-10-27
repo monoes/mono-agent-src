@@ -1695,6 +1695,16 @@ that works a task acts on them. The defences:
   done or verified, `mission_finish` only proposes the close (it attaches the final report and
   emits `mission.report`); the session stays running and only the operator closes it
   (`session close`, which refuses an agent). No code path of the conductor closes a session.
+  **The conductor's git work in agent-writable folders** (the isolated writers' worktrees,
+  the verifiers' checkouts and the merge into the chat folder's repository) runs as the
+  operator. Repository-local git configuration can name a program that git runs during
+  staging, checkout and merge, and git has no switch that turns that off, so before each of
+  those operations the conductor reads the repository-local configuration (includes
+  resolved, the per-worktree file too) and refuses, naming the key, when it defines such a
+  program (content filters, merge drivers, external diff and text conversion, a file system
+  monitor, a hooks path; signing is switched off for the conductor's commits and merges). The operator removes the entry; nothing is
+  cached between operations. The operator's own global and system configuration is trusted
+  and not inspected.
   **A mission's confirmation** (the person's "run this send as a mission") is a record,
   not a flag: the coder host's chat children inherit the host's environment and are
   reparented, so they look like the operator to environment and ancestry checks, and

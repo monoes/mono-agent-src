@@ -76,7 +76,11 @@ func (c *Conductor) addVerifierTree(w *worker) {
 		return
 	}
 	path := filepath.Join(c.iso.turnDir, w.id)
-	if _, err := gitRun(c.ctx, c.iso.cwd, "worktree", "add", "--quiet", "--detach", path, "refs/heads/"+branch); err != nil {
+	err := refuseProgramConfig(c.ctx, c.iso.cwd)
+	if err == nil {
+		_, err = gitRun(c.ctx, c.iso.cwd, "worktree", "add", "--quiet", "--detach", path, "refs/heads/"+branch)
+	}
+	if err != nil {
 		warn(fmt.Sprintf("a checkout of %s could not be made (%v)", branch, err))
 		return
 	}

@@ -111,6 +111,9 @@ func commitAll(ctx context.Context, dir, branch, msg string) error {
 	if err := checkTree(ctx, dir, branch); err != nil {
 		return err
 	}
+	if err := refuseProgramConfig(ctx, dir); err != nil {
+		return err
+	}
 	if _, err := gitRun(ctx, dir, "add", "--all"); err != nil {
 		return err
 	}

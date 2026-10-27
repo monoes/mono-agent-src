@@ -249,7 +249,11 @@ func (c *Conductor) addWorktree(w *worker) {
 	}
 	path := filepath.Join(c.iso.turnDir, w.id)
 	branch := branchName(c.iso.turn, w.id)
-	if _, err := gitRun(c.ctx, c.iso.cwd, "worktree", "add", "--quiet", "-b", branch, path, "HEAD"); err != nil {
+	err := refuseProgramConfig(c.ctx, c.iso.cwd)
+	if err == nil {
+		_, err = gitRun(c.ctx, c.iso.cwd, "worktree", "add", "--quiet", "-b", branch, path, "HEAD")
+	}
+	if err != nil {
 		c.cfg.Emit.Emit(chatevents.EventNotice, chatevents.NoticePayload{
 			Code: NoticeWritersShared, Severity: chatevents.SeverityWarning,
 			Message: fmt.Sprintf("%s works in the chat folder under the write lease: its worktree could not be created (%v).", w.id, err),
@@ -398,13 +402,20 @@ func (c *Conductor) Merge(ctx context.Context, id string) (MergeResult, error) {
 	} else if err := c.commitWorktree(w); err != nil {
 		return res, fmt.Errorf("%s's latest changes could not be committed on %s, so nothing was merged: %v", id, branch, err)
 	}
+	if err := refuseProgramConfig(ctx, c.iso.cwd); err != nil {
+		return res, fmt.Errorf("%s was not merged: %v", branch, err)
+	}
 	before, _ := gitRun(ctx, c.iso.cwd, "rev-parse", "HEAD")
 	msg := fmt.Sprintf("Merge %s (%s)", branch, id)
-	if _, err := gitRun(ctx, c.iso.cwd, withIdentity(ctx, c.iso.cwd, "merge", "--no-ff", "--no-edit", "-m", msg, "refs/heads/"+branch)...); err != nil {
+	if _, err := gitRun(ctx, c.iso.cwd, withIdentity(ctx, c.iso.cwd, "-c", "commit.gpgsign=false", "merge", "--no-ff", "--no-edit", "-m", msg, "refs/heads/"+branch)...); err != nil {
 		out, _ := gitRun(ctx, c.iso.cwd, "diff", "--name-only", "--diff-filter=U")
 		conflicts := strings.Fields(out)
 		if _, merging := gitRun(ctx, c.iso.cwd, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); merging == nil {
-			if _, aerr := gitRun(ctx, c.iso.cwd, "merge", "--abort"); aerr != nil {
+			aerr := refuseProgramConfig(ctx, c.iso.cwd)
+			if aerr == nil {
+				_, aerr = gitRun(ctx, c.iso.cwd, "merge", "--abort")
+			}
+			if aerr != nil {
 				return res, fmt.Errorf("merging %s failed and the merge could not be aborted (%v); run `git merge --abort` in the chat folder", branch, aerr)
 			}
 		}
