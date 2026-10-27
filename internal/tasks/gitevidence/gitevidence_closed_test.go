@@ -114,7 +114,7 @@ func missionTask(t *testing.T, cwd string, noRow bool) (*tasks.Store, tasks.Sess
 	if _, err := s.ApproveSession(bg, "default", se.ID, human); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, w1, 0); err != nil {
+	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, worker(se, tk), 0); err != nil {
 		t.Fatal(err)
 	}
 	return s, se, tk, func() {
@@ -141,7 +141,7 @@ func TestMissionWithoutAUsableConversationFolderRefusesCodeEvidence(t *testing.T
 			if err := art(t, s, se, tk, "log", "build.log"); err != nil {
 				t.Fatalf("a self-asserted log: %v", err)
 			}
-			if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); !errors.Is(err, tasks.ErrNoEvidence) {
+			if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); !errors.Is(err, tasks.ErrNoEvidence) {
 				t.Fatalf("finish fell back to the old any-artifact rule: %v", err)
 			}
 		})
