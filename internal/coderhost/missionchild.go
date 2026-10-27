@@ -58,6 +58,7 @@ func (h *Host) missionChildPassIfDue() {
 // missionChildPass is one pass. A failure on one row is logged and the rest go on; the next pass tries again.
 func (h *Host) missionChildPass() {
 	st := h.Store
+	h.leadFacts = map[string]leadFact{}
 	reset, ended, err := st.ResetStaleSpawning(MissionSpawnStale)
 	if err != nil {
 		h.logf("coder host: mission child reservations: %v", err)
@@ -96,8 +97,8 @@ func (h *Host) reconcileChild(r ChildRow) error {
 	if err != nil {
 		return err
 	}
-	closed := !found || ms.lead != r.LeadConversationID || ms.archived || ms.state == "stopped" || ms.state == "done" || ms.state == "failed"
-	leadStopped := !leadFound || lead.State == StateStopped || st.stopSince(r.ProfileID, r.LeadConversationID, st.turnFloor(r.ProfileID, r.LeadConversationID, r.SpawnedAt), true)
+	closed := !found || (ms.lead != "" && ms.lead != r.LeadConversationID) || ms.archived || ms.state == "stopped" || ms.state == "done" || ms.state == "failed"
+	leadStopped := !leadFound || lead.State == StateStopped || h.leadStopSince(r)
 	if leadStopped || closed {
 		h.stopChild(r.ProfileID, r.LeadConversationID, r.ChildConversationID)
 		if x, ok, err := st.GetSession(r.ProfileID, r.ChildConversationID); err == nil && ok && x.TurnID != "" {
@@ -120,7 +121,7 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		return err
 	}
 	if ms.state == "paused" {
-		if cs.State != StatePaused && !st.hasPending(r.ProfileID, r.ChildConversationID, KindPause) {
+		if cs.State != StatePaused && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindPause) {
 			if _, err := st.Enqueue(Command{ProfileID: r.ProfileID, ConversationID: r.ChildConversationID, Kind: KindPause, TurnID: cascadeTurn}); err != nil {
 				return err
 			}
@@ -148,6 +149,29 @@ func (h *Host) reconcileChild(r ChildRow) error {
 	return err
 }
 
+// leadStopSince says whether a person's stop of the row's lead came after both the lead's last turn began and the
+// row was started: a stop counts until the lead's next turn begins, and never ends a child spawned after it. The
+// lead's two times are read once per lead per pass.
+func (h *Host) leadStopSince(r ChildRow) bool {
+	if h.leadFacts == nil {
+		h.leadFacts = map[string]leadFact{}
+	}
+	k := key(r.ProfileID, r.LeadConversationID)
+	lf, ok := h.leadFacts[k]
+	if !ok {
+		lf = leadFact{stop: h.Store.latestStop(r.ProfileID, r.LeadConversationID, true), turn: h.Store.turnFloor(r.ProfileID, r.LeadConversationID, "")}
+		h.leadFacts[k] = lf
+	}
+	floor := lf.turn
+	if t, err := time.Parse(time.RFC3339Nano, r.SpawnedAt); err == nil && t.After(floor) {
+		floor = t
+	}
+	return lf.stop.After(floor)
+}
+
+// leadFact is what the pass reads about a lead, once per pass.
+type leadFact struct{ stop, turn time.Time }
+
 // stopChild stops a child's turn and what is queued for it, or, when nothing runs, marks the session stopped.
 // The stop is the host's own (no issuer): a stopped lead's issuer would be refused. A session that names a turn
 // this host does not have live (a stale turn) has nothing to stop: its turn is cleared instead, so a stop that
@@ -162,7 +186,8 @@ func (h *Host) stopChild(profileID, lead, conv string) {
 		h.mu.Lock()
 		live := h.live[key(profileID, conv)] != nil
 		if !live {
-			h.settle(x) // clears the stale turn; the session is idle
+			h.L.Finish(profileID, conv, x.TurnID, "the turn's process is gone and its session is being stopped") // as Recover does
+			h.settle(x)                                                                                          // clears the stale turn; the session is idle
 		}
 		h.mu.Unlock()
 		if live {
@@ -185,7 +210,7 @@ func (h *Host) stopChild(profileID, lead, conv string) {
 
 // queueCascadeStop queues the host's own stop (no issuer, the pass's turn id) unless one is already waiting.
 func (h *Host) queueCascadeStop(profileID, conv string) {
-	if h.Store.hasPending(profileID, conv, KindStop) {
+	if h.Store.hasPendingCascade(profileID, conv, KindStop) {
 		return
 	}
 	if _, err := h.Store.Enqueue(Command{ProfileID: profileID, ConversationID: conv, Kind: KindStop, TurnID: cascadeTurn}); err != nil {
@@ -193,7 +218,7 @@ func (h *Host) queueCascadeStop(profileID, conv string) {
 	}
 }
 
-// reportOrphanCarves logs, once per process, the child sessions that hold a carve but are in no mission row:
+// reportOrphanCarves logs, once while they last, the child sessions that hold a carve but are in no mission row:
 // what a crash between a spawn's link and its pending note leaves, or a child the lead made with the spawn
 // verb. It changes nothing; an operator decides.
 func (h *Host) reportOrphanCarves() {
@@ -202,15 +227,15 @@ func (h *Host) reportOrphanCarves() {
 		h.logf("coder host: looking for orphaned carves: %v", err)
 		return
 	}
-	if h.orphanSeen == nil {
-		h.orphanSeen = map[string]bool{}
-	}
+	seen := make(map[string]bool, len(list)) // entries of sessions that are gone or no longer orphans drop out
 	for _, o := range list {
-		if k := key(o.ProfileID, o.ConversationID); !h.orphanSeen[k] {
-			h.orphanSeen[k] = true
-			h.logf("coder host: child session %s of mission lead %s holds a carve of $%.2f and belongs to no mission row", o.ConversationID, o.LeadConversationID, o.BudgetUSD)
+		k := key(o.ProfileID, o.ConversationID)
+		seen[k] = true
+		if !h.orphanSeen[k] {
+			h.logf("coder host: child session %s of mission lead %s holds a carve of $%.2f and is in no mission row (informational: the lead may have made it with the spawn verb)", o.ConversationID, o.LeadConversationID, o.BudgetUSD)
 		}
 	}
+	h.orphanSeen = seen
 }
 
 // ---- reads for the pass (read-only; the writes are the store's methods)
@@ -228,6 +253,14 @@ func (s *Store) hasPending(profileID, conv string, kind Kind) bool {
 		profileID, conv, string(kind)).Scan(&n) != nil || n > 0
 }
 
+// hasPendingCascade says whether the pass's own command of the kind (no issuer, its turn id) is waiting: a stop or
+// pause a master queued, which may be held, does not stand in for it.
+func (s *Store) hasPendingCascade(profileID, conv string, kind Kind) bool {
+	var n int
+	return s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = ? AND status = 'pending' AND issuer = '' AND turn_id = ?`,
+		profileID, conv, string(kind), cascadeTurn).Scan(&n) != nil || n > 0
+}
+
 // turnFloor is the time a stop must be newer than to count for the conversation: when its last turn began, or
 // when the row was started if it has none. A stop is a done stop command; the pass's own stops (cascadeTurn) are
 // never counted.
@@ -242,30 +275,39 @@ func (s *Store) turnFloor(profileID, conv, fallback string) time.Time {
 	return t
 }
 
-// stopSince says whether a stop ran for the conversation after the floor. unissuedOnly counts only a person's
-// stop (no issuer): the lead is stopped by its operator, not by whoever else can queue a command for it.
-// (An unissued stop row is operator-equivalent: only something that can queue the operator's own commands could
-// forge one.)
-func (s *Store) stopSince(profileID, conv string, floor time.Time, unissuedOnly bool) bool {
-	q := `SELECT created_at FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'done' AND turn_id <> ?`
+// latestStop is when the latest done stop command for the conversation became done (the host stamps a command's
+// updated_at when it ends it), or the zero time. A stop is dated by when it completed, not by when it was queued: one
+// queued while a turn was being admitted, before its turn row exists, still stopped that turn. unissuedOnly counts only
+// a person's stop (no issuer): the lead is stopped by its operator, not by whoever else can queue a command for it.
+// (An unissued stop row is operator-equivalent: only something that can queue the operator's own commands could forge
+// one.) The pass's own stops (cascadeTurn) are never counted. The query reads the newest few rows through the index on
+// (profile, conversation, kind).
+func (s *Store) latestStop(profileID, conv string, unissuedOnly bool) time.Time {
+	q := `SELECT updated_at FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'done' AND turn_id <> ?`
 	if unissuedOnly {
 		q += ` AND issuer = ''`
 	}
-	rows, err := s.db.Query(q, profileID, conv, cascadeTurn)
+	rows, err := s.db.Query(q+` ORDER BY id DESC LIMIT 20`, profileID, conv, cascadeTurn)
 	if err != nil {
-		return false
+		return time.Time{}
 	}
 	defer rows.Close()
+	var latest time.Time
 	for rows.Next() {
 		var at string
 		if rows.Scan(&at) != nil {
 			continue
 		}
-		if t, err := time.Parse(time.RFC3339Nano, at); err == nil && t.After(floor) {
-			return true
+		if t, err := time.Parse(time.RFC3339Nano, at); err == nil && t.After(latest) {
+			latest = t
 		}
 	}
-	return false
+	return latest
+}
+
+// stopSince says whether a stop completed for the conversation after the floor (see latestStop).
+func (s *Store) stopSince(profileID, conv string, floor time.Time, unissuedOnly bool) bool {
+	return s.latestStop(profileID, conv, unissuedOnly).After(floor)
 }
 
 func (s *Store) lastTurnID(profileID, conv string) string {

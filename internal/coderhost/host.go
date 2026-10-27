@@ -61,7 +61,8 @@ type Host struct {
 	// MissionChildEvery is how often the mission child pass runs (default 5 s); see missionchild.go.
 	MissionChildEvery time.Duration
 	lastMissionPass   time.Time
-	orphanSeen        map[string]bool // orphaned carves already reported; Tick only
+	orphanSeen        map[string]bool     // orphaned carves already reported; Tick only
+	leadFacts         map[string]leadFact // what one pass read about each lead; Tick only
 
 	mu   sync.Mutex // serializes session changes between the loop and the turn watchers
 	live map[string]Turn

@@ -1898,50 +1898,73 @@ message, and bounded by the session's `max_tasks` and budget.
 **Mission child sessions: policy, marks, ceilings (store only; the spawn path comes in the next phase).** Migration
 139 adds `coder_mission_policy`, `coder_mission_children` and `coder_mission_events`, and `internal/coderhost`
 (`missionchild_store.go`) the store over them. A task session has a policy (mode `off`, `marked` (default) or `all`;
-`max_children` default 2; `share_pct` default 50, 1 to 80), a row per task its lead marked to run in a session of
-its own (unique per profile, session and task; states `marked`, `spawning`, `spawned`, `ended`, `failed`, `gone`,
+`max_children` default 2; `share_pct` default 50, 1 to 80), a row per task its lead marked to run in a session of its
+own (unique per profile, session and task; states `marked`, `spawning`, `spawned`, `ended`, `failed`, `gone`,
 `released`) and an audit trail. Only the lead of that session (a `LeadScope` made from its verified session token)
 marks, reserves or links a row; a caller that holds a task-bound mission binding is refused; foreign sessions,
-profiles and tasks all read as one refusal. The lead may raise `max_children` up to the lead session's own
-(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked` (and lower it from `all`) unless the operator turned it off,
-and only the operator turns on mode `all`. What the operator writes binds the lead: an operator `off` stays off until the operator turns the mode on
+profiles and tasks all read as one refusal. The lead may raise `max_children` up to the lead session's own (operator-
+only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked`
+(and lower it from `all`) unless the operator turned it off, and only the operator turns on mode `all`. What the
+operator writes binds the lead: an operator `off` stays off until the operator turns the mode on
 (`operator_mode_off`), and an operator `max_children` or `share_pct` is the most the lead may raise its own to
-(`operator_max_children`, `operator_share_pct`; the operator clears a cap with `ClearMaxChildrenCap` / `ClearSharePctCap`); the lead may always lower. An operator who writes a number also sets it as the lead's cap; to give the lead a value without limiting it takes two calls (write, then clear the cap). The
-operator's changes are `floor` audit rows by `operator`, the lead's are `raise` / `lower` / `mode` rows by `lead:<conversation>`. `share_pct` is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live children under
-`min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the carves under
-`share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve returns to
-the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call `Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists counts against the share. Nothing starts a session yet: no CLI verb,
-tool or host pass reads these tables, so marking has no effect on a running mission. Obligations of the next
-phases: the tool layer (P-C) builds the caller with `NewLeadScope(caller, binding)` from the verified mission binding
-(`BindingNone` only when the process was checked and holds none; an unchecked scope is refused); a mission lead that is
-itself a child, or a worker, must not spawn mission children (depth rule); the spawn path (P-B) calls `NotePending` when
-the child's conversation is created and `Touch` between its steps, so `ResetStaleSpawning` does not hand a slow spawn's
-task to a second child. The share is held only for children that exist (their sessions' caps) or are reserved (the carve
-stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. `Reserve` reads the policy, settings, budget and counts it decides on inside the transaction that reserves, after a no-op write took the write lock (the mode-`all` rule row is part of that transaction; the lead's spend, summed from its event log, is read before the lock so a long log does not hold other writers up); a conversation is pending on one row only (partial unique index, and `NotePending` refuses one another row holds); `End` with an empty conversation id does nothing and zeroes `reserved_usd` of a row it ends. Obligations for the host phase (P-B): (a) call `NotePending` from `onCreated` only after the carve is taken (`carveBudget`), and call `FindOrphanCarves(minAge)` in the reconcile pass to find child sessions of a lead with a mission policy that hold a carve and that no row points at (a crash between the two), then stop them and lower their cap with the same release the end path uses; it cannot tell a mission spawn from another child of the lead, so the host keeps its own record of what it started and filters; (b) `DeleteConversation` marks a row `gone` by its child or its pending conversation; (c) ending a `spawning` row returns its reserved carve (`reserved_usd` 0). Deleting a conversation or a
-sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
+(`operator_max_children`, `operator_share_pct`; the operator clears a cap with `ClearMaxChildrenCap` /
+`ClearSharePctCap`); the lead may always lower. An operator who writes a number also sets it as the lead's cap; to
+give the lead a value without limiting it takes two calls (write, then clear the cap). The operator's changes are
+`floor` audit rows by `operator`, the lead's are `raise` / `lower` / `mode` rows by `lead:<conversation>`. `share_pct`
+is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live
+children under `min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the
+carves under `share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve
+returns to the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call
+`Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists
+counts against the share. Nothing starts a session yet: no CLI verb, tool or host pass reads these tables, so marking
+has no effect on a running mission. Obligations of the next phases: the tool layer (P-C) builds the caller with
+`NewLeadScope(caller, binding)` from the verified mission binding (`BindingNone` only when the process was checked and
+holds none; an unchecked scope is refused); a mission lead that is itself a child, or a worker, must not spawn mission
+children (depth rule); the spawn path (P-B) calls `NotePending` when the child's conversation is created and `Touch`
+between its steps, so `ResetStaleSpawning` does not hand a slow spawn's task to a second child. The share is held only
+for children that exist (their sessions' caps) or are reserved (the carve stored on a `spawning` row); a task that is
+only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the
+host stops; `End` also finds a reservation by its pending conversation. `Reserve` reads the policy, settings, budget
+and counts it decides on inside the transaction that reserves, after a no-op write took the write lock (the mode-`all`
+rule row is part of that transaction; the lead's spend, summed from its event log, is read before the lock so a long
+log does not hold other writers up); a conversation is pending on one row only (partial unique index, and
+`NotePending` refuses one another row holds); `End` with an empty conversation id does nothing and zeroes
+`reserved_usd` of a row it ends. Obligations for the host phase (P-B): (a) call `NotePending` from `onCreated` only
+after the carve is taken (`carveBudget`), and call `FindOrphanCarves(minAge)` in the reconcile pass to find child
+sessions of a lead with a mission policy that hold a carve and that no row points at (a crash between the two), then
+stop them and lower their cap with the same release the end path uses; it cannot tell a mission spawn from another
+child of the lead, so the host keeps its own record of what it started and filters; (b) `DeleteConversation` marks a
+row `gone` by its child or its pending conversation; (c) ending a `spawning` row returns its reserved carve
+(`reserved_usd` 0). Deleting a conversation or a sweep removes the rows of a deleted lead and marks the rows of a
+deleted child `gone`.
 
-**Mission child sessions: the host half (the conductor does not spawn yet).** `SpawnForTask` (`coderhost/children_task.go`)
-reserves a marked task's row first, then runs the ordinary child spawn, so every child limit (depth, `max_children`, the
-spawn rate, the access cap, the folder, the carve out of the lead's budget) applies unchanged. The access argument is never
-passed (the child gets the lead's access capped at `workspace`, never `full`), the folder is the lead's, and the brief is
-forwarded as the child's first message and never read: the caller seals it. That message is a `master-` turn, which is
-host-made and cannot carry a mission confirmation or a plan approval. A lead that is itself a child, or a caller holding a
-task binding, cannot spawn. When a limit is reached nothing is reserved and the error wraps `ErrChildrenFull`, so the
-conductor leaves the task waiting; any other failure after the reservation deletes the conversation it created and ends the
-attempt as failed. The host's pass (`coderhost/missionchild.go`, every 5 s from `Tick`) only observes: it ends a child's row once the child is
-idle with nothing queued (`done` when its task is in Review or Done, checked first; `stopped` when a stop, a person's or its
-lead's, ran since its last turn began; `expired` when its first message never ran; `budget` when its cap is used up; else
-`no_finish`) or when its conversation is gone, and each end returns the unspent carve to the lead. One turn is one attempt: a
-child that ends without handing its task back is `no_finish`, its cap is released, and the lead starts a fresh attempt (at most
-three per task). It stops the children of a stopped lead and ends their rows once their turns have ended; the lead counts as
-stopped when its session is marked stopped or when a person's stop (a done `stop` command with no issuer) ran for it since its
-last turn began, and a mission that was stopped, done, failed, archived, deleted or handed to another conversation ends its
-old lead's children too. It pauses the children of a paused mission (a turn that is running finishes under its cap, which is
-weaker than halting in-turn workers) and never resumes them by itself; it gives back reservations whose spawn died and stops
-what they left; and it logs once, and changes nothing, for each child that holds a carve but belongs to no mission row
-(`FindOrphanCarves`): a lead may legitimately have such children, so nothing is stopped on age and policy alone. It claims,
-finishes, verifies and approves nothing and writes no task. The check-in digest's mission line gains three numbers (task child
-sessions running, queued, failed), and a change in them counts as a change. The conductor does not call `SpawnForTask` yet, and the launcher does not yet mint the child a task-bound token.
+**Mission child sessions: the host half (the conductor does not spawn yet).** `SpawnForTask`
+(`coderhost/children_task.go`) reserves a marked task's row first, then runs the ordinary child spawn, so every child
+limit (depth, `max_children`, the spawn rate, the access cap, the folder, the carve out of the lead's budget) applies
+unchanged. The access argument is never passed (the child gets the lead's access capped at `workspace`, never `full`),
+the folder is the lead's, and the brief is forwarded as the child's first message and never read: the caller seals it.
+That message is a `master-` turn, which is host-made and cannot carry a mission confirmation or a plan approval. A
+lead that is itself a child, or a caller holding a task binding, cannot spawn. When a limit is reached nothing is
+reserved and the error wraps `ErrChildrenFull`, so the conductor leaves the task waiting; any other failure after the
+reservation deletes the conversation it created and ends the attempt as failed. The host's pass
+(`coderhost/missionchild.go`, every 5 s from `Tick`) only observes: it ends a child's row once the child is idle with
+nothing queued (`done` when its task is in Review or Done, checked first; `stopped` when a stop, a person's or its
+lead's, ran since its last turn began; `expired` when its first message never ran; `budget` when its cap is used up;
+else `no_finish`) or when its conversation is gone, and each end returns the unspent carve to the lead. One turn is
+one attempt: a child that ends without handing its task back is `no_finish`, its cap is released, and the lead starts
+a fresh attempt (at most three per task). It stops the children of a stopped lead and ends their rows once their turns
+have ended; the lead counts as stopped when its session is marked stopped or when a person's stop (a done `stop`
+command with no issuer) ran for it since its last turn began (a stop counts until the lead's next turn begins, and
+never ends a child spawned after it; it is dated by when it completed), and a mission that was stopped, done, failed,
+archived, deleted or handed to a different, non-empty lead conversation ends its old lead's children too; a mission
+whose link is empty or unset is unknown and ends nothing. It pauses the children of a paused mission (a turn that is
+running finishes under its cap, which is weaker than halting in-turn workers) and never resumes them by itself; it
+gives back reservations whose spawn died and stops what they left; and it logs once, and changes nothing, for each
+child that holds a carve but belongs to no mission row (`FindOrphanCarves`; informational, and forgotten once the
+session is gone): a lead may legitimately have such children, so nothing is stopped on age and policy alone. It
+claims, finishes, verifies and approves nothing and writes no task. The check-in digest's mission line gains three
+numbers (task child sessions running, queued, failed), and a change in them counts as a change. The conductor does not
+call `SpawnForTask` yet, and the launcher does not yet mint the child a task-bound token.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The

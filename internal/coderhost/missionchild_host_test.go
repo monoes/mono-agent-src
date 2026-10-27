@@ -252,8 +252,8 @@ func TestSpawnFailureReleasesTheReservation(t *testing.T) {
 		t.Fatal("the spawn reported success")
 	}
 	row := f.row(t, 0)
-	if row.State != ChildFailed || row.EndReason != EndNoFinish || row.ReservedUSD != 0 || row.ChildConversationID != "" || row.PendingConversationID != "" {
-		t.Fatalf("row after the failed spawn = %+v", row)
+	if row.State != ChildGone || row.EndReason != EndDeleted || row.ReservedUSD != 0 || row.ChildConversationID != "" {
+		t.Fatalf("row after the failed spawn = %+v, want gone (its conversation was deleted) with nothing reserved", row)
 	}
 	if n := rowsOf(t, f.st, `SELECT conversation_id FROM coder_sessions WHERE role = 'child'`); n != "" {
 		t.Fatalf("the created conversation stayed: %s", n)

@@ -1977,7 +1977,13 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   stops and pauses (no issuer, a fixed turn id) for the descendants of a lead whose mission ended or paused, or whose turn a
   person stopped, ends a row when its turn ended and returns the carve in the same transaction, and logs (it stops and deletes
   nothing) a child that holds a carve and is in no row. A person's stop is a done `stop` command with no issuer; such a row could
-  be forged only by something able to queue the operator's own commands. A pause is weaker
+  be forged only by something able to queue the operator's own commands.
+  A lead's stop is dated by when it completed and counts until the lead's next turn begins, and never ends a child spawned
+  after it. A mission handed to a different, non-empty lead conversation ends the old lead's children, and an empty or unset
+  link ends nothing. Known gap, not new: an agent can link a task session to any conversation of its profile, so someone who
+  can do that to a victim lead's conversation can make the pass stop the victim's in-flight task children; it gives no spawn,
+  approval or spend. Migration 139 also adds an index on the command queue's (profile, conversation, kind) for the pass's stop
+  lookup. A pause is weaker
   than halting in-turn workers: a turn that is already running finishes under its cap. The files are covered by the same
   static scan (no approval writer named, only the mission tables written). Not yet built: the launcher's per-child task
   token, the conductor calling `SpawnForTask`, the lead's tools.

@@ -247,6 +247,12 @@ func TestAStaleTurnIdIsClearedNotStoppedForever(t *testing.T) {
 	if r := f.row(t, 0); r.State != ChildEnded || r.EndReason != EndLeadStop {
 		t.Fatalf("row = %+v: the row must end once the stale turn is cleared", r)
 	}
+	f.l.mu.Lock()
+	finished := strings.Join(f.l.finished, ",")
+	f.l.mu.Unlock()
+	if !strings.Contains(finished, "ghost") {
+		t.Fatalf("the launcher was not told the stale turn is finished (as Recover does): %q", finished)
+	}
 }
 
 // ---- the pass is driven by Tick
@@ -310,7 +316,7 @@ func TestOrphanCarveIsReportedOnceAndNothingIsStopped(t *testing.T) {
 	f.h.missionChildPass()
 	n := 0
 	for _, l := range logs {
-		if strings.Contains(l, kid.ConversationID) && strings.Contains(l, "belongs to no mission row") {
+		if strings.Contains(l, kid.ConversationID) && strings.Contains(l, "is in no mission row") {
 			n++
 		}
 	}

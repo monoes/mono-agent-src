@@ -72,27 +72,27 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 	return out, nil
 }
 
-// abandonSpawn undoes a failed spawn: the reservation is released first (so the row reads as the attempt that failed,
-// not as a deleted conversation), then the conversation, if one was made, is deleted. A refusal before anything was made (a limit, the lead's access) returns the task to marked and does
+// abandonSpawn undoes a failed spawn: the conversation, if one was made, is deleted, then the reservation is released. A refusal before anything was made (a limit, the lead's access) returns the task to marked and does
 // not count as an attempt; any other failure fails the attempt. It returns cause, with any cleanup error added.
 func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64, conv string, cause error) error {
-	var extra []error
+	if conv != "" {
+		// The conversation goes first. The row keeps its pending id until it is gone, so a crash or a failed
+		// delete leaves a spawning row that names the conversation, which the host's stale pass ends and stops. A
+		// delete that succeeds marks the row gone itself.
+		store, err := ai.NewAIStore(s.db)
+		if err == nil {
+			err = store.DeleteConversation(conv, profileID)
+		}
+		if err != nil && !errors.Is(err, ai.ErrConversationNotFound) {
+			return fmt.Errorf("%w (and deleting the conversation %s failed, so the reservation is left for the host to recover: %w)", cause, conv, err)
+		}
+	}
 	refused := conv == "" && (errors.Is(cause, ErrLimit) || errors.Is(cause, ErrAccess) || errors.Is(cause, ErrInvalid) || errors.Is(cause, ErrNotYours))
 	if refused && errors.Is(cause, ErrLimit) && !errors.Is(cause, ErrChildrenFull) {
 		cause = fmt.Errorf("%w: %w", ErrChildrenFull, cause) // a spawn limit (rate, children, depth) reads as full: the task waits
 	}
 	if err := s.releaseReservation(profileID, sessionID, taskID, c.ConversationID, !refused, cause.Error()); err != nil {
-		extra = append(extra, err)
-	}
-	if conv != "" {
-		if store, err := ai.NewAIStore(s.db); err != nil {
-			extra = append(extra, err)
-		} else if err := store.DeleteConversation(conv, profileID); err != nil && !errors.Is(err, ai.ErrConversationNotFound) {
-			extra = append(extra, err)
-		}
-	}
-	if len(extra) > 0 {
-		return fmt.Errorf("%w (and cleaning up failed: %w)", cause, errors.Join(extra...))
+		return fmt.Errorf("%w (and releasing the reservation failed: %w)", cause, err)
 	}
 	return cause
 }
