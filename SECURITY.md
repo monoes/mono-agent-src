@@ -1908,6 +1908,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   caller (the same guard as the task board, with the same limit: a process that scrubs its own environment is
   treated as the operator). `sessions list`, `settings get` and `command` need a session token (they then show
   the caller's own tree only) or the operator.
+- **Process binding is a courtesy layer, not a boundary.** The check that a call comes from the turn's process or a descendant reads the caller's parent chain from `/proc` in the caller's own mount namespace. It stops ordinary cross-use (a sibling worker, a lead, a reused process id, a tool that was detached from the tree), but a process of the same user that runs in its own user and mount namespace can present a different process table and so defeat it, and the same holds for any other `/proc`-based ancestry check. The boundary against a same-user sibling is the OS user or a sandbox, not these tokens. A check that cannot be forged needs a kernel-supplied peer credential (a socket to a process in the host's own namespaces, whose own process table decides); that verification service is a planned follow-up, not part of this feature.
 - **Session tokens.** The host mints a token for each turn (`MONOAGENT_SESSION_TOKEN`). It names profile,
   conversation and turn, is valid only while that turn is the session's current one (24 hours at most), is stored
   as a hash and signed under a key derived from the profile's vault key, and counts only from the turn's process or
