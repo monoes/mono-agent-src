@@ -1813,7 +1813,7 @@ by the HTTP API. The CLI (`internal/cli/task/mission_token.go`) and MCP (`boundT
 binding only through `internal/taskbind`, from the database; the `MONOAGENT_TASK_*` labels are the
 brief's text and an agent marker, and bind nothing. A token that does not verify binds to nothing that
 exists (every act refused); no token is an ordinary agent, which in a session a chat
-conversation manages can neither verify a task nor claim, finish, release, split, add or attach (it reads). A bound worker reaches the personal board through neither the delegated approve and
+conversation manages can neither verify a task nor claim, finish, release, split, add (a task or a dependency) or attach (it reads). A bound worker reaches the personal board through neither the delegated approve and
 view of `task agents allow` nor `task digest`. Whoever can read the token can use it, for that one
 task until the run ends (SECURITY.md, "Honest limits"). An agent that scrubs its own environment (no agent
 marker, no `--as`) is still treated as the operator by the CLI; that weakness is old and matters more now. The MCP tools are `task_session_list` and

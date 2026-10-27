@@ -1695,7 +1695,7 @@ that works a task acts on them. The defences:
   starts or resumes a conversation also revokes the tokens an earlier, crashed run of it left, and
   expired ones are purged), bound to one task, and not accepted by the HTTP API; a token that is unknown, expired, revoked, another profile's or
   another kind refuses every act, and no token is an ordinary agent that cannot record a verdict,
-  and cannot claim, take the next task, finish, release, split, add or attach evidence, in a session a
+  and cannot claim, take the next task, finish, release, split, add a task or a dependency or attach evidence, in a session a
   chat conversation manages (it may still read; sessions the operator created keep their rules). A worker's token never records a verdict and a
   verifier's never claims or finishes. *Honest limits:* a process that can read the token (a
   process of the same user, its own environment, the process table, the database file) can use it,

@@ -2,8 +2,8 @@
 # Smoke test for `monoagentcli mcp --tasks-only` over stdio, against a throwaway
 # HOME and database: initialize, tools/list (exactly the task_* tools), the
 # mutating verbs gated by --allow-mutations, claim -> comment -> finish, a
-# task session worked through the tools (dependencies, evidence, no self-verification, a session-bound
-# server held inside its session), a non-task tool refused by name, the CLI showing what the agent did, and the
+# task session worked through the tools (dependencies, evidence, no self-verification, an environment label that binds
+# nothing), a non-task tool refused by name, the CLI showing what the agent did, and the
 # --api-only combination refused. Never touches the real ~/.monoagent.
 #
 #   go build -tags devaccount -o /tmp/monoagentcli ./cmd/monoagentcli && scripts/tasks-mcp-smoke.sh /tmp/monoagentcli
@@ -171,21 +171,23 @@ checker_init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolV
 out="$({ echo "$checker_init"; call 2 task_verify "{\"id\":$ta,\"pass\":true,\"note\":\"meets the acceptance\"}"; } | rpc --allow-mutations)"
 resp "$out" 2 | jq -e '.result.isError!=true and (.result.content[0].text|fromjson|.task|.verified==true and .status=="review")' >/dev/null || fail "another agent's task_verify: $(resp "$out" 2)"
 
-echo "== a server bound to one session reaches nothing outside it"
-# MONOAGENT_TASK_SESSION is what a session worker's token carries; run() starts from a clean environment, so add it here.
-rpc_bound() { mono_guard env -i "PATH=$PATH" "MONOAGENT_DEV_ENFORCE_FROM=2999-01-01T00:00:00Z" "HOME=$home" "TMPDIR=$root/tmp" "MONOAGENT_TASK_SESSION=$s1" "$cli" --db-path "$db" mcp --tasks-only --allow-mutations; }
+echo "== an environment label binds nothing: a server given MONOAGENT_TASK_SESSION but no token is an ordinary agent"
+# What binds a server to a session, a task and a role is a mission token the conductor mints per run
+# (MONOAGENT_TASK_TOKEN); the MONOAGENT_TASK_* labels scope nothing, so a server that carries only one
+# reads other sessions and the personal board as any unbound agent does. The bound-token cases (a worker
+# held to its task, a verifier, a token that does not verify, an unbound agent in a managed session) need
+# a minted token and are covered by Go tests: internal/mcp TestWorkerTokenBindsTheServerToItsTask,
+# TestEnvironmentLabelsBindNothing, TestMissionTokenThatDoesNotVerifyRefusesEveryAct,
+# TestOnlyTheBoundVerifierTokenVerifies; internal/cli/task TestLabelsInTheEnvironmentBindNothing,
+# TestMissionTokenCases; internal/tasks TestUnboundAgentCannotChangeWorkInAManagedSession.
+# run() starts from a clean environment, so the label is added here. Reads only: nothing moves.
+rpc_labelled() { mono_guard env -i "PATH=$PATH" "MONOAGENT_DEV_ENFORCE_FROM=2999-01-01T00:00:00Z" "HOME=$home" "TMPDIR=$root/tmp" "MONOAGENT_TASK_SESSION=$s1" "$cli" --db-path "$db" mcp --tasks-only --allow-mutations; }
 out="$({ echo "$init"
   call 2 task_session_get "{\"id\":$s1}"
   call 3 task_session_get "{\"id\":$s2}"
-  call 4 task_claim "{\"next\":true,\"session\":$s2}"
-  call 5 task_claim "{\"id\":$tc}"
-  call 6 task_get "{\"id\":$personal}"
-  call 7 task_list '{}'
-  call 8 task_add '{"title":"on the personal board"}'
-  call 9 task_claim '{"next":true}'; } | rpc_bound)"
-resp "$out" 2 | jq -e '.result.isError!=true' >/dev/null || fail "the bound session is not served: $(resp "$out" 2)"
-for id in 3 4 5 6 7 8 9; do
-  resp "$out" "$id" | jq -e '.result.isError==true' >/dev/null || fail "a server bound to session $s1 reached outside it (request $id): $(resp "$out" "$id")"
+  call 4 task_get "{\"id\":$personal}"; } | rpc_labelled)"
+for id in 2 3 4; do
+  resp "$out" "$id" | jq -e '.result.isError!=true' >/dev/null || fail "an environment label scoped a server without a token (request $id): $(resp "$out" "$id")"
 done
 run --profile "$prof" --json task show "$tc" | jq -e '.task.status=="ready"' >/dev/null || fail "the other session's task moved"
 
