@@ -55,6 +55,7 @@ func (d Deps) newNodeAddCmd() *cobra.Command {
 
 			// Ensure workflow exists.
 			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			expect := reviewOf(wf) // what the operator is looking at, before any edit
 			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
@@ -86,11 +87,8 @@ func (d Deps) newNodeAddCmd() *cobra.Command {
 			}
 
 			existing = append(existing, newNode)
-			if err := store.SaveWorkflowNodes(ctx, workflowID, existing); err != nil {
+			if err := store.SaveWorkflowNodes(approving(ctx, expect), workflowID, existing); err != nil {
 				return fmt.Errorf("save nodes: %w", err)
-			}
-			if err := operator.ApproveWorkflow(ctx, store, workflowID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
 			}
 
 			if d.JSONOutput() {
@@ -179,6 +177,7 @@ func (d Deps) newNodeSetCmd() *cobra.Command {
 			ctx := context.Background()
 
 			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			expect := reviewOf(wf) // what the operator is looking at, before any edit
 			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
@@ -214,11 +213,8 @@ func (d Deps) newNodeSetCmd() *cobra.Command {
 				return d.NotFound("node %q not found in workflow %q", nodeID, workflowID)
 			}
 
-			if err := store.SaveWorkflowNodes(ctx, workflowID, wf.Nodes); err != nil {
+			if err := store.SaveWorkflowNodes(approving(ctx, expect), workflowID, wf.Nodes); err != nil {
 				return fmt.Errorf("save nodes: %w", err)
-			}
-			if err := operator.ApproveWorkflow(ctx, store, workflowID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
 			}
 			if d.JSONOutput() {
 				for i := range wf.Nodes {
@@ -265,6 +261,7 @@ func (d Deps) newNodeRemoveCmd() *cobra.Command {
 			ctx := context.Background()
 
 			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			expect := reviewOf(wf) // what the operator is looking at, before any edit
 			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
@@ -292,14 +289,8 @@ func (d Deps) newNodeRemoveCmd() *cobra.Command {
 				newConns = append(newConns, c)
 			}
 
-			if err := store.SaveWorkflowNodes(ctx, workflowID, newNodes); err != nil {
-				return fmt.Errorf("save nodes: %w", err)
-			}
-			if err := store.SaveWorkflowConnections(ctx, workflowID, newConns); err != nil {
-				return fmt.Errorf("save connections: %w", err)
-			}
-			if err := operator.ApproveWorkflow(ctx, store, workflowID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
+			if err := store.SaveWorkflowGraph(approving(ctx, expect), workflowID, newNodes, newConns); err != nil {
+				return fmt.Errorf("save workflow: %w", err)
 			}
 
 			if d.JSONOutput() {
@@ -349,6 +340,7 @@ func (d Deps) newConnectCmd() *cobra.Command {
 			ctx := context.Background()
 
 			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			expect := reviewOf(wf) // what the operator is looking at, before any edit
 			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
@@ -364,11 +356,8 @@ func (d Deps) newConnectCmd() *cobra.Command {
 			}
 			wf.Connections = append(wf.Connections, conn)
 
-			if err := store.SaveWorkflowConnections(ctx, workflowID, wf.Connections); err != nil {
+			if err := store.SaveWorkflowConnections(approving(ctx, expect), workflowID, wf.Connections); err != nil {
 				return fmt.Errorf("save connections: %w", err)
-			}
-			if err := operator.ApproveWorkflow(ctx, store, workflowID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
 			}
 
 			if d.JSONOutput() {
@@ -406,6 +395,7 @@ func (d Deps) newDisconnectCmd() *cobra.Command {
 			ctx := context.Background()
 
 			wf := d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), workflowID)
+			expect := reviewOf(wf) // what the operator is looking at, before any edit
 			if wf == nil {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
@@ -423,11 +413,8 @@ func (d Deps) newDisconnectCmd() *cobra.Command {
 				return fmt.Errorf("connection %q not found in workflow %q", connID, workflowID)
 			}
 
-			if err := store.SaveWorkflowConnections(ctx, workflowID, newConns); err != nil {
+			if err := store.SaveWorkflowConnections(approving(ctx, expect), workflowID, newConns); err != nil {
 				return fmt.Errorf("save connections: %w", err)
-			}
-			if err := operator.ApproveWorkflow(ctx, store, workflowID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
 			}
 			fmt.Fprintf(os.Stdout, "Connection %s removed.\n", connID)
 			return nil
@@ -449,3 +436,31 @@ func parseNodeHandle(s string) (nodeID, handle string, err error) {
 	}
 	return nodeID, handle, nil
 }
+
+// approving makes the change that follows also record the workflow as the operator's own, in the
+// same commit, unless an AI is the one editing.
+func approving(ctx context.Context, expect string) context.Context {
+	if operator.Marker() != "" {
+		return ctx
+	}
+	// The approval covers what the operator read: if the workflow changed since, the edit is
+	// refused instead of approving someone else's change along with it.
+	return workflow.WithExpectHash(workflow.WithApproval(ctx), expect)
+}
+
+// reviewOf is the review hash of a workflow as it was read ("" for no workflow at all).
+func reviewOf(wf *workflow.Workflow) string {
+	if wf == nil {
+		return ""
+	}
+	h, err := workflow.ReviewHash(wf)
+	if err != nil {
+		// Never an empty guard: an empty one would let the edit (and its approval) through unchecked.
+		return unreadableReview
+	}
+	return h
+}
+
+// unreadableReview is a guard that matches no workflow, so an edit whose review hash could not be
+// worked out is refused instead of going through unguarded.
+const unreadableReview = "unreadable-review-hash"

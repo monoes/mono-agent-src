@@ -343,6 +343,9 @@ func (s *Store) verifyRetry(ctx context.Context, x dbx, profileID string, cur Ta
 const (
 	ArtifactBranch = "branch"
 	ArtifactMerge  = "merge"
+	// FinalReportRef is the reference of a mission's final report (kind report): only the
+	// operator's process writes it, so that its presence is the operator's own record.
+	FinalReportRef = "final-report"
 )
 
 var artifactKinds = map[string]bool{"commit": true, "file": true, "report": true, "test": true, "diff": true, "log": true, "url": true, "other": true, ArtifactBranch: true, ArtifactMerge: true}
@@ -368,6 +371,9 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 	ref := cutRunes(oneLine(in.Ref), artifactRefRunes)
 	if ref == "" {
 		return Artifact{}, invalid("an artifact needs a reference: a commit hash, a path, a URL")
+	}
+	if in.Kind == "report" && ref == FinalReportRef && actor.Kind != Human {
+		return Artifact{}, operatorOnly("attach the reserved " + FinalReportRef + " report: the mission's final report is the operator's process's")
 	}
 	note := cutBytes(cleanText(in.Note), MaxCommentBytes)
 	var out Artifact

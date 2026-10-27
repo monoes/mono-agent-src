@@ -131,7 +131,8 @@ Full guide:  monoagentcli ref crawling
 8. TROUBLESHOOTING CHECKLIST
 ──────────────────────────────────────────────────────────────
   "workflow not found"
-    → file must be named exactly <workflow-id>.json in ~/.monoagent/workflows/
+    → check the id with 'workflow list'; a file dropped into ~/.monoagent/workflows/ is not a workflow
+      until it is imported ('workflow import --file') or adopted ('doctor')
 
   "invalid cron spec"
     → use 6-field cron: "0 0 9 * * *"  (sec min hour day month weekday)

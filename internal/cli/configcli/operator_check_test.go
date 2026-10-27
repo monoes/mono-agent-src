@@ -43,7 +43,7 @@ func TestConfigWithoutAnOperatorCheckRefusesReservedRows(t *testing.T) {
 			t.Errorf("config %v without an operator check: %v", args, err)
 		}
 	}
-	if err := run("set", "memory.runs", "off"); err != nil {
+	if err := run("set", "api_key", "x"); err != nil {
 		t.Errorf("a row that isn't reserved: %v", err)
 	}
 }
@@ -125,5 +125,68 @@ func TestConfigRowsUnderAReservedPrefixAreTheOperatorsAlone(t *testing.T) {
 	// without any operator check the prefix is refused as well
 	if _, err := run(Deps{JSONOutput: func() bool { return true }, OpenDB: open}, "set", row, "x"); clicore.ExitCodeFor(err) != 3 {
 		t.Errorf("set without an operator check: %v", err)
+	}
+}
+
+// A setting that switches run memory off, or names the workflow every failed
+// run starts, changes what agents and unattended runs do: a caller that is
+// not the operator can neither write nor delete it (the row is left as it
+// was), the operator can. A plain selector row stays anyone's.
+func TestConfigAuthorityRowsAreTheOperatorsAlone(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "config.db")
+	open := func() (*storage.Database, error) {
+		db, err := storage.NewDatabase(dbPath)
+		if err != nil {
+			return nil, err
+		}
+		return db, db.ApplyMigrations()
+	}
+	build := func(operator bool) Deps {
+		return Deps{JSONOutput: func() bool { return true }, OpenDB: open, RequireOperator: func(what string) error {
+			if operator {
+				return nil
+			}
+			return clicore.OperatorOnly("only the user can %s", what)
+		}}
+	}
+	run := func(d Deps, args ...string) error {
+		cmd := NewCommand(d)
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs(args)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		old := os.Stdout
+		os.Stdout, _ = os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		defer func() { os.Stdout = old }()
+		return cmd.Execute()
+	}
+	value := func(name string) string {
+		db, err := open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var v string
+		_ = db.DB.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, name).Scan(&v)
+		return v
+	}
+	for _, name := range []string{"memory.runs", "workflow.error_workflow"} {
+		if err := run(build(true), "set", name, "operator"); err != nil {
+			t.Fatalf("operator set %s: %v", name, err)
+		}
+		for _, args := range [][]string{{"set", name, "agent"}, {"set", " " + strings.ToUpper(name), "agent"}, {"delete", name}} {
+			if err := run(build(false), args...); clicore.ExitCodeFor(err) != 3 {
+				t.Errorf("config %v by a non-operator: %v", args, err)
+			}
+		}
+		if got := value(name); got != "operator" {
+			t.Errorf("%s after the refused writes = %q, want the operator's value", name, got)
+		}
+		if err := run(build(true), "delete", name); err != nil || value(name) != "" {
+			t.Errorf("operator delete %s: %v (value %q)", name, err, value(name))
+		}
+	}
+	if err := run(build(false), "set", "INSTAGRAM_POST_LIKING.like_button", "//button"); err != nil {
+		t.Errorf("a selector row is anyone's: %v", err)
 	}
 }

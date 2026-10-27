@@ -5,6 +5,7 @@ func Default() *Registry {
 	var checks []Check
 	checks = append(checks, coreChecks()...)
 	checks = append(checks, dbSchemaChecks()...)
+	checks = append(checks, workflowPublicationChecks()...)
 	checks = append(checks, monoesAccountChecks()...)
 	checks = append(checks, monomindChecks()...)
 	checks = append(checks, monomindDoctorChecks()...)
@@ -18,6 +19,7 @@ func Default() *Registry {
 	checks = append(checks, automationChecks()...)
 	var fixes []Fix
 	fixes = append(fixes, coreFixes()...)
+	fixes = append(fixes, workflowPublicationFixes()...)
 	fixes = append(fixes, monoesAccountFixes()...)
 	fixes = append(fixes, monomindFixes()...)
 	fixes = append(fixes, monomindDoctorFixes()...)

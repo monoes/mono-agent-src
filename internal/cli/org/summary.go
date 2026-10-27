@@ -35,6 +35,10 @@ type orgSummaryRow struct {
 // perOrgNeedsYouTimeout bounds the monomind round-trips for one org.
 var perOrgNeedsYouTimeout = 10 * time.Second // var: tests shorten it
 
+// summaryNeedsYou lets tests hold a worker past its deadline without a real
+// subprocess or pipe, so the outer timeout can be checked with virtual time.
+var summaryNeedsYou = (*orgEnv).needsYou
+
 func newOrgSummaryCmd(env *orgEnv) *cobra.Command {
 	var fast, allProfiles bool
 	c := &cobra.Command{
@@ -148,7 +152,7 @@ func (env *orgEnv) orgSummaryFor(ctx context.Context, root string, db *storage.D
 			}
 			done := make(chan result, 1)
 			go func() {
-				items, err := env.needsYou(ctx, db, profileID, root, name)
+				items, err := summaryNeedsYou(env, ctx, db, profileID, root, name)
 				done <- result{len(items), err}
 			}()
 			select {

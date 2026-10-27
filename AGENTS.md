@@ -13,6 +13,7 @@ from nodes (triggers, HTTP, databases, AI, comms, services), run them on
 schedule/webhook/manual, and manage everything from the CLI or an optional
 desktop GUI (`wails-app/`).
 
+- A workflow's JSON file and database rows are published together (`workflow.HybridWorkflowStore.Publish`: intent row, file, then rows plus version; recovery rolls back an unfinished change). A hand edit of an existing workflow's file is imported as a new version and removes the workflow's earlier approvals. A file with no stored copy that appears after the store was first used is neither imported, served nor listed: `doctor` shows it (profile, node types, sha) and `doctor fix workflows.publications.adopt:<id>:<profile>:<sha>` adopts it inactive; create workflows with `workflow import`/`save`/templates, not by writing files. `doctor` also lists unfinished or unresolved changes.
 - All state lives in `~/.monoagent/` (SQLite + JSON workflow files). Every
   command works from any directory — there is no per-project setup. One
   exception: `monoagentcli init` also copies skill files into
@@ -1717,7 +1718,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -1801,7 +1802,7 @@ to the task as its worker never verifies it, and the agent identity of the last 
 `agent:<client>` name without the `#<4 hex>` suffix) cannot; an agent verifies only while the
 session runs. The identity check is a name check, so an unbound agent that picks another name
 passes it; workers the conductor starts are bound. Only
-the user approves, resumes, sets the budget, caps, access level and auto-close
+the user approves, resumes, closes (`session close`), sets the budget, caps, access level and auto-close
 (`session budget`), archives (`session archive`) and removes dependencies
 (`undepend`); an agent may pause and stop a session (stop releases every claim).
 Setting `MONOAGENT_TASK_SESSION=N` binds a process to session N: its agent may act in
@@ -1848,7 +1849,13 @@ reads) does the next closing step each call: it lists tasks that are not done or
 (blocked ones with their notes); with everything settled it adds the Integration check
 task if the plan has none; when that is settled it lists writer branches still to
 `org_merge` (one at a time); then it attaches the final report to the integration task
-(artifact `final-report`), emits `mission.report` and closes the session as done. Each
+(artifact `final-report`, written by the operator's process; agents cannot attach that
+reference) and emits `mission.report` (with `closeProposed`), once per integration verdict:
+it only PROPOSES the close (`ready_to_close`), the session stays running and the operator
+closes it (`session close`, which also releases the session's claims, or the Close button).
+A second call on an unchanged state writes nothing more; work reopened after a proposal
+gets a new report and card when its integration check settles again. A `close_proposed`
+session event, written after the card, records that the card went out. Each
 mission worker's exec is capped by the session's remaining `budget_usd`.
 Worker and verifier briefs fence foreign text in a per-brief random delimiter
 (`<<<DATA-xxxxxxxx` ... `DATA-xxxxxxxx>>>`). One task gets at most 6 workers per turn and 12
@@ -1885,9 +1892,10 @@ message, and bounded by the session's `max_tasks` and budget.
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
 operator closes tasks to Done, or the session's `auto_close_verified` does when the
-operator turned it on. The conductor closes the SESSION only through the one guarded
-operator close (`mission_finish`): every task done or verified, none blocked, no writer
-branch left to merge, and the integration check done or verified. Writers run in
+operator turned it on. Only the operator closes the SESSION (`session close`, or the Close button, at any time).
+`mission_finish` proposes the close when every task is done or verified, none blocked, no
+writer branch is left to merge, and the integration check is done or verified; it never
+changes the session's state, and a mission the operator never closes stays running. Writers run in
 parallel only with `orgWriters` set to `isolated` (the operator's setting); `shared`
 takes turns.
 
@@ -3383,6 +3391,28 @@ monoagentcli --profile <id> --json browser network --tab 812 --failed
     that looks like a bare repository (git discovers it there).
   Names compare without case on Windows and macOS. A refusal names the
   `workflow activate <id>` that approves the workflow.
+- **Switching a workflow on is gated on the operator's approval** (the
+  store refuses it with `ErrApprovalRequired`, in the same transaction that
+  would write the flag, so it covers `workflow activate`, MCP
+  `workflow_set_active`, HTTP `POST .../activate` (403) and the chat). Only
+  `workflow activate` approves: it records the approval in the activation
+  itself, for the definition it read or the `review_hash` named by
+  `--expect` (`workflow get <id> --json` prints it); a change made after
+  that is `ErrChangedSincePreview` (409) and nothing is activated or
+  approved. Switching off is never refused. Approvals are written only by a
+  change made under `operator.ApprovingContext` (the CLI/GUI as the
+  operator), never by HTTP or MCP handlers: the server process's marker says
+  nothing about who called it. The refusal tells the operator to review the
+  workflow (`workflow get <id> --json`) and to pass what they saw to
+  `workflow activate <id> --expect <review_hash>`: a bare `workflow activate`
+  approves the definition as it is when it reads it. Limits: the gate is on
+  switching on (inactive to active). An agent's edit of a workflow that is
+  already active keeps its flag, so it stays armed, and its runs are AI runs
+  (no secrets, no programs, file steps under FileGuard) until the operator
+  approves it again. Approvals are plain database rows: this is a courtesy
+  layer against agents that act through the CLI, MCP, HTTP and the chat, as
+  the operator marker is, not against a process that writes the database
+  itself.
 - **The project folder is a trusted zone** (the user's choice): the
   profile's project folder is open to them, hidden folders in it included,
   and for a profile on the default folder (`~/.monoagent/profiles/<id>`)
@@ -3773,7 +3803,7 @@ change is logged in the status history. `applied` is reached only through `appli
 | 0 | run paused at a HIL node — status `WAITING` (paused for human review); the output carries a `hint` field pointing at `hil list` |
 | 1 | general error — also the exit for a run that ends `CANCELLED`, and for a run that ends `SUCCESS_WITH_ERRORS` with no successful step (every non-trigger node failed; a partial success still exits 0) |
 | 2 | not found (workflow, node type, HIL item, secret name, …). Includes `hil approve`/`hil reject`, `secret rm`/`secret update`, and `workflow delete` on unknown ids |
-| 3 | invalid input / validation failure |
+| 3 | invalid input / validation failure — including a flag the parser refuses (an unknown flag, a value that does not parse), in every command group (`{"error","code":"invalid_input"}` with `--json`) |
 | 4 | auth or connection failure — including `login_required`: no valid monoes.me sign-in (see [monoes.me account](#monoesme-account)) |
 | 5 | `chat history set-access` lowered the level but a process the conversation's turns started could not be stopped (`survivors_remain`; the JSON lists each under `lowered.survivors` with its pid, command and reason) |
 | 6 | `chat history set-access --expect L` found the conversation no longer at level L: `access_changed`, `current` is the real level, nothing was changed |

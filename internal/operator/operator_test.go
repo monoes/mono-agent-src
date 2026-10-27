@@ -106,26 +106,6 @@ func (a *approvals) ApproveDefinition(_ context.Context, id string) error {
 	return nil
 }
 
-// Only the operator's own terminal records a definition as theirs.
-func TestApproveWorkflow(t *testing.T) {
-	ctx := context.Background()
-	a := &approvals{}
-	for _, k := range []string{workflow.EnvWorkflowRun, browserctl.EnvAICaller, "CLAUDECODE"} {
-		asOperator(t)
-		t.Setenv(k, "x")
-		if err := ApproveWorkflow(ctx, a, "wf-1"); err != nil || len(a.ids) != 0 {
-			t.Errorf("%s: approved %v (%v)", k, a.ids, err)
-		}
-	}
-	asOperator(t)
-	if err := ApproveWorkflow(ctx, a, "wf-1"); err != nil || len(a.ids) != 1 || a.ids[0] != "wf-1" {
-		t.Errorf("the operator: approved %v (%v)", a.ids, err)
-	}
-	if err := ApproveWorkflow(ctx, struct{}{}, "wf-1"); err != nil {
-		t.Errorf("a store without approvals: %v", err)
-	}
-}
-
 // A refusal says how to fix a marker a long-lived process inherited: the
 // app, the daemon or the bridge started from a marked shell refuses the
 // user's own actions until it is started again from their own terminal.

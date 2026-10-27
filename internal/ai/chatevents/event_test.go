@@ -161,7 +161,7 @@ func TestMissionEventsRoundTrip(t *testing.T) {
 
 func TestMissionReportEventShape(t *testing.T) {
 	at := time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
-	ev, err := New("p", "c", "t", 2, at, EventMissionReport, MissionReportPayload{SessionID: 4, Title: "T", State: "done", TaskCount: 3, Done: 2, Verified: 1, Unfinished: []int64{}, Artifacts: 5, SpentUSD: 1.25, BudgetUSD: 10, Report: "# r"})
+	ev, err := New("p", "c", "t", 2, at, EventMissionReport, MissionReportPayload{SessionID: 4, Title: "T", State: "done", TaskCount: 3, Done: 2, Verified: 1, Unfinished: []int64{}, Artifacts: 5, SpentUSD: 1.25, BudgetUSD: 10, Report: "# r", CloseProposed: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,9 +170,12 @@ func TestMissionReportEventShape(t *testing.T) {
 	}
 	var raw map[string]any
 	_ = json.Unmarshal(ev.Payload, &raw)
-	for _, k := range []string{"sessionId", "title", "state", "taskCount", "done", "verified", "unfinished", "artifacts", "spentUsd", "budgetUsd", "report"} {
+	for _, k := range []string{"sessionId", "title", "state", "taskCount", "done", "verified", "unfinished", "artifacts", "spentUsd", "budgetUsd", "report", "closeProposed"} {
 		if _, ok := raw[k]; !ok {
 			t.Errorf("report card lacks %s", k)
 		}
+	}
+	if raw["closeProposed"] != true {
+		t.Errorf("closeProposed %v", raw["closeProposed"])
 	}
 }

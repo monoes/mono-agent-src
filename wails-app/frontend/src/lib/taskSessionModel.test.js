@@ -7,7 +7,7 @@ const s = (state, extra = {}) => ({ id: 1, state, archived: false, counts: { don
 describe('taskSessionModel', () => {
   it('offers the actions each state allows, and none for an archived session', () => {
     expect(actionsFor(s('draft'))).toContain('approve')
-    expect(actionsFor(s('running'))).toEqual(['pause', 'stop', 'budget'])
+    expect(actionsFor(s('running'))).toEqual(['pause', 'close', 'stop', 'budget'])
     expect(actionsFor(s('paused'))).toContain('resume')
     for (const st of ['done', 'stopped', 'failed']) {
       expect(actionsFor(s(st))).toEqual(['archive', 'budget'])

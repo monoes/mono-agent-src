@@ -3,7 +3,8 @@ package operator
 import "strings"
 
 // reservedConfigs are the configs-table rows (`config get|set|delete`) that
-// gate approvals, permissions or sandboxing. Only the operator's own terminal
+// gate approvals, permissions or sandboxing, or that change what agents may
+// do or what runs unattended. Only the operator's own terminal
 // writes them: `config set` and `config delete` refuse anything else
 // (internal/cli/configcli), as the commands made for them do.
 //
@@ -25,6 +26,14 @@ import "strings"
 //     the person's submit at once (internal/applypark; `application fill queue`).
 //   - coder_projects: the folder a site's queued coder chats work in, with
 //     full access (`coder projects map|unmap`).
+//   - memory.runs: whether finished runs are summarised into the run memory
+//     (monomind.RunMemorySetting).
+//   - workflow.error_workflow: the workflow started when a run fails and its
+//     own definition names none (workflow.DefaultErrorWorkflowConfig). A
+//     workflow's own error_workflow setting is not this row: it is part of
+//     the definition, so a save by anyone but the operator leaves it
+//     unapproved, and the engine ignores the own setting of an unapproved
+//     definition (errorWorkflowID), leaving only this default.
 //   - every row under ReservedConfigPrefixes: families of rows named by a
 //     prefix. coder-mission-confirm/ holds the operator's per-send mission
 //     confirmations, which the coder host and its chat turns accept as proof
@@ -33,10 +42,11 @@ import "strings"
 //     `config list` and whatever else shows rows to a non-operator
 //     (HiddenConfig).
 //
-// Not reserved: memory.runs (the run-memory opt-out), workflow.error_workflow
-// (the default error workflow, which any workflow can also name for itself)
-// and the social actions' selector configs. The task board's agent
-// access, the send always-allow rules and org grants live in other tables,
+// Not reserved: the social actions' selector configs. Their names are
+// free-form (<platform>_<action>[_context]), the engine writes them itself
+// through a store that refuses reserved names, and `config set` of one is the
+// documented way to hand-tune a selector; they pick elements on a page, they
+// grant nothing. The task board's agent access, the send always-allow rules and org grants live in other tables,
 // which `config` does not reach.
 var reservedConfigs = []string{
 	"browser_agent_permissions",
@@ -46,6 +56,8 @@ var reservedConfigs = []string{
 	"automation.autoRepair",
 	"coder_projects",
 	"applications.max_parked",
+	"memory.runs",
+	"workflow.error_workflow",
 }
 
 // ReservedConfigPrefixes are the reserved families of config rows: a name that

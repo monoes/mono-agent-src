@@ -211,6 +211,10 @@ func (mt *MonoagentTools) setWorkflowActive(args string) (string, error) {
 		if err := st.SetWorkflowActive(context.Background(), a.WorkflowID, a.Active); err != nil {
 			return "", fmt.Errorf("update workflow: %w", err)
 		}
+	} else if a.Active {
+		// Switching on arms triggers, and only the workflow store checks that the operator approved
+		// the definition: never with a raw UPDATE.
+		return "", fmt.Errorf("update workflow: %w: activating needs the workflow store, which checks the approval", workflow.ErrApprovalRequired)
 	} else if _, err := mt.db.Exec(
 		`UPDATE workflows SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		a.Active, a.WorkflowID); err != nil {

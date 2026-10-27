@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -188,18 +189,53 @@ func TestCreateKeepsModeAsAnAlias(t *testing.T) {
 // exec-tree token, which is what makes it the one `stop-background` may stop.
 func background(t *testing.T) int {
 	t.Helper()
+	c, _ := backgroundWithExit(t)
+	return c.Process.Pid
+}
+
+// backgroundWithExit exposes Wait's completion to tests that must distinguish
+// refusal side effects from a later, independent process-stop operation.
+func backgroundWithExit(t *testing.T) (*exec.Cmd, <-chan struct{}) {
+	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("a process's identity comes from /proc")
 	}
-	c := exec.Command("sleep", "60")
-	c.Env = append(os.Environ(), execTreeEnv+"=tok-"+t.Name())
-	if err := c.Start(); err != nil {
+	ready, signal, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	input, hold, err := os.Pipe()
+	if err != nil {
+		signal.Close()
+		t.Fatal(err)
+	}
+	// The shell signals only once its final image and environment are ready,
+	// then stays in a builtin read. There is no subsequent exec or 60s expiry.
+	c := exec.Command("sh", "-c", "printf R >&3; read -r line")
+	token := "tok-" + t.Name()
+	c.Env = append(os.Environ(), execTreeEnv+"="+token)
+	c.Stdin = input
+	c.ExtraFiles = []*os.File{signal}
+	err = c.Start()
+	signal.Close()
+	input.Close()
+	if err != nil {
+		hold.Close()
 		t.Fatal(err)
 	}
 	reaped := make(chan struct{})
 	go func() { c.Wait(); close(reaped) }()
-	t.Cleanup(func() { c.Process.Kill(); <-reaped })
-	return c.Process.Pid
+	t.Cleanup(func() { c.Process.Kill(); hold.Close(); <-reaped })
+	var marker [1]byte
+	if _, err := io.ReadFull(ready, marker[:]); err != nil {
+		t.Fatal(err)
+	}
+	if marker[0] != 'R' || processIdentity(c.Process.Pid) != "tree:"+token {
+		t.Fatal("ready child has no expected exec-tree identity")
+	}
+
+	return c, reaped
 }
 
 // leaveBehind records a turn that ended with pid still running.
@@ -447,7 +483,8 @@ func TestLoweringReportsTheProcessesItCouldNotStop(t *testing.T) {
 func TestSetAccessExpectRefusesAChangedLevelWithNoEffects(t *testing.T) {
 	r := newAccessRig(t, true)
 	c := r.conv(t, ai.AccessCoding)
-	pid := background(t)
+	child, exited := backgroundWithExit(t)
+	pid := child.Process.Pid
 	r.leaveBehind(t, c.ID, pid)
 	if err := r.store.SaveOrgWorker("default", c.ID, ai.OrgWorker{AgentID: "w1", TurnID: "left-1", Runtime: "claude", SessionID: "s"}); err != nil {
 		t.Fatal(err)
@@ -471,6 +508,16 @@ func TestSetAccessExpectRefusesAChangedLevelWithNoEffects(t *testing.T) {
 	}
 	if ws, _ := r.store.ListOrgWorkers("default", c.ID, 0); len(ws) != 1 {
 		t.Errorf("a refused change forgot the org workers: %+v", ws)
+	}
+	// The refusal assertions above require a live child. The accepted change
+	// below tests --expect, not how quickly SIGTERM/SIGKILL is observed. Reap
+	// this fixture explicitly first; process-stop behavior has its own tests.
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	<-exited
+	if processAlive(pid) {
+		t.Fatal("fixture child still alive after Wait")
 	}
 	if out, err := r.setAccess(t, nil, c.ID, "scoped", "--expect", "coding"); err != nil || !strings.Contains(out, `"previous_access": "coding"`) {
 		t.Errorf("the expected change: %v\n%s", err, out)

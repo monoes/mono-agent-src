@@ -10,12 +10,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 func persistTestEnv(t *testing.T) (home string, cfg *globalConfig) {
 	t.Helper()
+	// The tests act as the operator: an agent-marked environment would start new
+	// workflows inactive.
+	for _, k := range operator.MarkerEnv() {
+		t.Setenv(k, "")
+	}
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	return home, &globalConfig{DBPath: filepath.Join(t.TempDir(), "wf.db"), JSONOutput: true, ProfileID: "default"}
@@ -94,7 +100,7 @@ func TestWorkflowFileOnlyBackfill(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	wf := &workflow.Workflow{ID: "file-only-wf", Name: "file only", Version: 1, CreatedAt: now, UpdatedAt: now,
+	wf := &workflow.Workflow{ID: "file-only-wf", Name: "file only", ProfileID: "default", Version: 1, CreatedAt: now, UpdatedAt: now,
 		Nodes: []workflow.WorkflowNode{
 			{ID: "fo-trigger", WorkflowID: "file-only-wf", Type: "trigger.manual", Name: "Start", Config: map[string]any{}},
 			{ID: "fo-set", WorkflowID: "file-only-wf", Type: "core.set", Name: "Set", Config: map[string]any{"fields": map[string]any{}}},
@@ -143,8 +149,22 @@ func TestWorkflowFileOnlyBackfill(t *testing.T) {
 		t.Fatal(err)
 	}
 	runWorkflowSubcmd(t, cfg, "list")
+	// A file that appeared after the first use is not backfilled by a command: it waits to be
+	// adopted by an operator (doctor), and is then created inactive.
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM workflows WHERE id = 'file-only-2'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("a file that appeared later was backfilled by list (%d rows, %v)", n, err)
+	}
+	adopter := workflow.NewHybridWorkflowStore(files, workflow.NewSQLiteWorkflowStore(db.DB))
+	shown, _, err := adopter.AdoptableFiles(context.Background())
+	if err != nil || len(shown) != 1 || shown[0].ID != "file-only-2" {
+		t.Fatalf("adoptable: %+v %v", shown, err)
+	}
+	if err := adopter.AdoptFile(context.Background(), "file-only-2", shown[0].ProfileID, shown[0].SHA); err != nil {
+		t.Fatalf("adopting: %v", err)
+	}
 	if types := sqlNodeTypes(t, cfg.DBPath, "file-only-2"); types["fo2-trigger"] != "trigger.manual" {
-		t.Errorf("list did not backfill: %v", types)
+		t.Errorf("adopting did not create the workflow: %v", types)
 	}
 }
 

@@ -24,7 +24,7 @@ import (
 func scheduledOrgRoot(t *testing.T, schedule string, serve bool) (context.Context, string) {
 	t.Helper()
 	root := t.TempDir()
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "o.db"))
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "o.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		t.Fatal(err)
 	}

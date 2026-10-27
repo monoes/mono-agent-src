@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 )
 
 // sessionIDArg renders a session id, or the refusal for one that is not positive.
@@ -116,6 +117,23 @@ func (a *App) TaskSessionStop(id int64) string {
 		return loginRequiredJSON(err)
 	}
 	return a.sessionVerb("stop", id)
+}
+
+// TaskSessionClose is `task session close ID [--note=TEXT]`: the operator closes
+// a mission session its lead only proposed to close. The CLI decides if it may.
+func (a *App) TaskSessionClose(id int64, note string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	sid, bad := sessionIDArg(id)
+	if bad != "" {
+		return bad
+	}
+	args := []string{"session", "close", sid}
+	if strings.TrimSpace(note) != "" {
+		args = append(args, "--note="+note)
+	}
+	return a.taskCLI("", args...)
 }
 
 // TaskSessionArchive is `task session archive ID`.

@@ -170,7 +170,9 @@ func (d Deps) newTemplatesRunCmd() *cobra.Command {
 					return fmt.Errorf("marshal node config: %w", err)
 				}
 			}
-			if err := engine.CreateWorkflow(ctx, &wf); err != nil {
+			// One publication stores the whole definition and, for the operator, approves it in the same
+			// commit: nothing can be written between the creation and the approval.
+			if err := engine.CreateWorkflow(operator.ApprovingContext(ctx), &wf); err != nil {
 				return fmt.Errorf("create workflow from template: %w", err)
 			}
 			if !keep {
@@ -180,11 +182,13 @@ func (d Deps) newTemplatesRunCmd() *cobra.Command {
 					}
 				}()
 			}
+			// Activation does not approve (plain ctx): it only goes through for exactly the definition the
+			// creation approved, so a rewrite in between is refused and nothing runs.
 			if err := engine.ActivateWorkflow(ctx, wf.ID); err != nil {
+				if errors.Is(err, workflow.ErrApprovalRequired) {
+					return fmt.Errorf("activate workflow: %w: running a template switches on a temporary workflow, which needs the operator's approval; run it from your own terminal or the app", err)
+				}
 				return fmt.Errorf("activate workflow: %w", err)
-			}
-			if err := operator.ApproveWorkflow(ctx, engine, wf.ID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
 			}
 
 			executionID, err := engine.TriggerWorkflow(ctx, wf.ID, triggerData)

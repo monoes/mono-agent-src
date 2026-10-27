@@ -105,8 +105,21 @@ func TestWorkflowBindingsThroughCLI(t *testing.T) {
 		if s := got[saved.ID]; s.Name != "gui-saved" || !s.IsActive || s.NodeCount != 2 {
 			t.Fatalf("saved workflow listed as %+v", s)
 		}
-		if _, ok := got["file-only-1"]; !ok {
-			t.Fatalf("file-only workflow missing: %+v", got)
+		// A file that appeared by itself after the store was first used has no stored copy: it is
+		// not listed (and not imported) until an operator adopts it, and is then inactive.
+		if _, ok := got["file-only-1"]; ok {
+			t.Fatalf("a file nobody adopted is listed: %+v", got)
+		}
+		hybrid := workflow.NewHybridWorkflowStore(files, workflow.NewSQLiteWorkflowStore(db.DB))
+		adoptable, _, err := hybrid.AdoptableFiles(t.Context())
+		if err != nil || len(adoptable) != 1 || adoptable[0].ID != "file-only-1" {
+			t.Fatalf("adoptable files: %+v %v", adoptable, err)
+		}
+		if err := hybrid.AdoptFile(t.Context(), "file-only-1", adoptable[0].ProfileID, adoptable[0].SHA); err != nil {
+			t.Fatal(err)
+		}
+		if s, ok := listed()["file-only-1"]; !ok || s.IsActive {
+			t.Fatalf("an adopted file-only workflow is listed as %+v (listed %v)", s, ok)
 		}
 	})
 

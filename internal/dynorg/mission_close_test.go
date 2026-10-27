@@ -42,11 +42,11 @@ func closeRig(t *testing.T, integration, settle bool) (*missionRig, tasks.Task, 
 }
 
 func (r *missionRig) tryClose() error {
-	_, err := r.c.operatorClose(tbg, r.mc, r.sid, "the report", "test close")
+	_, err := r.c.proposeClose(tbg, r.mc, r.sid, "the report", nil)
 	return err
 }
 
-func TestOperatorCloseRefusesEveryUnsafeState(t *testing.T) {
+func TestProposeCloseRefusesEveryUnsafeState(t *testing.T) {
 	cases := []struct {
 		name        string
 		integration bool
@@ -110,13 +110,23 @@ func (r *missionRig) integrationID() int64 {
 	return it.ID
 }
 
-func TestOperatorCloseClosesAFullySettledMission(t *testing.T) {
+func TestProposeCloseLeavesAFullySettledMissionRunning(t *testing.T) {
 	r, _, it := closeRig(t, true, true)
 	if err := r.tryClose(); err != nil {
 		t.Fatal(err)
 	}
-	if st := r.session().State; st != tasks.SessionDone {
-		t.Fatalf("state %s", st)
+	if st := r.session().State; st != tasks.SessionRunning {
+		t.Fatalf("state %s: the conductor must not close the session", st)
+	}
+	if again, err := r.c.proposeClose(tbg, r.mc, r.sid, "the report", nil); err != nil || again {
+		t.Fatalf("a second proposal wrote again: %v %v", again, err)
+	}
+	if d, _ := r.store.SessionTask(tbg, "default", r.sid, it.ID, operator); countRef(d.Artifacts, "final-report") != 1 {
+		t.Fatalf("artifacts %+v", d.Artifacts)
+	}
+	// the operator closes it
+	if _, err := r.store.CloseSession(tbg, "default", r.sid, tasks.SessionDone, "ok", operator); err != nil {
+		t.Fatal(err)
 	}
 	d, _ := r.store.SessionTask(tbg, "default", r.sid, it.ID, operator)
 	found := false
@@ -126,4 +136,14 @@ func TestOperatorCloseClosesAFullySettledMission(t *testing.T) {
 	if !found {
 		t.Fatal("no final report")
 	}
+}
+
+func countRef(arts []tasks.Artifact, ref string) int {
+	n := 0
+	for _, a := range arts {
+		if a.Ref == ref {
+			n++
+		}
+	}
+	return n
 }

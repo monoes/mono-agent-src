@@ -65,6 +65,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   const missionByTurn = missionItems(turnList)
   const allMission = turnList.flatMap(tn => missionByTurn[tn.key] || [])
   const reported = allMission.some(i => i.type === 'report')
+  const closeProposed = allMission.filter(i => i.type === 'report' && i.payload?.closeProposed === true).map(i => i.payload.sessionId)
   const proposals = allMission.filter(i => i.type === 'propose').length
   const [confirmed, setConfirmed] = useState(() => new Set())
   // The conversation's sessions, read only while it has a proposal, to tell a
@@ -210,7 +211,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
         )}
       </div>
       {isCoderAccess(level) && !!conv.conversationId && (
-        <MissionStrip conversationId={conv.conversationId} bump={allMission.length} reported={reported} />
+        <MissionStrip conversationId={conv.conversationId} bump={allMission.length} reported={reported} closeProposed={closeProposed} />
       )}
       {isCoderAccess(level) && !conv.streaming && (
         <MissionTemplates draft={draft} onDraftChange={onDraftChange} hintable={empty} />

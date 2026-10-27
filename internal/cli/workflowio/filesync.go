@@ -3,34 +3,30 @@ package workflowio
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// SyncMarkerName sits next to the file store directory (never inside it:
-// every *.json there is read as a workflow).
+// SyncMarkerName was the name of the file that remembered each workflow file's modtime and size.
+// Nothing reads or writes it any more: what was last reconciled is recorded in the database
+// (workflow_file_state), by content, so it cannot go stale between processes.
 const SyncMarkerName = "workflows-sqlite-sync.json"
 
-// SyncFileWorkflowsToSQL mirrors file-store workflows into SQLite (workflow
-// row, nodes, connections) when their SQLite copy is missing or older than
-// the file. Readers that only look at SQLite — `workflow run --json` node
-// types, executions — then see what the editor saved. A marker records each
-// file's modtime+size, so a workflow is re-synced only after its file
-// changes: the first call backfills everything, later calls are one stat
-// per file. A workflow whose node or connection ids are owned by another
-// workflow in SQLite is skipped (an upsert would move them) and retried on
-// the next call. Returns the ids synced.
+// SyncFileWorkflowsToSQL makes the database rows follow workflow files that were changed outside
+// the store (an editor, a script, an older version): a file with no rows gets them, and a file
+// whose definition differs from its rows is imported as a new version (workflow.ImportFile; the
+// file itself is never rewritten). Readers that only look at SQLite — `workflow run --json` node
+// types, executions — then see what the editor saved. What was last reconciled is remembered by
+// the file's content, so a file that has not changed costs one read. Changes that another
+// process left unfinished are resolved first, and a workflow with a change in progress is left
+// for the next call, as is one whose node or connection ids are owned by another workflow in
+// SQLite (an upsert would move them). Returns the ids imported.
 func SyncFileWorkflowsToSQL(ctx context.Context, db *sql.DB, dir string) ([]string, error) {
-	if err := StampFileWorkflows(ctx, db, dir); err != nil {
-		return nil, err
-	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -38,63 +34,48 @@ func SyncFileWorkflowsToSQL(ctx context.Context, db *sql.DB, dir string) ([]stri
 		}
 		return nil, err
 	}
-	markerPath := filepath.Join(filepath.Dir(dir), SyncMarkerName)
-	marker := map[string]string{}
-	if b, err := os.ReadFile(markerPath); err == nil {
-		_ = json.Unmarshal(b, &marker)
-	}
 	files, err := workflow.NewWorkflowFileStore(dir)
 	if err != nil {
 		return nil, err
 	}
-	sqlStore := workflow.NewSQLiteWorkflowStore(db)
+	store := workflow.NewHybridWorkflowStore(files, workflow.NewSQLiteWorkflowStore(db))
+	_, _ = store.RecoverPublications(ctx)
+	store.SweepStaleTemp()
+	// Unfinished changes are settled before any file is rewritten (the stamp rewrites legacy files).
+	if err := StampFileWorkflows(ctx, db, dir); err != nil {
+		return nil, err
+	}
+	// The files older versions left become workflows now, once; a file with no rows that appears
+	// later is not imported by anything (an operator adopts it).
+	claimed, err := store.ClaimLegacyFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var synced []string
-	changed := false
+	for _, w := range claimed {
+		synced = append(synced, w.ID)
+	}
+	// A file of a profile that no longer exists (deleted, or copied from one) must not come back
+	// as a row of a profile that is gone.
+	profileExists := func(wf *workflow.Workflow) bool {
+		var n int
+		return wf.ProfileID == "" || (db.QueryRowContext(ctx, `SELECT COUNT(*) FROM profiles WHERE id = ?`, wf.ProfileID).Scan(&n) == nil && n > 0)
+	}
 	for _, e := range entries {
 		name, ok := strings.CutSuffix(e.Name(), ".json")
 		if e.IsDir() || !ok {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		stamp := fmt.Sprintf("%d:%d", info.ModTime().UnixNano(), info.Size())
-		if marker[name] == stamp {
-			continue
-		}
-		wf, err := files.GetWorkflow(ctx, name)
-		if err != nil || wf == nil || wf.ID == "" {
-			continue
-		}
-		// A file of a profile that no longer exists (deleted, or copied from
-		// one) must not come back as a row of a profile that is gone.
-		if wf.ProfileID != "" {
-			var n int
-			if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM profiles WHERE id = ?`, wf.ProfileID).Scan(&n); err != nil || n == 0 {
-				continue
-			}
-		}
-		if err := syncOneWorkflowToSQL(ctx, db, sqlStore, wf); err != nil {
+		res, err := store.ImportFile(ctx, name, profileExists)
+		if err != nil || !res.Imported {
 			continue
 		}
 		// A workflow that was only this file when approvals arrived is
-		// approved now that it has a row, if its definition is unchanged;
-		// a failure syncs it again on the next call.
-		if err := workflow.ApproveBackfilledFile(ctx, db, wf); err != nil {
+		// approved now that it has a row, if its definition is unchanged.
+		if err := workflow.ApproveBackfilledFile(ctx, db, res.Workflow); err != nil {
 			continue
 		}
-		marker[name] = stamp
-		changed = true
-		synced = append(synced, wf.ID)
-	}
-	if changed {
-		if b, err := json.Marshal(marker); err == nil {
-			tmp := markerPath + ".tmp"
-			if os.WriteFile(tmp, b, 0o600) == nil {
-				_ = os.Rename(tmp, markerPath)
-			}
-		}
+		synced = append(synced, res.Workflow.ID)
 	}
 	return synced, nil
 }
@@ -117,7 +98,16 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 		}
 		return p.String
 	}
-	stamped, err := workflow.StampFileWorkflowProfiles(dir, owner, rowOwner)
+	// Before the files older versions left are taken in, all of them may need an owner. After it,
+	// only the files of workflows that have rows do: a file with no stored copy is left unread.
+	eligible := func(id string) bool {
+		if !workflow.LegacyClaimDone(ctx, db) {
+			return true
+		}
+		var n int
+		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflows WHERE id = ?`, id).Scan(&n) == nil && n > 0
+	}
+	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, eligible)
 	if len(stamped) > 0 {
 		log.Printf("workflow files: gave %d workflow(s) with no profile an owner (fallback %q)", len(stamped), owner)
 	}
