@@ -174,8 +174,12 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd.Env = gitEnv()
 	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	so := &limitWriter{w: &stdout, max: maxGitOutput}
+	cmd.Stdout, cmd.Stderr = so, &limitWriter{w: &stderr, max: 64 << 10}
 	if err := cmd.Run(); err != nil {
+		if so.over {
+			return "", errors.New("git printed more than the conductor reads")
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = strings.TrimSpace(stdout.String())
@@ -186,4 +190,22 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 		return stdout.String(), errors.New(boundText(msg, 600))
 	}
 	return stdout.String(), nil
+}
+
+// maxGitOutput bounds what one conductor git call keeps of its output.
+const maxGitOutput = 16 << 20
+
+// limitWriter keeps the first max bytes; past that it fails, which ends the process's pipe.
+type limitWriter struct {
+	w    *bytes.Buffer
+	max  int
+	over bool
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if l.w.Len()+len(p) > l.max {
+		l.over = true
+		return 0, errors.New("output limit reached")
+	}
+	return l.w.Write(p)
 }

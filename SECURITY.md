@@ -1708,7 +1708,7 @@ that works a task acts on them. The defences:
   which no start point was recorded. A session with no conversation (the operator's own)
   is checked in the process's working directory. When a task first starts, the operator's
   process records the folder's HEAD as a `base` artifact (an agent cannot write one; the first
-  stands; a repository with no commit and no ref at all records a stand-in, any other unreadable HEAD records nothing; a folder git cannot read at all records a refusing `unreadable` marker; the record is retried at each
+  stands; a repository with no commit and no ref at all records a stand-in, an unreadable HEAD that is not proven unborn, or a folder git cannot read at all, records a refusing `unreadable` marker; the record is retried at each
   start of the task); a commit that is part of it is refused. The cheap refusals (who the
   caller is, the session state, the claim) are made before git is run for a caller.
   A declared glob is read as the folder before its first wildcard segment, and a glob that

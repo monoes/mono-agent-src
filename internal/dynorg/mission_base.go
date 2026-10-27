@@ -20,7 +20,7 @@ var fullObjectID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 // agent): commit evidence for the task must not be part of that history, so a commit that was
 // there before the task cannot stand for work done for it. The first start of a task stands;
 // a folder that is not a git work tree records nothing, and one with no commit yet records
-// tasks.BaseUnborn. A work tree with no recorded start point is refused commit evidence, so the
+// tasks.BaseUnborn, one git cannot read records tasks.BaseUnreadable. A work tree with no recorded start point is refused commit evidence, so the
 // record is retried at every start of the task until one is made.
 func (c *Conductor) recordBase(ctx context.Context, mc *MissionRun, b *missionBind) {
 	if b == nil || mc == nil || c.cfg.Cwd == "" {
@@ -44,12 +44,18 @@ func (c *Conductor) recordBase(ctx context.Context, mc *MissionRun, b *missionBi
 	out, err := gitRun(ctx, c.cfg.Cwd, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
 	head := strings.ToLower(strings.TrimSpace(out))
 	if err != nil {
-		if !c.unbornHead(ctx) {
-			return // a HEAD that cannot be read in a populated repository records nothing: the task stays refused
+		if ctx.Err() != nil {
+			return // retried at the next start
 		}
-		head = tasks.BaseUnborn // a work tree with no commit yet: every commit is new work
+		if c.unbornHead(ctx) {
+			head = tasks.BaseUnborn // a work tree with no commit yet: every commit is new work
+		} else {
+			// an initial HEAD that cannot be read and is not proven unborn is an unknown start
+			// state: it must not turn into "no repository" if the metadata disappears later
+			head = tasks.BaseUnreadable
+		}
 	} else if !fullObjectID.MatchString(head) {
-		return
+		head = tasks.BaseUnreadable
 	}
 	c.addBase(ctx, mc, b, head, operatorActor())
 }

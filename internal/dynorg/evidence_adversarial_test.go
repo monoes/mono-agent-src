@@ -1,7 +1,10 @@
 package dynorg
 
 import (
+	"bytes"
+	"errors"
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +35,7 @@ func TestFinalReviewerBrokenHeadDoesNotRecordUnbornBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, artifact := range detail.Artifacts {
-		if artifact.Kind == tasks.ArtifactBase {
+		if artifact.Kind == tasks.ArtifactBase && artifact.Ref == tasks.BaseUnborn {
 			t.Fatalf("FAIL-OPEN: corrupt detached HEAD recorded operator base=%q instead of refusing unresolved start", artifact.Ref)
 		}
 	}
@@ -101,4 +104,41 @@ func TestUnreadableRepositoryAtStartRecordsARefusingBase(t *testing.T) {
 		}
 	}
 	t.Fatalf("an unreadable repository recorded no refusing base: %+v", detail.Artifacts)
+}
+
+func TestFinalRecheckBrokenHeadThenMissingRepositoryStaysRefused(t *testing.T) {
+	repo := newRepo(t)
+	r := newRig(t, rigOpts{})
+	r.c.cfg.Cwd = repo
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	if err := os.WriteFile(filepath.Join(repo, ".git", "HEAD"), []byte(strings.Repeat("a", 40)+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r.c.recordBase(tbg, r.mc, &missionBind{session: r.sid, task: a})
+	detail, err := r.store.SessionTask(tbg, "default", r.sid, a.ID, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := ""
+	for _, art := range detail.Artifacts {
+		if art.Kind == tasks.ArtifactBase {
+			base = art.Ref
+		}
+	}
+	if err := os.Rename(filepath.Join(repo, ".git"), filepath.Join(t.TempDir(), "held-git")); err != nil {
+		t.Fatal(err)
+	}
+	err = gitevidence.Checker("")(tbg, tasks.EvidenceCheck{Scoped: true, Dir: repo, Base: base})
+	if err == nil || errors.Is(err, tasks.ErrEvidenceNotApplicable) {
+		t.Fatalf("unresolved initial HEAD must stay refused after repository metadata disappears; base=%q, checker=%v", base, err)
+	}
+}
+
+func TestConductorGitOutputIsLimited(t *testing.T) {
+	var b bytes.Buffer
+	w := &limitWriter{w: &b, max: 4}
+	if _, err := w.Write([]byte("12345")); err == nil || !w.over {
+		t.Fatal("limitWriter kept writing past its limit")
+	}
 }
