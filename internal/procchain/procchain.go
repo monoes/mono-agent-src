@@ -1,8 +1,7 @@
 // Package procchain answers "is the calling process this process, or one of its descendants?"
 // for the tokens that are bound to the process a host or conductor started (the mission tokens
 // of internal/agenttokens). Linux only: elsewhere Supported is false and a binding is not
-// recorded or checked. internal/coderhost keeps its own copy of this logic for its session
-// tokens.
+// recorded or checked. internal/coderhost uses it for its session tokens.
 package procchain
 
 import "os"
@@ -24,38 +23,27 @@ var Chain = func() (pids []int, ok bool) {
 	return pids, true
 }
 
-// Verdict of a descent check.
-type Verdict int
-
-const (
-	// Inside: the caller is the process (same start stamp) or a descendant of it.
-	Inside Verdict = iota
-	// Outside: the chain was read to its end and the process is not in it, or its pid is held by
-	// a process with another start stamp (pid reuse).
-	Outside
-	// Unknown: the chain could not be read to its end and does not show the process.
-	Unknown
-)
-
-// DescendsFrom says whether the calling process is the process pid (start stamp stamp) or one
-// of its descendants.
-func DescendsFrom(pid int, stamp string) Verdict {
+// InChain says whether chain (a caller's process and its parents) holds the process pid with
+// the start stamp stamp. It fails closed: a chain that could not be read to its end is just the
+// part that was read, and a pid that is not in it is a no, whatever the reason.
+func InChain(chain []int, pid int, stamp string) bool {
 	if pid <= 1 {
-		return Outside
+		return false
 	}
-	chain, ok := Chain()
 	for _, p := range chain {
 		if p == pid {
-			if stamp == "" || Stamp(p) == stamp {
-				return Inside
-			}
-			return Outside
+			return stamp == "" || Stamp(p) == stamp
 		}
 	}
-	if !ok {
-		return Unknown
-	}
-	return Outside
+	return false
+}
+
+// DescendsFrom says whether the calling process is the process pid (start stamp stamp) or one
+// of its descendants. An unreadable chain that does not show it is a no (fails closed), so a
+// caller that hides its ancestry (its own /proc, a race) is refused, not trusted.
+func DescendsFrom(pid int, stamp string) bool {
+	chain, _ := Chain()
+	return InChain(chain, pid, stamp)
 }
 
 // Stamp identifies a process across pid reuse; "" when it cannot be read or is not supported.

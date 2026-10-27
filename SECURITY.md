@@ -1708,11 +1708,17 @@ that works a task acts on them. The defences:
   profile's vault data key, and a token is then refused (like any token that does not verify) from
   a caller whose parent chain does not include that process, so a sibling worker that read the
   token from the process table or an inherited environment is refused. The worker's own shells and
-  tool servers are its descendants and keep working. It is not enforced, and the token behaves as
+  tool servers are its descendants and keep working. Once a process is recorded the check fails closed: a caller
+  whose parent chain cannot be read (its own /proc, a race) is refused like one outside the tree,
+  and so is a tool that was detached or reparented out of the worker's tree (a daemonised helper,
+  another pid namespace); the refusal says so in words (CLI stderr, the MCP tool error) and is
+  logged, rather than reading as a bad token. It is not enforced, and the token behaves as
   described above, for a token with no recorded process (minted before this existed, an unlisted
-  runtime, the moment between the start and the record), where ancestry is not read (not Linux),
-  and when the caller's chain cannot be read to its end; a writer of the database can still clear
-  the record or add a token of its own. The sweep, revocation and expiry are unchanged. The
+  runtime, a bind that failed (journalled as a notice and logged, never silent) or the moment
+  between the start and the record: the token is in the worker's environment from the start of
+  the process until the record is written, and a sibling polling the process table can win that
+  window; passing the token to monomind over a pipe is a follow-up), and where ancestry is not
+  read (not Linux). A writer of the database can still clear the record or add a token of its own. The sweep, revocation and expiry are unchanged. The
   token is
   scoped and per run, so what it reaches is that one task until the run ends, and it is not a
   sandbox: a worker's own sub-processes inherit it. An agent that scrubs its own environment

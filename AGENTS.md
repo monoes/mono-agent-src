@@ -1817,8 +1817,9 @@ conversation manages can neither verify a task nor claim, finish, release, split
 view of `task agents allow` nor `task digest`. On Linux, for the runtimes listed in `ancestryRuntimes`
 (`internal/dynorg/mission_token.go`; only `claude`, the others unverified live) the token is also bound to the
 worker's process (`internal/agenttokens/mission_process.go`, pid and start stamp recorded through `ExecOptions.OnStart`
-and signed; migration 138): a caller outside that process's tree is refused. Without a recorded process (older rows,
-unlisted runtimes), off Linux, or when the caller's chain is unreadable, whoever can read the token can use it, for that one
+and signed; migration 138): a caller outside that process's tree is refused. Once recorded it fails closed (an unreadable chain or a detached/reparented tool is refused, with an explicit
+message); a failed bind is journalled (`mission_token_process_unbound`). Without a recorded process (older rows,
+unlisted runtimes, a failed bind, the window between the start and the record), or off Linux, whoever can read the token can use it, for that one
 task until the run ends (SECURITY.md, "Honest limits"). An agent that scrubs its own environment (no agent
 marker, no `--as`) is still treated as the operator by the CLI; that weakness is old and matters more now. The MCP tools are `task_session_list` and
 `task_session_get` (read) and, with `--allow-mutations`, `task_split`, `task_verify`

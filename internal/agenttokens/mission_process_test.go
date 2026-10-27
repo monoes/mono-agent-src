@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,9 +95,10 @@ func TestBoundMissionTokenRefusesAReusedPid(t *testing.T) {
 	}
 }
 
-// When the caller's chain cannot be read to its end and does not show the process, the token
-// keeps today's behaviour; when it does show it, it counts.
-func TestBoundMissionTokenWithAnUnreadableChain(t *testing.T) {
+// A caller whose chain cannot be read to its end and does not show the process is refused (it
+// fails closed: a caller that hides its ancestry is not trusted); one whose partial chain shows
+// the process is accepted.
+func TestBoundMissionTokenWithAnUnreadableChainFailsClosed(t *testing.T) {
 	needAncestry(t)
 	s := newStore(t)
 	tok, secret := mintMission(t, s)
@@ -107,12 +109,66 @@ func TestBoundMissionTokenWithAnUnreadableChain(t *testing.T) {
 	orig := procchain.Chain
 	t.Cleanup(func() { procchain.Chain = orig })
 	procchain.Chain = func() ([]int, bool) { return []int{os.Getpid()}, false }
-	if _, err := s.VerifyMission(ctx, "default", secret); err != nil {
-		t.Fatalf("an unreadable chain was refused: %v", err)
-	}
-	procchain.Chain = func() ([]int, bool) { return []int{os.Getpid(), 77}, true }
 	if _, err := s.VerifyMission(ctx, "default", secret); !errors.Is(err, ErrNotInWorkerTree) {
-		t.Fatalf("a complete chain without the process was accepted: %v", err)
+		t.Fatalf("an unreadable chain was accepted: %v", err)
+	}
+	procchain.Chain = func() ([]int, bool) { return nil, false }
+	if _, err := s.VerifyMission(ctx, "default", secret); !errors.Is(err, ErrNotInWorkerTree) {
+		t.Fatalf("an empty unreadable chain was accepted: %v", err)
+	}
+}
+
+// The conductor's path: the pid of a process it really started is bound, and a caller below it
+// (its chain shows that process) is accepted while this test process, outside it, is not.
+func TestBoundMissionTokenOfARealChildProcess(t *testing.T) {
+	needAncestry(t)
+	s := newStore(t)
+	tok, secret := mintMission(t, s)
+	ctx := context.Background()
+	child := exec.Command("sleep", "30")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	pid := child.Process.Pid
+	if err := s.BindMissionProcess(ctx, "default", tok.ID, pid, ProcessStamp(pid)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.VerifyMission(ctx, "default", secret); !errors.Is(err, ErrNotInWorkerTree) {
+		t.Fatalf("the child's sibling was accepted: %v", err)
+	}
+	orig := procchain.Chain
+	t.Cleanup(func() { procchain.Chain = orig })
+	procchain.Chain = func() ([]int, bool) { return []int{os.Getpid() + 1, pid, os.Getpid()}, true } // a tool of the child
+	if _, err := s.VerifyMission(ctx, "default", secret); err != nil {
+		t.Fatalf("a descendant of the real child was refused: %v", err)
+	}
+}
+
+// A bind of a revoked token is an error, not a silent no-op.
+func TestBindMissionProcessOfARevokedTokenFails(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	tok, _ := mintMission(t, s)
+	if _, err := s.RevokeOwner(ctx, missionB.Owner); err != nil {
+		t.Fatal(err)
+	}
+	pid := os.Getpid()
+	stamp := ProcessStamp(pid)
+	if stamp == "" {
+		stamp = "start:1"
+	}
+	if err := s.BindMissionProcess(ctx, "default", tok.ID, pid, stamp); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a revoked token was bound: %v", err)
+	}
+}
+
+// The refusal says why in words, so it does not read like a bad token.
+func TestOutsideTreeRefusalExplainsItself(t *testing.T) {
+	for _, w := range []string{"process tree", "detached", "reparented"} {
+		if !strings.Contains(ErrNotInWorkerTree.Error(), w) {
+			t.Errorf("the refusal does not mention %q: %v", w, ErrNotInWorkerTree)
+		}
 	}
 }
 

@@ -30,14 +30,15 @@ import (
 //     like the session token this is a courtesy layer between agents of one user, not a sandbox.
 //   - revoke, expiry and the per-turn owners the sweep works by are unchanged.
 //
-// Fail-closed only when the binding was recorded and the caller's ancestry can be read and does
-// not include the process (or includes a process of that pid with another start stamp: pid
-// reuse). Kept as before (no process check) when:
+// Once a process is recorded and ancestry is supported, the caller must show that process in its
+// parent chain (with the same start stamp: pid reuse is refused). It fails closed: a caller whose
+// chain cannot be read (its own /proc, a race) is refused like one that is outside the tree. Kept
+// as before (no process check) when:
 //   - no process was recorded (a token minted before this existed, a runtime whose tool servers
 //     may live outside the worker's process tree, so the conductor binds none: see the dynorg
-//     runtime list, or a process whose start stamp could not be read), or
-//   - ancestry cannot be read: off Linux (procchain.Supported is false), or when the caller's
-//     parent chain cannot be read to its end and does not show the process.
+//     runtime list, a process whose start stamp could not be read, a bind that failed, or the
+//     moment between the start of the run and the record), or
+//   - ancestry is not read at all (off Linux: procchain.Supported is false).
 //
 // Between the start of the run and BindMissionProcess the token names no process and behaves
 // as an unbound token: only the process it was handed to holds it then.
@@ -46,7 +47,7 @@ const missionProcessPurpose = "mission-token-process"
 
 // ErrNotInWorkerTree is ErrInvalid for a token that is genuine but presented by a process outside
 // the tree of the process it was bound to.
-var ErrNotInWorkerTree = fmt.Errorf("%w (the caller is not inside the worker's process tree)", ErrInvalid)
+var ErrNotInWorkerTree = fmt.Errorf("%w (the caller is not inside this worker's process tree: a detached or reparented tool, another namespace, or an unreadable ancestry; run the task command from the worker's own shell or tool server)", ErrInvalid)
 
 func missionMAC(key []byte, f ...string) string {
 	m := hmac.New(sha256.New, key)
@@ -108,9 +109,15 @@ func (s *Store) BindMissionProcess(ctx context.Context, profileID, id string, pi
 	if err != nil {
 		return fmt.Errorf("the mission token could not be signed: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE agent_tokens SET mission_pid = ?, mission_stamp = ?, mission_mac = ? WHERE id = ? AND revoked_at IS NULL`,
+	res, err := s.db.ExecContext(ctx, `UPDATE agent_tokens SET mission_pid = ?, mission_stamp = ?, mission_mac = ? WHERE id = ? AND revoked_at IS NULL`,
 		pid, stamp, r.sign(key, pid, stamp), id)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound // revoked (or gone) before the process could be recorded
+	}
+	return nil
 }
 
 // checkMissionProcess applies the binding to the caller; see the rules above.
@@ -129,7 +136,7 @@ func (s *Store) checkMissionProcess(ctx context.Context, t Token) error {
 	if !procchain.Supported {
 		return nil
 	}
-	if procchain.DescendsFrom(r.pid, r.stamp) == procchain.Outside {
+	if !procchain.DescendsFrom(r.pid, r.stamp) {
 		return ErrNotInWorkerTree
 	}
 	return nil

@@ -7,8 +7,10 @@ package taskbind
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -32,6 +34,10 @@ type Binding struct {
 	Session  int64
 	Task     int64
 	Verifier bool
+	// Outside is set on an Invalid binding whose token is genuine but was presented from outside
+	// the worker's process tree (agenttokens.ErrNotInWorkerTree); Err then says so in words.
+	Outside bool
+	Err     error
 }
 
 // Resolve reads presented (the value of agenttokens.EnvMissionToken) against the database.
@@ -41,6 +47,11 @@ func Resolve(ctx context.Context, db *sql.DB, profileID, presented string) Bindi
 		return Binding{State: None}
 	}
 	t, err := agenttokens.NewStore(db).VerifyMission(ctx, profileID, presented)
+	if errors.Is(err, agenttokens.ErrNotInWorkerTree) {
+		logging.FromContext(ctx).Warn("mission token refused: the caller is not inside the worker's process tree",
+			"profile", profileID)
+		return Binding{State: Invalid, Outside: true, Err: err}
+	}
 	if err != nil || t.Mission == nil {
 		return Binding{State: Invalid}
 	}

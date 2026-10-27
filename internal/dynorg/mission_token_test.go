@@ -303,3 +303,24 @@ func TestOnlyListedRuntimesBindTheTokenToTheirProcess(t *testing.T) {
 		t.Fatal("a failed bind broke the token")
 	}
 }
+
+// A bind that fails (the token is gone) is journalled, not silent: the token would then work from
+// any process.
+func TestAFailedProcessBindIsJournalled(t *testing.T) {
+	if !agenttokens.MissionProcessSupported() {
+		t.Skip("process ancestry is read on Linux only")
+	}
+	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
+	f := r.c.bindMissionProcess(Model{Runtime: "claude"}, "atk_missing")
+	if f == nil {
+		t.Fatal("claude is not bound")
+	}
+	f(os.Getppid())
+	if n := countNotices(r.em, "mission_token_process_unbound"); n != 1 {
+		t.Fatalf("%d notices for a failed bind, want 1", n)
+	}
+	f(os.Getpid() + 1_000_000) // a process that does not exist: its start time cannot be read
+	if n := countNotices(r.em, "mission_token_process_unbound"); n != 2 {
+		t.Fatalf("%d notices after an unreadable start time, want 2", n)
+	}
+}

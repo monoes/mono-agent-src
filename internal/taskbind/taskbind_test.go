@@ -3,6 +3,7 @@ package taskbind
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,5 +75,7 @@ func TestResolveRefusesACallerOutsideTheWorkersTree(t *testing.T) {
 	}
 	if r := Resolve(ctx, db, "default", secret); r.State != Invalid {
 		t.Fatalf("a caller outside the tree resolved: %+v", r)
+	} else if !r.Outside || r.Err == nil || !strings.Contains(r.Err.Error(), "process tree") {
+		t.Fatalf("the refusal does not say the caller is outside the tree: %+v", r)
 	}
 }

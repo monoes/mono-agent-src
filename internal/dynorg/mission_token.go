@@ -12,6 +12,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/logging"
 )
 
 // tokenMargin is how long a mission token outlives the run's own timeout: the run is cut at
@@ -98,21 +99,29 @@ func (c *Conductor) bindMissionProcess(m Model, id string) func(pid int) {
 	}
 	return func(pid int) {
 		stamp := ""
-		for i := 0; i < 5 && stamp == ""; i++ {
+		for i := 0; i < 3 && stamp == ""; i++ {
 			if stamp = agenttokens.ProcessStamp(pid); stamp == "" {
-				time.Sleep(20 * time.Millisecond)
+				time.Sleep(10 * time.Millisecond)
 			}
 		}
 		if stamp == "" {
+			c.missionBindFailed("the worker's start time could not be read")
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 2*time.Second)
 		defer cancel()
 		if err := mc.Tokens.BindMissionProcess(ctx, mc.ProfileID, id, pid, stamp); err != nil {
-			c.notice("mission_token_process_unbound",
-				"A worker's task token could not be bound to its process ("+err.Error()+"); it works from any process until it ends.", chatevents.SeverityWarning)
+			c.missionBindFailed(err.Error())
 		}
 	}
+}
+
+// missionBindFailed journals and logs a token that stays unbound: it then works from any process
+// that holds it, until the run ends.
+func (c *Conductor) missionBindFailed(why string) {
+	logging.FromContext(c.ctx).Warn("mission token left unbound to its worker's process", "why", why)
+	c.notice("mission_token_process_unbound",
+		"A worker's task token could not be bound to its process ("+why+"); it works from any process until it ends.", chatevents.SeverityWarning)
 }
 
 // mintMission is bindMission that also returns the id of the token it minted ("" when none).
