@@ -369,6 +369,10 @@ func (s *Store) SweepOrphans() (int, error) {
 		`DELETE FROM coder_session_host_turns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_host_turns.conversation_id AND c.profile_id = coder_session_host_turns.profile_id)`,
 		`DELETE FROM coder_session_tokens WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_tokens.conversation_id AND c.profile_id = coder_session_tokens.profile_id)`,
 		`DELETE FROM coder_session_spawns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_spawns.parent AND c.profile_id = coder_session_spawns.profile_id)`,
+		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state IN ('spawning', 'spawned') AND child_conversation_id <> '' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.child_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
+		`DELETE FROM coder_mission_events WHERE session_id IN (SELECT p.session_id FROM coder_mission_policy p WHERE p.profile_id = coder_mission_events.profile_id AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = p.lead_conversation_id AND c.profile_id = p.profile_id))`,
+		`DELETE FROM coder_mission_children WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.lead_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
+		`DELETE FROM coder_mission_policy WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_policy.lead_conversation_id AND c.profile_id = coder_mission_policy.profile_id)`,
 	} {
 		res, err := s.db.Exec(q)
 		if err != nil {

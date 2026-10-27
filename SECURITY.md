@@ -1951,6 +1951,22 @@ injected text and a confused script inside the rules; it is not a sandbox agains
 - **Mesh text is data.** What other agents send to a session over monomind's mesh is sealed as untrusted peer
   content in front of its next turn; it starts no turn and carries no authority. The mesh name is not a trust
   anchor and `mesh_accept` (`none`, `subtree` or `project`; default `subtree`) limits who is heard.
+- **Mission child sessions: policy and marks (data model only).** The tables `coder_mission_policy`,
+  `coder_mission_children` and `coder_mission_events` (migration 139) hold, per task session, a policy (mode `off`,
+  `marked` or `all`; `max_children`; `share_pct`), the tasks its lead marked, and an audit row for every change with
+  who made it. This surface starts no session and no turn: nothing in the host reads these tables to spawn yet, so a
+  mark has no effect on a running mission. What the store enforces for the spawn path to come: only the lead of that
+  task session (its conversation equals `task_sessions.conversation_id`, taken from a verified session token) marks,
+  reserves or links; a process that also holds a task-bound mission binding (a worker or verifier) is refused; a task
+  of another session or profile, a session that does not exist and a caller that is not the lead are refused with one
+  text. A mark in a draft session is stored and reserves nothing until the person has approved the plan. The lead
+  raises `max_children` only up to the session's own operator-only `max_children` setting and `share_pct` only up
+  to 80; it can lower the mode but never raise it, and mode `all` (every worker task becomes a child) is the
+  operator's alone. None of it writes a setting, access level or the lead's budget. The one write outside these
+  tables lowers a finished child's own cap to what it spent (never up, never to 0 which means uncapped) so the unspent
+  carve returns to the lead. The files read `tasks` and `task_sessions` and write neither; a static test lists the
+  tables they may name. Not yet built or checked: the spawn, the child's token, the cascade on stop and the host
+  reconciler (later phases of the plan).
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder
