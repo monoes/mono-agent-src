@@ -87,11 +87,12 @@ func TestSessionConversationValidationAcceptsHostCoderConversations(t *testing.T
 	defer db.Close()
 	st := tasks.NewStore(db.DB)
 	ctx := context.Background()
-	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor} // the lead links its own chat: the store checks an agent's
+	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: conv.ID} // the lead links its own chat
+	opOther := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: "no-such-chat"}
 	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: conv.ID}, op); err != nil {
 		t.Fatalf("a coder conversation was refused: %v", err)
 	}
-	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M2", ConversationID: "no-such-chat"}, op); err == nil {
+	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M2", ConversationID: "no-such-chat"}, opOther); err == nil {
 		t.Fatal("an unknown conversation was accepted")
 	}
 	if _, err := st.CreateSession(ctx, "other-profile", tasks.SessionInput{Title: "M3", ConversationID: conv.ID}, op); err == nil {

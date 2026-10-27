@@ -173,7 +173,7 @@ func TestAgentSessionConversationMustExist(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	lead := Actor{Kind: Agent, Name: "lead"}
+	lead := Actor{Kind: Agent, Name: "lead", Conversation: "conv-mine"}
 	for _, conv := range []string{"conv-nope", "conv-theirs"} {
 		if _, err := s.CreateSession(bg, "default", SessionInput{Title: "t", ConversationID: conv}, lead); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s: %v", conv, err)

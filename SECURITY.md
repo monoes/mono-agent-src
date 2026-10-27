@@ -1637,7 +1637,11 @@ that works a task acts on them. The defences:
   `max_depth`, `max_retries`), the access level, `auto_close_verified`,
   archiving a session, recording spend and removing a dependency are the
   operator's: the store refuses any other actor, and the CLI refuses an
-  agent-driven caller with `operator_only`. Inside a running session an agent may
+  agent-driven caller with `operator_only`. An agent may link a session only to
+  its own chat: the store compares the conversation with the one the caller
+  carries, which only trusted code sets (the CLI takes it from a verified
+  coder-session token, never from an environment label); without one, an agent
+  starts sessions with no chat link. Inside a running session an agent may
   claim, comment, finish, add follow-ups (bounded by `max_tasks` and the
   budget, with no separate cap), split a task that has not begun, add
   dependencies (a cycle is refused), attach artifacts and verify; it may pause
