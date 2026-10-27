@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS coder_mission_policy (
     default_budget_usd   REAL NOT NULL DEFAULT 0 CHECK (default_budget_usd >= 0),  -- 0 = derive from the share
     raised_by            TEXT NOT NULL DEFAULT '',
     updated_at           TEXT NOT NULL,
+    rev                  INTEGER NOT NULL DEFAULT 0,       -- bumped by every write; a policy write goes against the revision it read
     PRIMARY KEY (profile_id, session_id)
 );
 
@@ -24,6 +25,8 @@ CREATE TABLE IF NOT EXISTS coder_mission_children (
     task_id              INTEGER NOT NULL,
     lead_conversation_id TEXT NOT NULL,
     child_conversation_id TEXT NOT NULL DEFAULT '',
+    pending_conversation_id TEXT NOT NULL DEFAULT '',  -- created by a spawn that has not linked it yet
+    reserved_usd         REAL NOT NULL DEFAULT 0 CHECK (reserved_usd >= 0),  -- the carve held while spawning
     origin               TEXT NOT NULL CHECK (origin IN ('lead', 'rule')),
     size                 TEXT NOT NULL DEFAULT '' CHECK (size IN ('', 'large', 'small')),
     budget_usd           REAL NOT NULL DEFAULT 0 CHECK (budget_usd >= 0),   -- the wish; the carve lives on coder_sessions

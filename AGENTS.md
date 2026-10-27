@@ -1908,7 +1908,13 @@ and only the operator turns on mode `all`. `share_pct` is 1 to 80 for everyone (
 `min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the carves under
 `share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve returns to
 the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call `Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists counts against the share. Nothing starts a session yet: no CLI verb,
-tool or host pass reads these tables, so marking has no effect on a running mission. Deleting a conversation or a
+tool or host pass reads these tables, so marking has no effect on a running mission. Obligations of the next
+phases: the tool layer (P-C) builds the caller with `NewLeadScope(caller, binding)` from the verified mission binding
+(`BindingNone` only when the process was checked and holds none; an unchecked scope is refused); a mission lead that is
+itself a child, or a worker, must not spawn mission children (depth rule); the spawn path (P-B) calls `NotePending` when
+the child's conversation is created and `Touch` between its steps, so `ResetStaleSpawning` does not hand a slow spawn's
+task to a second child. The share is held only for children that exist (their sessions' caps) or are reserved (the carve
+stored on a `spawning` row); a task that is only marked holds nothing. Deleting a conversation or a
 sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it

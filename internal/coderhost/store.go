@@ -109,6 +109,8 @@ type Session struct {
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// afterPolicyRead lets a test act between SetPolicy's read and its write.
+	afterPolicyRead func()
 }
 
 // NewStore wraps an open, migrated database.

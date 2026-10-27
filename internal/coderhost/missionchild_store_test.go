@@ -48,7 +48,7 @@ func newMC(t *testing.T, approve bool) *mcFix {
 	return &mcFix{st: st, lead: lead, se: se, ts: ts, ids: taskIDs(t, st, se.ID)}
 }
 
-func (f *mcFix) scope() LeadScope { return LeadScope{Caller: f.lead} }
+func (f *mcFix) scope() LeadScope { return NewLeadScope(f.lead, BindingNone) }
 
 func (f *mcFix) addTasks(t *testing.T, n int) {
 	t.Helper()
@@ -105,10 +105,10 @@ func TestMarkRefusesNonLead(t *testing.T) {
 	f := newMC(t, true)
 	other, _ := master(t, f.st, "workspace") // a master that does not lead this mission
 	for name, sc := range map[string]CallerScope{
-		"another master":  LeadScope{Caller: other},
+		"another master":  NewLeadScope(other, BindingNone),
 		"the operator":    OperatorScope{},
 		"a zero caller":   LeadScope{},
-		"a child session": LeadScope{Caller: Caller{ProfileID: "p", ConversationID: spawn(t, f.st, f.lead)}},
+		"a child session": NewLeadScope(Caller{ProfileID: "p", ConversationID: spawn(t, f.st, f.lead)}, BindingNone),
 		"a master scope":  tokenMasterScope{conv: f.lead.ConversationID},
 	} {
 		_, err := f.st.Mark(sc, "p", f.se.ID, f.ids[0], MarkOptions{})
@@ -123,17 +123,29 @@ func TestMarkRefusesNonLead(t *testing.T) {
 
 func TestMarkRefusesBoundWorker(t *testing.T) {
 	f := newMC(t, true)
+	child := spawn(t, f.st, f.lead)
 	// The worker is a descendant of the lead's turn, so it can present the lead's session token; the
-	// binding it also holds is what tells it apart.
-	_, err := f.st.Mark(LeadScope{Caller: f.lead, BoundToTask: true}, "p", f.se.ID, f.ids[0], MarkOptions{})
-	if !errors.Is(err, ErrNotYours) {
-		t.Fatalf("a task-bound caller marked: %v", err)
+	// binding it also holds is what tells it apart. A scope whose binding was not checked is refused too.
+	for name, sc := range map[string]LeadScope{
+		"a task-bound caller":  NewLeadScope(f.lead, BindingTask),
+		"an unchecked binding": NewLeadScope(f.lead, BindingUnknown),
+		"the zero binding":     {Caller: f.lead},
+	} {
+		calls := map[string]error{}
+		_, calls["mark"] = f.st.Mark(sc, "p", f.se.ID, f.ids[0], MarkOptions{})
+		_, calls["policy"] = f.st.SetPolicy(sc, "p", f.se.ID, PolicyPatch{MaxChildren: ip(3)})
+		_, calls["reserve"] = f.st.Reserve(sc, "p", f.se.ID, f.ids[0])
+		_, calls["link"] = f.st.SetSpawned(sc, "p", f.se.ID, f.ids[0], child)
+		calls["pending"] = f.st.NotePending(sc, "p", f.se.ID, f.ids[0], child)
+		calls["touch"] = f.st.Touch(sc, "p", f.se.ID, f.ids[0])
+		for call, err := range calls {
+			if !errors.Is(err, ErrNotYours) {
+				t.Errorf("%s: %s: err = %v, want ErrNotYours", name, call, err)
+			}
+		}
 	}
-	if _, err := f.st.SetPolicy(LeadScope{Caller: f.lead, BoundToTask: true}, "p", f.se.ID, PolicyPatch{MaxChildren: ip(3)}); !errors.Is(err, ErrNotYours) {
-		t.Fatalf("a task-bound caller raised: %v", err)
-	}
-	if _, err := f.st.Reserve(LeadScope{Caller: f.lead, BoundToTask: true}, "p", f.se.ID, f.ids[0]); !errors.Is(err, ErrNotYours) {
-		t.Fatalf("a task-bound caller reserved: %v", err)
+	if n := rowsOf(t, f.st, `SELECT * FROM coder_mission_children`); n != "" {
+		t.Fatalf("refused calls left rows: %s", n)
 	}
 }
 
@@ -446,10 +458,10 @@ func TestReserveHoldsTheCeilingInTheStatement(t *testing.T) {
 		t.Fatalf("the second reserve passed a ceiling of 1: %v", err)
 	}
 	// the statement holds the ceiling on its own, whatever the room check saw
-	if won, err := f.st.takeReservation("p", f.se.ID, f.ids[2], f.lead.ConversationID, 1, f.st.stamp()); err != nil || won {
+	if won, err := takeReservation(f.st.db, "p", f.se.ID, f.ids[2], f.lead.ConversationID, 1, 0, -1, f.st.stamp()); err != nil || won {
 		t.Fatalf("the statement passed a ceiling of 1 with one live: won=%v err=%v", won, err)
 	}
-	if won, err := f.st.takeReservation("p", f.se.ID, f.ids[2], f.lead.ConversationID, 2, f.st.stamp()); err != nil || !won {
+	if won, err := takeReservation(f.st.db, "p", f.se.ID, f.ids[2], f.lead.ConversationID, 2, 0, -1, f.st.stamp()); err != nil || !won {
 		t.Fatalf("the statement refused a second slot under a ceiling of 2: won=%v err=%v", won, err)
 	}
 	// racing reservations of different tasks for the last slot: one wins
@@ -579,11 +591,11 @@ func TestResetStaleSpawningOnlyResetsUnlinkedRows(t *testing.T) {
 	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[0]); err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := f.st.ResetStaleSpawning(5 * time.Minute); n != 0 {
+	if n, _, _ := f.st.ResetStaleSpawning(5 * time.Minute); n != 0 {
 		t.Fatalf("a fresh reservation was reset")
 	}
 	f.st.now = func() time.Time { return time.Now().Add(10 * time.Minute) }
-	if n, _ := f.st.ResetStaleSpawning(5 * time.Minute); n != 1 {
+	if n, _, _ := f.st.ResetStaleSpawning(5 * time.Minute); n != 1 {
 		t.Fatalf("a stale reservation was not reset")
 	}
 	if c, _, _ := f.st.Child("p", f.se.ID, f.ids[0]); c.State != ChildMarked {
@@ -906,7 +918,7 @@ func TestConversationDeleteKeepsOtherLeadsRows(t *testing.T) {
 	other, _ := master(t, f.st, "workspace")
 	se2, _ := missionFor(t, f.st, other.ConversationID, true)
 	ids2 := taskIDs(t, f.st, se2.ID)
-	if _, err := f.st.Mark(LeadScope{Caller: other}, "p", se2.ID, ids2[0], MarkOptions{}); err != nil {
+	if _, err := f.st.Mark(NewLeadScope(other, BindingNone), "p", se2.ID, ids2[0], MarkOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := ai.NewAIStore(f.st.db)
@@ -971,7 +983,7 @@ func TestSweepOrphansRemovesAMissionWhoseLeadIsGone(t *testing.T) {
 func TestEventsKeepOnlyTheNewest(t *testing.T) {
 	f := newMC(t, true)
 	for i := 0; i < MaxMissionEvents+25; i++ {
-		if err := addMissionEvent(f.st.db, "p", f.se.ID, 0, "mark", "x", fmt.Sprint(i), "n"); err != nil {
+		if err := addMissionEvent(f.st.db, "p", f.se.ID, 0, "mark", "lead:x", fmt.Sprint(i), "n"); err != nil {
 			t.Fatal(err)
 		}
 	}
