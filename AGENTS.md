@@ -2665,7 +2665,7 @@ monoagentcli --profile work coder host stop                        # the host on
   question in `sessions questions list` (answered with `questions answer`, the single source of truth), as the
   session's `waiting_user` state, and as `coder_items` (a count per kind) in `summary --section hil` (counted in
   "needs you"; the app raises a desktop notification when it goes up). Each such request is a row of
-  `coder_session_person_items` (migration 136): a `kind` (today `parked_question`; the shape is generic, other
+  `coder_session_person_items` (migration 137): a `kind` (today `parked_question`; the shape is generic, other
   kinds can be added in `coderhost/parked_items.go`) and a `ref_id` into that kind's table. The item has no
   status of its own: it is open while its referent is, so `questions answer` and `AnswerItem` (which dispatches
   by kind to the kind's own delivery) close the same row once and queue one note. It is not a `hil_pending` row:
