@@ -29,7 +29,7 @@ func StampFileWorkflowProfiles(dir, fallbackID string, ownerOf func(workflowID s
 }
 
 // maxStampNames bounds how many .json names one stamp pass looks at.
-const maxStampNames = 5000
+var maxStampNames = 5000 // tests lower the cap without creating thousands of files
 
 // StampFileWorkflowProfilesFor is StampFileWorkflowProfiles with two more callbacks. eligible,
 // checked without any lock, names the files worth opening at all (all of them when nil). locked
