@@ -118,6 +118,7 @@ func (s *Store) deliver(q Question) (Command, error) {
 func (s *Store) pruneClosedQuestions(profileID, conversationID string) {
 	old := s.now().Add(-MaxSendAge).UTC().Format(timeLayout)
 	const prunable = `status != 'open' AND (command_id != 0 OR answered_at < ?)`
+	defer s.dropStaleItems(profileID, conversationID)
 	_, _ = s.db.Exec(`DELETE FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` AND id NOT IN
 		(SELECT id FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` ORDER BY id DESC LIMIT ?)`,
 		profileID, conversationID, old, profileID, conversationID, old, MaxClosedQuestions)
@@ -125,6 +126,7 @@ func (s *Store) pruneClosedQuestions(profileID, conversationID string) {
 
 func (s *Store) dropQuestion(id int64) {
 	_, _ = s.db.Exec(`DELETE FROM coder_session_questions WHERE id = ?`, id)
+	_, _ = s.db.Exec(`DELETE FROM coder_session_person_items WHERE kind = ? AND ref_id = ?`, ItemParkedQuestion, id)
 }
 
 // sessionStopped says whether the conversation's session is stopped.
@@ -199,7 +201,7 @@ func (s *Store) passCtxOf(cache map[string]*passCtx, q Question) *passCtx {
 	if c.err == nil && c.exists {
 		c.stopped = s.sessionStopped(q.ProfileID, q.ConversationID)
 		c.settings, c.err = s.GetSettings(q.ProfileID, q.ConversationID)
-		_, c.has = s.hasMaster(q.ProfileID, q.ConversationID)
+		_, c.has = s.hasLiveMaster(q.ProfileID, q.ConversationID)
 	}
 	cache[k] = c
 	return c
@@ -328,6 +330,8 @@ func (s *Store) applyDefault(cache map[string]*passCtx, q Question) (bool, error
 		s.dropQuestion(q.ID)
 		return false, nil
 	case c.stopped:
+		return false, nil
+	case s.hasPersonItem(q.ProfileID, q.ID): // a person item waits for the person for as long as it takes, whatever the settings say
 		return false, nil
 	case Decide(c.settings, q.Class, q.Reversible, c.has).Fallback != FallbackTakeDefault:
 		return false, nil

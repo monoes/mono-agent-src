@@ -61,7 +61,7 @@ func TestTimedOutDefaultsClaimOnlyTheRemainingHeadroom(t *testing.T) {
 }
 
 func TestAMasterAnswerCancelledByAStopReopensTheQuestion(t *testing.T) {
-	st, _ := parkStore(t)
+	st, clk := parkStore(t)
 	q, cmd := masterAnswer(t, st)
 	if _, err := st.CancelPendingSends("p", "k1", cmd.ID+1, "cancelled by a stop"); err != nil {
 		t.Fatal(err)
@@ -74,6 +74,11 @@ func TestAMasterAnswerCancelledByAStopReopensTheQuestion(t *testing.T) {
 	if x, _, _ := st.GetSession("p", "k1"); x.State != StateWaitingUser {
 		t.Fatalf("state = %s", x.State)
 	}
+	// the failed note makes the risky question the person's for ParkTimeout
+	if _, _, err := st.Answer("p", q.ID, "no", masterScope{conv: "m"}); !errors.Is(err, ErrNotAnswerer) {
+		t.Fatalf("the master right after the failure = %v", err)
+	}
+	clk.t = clk.t.Add(ParkTimeout + time.Second)
 	if _, _, err := st.Answer("p", q.ID, "no", masterScope{conv: "m"}); err != nil {
 		t.Fatalf("the reopened question could not be answered again: %v", err)
 	}
@@ -175,7 +180,8 @@ func TestStoppedMasterCancelsItsAnswerAndGivesTheQuestionBack(t *testing.T) {
 	if got := questionOf(t, st, q.ID); got.Status != "open" {
 		t.Fatalf("status = %s", got.Status)
 	}
-	if _, _, err := st.Answer("p", q.ID, "yes", masterScope{conv: "m"}); !errors.Is(err, ErrMasterStopped) {
+	// a stopped master is no master to ask: the question is the person's now, so the master is refused
+	if _, _, err := st.Answer("p", q.ID, "yes", masterScope{conv: "m"}); !errors.Is(err, ErrNotAnswerer) {
 		t.Fatalf("a stopped master answered: %v", err)
 	}
 }

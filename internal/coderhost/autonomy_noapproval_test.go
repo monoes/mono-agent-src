@@ -21,12 +21,13 @@ import (
 // (tasks and their session approvals, HIL items, configs with confirmations and
 // keys, conversations and their access level) must be byte-identical afterwards.
 var autonomyTables = map[string]bool{
-	"coder_session_commands":   true,
-	"coder_session_questions":  true,
-	"coder_session_decisions":  true,
-	"coder_session_host_turns": true,
-	"coder_session_turn_caps":  true,
-	"sqlite_sequence":          true,
+	"coder_session_commands":     true,
+	"coder_session_questions":    true,
+	"coder_session_person_items": true,
+	"coder_session_decisions":    true,
+	"coder_session_host_turns":   true,
+	"coder_session_turn_caps":    true,
+	"sqlite_sequence":            true,
 }
 
 func tableDump(t *testing.T, db *sql.DB, query string) string {
@@ -217,13 +218,21 @@ func runNoApprovalScenario(t *testing.T, h *Host, l *fakeLauncher, st *Store, n 
 	n0 := len(l.started)
 	l.mu.Unlock()
 
-	q, perr := st.Park("p", child, class, "which way?", []string{"a", "b"}, "a", rev)
+	// The model's own door (ParkOwn / RecordOwn) is the one a session uses; a hard gap claimed
+	// reversible is refused there, so that one cell goes through the store.
+	var q Question
+	var perr error
+	if HardClass(class) && rev {
+		q, perr = st.Park("p", child, class, "which way?", []string{"a", "b"}, "a", rev)
+	} else {
+		q, perr = st.ParkOwn(Caller{ProfileID: "p", ConversationID: child}, ParkRequest{Class: class, Question: "which way?", Options: []string{"a", "b"}, Default: "a", Reversible: rev})
+	}
 	queued := ""
 	switch perr {
 	case nil:
 		queued = who.run(t, st, clk, q, masterScope{master})
 	case ErrModelDecides: // the model path: the decision is written down, nothing else
-		if _, err := st.Record(LedgerEntry{ProfileID: "p", ConversationID: child, Class: class, Question: "q", Choice: "a", MadeBy: WhoModel, Reversible: rev}); err != nil {
+		if _, err := st.RecordOwn(Caller{ProfileID: "p", ConversationID: child}, RecordRequest{Class: class, Question: "q", Choice: "a", Reversible: rev}); err != nil {
 			t.Fatal(err)
 		}
 	default:

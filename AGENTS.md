@@ -2561,7 +2561,7 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Autonomy** (`autonomy_preset`, `autonomy_classes`, operator only): when a session meets a gap
   (`ambiguity`, `scope_growth`, `risky_action`, `verification_failed`, `missing_credential`, `child_conflict`),
   the policy says only WHO answers: `user`, `master` or `model`, and what happens when nobody does
-  (`park` or `take_default`). `ask-always`: the user. `ask-on-risk` (default): the model settles reversible
+  (`park` or `take_default`). `ask-always`: the user (for `park`; `record` takes any non-hard class whatever the preset). `ask-on-risk` (default): the model settles reversible
   `ambiguity`, `scope_growth` and `verification_failed`; the master (the user, without one) gets the rest.
   `decide-and-log`: the model also settles irreversible ones and `child_conflict`. Code enforces, whatever the
   preset or override: `risky_action` and `missing_credential` are never answered by the model and never take
@@ -2659,17 +2659,34 @@ monoagentcli --profile work coder host stop                        # the host on
   host validates all of it: the class must be one of the six gap classes; `risky_action` and `missing_credential`
   can never be claimed reversible and can never be recorded as the model's decision (also refused inside
   `Store.Record` for `made_by=model`); `park` consults the policy (`Decide`) and, when the policy lets the model
-  settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` consults the
-  same policy and is refused (`invalid_input`) when the policy leaves that gap to a master or the user, so
-  recording is no way around asking; `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
+  settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` takes ANY
+  non-hard class whatever the preset or override (it ignores the autonomy preset and classes on purpose, by the
+  user's decision: `ask-always` governs `park` only, and the ledger with its revert is the control); `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
   at most 20 `record` calls per session per hour apply, and the model's ledger rows (at most 500) rotate only among
   the model's own rows, so it cannot push a master's or an operator-visible row out of the audit trail. Neither call starts a turn, queues a command, or touches access, a budget or a
   setting, and the text is only data (it is sealed when it reaches a reader as an answer note). Host-side sanity rule:
   the ledger shows every model-made decision as `madeBy: model` together with the `reversible` flag the model
-  claimed, and the operator can revert the reversible ones; a model that mislabels a gap as reversible can have it
-  settled by itself under the preset's rules for that class, which is the residual trust (hard classes are not
-  claimable). A session with no master (a solo or master session, or an unattended child whose master is gone) that parks a
-  question has it answered by the operator (`questions answer`): the conservative choice; nothing answers for it.
+  claimed, and the operator can revert the reversible ones; the `reversible` claim is trusted (a model that
+  mislabels a gap as reversible gets it recorded as its own), which is the residual trust (hard classes are not
+  claimable). A session with no live master (a solo or master session, an orphaned child, or a child whose
+  master is gone or stopped: the answerer is derived with `hasLiveMaster`, everywhere) has nobody to ask but the
+  person, so `park` is refused for it (`ErrNoMasterDecide`; MCP `no_master`: "no master to answer: decide and call
+  record, or stop") for every class but `risky_action` and `missing_credential`, and nothing is written. Those two
+  are parked, for the person, and wait with NO timeout (at most 3 an hour per session, whatever its master,
+  `ErrPersonItemRate`, counted in the same write that parks the question): no default is ever taken (`Decide`
+  clamps the fallback to park, and `ApplyDefaults` skips any question that is a person item). With NO live master
+  nothing but the person answers such a question. With a live master the master (a model) can answer it where
+  the policy names the master (`ask-on-risk`), but the question is the person's too, and counts in "needs you",
+  whenever the master cannot take it: it is paused, it is at its check-in limit, or the notes carrying its answer
+  keep failing (the operator may answer it then and the master cannot: `Answer` uses the same predicate, `masterBlocked`, for both). The person sees such a question in `sessions questions list` (answered
+  with `questions answer`), as the session's `waiting_user` state, and in `summary --section hil` as `coder_items`
+  (a count per kind) and `coder_item_ids` (counted in "needs you"; oldest first; the app raises a desktop notification when an
+  id appears that was not there). Every hard-class parked question gets a row in `coder_session_person_items`
+  (migration 137: `kind`, today `parked_question`, and `ref_id` into that kind's table; other kinds can be added
+  in `coderhost/parked_items.go`). The row has no status: whether the person has to act is derived each time (the
+  question is open, its answerer is now the user, its session is not stopped), so a role change or a stopped
+  master moves it in both directions. It is not a `hil_pending` row: those belong to workflow runs and a `hil
+  approve` must never answer a session. The count, the ids and the notification carry no text.
 - **First-run checks** (for the operator's first real run; none of this is verified live). `spawn` works only
   with a master's session token, so the steps that spawn are done by asking the master, in its chat, to run the
   command in its turn; the rest is the operator's own terminal:
@@ -2692,10 +2709,12 @@ monoagentcli --profile work coder host stop                        # the host on
   5. *Autonomy producer (ask the master, in its chat, to run these in its turn; none of it is verified live):*
      `coder sessions park --class risky_action --question "delete the build dir?"` parks on the caller's own
      session (the session goes to `waiting_user`; `questions list <conv>` shows it, answerer `user` for a master
-     with no master, `master` for a child); the same with `--class ambiguity --reversible` is refused with
-     "decide, then run `coder sessions record`"; `coder sessions record --class ambiguity --choice tabs --reason
-     ... --reversible` writes a ledger row shown as made by the model (`decisions list <conv>`); `record --class
-     risky_action ...` and `record` of an irreversible ambiguity (under `ask-on-risk`) are refused; `--reversible`
+     with no master, `master` for a child; `summary --section hil` counts it in `coder_items`); a park of
+     `--class ambiguity` by a session with no master is refused with "no master to answer: decide and call
+     record, or stop"; the same with `--reversible` by a child under `ask-on-risk` is refused with "decide, then
+     run `coder sessions record`"; `coder sessions record --class ambiguity --choice tabs --reason
+     ... --reversible` writes a ledger row shown as made by the model (`decisions list <conv>`), also under
+     `ask-always`; `record --class risky_action ...` is refused; `--reversible`
      with `risky_action` is refused; 21 open questions are refused. Run without the session token (operator
      terminal) both verbs are refused. A child asks the same, and its master answers with `questions answer
      <child-conv> <id> TEXT` from its turn (turn id `answer-m-`, `answeredBy` `master:<conv>`). A master can read the parked questions of its whole subtree but answers only those of its direct children (a grandchild's goes to the grandchild's own master).

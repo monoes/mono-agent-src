@@ -96,12 +96,12 @@ func TestParkOwnBoundsComeFromTheStore(t *testing.T) {
 	if len(q.Question) != maxQuestionText || len(q.Options) != maxOptions || len(q.Options[0]) != maxOptionText || len(q.Default) != maxQuestionText {
 		t.Fatalf("fields were not capped: %d %d %d %d", len(q.Question), len(q.Options), len(q.Options[0]), len(q.Default))
 	}
-	for i := 1; i < MaxOpenQuestions; i++ {
-		if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "q"}); err != nil {
+	for i := 1; i < MaxOpenQuestions; i++ { // not risky: risky parks have their own hourly limit
+		if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "ambiguity", Question: "q"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "risky_action", Question: "one too many"}); !errors.Is(err, ErrTooManyOpen) {
+	if _, err := st.ParkOwn(caller("k1"), ParkRequest{Class: "ambiguity", Question: "one too many"}); !errors.Is(err, ErrTooManyOpen) {
 		t.Fatalf("over the cap = %v", err)
 	}
 	// another session's allowance is its own
@@ -110,8 +110,8 @@ func TestParkOwnBoundsComeFromTheStore(t *testing.T) {
 	}
 }
 
-func TestRecordOwnWritesTheModelsDecisionAsTheModelsAndRefusesWhatThePolicyReserves(t *testing.T) {
-	st, _ := parkStore(t)
+func TestRecordOwnWritesTheModelsDecisionAsTheModelsAndRefusesHardClasses(t *testing.T) {
+	st, clk := parkStore(t)
 	_, _ = family(t, st, 2)
 	before, cmds := worldOf(t, st, "m", "k1", "k2"), pendingCount(t, st)
 	e, err := st.RecordOwn(caller("k1"), RecordRequest{Class: "ambiguity", Question: "tabs or spaces?", Choice: "tabs", Alternatives: []string{"spaces"}, Reason: "matches the repo", Reversible: true})
@@ -142,19 +142,22 @@ func TestRecordOwnWritesTheModelsDecisionAsTheModelsAndRefusesWhatThePolicyReser
 	if _, err := st.Record(LedgerEntry{ProfileID: "p", ConversationID: "k1", Class: "risky_action", Question: "q", Choice: "c", MadeBy: WhoModel}); !errors.Is(err, ErrPolicyReserves) {
 		t.Fatalf("Record = %v", err)
 	}
-	// a decision the policy leaves to the master (an irreversible ambiguity under ask-on-risk) is parked, not recorded
-	if _, err := st.RecordOwn(caller("k1"), RecordRequest{Class: "ambiguity", Question: "q", Choice: "c"}); !errors.Is(err, ErrPolicyReserves) {
-		t.Fatalf("irreversible ambiguity = %v", err)
-	}
-	// decide-and-log lets the model settle it
-	setSettings(t, st, "k1", `{"autonomy_preset": "decide-and-log"}`)
-	if _, err := st.RecordOwn(caller("k1"), RecordRequest{Class: "ambiguity", Question: "q", Choice: "c"}); err != nil {
-		t.Fatalf("decide-and-log = %v", err)
-	}
-	// ask-always leaves everything to the user
-	setSettings(t, st, "k1", `{"autonomy_preset": "ask-always"}`)
-	if _, err := st.RecordOwn(caller("k1"), RecordRequest{Class: "ambiguity", Question: "q", Choice: "c", Reversible: true}); !errors.Is(err, ErrPolicyReserves) {
-		t.Fatalf("ask-always = %v", err)
+	// any non-hard class may be recorded whatever the preset or the claim: the ledger is the control
+	for _, preset := range []string{"ask-on-risk", "decide-and-log", "ask-always"} {
+		setSettings(t, st, "k1", `{"autonomy_preset": "`+preset+`"}`)
+		clk.t = clk.t.Add(2 * recordWindow) // 8 records a preset stay under the hourly rate
+		for _, class := range []string{"ambiguity", "scope_growth", "verification_failed", "child_conflict"} {
+			for _, rev := range []bool{false, true} {
+				if _, err := st.RecordOwn(caller("k1"), RecordRequest{Class: class, Question: "q", Choice: "c", Reversible: rev}); err != nil {
+					t.Errorf("%s %s reversible=%v = %v", preset, class, rev, err)
+				}
+			}
+		}
+		for _, class := range []string{"risky_action", "missing_credential"} {
+			if _, err := st.RecordOwn(caller("k1"), RecordRequest{Class: class, Question: "q", Choice: "c"}); !errors.Is(err, ErrPolicyReserves) {
+				t.Errorf("%s %s = %v", preset, class, err)
+			}
+		}
 	}
 	for name, r := range map[string]RecordRequest{"unknown class": {Class: "x", Choice: "c"}, "no choice": {Class: "ambiguity", Choice: " "}} {
 		if _, err := st.RecordOwn(caller("k2"), r); err == nil {

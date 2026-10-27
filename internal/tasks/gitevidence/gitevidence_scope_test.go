@@ -195,7 +195,7 @@ func TestStoreEnforcesTheConversationFolderFromAnyProcessDirectory(t *testing.T)
 	if _, err := s.ApproveSession(bg, "default", se.ID, human); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, w1, 0); err != nil {
+	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, worker(se, tk), 0); err != nil {
 		t.Fatal(err)
 	}
 	// the operator's process records where the task started
@@ -211,13 +211,13 @@ func TestStoreEnforcesTheConversationFolderFromAnyProcessDirectory(t *testing.T)
 	if err := art(t, s, se, tk, "commit", other); !errors.Is(err, tasks.ErrInvalid) {
 		t.Fatalf("a commit from before the task started was attached: %v", err)
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); !errors.Is(err, tasks.ErrNoEvidence) {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); !errors.Is(err, tasks.ErrNoEvidence) {
 		t.Fatalf("finish with no new commit: %v", err)
 	}
 	if err := art(t, s, se, tk, "commit", strings.ToUpper(target)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w1); err != nil {
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, worker(se, tk)); err != nil {
 		t.Fatalf("finish over new work: %v", err)
 	}
 	var ref string
