@@ -526,6 +526,17 @@ func TestFilesBeyondTheListingAreNamed(t *testing.T) {
 	if len(l.HiddenIDs) != maxHiddenNamed {
 		t.Fatalf("named %d, want %d", len(l.HiddenIDs), maxHiddenNamed)
 	}
+	// Both ends of what was held back are named: the first held back and the innermost, which a
+	// listing that only named the first few would leave out.
+	inner := false
+	for _, id := range l.HiddenIDs {
+		for _, mid := range []string{"decoy-28", "decoy-29", "decoy-30", "decoy-31", "decoy-32"} {
+			inner = inner || id == mid
+		}
+	}
+	if !inner {
+		t.Fatalf("only the first files held back are named: %v", l.HiddenIDs)
+	}
 	// A file in the middle is held back and not named: the listing says it is incomplete, and the
 	// file can still be reached by its id.
 	dropFile(t, h, "real-middle", false)
