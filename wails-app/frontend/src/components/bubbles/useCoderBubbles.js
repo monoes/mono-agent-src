@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, onChatEvent, onOrgEvent } from '../../services/api.js'
 import {
   newDraftKey, emptySummary, applyChatEvent, summaryFromTurns, moveBubble, loadState, saveState, orgBubble, orgBubbleKey, isOrgBubble,
@@ -42,9 +42,12 @@ function rootRoleOf(design) {
 // place), and a run that is over opens as a read-only { finished: true }
 // bubble. An org has at most one live bubble.
 export function useCoderBubbles() {
-  const initial = useMemo(() => loadState(), [])
-  const [bubbles, setBubbles] = useState(initial.bubbles)
-  const [side, setSideState] = useState(initial.side)
+  // The bubbles belong to the active profile, which is only known once the
+  // app has asked for it; until then the list is empty and nothing is saved.
+  const [initial, setInitial] = useState(null)
+  const profileRef = useRef('')
+  const [bubbles, setBubbles] = useState([])
+  const [side, setSideState] = useState('right')
   const [expandedKey, setExpandedKey] = useState('')
   const [summaries, setSummaries] = useState({})
   const [orgSummaries, setOrgSummaries] = useState({})
@@ -69,12 +72,29 @@ export function useCoderBubbles() {
   byOrg.current = Object.fromEntries(bubbles.filter(isLiveOrg).map(b => [b.orgName, b.key]))
   const orgKey = bubbles.filter(isLiveOrg).map(b => b.orgName).join('\u0000')
 
-  useEffect(() => { saveState({ bubbles, side }) }, [bubbles, side])
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve().then(() => api.getActiveProfile())
+      .catch(() => null)
+      .then(p => {
+        if (cancelled) return
+        profileRef.current = p?.id || ''
+        const st = loadState(undefined, profileRef.current)
+        // Bubbles opened before the profile answered are kept.
+        setBubbles(list => [...st.bubbles.filter(b => !list.some(x => x.key === b.key)), ...list])
+        setSideState(st.side)
+        setInitial(st)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => { if (initial) saveState({ bubbles, side }, undefined, profileRef.current) }, [initial, bubbles, side])
 
   // Restored bubbles: whether each one's latest turn is still running. A
   // conversation deleted since (the CLI reports it not found) loses its
   // bubble.
   useEffect(() => {
+    if (!initial) return
     for (const b of initial.bubbles) {
       if (isOrgBubble(b)) continue
       Promise.resolve().then(() => api.getChatTurns(b.conversationId, '', 1))
@@ -120,6 +140,7 @@ export function useCoderBubbles() {
   }, [])
 
   useEffect(() => {
+    if (!initial) return
     for (const b of initial.bubbles) if (isOrgBubble(b)) seedOrg(b.orgName, b.key, b.finished ? b.runId : '')
   }, [initial, seedOrg])
 
