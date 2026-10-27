@@ -1692,7 +1692,7 @@ that works a task acts on them. The defences:
   only from a token the database verifies for the call's profile; the `MONOAGENT_TASK_*` labels
   that stay in the environment (the brief's text, an agent marker) scope nothing. The token is
   short-lived (a little over the run's timeout), revoked when the run ends or expires (a conductor that
-  starts or resumes a conversation also revokes the tokens an earlier run of it left, taking only those of a run whose chat turn is no longer active (it assumes a crashed turn is reconciled, which ends it; until then those tokens end at their expiry, and a second conductor of a running conversation never revokes the first one's), and
+  starts or resumes a conversation also revokes the tokens an earlier run of it left, taking only those of a run whose chat turn is no longer active (it assumes a crashed turn is reconciled, which ends it; until then those tokens end at their expiry, and a second conductor of a running conversation never revokes the first one's), and a conductor that resumes the same turn id under a new process leaves its predecessor's tokens to expire, since the sweep cannot tell a resumed conductor from a concurrent one of the same turn (a follow-up: a per-conductor instance with a liveness signal), and
   expired ones are purged), bound to one task, and not accepted by the HTTP API; a token that is unknown, expired, revoked, another profile's or
   another kind refuses every act, and no token is an ordinary agent that cannot record a verdict,
   and cannot claim, take the next task, finish, release, split, add a task or a dependency or attach evidence, in a session a

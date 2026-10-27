@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func (c *Conductor) bindMission(ctx context.Context, w *worker, env map[string]s
 	return func() { c.revokeMissionToken(mc, tok.ID) }, nil
 }
 
-// revokeMissionToken ends a token with its run. A failed revoke is retried, then journalled:
+// revokeMissionToken ends a token with its run. A token that is already gone is done. A failed revoke is retried, then journalled:
 // the token then lives until it expires or the next conductor of the conversation sweeps it.
 func (c *Conductor) revokeMissionToken(mc *MissionRun, id string) {
 	revoke := mc.revokeFn
@@ -112,7 +113,8 @@ func (c *Conductor) revokeMissionToken(mc *MissionRun, id string) {
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
 		err = revoke(rctx, id)
 		cancel()
-		if err == nil {
+		// A token the sweep purged (it had expired) is already gone: nothing is left to revoke.
+		if err == nil || errors.Is(err, agenttokens.ErrNotFound) {
 			return
 		}
 	}

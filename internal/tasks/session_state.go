@@ -77,7 +77,8 @@ func (s *Store) transition(ctx context.Context, profileID string, id int64, acto
 		}
 		if actor.Task != 0 || actor.Verifier {
 			// A worker or a verifier does its one task; stopping or pausing the whole session is
-			// for the operator and for the agent that runs the session (the lead, bound to none).
+			// for the operator and for the agent that runs the session (the lead and the conductor, whose
+			// in-process actor is bound to the session: Session set, no task).
 			return Session{}, bindingRefused("this agent is bound to task #%d: it cannot %s the session", actor.Task, kind)
 		}
 	}

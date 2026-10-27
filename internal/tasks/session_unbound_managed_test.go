@@ -105,7 +105,15 @@ func TestUnboundAgentCannotPauseOrStopAManagedSession(t *testing.T) {
 	if _, err := s.StopSession(bg, "default", se.ID, stranger); !errors.Is(err, ErrOperatorOnly) {
 		t.Errorf("stop by an unbound agent: %v", err)
 	}
-	lead := Actor{Kind: Agent, Name: "lead", Session: se.ID}
+	// The lead and the conductor act in process under an actor bound to the session (Session set,
+	// no task): that is what lets them, and it is what an unbound agent lacks.
+	lead := Actor{Kind: Agent, Name: "lead", Session: se.ID, Conversation: "conv-1"}
+	if _, err := s.AddSessionTask(bg, "default", se.ID, SessionTaskInput{Title: "from the lead", Acceptance: "done"}, lead); err != nil {
+		t.Errorf("the lead adds a task to its session: %v", err)
+	}
+	if _, err := s.AddSessionTask(bg, "default", se.ID, SessionTaskInput{Title: "from a stranger", Acceptance: "done"}, stranger); !errors.Is(err, ErrOperatorOnly) {
+		t.Errorf("an unbound agent adds a task: %v", err)
+	}
 	if _, err := s.PauseSession(bg, "default", se.ID, lead); err != nil {
 		t.Errorf("the lead pauses its session: %v", err)
 	}

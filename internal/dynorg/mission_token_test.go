@@ -3,6 +3,8 @@ package dynorg
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -236,5 +238,29 @@ func TestASecondConductorOfARunningConversationLeavesItsTokens(t *testing.T) {
 	c3.sweepMissionTokens(mc3)
 	if tokenValid(t, r, first) {
 		t.Fatal("the token of a turn that ended survived the next sweep")
+	}
+}
+
+// A token the sweep already purged is not a failure: one attempt, nothing journalled.
+func TestRevokingAPurgedTokenIsNotAFailure(t *testing.T) {
+	r := newRig(t, rigOpts{timeout: 10 * time.Minute})
+	var calls atomic.Int32
+	r.mc.revokeFn = func(context.Context, string) error {
+		calls.Add(1)
+		return fmt.Errorf("revoking: %w", agenttokens.ErrNotFound)
+	}
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	eventually(t, "a running", func() bool { return r.ex.runCount(a.ID) == 1 })
+	r.ex.release(a.ID)
+	r.waitStatus(a.ID, tasks.StatusReview)
+	eventually(t, "the revoke", func() bool { return calls.Load() >= 1 })
+	time.Sleep(400 * time.Millisecond) // the retries, if it wrongly made them, back off 100 and 200 ms
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("%d revoke attempts for a token that was already gone", n)
+	}
+	if n := countNotices(r.em, "mission_token_revoke_failed"); n != 0 {
+		t.Fatalf("%d spurious failure notices", n)
 	}
 }
