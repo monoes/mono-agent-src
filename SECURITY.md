@@ -1986,7 +1986,24 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   lookup. A pause is weaker
   than halting in-turn workers: a turn that is already running finishes under its cap. The files are covered by the same
   static scan (no approval writer named, only the mission tables written). Not yet built: the launcher's per-child task
-  token, the conductor calling `SpawnForTask`, the lead's tools.
+  token (P-B2).
+- **Mission child sessions: the conductor and the lead's tools (not enabled end to end until P-B2).** The conductor
+  (`dynorg/mission_child.go`) decides where a worker task runs: a session of its own only for a marked task or mode
+  `all`, with mode not `off`, room, and `ChildSpawner.Ready()`; everything else is the unchanged in-turn path.
+  `Ready` is false until the launcher mints the child's task-bound token, so **a child would today run without a
+  bound token, and the conductor therefore never spawns one**; removing that guard before P-B2 would give a child
+  an unconfined shell. `Spawn` takes ids and the sealed brief (per-brief fence, hostile text cannot forge it) and
+  nothing else, so a plan cannot choose access, folder, budget or size; the host chooses them as above. The
+  conductor writes task state only through the tasks store as it already does (claim, comment, finish, release),
+  names no approval or close and never acts as the operator for this path (a static test). A child's report is
+  attached as data and fenced wherever it is shown. The lead's tools resolve the caller from the verified session
+  token and the process's task binding; a process with a binding (worker, verifier) or an unverifiable one is
+  refused, which is the fence for an in-turn worker that inherited the lead's session token. All not-yours cases
+  (another lead, a child, a bound worker, a task of another mission, a task that does not exist) read the same
+  refusal. The tools never write a setting, mode `all`, an operator's floor or cap, or an approval; mode `all` and
+  the caps are written only by `coder sessions mission-children set`, which refuses any process holding a session
+  token or a mission binding. A worker-added follow-up in mode `all` becomes a child only within the ceiling, the
+  spawn rate, the carve, three attempts per task and the existing limits on workers per task.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

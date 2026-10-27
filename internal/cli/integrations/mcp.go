@@ -47,7 +47,7 @@ which change none of the OpenAI-compatible API's keys (below), api_config_set an
 api_config_apply, which save its server's settings and restart the daemon that
 reads them, api_auto_set, which switches its auto model on or off, and
 task_claim/comment/finish/release/add/split/verify/artifact, which work the user's task board, and
-session_spawn/send/pause/resume/stop/set/answer, which a master coder session uses on its child sessions, and session_park/record, which a coder session uses on its own autonomy state, and which
+session_spawn/send/pause/resume/stop/set/answer, which a master coder session uses on its child sessions, and session_park/record, which a coder session uses on its own autonomy state, and mission_child_mark/ceiling, which the lead of a mission uses to run its tasks in sessions of their own (mission_child_status reads them; a bound worker of a mission is refused), and which
 refuse unless the process holds the session token of a coder turn) are only
 exposed with --allow-mutations or MONOAGENT_MCP_ALLOW_MUTATIONS=1 — without it they are
 omitted from tools/list and refuse with an explanatory error if called by

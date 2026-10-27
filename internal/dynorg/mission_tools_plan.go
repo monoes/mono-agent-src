@@ -34,17 +34,20 @@ func IsMissionPlanTool(name string) bool {
 
 func planTaskSchema() map[string]any {
 	return map[string]any{"type": "array", "description": "Tasks of the plan.", "items": obj(map[string]any{
-		"ref":        str("Name of the task inside this call (letters, digits, . - _), used by depends_on and parent."),
-		"title":      str("One outcome, in a line."),
-		"notes":      str("Context the worker needs."),
-		"acceptance": str("How anyone checks it is done: a command in backticks, a named test, a file that must exist, an exact output, or \"rubric: ...\" for a reviewer. Required (not for epics: say what the children deliver)."),
-		"kind":       str("task (default), epic (groups children, never worked itself) or check (a verifier's task)."),
-		"parent":     str("Ref of an epic of this call, or #<id> of one already in the session."),
-		"depends_on": strList("Refs of this call, or #<id> of tasks in the session, that must be done first."),
-		"files":      strList("Relative paths of the files the task touches (required for task and check)."),
-		"size":       str("xs, s or m (required; l is refused: split it)."),
-		"risk":       str("Optional: low, medium or high."),
-		"executor":   str("Optional suggested executor: lead, worker or subagent."),
+		"ref":                str("Name of the task inside this call (letters, digits, . - _), used by depends_on and parent."),
+		"title":              str("One outcome, in a line."),
+		"notes":              str("Context the worker needs."),
+		"acceptance":         str("How anyone checks it is done: a command in backticks, a named test, a file that must exist, an exact output, or \"rubric: ...\" for a reviewer. Required (not for epics: say what the children deliver)."),
+		"kind":               str("task (default), epic (groups children, never worked itself) or check (a verifier's task)."),
+		"parent":             str("Ref of an epic of this call, or #<id> of one already in the session."),
+		"depends_on":         strList("Refs of this call, or #<id> of tasks in the session, that must be done first."),
+		"files":              strList("Relative paths of the files the task touches (required for task and check)."),
+		"size":               str("xs, s or m (required; l is refused: split it)."),
+		"risk":               str("Optional: low, medium or high."),
+		"executor":           str("Optional suggested executor: lead, worker or subagent."),
+		"own_session":        map[string]any{"type": "boolean", "description": "Optional: run this task in a coder session of its own (a mark; the policy and the ceiling decide whether one starts, otherwise it runs as a worker of this turn)."},
+		"session_size":       str("Optional with own_session: large (shown as a bubble) or small."),
+		"session_budget_usd": map[string]any{"type": "number", "description": "Optional with own_session: the session's spend cap, carved from your own budget (at most 50)."},
 	}, "ref", "title", "acceptance")}
 }
 
@@ -120,7 +123,7 @@ func (c *Conductor) handleMission(ctx context.Context, name string, args json.Ra
 		if err != nil {
 			return "", err
 		}
-		return c.missionResult(ctx, m, se.ID, map[string]any{"task_ids": ids})
+		return c.missionResult(ctx, m, se.ID, withMarks(map[string]any{"task_ids": ids}, c.planChildMarks(ctx, se.ID, a.Tasks, ids)))
 	case ToolMissionSplit:
 		var a SplitSpec
 		if err := json.Unmarshal(orEmpty(args), &a); err != nil {
@@ -195,7 +198,15 @@ func (c *Conductor) missionPlan(ctx context.Context, m *MissionConfig, args json
 	if err != nil {
 		return "", fmt.Errorf("session #%d was created: %w", se.ID, err)
 	}
-	return c.missionResult(ctx, m, se.ID, map[string]any{"session_id": se.ID, "task_ids": ids})
+	return c.missionResult(ctx, m, se.ID, withMarks(map[string]any{"session_id": se.ID, "task_ids": ids}, c.planChildMarks(ctx, se.ID, a.Tasks, ids)))
+}
+
+// withMarks adds the note about marked tasks to a tool result.
+func withMarks(out, marks map[string]any) map[string]any {
+	for k, v := range marks {
+		out[k] = v
+	}
+	return out
 }
 
 func (c *Conductor) missionReplan(ctx context.Context, m *MissionConfig, args json.RawMessage) (string, error) {
@@ -228,9 +239,12 @@ func (c *Conductor) missionReplan(ctx context.Context, m *MissionConfig, args js
 	}
 	out := map[string]any{}
 	if len(a.Add) > 0 {
-		if out["task_ids"], err = m.writeTasks(ctx, se, a.Add); err != nil {
+		ids, err := m.writeTasks(ctx, se, a.Add)
+		if err != nil {
 			return "", err
 		}
+		out["task_ids"] = ids
+		withMarks(out, c.planChildMarks(ctx, se.ID, a.Add, ids))
 	}
 	for _, s := range a.Split {
 		if _, err := m.split(ctx, se, s); err != nil {

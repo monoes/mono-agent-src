@@ -45,7 +45,8 @@ func missionRun(m *dynorg.MissionConfig, db *sql.DB, turnID string) *dynorg.Miss
 		return nil
 	}
 	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID, Tokens: agenttokens.NewStore(db),
-		Owner: dynorg.TurnOwner(m.ProfileID, m.ConversationID, turnID), Live: turnRunning(db, m.ProfileID)}
+		Owner: dynorg.TurnOwner(m.ProfileID, m.ConversationID, turnID), Live: turnRunning(db, m.ProfileID),
+		Children: newMissionChildren(db, m.ProfileID, m.ConversationID)}
 }
 
 // turnRunning reports, for the owner of a turn's mission tokens, whether that turn is still

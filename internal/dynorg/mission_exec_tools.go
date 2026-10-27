@@ -118,7 +118,7 @@ func (c *Conductor) missionAssign(ctx context.Context, mc *MissionRun, named, ta
 		return StartedTask{}, err
 	}
 	access := accessFor(exec, req.Access)
-	if why := c.cannotStart(mc, t, exec, access, writers); why != "" {
+	if why := c.cannotStart(ctx, mc, t, exec, access, writers); why != "" {
 		return StartedTask{}, fmt.Errorf("task #%d does not start now: %s", taskID, why)
 	}
 	c.missionWatch(se.ID)

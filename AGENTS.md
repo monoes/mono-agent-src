@@ -1878,8 +1878,8 @@ session (`task session approve`), closes tasks to Done, and confirms a mission (
 no host-made turn (`checkin-`, `answer-`, `master-`, a default taken after a timeout) carries or infers a
 confirmation, a plan approval or a close, and a draft session starts no worker for any lead turn. A task's work
 is still done by the conductor's workers, in the lead's turn: **the host does not start a child coder session
-per task yet** (which tasks would become sessions, and how a budget is split, are open questions of the host
-plan). A lead that wants a goal with its own schedule uses the master verbs on its own conversation (`coder
+per task yet** (the conductor and the lead's tools exist, but the launcher cannot yet confine a child to its task, so
+the conductor never spawns one; see "Mission child sessions: the conductor and the lead's tools"). A lead that wants a goal with its own schedule uses the master verbs on its own conversation (`coder
 sessions spawn`, below): one child per goal, not per task. When a master of children also has an open task
 session, each check-in digest carries one line with the session's state and its counts (done of total, in
 review, verified, blocked): numbers and a state word, never a title, goal or task text. A mission's lead
@@ -1965,6 +1965,37 @@ session is gone): a lead may legitimately have such children, so nothing is stop
 claims, finishes, verifies and approves nothing and writes no task. The check-in digest's mission line gains three
 numbers (task child sessions running, queued, failed), and a change in them counts as a change. The conductor does not
 call `SpawnForTask` yet, and the launcher does not yet mint the child a task-bound token.
+
+**Mission child sessions: the conductor and the lead's tools (NOT enabled end to end until the launcher phase P-B2
+lands).** A task runs in a coder session of its own only when the mission's policy says so; otherwise the conductor's
+in-turn worker path runs unchanged, and that is the default (mode `marked` with nothing marked changes nothing).
+`startTask` asks `childDecide` (`dynorg/mission_child.go`): the task is for a child when its executor is a worker, the
+mode is `all` or the lead marked it, the mode is not `off`, there is room, and `ChildSpawner.Ready()` is true. `Ready`
+is the launcher's capability to give a child the task token that confines it to its one task; **it is false until
+P-B2 turns it on (`launcherMintsChildTokens` in `cli/chat/chat_mission_children.go`), so no child is spawned today,
+whatever is marked.** When wanted, the ordinary prepare and claim run, the brief is built by the same sealed
+`buildTaskBrief` (per-brief `DATA-xxxx` fence, never raw task text) and `ChildSpawner.Spawn(ctx, session, task, brief)`
+starts the session; its signature carries no access, folder, budget or size, so nothing in a plan or a task's text can
+choose them. A full host (the ceiling, the running-turn cap or the budget share, mirrored in `cannotStart` as
+`child sessions full (n of ceiling)`) leaves the task Waiting, which is the queue, and counts no failure. A lead that is
+itself a child, not a master, or a process bound to a task falls back to in-turn workers with one notice per session.
+With `orgWriters=isolated` a writer stays in-turn (v1). The claim is held under the worker name with a long lease that
+the lead's reconcile renews, and a turn that ends does not give a live child's claim back. `missionReconcile`: a row
+that ended while its task is still held hands back the child's last assistant text as the worker's report (data,
+fenced in a verifier's brief) or records a failed attempt (stopped sessions are not counted), then releases the claim;
+a verifier still verifies and nothing here writes an approval. The plan's tasks accept `own_session`, `session_size`
+(`large`|`small`) and `session_budget_usd` (at most 50); they are stored as marks, a mark in a draft changes nothing
+until the plan is approved, and a mark the policy refuses is reported, never fatal to the plan. The lead's MCP tools
+(`mission_child_mark{task_id,size?,budget_usd?}`, `mission_child_ceiling{max_children?,share_pct?}` and
+`mission_child_status`; the first two need `--allow-mutations`) take the caller from the verified session token and
+the binding of the process (`taskbind.Resolve`; a bound worker or verifier, or a token that does not verify, is
+refused) and build the scope only with `coderhost.NewLeadScope`; every caller that is not the lead of that task reads
+the same refusal. The lead can lower its ceiling and raise it only up to the operator's limits; it can never change a
+setting, turn on mode `all` or lift an operator's `off` or cap. The operator's control is
+`coder sessions mission-children set <lead-conv> --mode off|marked|all --max-children N --share-pct P
+[--clear-max-children-cap] [--clear-share-pct-cap]` and `list`: both refuse any process that holds a coder session
+token or a mission binding. An operator who writes a number also sets it as the lead's cap; giving the lead a value
+without limiting takes two calls.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The

@@ -221,6 +221,9 @@ func (c *Conductor) missionReconcile(ctx context.Context, sid int64) {
 		if t.Claim == nil || !isMissionName(t.Claim.By, sid) || c.taskWorker(t.ID) != nil {
 			continue
 		}
+		if c.reconcileChild(ctx, mc, sid, t) {
+			continue // a session of its own holds it
+		}
 		c.msched.mu.Lock()
 		oc, ours := c.msched.owned[t.ID]
 		ours = ours && oc.name == t.Claim.By

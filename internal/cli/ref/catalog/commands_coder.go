@@ -165,6 +165,29 @@ var coderCommandDocs = []cmdDoc{
 		Examples: []string{`monoagentcli --profile work coder sessions record --class ambiguity --question "tabs or spaces?" --choice tabs --alternative spaces --reason "repo style" --reversible`},
 	},
 	{
+		Name:     "coder sessions mission-children",
+		Short:    "The person's control of a mission's child sessions: set the policy, list it (a session token or a mission binding is refused)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children set|list",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children list --json"},
+	},
+	{
+		Name:  "coder sessions mission-children set",
+		Short: "Change the child-session policy of the mission a conversation leads. An operator who writes a number also sets it as the lead's cap; giving the lead a value without limiting takes two calls (set it, then clear the cap). Mode all is turned on only here",
+		Usage: "monoagentcli [--profile P] coder sessions mission-children set LEAD_CONVERSATION [--mode off|marked|all] [--max-children N] [--share-pct P] [--clear-max-children-cap] [--clear-share-pct-cap]",
+		Flags: `  --mode string              off, marked (only tasks the lead marked) or all (every worker task)
+  --max-children int         How many of the mission's sessions may run at once; also the lead's cap
+  --share-pct int            Percent of the lead's remaining budget the sessions may carve (at most 80); also the lead's cap
+  --clear-max-children-cap   Lift your cap on the lead's max_children
+  --clear-share-pct-cap      Lift your cap on the lead's share_pct`,
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children set <lead-conv> --mode marked --max-children 3 --share-pct 40"},
+	},
+	{
+		Name:     "coder sessions mission-children list",
+		Short:    "Every child-session policy of the profile and the tasks that run, or ran, in sessions of their own (states and numbers, never task text)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children list",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children list --json"},
+	},
+	{
 		Name:     "coder sessions settings",
 		Short:    "Show or change a coder session's settings: check-ins, autonomy, limits, mesh, unattended, role",
 		Usage:    "monoagentcli [--profile P] coder sessions settings get|set CONVERSATION",
