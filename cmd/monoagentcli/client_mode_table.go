@@ -85,7 +85,7 @@ var clientModeClasses = map[string]string{
 	"doctor":           cmRefused,
 	"documents":        cmRefused,
 	"export":           cmRefused,
-	"image":            cmRefused,
+	"media":            cmRefused,
 	"jev":              cmRefused,
 	"list":             cmRefused,
 	"message-template": cmRefused,

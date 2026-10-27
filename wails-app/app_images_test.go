@@ -12,19 +12,19 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// The image-vault bindings go through `monoagentcli image …`, not the
+// The media-vault bindings go through `monoagentcli media …`, not the
 // database.
 func TestImageVaultBindingsShellOut(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "args.log")
 	row := `{"id":"img-002","seq":2,"path":"/v/img-002.png","filename":"img-002.png","size_bytes":9,"source":"upload","workflow_id":"","execution_id":"","label":"Logo","created_at":"2026-09-26T11:00:00Z","url":"/vault-image/img-002"}`
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo "$*" >> '`+log+`'
 case "$*" in
-  *" image list "*) echo '[`+row+`]' ;;
-  *" image search "*) echo '[]' ;;
-  *" image get "*|*" image add "*) echo '`+row+`' ;;
-  *" image data "*) echo '{"id":"img-002","mime_type":"image/png","size_bytes":3,"data_url":"data:image/png;base64,YWJj"}' ;;
-  *" image stats"*) echo '{"count":2,"total_bytes":19}' ;;
-  *" image export "*) echo '{"id":"img-002","path":"/out/logo.png"}' ;;
+  *" media list "*) echo '[`+row+`]' ;;
+  *" media search "*) echo '[]' ;;
+  *" media get "*|*" media add "*) echo '`+row+`' ;;
+  *" media data "*) echo '{"id":"img-002","mime_type":"image/png","size_bytes":3,"data_url":"data:image/png;base64,YWJj"}' ;;
+  *" media stats"*) echo '{"count":2,"total_bytes":19}' ;;
+  *" media export "*) echo '{"id":"img-002","path":"/out/logo.png"}' ;;
   *) echo '{}' ;;
 esac
 `))
@@ -80,23 +80,23 @@ esac
 		t.Fatalf("GetVaultStats = %v, %v", st, err)
 	}
 	want := []string{
-		"--profile work --json image list --limit 200",
-		"--profile work --json image search -- -logo",
-		"--profile work --json image get -- img-002",
-		"--profile work --json image data -- img-002",
-		"--profile work --json image add --label Logo -- /pics/a.png",
-		"--profile work --json image add -- /pics/b.png",
-		"--profile work --json image get -- img-002",
-		"--profile work --json image export -- img-002 /out/logo.png",
-		"--profile work --json image label -- img-002 New",
-		"--profile work --json image label -- img-002",
-		"--profile work --json image delete -- img-002",
-		"--profile work --json image stats",
+		"--profile work --json media list --limit 200",
+		"--profile work --json media search -- -logo",
+		"--profile work --json media get -- img-002",
+		"--profile work --json media data -- img-002",
+		"--profile work --json media add --label Logo -- /pics/a.png",
+		"--profile work --json media add -- /pics/b.png",
+		"--profile work --json media get -- img-002",
+		"--profile work --json media export -- img-002 /out/logo.png",
+		"--profile work --json media label -- img-002 New",
+		"--profile work --json media label -- img-002",
+		"--profile work --json media delete -- img-002",
+		"--profile work --json media stats",
 	}
 	if got := loggedArgs(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("argv:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	// Every edit made through the app refreshes open Image Vault pages.
+	// Every edit made through the app refreshes open Media Vault pages.
 	wantEvents := []string{
 		"images:changed map[added:1 profileID:work]",
 		"images:changed map[added:1 profileID:work]",
@@ -154,8 +154,8 @@ func TestImageVaultBindingsReportCLIErrors(t *testing.T) {
 func TestSaveVaultImageToFileOffersAFileItsOwnType(t *testing.T) {
 	row := `{"id":"img-003","path":"/v/img-003.pdf","filename":"img-003.pdf","size_bytes":9,"source":"extension","label":"invoice.pdf","url":"/vault-image/img-003"}`
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `case "$*" in
-  *" image get "*) echo '`+row+`' ;;
-  *" image export "*) echo '{"id":"img-003","path":"/out/invoice.pdf"}' ;;
+  *" media get "*) echo '`+row+`' ;;
+  *" media export "*) echo '{"id":"img-003","path":"/out/invoice.pdf"}' ;;
   *) echo '{}' ;;
 esac
 `))

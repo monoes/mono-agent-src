@@ -161,7 +161,7 @@ More ready-to-run workflows (RSS→AI→email, Sheets→Gmail, Stripe→Sheets s
 
 ### 👤 Multi-Profile Workspaces
 - Named workspaces (`work`, `client-a`, …) with full tenant isolation
-- Workflows, connections, people, vault images, HIL items — all scoped per workspace
+- Workflows, connections, people, media vault items, HIL items — all scoped per workspace
 - Name the workspace with `--profile <id|name>` on every CLI command that acts on one; the GUI sidebar picks it for you there. There is no active profile and no default: `profile list` shows the names
 - Running workflows in one workspace are unaffected by work in another
 - Toggle **All profiles** in the dashboard header to see every workspace at once; rows are labelled with their profile, and **Switch** takes you to it
@@ -191,10 +191,11 @@ More ready-to-run workflows (RSS→AI→email, Sheets→Gmail, Stripe→Sheets s
 </td>
 <td width="50%">
 
-### 🖼️ Image Vault
-- Every workflow-generated image registered with provenance (which run, which node)
-- Reference images in prompts and posts as `{{@img-001}}`
-- Fullscreen editor — crop, resize, rotate, filters
+### 🖼️ Media Vault
+- Every workflow-generated image, audio or video file registered with provenance (which run, which node)
+- Reference items in prompts and posts as `{{@img-001}}`
+- Save audio and video from a web page with the browser extension; audio and video in a profile folder are tracked only if you switch `media scan on`
+- Audio and video play in the app; images get a fullscreen editor — crop, resize, rotate, filters
 - AI background removal (U2-Net) plus a full image-processing node set
 - Profile-scoped: each workspace sees only its own vault
 
@@ -216,7 +217,7 @@ More ready-to-run workflows (RSS→AI→email, Sheets→Gmail, Stripe→Sheets s
 - Conversational workflow builder: describe the workflow in chat, AI wires the nodes
 - Built-in assistant runs on an AI agent CLI already installed on your machine (claude, codex, opencode, copilot, …) through the monomind runner, with named sessions. In the desktop app its tools (workflows, vault, people, runs) are on by default and can be switched off in Settings; `monoagentcli chat --runtime <id> "<prompt>"` runs one turn and enables tools only with `--tools monoagent[,runs]`
 - Workflow AI steps use the same local agents (`agent.ask`); the `gemini.*` nodes use your own logged-in Gemini browser session
-- Wails 2 desktop app: canvas editor, HIL review panel, Vault, People, Image Vault
+- Wails 2 desktop app: canvas editor, HIL review panel, Vault, People, Media Vault
 - Dark-themed, keyboard-navigable, fully local
 
 </td>
@@ -366,7 +367,7 @@ Some features are not agent turns. [TypeSafe Jev](AGENTS.md#typesafe-jev-decisio
 </details>
 
 <details>
-<summary><strong>🖼️ Image Processing & Image Vault (9 nodes)</strong></summary>
+<summary><strong>🖼️ Image Processing & Media Vault (9 nodes)</strong></summary>
 
 `image.info` · `image.resize` · `image.crop` · `image.thumbnail` · `image.convert` · `image.adjust` · `image.remove_background` (U2-Net AI) · `image.vault_get` · `image.vault_save`
 
@@ -756,7 +757,7 @@ mono-agent/
 │   │
 │   ├── mcp/                 # JSON-RPC 2.0 MCP server (no dependencies)
 │   ├── secrets/             # keyring + AES-256-GCM envelope encryption
-│   ├── vault/               # Image Vault — register/resolve/provenance
+│   ├── vault/               # Media Vault (images, audio, video) — register/resolve/provenance
 │   ├── connections/         # unified credential storage + OAuth flows
 │   ├── bot/                 # platform browser adapters (build tag: social)
 │   ├── extension/           # Chrome extension bridge server (loopback :9222)
@@ -810,7 +811,7 @@ mono-agent/
 **Recently shipped**
 - [x] Multi-profile workspaces — all user data scoped per named profile
 - [x] Human-in-Loop node (`core.human_in_loop`) — durable, editable, timeout-aware
-- [x] Image Vault — storage, labeling, fullscreen editor, provenance
+- [x] Media Vault (images, audio, video) — storage, labeling, fullscreen image editor, provenance
 - [x] AI Canvas Chat — conversational workflow builder
 - [x] Outlook integration — read and send email via Microsoft Graph
 - [x] Encrypted Secrets Vault — OS keyring + AES-256-GCM + portable encrypted export

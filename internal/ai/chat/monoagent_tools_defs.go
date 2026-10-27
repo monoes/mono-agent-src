@@ -57,8 +57,8 @@ func (mt *MonoagentTools) ToolDefs() []ToolDef {
 			"config":      map[string]interface{}{"type": "object", "description": "Node configuration matching the node type's schema"},
 		}, []string{"workflow_id", "node_type", "name"}),
 
-		// Vault (files/images)
-		def("list_vault_items", "List files/images stored in the vault", map[string]interface{}{
+		// Vault (media: images, audio, video, and other files)
+		def("list_vault_items", "List the media vault: images, audio, video and other files stored in it (each has a kind: image, audio or video)", map[string]interface{}{
 			"limit": intParam("Max items to return (default 50)"),
 		}, nil),
 		def("get_vault_item_path", "Resolve a vault item id to its filesystem path", map[string]interface{}{
@@ -71,7 +71,7 @@ func (mt *MonoagentTools) ToolDefs() []ToolDef {
 			"filename": strParam("File name including extension, e.g. \"iran-war-debate-2026-09-11.md\". Any directory portion is stripped — it always lands directly in docs/."),
 			"content":  strParam("The full file content to write, as UTF-8 text."),
 		}, []string{"filename", "content"}),
-		def("save_image", "Save an image — a generated graphic, banner, photo, icon, or diagram — into this profile's image vault so it appears in the Image Vault immediately. Provide the filename (e.g. \"banner.png\", \"icon.svg\") and image content (base64-encoded image bytes, SVG markup, or a local file path). Supported formats: png, jpg, jpeg, gif, webp, svg, bmp, ico.", map[string]interface{}{
+		def("save_image", "Save an image — a generated graphic, banner, photo, icon, or diagram — into this profile's media vault so it appears in the Media Vault immediately. Provide the filename (e.g. \"banner.png\", \"icon.svg\") and image content (base64-encoded image bytes, SVG markup, or a local file path). Supported formats: png, jpg, jpeg, gif, webp, svg, bmp, ico.", map[string]interface{}{
 			"filename": strParam("Image filename with extension (e.g. \"header.png\", \"diagram.svg\"). Any directory portion is stripped."),
 			"content":  strParam("Image data: base64-encoded binary data (with or without data:image/...;base64, prefix), raw SVG markup, or local file path."),
 			"label":    strParam("Optional human-readable label or description for the image."),

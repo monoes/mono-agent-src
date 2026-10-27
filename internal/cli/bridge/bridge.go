@@ -62,7 +62,7 @@ func NewServer(logger zerolog.Logger, o Options) *extension.Server {
 	// extension knows this bridge takes tasks.
 	srv.SetTaskSink(o.Tasks)
 	// vault.save: a file the person clicked Save on in the side panel's
-	// confirm card goes into the image/file vault of the profile it names
+	// confirm card goes into the media/file vault of the profile it names
 	// (internal/extension/vault_save.go). Write only; advertised in ping.
 	srv.SetVaultSink(o.Vault)
 	// chat.send / chat.stop / chat.events: the side panel's chat, run as the

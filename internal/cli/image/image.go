@@ -10,20 +10,26 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/spf13/cobra"
 )
 
-// newImageCmd manages the active profile's image vault (vault_images): the
-// files workflows generate or the user uploads, addressable as @img-NNN.
-// The GUI's Image Vault page goes through these commands.
+// newImageCmd manages the active profile's media vault (vault_images): the
+// images, audio and video that workflows generate or the user uploads,
+// addressable as @img-NNN (the id format predates audio and video and is kept
+// for every kind). The GUI's Media Vault page goes through these commands.
+// `image` is the command's old name and still works.
 func (d Deps) newImageCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "image",
-		Short: "Manage the image vault: list, add, label, export, delete, sync, unignore",
-		Long: "Images belong to the profile named by --profile and are addressed by id (img-001, …). " +
-			"Workflows refer to them as @img-001.",
+		Use:     "media",
+		Aliases: []string{"image"},
+		Short:   "Manage the media vault (images, audio, video): list, add, label, export, delete, sync, unignore",
+		Long: "Media items — images, audio and video — belong to the profile named by --profile and are " +
+			"addressed by id (img-001, …; the prefix is historic and the same for every kind). " +
+			"Workflows refer to them as @img-001. Each item's \"kind\" is image, audio or video from " +
+			"its file extension. `image` is the old name of this command group.",
 	}
 	cmd.AddCommand(
 		d.newImageListCmd(),
@@ -36,6 +42,7 @@ func (d Deps) newImageCmd() *cobra.Command {
 		d.newImageStatsCmd(),
 		d.newImageExportCmd(),
 		d.newImageSyncCmd(),
+		d.newMediaScanCmd(),
 		d.newImageUnignoreCmd(),
 	)
 	return cmd
@@ -63,12 +70,12 @@ func (d Deps) printImages(cmd *cobra.Command, images []vault.ImageEntry) error {
 		return d.WriteJSON(cmd.OutOrStdout(), images)
 	}
 	if len(images) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No images.")
+		fmt.Fprintln(cmd.OutOrStdout(), "No media.")
 		return nil
 	}
-	table := d.NewTable(cmd.OutOrStdout(), []string{"ID", "Label", "Source", "Size", "Added"})
+	table := d.NewTable(cmd.OutOrStdout(), []string{"ID", "Kind", "Label", "Source", "Size", "Added"})
 	for _, im := range images {
-		table.Append([]string{im.ID, truncateStr(im.Label, 40), im.Source, strconv.FormatInt(im.SizeBytes, 10), im.CreatedAt})
+		table.Append([]string{im.ID, kindOrFile(im.Kind), truncateStr(im.Label, 40), im.Source, strconv.FormatInt(im.SizeBytes, 10), im.CreatedAt})
 	}
 	table.Render()
 	return nil
@@ -79,7 +86,7 @@ func (d Deps) printImage(cmd *cobra.Command, im *vault.ImageEntry) error {
 		return d.WriteJSON(cmd.OutOrStdout(), im)
 	}
 	w := cmd.OutOrStdout()
-	fmt.Fprintf(w, "ID:       %s\nLabel:    %s\nFile:     %s\nSize:     %d bytes\nSource:   %s\n", im.ID, im.Label, im.Path, im.SizeBytes, im.Source)
+	fmt.Fprintf(w, "ID:       %s\nKind:     %s\nLabel:    %s\nFile:     %s\nSize:     %d bytes\nSource:   %s\n", im.ID, kindOrFile(im.Kind), im.Label, im.Path, im.SizeBytes, im.Source)
 	if im.WorkflowID != "" {
 		fmt.Fprintf(w, "Workflow: %s\n", im.WorkflowID)
 	}
@@ -101,7 +108,7 @@ func (d Deps) newImageListCmd() *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List the profile's images, newest first",
+		Short: "List the profile's media, newest first",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := d.positiveLimit(limit); err != nil {
@@ -116,7 +123,7 @@ func (d Deps) newImageListCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().IntVar(&limit, "limit", 200, "Most images to list")
+	cmd.Flags().IntVar(&limit, "limit", 200, "Most items to list")
 	return cmd
 }
 
@@ -124,7 +131,7 @@ func (d Deps) newImageSearchCmd() *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "search <text>",
-		Short: "Find images whose label, filename, source or workflow contains text",
+		Short: "Find media whose label, filename, source or workflow contains text",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := d.positiveLimit(limit); err != nil {
@@ -146,7 +153,7 @@ func (d Deps) newImageSearchCmd() *cobra.Command {
 func (d Deps) newImageGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <id>",
-		Short: "Show one image's details",
+		Short: "Show one item's details",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return d.withImageDB(func(db *sql.DB) error {
@@ -160,10 +167,32 @@ func (d Deps) newImageGetCmd() *cobra.Command {
 	}
 }
 
+// kindOrFile is an item's kind for display: image, audio, video, or "file"
+// for anything else the vault holds (a PDF or text file).
+func kindOrFile(kind string) string {
+	if kind == "" {
+		return "file"
+	}
+	return kind
+}
+
+// mediaMIMEFallback covers audio and video extensions a machine's mime
+// database may not know (Go's built-in table has no audio or video).
+var mediaMIMEFallback = map[string]string{
+	".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".aac": "audio/aac",
+	".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".flac": "audio/flac",
+	".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+	".mkv": "video/x-matroska", ".ogv": "video/ogg",
+}
+
 // imageMIMEType guesses a vault file's type from its extension; vault
 // files without a recognised one are PNGs (vault.Register's default).
 func imageMIMEType(path string) string {
-	if t := mime.TypeByExtension(filepath.Ext(path)); t != "" {
+	ext := strings.ToLower(filepath.Ext(path))
+	if t, ok := mediaMIMEFallback[ext]; ok {
+		return t
+	}
+	if t := mime.TypeByExtension(ext); t != "" {
 		return t
 	}
 	return "image/png"
@@ -172,9 +201,9 @@ func imageMIMEType(path string) string {
 func (d Deps) newImageDataCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "data <id>",
-		Short: "Print an image's contents as a base64 data URL",
-		Long: "Prints the image as a data: URL (\"data:image/png;base64,…\"), which a web page can " +
-			"display directly. With --json: {id, mime_type, size_bytes, data_url}. Without, the " +
+		Short: "Print a media item's contents as a base64 data URL",
+		Long: "Prints the item as a data: URL (\"data:image/png;base64,…\"), which a web page can " +
+			"display directly (meant for images; a video or audio file is read whole into memory). With --json: {id, mime_type, size_bytes, data_url}. Without, the " +
 			"data URL alone.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -205,18 +234,19 @@ func (d Deps) newImageAddCmd() *cobra.Command {
 	var label, source string
 	cmd := &cobra.Command{
 		Use:   "add <file>",
-		Short: "Copy an image file into the vault",
+		Short: "Copy an image, audio or video file into the vault",
 		Long: "Copies the file into the profile's vault folder as img-NNN<ext> and prints the new " +
-			"image. The original file is left where it is. A file already in the profile's folder " +
-			"(where `image sync` finds images) is recorded where it is instead of copied, and " +
+			"item. The original file is left where it is. A file already in the profile's folder " +
+			"(where `media sync` finds media) is recorded where it is instead of copied, and " +
 			"adding one that was deleted from the vault brings it back.",
-		Example: `  monoagentcli image add ~/Pictures/logo.png --label "Logo"`,
-		Args:    cobra.ExactArgs(1),
+		Example: `  monoagentcli media add ~/Pictures/logo.png --label "Logo"
+  monoagentcli media add ~/Music/theme.mp3 --label "Theme"`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if fi, err := os.Stat(args[0]); err != nil {
 				return d.InvalidInput("%v", err)
 			} else if fi.IsDir() {
-				return d.InvalidInput("%s is a directory, not an image file", args[0])
+				return d.InvalidInput("%s is a directory, not a media file", args[0])
 			}
 			return d.withImageDB(func(db *sql.DB) error {
 				ctx := vault.ContextWithProfileID(cmd.Context(), d.ProfileID())
@@ -240,15 +270,15 @@ func (d Deps) newImageAddCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&label, "label", "", "Name to show for the image")
-	cmd.Flags().StringVar(&source, "source", "upload", "Where the image came from")
+	cmd.Flags().StringVar(&label, "label", "", "Name to show for the item")
+	cmd.Flags().StringVar(&source, "source", "upload", "Where the item came from")
 	return cmd
 }
 
 func (d Deps) newImageLabelCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "label <id> [label]",
-		Short: "Rename an image; without a label, clear it",
+		Short: "Rename a media item; without a label, clear it",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			label := ""
@@ -273,11 +303,11 @@ func (d Deps) newImageDeleteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "delete <id>",
 		Aliases: []string{"rm"},
-		Short:   "Delete an image and its file (an image in the profile folder keeps its file)",
-		Long: "Deletes the image and its vault file. An image that lives in the profile's folder " +
-			"(discovered there, or saved there by the chat, a workflow or `image add`) keeps its " +
-			"file, and `image sync` leaves it out from then on; `image add <path>` or " +
-			"`image unignore <path>` brings it back.",
+		Short:   "Delete a media item and its file (an item in the profile folder keeps its file)",
+		Long: "Deletes the item and its vault file. An item that lives in the profile's folder " +
+			"(discovered there, or saved there by the chat, a workflow or `media add`) keeps its " +
+			"file, and `media sync` leaves it out from then on; `media add <path>` or " +
+			"`media unignore <path>` brings it back.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return d.withImageDB(func(db *sql.DB) error {
@@ -295,12 +325,12 @@ func (d Deps) newImageDeleteCmd() *cobra.Command {
 }
 
 // newImageUnignoreCmd forgets that an image in the profile folder was
-// deleted, so the next `image sync` lists it again.
+// deleted, so the next `media sync` lists it again.
 func (d Deps) newImageUnignoreCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "unignore <path>",
-		Short:   "Let image sync pick up a deleted profile-folder image again",
-		Example: `  monoagentcli image unignore ~/.monoagent/profiles/<id>/images/logo.png`,
+		Short:   "Let media sync pick up a deleted profile-folder item again",
+		Example: `  monoagentcli media unignore ~/.monoagent/profiles/<id>/images/logo.png`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := filepath.Abs(args[0])
@@ -313,12 +343,12 @@ func (d Deps) newImageUnignoreCmd() *cobra.Command {
 					return err
 				}
 				if !ok {
-					return d.NotFound("%s is not a deleted image of this profile", path)
+					return d.NotFound("%s is not a deleted media item of this profile", path)
 				}
 				if d.JSONOutput() {
 					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"path": path, "unignored": true})
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "The next image sync will add %s again.\n", path)
+				fmt.Fprintf(cmd.OutOrStdout(), "The next media sync will add %s again.\n", path)
 				return nil
 			})
 		},
@@ -328,7 +358,7 @@ func (d Deps) newImageUnignoreCmd() *cobra.Command {
 func (d Deps) newImageStatsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stats",
-		Short: "Count the profile's images and their total size",
+		Short: "Count the profile's media items and their total size",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return d.withImageDB(func(db *sql.DB) error {
@@ -339,7 +369,7 @@ func (d Deps) newImageStatsCmd() *cobra.Command {
 				if d.JSONOutput() {
 					return d.WriteJSON(cmd.OutOrStdout(), st)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%d images, %d bytes\n", st.Count, st.TotalBytes)
+				fmt.Fprintf(cmd.OutOrStdout(), "%d items, %d bytes\n", st.Count, st.TotalBytes)
 				return nil
 			})
 		},
@@ -349,8 +379,8 @@ func (d Deps) newImageStatsCmd() *cobra.Command {
 func (d Deps) newImageExportCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "export <id> <dest-file>",
-		Short:   "Copy an image out of the vault to a file",
-		Example: `  monoagentcli image export img-004 ~/Desktop/banner.png`,
+		Short:   "Copy a media item out of the vault to a file",
+		Example: `  monoagentcli media export img-004 ~/Desktop/banner.png`,
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if args[1] == "" {

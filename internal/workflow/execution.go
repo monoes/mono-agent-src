@@ -305,8 +305,9 @@ func restorePerItemFields(resolvedConfig map[string]interface{}, state *perItemF
 	}
 }
 
-// autoRegisterItemImages checks if an output item contains an unregistered image file
-// path in its JSON (e.g. file_path or image_path) and registers it in the image vault.
+// autoRegisterItemImages checks if an output item contains an unregistered image,
+// audio or video file path in its JSON (e.g. file_path or image_path) and
+// registers it in the media vault.
 func autoRegisterItemImages(ctx context.Context, outputs []NodeOutput, wfID, execID string) {
 	vaultDB := vault.DBFromContext(ctx)
 	if vaultDB == nil {
@@ -325,7 +326,7 @@ func autoRegisterItemImages(ctx context.Context, outputs []NodeOutput, wfID, exe
 				if !ok || p == "" {
 					continue
 				}
-				if !imagescan.IsImageFile(p) {
+				if !imagescan.IsMediaFile(p) {
 					continue
 				}
 				fi, err := os.Stat(p)

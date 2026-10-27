@@ -1,4 +1,4 @@
-// Package image is `monoagentcli image`: the active profile's image vault (internal/vault's
+// Package image is `monoagentcli media` (once `image`): the active profile's media vault (images, audio, video) (internal/vault's
 // vault_images). Everything the commands need from the CLI around them comes in through Deps,
 // so they can be tested in isolation.
 package image

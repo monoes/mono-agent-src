@@ -40,7 +40,7 @@ func (a *App) restartImageWatcher() {
 // from its last walk. interval <= 0 uses imagescan.DefaultPollInterval.
 func (a *App) startImageWatcher(profileID, root string, interval time.Duration, emit folderEventFunc) *imagescan.Watcher {
 	s := newFolderSyncer(func() {
-		if changed := a.syncFolder(profileID, "image discovery", "image", "sync"); changed != nil {
+		if changed := a.syncFolder(profileID, "media discovery", "media", "sync"); changed != nil {
 			emit("images:changed", folderEventData(profileID, changed))
 		}
 	})
