@@ -76,7 +76,18 @@ func (c *Conductor) addVerifierTree(w *worker) {
 		return
 	}
 	path := filepath.Join(c.iso.turnDir, w.id)
-	if _, err := gitRun(c.ctx, c.iso.cwd, "worktree", "add", "--quiet", "--detach", path, "refs/heads/"+branch); err != nil {
+	err := refuseProgramConfig(c.ctx, c.iso.cwd)
+	if err == nil {
+		_, err = gitRun(c.ctx, c.iso.cwd, "worktree", "add", "--quiet", "--detach", path, "refs/heads/"+branch)
+	}
+	if isConfigRefusal(err) {
+		c.cfg.Emit.Emit(chatevents.EventNotice, chatevents.NoticePayload{
+			Code: NoticeGitConfigRefused, Severity: chatevents.SeverityWarning,
+			Message: fmt.Sprintf("The repository's local git configuration names a program, so git was not run for %s (%v); it checks task #%d in the chat folder instead.", w.id, err, w.task.task.ID),
+		})
+		return
+	}
+	if err != nil {
 		warn(fmt.Sprintf("a checkout of %s could not be made (%v)", branch, err))
 		return
 	}
