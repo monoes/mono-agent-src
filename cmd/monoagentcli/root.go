@@ -20,6 +20,7 @@ import (
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type globalConfig struct {
@@ -163,6 +164,10 @@ func buildRootCmd(installProvider bool) *cobra.Command {
 
 	rejectUnknownSubcommands(cmd)
 	installProfileGate(cmd, cfg)
+
+	// A flag the parser refuses is invalid input (exit 3, code invalid_input) in every group:
+	// cobra inherits this hook for every subcommand.
+	cmd.SetFlagErrorFunc(flagErrorAsInvalidInput)
 
 	return cmd
 }
@@ -359,3 +364,12 @@ func resolveProfileID(db *sql.DB, idOrName string) (string, error) {
 type profileResolveError struct{ error }
 
 func (e profileResolveError) Unwrap() error { return e.error }
+
+// flagErrorAsInvalidInput maps a flag the parser refuses (an unknown flag, a value that does not
+// parse, a missing value) to the invalid-input exit code, keeping the parser's message.
+func flagErrorAsInvalidInput(_ *cobra.Command, err error) error {
+	if errors.Is(err, pflag.ErrHelp) {
+		return err
+	}
+	return errInvalidInput("%s", err.Error())
+}

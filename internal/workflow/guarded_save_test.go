@@ -256,7 +256,11 @@ func TestARestoreThatFailsIsReportedAsAnInconsistentFile(t *testing.T) {
 	if !errors.Is(err, ErrFileInconsistent) || !strings.Contains(err.Error(), "wf-g") {
 		t.Fatalf("commit failure, restore failure: %v", err)
 	}
-	guardedCommitFault = nil
+	guardedCommitFault, guardedRestoreFault = nil, nil
+	if _, err := h.RecoverPublications(ctx); err != nil {
+		t.Fatalf("the unfinished change is resolved once the disk is back: %v", err)
+	}
+	guardedRestoreFault = func() error { return errors.New("disk gone") }
 	// The publish fails after it already replaced the file.
 	guardedFileFault = func() error {
 		_ = os.WriteFile(filepath.Join(h.files.dir, "wf-g.json"), []byte("{}"), 0o600)

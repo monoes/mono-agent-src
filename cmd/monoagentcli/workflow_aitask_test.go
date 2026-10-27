@@ -48,7 +48,7 @@ func newFixRig(t *testing.T, active bool) *fixRig {
 			t.Fatal(err)
 		}
 	}
-	if err := store.SaveWorkflow(context.Background(), wf); err != nil {
+	if err := store.SaveWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatal(err)
 	}
 	// The user saved it themselves: approved.

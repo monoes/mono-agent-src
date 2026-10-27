@@ -2,7 +2,8 @@
 # Smoke test for `monoagentcli mcp --tasks-only` over stdio, against a throwaway
 # HOME and database: initialize, tools/list (exactly the task_* tools), the
 # mutating verbs gated by --allow-mutations, claim -> comment -> finish, a
-# non-task tool refused by name, the CLI showing what the agent did, and the
+# task session worked through the tools (dependencies, evidence, no self-verification, a session-bound
+# server held inside its session), a non-task tool refused by name, the CLI showing what the agent did, and the
 # --api-only combination refused. Never touches the real ~/.monoagent.
 #
 #   go build -tags devaccount -o /tmp/monoagentcli ./cmd/monoagentcli && scripts/tasks-mcp-smoke.sh /tmp/monoagentcli
@@ -113,6 +114,80 @@ run --profile "$prof" task agents deny >/dev/null || fail "operator: task agents
 out="$({ echo "$init"; echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; call 3 task_approve '{"ids":[1]}'; } | rpc --allow-mutations)"
 resp "$out" 2 | jq -e '[.result.tools[].name]|index("task_approve")==null' >/dev/null || fail "task_approve still listed after deny"
 resp "$out" 3 | jq -e '.result.isError==true' >/dev/null || fail "task_approve worked after deny"
+
+echo "== sessions: the operator plans and approves, agents work the session through the tools"
+# A session is created and approved only by the operator (never an MCP tool), so it is set up with the CLI.
+run --profile "$prof" --json task session new "smoke session" --goal "exercise the session tools" >"$root/s1.out" 2>"$root/s1.err" || fail "task session new: $(cat "$root/s1.out" "$root/s1.err")"
+s1="$(jq -r '.session.id' "$root/s1.out")"
+run --profile "$prof" --json task session new "other session" >"$root/s2.out" 2>"$root/s2.err" || fail "task session new (other): $(cat "$root/s2.out" "$root/s2.err")"
+s2="$(jq -r '.session.id' "$root/s2.out")"
+sess_add() { # session title [--depends-on ids]: the id of the task added to the session
+  local s="$1" t="$2"; shift 2
+  run --profile "$prof" --json task add "$t" --session "$s" --acceptance "done when $t passes" "$@" >"$root/sa.out" 2>"$root/sa.err" || fail "task add --session: $(cat "$root/sa.out" "$root/sa.err")"
+  jq -r '.task.id' "$root/sa.out"
+}
+ta="$(sess_add "$s1" "first step")"
+tb="$(sess_add "$s1" "second step" --depends-on "$ta")"
+tc="$(sess_add "$s2" "other session step")"
+run --profile "$prof" task session approve "$s1" >/dev/null || fail "task session approve $s1"
+run --profile "$prof" task session approve "$s2" >/dev/null || fail "task session approve $s2"
+personal="$inbox_id" # a task of the personal board
+
+# One long-lived server over named pipes, as above: the worker, which claims, comments, attaches and finishes.
+worker_in="$root/w_in"; worker_out="$root/w_out"; mkfifo "$worker_in"; : >"$worker_out"
+rpc --allow-mutations <"$worker_in" >"$worker_out" 2>"$root/w.err" &
+wsrv=$!
+exec 3>"$worker_in"
+outf="$worker_out"
+echo "$init" >&3; await 1
+call 2 task_session_list '{}' >&3; await 2
+call 3 task_session_get "{\"id\":$s1}" >&3; await 3
+call 4 task_next "{\"session\":$s1}" >&3; await 4
+call 5 task_claim "{\"id\":$tb,\"session\":$s1}" >&3; await 5
+call 6 task_claim "{\"id\":$tc,\"session\":$s1}" >&3; await 6
+call 7 task_claim "{\"next\":true,\"session\":$s1}" >&3; await 7
+call 8 task_next "{\"session\":$s1}" >&3; await 8
+call 9 task_comment "{\"id\":$ta,\"session\":$s1,\"text\":\"halfway\"}" >&3; await 9
+call 10 task_artifact "{\"id\":$ta,\"kind\":\"commit\",\"ref\":\"abc123\",\"note\":\"the change\"}" >&3; await 10
+call 11 task_finish "{\"id\":$ta,\"session\":$s1,\"result\":\"done\"}" >&3; await 11
+call 12 task_verify "{\"id\":$ta,\"pass\":true,\"note\":\"my own work\"}" >&3; await 12
+exec 3>&-
+wait "$wsrv" || true
+out="$(cat "$worker_out")"
+resp "$out" 2 | jq -e --argjson a "$s1" --argjson b "$s2" '.result.isError!=true and ((.result.content[0].text|fromjson|.sessions|map(.id))|index($a)!=null and index($b)!=null)' >/dev/null || fail "task_session_list: $(resp "$out" 2)"
+resp "$out" 3 | jq -e --argjson a "$ta" --argjson b "$tb" '.result.isError!=true and ((.result.content[0].text|fromjson|.tasks|map(.id))|sort)==([$a,$b]|sort)' >/dev/null || fail "task_session_get: $(resp "$out" 3)"
+resp "$out" 4 | jq -e --argjson a "$ta" '.result.isError!=true and (.result.content[0].text|fromjson|.task.id)==$a' >/dev/null || fail "task_next in the session is not the first step: $(resp "$out" 4)"
+resp "$out" 5 | jq -e '.result.isError==true' >/dev/null || fail "claimed a task that waits for its dependency: $(resp "$out" 5)"
+resp "$out" 6 | jq -e '.result.isError==true' >/dev/null || fail "claimed a task of another session through this one: $(resp "$out" 6)"
+resp "$out" 7 | jq -e --argjson a "$ta" '.result.isError!=true and (.result.content[0].text|fromjson|.task|.id==$a and .status=="in_progress")' >/dev/null || fail "task_claim next in the session: $(resp "$out" 7)"
+resp "$out" 8 | jq -e '.result.isError!=true and (.result.content[0].text|fromjson|.task)==null' >/dev/null || fail "the second step is offered before the first is done: $(resp "$out" 8)"
+resp "$out" 9 | jq -e '.result.isError!=true' >/dev/null || fail "task_comment (session): $(resp "$out" 9)"
+resp "$out" 10 | jq -e '.result.isError!=true and (.result.content[0].text|fromjson|.artifact.kind)=="commit"' >/dev/null || fail "task_artifact: $(resp "$out" 10)"
+resp "$out" 11 | jq -e '.result.isError!=true and (.result.content[0].text|fromjson|.task.status)=="review"' >/dev/null || fail "task_finish (session): $(resp "$out" 11)"
+resp "$out" 12 | jq -e '.result.isError==true and (.result.content[0].text|contains("invalid_input"))' >/dev/null || fail "the agent that finished a task verified it: $(resp "$out" 12)"
+
+echo "== a different agent verifies: a pass marks it verified, closing it stays the operator's"
+checker_init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke checker","version":"1"}}}'
+out="$({ echo "$checker_init"; call 2 task_verify "{\"id\":$ta,\"pass\":true,\"note\":\"meets the acceptance\"}"; } | rpc --allow-mutations)"
+resp "$out" 2 | jq -e '.result.isError!=true and (.result.content[0].text|fromjson|.task|.verified==true and .status=="review")' >/dev/null || fail "another agent's task_verify: $(resp "$out" 2)"
+
+echo "== a server bound to one session reaches nothing outside it"
+# MONOAGENT_TASK_SESSION is what a session worker's token carries; run() starts from a clean environment, so add it here.
+rpc_bound() { mono_guard env -i "PATH=$PATH" "MONOAGENT_DEV_ENFORCE_FROM=2999-01-01T00:00:00Z" "HOME=$home" "TMPDIR=$root/tmp" "MONOAGENT_TASK_SESSION=$s1" "$cli" --db-path "$db" mcp --tasks-only --allow-mutations; }
+out="$({ echo "$init"
+  call 2 task_session_get "{\"id\":$s1}"
+  call 3 task_session_get "{\"id\":$s2}"
+  call 4 task_claim "{\"next\":true,\"session\":$s2}"
+  call 5 task_claim "{\"id\":$tc}"
+  call 6 task_get "{\"id\":$personal}"
+  call 7 task_list '{}'
+  call 8 task_add '{"title":"on the personal board"}'
+  call 9 task_claim '{"next":true}'; } | rpc_bound)"
+resp "$out" 2 | jq -e '.result.isError!=true' >/dev/null || fail "the bound session is not served: $(resp "$out" 2)"
+for id in 3 4 5 6 7 8 9; do
+  resp "$out" "$id" | jq -e '.result.isError==true' >/dev/null || fail "a server bound to session $s1 reached outside it (request $id): $(resp "$out" "$id")"
+done
+run --profile "$prof" --json task show "$tc" | jq -e '.task.status=="ready"' >/dev/null || fail "the other session's task moved"
 
 echo "== --tasks-only with --api-only is refused"
 if run mcp --tasks-only --api-only </dev/null >/dev/null 2>"$root/err"; then fail "--tasks-only --api-only started"; fi

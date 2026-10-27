@@ -1637,7 +1637,11 @@ that works a task acts on them. The defences:
   `max_depth`, `max_retries`), the access level, `auto_close_verified`,
   archiving a session, recording spend and removing a dependency are the
   operator's: the store refuses any other actor, and the CLI refuses an
-  agent-driven caller with `operator_only`. Inside a running session an agent may
+  agent-driven caller with `operator_only`. An agent may link a session only to
+  its own chat: the store compares the conversation with the one the caller
+  carries, which only trusted code sets (the CLI takes it from a verified
+  coder-session token, never from an environment label); without one, an agent
+  starts sessions with no chat link. Inside a running session an agent may
   claim, comment, finish, add follow-ups (bounded by `max_tasks` and the
   budget, with no separate cap), split a task that has not begun, add
   dependencies (a cycle is refused), attach artifacts and verify; it may pause
@@ -1688,9 +1692,9 @@ that works a task acts on them. The defences:
   artifact reference is a string the agent wrote and is not validated, and the files a
   task declares come from notes the planner wrote, so the rule makes skipping evidence
   a visible refusal and is not proof that the work exists. When a mission's tasks are all
-  done or verified, `mission_finish` closes the session as done in the operator's process
-  (as the spend record is): the agent cannot close it while a task is open, blocked or
-  failing, or a writer branch is unmerged.
+  done or verified, `mission_finish` only proposes the close (it attaches the final report and
+  emits `mission.report`); the session stays running and only the operator closes it
+  (`session close`, which refuses an agent). No code path of the conductor closes a session.
   **A mission's confirmation** (the person's "run this send as a mission") is a record,
   not a flag: the coder host's chat children inherit the host's environment and are
   reparented, so they look like the operator to environment and ancestry checks, and
@@ -1702,22 +1706,46 @@ that works a task acts on them. The defences:
   under a reserved config prefix that only the operator writes, deletes or reads, is single
   use, and is revoked when its command is cancelled, expires, fails or is deleted with its
   conversation. A send marked as a mission never runs plain: without a live record it
-  fails. The token reaches the child in its environment; the binary moves it out of
-  its own (Go) environment before it starts any process of its own, so nothing the child
-  starts inherits it. That does not erase the environment block the process was given at
-  start: on Linux `/proc/<pid>/environ` and on macOS `ps eww` still show the token to a
-  process of the same user until the child exits. What bounds this is that the token is
-  single use and is dead once the child has consumed the record, early in the turn; the
-  window is from the host's start of the child until that point. The limit of the MAC: the same user with keychain
+  fails. The record also names the mission state it was confirmed in; both the host (before
+  it starts the turn) and the chat child re-check it against the conversation's current
+  state, and a mismatch fails the send instead of starting it. The token reaches the child
+  over an inherited pipe, not in its environment or arguments: the host writes it to a fresh pipe, closes the write end and
+  passes the read end; the child checks that the descriptor is a pipe, reads at most a few
+  hundred bytes once, with a deadline, closes it before it starts any process of its own,
+  and refuses anything malformed. A value in a process environment can be read by other
+  processes of the same user until the process exits; with a pipe the value is exposed only
+  for the moment between the host's write and the child's first read, and nothing is left to
+  read afterwards. The session token, which stays in the turn's environment, is unchanged. Only the descriptor's number, which is not secret, is in the
+  environment. On Windows the same pipe is passed as an inherited handle. The token is also
+  single use and is dead once the child has consumed the record, early in the turn. The limit of the MAC: the same user with keychain
   access (the key comes out of the OS keychain, or the file keyring that stands in for
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **A setting that changes what agents may do must be changed by the operator only:**
+  the configuration rows that gate approvals, permissions or sandboxing, or that decide
+  what runs unattended, are written and deleted only by the operator's own terminal, and
+  the single-use ones are read only there as well; `config set` and `config delete` refuse
+  anything else with the operator-only exit code. The two newest reserved rows,
+  `memory.runs` and `workflow.error_workflow`, are not hidden from reads: any caller may
+  see them. Of the writers, only `Database.SaveConfig` (and the config store built on it)
+  refuses a reserved row from a caller that is not the operator. The few raw SQL writers
+  (the sandbox fallback, browser permissions and site rules, the coder settings and project
+  map, `config set`, the coder host's confirmations) are protected only by their own
+  commands' operator checks, and a test fails when a file starts touching the configs
+  table without being listed and justified, or holds more statements than its entry
+  allows. Plain preferences and the selector rows an automation resolves stay open to
+  every caller. A workflow's own `error_workflow` setting is part of its definition, so
+  saving or editing it by anyone but the operator leaves the definition unapproved; an
+  unapproved definition's own setting is ignored (only the reserved default applies), so an
+  agent-written workflow cannot start an approved error workflow as the operator's run. The
+  check reads marks, not identity: a process that deliberately hides its marks, or edits
+  the database file, is not stopped, as with the other operator-only commands.
 - **The operator-only commands refuse an agent-driven caller:** `board`
   (it shows the Inbox) and `approve` (both unless delegated, see above),
   `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow`,
-  `agents deny`, `session approve`, `session resume`, `session archive`,
-  `session budget` and `undepend`. A caller is agent-driven when an
+  `agents deny`, `session approve`, `session resume`, `session close`,
+  `session archive`, `session budget` and `undepend`. A caller is agent-driven when an
   agent-context environment variable is set (the markers org signing
   already uses, `CLAUDECODE` among them), or `--as` is given, or
   `MONOAGENT_ACTOR` is set. This stops an agent acting by accident or on
@@ -1751,6 +1779,73 @@ that works a task acts on them. The defences:
   capture's.
 - **Tasks from the Chrome extension.** The extension adds tasks through the bridge it already uses (loopback, paired token): one request method, `task.add`, which only adds to the Inbox of a profile that exists, as the browser capture `chrome`, whatever the environment of the process that hosts the bridge; a task the side-panel chat proposed and the person added with its card's button (kind `chat`) is filed as the agent `agent:extension-chat` instead, still Inbox only. The page address sent with a task loses its user-info, fragment and session-token parameters in the extension, and MonoAgent checks it again; a tab title that is only that address is not sent either. A selection carries what `getSelection()` reads: text hidden with `display:none` is left out, text hidden by colour, size or position is not. Both are why the operator reads a captured task before approving it. The floating selection panel that carries the task button lives in a closed shadow root and ignores events with `isTrusted` false, so a page cannot find or press it; a page can still move or cover its host and bait a real click, which files an Inbox task with text the page chose.
 - **No HTTP route and no new port.** The task board does not listen on the network.
+
+## Persistent coder sessions (coder host)
+
+A coder conversation can be carried on by the **coder host**, a detached process per database
+(`coder host`, `coder sessions`; AGENTS.md, "Persistent coder sessions"). Since this feature a coder session, a
+mission and a master's child sessions run **unattended**: nobody has to be at the app, and a turn is started by
+the host. This section lists what that adds and what bounds it. It is a same-user design: it keeps a model, an
+injected text and a confused script inside the rules; it is not a sandbox against a process of the same user.
+
+- **Unattended is visible and is not a grant.** The pane shows `Unattended: on · <access>` for every session. A
+  session runs at the access level of its conversation and the host never grants or raises access: starting a
+  `full` conversation keeps its own operator acknowledgement, a child is at most its master's access capped at
+  `workspace` (never `full` by spawn; an operator raises it), and the `coder set` caps still apply. The send gate
+  (human approval of an agent's sends), access levels, budgets and the operator-only settings are enforced in
+  code by the host and the stores, not by a prompt; no preset of the autonomy policy changes them.
+- **Who may steer a session.** `sessions send|stop|pause|resume`, `settings set`, `questions answer`,
+  `decisions revert`, `host run|stop` and mission confirmation are operator-only: they refuse an agent-driven
+  caller (the same guard as the task board, with the same limit: a process that scrubs its own environment is
+  treated as the operator). `sessions list`, `settings get` and `command` need a session token (they then show
+  the caller's own tree only) or the operator.
+- **Session tokens.** The host mints a token for each turn (`MONOAGENT_SESSION_TOKEN`). It names profile,
+  conversation and turn, is valid only while that turn is the session's current one (24 hours at most), is stored
+  as a hash and signed under a key derived from the profile's vault key, and counts only from the turn's process or
+  a descendant of it (Linux; elsewhere the signature and the turn only). With a token the master verbs
+  (`sessions send|stop|pause|resume|spawn|status`, `settings set`, the MCP tools `session_*`) act **only on
+  descendants**, checked in the database; a peer, an ancestor, the session itself or an unrelated session is
+  refused, and a bad token is a refusal, never a fall-back to the operator path. A token can change only the
+  settings on the `AgentAdjustable` allowlist; limits, autonomy, `mesh_accept`, role, access, unattended and the
+  budget stay the operator's. A tool that daemonises or runs in another pid namespace is outside the tree and is
+  refused. The limit: a process of the same user can read the database and the keychain and mint what it likes.
+- **Mission confirmation is never made by the host.** A mission starts only from a record the operator wrote
+  (see Task board, "A mission's confirmation"). A turn the host makes by itself (`checkin-`, `answer-`, a
+  master's `master-` and any later prefix) can carry no mission mark: the store refuses a mission send with a
+  host-made turn id or with an issuer, and a master's message is tagged with the master as issuer. A check-in, a
+  parked-question answer, a default taken after its timeout and a mission progress line in a digest cannot
+  approve a plan, close a task, resume a session or confirm a mission: the digest holds only the host's own
+  records (ids, state words, counts), never a session's title, goal or a task's text.
+- **Budget caps.** A child's `--budget-usd` is carved out of its master's cap; a capped master must give a
+  positive amount that fits what is left (budget less spent less carved). Each turn of a capped session runs under
+  what it has left as a ceiling for that turn. A runtime that cannot enforce a cap (kilo) is refused for a capped
+  session. Raising any budget is operator-only. Documented slack: the running turn's own cap is not reserved, so a
+  capped master's turn can spend its cap and carve to its children in the same turn (up to about twice the
+  budget per master turn; chains do not compound).
+- **Spawn and run limits.** Depth 2, `max_children` per master, 6 spawns per 10 minutes
+  per master, 5 pending slots per child shared by everything a master queues except a stop (sends, pause,
+  resume) and 2 master stops apart, queued sends that expire (6 hours; a master's sends, not its pause or resume,
+  after 15 minutes), 50 waiting sends and 50 waiting control commands per conversation. `max_concurrent` (default 2) caps the children of one master that run a turn at once (only turns this host started are counted); further sends wait (in order within a chat; across chats the freed slot goes to the master's oldest waiting send), and a held send can expire like any other (15 minutes for a master's, 6 hours for others including `answer-d-` notes) and then fails with the expiry reason.
+- **Check-ins and the streak.** After `checkin_limit` (default 48) host-made turns (`checkin-`, `answer-`,
+  `master-`) in a row with no message from a person, a session waits for one. A new path that starts turns
+  without a person must use its own prefix and be counted, or it would reset the limit.
+- **Autonomy decides who answers a gap, nothing more.** `risky_action` and `missing_credential` are never
+  answered by the model and never take a default. A model-made decision is written to the decisions ledger as the
+  model's. The producer tools (`session_park`, `session_record`, `sessions park|record`) take the caller from the
+  verified session token (no session argument), validate the class, refuse a hard class as reversible or as a
+  recorded model decision, and consult the policy: a park the policy leaves to the model and a record the policy
+  leaves to a master or the user are refused. They start no turn and carry no approval. The `reversible` flag is the
+  model's claim and is shown as such in the ledger. A model's ledger rows rotate only among its own and `record` is limited to 20 an hour per session. A master answers
+  its direct child's question under its own token (`session_answer`); every question that is not its direct child's
+  (including one of a deeper descendant) is refused with one text. Reading questions and decisions needs the operator
+  or a session token, is limited to the caller's subtree, and returns model-written text cleaned.
+- **Mesh text is data.** What other agents send to a session over monomind's mesh is sealed as untrusted peer
+  content in front of its next turn; it starts no turn and carries no authority. The mesh name is not a trust
+  anchor and `mesh_accept` (`none`, `subtree` or `project`; default `subtree`) limits who is heard.
+- **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
+  of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
+  child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder
+  sessions").
 
 ## OpenAI-compatible API surface
 

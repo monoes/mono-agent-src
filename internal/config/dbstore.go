@@ -47,5 +47,5 @@ func (s *DBConfigStore) SaveConfig(name string, configData string) error {
 
 // reservedConfigError refuses a write of reserved setting name here.
 func reservedConfigError(name string) error {
-	return fmt.Errorf("config %q is a reserved setting (it gates approvals, permissions or sandboxing): only the operator writes it, with `monoagentcli config set` or the command made for it in their own terminal", strings.TrimSpace(name))
+	return fmt.Errorf("config %q is a reserved setting (it changes what agents may do or what runs unattended): only the operator writes it, with `monoagentcli config set` or the command made for it in their own terminal", strings.TrimSpace(name))
 }

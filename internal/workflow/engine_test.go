@@ -50,10 +50,13 @@ func TestCheckWorkflowProfile(t *testing.T) {
 // newFullEngineStore opens a SQLiteWorkflowStore over a temp-file DB with
 // every table the engine's execution path touches. A file (not :memory:)
 // because queue workers run on other goroutines and each pooled :memory:
-// connection would be its own database.
+// connection would be its own database. It uses synchronous(NORMAL) like
+// storage.NewDatabase: SQLite's default (FULL) fsyncs the WAL on every
+// commit, and on a busy disk one node-finish UPDATE then took seconds,
+// which made the 30 s window of TestEngine_LongRunFinalStatusPersisted flaky.
 func newFullEngineStore(t *testing.T) *SQLiteWorkflowStore {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "engine.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "engine.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

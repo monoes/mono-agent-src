@@ -37,7 +37,8 @@ workflow_status, node_list, node_schema, hil_list, vault_item_list,
 vault_item_get_path, profile_document_search, secret_list, person_list,
 person_get, message_list, message_get, social_list_list, template_list,
 org_list, org_get, org_validate, api_key_list, api_models_list, api_status,
-api_config_get, task_list, task_get, task_next, task_session_list, task_session_get, docs.
+api_config_get, task_list, task_get, task_next, task_session_list, task_session_get,
+session_list, session_status (a coder turn's session token only), docs.
 
 Mutating tools (workflow_run, workflow_create/delete/set_active/node_add,
 hil_approve, hil_reject, secret_add/update/delete, person_upsert/delete,
@@ -45,7 +46,9 @@ org_create and every org_role_*/org_reload tool, api_key_create/update/revoke,
 which change none of the OpenAI-compatible API's keys (below), api_config_set and
 api_config_apply, which save its server's settings and restart the daemon that
 reads them, api_auto_set, which switches its auto model on or off, and
-task_claim/comment/finish/release/add/split/verify/artifact, which work the user's task board) are only
+task_claim/comment/finish/release/add/split/verify/artifact, which work the user's task board, and
+session_spawn/send/pause/resume/stop/set/answer, which a master coder session uses on its child sessions, and session_park/record, which a coder session uses on its own autonomy state, and which
+refuse unless the process holds the session token of a coder turn) are only
 exposed with --allow-mutations or MONOAGENT_MCP_ALLOW_MUTATIONS=1 — without it they are
 omitted from tools/list and refuse with an explanatory error if called by
 name. This includes workflow_run/hil_approve/hil_reject, which were exposed

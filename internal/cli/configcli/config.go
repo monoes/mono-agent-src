@@ -228,12 +228,12 @@ func (d Deps) newConfigDeleteCmd() *cobra.Command {
 const hiddenValue = "(hidden: operator only)"
 
 // guardReserved refuses verb on a reserved row (operator.ReservedConfig: it
-// gates approvals, permissions or sandboxing) to whatever is not the
+// changes what agents may do or what runs unattended) to whatever is not the
 // operator's own terminal; any other row is anyone's.
 func (d Deps) guardReserved(verb, name string) error {
 	if !operator.ReservedConfig(name) {
 		return nil
 	}
-	what := fmt.Sprintf("%s config %s, which gates approvals, permissions or sandboxing", verb, name)
+	what := fmt.Sprintf("%s config %s, which changes what agents may do or what runs unattended", verb, name)
 	return clicore.RequireOperator(d.RequireOperator, what)
 }

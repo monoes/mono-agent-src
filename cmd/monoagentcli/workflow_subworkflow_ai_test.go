@@ -44,7 +44,7 @@ func TestAnUnapprovedWorkflowsSubWorkflowIsAnAIRun(t *testing.T) {
 	t.Setenv(browserctl.EnvAICaller, "chat") // the chat builds the caller
 	parent := build("calls", [2]string{"trigger.manual", `{}`},
 		[2]string{"core.execute_workflow", `{"workflowId":"` + child + `"}`})
-	runWorkflowSubcmd(t, cfg, "activate", parent)
+	activateUnapprovedForTest(t, cfg, parent)
 	t.Setenv(browserctl.EnvAICaller, "")
 
 	published := func() int {

@@ -142,7 +142,7 @@ func TestReadEndpointReturnsRealData(t *testing.T) {
 			{ID: "t", Type: "trigger.manual", Name: "Trigger"},
 		},
 	}
-	if err := s.rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := s.rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatalf("seed workflow: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestMutatingEndpointUnreachableWithoutOptIn(t *testing.T) {
 		ID:        "wf-no-mutate", Name: "x", IsActive: true,
 		Nodes: []workflow.WorkflowNode{{ID: "t", Type: "trigger.manual", Name: "Trigger"}},
 	}
-	if err := s.rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := s.rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatalf("seed workflow: %v", err)
 	}
 
@@ -233,7 +233,7 @@ func TestMutatingEndpointReachableWithOptIn(t *testing.T) {
 			{ID: "t", Type: "trigger.manual", Name: "Trigger"},
 		},
 	}
-	if err := s.rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := s.rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatalf("seed workflow: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestWorkflowMutationProfileIsolation(t *testing.T) {
 						active := action != "activate"
 						wf := &workflow.Workflow{ID: id, Name: id, ProfileID: owner, IsActive: active,
 							Nodes: []workflow.WorkflowNode{{ID: "t", Type: "trigger.manual", Name: "Trigger"}}}
-						if err := s.rt.store.CreateWorkflow(ctx, wf); err != nil {
+						if err := s.rt.store.CreateWorkflow(workflow.WithApproval(ctx), wf); err != nil {
 							t.Fatal(err)
 						}
 						foreign := owner != apiProfile

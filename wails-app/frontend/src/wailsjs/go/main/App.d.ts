@@ -800,6 +800,8 @@ export function TaskSessionBoard(arg1:number,arg2:number):Promise<string>;
 
 export function TaskSessionBudget(arg1:number,arg2:string):Promise<string>;
 
+export function TaskSessionClose(arg1:number,arg2:string):Promise<string>;
+
 export function TaskSessionPause(arg1:number):Promise<string>;
 
 export function TaskSessionPlan(arg1:number):Promise<string>;

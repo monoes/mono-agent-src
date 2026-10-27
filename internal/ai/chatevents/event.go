@@ -441,9 +441,9 @@ type MissionPlanPayload struct {
 }
 
 // MissionReportPayload is mission.report's payload: the final report of a mission
-// whose tasks are all verified or done, emitted once when the session is closed as
-// done. Report is the full text (markdown), also attached to the integration task as
-// a report artifact.
+// whose tasks are all verified or done, emitted once when the lead proposes the close
+// (the session stays running until the operator closes it). Report is the full text
+// (markdown), also attached to the integration task as a report artifact.
 type MissionReportPayload struct {
 	SessionID int64  `json:"sessionId"`
 	Title     string `json:"title"`
@@ -459,4 +459,6 @@ type MissionReportPayload struct {
 	SpentUSD  float64 `json:"spentUsd"`
 	BudgetUSD float64 `json:"budgetUsd"`
 	Report    string  `json:"report"`
+	// CloseProposed says the mission is ready and waits for the operator to close it.
+	CloseProposed bool `json:"closeProposed"`
 }

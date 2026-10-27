@@ -34,8 +34,8 @@ export function actionsFor(s) {
   if (s.archived) return []
   switch (s.state) {
     case 'draft': return ['approve', 'stop', 'archive', 'budget']
-    case 'running': return ['pause', 'stop', 'budget']
-    case 'paused': return ['resume', 'stop', 'budget']
+    case 'running': return ['pause', 'close', 'stop', 'budget']
+    case 'paused': return ['resume', 'close', 'stop', 'budget']
     default: return ['archive', 'budget'] // done, stopped, failed
   }
 }

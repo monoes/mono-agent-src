@@ -373,11 +373,16 @@ func (s *Server) handleWorkflowDeactivate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := engine.DeactivateWorkflow(ctx, id); err != nil {
+	note, err := engine.DeactivateWorkflowNoted(ctx, id)
+	if err != nil {
 		writeErrorFor(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "status": "deactivated"})
+	out := map[string]interface{}{"id": id, "status": "deactivated"}
+	if note != "" {
+		out["note"] = note // the file was left as it is: the caller must not report plain success
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ── body helpers ─────────────────────────────────────────────────────────

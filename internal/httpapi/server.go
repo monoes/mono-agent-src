@@ -379,6 +379,10 @@ func statusForError(err error) int {
 	switch {
 	case errors.Is(err, workflow.ErrWorkflowNotFound), errors.Is(err, workflow.ErrExecutionNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, workflow.ErrApprovalRequired):
+		return http.StatusForbidden
+	case errors.Is(err, workflow.ErrChangedSincePreview):
+		return http.StatusConflict
 	case errors.Is(err, workflow.ErrNoTriggerNode),
 		errors.Is(err, workflow.ErrCycleDetected),
 		errors.Is(err, workflow.ErrNodeTypeUnknown),

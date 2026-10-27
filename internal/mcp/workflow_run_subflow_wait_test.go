@@ -87,6 +87,7 @@ func TestWorkflowRunToolWaitsThroughASubWorkflowWhenAsked(t *testing.T) {
 		},
 		"connections": []map[string]interface{}{{"id": "c1", "source_node_id": "t", "source_handle": "main", "target_node_id": "c", "target_handle": "main"}},
 	}}, &child)
+	activateForTest(t, s, child.ID)
 	callInto(t, s, "workflow_save", map[string]interface{}{"workflow": map[string]interface{}{
 		"name": "caller", "is_active": true,
 		"nodes": []map[string]interface{}{
@@ -95,6 +96,7 @@ func TestWorkflowRunToolWaitsThroughASubWorkflowWhenAsked(t *testing.T) {
 		},
 		"connections": []map[string]interface{}{{"id": "c1", "source_node_id": "t", "source_handle": "main", "target_node_id": "x", "target_handle": "main"}},
 	}}, &parent)
+	activateForTest(t, s, parent.ID)
 
 	type result struct {
 		Status   string `json:"status"`

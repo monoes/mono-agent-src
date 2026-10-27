@@ -277,7 +277,7 @@ func (e *WorkflowEngine) reregisterTriggers(ctx context.Context) error {
 			}
 			continue
 		}
-		if full == nil {
+		if full == nil || !full.IsActive {
 			continue
 		}
 		if err := e.triggerMgr.ActivateWorkflow(ctx, full); err != nil {

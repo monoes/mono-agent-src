@@ -1,0 +1,32 @@
+name: Workflow crash tests
+
+on:
+  pull_request:
+    paths:
+      - 'internal/workflow/**'
+      - 'internal/storage/**'
+  schedule:
+    - cron: '23 3 * * *'
+
+# Supersede older PR runs; keep scheduled runs independent.
+concurrency:
+  group: wfcrash-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  wfcrash:
+    name: Workflow crash recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: -p=1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Test crash recovery
+        run: go test -tags wfcrash -count=1 -timeout 15m ./internal/workflow ./internal/storage

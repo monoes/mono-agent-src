@@ -1,12 +1,14 @@
 package org
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
@@ -65,44 +67,60 @@ func TestOrgSummaryNoOrgs(t *testing.T) {
 // The per-org budget holds even when monomind runs behind a wrapper whose
 // child keeps stdout open past the kill (e.g. an npm .cmd shim).
 func TestOrgSummaryNeedsYouTimeoutHolds(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	bin := filepath.Join(t.TempDir(), "monomind")
-	script := "#!/bin/sh\ncase \"$*\" in\n  *--version*) echo '{\"v\":1,\"version\":\"9.9.9\",\"capabilities\":[\"agent-exec\",\"agent-scan\",\"org-json-v1\"]}' ;;\n  *) sleep 6; echo '[]' ;;\nesac\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MONOMIND_BIN", bin)
-	old := perOrgNeedsYouTimeout
-	perOrgNeedsYouTimeout = time.Second
-	t.Cleanup(func() { perOrgNeedsYouTimeout = old })
-
+	t.Setenv("HOME", t.TempDir())
 	env := testEnv(&testConfig{DBPath: filepath.Join(t.TempDir(), "o.db"), ProfileID: "default"})
+	defer env.Close()
 	root := env.root()
 	writeOrgFile(t, root, "acme.json", `{"name":"acme"}`)
-	cmd := newOrgSummaryCmd(env)
-	var runErr error
-	start := time.Now()
-	out := captureStdout(t, func() { runErr = cmd.Execute() })
-	env.Close()
-	if runErr != nil {
-		t.Fatal(runErr)
-	}
-	if took := time.Since(start); took > 4*time.Second {
-		t.Fatalf("org summary took %v with a 1s per-org budget", took)
-	}
-	var m struct {
-		Orgs []struct {
-			NeedsYou      *int   `json:"needs_you"`
-			NeedsYouError string `json:"needs_you_error"`
-		} `json:"orgs"`
-	}
-	if err := json.Unmarshal([]byte(out), &m); err != nil || len(m.Orgs) != 1 {
-		t.Fatalf("out = %s (%v)", out, err)
-	}
-	if m.Orgs[0].NeedsYou != nil || !strings.Contains(m.Orgs[0].NeedsYouError, "timed out") {
-		t.Fatalf("want a timeout error, got %+v", m.Orgs[0])
-	}
+
+	old := summaryNeedsYou
+	defer func() { summaryNeedsYou = old }()
+	synctest.Test(t, func(t *testing.T) {
+		started := make(chan context.Context, 1)
+		release := make(chan struct{})
+		finished := make(chan struct{})
+		summaryNeedsYou = func(_ *orgEnv, ctx context.Context, _ *storage.Database, _, _, _ string) ([]map[string]interface{}, error) {
+			defer close(finished)
+			started <- ctx
+			// Model a grandchild holding stdout open: cancellation alone does not
+			// release the worker. Only the test, after summary returns, releases it.
+			<-release
+			return nil, nil
+		}
+		defer func() { close(release); <-finished }()
+
+		cmd := newOrgSummaryCmd(env)
+		var runErr error
+		start := time.Now()
+		out := captureStdout(t, func() { runErr = cmd.Execute() })
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+		workerCtx := <-started
+		if workerCtx.Err() != context.DeadlineExceeded {
+			t.Fatalf("worker context = %v, want deadline exceeded", workerCtx.Err())
+		}
+		if elapsed := time.Since(start); elapsed != perOrgNeedsYouTimeout {
+			t.Fatalf("summary returned at virtual time %v, want %v", elapsed, perOrgNeedsYouTimeout)
+		}
+		select {
+		case <-finished:
+			t.Fatal("worker finished before it was released")
+		default:
+		}
+		var m struct {
+			Orgs []struct {
+				NeedsYou      *int   `json:"needs_you"`
+				NeedsYouError string `json:"needs_you_error"`
+			} `json:"orgs"`
+		}
+		if err := json.Unmarshal([]byte(out), &m); err != nil || len(m.Orgs) != 1 {
+			t.Fatalf("out = %s (%v)", out, err)
+		}
+		if m.Orgs[0].NeedsYou != nil || m.Orgs[0].NeedsYouError != "timed out after "+perOrgNeedsYouTimeout.String() {
+			t.Fatalf("want a timeout error, got %+v", m.Orgs[0])
+		}
+	})
 }
 
 func TestOrgSummaryAllProfiles(t *testing.T) {

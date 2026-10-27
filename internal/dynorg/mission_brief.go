@@ -78,10 +78,10 @@ func writeDependency(b *strings.Builder, f *fence, d tasks.SessionTaskDetail) {
 	b.WriteString("\n")
 }
 
-// lastResult is the report of a task: its newest report artifact, else its newest result event.
+// lastResult is the report of a task: its newest report artifact (not the mission's own final report), else its newest result event.
 func lastResult(d tasks.SessionTaskDetail) string {
 	for i := len(d.Artifacts) - 1; i >= 0; i-- {
-		if d.Artifacts[i].Kind == "report" && strings.TrimSpace(d.Artifacts[i].Note) != "" {
+		if d.Artifacts[i].Kind == "report" && d.Artifacts[i].Ref != tasks.FinalReportRef && strings.TrimSpace(d.Artifacts[i].Note) != "" {
 			return d.Artifacts[i].Note
 		}
 	}

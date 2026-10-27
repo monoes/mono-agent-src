@@ -19,7 +19,7 @@ func TestWorkflowRunInputCantPlantTheEnginesMarks(t *testing.T) {
 	ctx := context.Background()
 	wf := &workflow.Workflow{ProfileID: "default", ID: "wf-in", Name: "in", IsActive: true,
 		Nodes: []workflow.WorkflowNode{{ID: "t", Type: "trigger.manual", Name: "Start"}}}
-	if err := rt.store.CreateWorkflow(ctx, wf); err != nil {
+	if err := rt.store.CreateWorkflow(workflow.WithApproval(ctx), wf); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := callToolDefault(ctx, s, "workflow_run", json.RawMessage(

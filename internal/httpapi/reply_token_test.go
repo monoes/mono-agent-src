@@ -30,7 +30,7 @@ func TestRoutesHideReplyTokensInRunData(t *testing.T) {
 			{SourceNodeID: "s", SourceHandle: "main", TargetNodeID: "w", TargetHandle: "main"},
 			{SourceNodeID: "w", SourceHandle: "main", TargetNodeID: "m", TargetHandle: "main"},
 		}}
-	if err := s.rt.store.CreateWorkflow(context.Background(), wf); err != nil {
+	if err := s.rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest("POST", "/profiles/default/workflows/wf-resume/run", nil)

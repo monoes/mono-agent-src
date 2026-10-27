@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -149,6 +150,7 @@ func (g *gateExec) exec(ctx context.Context, o monomind.ExecOptions, on func(mon
 // missionRig is a conductor over a real task store (a database of its own).
 type missionRig struct {
 	t     *testing.T
+	db    *sql.DB
 	store *tasks.Store
 	clk   *missionClock
 	ex    *gateExec
@@ -170,7 +172,7 @@ type rigOpts struct {
 func newRig(t *testing.T, o rigOpts) *missionRig {
 	t.Helper()
 	db := openMissionDB(t)
-	r := &missionRig{t: t, store: tasks.NewStore(db), clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
+	r := &missionRig{t: t, db: db, store: tasks.NewStore(db), clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
 	r.store.SetClock(r.clk.now)
 	se, err := r.store.CreateSession(tbg, "default", tasks.SessionInput{Title: "mission", Goal: "ship the feature", BudgetUSD: o.budget, ConversationID: o.conv}, operator)
 	if err != nil {
