@@ -3,6 +3,7 @@ package dynorg
 import (
 	"github.com/monoes/mono-agent/internal/tasks"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,6 +51,17 @@ func TestFinalReviewerLazyFetchCannotRunAnAgentTransport(t *testing.T) {
 	}
 	object := filepath.Join(repo, ".git", "objects", blob[:2], blob[2:])
 	if err := os.Rename(object, filepath.Join(t.TempDir(), "held-blob")); err != nil {
+		t.Fatal(err)
+	}
+	// positive control: plain git, with the same repository, runs the helper; without this the
+	// assertion below could pass because git never tried to fetch
+	plain := exec.Command("git", "-C", repo, "worktree", "add", "--detach", filepath.Join(t.TempDir(), "control"), "HEAD")
+	plain.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1"}
+	_ = plain.Run()
+	if _, err := os.Stat(marker); err != nil {
+		t.Skip("this git does not run the helper with plain settings; nothing to prove")
+	}
+	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
 	_, err := gitRun(tbg, repo, "worktree", "add", "--detach", filepath.Join(t.TempDir(), "checkout"), "HEAD")

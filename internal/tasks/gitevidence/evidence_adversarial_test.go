@@ -180,3 +180,22 @@ func TestUnreadableBaseRefusesWhateverTheFolderLooksLikeLater(t *testing.T) {
 		}
 	}
 }
+
+// A branch whose last commit reverts the declared file touches it in its own diff, yet changes
+// nothing net: the union of touched names would pass it, the net change against the start does not.
+func TestRevertingCommitOnABranchIsNotEvidence(t *testing.T) {
+	dir, _, _, start := repoWith(t)
+	run(t, dir, "checkout", "-q", "-b", "monoagent/turn/worker")
+	write(t, dir, "p/p.go", "package p // change")
+	run(t, dir, "add", "-A")
+	run(t, dir, "commit", "-q", "-m", "change")
+	run(t, dir, "revert", "--no-edit", "HEAD")
+	tip := run(t, dir, "rev-parse", "HEAD")
+	run(t, dir, "checkout", "-q", "main")
+	if got := run(t, dir, "diff", "--name-only", start, tip); got != "" {
+		t.Fatalf("the branch must have no net change: %q", got)
+	}
+	if err := Checker("")(bg, scoped(dir, start, tip, "p/p.go")); err == nil {
+		t.Fatal("a branch that reverts its own change to the declared file passed")
+	}
+}
