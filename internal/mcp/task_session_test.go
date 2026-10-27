@@ -90,6 +90,8 @@ func TestTaskSessionReadToolsShowThePlanAndKeepTextUntrusted(t *testing.T) {
 }
 
 func TestTaskSessionLoopThroughTheTools(t *testing.T) {
+	// Placeholder commit references stay accepted outside a git work tree (the evidence checker reads the cwd).
+	t.Chdir(t.TempDir())
 	f := newTaskFixture(t, taskSetup{})
 	checker := f.server(taskSetup{}, "checker")
 	call := func(s *Server, name string, args map[string]any) map[string]any {

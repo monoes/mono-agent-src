@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/gitsafe"
 )
 
 // The git and file-system helpers of isolated writers (worktree.go): the
@@ -140,35 +142,22 @@ func withIdentity(ctx context.Context, dir string, args ...string) []string {
 	return append(pre, args...)
 }
 
-// gitEnvDrop are variables that would point git somewhere other than the
-// folder it is run in.
-var gitEnvDrop = []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_NAMESPACE"}
-
-// gitEnv is the environment git runs with: this process's, without what
-// would redirect it, and never prompting.
+// gitEnv is the environment git runs with: this process's, without what would redirect it
+// or make it run a program (internal/gitsafe), and never prompting.
 func gitEnv() []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		k, _, _ := strings.Cut(kv, "=")
-		drop := false
-		for _, d := range gitEnvDrop {
-			if strings.EqualFold(k, d) {
-				drop = true
-				break
-			}
-		}
-		if !drop {
-			env = append(env, kv)
-		}
-	}
-	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C")
+	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C")
 }
 
-// gitRun runs git in dir and returns its stdout; an error carries stderr.
+// gitRun runs git in dir and returns its stdout; an error carries stderr. The folders it runs
+// in share a repository configuration an agent can write, so the settings that name a program
+// (file system monitor, hooks, pager, editor, signature verifier, ssh) are pinned to inert
+// values for every call (gitsafe.Args); a user's hooks and signing therefore do not apply to
+// the scheduler's own checkpoint and merge commits. Content filters and merge drivers are
+// not covered: git has no switch for them.
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, gitsafe.Args()...), args...)...)
 	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

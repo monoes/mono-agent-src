@@ -176,7 +176,11 @@ func (c *Conductor) missionStarted(b *missionBind, label string) {
 		c.msched.starts[b.task.ID]++
 	}
 	c.msched.mu.Unlock()
-	_, _ = mc.Store.SetAssignee(context.WithoutCancel(c.ctx), mc.ProfileID, b.session, b.task.ID, label, b.actor)
+	ctx := context.WithoutCancel(c.ctx)
+	_, _ = mc.Store.SetAssignee(ctx, mc.ProfileID, b.session, b.task.ID, label, b.actor)
+	if !b.verifier {
+		c.recordBase(ctx, mc, b)
+	}
 }
 
 // releaseClaim gives a task held under name back to Ready (the retry count is untouched).
