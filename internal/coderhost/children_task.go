@@ -41,6 +41,9 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 	c := l.Caller
 	// A lead that is itself a child (or a solo session) cannot have children: refused before anything is reserved.
 	if _, err := s.mayHaveChildren(c); err != nil {
+		if errors.Is(err, ErrLimit) {
+			err = fmt.Errorf("%w: %w", ErrChildrenFull, err) // no level left: the task waits
+		}
 		return Spawned{}, err
 	}
 	row, err := s.Reserve(sc, profileID, sessionID, taskID)
@@ -69,24 +72,24 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 	return out, nil
 }
 
-// abandonSpawn undoes a failed spawn: the conversation, if one was made, is deleted, and the reservation is
-// released. A refusal before anything was made (a limit, the lead's access) returns the task to marked and does
+// abandonSpawn undoes a failed spawn: the reservation is released first (so the row reads as the attempt that failed,
+// not as a deleted conversation), then the conversation, if one was made, is deleted. A refusal before anything was made (a limit, the lead's access) returns the task to marked and does
 // not count as an attempt; any other failure fails the attempt. It returns cause, with any cleanup error added.
 func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64, conv string, cause error) error {
 	var extra []error
+	refused := conv == "" && (errors.Is(cause, ErrLimit) || errors.Is(cause, ErrAccess) || errors.Is(cause, ErrInvalid) || errors.Is(cause, ErrNotYours))
+	if refused && errors.Is(cause, ErrLimit) && !errors.Is(cause, ErrChildrenFull) {
+		cause = fmt.Errorf("%w: %w", ErrChildrenFull, cause) // a spawn limit (rate, children, depth) reads as full: the task waits
+	}
+	if err := s.releaseReservation(profileID, sessionID, taskID, c.ConversationID, !refused, cause.Error()); err != nil {
+		extra = append(extra, err)
+	}
 	if conv != "" {
 		if store, err := ai.NewAIStore(s.db); err != nil {
 			extra = append(extra, err)
 		} else if err := store.DeleteConversation(conv, profileID); err != nil && !errors.Is(err, ai.ErrConversationNotFound) {
 			extra = append(extra, err)
 		}
-	}
-	refused := conv == "" && (errors.Is(cause, ErrLimit) || errors.Is(cause, ErrAccess) || errors.Is(cause, ErrInvalid))
-	if refused && errors.Is(cause, ErrLimit) && !errors.Is(cause, ErrChildrenFull) {
-		cause = fmt.Errorf("%w: %w", ErrChildrenFull, cause) // a spawn limit (rate, children, depth) reads as full: the task waits
-	}
-	if err := s.releaseReservation(profileID, sessionID, taskID, c.ConversationID, !refused, cause.Error()); err != nil {
-		extra = append(extra, err)
 	}
 	if len(extra) > 0 {
 		return fmt.Errorf("%w (and cleaning up failed: %w)", cause, errors.Join(extra...))

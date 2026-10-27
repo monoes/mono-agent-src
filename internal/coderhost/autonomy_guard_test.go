@@ -183,7 +183,7 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 		"children_control.go:ControlChild": 1, // Enqueue: pause/resume/stop by a master
 		"children.go:spawnWith":            1, // Enqueue: a master's first message to a new child
 		"parked_deliver.go:deliver":        1, // Enqueue: an answer note (answer- turn id)
-		"missionchild.go:stopChild":        1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
+		"missionchild.go:queueCascadeStop": 1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
 		"missionchild.go:reconcileChild":   1, // Enqueue: a pause of a paused mission's child (no send, no issuer)
 	}
 	// Only the parked-question code may deliver an answer, apply a default or write the ledger.

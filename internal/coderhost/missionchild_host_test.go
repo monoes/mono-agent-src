@@ -642,48 +642,6 @@ func TestPausedMissionPausesItsChildrenAndNothingResumesThem(t *testing.T) {
 	f.finish()
 }
 
-func TestCrashOrphanReaped(t *testing.T) {
-	f := newHostFix(t)
-	f.mark(t, 0) // the lead has a policy
-	owned := f.task(t, 1, 0)
-	_ = owned
-	orphan := spawnNoMessage(t, f.st, f.lead)
-	used := spawnNoMessage(t, f.st, f.lead)
-	young := spawnNoMessage(t, f.st, f.lead)
-	addTurn(t, f.st, used, "t-used", "completed", "x", time.Now().Add(-time.Hour)) // a child the lead has used
-	old := time.Now().Add(-time.Hour).UTC().Format(timeLayout)
-	for _, c := range []string{orphan, used, owned.ConversationID} {
-		if _, err := f.st.db.Exec(`UPDATE coder_sessions SET created_at = ? WHERE conversation_id = ?`, old, c); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := f.st.db.Exec(`UPDATE coder_session_commands SET status = 'done'`); err != nil {
-		t.Fatal(err)
-	}
-	f.h.missionChildPass()
-	if state(t, f.st, orphan).State != StateStopped {
-		t.Fatal("the crash orphan was not stopped")
-	}
-	if ok, _ := f.st.ConversationExists("p", orphan); !ok {
-		t.Fatal("the reaper deleted a conversation")
-	}
-	for name, c := range map[string]string{"a used child": used, "a young child": young, "a task child": owned.ConversationID} {
-		if state(t, f.st, c).State == StateStopped {
-			t.Errorf("the reaper stopped %s", name)
-		}
-	}
-	// a lead with no policy has no orphans
-	g := newHostFix(t)
-	plain := spawnNoMessage(t, g.st, g.lead)
-	if _, err := g.st.db.Exec(`UPDATE coder_sessions SET created_at = ? WHERE conversation_id = ?`, old, plain); err != nil {
-		t.Fatal(err)
-	}
-	g.h.missionChildPass()
-	if state(t, g.st, plain).State == StateStopped {
-		t.Fatal("the reaper stopped a child of a lead with no mission policy")
-	}
-}
-
 func spawnNoMessage(t *testing.T, st *Store, c Caller) string {
 	t.Helper()
 	out, err := st.Spawn(c, SpawnRequest{})

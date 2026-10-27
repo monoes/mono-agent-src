@@ -1974,8 +1974,10 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   brief is forwarded unread as a `master-` turn: host-made, so it carries no mission confirmation, no plan approval and no
   close. A lead that is a child (the tree has two levels) is refused before anything is reserved. A failed spawn deletes the
   conversation it made and releases the reservation. The host pass reads `tasks` and writes no task; it queues only host
-  stops and pauses (no issuer, a fixed turn id) for the descendants of a lead whose mission ended or paused, ends a row when
-  its turn ended and returns the carve in the same transaction, and stops (never deletes) a crash orphan. A pause is weaker
+  stops and pauses (no issuer, a fixed turn id) for the descendants of a lead whose mission ended or paused, or whose turn a
+  person stopped, ends a row when its turn ended and returns the carve in the same transaction, and logs (it stops and deletes
+  nothing) a child that holds a carve and is in no row. A person's stop is a done `stop` command with no issuer; such a row could
+  be forged only by something able to queue the operator's own commands. A pause is weaker
   than halting in-turn workers: a turn that is already running finishes under its cap. The files are covered by the same
   static scan (no approval writer named, only the mission tables written). Not yet built: the launcher's per-child task
   token, the conductor calling `SpawnForTask`, the lead's tools.

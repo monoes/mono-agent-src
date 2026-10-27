@@ -21,7 +21,7 @@ var missionWritable = map[string]bool{"coder_mission_policy": true, "coder_missi
 
 var missionReadable = map[string]bool{
 	"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true,
-	"coder_sessions": true, "coder_session_questions": true, "coder_session_commands": true, "tasks": true, "task_sessions": true,
+	"coder_sessions": true, "coder_session_questions": true, "coder_session_commands": true, "ai_chat_turns": true, "tasks": true, "task_sessions": true,
 }
 
 var (
