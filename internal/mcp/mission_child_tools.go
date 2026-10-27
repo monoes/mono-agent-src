@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
@@ -23,6 +24,9 @@ import (
 
 const missionChildIntro = "Mission child sessions: you lead a mission and may run some of its tasks in a coder session of their own. The caller is the session this process runs for; there is no argument to choose the mission. " +
 	"Refusals: not_yours (not a task of a mission you lead, whatever the reason), operator_only, limit, invalid_input, no_session. A bound worker of a mission cannot use these tools. "
+
+// maxMarkBudgetUSD caps the budget a lead may wish for one task's session, as the plan field does.
+const maxMarkBudgetUSD = 50.0
 
 // leadScope opens the store and builds the lead's scope. An unreadable binding is a bound one.
 func (s *Server) leadScope(ctx context.Context) (*coderhost.Store, coderhost.LeadScope, string, error) {
@@ -84,6 +88,9 @@ func toolMissionChildMark(ctx context.Context, s *Server, args json.RawMessage) 
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
+	}
+	if a.BudgetUSD < 0 || a.BudgetUSD > maxMarkBudgetUSD || a.BudgetUSD != a.BudgetUSD {
+		return nil, codedErr{text: fmt.Sprintf("invalid_input: budget_usd must be between 0 and %.0f", maxMarkBudgetUSD), err: coderhost.ErrInvalid}
 	}
 	store, scope, profile, err := s.leadScope(ctx)
 	if err != nil {

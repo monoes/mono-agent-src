@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -35,6 +36,7 @@ type fakeSpawner struct {
 	barrier int
 	entered int
 	release chan struct{}
+	facts   int // calls of Facts
 }
 
 type fakeChild struct {
@@ -71,6 +73,7 @@ func (f *fakeSpawner) live() int {
 func (f *fakeSpawner) Facts(_ context.Context, _, tid int64) (ChildFacts, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.facts++
 	out := ChildFacts{Mode: f.mode, Blocked: f.blocked, Exhausted: f.exhaust}
 	if r, ok := f.rows[tid]; ok {
 		out.Row, out.EndReason, out.Child = r.state, r.reason, r.conv
@@ -530,4 +533,157 @@ func TestChildSourcesNameNoApprovalOrOperatorWriter(t *testing.T) {
 		}
 		return true
 	})
+}
+
+// ---- review round: F1-F6 ----
+
+// F1: no agent the conductor starts holds the lead's session token, whether it has a task or not.
+func TestNoConductorAgentHoldsTheLeadsSessionToken(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	c := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 5, MaxConcurrent: 3}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc,
+		Base: monomind.ExecOptions{Env: map[string]string{SessionTokenEnv: "the-leads-secret", "KEEP": "1"}}})
+	t.Cleanup(c.Close)
+	// a task-less helper (org_spawn with a brief, as a plan reviewer is started)
+	r.call(c, ToolSpawn, `{"brief":"review the plan"}`)
+	eventually(t, "the helper", func() bool { return r.ex.runCount(0) == 1 })
+	// and a worker with a task
+	r.next(c)
+	eventually(t, "the task worker", func() bool { return r.ex.runCount(a.ID) == 1 })
+	r.ex.mu.Lock()
+	defer r.ex.mu.Unlock()
+	for id, env := range r.ex.envs {
+		if v, ok := env[SessionTokenEnv]; !ok || v != "" {
+			t.Errorf("agent of task %d holds the lead's session token: %q (present %v)", id, v, ok)
+		}
+		if env["KEEP"] != "1" {
+			t.Errorf("agent of task %d lost the rest of its environment", id)
+		}
+	}
+	if len(r.ex.envs) < 2 {
+		t.Fatalf("saw %d agents", len(r.ex.envs))
+	}
+	r.ex.open[0], r.ex.open[a.ID] = true, true
+}
+
+// F2: in mode all a session a person or the lead stopped, or that used up its budget, is not started again by itself.
+func TestRuleModeDoesNotRespawnAStoppedOrBudgetEndedChild(t *testing.T) {
+	for _, reason := range []string{"stopped", "cascade", "lead_stopped", "budget"} {
+		t.Run(reason, func(t *testing.T) {
+			r, fs := childRig(t, "all", rigOpts{})
+			a := r.add(spec{title: "a", files: "a.go"})
+			r.approve()
+			r.next(r.c)
+			fs.end(a.ID, reason, "")
+			for i := 0; i < 3; i++ {
+				r.next(r.c)
+			}
+			eventually(t, "the claim back", func() bool { return r.task(a.ID).Claim == nil })
+			res := r.next(r.c)
+			if fs.spawnCount() != 1 || !strings.Contains(r.waitingReason(res, a.ID), "mark it again") {
+				t.Fatalf("spawns=%d waiting=%q", fs.spawnCount(), r.waitingReason(res, a.ID))
+			}
+		})
+	}
+	// the ones that did not finish for no reason of the person's are tried again
+	for _, reason := range []string{"no_finish", "expired", "deleted"} {
+		if !ChildAutoRetry(reason) {
+			t.Errorf("%s is not retried", reason)
+		}
+	}
+}
+
+// F3: a live session wins over a blocked lead: no in-turn worker next to it.
+func TestLiveChildBeatsTheBlockedFallback(t *testing.T) {
+	r, fs := childRig(t, "marked", rigOpts{})
+	a := r.add(spec{title: "a", files: "a.go"})
+	fs.marked[a.ID] = true
+	r.approve()
+	r.next(r.c)
+	fs.mu.Lock()
+	fs.blocked = "the binding does not verify"
+	fs.mu.Unlock()
+	d := r.c.childDecide(tbg, r.mc, r.sid, r.task(a.ID), ExecWorker)
+	if !d.wanted || d.wait == "" {
+		t.Fatalf("decision = %+v: a live session must hold the task", d)
+	}
+}
+
+// F4: the loser of a start race must not give back the claim the winner holds.
+func TestChildSpawnFailedKeepsTheClaimOfALiveRow(t *testing.T) {
+	r, fs := childRig(t, "marked", rigOpts{})
+	a := r.add(spec{title: "a", files: "a.go"})
+	fs.marked[a.ID] = true
+	r.approve()
+	r.next(r.c) // the winner: spawned and claimed
+	b, _, err := r.c.missionPrepare(tbg, SpawnRequest{TaskID: a.ID, executor: ExecWorker}, nil)
+	if err == nil {
+		r.c.childSpawnFailed(tbg, r.mc, b, fmt.Errorf("%w: lost", ErrChildrenFull))
+	} else {
+		// the task is in progress: prepare refuses, so build the bind by hand
+		tk := r.task(a.ID)
+		b = &missionBind{session: r.sid, task: tk, name: missionWorkerName(r.sid, a.ID), actor: childActor(r.sid, a.ID, missionWorkerName(r.sid, a.ID))}
+		r.c.childSpawnFailed(tbg, r.mc, b, fmt.Errorf("%w: lost", ErrChildrenFull))
+	}
+	if tk := r.task(a.ID); tk.Claim == nil {
+		t.Fatalf("the loser released the winner's claim: %+v", tk)
+	}
+}
+
+// F5: while the launcher cannot bind a child, the reconcile and the turn end read nothing about children.
+func TestNoChildReadsWhileTheLauncherIsNotReady(t *testing.T) {
+	r, fs := childRig(t, "marked", rigOpts{})
+	fs.ready = false
+	a := r.add(spec{title: "a", files: "a.go"})
+	b := r.add(spec{title: "b", files: "b.go"})
+	fs.marked[a.ID] = true
+	r.approve()
+	r.ex.fail[a.ID] = 1
+	r.next(r.c)
+	r.waitStatus(a.ID, tasks.StatusReady) // crashed: the reconcile looked at its orphan claim
+	eventually(t, "b running", func() bool { return inTurnRuns(r, b.ID) == 1 })
+	r.c.Close() // b's worker still holds its claim: the turn end looks at it
+	fs.mu.Lock()
+	n := fs.facts
+	fs.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("Facts was read %d times while not ready", n)
+	}
+}
+
+// F6: with the writers isolated a worker task stays in-turn.
+func TestIsolatedWritersStayInTurn(t *testing.T) {
+	r, fs := childRig(t, "all", rigOpts{})
+	r.c.iso = &isolation{}
+	t.Cleanup(func() { r.c.iso = nil })
+	if d := r.c.childDecide(tbg, r.mc, r.sid, tasks.Task{ID: 1}, ExecWorker); d.wanted {
+		t.Fatalf("decision = %+v", d)
+	}
+	if fs.facts != 0 {
+		t.Fatal("read facts for a task that stays in-turn")
+	}
+}
+
+// F6: settleChild takes a task back only while the claim it was shown is still the one held.
+func TestSettleChildRechecksTheClaim(t *testing.T) {
+	r, fs := childRig(t, "marked", rigOpts{})
+	a := r.add(spec{title: "a", files: "a.go"})
+	fs.marked[a.ID] = true
+	r.approve()
+	r.next(r.c)
+	shown := r.task(a.ID) // the list the reconcile read
+	fs.end(a.ID, "no_finish", "")
+	// meanwhile the claim changes hands: it is released and taken again under the same name
+	r.clk.advance(time.Minute)
+	actor := childActor(r.sid, a.ID, missionWorkerName(r.sid, a.ID))
+	if _, err := r.store.SessionClaim(tbg, "default", r.sid, a.ID, actor, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := fs.Facts(tbg, r.sid, a.ID)
+	r.c.settleChild(tbg, r.mc, r.sid, shown, f)
+	if tk := r.task(a.ID); tk.Claim == nil {
+		t.Fatalf("a claim taken after the list was read was given back: %+v", tk)
+	}
 }

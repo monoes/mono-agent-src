@@ -245,6 +245,10 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		opts.Env = map[string]string{}
 	}
 	opts.Env["MONOAGENT_AGENT_ROLE"], opts.Env["MONOAGENT_AGENT_ID"] = w.staff.Role, w.id
+	// No agent the conductor starts holds the lead's coder-session token: it would make the agent the lead for the
+	// master and mission-child tools (a task-less helper has no mission binding to refuse it). The lead's own turn,
+	// which is not started here, keeps it. An empty value overrides the inherited one.
+	opts.Env[SessionTokenEnv] = ""
 	missionEnv(w, opts.Env) // a mission worker's labels (they bind nothing)
 	unbind, err := c.bindMission(ctx, w, opts.Env)
 	if err != nil {

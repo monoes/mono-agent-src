@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai"
@@ -27,7 +28,27 @@ import (
 // confines it to its one task (phase P-B2, the child token mint in coder_host_exec.go). Until that lands it is
 // false, and the conductor never spawns a child session, whatever the mission marks or the policy says: a child
 // without that token would not be bound to its task. P-B2 replaces this with the launcher's own answer.
-var launcherMintsChildTokens = func() bool { return false }
+func launcherMintsChildTokens() bool {
+	childMinterMu.Lock()
+	defer childMinterMu.Unlock()
+	return childMinter != nil && childMinter.CanMintChildTokens()
+}
+
+// ChildTokenMinter is what the launcher registers (RegisterChildTokenMinter) once it gives each child session a
+// task-bound token. It is the only way the spawner becomes ready.
+type ChildTokenMinter interface{ CanMintChildTokens() bool }
+
+var (
+	childMinterMu sync.Mutex
+	childMinter   ChildTokenMinter
+)
+
+// RegisterChildTokenMinter is called by the launcher (P-B2) when it mints child tokens.
+func RegisterChildTokenMinter(m ChildTokenMinter) {
+	childMinterMu.Lock()
+	childMinter = m
+	childMinterMu.Unlock()
+}
 
 // missionChildren is the dynorg.ChildSpawner of one lead conversation.
 type missionChildren struct {
@@ -39,7 +60,7 @@ type missionChildren struct {
 }
 
 func newMissionChildren(db *sql.DB, profileID, conversationID string) *missionChildren {
-	return &missionChildren{db: db, profileID: profileID, conv: conversationID, getenv: os.Getenv, ready: func() bool { return launcherMintsChildTokens() }}
+	return &missionChildren{db: db, profileID: profileID, conv: conversationID, getenv: os.Getenv, ready: launcherMintsChildTokens}
 }
 
 // Ready is the launcher's capability.
@@ -105,7 +126,7 @@ func (m *missionChildren) Spawn(ctx context.Context, sid, tid int64, brief strin
 	}
 	switch lf.Row {
 	case coderhost.ChildEnded, coderhost.ChildFailed, coderhost.ChildGone, coderhost.ChildReleased:
-		if lf.Mode != coderhost.ModeAll || lf.Exhausted {
+		if lf.Mode != coderhost.ModeAll || lf.Exhausted || !dynorg.ChildAutoRetry(lf.EndReason) {
 			return fmt.Errorf("the task's session ended: it is marked again by the lead")
 		}
 		row, _, _ := store.Child(m.profileID, sid, tid)

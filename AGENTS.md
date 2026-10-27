@@ -1972,11 +1972,11 @@ in-turn worker path runs unchanged, and that is the default (mode `marked` with 
 `startTask` asks `childDecide` (`dynorg/mission_child.go`): the task is for a child when its executor is a worker, the
 mode is `all` or the lead marked it, the mode is not `off`, there is room, and `ChildSpawner.Ready()` is true. `Ready`
 is the launcher's capability to give a child the task token that confines it to its one task; **it is false until
-P-B2 turns it on (`launcherMintsChildTokens` in `cli/chat/chat_mission_children.go`), so no child is spawned today,
+P-B2 registers a minter with `RegisterChildTokenMinter` in `cli/chat/chat_mission_children.go`), so no child is spawned today,
 whatever is marked.** When wanted, the ordinary prepare and claim run, the brief is built by the same sealed
 `buildTaskBrief` (per-brief `DATA-xxxx` fence, never raw task text) and `ChildSpawner.Spawn(ctx, session, task, brief)`
 starts the session; its signature carries no access, folder, budget or size, so nothing in a plan or a task's text can
-choose them. A full host (the ceiling, the running-turn cap or the budget share, mirrored in `cannotStart` as
+choose them. In mode `all` a session that ended stopped (by a person or the lead), cascaded or out of budget is not started again by itself: the task waits for the lead to mark it again (only unfinished, never-run or deleted sessions are retried, up to three attempts). A full host (the ceiling, the running-turn cap or the budget share, mirrored in `cannotStart` as
 `child sessions full (n of ceiling)`) leaves the task Waiting, which is the queue, and counts no failure. A lead that is
 itself a child, not a master, or a process bound to a task falls back to in-turn workers with one notice per session.
 With `orgWriters=isolated` a writer stays in-turn (v1). The claim is held under the worker name with a long lease that
@@ -1987,9 +1987,11 @@ a verifier still verifies and nothing here writes an approval. The plan's tasks 
 (`large`|`small`) and `session_budget_usd` (at most 50); they are stored as marks, a mark in a draft changes nothing
 until the plan is approved, and a mark the policy refuses is reported, never fatal to the plan. The lead's MCP tools
 (`mission_child_mark{task_id,size?,budget_usd?}`, `mission_child_ceiling{max_children?,share_pct?}` and
-`mission_child_status`; the first two need `--allow-mutations`) take the caller from the verified session token and
+`mission_child_status`; the first two need `--allow-mutations`; `budget_usd` is at most 50) take the caller from the verified session token and
 the binding of the process (`taskbind.Resolve`; a bound worker or verifier, or a token that does not verify, is
-refused) and build the scope only with `coderhost.NewLeadScope`; every caller that is not the lead of that task reads
+refused) and build the scope only with `coderhost.NewLeadScope`. A task-less helper has no binding, so the real
+fence is that the conductor blanks the session token (`MONOAGENT_SESSION_TOKEN`) in the environment of every agent
+it starts; only the lead's own turn holds it; every caller that is not the lead of that task reads
 the same refusal. The lead can lower its ceiling and raise it only up to the operator's limits; it can never change a
 setting, turn on mode `all` or lift an operator's `off` or cap. The operator's control is
 `coder sessions mission-children set <lead-conv> --mode off|marked|all --max-children N --share-pct P

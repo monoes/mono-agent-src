@@ -2,6 +2,9 @@ package mcp
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 	"time"
@@ -228,4 +231,31 @@ func TestMarkInADraftStoresButStartsNothing(t *testing.T) {
 	if _, err := m.store.Reserve(coderhost.NewLeadScope(coderhost.Caller{ProfileID: m.profile, ConversationID: m.master}, coderhost.BindingNone), m.profile, m.se.ID, m.t2.ID); err == nil {
 		t.Fatal("a draft's mark reserved")
 	}
+}
+
+func TestMarkBudgetIsCappedLikeThePlan(t *testing.T) {
+	m := newMissionChildFixture(t, true)
+	for _, b := range []float64{50.01, 1e9, -1} {
+		if _, err := m.as(t, m.tokM, "mission_child_mark", map[string]any{"task_id": m.t1.ID, "budget_usd": b}); err == nil || !strings.Contains(err.Error(), "invalid_input") {
+			t.Errorf("budget %v: %v", b, err)
+		}
+	}
+	if _, err := m.as(t, m.tokM, "mission_child_mark", map[string]any{"task_id": m.t1.ID, "budget_usd": 50}); err != nil {
+		t.Fatalf("budget 50: %v", err)
+	}
+}
+
+func TestMissionChildToolSourceNamesNoApprovalWriter(t *testing.T) {
+	forbidden := map[string]bool{"ApproveSession": true, "CloseSession": true, "VerifySessionTask": true, "Approve": true, "Move": true,
+		"Human": true, "Confirmed": true, "AddSessionSpend": true, "SaveSettings": true, "SetBudget": true, "SetRole": true}
+	f, err := parser.ParseFile(token.NewFileSet(), "mission_child_tools.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if x, ok := n.(*ast.SelectorExpr); ok && forbidden[x.Sel.Name] {
+			t.Errorf("mission_child_tools.go uses %s", x.Sel.Name)
+		}
+		return true
+	})
 }

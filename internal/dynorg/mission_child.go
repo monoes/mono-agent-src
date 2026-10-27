@@ -22,6 +22,10 @@ import (
 // notes or the title of a task chooses the child's access, folder, budget or size: the spawner is handed the
 // sealed brief and the ids, nothing else. It writes no approval and does not act as the operator.
 
+// SessionTokenEnv is the variable the coder host hands a turn its session token in (coderhost.SessionTokenEnv; a
+// test in internal/cli/chat keeps the two equal). The conductor blanks it for every agent it starts.
+const SessionTokenEnv = "MONOAGENT_SESSION_TOKEN"
+
 // ChildModeAll is the policy mode in which every worker task of the mission gets a session of its own (the
 // operator's to turn on); ChildModeOff turns child sessions off.
 const (
@@ -90,16 +94,19 @@ func (c *Conductor) childDecide(ctx context.Context, mc *MissionRun, sid int64, 
 	if f.Mode != ChildModeAll && !marked {
 		return childDecision{}
 	}
+	if f.Row == "spawning" || f.Row == "spawned" {
+		// A live session holds the task, whatever else is true now (an unverifiable binding, say): never
+		// start an in-turn worker next to it.
+		return childDecision{wanted: true, wait: "its own session is running"}
+	}
 	if f.Blocked != "" {
 		c.childFallbackNotice(sid, f.Blocked)
 		return childDecision{}
 	}
 	d := childDecision{wanted: true}
 	switch f.Row {
-	case "spawning", "spawned":
-		d.wait = "its own session is running"
 	case "ended", "failed", "gone", "released":
-		if f.Mode != ChildModeAll && !f.Exhausted {
+		if (f.Mode != ChildModeAll || !ChildAutoRetry(f.EndReason)) && !f.Exhausted {
 			d.wait = fmt.Sprintf("its own session ended (%s): mark it again (mission_child_mark) to try another, or do it yourself", orDash(f.EndReason))
 		}
 	}
@@ -113,6 +120,18 @@ func (c *Conductor) childDecide(ctx context.Context, mc *MissionRun, sid int64, 
 		}
 	}
 	return d
+}
+
+// ChildAutoRetry says whether a task whose session ended for this reason may get another one without the lead
+// marking it again, in mode all: a session that ended without finishing, never ran or was deleted may; one a
+// person or the lead stopped, or that used up its budget, waits for the lead (a retry at the same cap would
+// only spend it again).
+func ChildAutoRetry(reason string) bool {
+	switch reason {
+	case "stopped", "cascade", "lead_stopped", "budget":
+		return false
+	}
+	return true
 }
 
 // childFallbackNotice says once per session that marked tasks run in-turn because this lead cannot have children.
@@ -162,7 +181,16 @@ func (c *Conductor) startChild(ctx context.Context, sid int64, t tasks.Task, st 
 	}
 	f, _ := mc.Children.Facts(ctx, sid, t.ID)
 	// A long lease for the child's work; the lead's reconcile renews it.
-	_, _ = mc.Store.SessionClaim(ctx, mc.ProfileID, b.session, b.task.ID, b.actor, mc.childLease())
+	var cerr error
+	for try := 0; try < 3; try++ {
+		if _, cerr = mc.Store.SessionClaim(ctx, mc.ProfileID, b.session, b.task.ID, b.actor, mc.childLease()); cerr == nil {
+			break
+		}
+	}
+	if cerr != nil {
+		// the session exists; the reconcile renews the claim on its next pass, but say so
+		c.notice("mission.child_claim", fmt.Sprintf("Task #%d: its session started but the claim could not be extended (%v); it is retried.", t.ID, cerr), chatevents.SeverityWarning)
+	}
 	c.msched.mu.Lock()
 	c.msched.leadRenewed[t.ID] = c.cfg.Now()
 	c.msched.mu.Unlock()
@@ -197,8 +225,8 @@ func shortID(s string) string {
 //     is a failed attempt, and the claim is released either way;
 //   - a task whose row only says "marked" (no session was made) is the in-turn reconcile's.
 func (c *Conductor) reconcileChild(ctx context.Context, mc *MissionRun, sid int64, t tasks.Task) bool {
-	if mc.Children == nil || t.Claim == nil {
-		return false
+	if mc.Children == nil || t.Claim == nil || !mc.Children.Ready() {
+		return false // no child can exist while the launcher cannot bind one: the in-turn path is unchanged
 	}
 	f, err := mc.Children.Facts(ctx, sid, t.ID)
 	if err != nil {
@@ -293,7 +321,7 @@ func (c *Conductor) settleChild(ctx context.Context, mc *MissionRun, sid int64, 
 // give it back.
 func (c *Conductor) childHolds(sid, taskID int64) bool {
 	mc, err := c.missions()
-	if err != nil || mc.Children == nil {
+	if err != nil || mc.Children == nil || !mc.Children.Ready() {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 5*time.Second)

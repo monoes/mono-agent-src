@@ -3,6 +3,9 @@ package chat
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"strings"
 	"testing"
@@ -265,5 +268,95 @@ func TestReportIsTheLastProseOfTheChildsNewestTurn(t *testing.T) {
 	}
 	if got := mc.Report(context.Background(), "no-such"); got != "" {
 		t.Fatalf("report of nothing = %q", got)
+	}
+}
+
+type fakeMinter struct{ can bool }
+
+func (f fakeMinter) CanMintChildTokens() bool { return f.can }
+
+func TestChildSpawnerReadyOnlyWithARegisteredMinter(t *testing.T) {
+	RegisterChildTokenMinter(nil)
+	if newMissionChildren(nil, "default", "c").Ready() || launcherMintsChildTokens() {
+		t.Fatal("ready with no minter registered")
+	}
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	RegisterChildTokenMinter(fakeMinter{can: false})
+	if launcherMintsChildTokens() {
+		t.Fatal("ready with a minter that cannot mint")
+	}
+	RegisterChildTokenMinter(fakeMinter{can: true})
+	if !newMissionChildren(nil, "default", "c").Ready() {
+		t.Fatal("not ready with a minter")
+	}
+}
+
+func TestMissionChildConstantsAgreeAcrossPackages(t *testing.T) {
+	if dynorg.SessionTokenEnv != coderhost.SessionTokenEnv {
+		t.Fatalf("the conductor blanks %q, the host hands %q", dynorg.SessionTokenEnv, coderhost.SessionTokenEnv)
+	}
+	if dynorg.MaxSessionBudgetUSD != 50 {
+		t.Fatalf("plan cap = %v", dynorg.MaxSessionBudgetUSD)
+	}
+}
+
+func TestMissionChildrenCLIAsksTheOperatorCheck(t *testing.T) {
+	m := newMasterTurn(t)
+	sid, _ := missionOfMaster(t, m, 1, true)
+	t.Setenv(coderhost.SessionTokenEnv, "") // no token: the check itself decides
+	m.cfg.RequireOperator = func(what string) error { return errors.New("operator only: " + what) }
+	for _, args := range [][]string{{"mission-children", "set", m.master, "--mode", "all"}, {"mission-children", "list"}} {
+		if out, code := runSessionsCLI(t, m.cfg, args...); code == 0 {
+			t.Errorf("%v passed without the operator: %s", args, out)
+		}
+	}
+	if p := policyOf(t, m.dbPath, sid); p.Stored || p.Mode == coderhost.ModeAll {
+		t.Fatalf("policy = %+v", p)
+	}
+}
+
+// The chat-side files name no approval, close, verdict or operator actor.
+func TestMissionChildChatSourcesNameNoApprovalWriter(t *testing.T) {
+	forbidden := map[string]bool{"ApproveSession": true, "CloseSession": true, "VerifySessionTask": true, "Approve": true, "Move": true,
+		"Human": true, "Confirmed": true, "TakeMissionToken": true, "AddSessionSpend": true}
+	for _, name := range []string{"chat_mission_children.go", "coder_sessions_mission.go"} {
+		f, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if x, ok := n.(*ast.SelectorExpr); ok && forbidden[x.Sel.Name] {
+				t.Errorf("%s uses %s", name, x.Sel.Name)
+			}
+			return true
+		})
+	}
+}
+
+// F2 at the adapter: in mode all a session the person stopped is not started again by Spawn.
+func TestAdapterDoesNotRemarkAStoppedChildInModeAll(t *testing.T) {
+	m := newMasterTurn(t)
+	sid, ids := missionOfMaster(t, m, 1, true)
+	mc := missionReady(t, m)
+	ctx := context.Background()
+	db, _ := storage.NewDatabase(m.dbPath)
+	defer db.Close()
+	cs := coderhost.NewStore(db.DB)
+	all := coderhost.ModeAll
+	if _, err := cs.SetPolicy(coderhost.OperatorScope{}, "default", sid, coderhost.PolicyPatch{Mode: &all}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mc.Spawn(ctx, sid, ids[0], "b"); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	f, _ := mc.Facts(ctx, sid, ids[0])
+	if ok, err := cs.End("default", f.Child, coderhost.EndStopped); err != nil || !ok {
+		t.Fatalf("end: %v %v", ok, err)
+	}
+	if err := mc.Spawn(ctx, sid, ids[0], "b"); err == nil {
+		t.Fatal("a stopped session was started again")
+	}
+	if f, _ := mc.Facts(ctx, sid, ids[0]); f.Row != "ended" {
+		t.Fatalf("row = %q", f.Row)
 	}
 }

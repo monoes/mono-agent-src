@@ -1998,7 +1998,13 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   names no approval or close and never acts as the operator for this path (a static test). A child's report is
   attached as data and fenced wherever it is shown. The lead's tools resolve the caller from the verified session
   token and the process's task binding; a process with a binding (worker, verifier) or an unverifiable one is
-  refused, which is the fence for an in-turn worker that inherited the lead's session token. All not-yours cases
+  refused. That check alone is not the fence, because a task-less helper (a plan reviewer, a research subagent) has no
+  binding: the fence is that the conductor blanks `MONOAGENT_SESSION_TOKEN` in the environment of every agent it
+  starts (a test fails when it does not), so only the lead's own turn holds the lead's session token. Two limits:
+  anything else in the lead's own process tree (its own shell and tool servers) is the lead, by design, and a
+  runtime that passed the token on by some other route than the environment is outside this repository and
+  unverified; "fails closed" here means an unverifiable binding is refused, not that a process without a binding
+  is. All not-yours cases
   (another lead, a child, a bound worker, a task of another mission, a task that does not exist) read the same
   refusal. The tools never write a setting, mode `all`, an operator's floor or cap, or an approval; mode `all` and
   the caps are written only by `coder sessions mission-children set`, which refuses any process holding a session
