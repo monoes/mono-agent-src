@@ -236,6 +236,8 @@ type AdoptableListing struct {
 	Truncated bool
 	// Reads is how many files were read in full to produce Shown and More.
 	Reads int
+	// BytesRead is how many bytes those reads returned in all.
+	BytesRead int64
 	// Incomplete says the listing may have missed or left unnamed files that have no stored copy:
 	// it stopped at the entry cap, or more files were held back than could be named. One file can
 	// be looked at by its id with AdoptableFile.
@@ -248,6 +250,9 @@ func (h *HybridWorkflowStore) AdoptableFiles(ctx context.Context) (shown []Adopt
 	l, err := h.AdoptableListing(ctx)
 	return l.Shown, l.More, err
 }
+
+// adoptableAfterStat, set by a test, runs between the measuring of a candidate and the reading of it.
+var adoptableAfterStat func(id string)
 
 // AdoptableListing does a bounded amount of work however many files there are: at most
 // maxAdoptableEntries names are looked at (the directory is read in batches, not all at once),
@@ -352,8 +357,13 @@ func (h *HybridWorkflowStore) AdoptableListing(ctx context.Context) (AdoptableLi
 		// that may be shown, whatever the file has grown to since it was measured.
 		out.Reads++
 		spent += c.size
-		raw, rerr := readRegularPrefix(path, maxAdoptableBytes+1)
-		if rerr != nil || len(raw) > maxAdoptableBytes {
+		if adoptableAfterStat != nil {
+			adoptableAfterStat(c.id)
+		}
+		// At most the size that was paid for, plus one byte to notice a file that has grown since.
+		raw, rerr := readRegularPrefix(path, int(c.size)+1)
+		out.BytesRead += int64(len(raw))
+		if rerr != nil || int64(len(raw)) > c.size {
 			hide(c.id)
 			continue
 		}

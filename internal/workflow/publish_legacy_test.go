@@ -674,3 +674,65 @@ func TestFileDriftScanIsBoundedAndSkipsReconciledFiles(t *testing.T) {
 		t.Fatalf("%+v %v", r, err)
 	}
 }
+
+// A file that grows between being measured and being read is not read past the size that was paid
+// for: the bytes read stay within the budget, and the grown file is held back.
+func TestAFileThatGrowsAfterItWasMeasuredIsNotReadInFull(t *testing.T) {
+	ctx := context.Background()
+	h, _, _, _ := guardedRig(t)
+	path := filepath.Join(h.files.dir, "grower.json")
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adoptableAfterStat = func(id string) {
+		if id == "grower" {
+			_ = os.Truncate(path, maxAdoptableBytes)
+		}
+	}
+	t.Cleanup(func() { adoptableAfterStat = nil })
+	l, err := h.AdoptableListing(ctx)
+	if err != nil || len(l.Shown) != 0 || l.More != 1 {
+		t.Fatalf("shown %d, more %d, %v", len(l.Shown), l.More, err)
+	}
+	if l.BytesRead > 2 {
+		t.Fatalf("%d bytes read of a file that was measured at 1 byte", l.BytesRead)
+	}
+}
+
+// Names that are not candidates (not .json, backups, workflows with a stored copy) do not count
+// toward the cap: a folder full of them, with real files among them, is listed completely, and some
+// of the real files lie beyond the cap in directory order.
+func TestNamesThatAreNotCandidatesDoNotUseUpTheCap(t *testing.T) {
+	ctx := context.Background()
+	h, _, _, _ := guardedRig(t)
+	dir := h.files.dir
+	for i := 0; i < maxAdoptableEntries+300; i++ {
+		for _, name := range []string{fmt.Sprintf("n-%05d.txt", i), fmt.Sprintf("b-%05d.ai-backup.json", i)} {
+			if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for i := 0; i < 16; i++ {
+		dropFile(t, h, fmt.Sprintf("real-%02d", i), false)
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, _ := f.Readdirnames(-1)
+	f.Close()
+	beyond := 0
+	for i, n := range names {
+		if strings.HasPrefix(n, "real-") && i >= maxAdoptableEntries {
+			beyond++
+		}
+	}
+	if beyond == 0 {
+		t.Skip("the filesystem lists every real file early; nothing beyond the cap to look for")
+	}
+	l, err := h.AdoptableListing(ctx)
+	if err != nil || l.Truncated || len(l.Shown) != 16 {
+		t.Fatalf("truncated=%v shown=%d (%d of them beyond the cap): %v", l.Truncated, len(l.Shown), beyond, err)
+	}
+}

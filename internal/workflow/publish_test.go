@@ -1035,16 +1035,12 @@ func TestAPausedActivationCannotCommitOverTheKillSwitch(t *testing.T) {
 	}
 }
 
-// A change that was running when the kill switch gave up waiting does not commit when it wakes up:
-// the workflow stays off, and the change is left for the operator.
+// A change that was running when the kill switch gave up waiting does not commit when it wakes up,
+// even when the workflow was already off (so nothing about the definition or the flag changed): the
+// waiting change is marked unresolved, and the operator decides.
 func TestAHungSaveCannotCommitAfterTheKillSwitch(t *testing.T) {
 	ctx := context.Background()
-	h, s, hash, nodes := guardedRig(t)
-	if err := h.SetWorkflowActive(ctx, "wf-g", true); err != nil {
-		t.Fatal(err)
-	}
-	cur, _ := h.GetWorkflow(ctx, "wf-g")
-	hash, _ = ReviewHash(cur) // the review hash includes the active flag
+	h, s, hash, nodes := guardedRig(t) // the workflow is off
 	entered, release := make(chan struct{}), make(chan struct{})
 	guardedCommitFault = func() error { close(entered); <-release; return nil }
 	old := publicationWait
@@ -1067,7 +1063,10 @@ func TestAHungSaveCannotCommitAfterTheKillSwitch(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("the hung save committed after the kill switch")
 	}
-	if rows, _ := s.GetWorkflow(ctx, "wf-g"); rows.IsActive || sqlConfig(t, s, "wf-g", "g-set") == "edited" {
+	if sqlConfig(t, s, "wf-g", "g-set") == "edited" {
 		t.Fatal("the hung save changed the workflow after the kill switch")
+	}
+	if state, _ := h.UnfinishedChange(ctx, "wf-g"); state != "unresolved" {
+		t.Fatalf("the waiting change is %q, want it left for the operator", state)
 	}
 }

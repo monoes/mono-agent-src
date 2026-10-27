@@ -121,16 +121,22 @@ func lockPublication(ctx context.Context, tx *sql.Tx, id string) error {
 
 // WithPublicationLock runs fn while holding the database's write lock with the workflow's
 // publication record locked: no publisher can replace the workflow's file meanwhile (the file step
-// of a publication takes the same lock). It returns ErrStampSkipped-style errors only from fn; a lock
-// it cannot take is returned wrapped in ErrPublicationBusy.
+// of a publication takes the same lock). A lock that is busy is returned wrapped in
+// ErrPublicationBusy; any other error is returned as it is.
 func WithPublicationLock(ctx context.Context, db *sql.DB, id string, fn func() error) error {
+	busy := func(err error) error {
+		if isBusyErr(err) || errors.Is(err, context.DeadlineExceeded) {
+			return errors.Join(ErrPublicationBusy, err)
+		}
+		return err // any other failure (a missing table, a closed database) is not "busy"
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return errors.Join(ErrPublicationBusy, err)
+		return busy(err)
 	}
 	defer tx.Rollback()
 	if err := lockPublication(ctx, tx, id); err != nil {
-		return errors.Join(ErrPublicationBusy, err)
+		return busy(err)
 	}
 	return fn()
 }

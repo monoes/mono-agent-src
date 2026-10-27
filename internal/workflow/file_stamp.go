@@ -25,14 +25,19 @@ import (
 // workflow JSON, or already name a profile, are left untouched, which also
 // makes the pass idempotent. It returns the ids it stamped.
 func StampFileWorkflowProfiles(dir, fallbackID string, ownerOf func(workflowID string) string) ([]string, error) {
-	return StampFileWorkflowProfilesFor(dir, fallbackID, ownerOf, nil)
+	return StampFileWorkflowProfilesFor(dir, fallbackID, ownerOf, nil, nil)
 }
 
-// StampFileWorkflowProfilesFor is StampFileWorkflowProfiles with locked, which runs the whole
-// look-and-rewrite of one file (the callback do) under whatever excludes the file's other writers,
-// and may decline to run it at all (a file it does not name is not opened). With locked nil every
-// file is handled without a lock.
-func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowID string) string, locked func(fileID string, do func() error) error) ([]string, error) {
+// maxStampNames bounds how many .json names one stamp pass looks at.
+const maxStampNames = 5000
+
+// StampFileWorkflowProfilesFor is StampFileWorkflowProfiles with two more callbacks. eligible,
+// checked without any lock, names the files worth opening at all (all of them when nil). locked
+// runs the whole look-and-rewrite of one eligible file (the callback do) under whatever excludes
+// the file's other writers, and may decline to run it (it must then check eligibility again). With
+// locked nil every eligible file is handled without a lock. The pass stops at the first file locked
+// reports ErrStampSkipped for: the lock is busy, and each further file would only wait for it too.
+func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowID string) string, eligible func(fileID string) bool, locked func(fileID string, do func() error) error) ([]string, error) {
 	if fallbackID == "" && ownerOf == nil {
 		return nil, ErrNoProfile
 	}
@@ -44,11 +49,18 @@ func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowI
 		return nil, err
 	}
 	var stamped []string
+	looked := 0
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		if looked++; looked > maxStampNames {
+			break
+		}
 		name := e.Name()
+		if eligible != nil && !eligible(strings.TrimSuffix(name, ".json")) {
+			continue
+		}
 		var did string
 		one := func() error {
 			var err error
@@ -61,7 +73,7 @@ func StampFileWorkflowProfilesFor(dir, fallbackID string, ownerOf func(workflowI
 					stamped = append(stamped, did)
 				}
 				if errors.Is(err, ErrStampSkipped) {
-					continue
+					return stamped, nil // the lock is busy: the rest waits for the next pass
 				}
 				return stamped, err
 			}

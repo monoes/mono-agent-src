@@ -103,10 +103,14 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 		return p.String
 	}
 	eligible := stampEligible(ctx, db)
-	// Each file is checked, read and replaced under the database's write lock with its
+	// A file that is not eligible costs no lock at all; an eligible one is checked again, read and
+	// replaced under the database's write lock with its
 	// publication record locked, so no publisher can replace the file between the read and the
 	// rewrite; a lock that cannot be taken leaves the file for the next pass.
 	locked := func(id string, do func() error) error {
+		if stampTestHook != nil {
+			stampTestHook(id)
+		}
 		err := workflow.WithPublicationLock(ctx, db, id, func() error {
 			if !eligible(id) {
 				return nil
@@ -118,12 +122,15 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 		}
 		return err
 	}
-	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, locked)
+	stamped, err := workflow.StampFileWorkflowProfilesFor(dir, owner, rowOwner, eligible, locked)
 	if len(stamped) > 0 {
 		log.Printf("workflow files: gave %d workflow(s) with no profile an owner (fallback %q)", len(stamped), owner)
 	}
 	return err
 }
+
+// stampTestHook, when set by a test, runs before each locked step of the stamp pass.
+var stampTestHook func(fileID string)
 
 func syncOneWorkflowToSQL(ctx context.Context, db *sql.DB, s *workflow.SQLiteWorkflowStore, wf *workflow.Workflow) error {
 	for _, q := range []struct {

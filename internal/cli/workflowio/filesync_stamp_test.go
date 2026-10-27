@@ -3,6 +3,7 @@ package workflowio
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -291,5 +292,79 @@ func TestStampWaitsForAWriterHoldingTheLockAndKeepsItsEdit(t *testing.T) {
 	b, _ := os.ReadFile(path)
 	if !strings.Contains(string(b), "EDITED") || profileOfFile(t, path) != "default" {
 		t.Fatalf("the edit was lost or the file not stamped:\n%s", b)
+	}
+}
+
+// A pass over files that need no owner takes no lock: with another connection holding the database's
+// write lock, thousands of ineligible files are passed over promptly.
+func TestStampPassOverIneligibleFilesTakesNoLock(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.DB.Exec(`INSERT INTO settings (key, value) VALUES ('workflow_files.legacy_import_done', '1')`); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "workflows")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5000; i++ { // ownerless, no rows, claim done: none is eligible
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("w-%05d.json", i)), []byte(ownerlessFile), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conn, err := db.DB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.ExecContext(ctx, `ROLLBACK`)
+	start := time.Now()
+	tctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	if err := StampFileWorkflows(tctx, db.DB, dir); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("the pass took %v with the write lock held elsewhere", d)
+	}
+}
+
+// A claim another process records between two files of one pass, seen through the real pass: neither
+// file is stamped.
+func TestStampPassNoticesAClaimRecordedBetweenFiles(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dir := filepath.Join(t.TempDir(), "workflows")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a-one.json", "b-two.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(ownerlessFile), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stampTestHook = func(string) {
+		// The claim lands after the pass decided the first file was eligible, before it is locked.
+		_, _ = db.DB.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('workflow_files.legacy_import_done', '1')`)
+	}
+	t.Cleanup(func() { stampTestHook = nil })
+	if err := StampFileWorkflows(ctx, db.DB, dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a-one.json", "b-two.json"} {
+		if got := profileOfFile(t, filepath.Join(dir, name)); got != "" {
+			t.Errorf("%s was stamped %q after the claim was recorded", name, got)
+		}
 	}
 }

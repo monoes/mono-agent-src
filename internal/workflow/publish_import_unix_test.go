@@ -162,7 +162,7 @@ func TestStampLeavesAFileEditedAfterItWasRead(t *testing.T) {
 			t.Fatal(werr)
 		}
 		return ""
-	}, nil)
+	}, nil, nil)
 	if err != nil || len(stamped) != 0 {
 		t.Fatalf("%v %v", stamped, err)
 	}
