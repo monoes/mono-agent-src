@@ -77,7 +77,11 @@ func (s *Store) DropTurnCap(profileID, conversationID, turnID string) {
 
 // runningCap is the cap of the turn the session is running now (0 when none, or none capped).
 func (s *Store) runningCap(profileID, conversationID string) (turn string, capUSD float64) {
-	_ = s.db.QueryRow(`SELECT x.turn_id, COALESCE(k.cap_usd, 0) FROM coder_sessions x
+	return s.runningCapIn(s.db, profileID, conversationID)
+}
+
+func (s *Store) runningCapIn(q querier, profileID, conversationID string) (turn string, capUSD float64) {
+	_ = q.QueryRow(`SELECT x.turn_id, COALESCE(k.cap_usd, 0) FROM coder_sessions x
 		LEFT JOIN coder_session_turn_caps k ON k.profile_id = x.profile_id AND k.conversation_id = x.conversation_id AND k.turn_id = x.turn_id
 		WHERE x.profile_id = ? AND x.conversation_id = ? AND x.turn_id != ''`, profileID, conversationID).Scan(&turn, &capUSD)
 	return turn, capUSD
@@ -87,8 +91,13 @@ func validCost(p *float64) bool { return p != nil && *p >= 0 && !math.IsNaN(*p) 
 
 // Spent is what the session's turns have cost.
 func (s *Store) Spent(profileID, conversationID string) (float64, error) {
+	return s.spentIn(s.db, profileID, conversationID)
+}
+
+// spentIn is Spent read through q (a transaction, when the number must agree with the rows read beside it).
+func (s *Store) spentIn(q querier, profileID, conversationID string) (float64, error) {
 	caps := map[string]float64{}
-	rows, err := s.db.Query(`SELECT turn_id, cap_usd FROM coder_session_turn_caps WHERE profile_id = ? AND conversation_id = ? AND started = 1`, profileID, conversationID)
+	rows, err := q.Query(`SELECT turn_id, cap_usd FROM coder_session_turn_caps WHERE profile_id = ? AND conversation_id = ? AND started = 1`, profileID, conversationID)
 	if err != nil {
 		return 0, err
 	}
@@ -105,7 +114,7 @@ func (s *Store) Spent(profileID, conversationID string) (float64, error) {
 
 	lead := map[string]float64{}       // turn -> its largest reported total
 	workers := map[[2]string]float64{} // (turn, worker) -> its largest finished cost
-	ev, err := s.db.Query(`SELECT turn_id, type, payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type IN ('usage.updated', 'agent.finished')`, profileID, conversationID)
+	ev, err := q.Query(`SELECT turn_id, type, payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type IN ('usage.updated', 'agent.finished')`, profileID, conversationID)
 	if err != nil {
 		return 0, err
 	}
@@ -133,7 +142,7 @@ func (s *Store) Spent(profileID, conversationID string) (float64, error) {
 		}
 	}
 	ev.Close()
-	running, _ := s.runningCap(profileID, conversationID)
+	running, _ := s.runningCapIn(q, profileID, conversationID)
 	total := 0.0
 	workerSum := map[string]float64{} // per turn
 	for k, v := range workers {

@@ -13,6 +13,11 @@ CREATE TABLE IF NOT EXISTS coder_mission_policy (
     share_pct            INTEGER NOT NULL DEFAULT 50 CHECK (share_pct >= 1 AND share_pct <= 80),
     default_budget_usd   REAL NOT NULL DEFAULT 0 CHECK (default_budget_usd >= 0),  -- 0 = derive from the share
     raised_by            TEXT NOT NULL DEFAULT '',
+    -- the person's floors and caps, written only through the operator's path; the lead may lower its own
+    -- numbers but may not leave an operator off or pass an operator cap (cleared by the operator)
+    operator_mode_off      INTEGER NOT NULL DEFAULT 0 CHECK (operator_mode_off IN (0, 1)),
+    operator_max_children  INTEGER CHECK (operator_max_children IS NULL OR operator_max_children >= 0),
+    operator_share_pct     INTEGER CHECK (operator_share_pct IS NULL OR (operator_share_pct >= 1 AND operator_share_pct <= 80)),
     updated_at           TEXT NOT NULL,
     rev                  INTEGER NOT NULL DEFAULT 0,       -- bumped by every write; a policy write goes against the revision it read
     PRIMARY KEY (profile_id, session_id)
@@ -42,13 +47,15 @@ CREATE TABLE IF NOT EXISTS coder_mission_children (
 CREATE INDEX IF NOT EXISTS idx_coder_mission_children_lead ON coder_mission_children(profile_id, lead_conversation_id);
 -- a child conversation belongs to at most one task
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coder_mission_children_child ON coder_mission_children(profile_id, child_conversation_id) WHERE child_conversation_id <> '';
+-- and a pending (created, not yet linked) conversation belongs to at most one task
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coder_mission_children_pending ON coder_mission_children(profile_id, pending_conversation_id) WHERE pending_conversation_id <> '';
 
 CREATE TABLE IF NOT EXISTS coder_mission_events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     profile_id TEXT NOT NULL,
     session_id INTEGER NOT NULL,
     task_id    INTEGER NOT NULL DEFAULT 0,
-    kind       TEXT NOT NULL,                              -- mark | raise | lower | mode | spawn | end | cascade
+    kind       TEXT NOT NULL,                              -- mark | raise | lower | mode | floor | budget | spawn | end | cascade
     who        TEXT NOT NULL DEFAULT '',                   -- lead:<conversation> | operator | host
     note       TEXT NOT NULL DEFAULT '',
     at         TEXT NOT NULL

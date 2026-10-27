@@ -111,6 +111,8 @@ type Store struct {
 	now func() time.Time
 	// afterPolicyRead lets a test act between SetPolicy's read and its write.
 	afterPolicyRead func()
+	// beforeReserveTx lets a test act between Reserve's checks and the transaction that reserves.
+	beforeReserveTx func()
 }
 
 // NewStore wraps an open, migrated database.

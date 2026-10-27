@@ -130,7 +130,10 @@ func TestStaleReservationOfAnotherTasksConversationFailsWithoutStoppingIt(t *tes
 	if _, err := f.st.SetSpawned(f.scope(), "p", f.se.ID, f.ids[0], x); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.NotePending(f.scope(), "p", f.se.ID, f.ids[1], x); err != nil { // the confused task names the same conversation
+	if err := f.st.NotePending(f.scope(), "p", f.se.ID, f.ids[1], x); !errors.Is(err, ErrInvalid) { // the store refuses it now ...
+		t.Fatalf("a conversation another task owns was accepted as pending: %v", err)
+	}
+	if _, err := f.st.db.Exec(`UPDATE coder_mission_children SET pending_conversation_id = ? WHERE task_id = ?`, x, f.ids[1]); err != nil { // ... so write it as an old row would have it
 		t.Fatal(err)
 	}
 	real := time.Now()

@@ -26,7 +26,11 @@ import (
 //   - Every refusal of "is this your task" is the same error (errMissionRefused), whether the session is
 //     someone else's, in another profile, or does not exist, and whether the task is in it or not.
 //   - The lead raises max_children only up to the lead session's own max_children setting (operator-only) and
-//     share_pct only up to ShareHardMax. Mode "all" is the operator's to turn on; the lead may switch off and marked freely and lower from all.
+//     share_pct only up to ShareHardMax. Mode "all" is the operator's to turn on; the lead may switch off and
+//     marked and lower from all, unless the operator turned the mode off. What the operator writes is a floor
+//     or a cap the lead cannot undo: an operator `off` stays off until the operator turns it on, and an
+//     operator max_children or share_pct is the most the lead may raise its own number to (the operator
+//     clears a cap to give the lead its freedom back). The lead may always lower its own numbers.
 //     Settings, access and the lead's own budget are never written from here.
 //   - The one write outside the coder_mission_* tables is releaseCarve: it lowers a child's budget when its
 //     turn has ended, never raises it and never to 0 (0 means uncapped).
@@ -121,9 +125,14 @@ type Policy struct {
 	SharePct           int     `json:"sharePct"`
 	DefaultBudgetUSD   float64 `json:"defaultBudgetUsd"`
 	RaisedBy           string  `json:"raisedBy,omitempty"`
-	UpdatedAt          string  `json:"updatedAt,omitempty"`
-	Rev                int64   `json:"rev"`    // bumped by every write; SetPolicy writes only against the revision it read
-	Stored             bool    `json:"stored"` // false: the defaults, nothing stored yet
+	// The person's floor and caps (written only by the operator): an off the lead cannot leave, and the
+	// most the lead may raise its own max_children and share_pct to. Nil: no cap.
+	OperatorModeOff     bool   `json:"operatorModeOff,omitempty"`
+	OperatorMaxChildren *int   `json:"operatorMaxChildren,omitempty"`
+	OperatorSharePct    *int   `json:"operatorSharePct,omitempty"`
+	UpdatedAt           string `json:"updatedAt,omitempty"`
+	Rev                 int64  `json:"rev"`    // bumped by every write; SetPolicy writes only against the revision it read
+	Stored              bool   `json:"stored"` // false: the defaults, nothing stored yet
 }
 
 // PolicyPatch changes a policy; a nil field is left alone.
@@ -132,6 +141,10 @@ type PolicyPatch struct {
 	MaxChildren      *int
 	SharePct         *int
 	DefaultBudgetUSD *float64
+	// ClearMaxChildrenCap and ClearSharePctCap lift the operator's cap (the operator's alone). Writing a
+	// number as the operator also makes it the cap; writing a number and clearing its cap together is refused.
+	ClearMaxChildrenCap bool
+	ClearSharePctCap    bool
 }
 
 // MarkOptions are what the lead may say about a marked task.
@@ -201,9 +214,13 @@ type missionSession struct {
 
 // loadMissionSession reads the task session (read-only). found is false when the profile has none with that id.
 func (s *Store) loadMissionSession(profileID string, sessionID int64) (m missionSession, found bool, err error) {
+	return s.loadMissionSessionIn(s.db, profileID, sessionID)
+}
+
+func (s *Store) loadMissionSessionIn(q querier, profileID string, sessionID int64) (m missionSession, found bool, err error) {
 	var conv sql.NullString
 	var archived string
-	err = s.db.QueryRow(`SELECT conversation_id, state, archived_at FROM task_sessions WHERE profile_id = ? AND id = ?`,
+	err = q.QueryRow(`SELECT conversation_id, state, archived_at FROM task_sessions WHERE profile_id = ? AND id = ?`,
 		profileID, sessionID).Scan(&conv, &m.state, &archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return m, false, nil
@@ -254,17 +271,32 @@ func modeRank(m string) int {
 // GetPolicy returns the policy of a task session: the stored one, or the defaults (Stored false). It is a read
 // for the host and the operator surface only: it takes no caller, so a tool must not expose it to a session; the lead is the session's conversation as task_sessions says.
 func (s *Store) GetPolicy(profileID string, sessionID int64) (Policy, error) {
+	return s.policyIn(s.db, profileID, sessionID)
+}
+
+// policyIn is GetPolicy read through q.
+func (s *Store) policyIn(q querier, profileID string, sessionID int64) (Policy, error) {
 	p := Policy{ProfileID: profileID, SessionID: sessionID, Mode: ModeMarked, MaxChildren: defaultPolicyMaxChildren, SharePct: defaultPolicySharePct}
-	err := s.db.QueryRow(`SELECT lead_conversation_id, mode, max_children, share_pct, default_budget_usd, raised_by, updated_at, rev FROM coder_mission_policy
-		WHERE profile_id = ? AND session_id = ?`, profileID, sessionID).Scan(&p.LeadConversationID, &p.Mode, &p.MaxChildren, &p.SharePct, &p.DefaultBudgetUSD, &p.RaisedBy, &p.UpdatedAt, &p.Rev)
+	var modeOff int
+	var opMax, opShare sql.NullInt64
+	err := q.QueryRow(`SELECT lead_conversation_id, mode, max_children, share_pct, default_budget_usd, raised_by, operator_mode_off, operator_max_children, operator_share_pct, updated_at, rev FROM coder_mission_policy
+		WHERE profile_id = ? AND session_id = ?`, profileID, sessionID).Scan(&p.LeadConversationID, &p.Mode, &p.MaxChildren, &p.SharePct, &p.DefaultBudgetUSD, &p.RaisedBy, &modeOff, &opMax, &opShare, &p.UpdatedAt, &p.Rev)
 	if err == nil {
-		p.Stored = true
+		p.Stored, p.OperatorModeOff = true, modeOff != 0
+		if opMax.Valid {
+			v := int(opMax.Int64)
+			p.OperatorMaxChildren = &v
+		}
+		if opShare.Valid {
+			v := int(opShare.Int64)
+			p.OperatorSharePct = &v
+		}
 		return p, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return p, err
 	}
-	m, found, err := s.loadMissionSession(profileID, sessionID)
+	m, found, err := s.loadMissionSessionIn(q, profileID, sessionID)
 	if err != nil {
 		return p, err
 	}
@@ -280,7 +312,10 @@ func (s *Store) GetPolicy(profileID string, sessionID int64) (Policy, error) {
 // The lead may raise max_children up to the lead session's own max_children setting and share_pct up to
 // ShareHardMax, may lower anything, and may switch the mode between off and marked or lower it from all.
 // The operator may set the mode freely (mode "all" is the operator's alone) and the same numbers within the
-// hard limits. Every changed field writes an audit row naming who changed it.
+// hard limits. What the operator writes binds the lead: an operator `off` stays off until the operator turns
+// the mode on, and an operator max_children or share_pct is the most the lead may raise its own to, until the
+// operator clears the cap. Every changed field writes an audit row naming who changed it; a change of the
+// operator's floor or cap is a "floor" row.
 func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, patch PolicyPatch) (Policy, error) {
 	var who string
 	var lead bool
@@ -321,15 +356,35 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 			if lead && *patch.Mode == ModeAll && cur.Mode != ModeAll {
 				return Policy{}, nil, fmt.Errorf("%w: a lead can switch between off and marked, and lower from all, but only the operator turns on mode all", ErrOperatorOnly)
 			}
+			if lead && cur.OperatorModeOff && *patch.Mode != ModeOff {
+				return Policy{}, nil, fmt.Errorf("%w: the person turned child sessions off for this mission; only they can turn them on", ErrOperatorOnly)
+			}
 			if *patch.Mode != cur.Mode {
 				note("mode", fmt.Sprintf("mode %s -> %s", cur.Mode, *patch.Mode))
 				next.Mode = *patch.Mode
 			}
+			if wantOff := *patch.Mode == ModeOff; !lead && wantOff != cur.OperatorModeOff {
+				next.OperatorModeOff = wantOff
+				if wantOff {
+					note("floor", "mode off held: the lead cannot turn child sessions on")
+				} else {
+					note("floor", "mode off lifted")
+				}
+			}
+		}
+		if lead && (patch.ClearMaxChildrenCap || patch.ClearSharePctCap) {
+			return Policy{}, nil, fmt.Errorf("%w: only the operator clears a cap", ErrOperatorOnly)
+		}
+		if (patch.ClearMaxChildrenCap && patch.MaxChildren != nil) || (patch.ClearSharePctCap && patch.SharePct != nil) {
+			return Policy{}, nil, fmt.Errorf("%w: a number and the clearing of its cap cannot be written together", ErrInvalid)
 		}
 		if patch.MaxChildren != nil {
 			n := *patch.MaxChildren
 			if n < 0 || n > policyMaxChildrenLimit {
 				return Policy{}, nil, fmt.Errorf("%w: max_children must be between 0 and %d", ErrInvalid, policyMaxChildrenLimit)
+			}
+			if lead && cur.OperatorMaxChildren != nil && n > *cur.OperatorMaxChildren {
+				return Policy{}, nil, fmt.Errorf("%w: max_children %d is above the cap of %d the person set for this mission", ErrLimit, n, *cur.OperatorMaxChildren)
 			}
 			if lead && n > cur.MaxChildren {
 				ps, err := s.GetSettings(profileID, m.lead)
@@ -348,11 +403,22 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 				note(kind, fmt.Sprintf("max_children %d -> %d", cur.MaxChildren, n))
 				next.MaxChildren = n
 			}
+			if !lead && (cur.OperatorMaxChildren == nil || *cur.OperatorMaxChildren != n) {
+				next.OperatorMaxChildren = &n
+				note("floor", fmt.Sprintf("max_children cap %s -> %d", capText(cur.OperatorMaxChildren), n))
+			}
+		}
+		if patch.ClearMaxChildrenCap && cur.OperatorMaxChildren != nil {
+			note("floor", fmt.Sprintf("max_children cap %d lifted", *cur.OperatorMaxChildren))
+			next.OperatorMaxChildren = nil
 		}
 		if patch.SharePct != nil {
 			n := *patch.SharePct
 			if n < 1 || n > ShareHardMax {
 				return Policy{}, nil, fmt.Errorf("%w: share_pct must be between 1 and %d; to stop spawning children use mode off", ErrLimit, ShareHardMax)
+			}
+			if lead && cur.OperatorSharePct != nil && n > *cur.OperatorSharePct {
+				return Policy{}, nil, fmt.Errorf("%w: share_pct %d is above the cap of %d the person set for this mission", ErrLimit, n, *cur.OperatorSharePct)
 			}
 			if n != cur.SharePct {
 				kind := "lower"
@@ -362,6 +428,14 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 				note(kind, fmt.Sprintf("share_pct %d -> %d", cur.SharePct, n))
 				next.SharePct = n
 			}
+			if !lead && (cur.OperatorSharePct == nil || *cur.OperatorSharePct != n) {
+				next.OperatorSharePct = &n
+				note("floor", fmt.Sprintf("share_pct cap %s -> %d", capText(cur.OperatorSharePct), n))
+			}
+		}
+		if patch.ClearSharePctCap && cur.OperatorSharePct != nil {
+			note("floor", fmt.Sprintf("share_pct cap %d lifted", *cur.OperatorSharePct))
+			next.OperatorSharePct = nil
 		}
 		if patch.DefaultBudgetUSD != nil {
 			b := *patch.DefaultBudgetUSD
@@ -408,6 +482,20 @@ func (s *Store) SetPolicy(sc CallerScope, profileID string, sessionID int64, pat
 	return Policy{}, fmt.Errorf("%w: the policy kept changing under this write; try again", ErrInvalid)
 }
 
+func capText(p *int) string {
+	if p == nil {
+		return "none"
+	}
+	return fmt.Sprint(*p)
+}
+
+func nullInt(p *int) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
 // writePolicy stores next if the policy is still at the revision cur was read at (or still absent, when cur
 // was not stored), with its audit rows, in one transaction. false means someone else wrote first.
 func (s *Store) writePolicy(cur, next Policy, notes []MissionEvent) (bool, error) {
@@ -419,13 +507,16 @@ func (s *Store) writePolicy(cur, next Policy, notes []MissionEvent) (bool, error
 	defer func() { _ = tx.Rollback() }()
 	var res sql.Result
 	if cur.Stored {
-		res, err = tx.Exec(`UPDATE coder_mission_policy SET lead_conversation_id = ?, mode = ?, max_children = ?, share_pct = ?, default_budget_usd = ?, raised_by = ?, updated_at = ?, rev = rev + 1
+		res, err = tx.Exec(`UPDATE coder_mission_policy SET lead_conversation_id = ?, mode = ?, max_children = ?, share_pct = ?, default_budget_usd = ?, raised_by = ?,
+			operator_mode_off = ?, operator_max_children = ?, operator_share_pct = ?, updated_at = ?, rev = rev + 1
 			WHERE profile_id = ? AND session_id = ? AND rev = ?`,
-			next.LeadConversationID, next.Mode, next.MaxChildren, next.SharePct, next.DefaultBudgetUSD, next.RaisedBy, now, cur.ProfileID, cur.SessionID, cur.Rev)
+			next.LeadConversationID, next.Mode, next.MaxChildren, next.SharePct, next.DefaultBudgetUSD, next.RaisedBy,
+			boolInt(next.OperatorModeOff), nullInt(next.OperatorMaxChildren), nullInt(next.OperatorSharePct), now, cur.ProfileID, cur.SessionID, cur.Rev)
 	} else {
-		res, err = tx.Exec(`INSERT OR IGNORE INTO coder_mission_policy (profile_id, session_id, lead_conversation_id, mode, max_children, share_pct, default_budget_usd, raised_by, updated_at, rev)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-			cur.ProfileID, cur.SessionID, next.LeadConversationID, next.Mode, next.MaxChildren, next.SharePct, next.DefaultBudgetUSD, next.RaisedBy, now)
+		res, err = tx.Exec(`INSERT OR IGNORE INTO coder_mission_policy (profile_id, session_id, lead_conversation_id, mode, max_children, share_pct, default_budget_usd, raised_by, operator_mode_off, operator_max_children, operator_share_pct, updated_at, rev)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+			cur.ProfileID, cur.SessionID, next.LeadConversationID, next.Mode, next.MaxChildren, next.SharePct, next.DefaultBudgetUSD, next.RaisedBy,
+			boolInt(next.OperatorModeOff), nullInt(next.OperatorMaxChildren), nullInt(next.OperatorSharePct), now)
 	}
 	if err != nil {
 		return false, err
@@ -443,6 +534,14 @@ func (s *Store) writePolicy(cur, next Policy, notes []MissionEvent) (bool, error
 
 type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// querier is what both the database and a transaction offer; the room check reads through the
+// transaction that reserves, so what it decides on cannot change before the reserving statement runs.
+type querier interface {
+	execer
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
 }
 
 // addMissionEvent writes an audit row. Rows of the lead are bounded per kind: the newest MaxMissionEvents of
@@ -532,7 +631,11 @@ func scanChild(r interface{ Scan(...any) error }) (ChildRow, error) {
 
 // Child returns the row of a task, if it has one.
 func (s *Store) Child(profileID string, sessionID, taskID int64) (ChildRow, bool, error) {
-	c, err := scanChild(s.db.QueryRow(`SELECT `+childColumns+` FROM coder_mission_children WHERE profile_id = ? AND session_id = ? AND task_id = ?`, profileID, sessionID, taskID))
+	return s.childIn(s.db, profileID, sessionID, taskID)
+}
+
+func (s *Store) childIn(q querier, profileID string, sessionID, taskID int64) (ChildRow, bool, error) {
+	c, err := scanChild(q.QueryRow(`SELECT `+childColumns+` FROM coder_mission_children WHERE profile_id = ? AND session_id = ? AND task_id = ?`, profileID, sessionID, taskID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChildRow{}, false, nil
 	}
@@ -639,7 +742,9 @@ func (s *Store) Mark(sc CallerScope, profileID string, sessionID, taskID int64, 
 // (profile, session, task) key, so two callers racing for one task get one winner. It refuses unless the
 // mission is running (a draft waits for the plan's approval), the policy allows children, there is room,
 // the ceiling holds in the statement itself, and the task has attempts left. In mode "all" an unmarked task
-// gets its row here (origin rule).
+// gets its row here (origin rule). The policy, the settings, the budget and the counts it decides on are
+// read inside the transaction that reserves, after it took the write lock, so a limit the operator lowers
+// meanwhile is the limit it holds; the rule row is part of that transaction and is gone if the statement loses.
 func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int64) (ChildRow, error) {
 	l, m, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
@@ -651,11 +756,26 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if m.archived || m.state != "running" {
 		return ChildRow{}, fmt.Errorf("%w: the mission is %s; no task starts in its own session until it is running", ErrInvalid, m.state)
 	}
-	pol, err := s.GetPolicy(profileID, sessionID)
+	if s.beforeReserveTx != nil {
+		s.beforeReserveTx()
+	}
+	now := s.stamp()
+	tx, err := s.db.Begin()
 	if err != nil {
 		return ChildRow{}, err
 	}
-	cur, have, err := s.Child(profileID, sessionID, taskID)
+	defer func() { _ = tx.Rollback() }()
+	// A write that changes nothing, first: it takes the database's write lock, so no other writer can change
+	// what the reads below see before the reserving statement (and a read-first transaction could not be
+	// promoted to a writer once someone else wrote).
+	if _, err := tx.Exec(`UPDATE coder_mission_children SET id = id WHERE 0`); err != nil {
+		return ChildRow{}, err
+	}
+	pol, err := s.policyIn(tx, profileID, sessionID)
+	if err != nil {
+		return ChildRow{}, err
+	}
+	cur, have, err := s.childIn(tx, profileID, sessionID, taskID)
 	if err != nil {
 		return ChildRow{}, err
 	}
@@ -667,26 +787,20 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	case have && cur.Attempts >= MaxChildAttempts:
 		return ChildRow{}, fmt.Errorf("%w: the task was started %d times already", ErrLimit, cur.Attempts)
 	}
-	carve := s.childBudget(pol, cur.BudgetUSD, m.lead)
-	room, err := s.RoomFor(profileID, sessionID, carve)
+	carve := s.childBudgetIn(tx, pol, cur.BudgetUSD, m.lead)
+	room, err := s.roomIn(tx, pol, carve)
 	if err != nil {
 		return ChildRow{}, err
 	}
 	if !room.OK {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, room.Reason)
 	}
-	now := s.stamp()
 	if !have { // mode all
-		if _, err := s.db.Exec(`INSERT OR IGNORE INTO coder_mission_children (profile_id, session_id, task_id, lead_conversation_id, origin, state, created_at, updated_at)
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO coder_mission_children (profile_id, session_id, task_id, lead_conversation_id, origin, state, created_at, updated_at)
 			VALUES (?, ?, ?, ?, 'rule', 'marked', ?, ?)`, profileID, sessionID, taskID, m.lead, now, now); err != nil {
 			return ChildRow{}, err
 		}
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return ChildRow{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
 	shareCap := -1.0
 	if room.Capped {
 		shareCap = room.AllowedUSD
@@ -695,7 +809,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if err != nil {
 		return ChildRow{}, err
 	}
-	if !won {
+	if !won { // the deferred rollback takes the rule row back with it
 		return ChildRow{}, fmt.Errorf("%w: %w: the task is already starting, or the child limit or the budget share was just reached", ErrLimit, ErrChildrenFull)
 	}
 	if err := addMissionEvent(tx, profileID, sessionID, taskID, "spawn", "lead:"+l.Caller.ConversationID, fmt.Sprintf("reserved $%.2f", carve), now); err != nil {
@@ -785,14 +899,21 @@ func (s *Store) Touch(sc CallerScope, profileID string, sessionID, taskID int64)
 }
 
 func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, pending string) error {
+	// A conversation is pending on one task only: another row holding it, as its child or as its pending, refuses.
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET updated_at = ?, pending_conversation_id = CASE WHEN ? <> '' THEN ? ELSE pending_conversation_id END
-		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'`,
-		s.stamp(), pending, pending, profileID, sessionID, taskID, lead)
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'
+		AND (? = '' OR NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?)
+			AND NOT (o.session_id = ? AND o.task_id = ?)))`,
+		s.stamp(), pending, pending, profileID, sessionID, taskID, lead,
+		pending, profileID, pending, pending, sessionID, taskID)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return fmt.Errorf("%w: that conversation is pending on a task already", ErrInvalid)
+		}
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("%w: the task is not waiting for its session", ErrInvalid)
+		return fmt.Errorf("%w: the task is not waiting for its session, or that conversation belongs to another task", ErrInvalid)
 	}
 	return nil
 }
@@ -841,12 +962,51 @@ func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset int, ended []str
 	return reset, ended, nil
 }
 
+// OrphanCarve is a child session that holds a carve of its lead's budget but that no task row points at.
+type OrphanCarve struct {
+	ProfileID          string  `json:"profileId"`
+	ConversationID     string  `json:"conversationId"`
+	LeadConversationID string  `json:"leadConversationId"`
+	BudgetUSD          float64 `json:"budgetUsd"`
+}
+
+// FindOrphanCarves lists the child sessions older than minAge whose parent is a lead with a mission policy,
+// that hold a budget, and that no task row names as its child or its pending conversation: a spawn that died
+// between taking the carve and recording the conversation. The host stops them and returns the carve
+// (End cannot, there is no row). It cannot tell a spawn of a task from a child the lead made another way, so
+// the host decides which of these it started; minAge keeps a spawn that is still running out of the list.
+func (s *Store) FindOrphanCarves(minAge time.Duration) ([]OrphanCarve, error) {
+	old := s.now().Add(-minAge).UTC().Format(timeLayout)
+	rows, err := s.db.Query(`SELECT c.profile_id, c.conversation_id, c.parent_conversation_id, c.budget_usd FROM coder_sessions c
+		WHERE c.role = 'child' AND c.budget_usd > 0 AND c.created_at < ?
+		AND EXISTS (SELECT 1 FROM coder_mission_policy p WHERE p.profile_id = c.profile_id AND p.lead_conversation_id = c.parent_conversation_id)
+		AND NOT EXISTS (SELECT 1 FROM coder_mission_children k WHERE k.profile_id = c.profile_id
+			AND (k.child_conversation_id = c.conversation_id OR k.pending_conversation_id = c.conversation_id))
+		ORDER BY c.created_at, c.conversation_id`, old)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OrphanCarve
+	for rows.Next() {
+		var o OrphanCarve
+		if err := rows.Scan(&o.ProfileID, &o.ConversationID, &o.LeadConversationID, &o.BudgetUSD); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // expireOrphan fails one stale reservation whose spawn created a conversation but never linked it, in one
 // transaction with its audit row and the lowering of the orphan's cap. The conversation is attached to the row
 // (attached true: the host should stop it) unless another task already owns it, in which case the row still
 // fails, with no conversation, and the other task's session is left alone. Either way the reservation stops
 // holding a slot and its reserved carve.
 func (s *Store) expireOrphan(profileID string, sid, tid int64, conv string) (attached bool, err error) {
+	// The spend is read before the transaction (it is computed from the event log in Go, not in one statement).
+	// A turn that finishes in between leaves the cap a little below the real spend; the conversation is being
+	// stopped anyway, and the lead's own Spent catches up, so this is accepted.
 	spent, err := s.Spent(profileID, conv)
 	if err != nil {
 		return false, err
@@ -903,6 +1063,9 @@ func endState(reason string) (string, bool) {
 // the host's (it has no caller); ended is false when the conversation has no live row, so a second call
 // does nothing.
 func (s *Store) End(profileID, childConversationID, reason string) (bool, error) {
+	if childConversationID == "" { // "" would match any spawning row that has no conversation yet
+		return false, nil
+	}
 	state, ok := endState(reason)
 	if !ok {
 		return false, fmt.Errorf("%w: %q is not an end reason", ErrInvalid, reason)
@@ -916,6 +1079,10 @@ func (s *Store) End(profileID, childConversationID, reason string) (bool, error)
 	if err != nil {
 		return false, err
 	}
+	// The spend is read before the transaction (it is computed from the event log in Go, not in one statement).
+	// A turn that finishes between this read and the commit leaves the cap a little below the real spend and
+	// understates this child in Carved by that turn's cost until the lead's own Spent catches up; the child is
+	// ending anyway and no budget leaks, so this is accepted.
 	spent := 0.0
 	if state != ChildGone {
 		if spent, err = s.Spent(profileID, childConversationID); err != nil {
@@ -930,7 +1097,7 @@ func (s *Store) End(profileID, childConversationID, reason string) (bool, error)
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.Exec(`UPDATE coder_mission_children SET state = ?, end_reason = ?, ended_at = ?, updated_at = ? WHERE `+match,
+	res, err := tx.Exec(`UPDATE coder_mission_children SET state = ?, end_reason = ?, reserved_usd = 0, ended_at = ?, updated_at = ? WHERE `+match,
 		state, reason, now, now, profileID, childConversationID, childConversationID)
 	if err != nil {
 		return false, err
@@ -988,17 +1155,21 @@ func (s *Store) releaseCarveIn(db execer, profileID, childConversationID string,
 // childBudget is the carve to ask for: the task's wish, else the policy's default, else (for a lead with a
 // cap) max(0.50, remaining x share / max_children / 100); 0 (no cap of its own) for a lead without one.
 func (s *Store) childBudget(p Policy, wish float64, lead string) float64 {
+	return s.childBudgetIn(s.db, p, wish, lead)
+}
+
+func (s *Store) childBudgetIn(q querier, p Policy, wish float64, lead string) float64 {
 	if wish > 0 {
 		return wish
 	}
 	if p.DefaultBudgetUSD > 0 {
 		return p.DefaultBudgetUSD
 	}
-	budget, err := s.Budget(p.ProfileID, lead)
-	if err != nil || budget <= 0 {
+	var budget float64
+	if err := q.QueryRow(`SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, p.ProfileID, lead).Scan(&budget); err != nil || budget <= 0 {
 		return 0
 	}
-	spent, _ := s.Spent(p.ProfileID, lead)
+	spent, _ := s.spentIn(q, p.ProfileID, lead)
 	n := p.MaxChildren
 	if n < 1 {
 		n = 1
@@ -1021,27 +1192,33 @@ func (s *Store) DefaultChildBudget(profileID string, sessionID int64) (float64, 
 //   - for a lead with a cap: carved + newUSD <= share_pct% of (budget - spent), and the carve is positive.
 //     A lead with no cap has no share to hold.
 func (s *Store) RoomFor(profileID string, sessionID int64, newUSD float64) (Room, error) {
-	var r Room
 	pol, err := s.GetPolicy(profileID, sessionID)
 	if err != nil {
-		return r, err
+		return Room{}, err
 	}
+	return s.roomIn(s.db, pol, newUSD)
+}
+
+// roomIn is RoomFor for a policy already read, with every other read going through q.
+func (s *Store) roomIn(q querier, pol Policy, newUSD float64) (Room, error) {
+	var r Room
+	profileID := pol.ProfileID
 	if pol.LeadConversationID == "" {
 		return r, fmt.Errorf("%w: the mission has no lead conversation", ErrInvalid)
 	}
 	if newUSD < 0 || math.IsNaN(newUSD) || math.IsInf(newUSD, 0) {
 		return r, fmt.Errorf("%w: the budget must be a number of at least 0", ErrInvalid)
 	}
-	ps, err := s.GetSettings(profileID, pol.LeadConversationID)
+	ps, err := s.settingsIn(q, profileID, pol.LeadConversationID)
 	if err != nil {
 		return r, err
 	}
 	r.Ceiling, r.MaxConcurrent = min(pol.MaxChildren, ps.MaxChildren), ps.MaxConcurrent
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state IN ('spawning', 'spawned')`,
+	if err := q.QueryRow(`SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state IN ('spawning', 'spawned')`,
 		profileID, pol.LeadConversationID).Scan(&r.Live); err != nil {
 		return r, err
 	}
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND role = 'child' AND state = 'running'`,
+	if err := q.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND role = 'child' AND state = 'running'`,
 		profileID, pol.LeadConversationID).Scan(&r.Running); err != nil {
 		return r, err
 	}
@@ -1053,21 +1230,21 @@ func (s *Store) RoomFor(profileID string, sessionID int64, newUSD float64) (Room
 	case r.Running >= r.MaxConcurrent:
 		r.Reason = fmt.Sprintf("%d child turns running (max_concurrent is %d)", r.Running, r.MaxConcurrent)
 	default:
-		budget, err := s.Budget(profileID, pol.LeadConversationID)
-		if err != nil {
+		var budget float64
+		if err := q.QueryRow(`SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, pol.LeadConversationID).Scan(&budget); err != nil {
 			return r, err
 		}
 		if budget > 0 {
-			spent, err := s.Spent(profileID, pol.LeadConversationID)
+			spent, err := s.spentIn(q, profileID, pol.LeadConversationID)
 			if err != nil {
 				return r, err
 			}
-			carved, err := s.Carved(profileID, pol.LeadConversationID)
-			if err != nil {
+			var carved float64
+			if err := q.QueryRow(`SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?`, profileID, pol.LeadConversationID).Scan(&carved); err != nil {
 				return r, err
 			}
 			var reserved float64 // reserved children have no session yet, so Carved does not hold their carve
-			if err := s.db.QueryRow(`SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning'`,
+			if err := q.QueryRow(`SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning'`,
 				profileID, pol.LeadConversationID).Scan(&reserved); err != nil {
 				return r, err
 			}

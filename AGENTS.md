@@ -1903,8 +1903,11 @@ its own (unique per profile, session and task; states `marked`, `spawning`, `spa
 `released`) and an audit trail. Only the lead of that session (a `LeadScope` made from its verified session token)
 marks, reserves or links a row; a caller that holds a task-bound mission binding is refused; foreign sessions,
 profiles and tasks all read as one refusal. The lead may raise `max_children` up to the lead session's own
-(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked` (and lower it from `all`),
-and only the operator turns on mode `all`. `share_pct` is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live children under
+(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked` (and lower it from `all`) unless the operator turned it off,
+and only the operator turns on mode `all`. What the operator writes binds the lead: an operator `off` stays off until the operator turns the mode on
+(`operator_mode_off`), and an operator `max_children` or `share_pct` is the most the lead may raise its own to
+(`operator_max_children`, `operator_share_pct`; the operator clears a cap with `ClearMaxChildrenCap` / `ClearSharePctCap`); the lead may always lower. The
+operator's changes are `floor` audit rows by `operator`, the lead's are `raise` / `lower` / `mode` rows by `lead:<conversation>`. `share_pct` is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live children under
 `min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the carves under
 `share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve returns to
 the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call `Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists counts against the share. Nothing starts a session yet: no CLI verb,
@@ -1914,7 +1917,7 @@ phases: the tool layer (P-C) builds the caller with `NewLeadScope(caller, bindin
 itself a child, or a worker, must not spawn mission children (depth rule); the spawn path (P-B) calls `NotePending` when
 the child's conversation is created and `Touch` between its steps, so `ResetStaleSpawning` does not hand a slow spawn's
 task to a second child. The share is held only for children that exist (their sessions' caps) or are reserved (the carve
-stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. Migration 139 was edited in place before it merged: development databases that applied an earlier 139 must be recreated. Deleting a conversation or a
+stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. `Reserve` reads the policy, settings, budget and counts it decides on inside the transaction that reserves, after a no-op write took the write lock (the mode-`all` rule row is part of that transaction); a conversation is pending on one row only (partial unique index, and `NotePending` refuses one another row holds); `End` with an empty conversation id does nothing and zeroes `reserved_usd` of a row it ends. Obligations for the host phase (P-B): (a) call `NotePending` from `onCreated` only after the carve is taken (`carveBudget`), and call `FindOrphanCarves(minAge)` in the reconcile pass to find child sessions of a lead with a mission policy that hold a carve and that no row points at (a crash between the two), then stop them and lower their cap with the same release the end path uses; it cannot tell a mission spawn from another child of the lead, so the host keeps its own record of what it started and filters; (b) `DeleteConversation` marks a row `gone` by its child or its pending conversation; (c) ending a `spawning` row returns its reserved carve (`reserved_usd` 0). Deleting a conversation or a
 sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
 
 **Mission child sessions: the host half (the conductor does not spawn yet).** `SpawnForTask` (`coderhost/children_task.go`)
