@@ -19,18 +19,20 @@ import (
 // access level, auto-close, archive, closing a task) stays hers.
 
 const sessionCols = `id, profile_id, conversation_id, title, goal, state, access_level, budget_usd, spent_usd, max_tasks, max_depth,
-	max_retries, auto_close_verified, created_by, approved_by, approved_at, archived_at, created_at, updated_at, client_id`
+	max_retries, auto_close_verified, created_by, approved_by, approved_at, archived_at, created_at, updated_at, client_id,
+	parent_session_id, kind, approval_basis`
 
 func (s *Store) scanSession(row rowScanner) (Session, error) {
 	var se Session
 	var conv, cid sql.NullString
+	var parent sql.NullInt64
 	var state, approvedAt, archivedAt, created, updated string
 	var auto int
 	if err := row.Scan(&se.ID, &se.ProfileID, &conv, &se.Title, &se.Goal, &state, &se.AccessLevel, &se.BudgetUSD, &se.SpentUSD,
-		&se.MaxTasks, &se.MaxDepth, &se.MaxRetries, &auto, &se.CreatedBy, &se.ApprovedBy, &approvedAt, &archivedAt, &created, &updated, &cid); err != nil {
+		&se.MaxTasks, &se.MaxDepth, &se.MaxRetries, &auto, &se.CreatedBy, &se.ApprovedBy, &approvedAt, &archivedAt, &created, &updated, &cid, &parent, &se.Kind, &se.ApprovalBasis); err != nil {
 		return Session{}, err
 	}
-	se.ClientID = cid.String
+	se.ClientID, se.ParentSessionID = cid.String, parent.Int64
 	se.ConversationID, se.State, se.AutoCloseVerified, se.Archived = conv.String, SessionState(state), auto == 1, archivedAt != ""
 	var err error
 	if approvedAt != "" {
@@ -70,6 +72,11 @@ func (s *Store) fillSession(ctx context.Context, x dbx, se Session) (Session, er
 		return Session{}, err
 	}
 	se.Counts = c
+	chain, err := s.sessionChain(ctx, x, se.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	se.Depth = len(chain)
 	return se, nil
 }
 
@@ -195,11 +202,8 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 		if err := needName(actor); err != nil {
 			return Session{}, err
 		}
-		if actor.Session != 0 {
-			return Session{}, operatorOnly("start a session: this agent is bound to session #" + fmt.Sprint(actor.Session))
-		}
-		if actor.Task != 0 || actor.Verifier {
-			return Session{}, operatorOnly("start a session: this agent is bound to a task")
+		if err := agentMayStart(actor, in.ParentSessionID); err != nil {
+			return Session{}, err
 		}
 		if in.AccessLevel != "" || in.BudgetUSD != 0 || in.MaxTasks != 0 || in.MaxDepth != 0 {
 			return Session{}, operatorOnly("set a session's access level, budget or caps")
@@ -210,6 +214,16 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 	title := cutRunes(oneLine(in.Title), MaxTitleRunes)
 	if title == "" {
 		return Session{}, invalid("a session needs a title")
+	}
+	kind := in.Kind
+	if kind == "" {
+		kind = SessionKindBoard
+	}
+	if !slices.Contains(SessionKinds, kind) {
+		return Session{}, invalid("unknown session kind %q (use %s)", echo(kind), strings.Join(SessionKinds, ", "))
+	}
+	if in.ParentSessionID < 0 {
+		return Session{}, invalid("a parent session is an id above 0")
 	}
 	goal := cutBytes(cleanText(in.Goal), MaxGoalBytes)
 	level := in.AccessLevel
@@ -223,6 +237,7 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 		return Session{}, invalid("the budget is an amount in dollars, 0 or more")
 	}
 	maxTasks, maxDepth := in.MaxTasks, in.MaxDepth
+	explicit := in // what the caller asked for, before the defaults and the parent's limits apply
 	if maxTasks == 0 {
 		maxTasks = DefaultSessionMaxTasks
 	}
@@ -284,15 +299,27 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 		if open >= MaxOpenSessions {
 			return limit("this profile already has %d sessions that are not archived: archive some first", MaxOpenSessions)
 		}
+		budget := in.BudgetUSD
+		var parent any
+		if in.ParentSessionID != 0 {
+			par, err := s.checkParent(ctx, x, profileID, in.ParentSessionID, actor)
+			if err != nil {
+				return err
+			}
+			if level, maxTasks, maxDepth, budget, err = withinParent(par, explicit, level, maxTasks, maxDepth, budget); err != nil {
+				return err
+			}
+			parent = par.ID
+		}
 		stamp := s.stamp()
 		var cid any
 		if clientID != "" {
 			cid = clientID
 		}
 		res, err := x.ExecContext(ctx,
-			`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, budget_usd, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			profileID, conv, title, goal, level, in.BudgetUSD, maxTasks, maxDepth, DefaultSessionMaxRetries, actor.Label(), stamp, stamp, cid)
+			`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, budget_usd, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, parent_session_id, kind)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			profileID, conv, title, goal, level, budget, maxTasks, maxDepth, DefaultSessionMaxRetries, actor.Label(), stamp, stamp, cid, parent, kind)
 		if err != nil {
 			return fmt.Errorf("tasks: adding a session: %w", err)
 		}

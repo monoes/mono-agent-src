@@ -37,7 +37,7 @@ func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, 
 			}
 		}
 		stamp := s.stamp()
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = 'running', approved_by = ?, approved_at = ? WHERE id = ?`, actor.Label(), stamp, id); err != nil {
+		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = 'running', approved_by = ?, approved_at = ?, approval_basis = 'operator' WHERE id = ?`, actor.Label(), stamp, id); err != nil {
 			return fmt.Errorf("tasks: approving session #%d: %w", id, err)
 		}
 		return s.sessionEvent(ctx, x, id, actor, "approved", fmt.Sprintf("%d tasks to Ready", len(ids)))
