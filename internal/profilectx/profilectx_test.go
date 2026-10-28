@@ -150,3 +150,26 @@ func TestBlockNeverFails(t *testing.T) {
 		t.Errorf("nil db should give an empty block, got %q", got)
 	}
 }
+
+func TestBlockNamesTheSecondBrainOnlyWhenSomethingIsIndexed(t *testing.T) {
+	db := testDB(t)
+	seed(t, db, "pa", "Alpha Studio", t.TempDir())
+	fill(t, db, "pa")
+
+	c, err := Build(context.Background(), db, "pa", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(c.Block(), "search-knowledge") {
+		t.Errorf("nothing indexed, yet the block names the second brain:\n%s", c.Block())
+	}
+
+	mustExec(t, db, `UPDATE vault_documents SET indexed = 1 WHERE id = 'doc-001'`)
+	c, err = Build(context.Background(), db, "pa", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Second brain: 1 indexed"; !strings.Contains(c.Block(), want) || !strings.Contains(c.Block(), "search-knowledge") {
+		t.Errorf("block lacks %q and the search-knowledge hint:\n%s", want, c.Block())
+	}
+}

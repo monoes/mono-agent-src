@@ -118,6 +118,7 @@ func (d Deps) newProfileDocumentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "documents",
 		Short: "Manage uploaded profile documents",
+		Long:  "Manage the profile's documents. To answer a question from them, run `profile search-knowledge \"<query>\"` first; it returns ranked passages.",
 	}
 	cmd.AddCommand(d.newProfileDocumentsListCmd(), d.newProfileDocumentsGetCmd(), d.newProfileDocumentsCaptureCmd(),
 		d.newProfileDocumentsRmCmd(), d.newProfileDocumentsIndexCmd(), d.newProfileDocumentsSyncCmd(),
@@ -395,7 +396,7 @@ func (d Deps) runIndexAllCaptures(cmd *cobra.Command, db *sql.DB, allProfiles bo
 func (d Deps) newProfileSearchKnowledgeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "search-knowledge <query>",
-		Short:   "Search uploaded profile documents (for testing — chat uses this automatically)",
+		Short:   "Search the profile's documents and captured pages (second brain) for ranked passages",
 		Args:    cobra.ExactArgs(1),
 		Example: `  monoagentcli profile search-knowledge "backend frameworks"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
