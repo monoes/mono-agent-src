@@ -63,7 +63,7 @@ var findCases = []struct {
 	// Aliases resolve to the real command.
 	{[]string{"person", "list"}, "people list", nil, classGated, "person is an alias of people"},
 	{[]string{"people", "history", "list"}, "people messages list", nil, classGated, "history is an alias of people messages"},
-	{[]string{"image", "rm", "x"}, "image delete", []string{"x"}, classGated, "rm is an alias of image delete"},
+	{[]string{"image", "rm", "x"}, "media delete", []string{"x"}, classGated, "image is an alias of media, rm of delete"},
 	// `--` ends the flags and the command words.
 	{[]string{"--", "workflow", "list"}, "", []string{"--", "workflow", "list"}, classOpen, "nothing before `--` names a command"},
 	{[]string{"workflow", "--", "list"}, "workflow", []string{"--", "list"}, classGated, "`list` is an argument of workflow"},

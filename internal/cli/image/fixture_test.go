@@ -34,6 +34,8 @@ type testConfig struct {
 	DBPath     string
 	JSONOutput bool
 	ProfileID  string
+	// NotOperator makes the caller an agent: what only the operator may do is refused (exit 3).
+	NotOperator bool
 }
 
 // cliError is the fake of the CLI's exit-code errors.
@@ -108,6 +110,12 @@ func testDeps(cfg *testConfig) Deps {
 		},
 		NotFound:     errorOf(2),
 		InvalidInput: errorOf(3),
+		RequireOperator: func(what string) error {
+			if cfg.NotOperator {
+				return errorOf(3)("only the operator can %s", what)
+			}
+			return nil
+		},
 		WriteJSON: func(w io.Writer, v any) error {
 			enc := json.NewEncoder(w)
 			enc.SetIndent("", "  ")

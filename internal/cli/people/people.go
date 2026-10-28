@@ -230,7 +230,7 @@ func (d Deps) newPeoplePhotosCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "photos",
 		Short: "Download the profile photos still stored as remote URLs",
-		Long: "Saves a local copy (in the image vault) of every person's photo that is still a remote URL, " +
+		Long: "Saves a local copy (in the media vault) of every person's photo that is still a remote URL, " +
 			"and points the person at it. Photos that can no longer be fetched keep their URL.",
 		Example: `  monoagentcli --json people photos`,
 		Args:    cobra.NoArgs,

@@ -194,19 +194,45 @@ test("without a profile, a bridge, or vault.save on it, nothing is fetched and S
 
 // itemOnPage runs in the page: the item must be one the page itself shows or
 // links to, wherever its address is written.
+test("audio and video are saved by what the bytes are, with the type's own extension", async () => {
+  const bytes = (...head) => Uint8Array.from([...head, ...new Array(24).fill(0)]);
+  const ftyp = (brand) => [0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, ...Buffer.from(brand), 0, 0, 0, 0, 0x6d, 0x70, 0x34, 0x32, 0x69, 0x73, 0x6f, 0x6d];
+  const cases = [
+    ["audio/mpeg", bytes(0x49, 0x44, 0x33, 3, 0), "https://a.example/a/theme", "theme.mp3"],
+    ["audio/mpeg", bytes(0xff, 0xfb, 0x90, 0x44), "https://a.example/a/raw.mp3", "raw.mp3"],
+    ["audio/wav", bytes(0x52, 0x49, 0x46, 0x46, 0x24, 0, 0, 0, 0x57, 0x41, 0x56, 0x45), "https://a.example/a/take.wav", "take.wav"],
+    ["audio/ogg", bytes(0x4f, 0x67, 0x67, 0x53, 0), "https://a.example/a/voice.ogg", "voice.ogg"],
+    ["video/webm", bytes(0x1a, 0x45, 0xdf, 0xa3), "https://a.example/a/demo.webm", "demo.webm"],
+    ["video/mp4", bytes(...ftyp("isom")), "https://a.example/a/demo.mp4", "demo.mp4"],
+    ["audio/mp4", bytes(...ftyp("M4A ")), "https://a.example/a/memo.m4a", "memo.m4a"],
+  ];
+  for (const [mime, body, url, name] of cases) {
+    const w = world({ body, contentType: "application/octet-stream" });
+    const out = await w.send(ask({ url }));
+    assert.equal(out.status, "saved", `${name}: ${out.feedback.text}`);
+    assert.deepEqual([w.calls.requests[0].params.mime, w.calls.requests[0].params.name], [mime, name]);
+  }
+  // Bytes that are not those types are refused, whatever the address or header says.
+  const fake = world({ body: new TextEncoder().encode("#!/bin/sh\nrm -rf ~\n"), contentType: "video/mp4" });
+  const refused = await fake.send(ask({ url: "https://a.example/a/clip.mp4" }));
+  assert.equal(refused.status, "refused");
+  assert.equal(fake.calls.requests.length, 0);
+});
+
 test("an item is on the page when the page shows it, links to it, or is it", () => {
   const el = (attrs) => ({ getAttribute: (k) => (k in attrs ? attrs[k] : null), currentSrc: attrs.currentSrc || "" });
   const lists = {
     img: [el({ src: "/img/a.png", currentSrc: "https://a.example/img/a.png" }), el({ src: "b.png", srcset: "/img/b-1x.png 1x, /img/b%202x.png 2x" })],
     "picture source[srcset]": [el({ srcset: "https://cdn.example/c.webp 640w" })],
     "a[href]": [el({ href: "../files/q3.pdf#page=2" })],
-    "embed[src], iframe[src], object[data], video[poster]": [el({ data: "/doc.pdf" })],
+    "embed[src], iframe[src], object[data], video[poster], video[src], audio[src], video source[src], audio source[src]": [el({ data: "/doc.pdf" }), el({ src: "/media/demo.mp4" }), el({ src: "/media/theme.mp3" })],
   };
   const document = { baseURI: "https://a.example/blog/post", querySelectorAll: (sel) => lists[sel] || [] };
   const { MonoVault: V } = loadExtensionScripts(["vault_bridge.js"], { document, location: { href: "https://a.example/blog/post" } });
   for (const url of [
     "https://a.example/img/a.png", "https://a.example/blog/b.png", "https://a.example/img/b-1x.png", "https://a.example/img/b 2x.png",
     "https://cdn.example/c.webp", "https://a.example/files/q3.pdf", "https://a.example/doc.pdf", "https://a.example/blog/post#top",
+    "https://a.example/media/demo.mp4", "https://a.example/media/theme.mp3",
   ]) assert.equal(V.itemOnPage(url), true, url);
   for (const url of ["https://a.example/img/secret.png", "https://evil.example/img/a.png", "not a url"]) assert.equal(V.itemOnPage(url), false, url);
 });
@@ -309,12 +335,12 @@ test("a full vault and a blocked vault folder are final; a rate limit says when 
   const say = async (fail) => world({ fail }).send(ask());
   const items = await say({ code: "quota_exceeded", message: "this profile already holds 5000 files", data: { limit: "items", max: 5000 } });
   assert.deepEqual([items.status, items.feedback.text], ["refused",
-    "Not saved: this profile already holds 5,000 files saved from the browser, the most it takes. Delete some in the Image Vault to save more"]);
+    "Not saved: this profile already holds 5,000 files saved from the browser, the most it takes. Delete some in the Media Vault to save more"]);
   const bytes = await say({ code: "quota_exceeded", message: "over the limit", data: { limit: "bytes", max: 2 * 1024 * 1024 * 1024 } });
   assert.deepEqual([bytes.status, bytes.feedback.text], ["refused",
-    "Not saved: files saved from the browser would pass this profile's 2 GiB limit. Delete some in the Image Vault to save more"]);
-  const bare = await say({ code: "quota_exceeded", message: "the vault is full: delete some in the Image Vault" });
-  assert.deepEqual([bare.status, bare.feedback.text], ["refused", "Not saved: the vault is full: delete some in the Image Vault"], "no data: MonoAgent's own words");
+    "Not saved: files saved from the browser would pass this profile's 2 GiB limit. Delete some in the Media Vault to save more"]);
+  const bare = await say({ code: "quota_exceeded", message: "the vault is full: delete some in the Media Vault" });
+  assert.deepEqual([bare.status, bare.feedback.text], ["refused", "Not saved: the vault is full: delete some in the Media Vault"], "no data: MonoAgent's own words");
 
   const conflict = await say({ code: "storage_conflict", message: "files it did not make sit where its next vault items go; check the profile's vault folder" });
   assert.deepEqual([conflict.status, conflict.feedback.text], ["refused",

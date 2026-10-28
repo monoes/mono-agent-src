@@ -2,9 +2,11 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/imagescan"
+	"github.com/monoes/mono-agent/internal/vault"
 )
 
 // restartImageWatcher stops any existing image watcher and starts a new one
@@ -40,11 +42,20 @@ func (a *App) restartImageWatcher() {
 // from its last walk. interval <= 0 uses imagescan.DefaultPollInterval.
 func (a *App) startImageWatcher(profileID, root string, interval time.Duration, emit folderEventFunc) *imagescan.Watcher {
 	s := newFolderSyncer(func() {
-		if changed := a.syncFolder(profileID, "image discovery", "image", "sync"); changed != nil {
+		if changed := a.syncFolder(profileID, "media discovery", "media", "sync"); changed != nil {
 			emit("images:changed", folderEventData(profileID, changed))
 		}
 	})
 	w := imagescan.NewWatcher(root, interval, func([]imagescan.FileInfo) { s.trigger() })
+	// Audio and video count only while the profile's `media scan` is on; the
+	// setting is read on every walk, so switching it changes the next one.
+	w.IncludeAV = func() bool {
+		if a.db == nil {
+			return false
+		}
+		on, _ := vault.ScanAVEnabled(context.Background(), a.db, profileID)
+		return on
+	}
 	w.Start()
 	return w
 }

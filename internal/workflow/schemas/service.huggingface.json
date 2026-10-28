@@ -50,7 +50,7 @@
       "type": "string"
     },
     {
-      "description": "its Image Vault entry, when saved",
+      "description": "its Media Vault entry, when saved",
       "key": "vault_id",
       "type": "string"
     }

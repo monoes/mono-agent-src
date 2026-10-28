@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
@@ -107,6 +108,56 @@ func TestImageSync(t *testing.T) {
 	}
 }
 
+// Audio and video in the profile folder are not tracked until `media scan on`;
+// turning it off again drops their discovered entries and leaves the files.
+func TestMediaSyncAudioVideoIsOptIn(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	seedProfiles(t, dbPath, "work", "home")
+	home, _ := os.UserHomeDir()
+	root := filepath.Join(home, ".monoagent", "profiles", "work")
+	writePNG(t, filepath.Join(root, "logo.png"), 4, 4)
+	writeFile(t, filepath.Join(root, "take.mp3"), "audio")
+	writeFile(t, filepath.Join(root, "clips", "demo.mp4"), "video")
+	work := &testConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "work"}
+
+	scanOn := func(cfg *testConfig, args ...string) bool {
+		t.Helper()
+		out, err := runImage(t, cfg, append([]string{"scan"}, args...)...)
+		if err != nil {
+			t.Fatalf("scan %v: %v", args, err)
+		}
+		return strings.Contains(out, `"scan_audio_video": true`) || strings.Contains(out, `"scan_audio_video":true`)
+	}
+	if scanOn(work) {
+		t.Fatal("audio/video scan must be off by default")
+	}
+	if r := runFolderSync(t, work, "sync"); r.Scanned != 1 {
+		t.Fatalf("default sync scanned %d files, want only the png: %+v", r.Scanned, r)
+	}
+	if !scanOn(work, "on") {
+		t.Fatal("scan on should report on")
+	}
+	if r := runFolderSync(t, work, "sync"); r.Scanned != 3 || syncCounts(r) != [3]int{2, 0, 0} {
+		t.Fatalf("sync with scan on = %+v, want the mp3 and mp4 added", r)
+	}
+	// The setting is per profile.
+	if scanOn(&testConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "home"}) {
+		t.Fatal("profile home must stay off")
+	}
+	if scanOn(work, "off") {
+		t.Fatal("scan off should report off")
+	}
+	if r := runFolderSync(t, work, "sync"); syncCounts(r) != [3]int{0, 0, 2} {
+		t.Fatalf("sync after scan off = %+v, want the two discovered entries dropped", r)
+	}
+	if _, err := os.Stat(filepath.Join(root, "take.mp3")); err != nil {
+		t.Fatalf("scan off must leave the file: %v", err)
+	}
+	if _, err := runImage(t, work, "scan", "maybe"); exitCode(err) != 3 {
+		t.Fatalf("bad value: exit %d (%v), want 3", exitCode(err), err)
+	}
+}
+
 // An unknown or malformed profile is invalid input (exit 3), and nothing
 // is scanned.
 func TestImageSyncInvalidProfile(t *testing.T) {
@@ -116,5 +167,25 @@ func TestImageSyncInvalidProfile(t *testing.T) {
 		if _, err := runImage(t, cfg, "sync"); exitCode(err) != 3 {
 			t.Errorf("profile %q: exit %d (%v)", p, exitCode(err), err)
 		}
+	}
+}
+
+// An agent may read the audio/video setting but not change it: switching it on
+// would put the user's recordings in reach of the tools agents read the vault
+// through.
+func TestMediaScanIsOperatorOnly(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	seedProfiles(t, dbPath, "work")
+	agent := &testConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "work", NotOperator: true}
+	if out, err := runImage(t, agent, "scan"); err != nil || strings.Contains(out, "true") {
+		t.Fatalf("an agent reading the setting: %q, %v; want it off and allowed", out, err)
+	}
+	for _, v := range []string{"on", "off"} {
+		if _, err := runImage(t, agent, "scan", v); exitCode(err) != 3 {
+			t.Errorf("an agent running `scan %s`: exit %d (%v), want 3", v, exitCode(err), err)
+		}
+	}
+	if out, _ := runImage(t, agent, "scan"); strings.Contains(out, "true") {
+		t.Fatalf("a refused `scan on` switched it on: %q", out)
 	}
 }

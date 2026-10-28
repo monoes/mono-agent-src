@@ -24,6 +24,45 @@ func TestIsImageFile(t *testing.T) {
 	}
 }
 
+func TestMediaKind(t *testing.T) {
+	cases := map[string]string{
+		"a.PNG": imagescan.KindImage, "clip.mp4": imagescan.KindVideo, "x.WEBM": imagescan.KindVideo,
+		"song.mp3": imagescan.KindAudio, "take.Flac": imagescan.KindAudio,
+		"notes.txt": "", "noext": "", "movie.mp4.bak": "",
+	}
+	for name, want := range cases {
+		if got := imagescan.MediaKind(name); got != want {
+			t.Errorf("MediaKind(%q) = %q, want %q", name, got, want)
+		}
+		if imagescan.IsMediaFile(name) != (want != "") {
+			t.Errorf("IsMediaFile(%q) disagrees with MediaKind", name)
+		}
+	}
+}
+
+func TestScanFindsAudioAndVideoOnlyWhenAsked(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"a.png", "b.mp3", "c.mp4", "d.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found, err := imagescan.Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0].Filename != "a.png" {
+		t.Fatalf("Scan found %+v, want only a.png: audio and video are opt-in", found)
+	}
+	found, err = imagescan.ScanMedia(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 3 {
+		t.Fatalf("ScanMedia found %d files, want 3 (png, mp3, mp4): %+v", len(found), found)
+	}
+}
+
 func TestScan(t *testing.T) {
 	dir := t.TempDir()
 

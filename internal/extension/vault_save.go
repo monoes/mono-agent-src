@@ -16,9 +16,9 @@ import (
 )
 
 // vault.save: "keep this file in my vault" (#451), the side panel's confirm
-// card. The extension sends one image or document the person clicked Save on;
-// it lands in the image/file vault of the profile the request names, the vault
-// `image list`, vault_item_list and vault_item_get_path read.
+// card. The extension sends one image, audio or video file or document the person clicked Save on;
+// it lands in the media/file vault of the profile the request names, the vault
+// `media list`, vault_item_list and vault_item_get_path read.
 //
 // The method only writes. Nothing here, and no other bridge method, reads the
 // vault or returns a stored file: the reply names the item it made and no more.
@@ -86,6 +86,21 @@ var vaultSaveTypes = map[string]string{
 	"text/plain":      ".txt",
 	"text/markdown":   ".md",
 	"text/csv":        ".csv",
+	"audio/mpeg":      ".mp3",
+	"audio/wav":       ".wav",
+	"audio/ogg":       ".ogg",
+	"audio/mp4":       ".m4a",
+	"video/mp4":       ".mp4",
+	"video/webm":      ".webm",
+}
+
+// vaultSniffedAs maps a media type to what http.DetectContentType calls its
+// bytes, where the two differ: a WAV sniffs as audio/wave, an Ogg stream as
+// application/ogg, and an M4A is an MP4 container.
+var vaultSniffedAs = map[string]string{
+	"audio/wav": "audio/wave",
+	"audio/ogg": "application/ogg",
+	"audio/mp4": "video/mp4",
 }
 
 // VaultSaveMIME is the media type of a file vault.save stored, from its name
@@ -217,7 +232,7 @@ func vaultFileHead(req *Request) (VaultFile, error) {
 	f.Name = name
 	ext, ok := vaultSaveTypes[f.MIME]
 	if !ok {
-		return VaultFile{}, refusal(fmt.Sprintf("vault.save does not take %.64q; it takes PNG, JPEG, GIF and WebP images, PDF, and plain text, Markdown and CSV", f.MIME))
+		return VaultFile{}, refusal(fmt.Sprintf("vault.save does not take %.64q; it takes PNG, JPEG, GIF and WebP images, MP3, WAV, Ogg and M4A audio, MP4 and WebM video, PDF, and plain text, Markdown and CSV", f.MIME))
 	}
 	f.Ext = ext
 	return f, nil
@@ -284,7 +299,7 @@ func safeFileName(name string) bool {
 }
 
 // vaultTypeMatches reports whether data is what mime says, by its bytes
-// (http.DetectContentType): an image or a PDF must sniff as itself, and text
+// (http.DetectContentType): an image, an audio or video file or a PDF must sniff as itself, and text
 // must be UTF-8 that sniffs as plain text, so neither a script nor HTML is
 // stored under another type's name.
 func vaultTypeMatches(mime string, data []byte) bool {
@@ -293,13 +308,16 @@ func vaultTypeMatches(mime string, data []byte) bool {
 	case "text/plain", "text/markdown", "text/csv":
 		return utf8.Valid(data) && strings.HasPrefix(sniffed, "text/plain")
 	}
+	if want, ok := vaultSniffedAs[mime]; ok {
+		return sniffed == want
+	}
 	return sniffed == mime
 }
 
 // cleanSourceURL is raw as scheme, host and path of an absolute http(s)
 // address, without user-info, query, fragment or a segment's ;parameters (a
 // presigned URL's signature is in its query, a session id in ";jsessionid=",
-// and the address shows in `image list` and the app), or "" for anything else
+// and the address shows in `media list` and the app), or "" for anything else
 // (data:, blob:, javascript:, a relative path, a host with a ";", which no
 // real host has): the address is a note on the item, so a bad one is
 // dropped, not refused. A token that is a path segment itself is kept:

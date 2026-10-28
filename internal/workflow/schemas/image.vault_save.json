@@ -3,7 +3,7 @@
   "credential_platform": null,
   "fields": [
     {
-      "help": "Item field holding the local image path to save. Defaults to image_path, path, file_path, or media_path (first non-empty).",
+      "help": "Item field holding the local image, audio or video path to save. Defaults to image_path, path, file_path, or media_path (first non-empty).",
       "key": "field",
       "label": "Image Path Field",
       "required": false,
@@ -19,7 +19,7 @@
     },
     {
       "default": "vault_id",
-      "help": "Item field where the new vault image id (e.g. img-001) is written.",
+      "help": "Item field where the new media vault id (e.g. img-001) is written.",
       "key": "output_field",
       "label": "Output Field",
       "required": false,
@@ -33,7 +33,7 @@
       "type": "object"
     },
     {
-      "description": "the new Image Vault id (e.g. img-001)",
+      "description": "the new Media Vault id (e.g. img-001)",
       "key": "<output_field>",
       "type": "string"
     }

@@ -858,9 +858,9 @@ private address is not caught; the consent step is the control there.
 
 ### Saving to the vault from the extension (`vault.save`)
 
-The side panel's confirm card saves an image or document you clicked Save on
-into the image/file vault of the profile the panel is set to, the vault
-`image list` and the MCP tools `vault_item_list` and `vault_item_get_path`
+The side panel's confirm card saves an image, audio or video file or document you clicked Save on
+into the media/file vault of the profile the panel is set to, the vault
+`media list` (once `image list`) and the MCP tools `vault_item_list` and `vault_item_get_path`
 read. It is one bridge request method, `vault.save`
 (`internal/extension/vault_save.go`):
 
@@ -880,9 +880,13 @@ read. It is one bridge request method, `vault.save`
   `mime`, `size_bytes`); it never carries the file, its path or anything else
   from the vault, and the bridge has no other `vault.*` method.
 - **Checked before anything is written:** at most 20 MiB once decoded (a
-  request is one WebSocket frame, read up to 32 MiB); only PNG, JPEG, GIF,
-  WebP, PDF, plain text, Markdown and CSV, and the bytes must sniff as the
-  type they claim (no SVG, HTML or executables); the name is a label of at
+  request is one WebSocket frame, read up to 32 MiB, so a longer video is not
+  taken); only PNG, JPEG, GIF, WebP, MP3, WAV, Ogg, M4A, MP4, WebM, PDF,
+  plain text, Markdown and CSV, and the bytes must sniff as the type they
+  claim (no SVG, HTML or executables; an audio or video file is never
+  played or decoded by MonoAgent in the bridge, only stored; an M4A and an MP4
+  are the same container, so either label is accepted for either: the label
+  is the sender's claim and changes only the extension the file is stored under); the name is a label of at
   most 255 bytes with no path separator, control or bidi character and not
   `.` or `..` (the file itself is stored as `img-NNN` plus the type's
   extension, 0600, never under the sent name); the profile id is a valid
@@ -890,14 +894,14 @@ read. It is one bridge request method, `vault.save`
   since the panel listed it gets no folder back; the source address is kept
   only as http(s) scheme, host and path (no user-info, query, fragment or a
   segment's `;parameters` such as `;jsessionid=`, so a presigned URL's
-  signature never shows in `image list` or the app). A token that is itself
+  signature never shows in `media list` or the app). A token that is itself
   a path segment is kept: nothing tells it from a file name.
 - **Limits per profile.** Files saved this way (vault items with a client id)
   may total at most **2 GiB** and **5,000 items** per profile; the count and
   the sum are read inside the save's own `BEGIN IMMEDIATE` transaction, so
   saves at once cannot pass them together. Past either, the save is refused
   with `quota_exceeded`, naming the limit (final: delete saved files in the
-  Image Vault). At most **20 saves a minute per profile** and **60 a minute in
+  Media Vault). At most **20 saves a minute per profile** and **60 a minute in
   all**, counted in memory in the bridge process; past either, `rate_limited`
   with `retry_after` in seconds. A save is counted only once its profile is
   known to exist, from a list of live profiles read at most once a second, so
@@ -915,7 +919,7 @@ read. It is one bridge request method, `vault.save`
   next free number, at most 5 times, then is refused with `storage_conflict`
   (final: the message says to check the profile's vault folder).
 - **Documents stay out of the knowledge base.** A PDF, text, Markdown or CSV
-  file goes into the image/file vault too, not the documents vault
+  file goes into the media/file vault too, not the documents vault
   (`profile documents`): documents there are indexed into the knowledge base
   that agents read, and content from a web page must not land in it without
   the person adding it there themselves. For the same reason a save is not
@@ -1480,7 +1484,7 @@ layers, from strongest:
    automation role's run gets the sending role's workdir the same way. The
    engine confines every file-touching node of such a run
    (`internal/fsconfine`): spreadsheet read/write, write file, image nodes
-   and their output folders, image vault save, email and Outlook
+   and their output folders, media vault save, email and Outlook
    attachments, Slack and Telegram uploads, FTP local paths, YouTube and
    Drive uploads, browser upload steps, and Gemini reference images. A
    path is resolved relative to the workdir, `..` and symlinks are

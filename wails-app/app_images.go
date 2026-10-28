@@ -10,10 +10,11 @@ import (
 	"github.com/monoes/mono-agent/internal/imagescan"
 )
 
-// ── Image Vault ──────────────────────────────────────────────────────────────
+// ── Media Vault ──────────────────────────────────────────────────────────────
 
-// Every image-vault binding shells out to `monoagentcli image …`, which
-// owns the vault_images queries and the vault folder. The rows come back in
+// Every media-vault binding shells out to `monoagentcli media …` (the old
+// `image` name works too), which owns the vault_images queries and the
+// vault folder. The bindings keep their GetVaultImage… names. The rows come back in
 // the shape these bindings have always returned (snake_case keys, url
 // /vault-image/<id>). User-supplied text (paths, labels, queries) goes
 // after "--" so a leading "-" is never read as a flag.
@@ -25,14 +26,14 @@ func (a *App) GetVaultImages(limit int) ([]map[string]interface{}, error) {
 	if limit <= 0 {
 		limit = 200
 	}
-	return a.imageRows("image", "list", "--limit", strconv.Itoa(limit))
+	return a.imageRows("media", "list", "--limit", strconv.Itoa(limit))
 }
 
 func (a *App) SearchVaultImages(query string) ([]map[string]interface{}, error) {
 	if err := a.signedOut(); err != nil {
 		return nil, err
 	}
-	return a.imageRows("image", "search", "--", query)
+	return a.imageRows("media", "search", "--", query)
 }
 
 func (a *App) imageRows(args ...string) ([]map[string]interface{}, error) {
@@ -51,7 +52,7 @@ func (a *App) GetVaultImage(id string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	var out map[string]interface{}
-	if err := a.runMonoCLI("", &out, "image", "get", "--", id); err != nil {
+	if err := a.runMonoCLI("", &out, "media", "get", "--", id); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -67,7 +68,7 @@ func (a *App) GetVaultImageData(id string) (string, error) {
 	var out struct {
 		DataURL string `json:"data_url"`
 	}
-	if err := a.runMonoCLI("", &out, "image", "data", "--", id); err != nil {
+	if err := a.runMonoCLI("", &out, "media", "data", "--", id); err != nil {
 		return "", err
 	}
 	return out.DataURL, nil
@@ -77,7 +78,7 @@ func (a *App) AddVaultImage(srcPath, label string) (map[string]interface{}, erro
 	if err := a.signedOut(); err != nil {
 		return nil, err
 	}
-	args := []string{"image", "add"}
+	args := []string{"media", "add"}
 	if label != "" {
 		args = append(args, "--label", label)
 	}
@@ -89,7 +90,7 @@ func (a *App) AddVaultImage(srcPath, label string) (map[string]interface{}, erro
 	return out, nil
 }
 
-// emitImagesChanged tells open Image Vault pages to re-list after an edit
+// emitImagesChanged tells open Media Vault pages to re-list after an edit
 // made through the app; the folder watcher emits the same event for
 // changes on disk.
 func (a *App) emitImagesChanged(data map[string]interface{}) {
@@ -111,9 +112,9 @@ func (a *App) OpenVaultFilePicker() string {
 		return loginRequiredJSON(err)
 	}
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Image",
+		Title: "Select Media",
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Images", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp"},
+			{DisplayName: "Media", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.mp3;*.wav;*.m4a;*.aac;*.ogg;*.opus;*.flac;*.mp4;*.webm;*.mov;*.m4v;*.mkv"},
 		},
 	})
 	if err != nil {
@@ -141,7 +142,7 @@ func (a *App) SaveVaultImageToFile(id, suggestedName string) string {
 	var out struct {
 		Path string `json:"path"`
 	}
-	if err := a.runMonoCLI("", &out, "image", "export", "--", id, dest); err != nil {
+	if err := a.runMonoCLI("", &out, "media", "export", "--", id, dest); err != nil {
 		return "error: " + err.Error()
 	}
 	return out.Path
@@ -154,9 +155,9 @@ var saveImageDialog = func(a *App, opts runtime.SaveDialogOptions) (string, erro
 }
 
 // saveVaultItemOptions is the save dialog for the vault item stored as
-// filename. A file the extension saved (vault.save: a PDF, a text file) gets
-// "Save File" and a filter of its own extension, so the dialog neither hides
-// its type nor adds an image extension to the name.
+// filename. A file that is not an image (audio, video, or a PDF or text file
+// the extension saved) gets "Save File" and a filter of its own extension, so
+// the dialog neither hides its type nor adds an image extension to the name.
 func saveVaultItemOptions(filename, suggestedName string) runtime.SaveDialogOptions {
 	if ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(filename), ".")); ext != "" && !imagescan.AllowedExtensions[ext] {
 		return runtime.SaveDialogOptions{
@@ -179,7 +180,7 @@ func (a *App) UpdateVaultImageLabel(id, label string) error {
 	if err := a.signedOut(); err != nil {
 		return err
 	}
-	args := []string{"image", "label", "--", id}
+	args := []string{"media", "label", "--", id}
 	if label != "" {
 		args = append(args, label)
 	}
@@ -197,7 +198,7 @@ func (a *App) DeleteVaultImage(id string) error {
 	if err := a.signedOut(); err != nil {
 		return err
 	}
-	if err := a.runMonoCLI("", nil, "image", "delete", "--", id); err != nil {
+	if err := a.runMonoCLI("", nil, "media", "delete", "--", id); err != nil {
 		return err
 	}
 	a.emitImagesChanged(map[string]interface{}{"deleted": id})
@@ -209,7 +210,7 @@ func (a *App) GetVaultStats() (map[string]interface{}, error) {
 		return nil, err
 	}
 	var out map[string]interface{}
-	if err := a.runMonoCLI("", &out, "image", "stats"); err != nil {
+	if err := a.runMonoCLI("", &out, "media", "stats"); err != nil {
 		return nil, err
 	}
 	return out, nil
