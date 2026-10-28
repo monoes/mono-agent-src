@@ -5,11 +5,11 @@ import (
 	"embed"
 	"github.com/monoes/mono-agent/internal/vault"
 	"net/http"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/gitsafe"
 	"github.com/monoes/mono-agent/internal/nodemgr"
 	"github.com/monoes/mono-agent/internal/shellpath"
 	"github.com/wailsapp/wails/v2"
@@ -29,7 +29,7 @@ var (
 
 func init() {
 	if version == "" {
-		if out, err := exec.Command("git", "describe", "--tags", "--always").Output(); err == nil {
+		if out, err := gitsafe.Command(context.Background(), "describe", "--tags", "--always").Output(); err == nil {
 			version = strings.TrimSpace(string(out))
 		} else {
 			version = "dev"

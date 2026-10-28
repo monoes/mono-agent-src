@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/gitsafe"
 	"github.com/monoes/mono-agent/internal/i18n"
 	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/operator"
@@ -47,7 +47,7 @@ func getVersion() string {
 		if version != "" {
 			return
 		}
-		if out, err := exec.Command("git", "describe", "--tags", "--always").Output(); err == nil {
+		if out, err := gitsafe.Command(context.Background(), "describe", "--tags", "--always").Output(); err == nil {
 			version = strings.TrimSpace(string(out))
 		} else {
 			version = "dev"
