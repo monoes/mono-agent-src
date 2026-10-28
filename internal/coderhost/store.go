@@ -407,6 +407,21 @@ func (s *Store) SaveSession(x Session) error {
 	return err
 }
 
+// StopIfIdle marks a session stopped only if, at the moment of the write, it is idle, names no turn and has no
+// command pending: one statement, so a command that arrives between a caller's look and this write keeps the
+// session as it is. It says whether the session was stopped.
+func (s *Store) StopIfIdle(profileID, conversationID string) (bool, error) {
+	res, err := s.db.Exec(`UPDATE coder_sessions SET state = ?, updated_at = ?
+		WHERE profile_id = ? AND conversation_id = ? AND state = ? AND turn_id = ''
+		AND NOT EXISTS (SELECT 1 FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending')`,
+		string(StateStopped), s.stamp(), profileID, conversationID, string(StateIdle), profileID, conversationID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // ListSessions returns the sessions of a profile ("" for all), most recently
 // changed first.
 func (s *Store) ListSessions(profileID string) ([]Session, error) {

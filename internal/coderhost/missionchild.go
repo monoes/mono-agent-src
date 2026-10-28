@@ -162,15 +162,10 @@ func (h *Host) reconcileChild(r ChildRow) error {
 
 // retireIdle stops a task child's session once its row has ended, so it no longer counts toward its master's
 // max_children (the count is every child not stopped) and the next task can have the slot. Only a session
-// that is still idle with nothing queued is stopped; a child that is not a task's is never reached from here.
+// that is still idle with nothing queued, judged by the write itself, is stopped; a child that is not a task's
+// is never reached from here.
 func (h *Host) retireIdle(profileID, conv string) {
-	st := h.Store
-	x, ok, err := st.GetSession(profileID, conv)
-	if err != nil || !ok || x.State != StateIdle || x.TurnID != "" || st.PendingFor(profileID, conv) > 0 {
-		return
-	}
-	x.State = StateStopped
-	if err := st.SaveSession(x); err != nil {
+	if _, err := h.Store.StopIfIdle(profileID, conv); err != nil {
 		h.logf("coder host: retiring %s: %v", conv, err)
 	}
 }
