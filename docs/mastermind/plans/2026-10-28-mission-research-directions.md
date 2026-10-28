@@ -48,7 +48,7 @@ Ships first and is useful alone.
 
 ## 4. The Mission toggle and what the lead does (phase M)
 
-- **Toggle** in `components/chat/CoderHeader.jsx` (top of the coder chat), writing the existing `wants_mission` column through a CLI verb (`coder sessions set <conv> --mission on|off`). Turning it on **is** the user's confirmation (the D2 click moves to the toggle). Off, the chat behaves exactly as today. The toggle needs access of `coding` or above, as `MissionAccess` already requires.
+- **Toggle** in `components/chat/CoderHeader.jsx` (top of the coder chat), writing the existing `wants_mission` column through a CLI verb (`coder sessions set <conv> --mission on|off`). Turning it on **is** the user's confirmation (the D2 click moves to the toggle). Off, the chat behaves exactly as today. The toggle needs access of `coding` or above, as `MissionAccess` already requires. **Once the conversation has a mission session (open, running or paused) the toggle is shown on and locked** (disabled, with a tooltip "this chat is running a mission"): it cannot be turned off from the header or by `coder sessions set`, which refuses with the session id. It is always visible in the pane and bubble header while the mission lasts. The mission ends only by the operator's close (or stop), after which the toggle is free again. Test: render with and without an open mission session; CLI refusal.
 - **Prompt:** `dynorg.MissionPrompt` is rewritten in phases; with the toggle on, the lead always gets it (today it gets nothing until the click):
   1. UNDERSTAND: the goal, success measure, limits (exists).
   2. RESEARCH: spawn read-only research agents in a `research` session, one per question. Each writes a report artifact with sources. Deep research uses the existing agent roster and web access of the profile; the lead sets the access, the host enforces it.
@@ -108,9 +108,12 @@ Disjoint file ownership per worker; one PR per phase into an integration branch;
 
 ## 9. Open questions (recommendations stand unless the user says otherwise)
 
-1. Unify the coder-session token and the #1006 agent token before phase A? Recommended: yes.
-2. Default number of chosen directions K = 3?
-3. Does turning the toggle off mid-mission stop the directions, or only stop new ones? Recommended: pause them and show a banner; the operator stops or resumes.
+Settled by the user on 2026-10-28:
+1. Unify the coder-session token and the #1006 agent token before phase A: **yes**.
+2. Default number of chosen directions K = 3: **yes**.
+3. The toggle cannot be turned off during a mission; it stays visible (section 4). The operator stops or pauses a mission through the session controls, not the toggle.
+
+Still open:
 4. Giant thresholds (25 tasks, 40 percent of the budget) are starting values for the operator to tune.
 
 ## 10. Not verified
