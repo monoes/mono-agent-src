@@ -172,6 +172,8 @@ jobs:
         run: bash scripts/check-rollout-ready-test.sh
       - name: Test the installer
         run: bash scripts/install-test.sh
+      - name: Test the app version stamp
+        run: bash scripts/stamp-app-version-test.sh
 
 
   # Closes issue #20's OpenAPI acceptance criterion ("OpenAPI 3 spec shipped
