@@ -29,14 +29,35 @@ func TestChatEvents_DeleteConversationRevokesItsTaskToken(t *testing.T) {
 			t.Fatal("a fresh token does not work")
 		}
 	}
+	// A finished task of the same conversation, and a task of another profile that
+	// names the same conversation id, are in the same table.
+	done, err := ts.Insert(aitask.Task{ID: aitask.NewID(), Kind: "generic", ConversationID: gone.ID, Status: aitask.StatusComplete, Goal: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := &aitask.Store{DB: db, Profile: "p2"}
+	foreign, err := other.Insert(aitask.Task{ID: aitask.NewID(), Kind: "generic", ConversationID: gone.ID, Status: aitask.StatusRunning, Goal: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignToken := aitask.NewToken()
+	if err := other.SetToken(foreign.ID, foreignToken); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteConversation(gone.ID, "p1"); err != nil {
 		t.Fatal(err)
 	}
 	if ts.CheckToken(ids[gone.ID], tokens[gone.ID]) {
 		t.Error("the deleted conversation's task token still works")
 	}
-	if got, err := ts.Get(ids[gone.ID]); err != nil || got.Status != aitask.StatusCancelled {
-		t.Errorf("the deleted conversation's task = %+v, %v; want cancelled", got, err)
+	if got, err := ts.Get(ids[gone.ID]); err != nil || got.Status != aitask.StatusCancelled || got.Error != "the conversation was deleted" {
+		t.Errorf("the deleted conversation's task = %+v, %v; want cancelled with its reason", got, err)
+	}
+	if got, _ := ts.Get(done.ID); got.Status != aitask.StatusComplete {
+		t.Errorf("a finished task became %q", got.Status)
+	}
+	if !other.CheckToken(foreign.ID, foreignToken) {
+		t.Error("another profile's task token was revoked")
 	}
 	if !ts.CheckToken(ids[kept.ID], tokens[kept.ID]) {
 		t.Error("another conversation's task token was revoked")
