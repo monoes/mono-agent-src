@@ -26,6 +26,62 @@ const iconButton = {
   padding: '2px 6px', cursor: 'pointer', color: '#00b4d8', fontFamily: mono, fontSize: 9,
 }
 
+// Context window sizes aren't in the protocol: 1M for a "[1m]"/"-1m" model
+// id, else 200k.
+export function contextWindowFor(model) {
+  return /[-\[]1m\b/i.test(model || '') ? 1_000_000 : 200_000
+}
+
+const fmtTokens = n => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n))
+
+// sessionUsage folds a session's turn states into its latest context size and
+// the tokens used across every turn and agent (child agents are in the
+// per-model figures).
+export function sessionUsage(states) {
+  let context = 0
+  const total = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }
+  for (const st of states) {
+    const u = st?.coderUsage
+    if (!u) continue
+    if (u.peakContextTokens > 0) context = u.peakContextTokens
+    for (const m of Object.values(u.models || {})) {
+      for (const k of Object.keys(total)) total[k] += m[k] || 0
+    }
+  }
+  const sum = total.input + total.output + total.cacheRead + total.cacheCreation
+  return { context, total, sum }
+}
+
+// CoderUsageBar: how full the session's context window is, and the tokens
+// used across the whole session by all agents.
+export function CoderUsageBar({ states, model }) {
+  const { context, total, sum } = sessionUsage(states)
+  if (!context && !sum) return null
+  const window = contextWindowFor(model)
+  const pct = Math.min(100, Math.round((context / window) * 100))
+  const color = pct >= 80 ? '#ef4444' : pct >= 60 ? '#f59e0b' : '#00b4d8'
+  return (
+    <div data-testid="coder-usage" style={{
+      padding: '5px 12px', borderBottom: '1px solid rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', gap: 12,
+      flexShrink: 0, fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)',
+    }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+        title={`Latest context sent in one call: ${context.toLocaleString()} of ~${window.toLocaleString()} tokens`}>
+        <span>Context</span>
+        <div role="progressbar" aria-label="Context window used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
+          style={{ flex: 1, maxWidth: 220, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width .3s' }} />
+        </div>
+        <span data-testid="coder-usage-context" style={{ color: '#e2e8f0' }}>{fmtTokens(context)} / {fmtTokens(window)} · {pct}%</span>
+      </div>
+      <span data-testid="coder-usage-total" style={{ flexShrink: 0 }}
+        title={`Session total, all agents — input ${total.input.toLocaleString()}, output ${total.output.toLocaleString()}, cache read ${total.cacheRead.toLocaleString()}, cache write ${total.cacheCreation.toLocaleString()}`}>
+        Session <span style={{ color: '#e2e8f0' }}>{fmtTokens(sum)}</span> tokens
+      </span>
+    </div>
+  )
+}
+
 export function CoderHeader({ cwd }) {
   const [copied, setCopied] = useState(false)
   if (!cwd) return null
