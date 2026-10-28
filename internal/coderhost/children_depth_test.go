@@ -231,3 +231,15 @@ func TestLiveSessionsPerTreeAreCapped(t *testing.T) {
 		t.Fatalf("after one stopped: %v", err)
 	}
 }
+
+func TestASpawnNeverGetsFullAccessEvenFromAFullParent(t *testing.T) {
+	st := newStoreT(t)
+	root, _ := master(t, st, "full")
+	if _, err := st.Spawn(root, SpawnRequest{Access: "full"}); !errors.Is(err, ErrAccess) {
+		t.Fatalf("a full-access child from a full-access master: %v", err)
+	}
+	out, err := st.Spawn(root, SpawnRequest{})
+	if err != nil || out.Access != "workspace" {
+		t.Fatalf("default access = %+v, %v", out, err)
+	}
+}

@@ -120,3 +120,18 @@ func TestCoderhostReadsThePlanMetaLineThisPackageWrites(t *testing.T) {
 		t.Fatal("a meta line out of nothing")
 	}
 }
+
+func TestMissionSessionSpawnRefusesAnUnconfirmedLead(t *testing.T) {
+	st := missionStore(t)
+	sp := &spawnerFake{fakeSpawner: newFakeSpawner("off")}
+	m := &MissionConfig{Store: st, ProfileID: missionProfile, ConversationID: "c1", Actor: "mission-lead", Access: "coding"}
+	c := New(context.Background(), Config{Cwd: "/w", Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus}, Exec: newGateExec().exec, Emit: &recEmitter{},
+		Mission: m, Missions: &MissionRun{Store: st, ProfileID: missionProfile, Children: sp}})
+	t.Cleanup(c.Close)
+	if _, err := c.Handle(context.Background(), ToolMissionSessionSpawn, json.RawMessage(`{"title":"x","kind":"task","reason":"parallel"}`)); err == nil || !strings.Contains(err.Error(), "not confirmed") {
+		t.Fatalf("an unconfirmed lead: %v", err)
+	}
+	if len(sp.got) != 0 {
+		t.Fatalf("the host was asked: %+v", sp.got)
+	}
+}

@@ -107,3 +107,19 @@ func TestAPersonsStopOnTheRootStopsTheWholeTree(t *testing.T) {
 		}
 	}
 }
+
+func TestASessionWhoseParentIsGoneDoesNotOutliveIt(t *testing.T) {
+	st := newStoreT(t)
+	tree := chainTo(t, st, "coding", 4, 3)
+	h := &Host{Store: st, L: newFakeLauncher()}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET parent_conversation_id = 'gone' WHERE profile_id = 'p' AND conversation_id = ?`, tree[1].ConversationID); err != nil {
+		t.Fatal(err)
+	}
+	h.treeCascadePass()
+	if stateOf(t, st, tree[1].ConversationID) != StateStopped || stateOf(t, st, tree[2].ConversationID) != StateStopped {
+		t.Fatal("sessions below a parent that is gone kept running")
+	}
+	if stateOf(t, st, tree[0].ConversationID) == StateStopped {
+		t.Fatal("the root was stopped")
+	}
+}
