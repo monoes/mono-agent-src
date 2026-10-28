@@ -100,6 +100,8 @@ export function ApproveOrgAction(arg1:string,arg2:string,arg3:string):Promise<st
 
 export function ApprovePendingPerson(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
+export function AssignBrowser(arg1:string,arg2:string):Promise<main.AssignReport>;
+
 export function AssignOrgRole(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function BindBrowser(arg1:string,arg2:string):Promise<main.BrowserRow>;
