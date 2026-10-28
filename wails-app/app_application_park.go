@@ -160,22 +160,33 @@ func (a *App) StartApplicationQueue(ids []string, maxParked int) error {
 	return nil
 }
 
-// queueFailures names why applications of a finished queue were not filled
-// (the queue exits 0 with a failed outcome per application); "" when none.
+// queueFailures names why applications of a finished queue ended in error
+// (the queue exits 0 with a failed outcome per application, whether the fill
+// never started or ran and then failed); "" when none did.
 func queueFailures(out []byte) string {
 	var res struct {
 		Outcomes []struct {
-			Result string `json:"result"`
-			Error  string `json:"error"`
+			Error string `json:"error"`
 		} `json:"outcomes"`
 	}
 	if json.Unmarshal(bytes.TrimSpace(out), &res) != nil {
 		return ""
 	}
+	n, first := 0, ""
 	for _, o := range res.Outcomes {
-		if o.Error != "" {
-			return "The coder could not start the fill: " + o.Error
+		if o.Error == "" {
+			continue
 		}
+		if n == 0 {
+			first = o.Error
+		}
+		n++
 	}
-	return ""
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return "The fill queue stopped: " + first
+	}
+	return fmt.Sprintf("The fill queue stopped for %d applications; the first: %s", n, first)
 }
