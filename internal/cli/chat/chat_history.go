@@ -511,7 +511,7 @@ func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRe
 		}
 		owner := dynorg.ConversationOwner(profileID, conversationID)
 		_, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-			WHERE mission_owner <> '' AND (mission_owner = ?1 OR mission_owner LIKE ?1 || '/%') AND revoked_at IS NULL`, owner)
+			WHERE profile_id = ?2 AND mission_owner <> '' AND (mission_owner = ?1 OR mission_owner LIKE ?1 || '/%') AND revoked_at IS NULL`, owner, profileID)
 		if err != nil {
 			return fmt.Errorf("revoking the conversation's mission tokens: %w", err)
 		}
