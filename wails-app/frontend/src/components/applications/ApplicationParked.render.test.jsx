@@ -12,6 +12,8 @@ const { App, aitaskApi } = vi.hoisted(() => ({
   aitaskApi: { status: vi.fn(), submit: vi.fn(), startFill: vi.fn(), get: vi.fn(), cancel: vi.fn() },
 }))
 vi.mock('../../wailsjs/go/main/App', () => App)
+const { events } = vi.hoisted(() => ({ events: {} }))
+vi.mock('../../wailsjs/runtime/runtime', () => ({ EventsOn: (name, cb) => { events[name] = cb; return () => {} } }))
 vi.mock('../SendToCoderApi.js', async (orig) => ({ ...(await orig()), aitaskApi }))
 
 import ApplicationParkedPanel from './ApplicationParkedPanel.jsx'
@@ -136,6 +138,12 @@ describe('ApplyQueueButton', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
       expect(openDraft).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'c1', collapsed: true }))
     } finally { vi.useRealTimers() }
+  })
+
+  it('shows why the queue ended when a fill could not start', async () => {
+    render(<ApplyQueueButton ids={['a1']} />)
+    await act(async () => { events['applications:queueStatus']({ status: 'error', message: 'The coder could not start the fill: no runtime' }) })
+    expect(screen.getByRole('alert')).toHaveTextContent('no runtime')
   })
 
   it('coder off: says why and starts nothing', async () => {

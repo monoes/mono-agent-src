@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Bot } from 'lucide-react'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { aitaskApi } from '../SendToCoderApi.js'
 import { useSendToCoder } from '../bubbles/CoderBubbleContext.jsx'
 import { fetchApplicationAssets } from './applicationAssets.js'
@@ -41,6 +42,16 @@ export default function ApplyQueueButton({ ids, onStarted, style }) {
   const { openDraft } = useSendToCoder()
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null)
+
+  // The queue runs apart from the page: a fill it could not start (coder
+  // runtime missing, no posting URL, ...) ends it with a message, shown here.
+  useEffect(() => {
+    try {
+      return EventsOn('applications:queueStatus', (ev) => {
+        if (ev?.status === 'error') setNote({ text: ev.message || 'The fill queue stopped with an error.', error: true })
+      })
+    } catch { return undefined } // no Wails runtime (browser preview)
+  }, [])
 
   const start = async () => {
     if (busy || ids.length === 0) return
