@@ -77,7 +77,7 @@ func (s *Store) Record(e LedgerEntry) (LedgerEntry, error) {
 	if e.ProfileID == "" || e.ConversationID == "" || len(e.ConversationID) > maxConversationLen {
 		return e, errors.New("coder host: a decision needs a profile and a conversation")
 	}
-	if !oneOf(e.Class, GapClasses) {
+	if !oneOf(e.Class, GapClasses) && e.Class != ClassAncestorQuestion {
 		return e, fmt.Errorf("coder host: %q is not a class of gap", e.Class)
 	}
 	if e.MadeBy != WhoModel && e.MadeBy != WhoMaster {
