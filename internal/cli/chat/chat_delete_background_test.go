@@ -421,6 +421,11 @@ func TestDeleteRevokesTheMissionTokensOfItsRuns(t *testing.T) {
 	own := mint(dynorg.TurnOwner("default", c.ID, "t1"))
 	ownRun := mint(dynorg.ConversationOwner("default", c.ID))
 	others := mint(dynorg.TurnOwner("default", other.ID, "t1"))
+	// A token of ANOTHER profile that happens to carry the same owner string is not this profile's.
+	foreign, _, err := at.CreateMission(ctx, "second", agenttokens.MissionBinding{Session: 1, Task: 1, Role: agenttokens.RoleWorker, Actor: "w", Owner: dynorg.TurnOwner("default", c.ID, "t9")}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stranger := mint("run-unrelated")
 
 	// An already revoked token keeps the time it was revoked.
@@ -447,6 +452,9 @@ func TestDeleteRevokesTheMissionTokensOfItsRuns(t *testing.T) {
 	}
 	if !revoked(own) || !revoked(ownRun) {
 		t.Error("a mission token of the deleted conversation's runs is still valid")
+	}
+	if f, err := at.Get(ctx, "second", foreign.ID); err != nil || f.RevokedAt != nil {
+		t.Errorf("another profile's mission token with the same owner was revoked (%v)", err)
 	}
 	if revoked(others) || revoked(stranger) {
 		t.Error("a mission token of another conversation or owner was revoked")
