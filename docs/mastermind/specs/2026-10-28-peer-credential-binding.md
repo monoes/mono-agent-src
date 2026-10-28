@@ -139,8 +139,12 @@ captured genuine transcript, so the verifier's nonce is what the MAC must bind.
 4. The service checks the caller's uid equals the host uid, takes the live registration for
    `token_id` (section 5), and evaluates ancestry from the caller's pidfd to the worker's held
    pidfd. It reads no table the caller supplied.
-5. It answers `allow` / `deny{class}` with `mac = HMAC(K_ans, "procbind/answer/v2" || n_v || n_s ||
-   host_generation || token_id || profile || scope || verdict)`. The verifier recomputes the MAC
+5. It answers `allow` / `deny{class}` with `mac = HMAC(K_ans, enc("procbind/answer/v2", n_v, n_s,
+   host_generation, token_id, profile, scope, verdict))`, where `enc` is the **canonical
+   length-delimited encoding** used by every MAC in this design: for each field in the fixed order
+   above, an 8-byte big-endian length followed by the bytes, with the domain tag and version first
+   and no field omitted or optional (an absent field is the empty string, length 0). No `||`
+   concatenation of bare fields exists anywhere in the implementation. The verifier recomputes the MAC
    with the same derived key over **its own `n_v`** and the generation it authenticated in step 2,
    and acts only on a match. A captured earlier transcript has a different `n_v` and cannot
    verify; a missing, wrong, truncated or replayed answer is a deny, not a fallback.
@@ -170,10 +174,12 @@ hostile namespaces, not against one that bypasses the binary.
 A pidfd refers to one **process incarnation** in the kernel; it does not stop the *number* from
 being reused once that process is reaped (holding one does keep the number from being reused by
 a different process only while the original is unreaped). Every check below therefore relies on
-a **liveness check of the pidfd** (poll readable = exited; `Pid:` in
-`/proc/self/fdinfo/<pidfd>` reads `-1` once it has exited) and never on the number alone. Two live
-processes cannot share a number, so "pidfd A and pidfd B are both alive and report the same
-`Pid:`" means they are the same process.
+a **liveness check of the pidfd** and never on the number alone. Liveness is `poll(pidfd, POLLIN,
+0)`: a pidfd becomes readable when its process **exits**, reaped or not (a zombie is dead for
+this purpose). `Pid:` in `/proc/self/fdinfo/<pidfd>` only reads `-1` once the process is
+reaped, so it is used to read the number of a pidfd that polled alive, never as the liveness test.
+Two live processes cannot share a number, so "pidfd A and pidfd B both polled alive and report the
+same `Pid:`" means they are the same process.
 
 ### The bound worker: a trusted trampoline, pidfd from fork
 
@@ -198,12 +204,31 @@ Launch ordering (any launch in `peercred` mode, including the minter of #1098, s
 6. The trampoline reads them, closes fd 3 (and sets close-on-exec on anything else it holds),
    puts the token in the worker's environment and `execve`s the worker.
 
+**Activation is synchronised, not asserted.** Each registry entry has a state `pending | active |
+revoked`, guarded by the same lock as `Revoke`, `Shutdown` and the per-connection lookups.
+Activation is a compare-and-set `pending -> active` under that lock; it fails if the entry was
+revoked or the service is closing (revocation or shutdown between steps 3 and 5), and then no
+token is written and the worker is killed. A revocation that arrives after activation but before
+the write flips the entry to `revoked` first, so the delivered token already denies.
+
+**Pipe protocol.** One frame, written by the host in a single `write` of at most `PIPE_BUF`
+bytes: `magic(4) | version(1) | len(2, big-endian) | token(len)`, then the host **closes the write
+end**. The trampoline reads with a **deadline** (10 s, via `poll`) until it has the whole frame
+and then requires EOF; EOF before a complete frame, a bad magic or version, a longer-than-
+declared frame, trailing bytes, or the deadline are all a visible failure: the trampoline exits
+non-zero, the host sees the child exit, kills nothing further, revokes the entry and reports the
+launch as failed (retried by the minter). A host that dies before writing closes the write end,
+so the trampoline gets EOF and exits instead of hanging. A sibling that drains the pipe
+(re-opening `/proc/<pid>/fd/3`) therefore causes EOF-before-frame and the same visible failure,
+not a blocked process. A sibling that opens the host's write end through `/proc/<host>/fd/N` can
+inject a frame carrying its own token; that token is not registered, the worker's calls deny,
+and it is the same denial-of-service level, not an authorization.
+
 Failure handling: a failure at step 2, 3 or 4 kills the worker (`pidfd_send_signal`), unregisters
 the pending entry and, if the transaction had already committed, writes a revocation; no token was
-ever delivered. Step 5 cannot fail in a way that leaves a usable token without a live
-registration. **A committed row without a live registration is inert**: authorization is the live
-registration in the service, not the database (section 7), so a commit that succeeded but a
-registration that did not simply denies and is cleaned up by the revocation.
+ever delivered. **A committed row without an active registration is inert**: authorization is
+the active registration in the service, not the database alone (section 7), so a commit that
+succeeded but a registration that did not simply denies and is cleaned up by the revocation.
 
 **The pipe authorizes nothing.** The read end is held by the trampoline; a same-user sibling can
 re-open it through `/proc/<pid>/fd/3` and read the token before the trampoline does. That steals a
@@ -226,17 +251,22 @@ Input: the caller's pidfd `c0` and the host-held worker pidfd `W`. Output: allow
 process is an ancestor of, or equal to, the caller, as a snapshot at the final instant.
 
 ```
-cur = c0                                  # pidfd, must be alive
+handles = [c0]                            # every pidfd taken, retained until the end
+cur = c0; matched = false
 for hop in 1..64:
-    if same_live_process(cur, W): return allow        # both alive, same fdinfo Pid
-    p = ppid(cur)                          # read /proc/<Pid of cur>/status after confirming cur alive
+    require alive(cur)                     # poll, not fdinfo
+    if same_live_process(cur, W): matched = true; break    # both polled alive, same Pid
+    p = ppid(cur)                          # /proc/<Pid of cur>/status, cur just polled alive
     if p <= 1: return deny                 # reparented to init/subreaper: not a descendant
     pp = pidfd_open(p)                     # may fail (exited): deny
+    handles.append(pp)
     require alive(cur) and ppid(cur) == p  # re-read AFTER holding pp
     require alive(pp) and start(pp) <= start(cur)     # a parent starts no later than its child
     cur = pp
-return deny                                # depth limit
-final: require every pidfd taken in the walk (c0 and all hops) is still alive
+if not matched: return deny                # depth limit or no match
+# mandatory final validation: the ONLY path to allow
+for h in handles + [W]: if not alive(h): return deny
+return allow
 ```
 
 Why it holds against mutable `/proc`: `cur` is alive when `p` is read and again when it is
@@ -348,35 +378,62 @@ therefore does **not** make every old verifier refuse. The barrier is storage is
 The binding MAC covers the binding row; the token row and its lifecycle are protected separately.
 
 - `agent_tokens_v2` / `coder_session_tokens_v2` rows are **insert-only** and carry a MAC over their
-  immutable fields (hash, profile, scope, expiry, owner, version) under the same domain-separated
-  scheme. A selective edit of any of them, or deleting the row, makes the MAC fail or the lookup
-  miss: deny.
-- **Authorization is the live registration in the service**, which is memory-only and is never
-  rebuilt from the database. Revocation unregisters (and is recorded in an insert-only
-  `token_revocations_v2` row for audit and for the other binaries' view); expiry is enforced by
-  the service and by the MAC-covered expiry. So a database writer without the vault key can
-  deny but cannot authorize, cannot un-revoke (revocation is in the registry, which a restart
-  empties), and cannot extend an expiry (MAC). A writer who deletes a revocation row only removes
-  an audit record.
+  immutable fields (hash, profile, scope, expiry, owner, version) under the same domain-separated,
+  length-delimited scheme. A selective edit of any of them, or deleting the row, makes the MAC fail
+  or the lookup miss: deny.
+- **Authorization is the active registration in the service**: memory-only, never rebuilt from the
+  database. A verify also reads the token's `token_revocations_v2` row and denies if one exists
+  (defence in depth, so a revocation is effective the instant its row commits, even if the
+  service could not be told). The registry keeps an in-memory tombstone for an id it has seen
+  revoked until that token's expiry, so deleting the revocation row afterwards does not un-revoke
+  a live service. A database writer without the vault key can therefore deny but cannot
+  authorize or extend an expiry (MAC); the one residual is deleting a revocation row **before**
+  the service has dropped the entry, which the push in the next section closes in the normal case.
+
+#### Lifecycle inventory (every existing operation maps to a v2 revocation)
+
+The legacy operations act on legacy tables only. Each one is extended in phase 3 to perform its
+v2 counterpart in the same function (no parallel code path to forget), through one primitive,
+`procbind.Revoke(ctx, selector)`, which (1) commits the revocation rows (selector: token id,
+owner, session/conversation, profile, or all), (2) tells the service to drop the matching entries
+and release their pidfds, and (3) returns only after the service acknowledged the drop **or**
+reports the failure. Failure semantics: if (1) fails nothing changed and the error is returned
+(the token remains valid and the caller is told so); if (1) succeeded and (2) was not
+acknowledged, the call returns a distinct "revoked, live drop unconfirmed" error (non-zero exit,
+logged, shown in doctor), the token already denies at the next verify because verify reads the
+committed revocation row, and the host retries the drop on its next poll until acknowledged.
+
+| Existing operation | Legacy effect | v2 counterpart (phase 3) |
+|---|---|---|
+| `Store.Revoke(profile, ref)` (agent-mode token revoke, mission revoke) | `revoked_at` on one `agent_tokens` row | `Revoke(token id)` |
+| `Store.RevokeProfile` | all of a profile's tokens | `Revoke(profile)` |
+| `Store.RevokeOwner` (conductor ends a run, sweep) | tokens of one `mission_owner` | `Revoke(owner)` |
+| `Store.SweepMissions` (conductor start/resume) | revokes orphan owners, purges expired | `Revoke(owner)` for each orphan the legacy sweep revokes, plus purge of expired v2 rows and their revocations |
+| `RevokeSessionTokens(profile, conv)` (turn ended) | deletes `coder_session_tokens` | `Revoke(session)`; the turn-end path calls it before the next turn is launched |
+| Turn replacement (`IssueSessionToken` for a new turn) | the verify join on the current `turn_id` | v2 registration is keyed by `(session, turn)`; issuing a new turn revokes the previous turn's entry first |
+| Conversation / session deletion (`AIStore.DeleteConversation`, the delete stack of #1119, #1123, #1124) | revokes legacy rows in the delete transaction | `Revoke(session)` after that transaction commits and before the delete returns success |
+| Profile deletion | cascades legacy rows | `Revoke(profile)` |
+| Host / mission shutdown | tokens left to expire or be swept | clean shutdown: `Revoke(all)` then close; crash: registry is memory-only, so nothing survives |
+| Worker reap (worker exits) | none | the host unregisters the entry and releases the pidfd |
+| Orphan cleanup (`ResetStaleSpawning`, `expireOrphan`) | marks the session failed | `Revoke(session)` |
+| Token expiry | row expiry check | MAC-covered expiry, enforced by the service and by verify |
+
+**Guard against forgotten paths.** A repository test walks the Go source of `internal/agenttokens`
+and `internal/coderhost` (and callers of `DeleteConversation`) and fails when a function that
+writes `revoked_at`, deletes from a token table or ends a session does not call the v2
+primitive or carry an explicit `procbind:legacy-only` annotation with a reason; the annotation
+list is reviewed. A behavioural test per row of the table asserts that after the operation
+returns success a previously allowed caller is denied.
+
+**Visibility.** `agent-mode token list` and the app list v2 tokens with `mode: peercred` and
+state (active, revoked, drop-unconfirmed); `monoagentcli doctor` reports the service (reachable,
+generation, number of active registrations, revocations pending a confirmed drop) and the
+flag's restart cost; the app surfaces "workers interrupted by a host restart" with a relaunch
+action, and relaunch after a restart is a tested path (section 11). **HTTP bearer:** the HTTP
+API reads only `agent_tokens`, so it never accepts a v2 token; this is stated in the API docs and
+pinned by a test that presents a v2 mission token to every bearer route.
+
 - Whole-database rollback and a writer who holds the vault key remain out of scope (section 1).
-
-### Migration of existing rows
-
-- Legacy rows stay in their old columns and verify under the old MAC; they are **never**
-  re-labelled as `proc` v2 rows and a legacy MAC is never accepted for a v2 row. There is no
-  `TEXT DEFAULT 'proc'` column; "legacy" is where the record lives, not a value anyone can edit.
-- Only tokens issued after the flag is on have a v2 row. Nothing needs re-signing; a legacy token
-  is simply a legacy token for its remaining life (tokens are short-lived and per run).
-- Migration number: next free at implementation-PR time (master ends at 141, epic #1106 may take
-  142); not taken now. The migration only creates the two tables.
-- Old binaries' write behaviour: an old host minting a token writes the legacy tables only; those
-  tokens are legacy, correctly labelled. An old host can never produce a v2 row or a v2-prefixed
-  token. Downgrading with the flag on strands v2 tokens (an old binary cannot resolve them) until
-  the runs end; turning the flag off first is the documented rollback.
-- Flag: `MONOAGENT_PEERCRED_BINDING` / `security.peercred_binding`, **off by default** and
-  **operator-only** (set through the operator-gated config path, not by an agent); Linux only;
-  macOS and Windows reject the setting. Its description states that a host restart interrupts
-  running workers (section 5, Restart).
 
 ## 8. Socket location, permissions and lifecycle
 
@@ -493,6 +550,14 @@ scratch `HOME`, never the real database, and the same fake vault-key source the 
 - **Old-code compatibility** (section 7): the frozen old verifiers and the previous released
   binary reject a v2 token; a v2 token-row edit, row deletion, revocation deletion and expiry edit
   each deny.
+- **Canonical encoding:** moving bytes between adjacent fields (`profile "ab", scope "c"` versus
+  `"a", "bc"`), swapping profile and scope, and replaying an answer for another request each change
+  the MAC and deny; a fuzz test over field boundaries.
+- **Lifecycle:** one test per row of the section 7 inventory (allowed before, denied after,
+  including with the service unreachable during the revoke: error reported, token still denies),
+  the forgotten-path guard test, the HTTP bearer test, and relaunch after a host restart.
+- **Pipe:** frame bounds, trailing bytes, EOF before frame, deadline, a drained pipe, a host that
+  dies before writing; none leaves a blocked trampoline.
 - **Fallback matrix** (section 6): each row a test, including "enabled, service down at launch
   refuses/holds" and "enabled, existing `peercred` token, service down denies".
 - **Launch ordering:** a child that polls its own environment and `/proc/<pid>/environ` finds no
@@ -513,14 +578,20 @@ scratch `HOME`, never the real database, and the same fake vault-key source the 
 - Real desktop keychain behaviour (the tests use the fake key source by design) and anything that
   needs the out-of-scope capabilities of section 1.
 
-## 13. Phases
+## 13. Phases and gates
 
 1. This design (docs only), reviewed.
-2. `internal/procbind`: the Linux walk, pidfd handling, keyed answer and wire format, with the
-   socket and hostile-namespace tests; no wiring.
-3. Host wiring (listener lifecycle, host row, launch ordering and token pipe), the migration and
-   the `Commit` seam with #1098; flag off.
-4. Verifier wiring in `agenttokens` / `coderhost`, host-side decisions for the master tools,
-   fallback matrix, SECURITY.md (replace "a kernel-side fact is the follow-up" with the exact
-   statement, the legacy label and the out-of-scope list).
-5. Default-on for Linux after a release; macOS and Windows only after the section 12 work.
+2. `internal/procbind`: the Linux walk, pidfd handling, keyed answer, canonical encoding and wire
+   format. **Gate:** socket, nonce, namespace and adversarial pidfd tests pass on a Linux 6.5+
+   host.
+3. Host wiring (listener lifecycle, host row, launch ordering, trampoline and pipe), the five
+   tables, the `Binder.Launch`/`Revoke` seams with #1098, the lifecycle inventory, flag off.
+   **Gate:** atomic launch, every row of the lifecycle table, and migration compatibility with the
+   flag off (nothing observable changes).
+4. Verifier wiring for both families (`agenttokens` mission tokens, `coderhost` session tokens),
+   host-mediated decisions for the master tools, fallback matrix, SECURITY.md (replace "a
+   kernel-side fact is the follow-up" with the exact statement, the legacy label, the restart
+   cost and the out-of-scope list). **Gate:** old-binary and tampering tests.
+5. Default-on for Linux only after every gate above and the restart/relaunch behaviour are
+   validated and a release has run with the flag available; macOS and Windows only after the
+   section 12 work.
