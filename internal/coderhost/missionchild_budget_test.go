@@ -2,7 +2,9 @@ package coderhost
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // A mission with a budget binds its children: the lead conversation may have no cap of its own, and a marked task
@@ -66,5 +68,21 @@ func TestACarveRefusedAfterTheConversationExistsUsesNoAttempt(t *testing.T) {
 	var n int
 	if f.st.db.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE role = 'child'`).Scan(&n) != nil || n != 0 {
 		t.Fatalf("%d child sessions left", n)
+	}
+}
+
+// An audit note cut to its limit stays valid UTF-8.
+func TestMissionEventNoteIsCutOnACharacterBoundary(t *testing.T) {
+	f := newMC(t, true)
+	note := "a" + strings.Repeat("é", 200) // byte 300 is the second half of a character
+	if err := addMissionEvent(f.st.db, "p", f.se.ID, f.ids[0], "spawn", "host", note, f.st.stamp()); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := f.st.db.QueryRow(`SELECT note FROM coder_mission_events WHERE kind = 'spawn' ORDER BY id DESC LIMIT 1`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if !utf8.ValidString(got) || len(got) > 300 || len(got) < 298 {
+		t.Fatalf("note = %d bytes, valid=%v", len(got), utf8.ValidString(got))
 	}
 }

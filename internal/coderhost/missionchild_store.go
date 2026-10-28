@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -546,7 +547,11 @@ type querier interface {
 // are bounded by tasks times attempts).
 func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
 	if len(note) > 300 {
-		note = note[:300]
+		n := 300
+		for n > 0 && !utf8.RuneStart(note[n]) { // never cut a multibyte character in two
+			n--
+		}
+		note = note[:n]
 	}
 	if _, err := db.Exec(`INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		profileID, sessionID, taskID, kind, who, note, at); err != nil {
