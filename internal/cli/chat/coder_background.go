@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -333,7 +334,7 @@ func childrenOf(pid int) []int {
 			}
 			ok = true
 			for _, f := range strings.Fields(string(b)) {
-				if n, err := strconv.Atoi(f); err == nil {
+				if n, err := strconv.Atoi(f); err == nil && !slices.Contains(kids, n) {
 					kids = append(kids, n)
 				}
 			}

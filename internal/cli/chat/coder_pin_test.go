@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"runtime"
 	"testing"
@@ -110,5 +111,32 @@ func TestStartComparable(t *testing.T) {
 		if got := startComparable(tc.a, tc.b); got != tc.want {
 			t.Errorf("%s: %v", name, got)
 		}
+	}
+}
+
+// The runner may be started through a launcher: a process two levels below this one is ours; one that
+// is not below it is not.
+func TestDescendantOf(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc")
+	}
+	outer := runnerWithChildren(t, `sh -c 'sleep 30 & wait' & wait`)
+	var inner int
+	for i := 0; i < 100 && inner == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+		for _, k := range childrenOf(outer) {
+			if len(childrenOf(k)) > 0 {
+				inner = childrenOf(k)[0]
+			}
+		}
+	}
+	if inner == 0 {
+		t.Fatal("no process two levels down")
+	}
+	if !descendantOf(inner, os.Getpid()) {
+		t.Error("a process two levels below this one is not recognised")
+	}
+	if descendantOf(1, os.Getpid()) || descendantOf(inner, 1<<30) {
+		t.Error("a process that is not below the ancestor is recognised")
 	}
 }
