@@ -282,6 +282,9 @@ jobs:
       - name: Build Wails app (arm64)
         working-directory: wails-app
         run: |
+          # The app's own version (Info.plist, the Windows file version) comes
+          # from wails.json; stamp the tag in so it is not the last committed one.
+          bash ../scripts/stamp-app-version.sh "$TAG" wails.json
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           wails build -ldflags "$LD" -skipbindings=false
 
@@ -397,6 +400,9 @@ jobs:
       - name: Build Wails app (windows)
         working-directory: wails-app
         run: |
+          # The app's own version (Info.plist, the Windows file version) comes
+          # from wails.json; stamp the tag in so it is not the last committed one.
+          bash ../scripts/stamp-app-version.sh "$TAG" wails.json
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           wails build -ldflags "$LD" -skipbindings=false
 
@@ -462,6 +468,9 @@ jobs:
       - name: Build Wails app (linux)
         working-directory: wails-app
         run: |
+          # The app's own version (Info.plist, the Windows file version) comes
+          # from wails.json; stamp the tag in so it is not the last committed one.
+          bash ../scripts/stamp-app-version.sh "$TAG" wails.json
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           wails build -ldflags "$LD" -skipbindings=false -tags webkit2_41
 
