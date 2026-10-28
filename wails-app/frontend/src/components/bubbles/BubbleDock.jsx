@@ -3,13 +3,17 @@ import { useTranslation } from 'react-i18next'
 import { Plus, X, Code2, Network } from 'lucide-react'
 import { folderName } from '../chat/useCoderMode.js'
 import { layoutBubbles, monogram, totalCost, costEstimated } from '../../lib/coderBubbles.js'
+import { OrbitRing } from './OrbitRing.jsx'
 import './bubbles.css'
 
 const statusKey = { idle: 'statusIdle', working: 'statusWorking', done: 'statusDone', error: 'statusError', needs: 'statusNeeds' }
 
-function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, onDropOn, dragging, registerEl, titleOf = folderName }) {
+function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, onDropOn, dragging, registerEl, titleOf = folderName, orbit = null, side = 'right', onOpenAgent }) {
   const { t } = useTranslation()
   const [hover, setHover] = useState(false)
+  // The mouse over a satellite shows that satellite's own card, not the bubble's.
+  const [onOrbit, setOnOrbit] = useState(false)
+  const hasOrbit = !!orbit && (orbit.satellites.length > 0 || orbit.overflow.length > 0)
   const isOrg = bubble.kind === 'org'
   const name = isOrg ? bubble.orgName : bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
   const cost = totalCost(summary)
@@ -18,8 +22,9 @@ function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, o
     : t('bubbles.bubbleLabel', { name, status: t(`bubbles.${statusKey[summary.status] || 'statusIdle'}`) })) +
     (summary.unread ? ` · ${t('bubbles.unread', { count: summary.unread })}` : '')
   return (
-    <div className="bubble-wrap"
+    <div className={`bubble-wrap${hasOrbit ? ' has-orbit' : ''}`}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      onMouseOver={hasOrbit ? e => setOnOrbit(!!e.target.closest?.('.orbit')) : undefined}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
       onDrop={e => { e.preventDefault(); onDropOn(bubble.key) }}>
       <button type="button" ref={el => registerEl(bubble.key, el)}
@@ -37,7 +42,11 @@ function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, o
         aria-label={t('bubbles.closeNamed', { name })} title={isOrg ? t('orgBubble.close') : t('bubbles.closeChat')}>
         <X size={9} />
       </button>
-      {hover && !expanded && (
+      {hasOrbit && (
+        <OrbitRing orbit={orbit} variant="arc" facing={side === 'left' ? 0 : 180} label={t('bubbles.orbit.groupNamed', { name })}
+          onOpen={c => onOpenAgent?.(bubble, c)} />
+      )}
+      {hover && !expanded && !onOrbit && (
         <div className="bubble-card" role="tooltip">
           <div className="bubble-card-title">{name}</div>
           {isOrg && <div>{bubble.finished ? t('orgBubble.status.finished') : t('orgBubble.cardKind')}{bubble.runId ? ` · ${t('orgBubble.runLabel', { id: bubble.runId.slice(0, 8) })}` : ''}</div>}
@@ -58,12 +67,14 @@ function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, o
 // the window: one bubble per open coder chat, a "+" for a new one, and a
 // grip that moves the dock to the other side. Bubbles past the sixth go
 // into a "+N" bubble that fans out.
-export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = true, titleOf }) {
+export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = true, titleOf, orbitOf = null, onOpenAgent }) {
   const { t } = useTranslation()
   const [dragKey, setDragKey] = useState('')
   const [fanOpen, setFanOpen] = useState(false)
   const gripStart = useRef(null)
-  const { bubbles, expandedKey, side } = store
+  const { expandedKey, side } = store
+  // An agent opened from an orbit has no bubble of its own: it is reached from its parent's orbit.
+  const bubbles = store.bubbles.filter(b => !b.lite)
   const { visible, overflow } = layoutBubbles(bubbles, expandedKey)
 
   const onDropOn = (key) => {
@@ -74,6 +85,7 @@ export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = tru
     bubble: b, summary: store.summaryOf(b.key), expanded: b.key === expandedKey,
     onOpen: k => { setFanOpen(false); onOpen(k) }, onClose, onDragStart: setDragKey, onDropOn,
     dragging: dragKey === b.key, registerEl, titleOf,
+    orbit: orbitOf && b.conversationId ? orbitOf(b) : null, side, onOpenAgent,
   })
   if (bubbles.length === 0 && !canCreate) return null
   const overflowUnread = overflow.reduce((n, b) => n + (store.summaryOf(b.key).unread || 0), 0)

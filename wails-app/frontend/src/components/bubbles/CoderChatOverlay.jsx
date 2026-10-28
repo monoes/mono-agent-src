@@ -16,6 +16,8 @@ import { COMPACT_PROMPT, compactSummary, compactSeed } from '../../lib/chatCompa
 import { TaskHeaderCard } from './TaskHeaderCard.jsx'
 import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
+import { LitePaneHeader } from './LitePaneHeader.jsx'
+import { orbitOf } from '../../lib/sessionOrbit.js'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
@@ -60,8 +62,10 @@ function prefersReducedMotion() {
 // them stop a running turn; the × closes the chat (onCloseChat, which
 // asks first when a turn is running). originRect is the bubble's screen rectangle, so
 // the overlay grows out of it.
-export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onCloseChat, onNavigate, onOpenArtifact, titleOf = folderName }) {
+export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onCloseChat, onNavigate, onOpenArtifact, titleOf = folderName, orbitSessions = [], onOpenAgent, onChanged }) {
   const { t } = useTranslation()
+  // A lite pane is an agent opened from an orbit: its own simple pane, nothing to configure.
+  const lite = !!bubble.lite
   const view = store.getView(bubble.key)
   const [closing, setClosing] = useState(false)
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
@@ -184,6 +188,8 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
       if (e.target?.closest?.('[data-testid="history-panel"]')) return
       // An open mission-template menu closes itself first (its own handler stops the key).
       if (e.target?.closest?.('.ms-templates')?.querySelector('.ms-menu')) return
+      // So does the "+N" list of an orbit.
+      if (e.target?.closest?.('.orbit-more')) return
       e.stopImmediatePropagation()
       if (settingsOpenRef.current) { closeSettings(); return }
       if (selectedRef.current) { setSelectedAgent(null); return }
@@ -252,7 +258,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   }, [liveConvId, liveTurnId, t])
 
   const title = bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
-  const showStage = access !== 'scoped' && !confined
+  const showStage = !lite && access !== 'scoped' && !confined
   const runtime = bubble.conversationId ? bubble.runtime : setup.runtime
   const model = bubble.model || setup.model
 
@@ -274,6 +280,11 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
       />
       <div ref={panelRef} role="dialog" aria-label={t('bubbles.chatLabel', { name: title })} data-testid="bubble-overlay"
         className={`bubble-overlay${closing ? ' closing' : ''}${narrow ? ' narrow' : ''}`}>
+        {lite ? (
+          <LitePaneHeader title={title} orbit={orbitOf(orbitSessions, { sessionId: bubble.sessionId })} streaming={conv.streaming}
+            onStopTurn={conv.stop} onOpenAgent={c => onOpenAgent?.(bubble, c)} onChanged={onChanged}
+            onBoard={root => { collapse(); onNavigate?.('tasks', { sessionId: root.id }) }} onClose={onCloseChat} />
+        ) : (
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           {/* Title and chips wrap among themselves on a narrow pane; the buttons stay on the right. */}
           <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -312,11 +323,12 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             <PaneSettings bubble={bubble} access={access} store={store} confined={confined} onNavigate={page => { collapse(); onNavigate?.(page) }} onClose={closeSettings} />
           )}
         </div>
-        {bubble.cwd && <CoderHeader cwd={bubble.cwd} />}
-        {view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
-        <ChatResetBar onClear={startFresh} onCompact={compact}
+        )}
+        {!lite && bubble.cwd && <CoderHeader cwd={bubble.cwd} />}
+        {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
+        {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
-          compactDisabled={conv.streaming || !conv.conversationId} />
+          compactDisabled={conv.streaming || !conv.conversationId} />}
         <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
           {showStage && !stageCollapsed && (
             <>
@@ -346,6 +358,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             onNavigate={onNavigate}
             onOpenArtifact={onOpenArtifact}
             runtime={runtime}
+            variant={lite ? 'lite' : 'full'}
             agentFilter={agentFilter}
             agentFilterTurnId={shownTurnId}
             agentFilterName={filterName}
