@@ -227,7 +227,12 @@ func (s *Server) connList() []*extConn {
 //     is logged into their accounts;
 //   - neither: the newest unbound browser, else the newest browser, which
 //     is what an older client that sends no target always got.
-func (s *Server) resolve(t Target) (*extConn, error) {
+func (s *Server) resolve(t Target) (*extConn, error) { return s.resolveWith(t, false) }
+
+// resolveWith is resolve; admin lets an explicit instance through without the
+// allowed-set check, for the binding operations that manage the set itself
+// (their own profiles are checked where they are sent).
+func (s *Server) resolveWith(t Target, admin bool) (*extConn, error) {
 	conns := s.connList()
 	if len(conns) == 0 {
 		return nil, ErrNoExtension
@@ -235,8 +240,8 @@ func (s *Server) resolve(t Target) (*extConn, error) {
 	if t.Instance != "" {
 		for _, c := range conns {
 			if c.id == t.Instance {
-				if t.Profile != "" && !pairedPolicies(conns).allows(c, t.Profile) {
-					return nil, fmt.Errorf("profile %q is not allowed for browser %s", t.Profile, c.id)
+				if !admin && !pairedPolicies([]*extConn{c}).allows(c, t.Profile) {
+					return nil, fmt.Errorf("%w: browser %s may not serve profile %q", ErrProfileNotAllowed, c.id, t.Profile)
 				}
 				return c, nil
 			}

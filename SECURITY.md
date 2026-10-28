@@ -980,10 +980,18 @@ against an agent running as you:
   socket at once, a `set_binding`, including one relayed with only the relay
   token, is refused before anything is sent), the default-browser fallback
   skips it for any profile outside its set, and a command that names no
-  profile is never sent to it. The allowed set is read where a claim is
-  applied or a command is sent, under the state lock, so a change by the
-  owner takes effect for the next claim or command; a connected browser
-  that runs a profile no longer allowed is disconnected within a few seconds.
+  profile is never sent to it. Naming the browser by instance changes none of
+  this for an ordinary command; only the binding operations that manage the set
+  itself (`set_binding`) may name a browser by instance alone, and their profiles
+  are checked against the set. The allowed set is read where a claim is applied
+  or a command is written to the socket, under the state lock, so a change by
+  the owner takes effect for the next claim or command. A command already
+  written when the owner narrows the set is in flight and may complete; a
+  `set_binding` acknowledged after the narrowing is not mirrored and the
+  browser, which now holds a binding it may not, is disconnected. That write
+  holds the state lock for at most two seconds (a browser that stops reading is
+  disconnected). A connected browser that runs a profile no longer allowed is
+  disconnected within a few seconds.
   Records paired before the limit existed, and the shared `extension.token`,
   are not limited (a compatibility path: set a limit with `browsers allow`;
   a token rotation by the browser keeps its limit). The limit narrows what

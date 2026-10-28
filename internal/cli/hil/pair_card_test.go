@@ -229,8 +229,11 @@ func TestPairCardPreselectsTheQueuesProfile(t *testing.T) {
 	if err := json.Unmarshal([]byte(editable), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if fields["profiles"] == "" {
-		t.Fatalf("the card has no preselected profile: %s", editable)
+	if fields["profiles"] != "default" {
+		t.Fatalf("the card does not preselect the queue's profile by id: %s", editable)
+	}
+	if !strings.Contains(ro, "Default (default)") {
+		t.Fatalf("the card does not name the queue's profile: %s", ro)
 	}
 	for _, want := range []string{"profiles field", "any", "can't serve any profile"} {
 		if !strings.Contains(ro, want) {
@@ -284,5 +287,98 @@ func TestPairCardProfilesFieldChoices(t *testing.T) {
 				t.Fatalf("claim = %+v", c)
 			}
 		})
+	}
+}
+
+// pairCardInQueue files a second card in the queue of a profile with id q1 and
+// the given name (plus other profiles), approves it as the card shows it and
+// returns the decided claim.
+func pairCardInQueue(t *testing.T, queueName string, others ...[2]string) extension.PendingClaim {
+	t.Helper()
+	cfg, sdb, _, _, _ := pairCardFixture(t)
+	for _, o := range append([][2]string{{"q1", queueName}}, others...) {
+		if _, err := sdb.DB.Exec(`INSERT INTO profiles (id, name) VALUES (?, ?)`, o[0], o[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claim, secret, err := extension.CreatePendingClaim(extension.PendingClaim{Label: "Edge2", Origin: "chrome-extension://bbbb", Instance: "edge-instance-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := extension.OpenPairCard(context.Background(), sdb.DB, "q1", claim); err != nil {
+		t.Fatal(err)
+	}
+	var card, editable string
+	if err := sdb.DB.QueryRow(`SELECT id, editable_data FROM hil_pending WHERE execution_id = ?`, "extpair:"+claim.ID).Scan(&card, &editable); err != nil {
+		t.Fatal(err)
+	}
+	var f map[string]string
+	_ = json.Unmarshal([]byte(editable), &f)
+	f["code"] = extension.PairCode(claim.ID, secret)
+	data, _ := json.Marshal(f)
+	cfg.ProfileID = "q1"
+	if err := approveCard(t, cfg, card, string(data)); err != nil {
+		t.Fatal(err)
+	}
+	return approvedClaim(t, claim.ID)
+}
+
+// Approving a card as it stands must grant the queue's own profile, whatever that
+// profile is called: a name is not re-read as a keyword, a list, or another profile's id.
+func TestPairCardAsShownGrantsTheQueuesProfileWhateverItsName(t *testing.T) {
+	cases := []struct {
+		name, queueName string
+		others          [][2]string
+	}{
+		{"named any", "any", nil},
+		{"named star", "*", nil},
+		{"name with a comma", "A, B", [][2]string{{"pa", "A"}, {"pb", "B"}}},
+		{"name equal to another profile's id", "pa", [][2]string{{"pa", "Other"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := pairCardInQueue(t, tc.queueName, tc.others...)
+			if !c.Restricted || c.Unrestricted || strings.Join(c.AllowedProfiles, ",") != "q1" {
+				t.Fatalf("approved as shown = restricted %v unrestricted %v allowed %v, want only q1", c.Restricted, c.Unrestricted, c.AllowedProfiles)
+			}
+		})
+	}
+}
+
+// A typed name that two profiles share is refused rather than guessed; "any" is a
+// keyword only as the whole field.
+func TestPairCardTypedProfilesAreNotGuessed(t *testing.T) {
+	for _, tc := range []struct{ name, typed string }{
+		{"ambiguous name", "WORK"},
+		{"any inside a list", "q1, any"},
+		{"star inside a list", "*, q1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, sdb, cardID, code, claimID := pairCardFixture(t)
+			for _, o := range [][2]string{{"q1", "Work"}, {"q2", "work"}} {
+				if _, err := sdb.DB.Exec(`INSERT INTO profiles (id, name) VALUES (?, ?)`, o[0], o[1]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			data, _ := json.Marshal(map[string]string{"code": code, "profiles": tc.typed})
+			if err := approveCard(t, cfg, cardID, string(data)); err == nil {
+				t.Fatalf("%q was accepted", tc.typed)
+			}
+			if c, err := extension.FindPendingClaim(claimID); err != nil || c.Status == extension.ClaimApproved {
+				t.Fatalf("a refused field decided the claim: %+v %v", c, err)
+			}
+		})
+	}
+	// An exact id wins over a name; a unique name works.
+	cfg, sdb, cardID, code, claimID := pairCardFixture(t)
+	if _, err := sdb.DB.Exec(`INSERT INTO profiles (id, name) VALUES ('q1', 'Work')`); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(map[string]string{"code": code, "profiles": "q1, Default"})
+	if err := approveCard(t, cfg, cardID, string(data)); err != nil {
+		t.Fatal(err)
+	}
+	if c := approvedClaim(t, claimID); strings.Join(c.AllowedProfiles, ",") != "q1,default" {
+		t.Fatalf("allowed = %v", c.AllowedProfiles)
 	}
 }

@@ -9,16 +9,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// setBindingWriteTimeout bounds a set_binding write made while the state lock is held.
-const setBindingWriteTimeout = 10 * time.Second
-
 // SendCommandTo sends a command to the browser t resolves to and waits for
 // its response. If the response reports failure, an error is returned.
 func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*Response, error) {
 	if cmd.ID == "" {
 		cmd.ID = uuid.New().String()
 	}
-	c, err := s.resolve(t)
+	// A set_binding is an administrative binding operation: it may name a browser by
+	// instance alone, and its profiles are checked against the allowed set below.
+	c, err := s.resolveWith(t, cmd.Type == CmdSetBinding)
 	if err != nil {
 		return nil, err
 	}
@@ -59,12 +58,10 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		sent = c.whileAllowed(setBindingNames(cmd.Params), func() {
 			// The state lock is held for this write: a socket that will not
 			// take it is closed rather than left to stall every state change.
-			stuck := time.AfterFunc(setBindingWriteTimeout, func() { _ = c.ws.Close() })
-			defer stuck.Stop()
-			werr = s.writeCommandTo(c, cmd)
+			werr = c.writeBounded(func() error { return s.writeCommandTo(c, cmd) })
 		})
 	} else {
-		werr = s.writeCommandTo(c, cmd)
+		werr = s.deliver(c, t.Profile, cmd)
 	}
 	if !sent {
 		restore()
@@ -89,8 +86,13 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		if cmd.Type == CmdSetBinding {
 			// The extension stored it; mirror it here so the very next
 			// command routes by it rather than by the auth frame from
-			// whenever this socket opened.
-			c.applyBindingParams(cmd.Params)
+			// whenever this socket opened. If the owner narrowed the allowed set
+			// while it was in flight, the browser now holds a binding it may not:
+			// drop its socket instead of mirroring it.
+			if !c.whileAllowed(setBindingNames(cmd.Params), func() { c.applyBindingParams(cmd.Params) }) {
+				c.closeUnauthorized("this browser is not allowed to run a profile it was given")
+				return nil, errNotAllowed(setBindingNames(cmd.Params))
+			}
 		}
 		return resp, nil
 	case <-time.After(timeout):
@@ -107,7 +109,7 @@ func (s *Server) writeCommand(t Target, cmd *Command) error {
 	if err != nil {
 		return err
 	}
-	return s.writeCommandTo(c, cmd)
+	return s.deliver(c, t.Profile, cmd)
 }
 
 func (s *Server) writeCommandTo(c *extConn, cmd *Command) error {

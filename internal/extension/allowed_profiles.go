@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -239,10 +240,70 @@ func (c *extConn) whileAllowed(want []string, fn func()) bool {
 	return false
 }
 
+// ErrProfileNotAllowed: the browser's token is limited to profiles that do not include the one asked for.
+var ErrProfileNotAllowed = errors.New("not allowed for this browser")
+
 func errNotAllowed(out []string) error {
 	first := ""
 	if len(out) > 0 {
 		first = out[0]
 	}
-	return fmt.Errorf("profile %q is not allowed for this browser: change what it may run with `monoagentcli extension browsers allow`", first)
+	return fmt.Errorf("profile %q is %w: change what it may run with `monoagentcli extension browsers allow`", first, ErrProfileNotAllowed)
+}
+
+// whileServing runs fn only if c's token may serve profile at this moment
+// (profile "" is a command that names none), with the state lock held so the
+// owner's change cannot land between the check and fn. It reports whether fn
+// ran. A socket on the shared token serves anything.
+func (c *extConn) whileServing(profile string, fn func()) bool {
+	if c.tokenID == "" {
+		fn()
+		return true
+	}
+	unlock, err := lockState()
+	if err != nil {
+		return false
+	}
+	defer unlock()
+	list, err := readBrowsersLocked()
+	if err != nil {
+		return false
+	}
+	for _, e := range list {
+		if e.ID == c.tokenID {
+			if e.Restricted && (profile == "" || !containsString(e.AllowedProfiles, profile)) {
+				return false
+			}
+			fn()
+			return true
+		}
+	}
+	return false
+}
+
+// writeBounded runs write, closing the socket if it has not finished after
+// deliveryWriteTimeout: it is called with the state lock held, and a browser
+// that stops reading must not stall every pairing and policy change.
+func (c *extConn) writeBounded(write func() error) error {
+	stuck := time.AfterFunc(deliveryWriteTimeout, func() { _ = c.ws.Close() })
+	defer stuck.Stop()
+	return write()
+}
+
+// deliveryWriteTimeout bounds a command write made under the state lock.
+const deliveryWriteTimeout = 2 * time.Second
+
+// beforeDeliver, set by tests only, runs between choosing a browser and delivering to it.
+var beforeDeliver func()
+
+// deliver writes cmd to c if c's token may serve profile right now.
+func (s *Server) deliver(c *extConn, profile string, cmd *Command) error {
+	if beforeDeliver != nil {
+		beforeDeliver()
+	}
+	var werr error
+	if !c.whileServing(profile, func() { werr = c.writeBounded(func() error { return s.writeCommandTo(c, cmd) }) }) {
+		return errNotAllowed([]string{profile})
+	}
+	return werr
 }

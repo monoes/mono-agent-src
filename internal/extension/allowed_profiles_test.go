@@ -2,6 +2,7 @@ package extension
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/monoes/mono-agent/internal/account/accounttest"
 	"os"
 	"strings"
@@ -397,5 +398,137 @@ func TestAutomaticPairingStartsRestricted(t *testing.T) {
 	list, err := ListPairedBrowsers()
 	if err != nil || len(list) != 1 || !list[0].Restricted || len(list[0].AllowedProfiles) != 0 {
 		t.Fatalf("auto-paired record = %+v, %v", list, err)
+	}
+}
+
+// Naming a browser by instance does not get around its allowed set: an ordinary
+// command still needs a profile the browser may serve. set_binding, which
+// manages the set itself, still works by instance alone.
+func TestInstanceTargetedCommandsStillFollowTheAllowedSet(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, _ := mintRestricted(t, instA) // restricted to nothing
+	a := dialToken(t, wsURL, tok, instA)
+	waitBrowsers(t, srv, 1)
+
+	for _, tgt := range []Target{{Instance: instA}, {Instance: instA, Profile: "p-x"}} {
+		_, err := srv.SendCommandTo(tgt, &Command{Type: CmdCreateTab}, time.Second)
+		if !errors.Is(err, ErrProfileNotAllowed) {
+			t.Fatalf("target %+v: err = %v, want ErrProfileNotAllowed", tgt, err)
+		}
+	}
+	if _, err := srv.ResolveTarget(Target{Instance: instA}); !errors.Is(err, ErrProfileNotAllowed) {
+		t.Fatalf("resolving by instance alone: %v", err)
+	}
+
+	// Unbinding to nothing is the owner narrowing a browser: allowed by instance alone.
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Instance: instA}, &Command{Type: CmdSetBinding, Params: map[string]interface{}{"profiles": []string{}}}, 3*time.Second)
+		errc <- err
+	}()
+	if cmd := answerNext(t, a, 0, nil); cmd == nil || cmd.Type != CmdSetBinding {
+		t.Fatalf("set_binding did not reach the browser: %+v", cmd)
+	}
+	if err := <-errc; err != nil {
+		t.Fatalf("set_binding by instance: %v", err)
+	}
+}
+
+func TestInstanceTargetWithAnAllowedProfileIsDelivered(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, _ := mintRestricted(t, instA, "p-a")
+	a := dialToken(t, wsURL, tok, instA, "p-a")
+	waitBrowsers(t, srv, 1)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Instance: instA, Profile: "p-a"}, &Command{Type: CmdCreateTab}, 3*time.Second)
+		errc <- err
+	}()
+	if cmd := answerNext(t, a, 0, map[string]any{"tabId": 1}); cmd == nil || cmd.Type != CmdCreateTab {
+		t.Fatalf("got %+v", cmd)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The owner narrowing the set after a browser was chosen but before the command
+// is written must stop the command: the decision is made again where it is delivered.
+func TestNarrowingBetweenChoosingAndWritingRefusesTheCommand(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, id := mintRestricted(t, instA, "p-a")
+	conn := dialToken(t, wsURL, tok, instA, "p-a")
+	waitBrowsers(t, srv, 1)
+
+	beforeDeliver = func() {
+		if _, err := SetAllowedProfiles(id, nil, true); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeDeliver = nil })
+	_, err := srv.SendCommandTo(Target{Profile: "p-a"}, &Command{Type: CmdCreateTab}, time.Second)
+	if !errors.Is(err, ErrProfileNotAllowed) {
+		t.Fatalf("a command resolved before the narrowing was delivered: %v", err)
+	}
+	expectSilence(t, conn, 200*time.Millisecond)
+}
+
+// A set_binding the browser acknowledges after the owner narrowed its set must not be
+// mirrored as the browser's binding: the browser holds a profile it may not, so it is dropped.
+func TestSetBindingAcknowledgedAfterNarrowingIsNotMirrored(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, id := mintRestricted(t, instA, "p-a", "p-b")
+	conn := dialToken(t, wsURL, tok, instA, "p-a")
+	waitBrowsers(t, srv, 1)
+	c := srv.connList()[0]
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Instance: instA}, setBindingCmd("p-a", "p-b"), 3*time.Second)
+		errc <- err
+	}()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, msg, err := conn.ReadMessage() // the command is out; the browser has not answered
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetAllowedProfiles(id, []string{"p-a"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteJSON(Response{ID: cmdID(string(msg)), Success: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; !errors.Is(err, ErrProfileNotAllowed) {
+		t.Fatalf("the stale acknowledgement was applied: %v", err)
+	}
+	if got := c.boundProfiles(); strings.Join(got, ",") != "p-a" {
+		t.Fatalf("the narrowed browser is mirrored as running %v", got)
+	}
+	if !closedUnauthorized(conn, time.Second) {
+		t.Fatal("the browser that holds a forbidden binding stayed connected")
+	}
+}
+
+// A write made under the state lock is bounded: a browser that stops reading is
+// disconnected rather than stalling every pairing and policy change.
+func TestAStalledWriteUnderTheStateLockIsBounded(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	dialBrowserSet(t, wsURL, instA, "p-a")
+	waitBrowsers(t, srv, 1)
+	c := srv.connList()[0]
+	start := time.Now()
+	_ = c.writeBounded(func() error {
+		time.Sleep(deliveryWriteTimeout + 500*time.Millisecond)
+		return c.write([]byte("{}"))
+	})
+	if time.Since(start) < deliveryWriteTimeout {
+		t.Fatal("the stand-in write finished early")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(srv.Browsers()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the stalled browser stayed connected")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

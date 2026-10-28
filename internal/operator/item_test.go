@@ -6,8 +6,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/testdb"
 )
 
@@ -57,5 +59,28 @@ func TestItemRefusal(t *testing.T) {
 	}
 	if err := ItemRefusal(ctx, db, "p2", submit); err != nil {
 		t.Errorf("another profile's item is not there: %v", err)
+	}
+}
+
+// A browser's pairing card is the user's to decide: neither MCP nor the HTTP API may
+// approve or reject (and so dismiss) it.
+func TestItemRefusalCoversAPairingCard(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	claim := extension.PendingClaim{ID: "c1c1c1c1", Label: "Edge", Origin: "chrome-extension://aaaa", ExpiresAt: time.Now().Add(time.Minute)}
+	if err := extension.OpenPairCard(ctx, db, "p1", claim); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := db.QueryRow(`SELECT id FROM hil_pending WHERE execution_id = ?`, "extpair:"+claim.ID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	var only *ItemError
+	err := ItemRefusal(ctx, db, "p1", id)
+	if !errors.As(err, &only) {
+		t.Fatalf("a pairing card was left to an agent: %v", err)
+	}
+	if !strings.Contains(err.Error(), "pair") || strings.Contains(err.Error(), "message to a person") {
+		t.Fatalf("the refusal gives the wrong reason: %v", err)
 	}
 }

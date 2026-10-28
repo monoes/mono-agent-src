@@ -1,11 +1,13 @@
 package hil
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +15,7 @@ import (
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/extension"
+	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
 // A form submit an agent tried on a page that is not local (internal/browserctl:
@@ -114,13 +117,18 @@ func pairCardInput(cmd *cobra.Command, db *sql.DB, cardID string) pairCardFields
 	return doc
 }
 
-// pairCardProfiles reads the card's profiles field: names or ids, comma
-// separated; "any" (or "*") alone lets the browser run every profile, and an
-// empty field limits it to none. A card without the field (filed by an older
-// bridge) limits the browser to none as well.
-func pairCardProfiles(db *sql.DB, field *string) (ids []string, any bool, err error) {
+// pairCardProfiles reads the card's profiles field: profile ids or names,
+// comma separated. "any" or "*" as the WHOLE field lets the browser run every
+// profile; an empty field limits it to none, and so does a card without the
+// field (filed by an older bridge). Each entry goes through profiledir.Resolve:
+// an exact id wins, then a name that only one profile has; an unknown or
+// shared name is refused, never guessed.
+func pairCardProfiles(ctx context.Context, db *sql.DB, field *string) (ids []string, any bool, err error) {
 	if field == nil {
 		return nil, false, nil
+	}
+	if whole := strings.TrimSpace(*field); strings.EqualFold(whole, "any") || whole == "*" {
+		return nil, true, nil
 	}
 	for _, p := range strings.Split(*field, ",") {
 		p = strings.TrimSpace(p)
@@ -128,19 +136,24 @@ func pairCardProfiles(db *sql.DB, field *string) (ids []string, any bool, err er
 			continue
 		}
 		if strings.EqualFold(p, "any") || p == "*" {
-			any = true
-			continue
+			return nil, false, errors.New(`"any" must be the whole field, not one entry of a list`)
 		}
-		var id string
-		if err := db.QueryRow(`SELECT id FROM profiles WHERE id = ? OR LOWER(name) = LOWER(?)`, p, p).Scan(&id); err != nil {
+		id, err := profiledir.Resolve(ctx, db, p)
+		var ambiguous *profiledir.AmbiguousError
+		switch {
+		case err == nil:
+			if !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		case errors.Is(err, profiledir.ErrUnknownProfile):
 			return nil, false, fmt.Errorf("profile %q not found (checked both id and name)", p)
+		case errors.As(err, &ambiguous):
+			return nil, false, fmt.Errorf("%v: type the profile id instead", ambiguous)
+		default:
+			return nil, false, fmt.Errorf("looking up profile %q: %w", p, err)
 		}
-		ids = append(ids, id)
 	}
-	if any && len(ids) > 0 {
-		return nil, false, errors.New(`"any" cannot be combined with named profiles`)
-	}
-	return ids, any, nil
+	return ids, false, nil
 }
 
 // decidePairCard decides a browser's request to pair (a card the bridge filed
@@ -159,7 +172,7 @@ func (d Deps) decidePairCard(cmd *cobra.Command, db *sql.DB, cardID, claim strin
 		in := pairCardInput(cmd, db, cardID)
 		code = in.Code
 		var err error
-		if allowed, anyProfile, err = pairCardProfiles(db, in.Profiles); err != nil {
+		if allowed, anyProfile, err = pairCardProfiles(cmd.Context(), db, in.Profiles); err != nil {
 			return true, d.InvalidInput("%v", err)
 		}
 	}

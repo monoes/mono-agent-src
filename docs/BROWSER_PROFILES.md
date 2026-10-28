@@ -74,9 +74,10 @@ A browser that pairs itself gets a token of its own, and that token may run
 only the profiles you allow. **A newly paired browser starts with none**: it
 connects, but it is no default browser and cannot bind a profile until you
 name some. That is the cost of the limit. On the pairing card in the app's Human in Loop queue, the
-**profiles** field starts with the profile of the queue you are in: approve as it stands for that one
-profile, edit it to name others (comma separated), type `any` to let the browser run every profile,
-or empty it and the card says the browser can't serve any profile yet. From the CLI:
+**profiles** field starts with the id of the profile of the queue you are in (the card names it): approve
+as it stands for that one profile, edit it to name others (ids or names, comma separated; a name that two
+profiles share is refused, and an exact id wins over a name), type `any` as the whole field to let the
+browser run every profile, or empty it and the card says the browser can't serve any profile yet. From the CLI:
 
     monoagentcli extension approve <claim> --profiles Work,Personal   # at pairing
     monoagentcli extension approve <claim> --any                      # the old behaviour
