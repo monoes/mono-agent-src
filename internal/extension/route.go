@@ -3,6 +3,7 @@ package extension
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,15 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		return nil, err
 	}
 
+	// An unbind is effective at once: the bridge stops routing the removed
+	// profiles to this browser before the extension has stored the change,
+	// and puts the old set back if the change fails. Additions wait for the
+	// extension's answer.
+	var restore func()
+	if cmd.Type == CmdSetBinding {
+		restore = c.narrowBindingParams(cmd.Params)
+	}
+
 	ch := make(chan *Response, 1)
 	s.pendMu.Lock()
 	s.pending[cmd.ID] = ch
@@ -30,6 +40,9 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	}()
 
 	if err := s.writeCommandTo(c, cmd); err != nil {
+		if restore != nil {
+			restore()
+		}
 		return nil, err
 	}
 	s.logger.Debug().Str("id", cmd.ID).Str("type", cmd.Type).Str("instance", c.id).Msg("command sent")
@@ -37,6 +50,9 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	select {
 	case resp := <-ch:
 		if !resp.Success {
+			if restore != nil {
+				restore()
+			}
 			return resp, fmt.Errorf("extension error: %s", resp.Error)
 		}
 		if cmd.Type == CmdSetBinding {
@@ -47,6 +63,9 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		}
 		return resp, nil
 	case <-time.After(timeout):
+		// No restore: the change may have been stored, and a browser that
+		// is routed too narrowly fails closed (its next binding frame or
+		// reconnect puts the truth back).
 		return nil, fmt.Errorf("command %s timed out after %s", cmd.Type, timeout)
 	}
 }
@@ -108,9 +127,10 @@ func parseTabID(resp *Response) (int, error) {
 
 // bindingFrame is the extension's kind:"binding" push.
 type bindingFrame struct {
-	Kind    string `json:"kind"`
-	Profile string `json:"profile"`
-	Label   string `json:"label"`
+	Kind     string   `json:"kind"`
+	Profile  string   `json:"profile"`  // first id; all an older extension sends
+	Profiles []string `json:"profiles"` // the whole set, extension >= 1.8.0
+	Label    string   `json:"label"`
 }
 
 // serveBinding applies a binding the user changed in the side panel.
@@ -120,19 +140,75 @@ func (s *Server) serveBinding(c *extConn, msg []byte) {
 		s.logger.Warn().Err(err).Msg("invalid binding frame")
 		return
 	}
-	c.setBinding(f.Profile, f.Label)
-	s.logger.Info().Str("instance", c.id).Str("profile", c.boundProfile()).Msg("browser binding changed")
+	c.setBinding(profilesFromWire(f.Profiles, f.Profile), f.Label)
+	s.dropDeletedBinding(c)
+	s.logger.Info().Str("instance", c.id).Strs("profiles", c.boundProfiles()).Msg("browser binding changed")
 }
 
 // applyBindingParams mirrors a set_binding the extension accepted. A
-// missing label keeps the current one.
+// missing label keeps the current one; so does a command naming neither
+// profiles nor profile keep the current set.
 func (c *extConn) applyBindingParams(p map[string]interface{}) {
 	c.mu.Lock()
-	label := c.label
+	label, profiles := c.label, slices.Clone(c.profiles)
 	c.mu.Unlock()
 	if l, ok := p["label"].(string); ok {
 		label = l
 	}
-	profile, _ := p["profile"].(string)
-	c.setBinding(profile, label)
+	if list, ok := wireStrings(p["profiles"]); ok {
+		profiles = list
+	} else if one, ok := p["profile"].(string); ok {
+		profiles = cleanProfiles([]string{one})
+	}
+	c.setBinding(profiles, label)
+}
+
+// wireStrings reads a JSON array of strings out of a command's params,
+// which hold either []string (built in Go) or []interface{} (decoded).
+func wireStrings(v any) ([]string, bool) {
+	switch list := v.(type) {
+	case []string:
+		return list, true
+	case []interface{}:
+		out := make([]string, 0, len(list))
+		for _, e := range list {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// narrowBindingParams applies the removals a set_binding will make (the
+// intersection of the current set and the new one) and returns a func that
+// puts the previous set back. Nothing is removed when the command names no
+// set.
+func (c *extConn) narrowBindingParams(p map[string]interface{}) func() {
+	var next []string
+	if list, ok := wireStrings(p["profiles"]); ok {
+		next = cleanProfiles(list)
+	} else if one, ok := p["profile"].(string); ok {
+		next = cleanProfiles([]string{one})
+	} else {
+		return func() {}
+	}
+	c.mu.Lock()
+	prev := slices.Clone(c.profiles)
+	var kept []string
+	for _, id := range prev {
+		if slices.Contains(next, id) {
+			kept = append(kept, id)
+		}
+	}
+	if len(kept) != len(prev) {
+		c.profiles = kept
+	}
+	c.mu.Unlock()
+	return func() {
+		c.mu.Lock()
+		c.profiles = prev
+		c.mu.Unlock()
+	}
 }

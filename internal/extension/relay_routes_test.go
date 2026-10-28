@@ -152,7 +152,7 @@ func TestRemoteSenderUnbindsABrowser(t *testing.T) {
 		t.Fatalf("Browsers = %+v, %v", list, err)
 	}
 	errc := make(chan error, 1)
-	go func() { errc <- r.SetBinding(instA, "", "") }()
+	go func() { errc <- r.SetBinding(instA, nil, "") }()
 	cmd := answerNext(t, a, 0, map[string]any{"profile": ""})
 	if cmd == nil || cmd.Type != CmdSetBinding || cmd.Params["profile"] != "" {
 		t.Fatalf("the browser got %+v, want set_binding with an empty profile", cmd)

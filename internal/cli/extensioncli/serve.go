@@ -273,10 +273,14 @@ func browserName(b extension.ConnInfo) string {
 	if b.Legacy {
 		return name + " (extension older than 1.5.0)"
 	}
-	if b.Profile == "" {
+	set := b.ProfileSet()
+	if len(set) == 0 {
 		return name + " (any profile)"
 	}
-	return name + " (profile " + b.Profile + ")"
+	if len(set) == 1 {
+		return name + " (profile " + set[0] + ")"
+	}
+	return name + " (profiles " + strings.Join(set, ", ") + ")"
 }
 
 // newBridgeServeLogger keeps the server's own logging out of the command's

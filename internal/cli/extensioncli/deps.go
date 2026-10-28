@@ -33,7 +33,7 @@ type Deps struct {
 	// Refusal says why this process is not the operator's own terminal (""
 	// when it is; operator.Refusal). What changes which browser or profile
 	// the extension acts as, which bridge it pairs with, or what code it
-	// runs is the user's: bind, unbind, reset, pair --open and install
+	// runs is the user's: bind, unbind, assign, reset, pair --open and install
 	// --zip. Nil refuses (clicore.OperatorRefusal).
 	Refusal func() string
 	// StdinIsTerminal says whether a person can type at the command (nil:
