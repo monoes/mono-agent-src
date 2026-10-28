@@ -57,15 +57,15 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 			if s.afterChildCreated != nil {
 				s.afterChildCreated()
 			}
-			return s.notePending(sc, profileID, sessionID, taskID, conv, row.Attempts)
+			return s.notePending(sc, profileID, sessionID, taskID, conv, row.Generation)
 		},
-		beforeMessage: func(string) error { return s.touch(sc, profileID, sessionID, taskID, row.Attempts) },
+		beforeMessage: func(string) error { return s.touch(sc, profileID, sessionID, taskID, row.Generation) },
 		carveRefused: func() { // a refusal, not an attempt: the row lets go of the conversation before it is deleted, so it is not marked gone
-			_ = s.releaseReservation(profileID, sessionID, taskID, row.Attempts, c.ConversationID, false, "the carve was refused: the lead's budget no longer covers it")
+			_ = s.releaseReservation(profileID, sessionID, taskID, row.Generation, c.ConversationID, false, "the carve was refused: the lead's budget no longer covers it")
 		},
 	})
 	if err == nil {
-		if _, err = s.setSpawned(sc, profileID, sessionID, taskID, out.ConversationID, row.Attempts); err != nil {
+		if _, err = s.setSpawned(sc, profileID, sessionID, taskID, out.ConversationID, row.Generation); err != nil {
 			created = out.ConversationID
 		}
 	}
@@ -73,14 +73,14 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 		if out.ConversationID != "" {
 			created = out.ConversationID // made, but its message or its link failed
 		}
-		return Spawned{}, s.abandonSpawn(c, profileID, sessionID, taskID, row.Attempts, created, err)
+		return Spawned{}, s.abandonSpawn(c, profileID, sessionID, taskID, row.Generation, created, err)
 	}
 	return out, nil
 }
 
 // abandonSpawn undoes a failed spawn: the conversation, if one was made, is deleted, then the reservation is released. A refusal before anything was made (a limit, the lead's access) returns the task to marked and does
 // not count as an attempt; any other failure fails the attempt. It returns cause, with any cleanup error added.
-func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64, attempt int, conv string, cause error) error {
+func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64, generation int64, conv string, cause error) error {
 	if conv != "" {
 		// The conversation goes first. The row keeps its pending id until it is gone, so a crash or a failed
 		// delete leaves a spawning row that names the conversation, which the host's stale pass ends and stops. A
@@ -97,7 +97,7 @@ func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64
 	if refused && errors.Is(cause, ErrLimit) && !errors.Is(cause, ErrChildrenFull) {
 		cause = fmt.Errorf("%w: %w", ErrChildrenFull, cause) // a spawn limit (rate, children, depth) reads as full: the task waits
 	}
-	if err := s.releaseReservation(profileID, sessionID, taskID, attempt, c.ConversationID, !refused, cause.Error()); err != nil {
+	if err := s.releaseReservation(profileID, sessionID, taskID, generation, c.ConversationID, !refused, cause.Error()); err != nil {
 		return fmt.Errorf("%w (and releasing the reservation failed: %w)", cause, err)
 	}
 	return cause
@@ -106,7 +106,7 @@ func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64
 // releaseReservation gives a reservation back: failed false returns the task to marked with the attempt not
 // counted, failed true ends the attempt as failed. Either way what the row held is released, in one
 // transaction with its audit row.
-func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, attempt int, lead string, failed bool, why string) error {
+func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, generation int64, lead string, failed bool, why string) error {
 	now := s.stamp()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -116,10 +116,10 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, at
 	var res interface{ RowsAffected() (int64, error) }
 	if failed {
 		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'no_finish', reserved_usd = 0, pending_conversation_id = '', ended_at = ?, updated_at = ?
-			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND attempts = ?`, now, now, profileID, sessionID, taskID, lead, attempt)
+			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND generation = ?`, now, now, profileID, sessionID, taskID, lead, generation)
 	} else {
 		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'marked', reserved_usd = 0, pending_conversation_id = '', attempts = MAX(attempts - 1, 0), updated_at = ?
-			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND attempts = ?`, now, profileID, sessionID, taskID, lead, attempt)
+			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND generation = ?`, now, profileID, sessionID, taskID, lead, generation)
 	}
 	if err != nil {
 		return err

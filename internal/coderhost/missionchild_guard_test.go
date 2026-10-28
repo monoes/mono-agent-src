@@ -17,10 +17,10 @@ import (
 
 var missionChildFiles = []string{"missionchild*.go", "children_task.go"}
 
-var missionWritable = map[string]bool{"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true}
+var missionWritable = map[string]bool{"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true, "coder_mission_generation": true}
 
 var missionReadable = map[string]bool{
-	"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true,
+	"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true, "coder_mission_generation": true,
 	"coder_sessions": true, "coder_session_questions": true, "coder_session_commands": true, "ai_chat_turns": true, "tasks": true, "task_sessions": true,
 }
 
@@ -161,7 +161,7 @@ func TestMissionSQLCheckerFlagsWhatItGuards(t *testing.T) {
 func TestMissionChildTablesAreProtectedFromTheAutonomyPaths(t *testing.T) {
 	st := newStoreT(t)
 	got := protectedState(t, st.db)
-	for _, tbl := range []string{"coder_mission_policy", "coder_mission_children", "coder_mission_events"} {
+	for _, tbl := range []string{"coder_mission_policy", "coder_mission_children", "coder_mission_events", "coder_mission_generation"} {
 		if _, ok := got[tbl]; !ok {
 			t.Errorf("%s is not in the protected dump", tbl)
 		}
