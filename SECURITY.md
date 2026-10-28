@@ -858,9 +858,9 @@ private address is not caught; the consent step is the control there.
 
 ### Saving to the vault from the extension (`vault.save`)
 
-The side panel's confirm card saves an image or document you clicked Save on
-into the image/file vault of the profile the panel is set to, the vault
-`image list` and the MCP tools `vault_item_list` and `vault_item_get_path`
+The side panel's confirm card saves an image, audio or video file or document you clicked Save on
+into the media/file vault of the profile the panel is set to, the vault
+`media list` (once `image list`) and the MCP tools `vault_item_list` and `vault_item_get_path`
 read. It is one bridge request method, `vault.save`
 (`internal/extension/vault_save.go`):
 
@@ -880,9 +880,13 @@ read. It is one bridge request method, `vault.save`
   `mime`, `size_bytes`); it never carries the file, its path or anything else
   from the vault, and the bridge has no other `vault.*` method.
 - **Checked before anything is written:** at most 20 MiB once decoded (a
-  request is one WebSocket frame, read up to 32 MiB); only PNG, JPEG, GIF,
-  WebP, PDF, plain text, Markdown and CSV, and the bytes must sniff as the
-  type they claim (no SVG, HTML or executables); the name is a label of at
+  request is one WebSocket frame, read up to 32 MiB, so a longer video is not
+  taken); only PNG, JPEG, GIF, WebP, MP3, WAV, Ogg, M4A, MP4, WebM, PDF,
+  plain text, Markdown and CSV, and the bytes must sniff as the type they
+  claim (no SVG, HTML or executables; an audio or video file is never
+  played or decoded by MonoAgent in the bridge, only stored; an M4A and an MP4
+  are the same container, so either label is accepted for either: the label
+  is the sender's claim and changes only the extension the file is stored under); the name is a label of at
   most 255 bytes with no path separator, control or bidi character and not
   `.` or `..` (the file itself is stored as `img-NNN` plus the type's
   extension, 0600, never under the sent name); the profile id is a valid
@@ -890,14 +894,14 @@ read. It is one bridge request method, `vault.save`
   since the panel listed it gets no folder back; the source address is kept
   only as http(s) scheme, host and path (no user-info, query, fragment or a
   segment's `;parameters` such as `;jsessionid=`, so a presigned URL's
-  signature never shows in `image list` or the app). A token that is itself
+  signature never shows in `media list` or the app). A token that is itself
   a path segment is kept: nothing tells it from a file name.
 - **Limits per profile.** Files saved this way (vault items with a client id)
   may total at most **2 GiB** and **5,000 items** per profile; the count and
   the sum are read inside the save's own `BEGIN IMMEDIATE` transaction, so
   saves at once cannot pass them together. Past either, the save is refused
   with `quota_exceeded`, naming the limit (final: delete saved files in the
-  Image Vault). At most **20 saves a minute per profile** and **60 a minute in
+  Media Vault). At most **20 saves a minute per profile** and **60 a minute in
   all**, counted in memory in the bridge process; past either, `rate_limited`
   with `retry_after` in seconds. A save is counted only once its profile is
   known to exist, from a list of live profiles read at most once a second, so
@@ -915,7 +919,7 @@ read. It is one bridge request method, `vault.save`
   next free number, at most 5 times, then is refused with `storage_conflict`
   (final: the message says to check the profile's vault folder).
 - **Documents stay out of the knowledge base.** A PDF, text, Markdown or CSV
-  file goes into the image/file vault too, not the documents vault
+  file goes into the media/file vault too, not the documents vault
   (`profile documents`): documents there are indexed into the knowledge base
   that agents read, and content from a web page must not land in it without
   the person adding it there themselves. For the same reason a save is not
@@ -1480,7 +1484,7 @@ layers, from strongest:
    automation role's run gets the sending role's workdir the same way. The
    engine confines every file-touching node of such a run
    (`internal/fsconfine`): spreadsheet read/write, write file, image nodes
-   and their output folders, image vault save, email and Outlook
+   and their output folders, media vault save, email and Outlook
    attachments, Slack and Telegram uploads, FTP local paths, YouTube and
    Drive uploads, browser upload steps, and Gemini reference images. A
    path is resolved relative to the workdir, `..` and symlinks are
@@ -1698,10 +1702,28 @@ that works a task acts on them. The defences:
   and cannot claim, take the next task, finish, release, split, add a task or a dependency or attach evidence, in a session a
   chat conversation manages (it may still read; sessions the operator created keep their rules). A worker's token never records a verdict and a
   verifier's never claims or finishes. *Honest limits:* a process that can read the token (a
-  process of the same user, its own environment, the process table, the database file) can use it,
-  and so can a process that can read the database or the vault write its own; a worker can also read
-  a sibling process's token from the process table, so `verdict_by_unexpected_actor` (above) is the
-  backstop for verdicts, not the token alone; the token is
+  process of the same user, its own environment, the process table, the database file) can use it
+  where the token is not bound to its worker's process (below), and so can a process that can read
+  the database or the vault write its own; `verdict_by_unexpected_actor` (above) is the backstop
+  for verdicts, not the token alone. **Process binding.** On Linux, for a runtime whose shells and
+  tool servers all run inside the process tree monomind starts (only `claude` is listed; the
+  others are unverified live and stay unbound), the conductor records the pid and start stamp of
+  that process after it starts (`ExecOptions.OnStart`), signed under a key derived from the
+  profile's vault data key, and a token is then refused (like any token that does not verify) from
+  a caller whose parent chain does not include that process, so a sibling worker that read the
+  token from the process table or an inherited environment is refused. The worker's own shells and
+  tool servers are its descendants and keep working. Once a process is recorded the check fails closed: a caller
+  whose parent chain cannot be read (its own /proc, a race) is refused like one outside the tree,
+  and so is a tool that was detached or reparented out of the worker's tree (a daemonised helper,
+  another pid namespace); the refusal says so in words (CLI stderr, the MCP tool error) and is
+  logged, rather than reading as a bad token. It is not enforced, and the token behaves as
+  described above, for a token with no recorded process (minted before this existed, an unlisted
+  runtime, a bind that failed (journalled as a notice and logged, never silent) or the moment
+  between the start and the record: the token is in the worker's environment from the start of
+  the process until the record is written, and a sibling polling the process table can win that
+  window; passing the token to monomind over a pipe is a follow-up), and where ancestry is not
+  read (not Linux). The binding is a courtesy layer, not a sandbox: it reads the caller's parent chain from `/proc`, which a process of the same user that runs in its own user and mount namespace can present differently, so such a process can still defeat it; a kernel-side fact (the parent process id of the first hop, or the peer credentials of a socket to the conductor) is the follow-up, together with the pipe hand-off. A tree deeper than the 64 ancestors read is refused like one outside the tree. A writer of the database can still clear the record or add a token of its own. The sweep, revocation and expiry are unchanged. The
+  token is
   scoped and per run, so what it reaches is that one task until the run ends, and it is not a
   sandbox: a worker's own sub-processes inherit it. An agent that scrubs its own environment
   and is not recognised as an agent is still treated as the operator by the CLI (above). **The evidence rule:** a task of kind
@@ -1908,6 +1930,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   caller (the same guard as the task board, with the same limit: a process that scrubs its own environment is
   treated as the operator). `sessions list`, `settings get` and `command` need a session token (they then show
   the caller's own tree only) or the operator.
+- **Process binding is a courtesy layer, not a boundary.** The check that a call comes from the turn's process or a descendant reads the caller's parent chain from `/proc` in the caller's own mount namespace. It stops ordinary cross-use (a sibling worker, a lead, a reused process id, a tool that was detached from the tree), but a process of the same user that runs in its own user and mount namespace can present a different process table and so defeat it, and the same holds for any other `/proc`-based ancestry check. The boundary against a same-user sibling is the OS user or a sandbox, not these tokens. A check that cannot be forged needs a kernel-supplied peer credential (a socket to a process in the host's own namespaces, whose own process table decides); that verification service is a planned follow-up, not part of this feature.
 - **Session tokens.** The host mints a token for each turn (`MONOAGENT_SESSION_TOKEN`). It names profile,
   conversation and turn, is valid only while that turn is the session's current one (24 hours at most), is stored
   as a hash and signed under a key derived from the profile's vault key, and counts only from the turn's process or
@@ -1955,6 +1978,22 @@ injected text and a confused script inside the rules; it is not a sandbox agains
 - **Mesh text is data.** What other agents send to a session over monomind's mesh is sealed as untrusted peer
   content in front of its next turn; it starts no turn and carries no authority. The mesh name is not a trust
   anchor and `mesh_accept` (`none`, `subtree` or `project`; default `subtree`) limits who is heard.
+- **Mission child sessions: policy and marks (data model only).** The tables `coder_mission_policy`,
+  `coder_mission_children` and `coder_mission_events` (migration 139) hold, per task session, a policy (mode `off`,
+  `marked` or `all`; `max_children`; `share_pct`), the tasks its lead marked, and an audit row for every change with
+  who made it. This surface starts no session and no turn: nothing in the host reads these tables to spawn yet, so a
+  mark has no effect on a running mission. What the store enforces for the spawn path to come: only the lead of that
+  task session (its conversation equals `task_sessions.conversation_id`, taken from a verified session token) marks,
+  reserves or links; a process that also holds a task-bound mission binding (a worker or verifier) is refused, but only if the tool layer passes the verified binding result to `NewLeadScope` (a scope built without that check is refused; whether the tool layer does it is for the next phase to build and verify); a task
+  of another session or profile, a session that does not exist and a caller that is not the lead are refused with one
+  text. A mark in a draft session is stored and reserves nothing until the person has approved the plan. The lead
+  raises `max_children` only up to the session's own operator-only `max_children` setting and `share_pct` only up
+  to 80 (1 to 80 for everyone); it can switch the mode between `off` and `marked` (unless the person turned it off: an operator `off` stays off until the operator turns the mode on) and lower it from `all`, and mode `all` (every worker task becomes a child) is the
+  operator's alone to turn on. A `max_children` or `share_pct` the operator writes is a cap the lead cannot raise past (the operator clears it to give the lead its freedom back); the lead may always lower, and every such change is an audit row naming who. None of it writes a setting, access level or the lead's budget. The one write outside these
+  tables lowers a finished child's own cap to what it spent (never up, never to 0 which means uncapped) so the unspent
+  carve returns to the lead. The share is held only for children that exist or are reserved (a marked task holds nothing), and the statement that reserves checks it. A lead's own audit rows are bounded per kind (a flood of one kind, say marks or raises, can push out only earlier rows of that kind, never a raise by a flood of marks or lowers); identical repeated marks of one task collapse and a change of size or budget is a row of its own; changes of the default budget are recorded; the operator's and the host's rows are not rotated. A child's state change, its audit row and the lowering of its cap are one transaction, so a failure leaves the row live to be ended again. Known gap, not new: an agent can link a task session to any conversation of its profile, so a worker that holds no binding could become the lead of a session of its own; the binding check does not close that, and a mission lead that is itself a child (or a worker) must be refused by the spawn path (depth rule, next phase). The files read `tasks` and `task_sessions` and write neither; a static test lists the
+  tables they may name. Not yet built or checked: the spawn, the child's token, the cascade on stop and the host
+  reconciler (later phases of the plan).
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

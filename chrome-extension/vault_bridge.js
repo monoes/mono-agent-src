@@ -5,7 +5,7 @@
  *     -> {ok, status: "saved"|"refused"|"retry", created?, id?, feedback}
  *
  * The side panel's chat may propose saving an item from the page (an image,
- * a linked PDF or text file) or the text the person has selected
+ * a linked PDF or text file, an audio or video file) or the text the person has selected
  * (propose_vault_save). The card names the item; it carries no bytes. Only
  * the person's click on the card's Save to vault sends this message, and only
  * from the panel. Here, at that moment:
@@ -18,8 +18,9 @@
  *   3. the worker fetches the address itself (http/https), with the
  *      person's cookies only from the page's own origin, at most MAX_BYTES
  *      (MonoAgent's own cap: base64 of it fits the bridge's 32 MiB frame);
- *   4. the bytes decide the type: PNG, JPEG, GIF, WebP and PDF by their
- *      magic numbers, text, Markdown and CSV only when they are UTF-8 text;
+ *   4. the bytes decide the type: PNG, JPEG, GIF, WebP, PDF, MP3, WAV, Ogg,
+ *      MP4/M4A and WebM by their magic numbers, text, Markdown and CSV only
+ *      when they are UTF-8 text;
  *   5. vault.save goes under the card's key (MonoChatProposals.clientId), so
  *      a second click saves nothing twice.
  *
@@ -50,6 +51,12 @@
     "text/plain": ["txt"],
     "text/markdown": ["md", "markdown"],
     "text/csv": ["csv"],
+    "audio/mpeg": ["mp3"],
+    "audio/wav": ["wav"],
+    "audio/ogg": ["ogg", "oga", "opus"],
+    "audio/mp4": ["m4a"],
+    "video/mp4": ["mp4", "m4v"],
+    "video/webm": ["webm"],
   };
 
   let deps = null;
@@ -87,7 +94,7 @@
     }
     for (const s of document.querySelectorAll("picture source[srcset]")) if (srcset(s.getAttribute("srcset")).some(is)) return true;
     for (const a of document.querySelectorAll("a[href]")) if (is(a.getAttribute("href"))) return true;
-    for (const e of document.querySelectorAll("embed[src], iframe[src], object[data], video[poster]")) {
+    for (const e of document.querySelectorAll("embed[src], iframe[src], object[data], video[poster], video[src], audio[src], video source[src], audio source[src]")) {
       if (is(e.getAttribute("src")) || is(e.getAttribute("data")) || is(e.getAttribute("poster"))) return true;
     }
     return false;
@@ -153,12 +160,41 @@
     if (at([0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf";
     const declared = String(contentType || "").split(";")[0].trim().toLowerCase();
     const ext = extensionOf(fileOf(url));
+    // Audio and video, by the same signatures the bridge checks (Go's
+    // http.DetectContentType): anything else is refused there.
+    if (at([0x49, 0x44, 0x33]) || isMp3Frame(bytes)) return "audio/mpeg";
+    if (at([0x52, 0x49, 0x46, 0x46]) && at([0x57, 0x41, 0x56, 0x45], 8)) return "audio/wav";
+    if (at([0x4f, 0x67, 0x67, 0x53, 0x00])) return "audio/ogg";
+    if (at([0x1a, 0x45, 0xdf, 0xa3])) return "video/webm";
+    if (isMp4(bytes)) return declared === "audio/mp4" || declared === "audio/x-m4a" || ext === "m4a" ? "audio/mp4" : "video/mp4";
     const text =
       declared === "text/markdown" || ext === "md" || ext === "markdown" ? "text/markdown"
         : declared === "text/csv" || ext === "csv" ? "text/csv"
           : declared === "text/plain" || ext === "txt" ? "text/plain"
             : "";
     return text && isText(bytes) ? text : "";
+  }
+
+  /** isMp3Frame: bytes start with an MPEG audio frame header (sync, a real version, layer III, a real bitrate and rate). */
+  function isMp3Frame(b) {
+    if (b.length < 4 || b[0] !== 0xff || (b[1] & 0xe0) !== 0xe0) return false;
+    const version = (b[1] >> 3) & 3;
+    const layer = (b[1] >> 1) & 3;
+    const bitrate = b[2] >> 4;
+    const rate = (b[2] >> 2) & 3;
+    return version !== 1 && layer === 1 && bitrate !== 0 && bitrate !== 15 && rate !== 3;
+  }
+
+  /** isMp4: an ISO base media "ftyp" box naming an mp4 brand (what MP4 and M4A files start with). */
+  function isMp4(b) {
+    if (b.length < 12) return false;
+    const size = ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) >>> 0;
+    if (size % 4 !== 0 || size > b.length || b[4] !== 0x66 || b[5] !== 0x74 || b[6] !== 0x79 || b[7] !== 0x70) return false;
+    for (let st = 8; st + 3 <= size; st += 4) {
+      if (st === 12) continue;
+      if (b[st] === 0x6d && b[st + 1] === 0x70 && b[st + 2] === 0x34) return true;
+    }
+    return false;
   }
 
   function fileOf(url) {
@@ -237,7 +273,7 @@
       if (declared > MAX_BYTES) throw tooBig();
       const bytes = await readCapped(res);
       const mime = sniff(bytes, res.headers.get("content-type"), url);
-      if (!mime) throw fail("the vault takes images (PNG, JPEG, GIF, WebP), PDFs and text files, and this is none of them", true);
+      if (!mime) throw fail("the vault takes images (PNG, JPEG, GIF, WebP), audio (MP3, WAV, Ogg, M4A), video (MP4, WebM), PDFs and text files, and this is none of them", true);
       return { bytes, mime, name: fileOf(url), source: url };
     } finally {
       clearTimeout(timer);
@@ -300,13 +336,13 @@
     const max = data.max;
     if (!count(max)) return "";
     if (data.limit === "items") {
-      return `this profile already holds ${max.toLocaleString("en-US")} files saved from the browser, the most it takes. Delete some in the Image Vault to save more`;
+      return `this profile already holds ${max.toLocaleString("en-US")} files saved from the browser, the most it takes. Delete some in the Media Vault to save more`;
     }
     if (data.limit === "bytes") {
       const GiB = 1024 ** 3;
       const MiB = 1024 ** 2;
       const size = max >= GiB && max % GiB === 0 ? `${max / GiB} GiB` : max >= MiB && max % MiB === 0 ? `${max / MiB} MiB` : `${max} bytes`;
-      return `files saved from the browser would pass this profile's ${size} limit. Delete some in the Image Vault to save more`;
+      return `files saved from the browser would pass this profile's ${size} limit. Delete some in the Media Vault to save more`;
     }
     return "";
   }

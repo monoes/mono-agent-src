@@ -25,7 +25,7 @@ import Orgs from './pages/Orgs.jsx'
 import Logs from './pages/Logs.jsx'
 import NodeRunner from './pages/NodeRunner.jsx'
 import SettingsPage from './pages/Settings.jsx'
-import ImageVault from './pages/ImageVault.jsx'
+import MediaVault from './pages/MediaVault.jsx'
 import Vault from './pages/Vault.jsx'
 import Applications from './pages/Applications.jsx'
 import Documents from './pages/Documents.jsx'
@@ -268,7 +268,7 @@ export default function App({ banners = null }) {
     communications: <Communications isActive={activePage === 'communications'} onProfile={openProfile} navData={activePage === 'communications' ? navData : null} onOpenHil={() => setGlobalHilOpen(true)} />,
     publication: <Publication isActive={activePage === 'publication'} onNavigate={navigate} />,
     connections: <Connections onRefresh={refreshStats} navData={activePage === 'connections' ? navData : null} />,
-    vault: <ImageVault isActive={activePage === 'vault'} />,
+    vault: <MediaVault isActive={activePage === 'vault'} />,
     secretsVault: <Vault isActive={activePage === 'secretsVault'} />,
     applications: <Applications isActive={activePage === 'applications'} navData={activePage === 'applications' ? navData : null} onNavigate={navigate} onOpenCoderChat={openCoderChat} />,
     documents: <Documents isActive={activePage === 'documents'} />,

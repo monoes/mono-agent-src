@@ -859,7 +859,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                           style={{ ...inputStyle, flex: 1 }}
                         />
                         {media && <button
-                          title="Pick from Image Vault"
+                          title="Pick from Media Vault"
                           onClick={() => setPickerField(f.key)}
                           style={{
                             background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 4,

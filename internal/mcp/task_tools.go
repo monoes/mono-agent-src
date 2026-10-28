@@ -36,6 +36,9 @@ func (s *Server) taskBoard(ctx context.Context) (*tasks.Store, tasks.Profile, ta
 	if err != nil {
 		return nil, tasks.Profile{}, tasks.Actor{}, taskToolErr(err)
 	}
+	if err := outsideWorkerTree(ctx, rt.db.DB, p.ID); err != nil {
+		return nil, tasks.Profile{}, tasks.Actor{}, err
+	}
 	return store, p, s.boundTaskActor(ctx, rt.db.DB, p.ID), nil
 }
 

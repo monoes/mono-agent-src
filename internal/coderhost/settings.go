@@ -213,9 +213,14 @@ func TouchesOperatorOnly(changed []string) []string {
 // GetSettings returns a session's settings; a session with none stored has the
 // defaults, and reading never creates the session.
 func (s *Store) GetSettings(profileID, conversationID string) (Settings, error) {
+	return s.settingsIn(s.db, profileID, conversationID)
+}
+
+// settingsIn is GetSettings read through q.
+func (s *Store) settingsIn(q querier, profileID, conversationID string) (Settings, error) {
 	def := DefaultSettings()
 	var raw string
-	err := s.db.QueryRow(`SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
+	err := q.QueryRow(`SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && (raw == "" || raw == "{}")) {
 		return def, nil // no row, or nothing stored: the defaults
 	}

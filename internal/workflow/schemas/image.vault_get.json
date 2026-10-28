@@ -4,7 +4,7 @@
   "fields": [
     {
       "default": "vault_id",
-      "help": "Item field holding the vault image id (e.g. img-001, with or without the leading @).",
+      "help": "Item field holding the media vault id (e.g. img-001, with or without the leading @).",
       "key": "field",
       "label": "Vault Id Field",
       "required": false,

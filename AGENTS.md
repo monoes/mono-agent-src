@@ -264,7 +264,7 @@ The desktop app does everything through these commands; they are equally usable 
   - `people status set|get|history`
   - `people messages list|all [--unread]|add|compose|drafts|send-draft|reject-draft|read|unread`. Every message JSON has `status` and, for an outbound message waiting behind an approval, `hil_ref` (the `hil` id); `list`/`all` take `--status`. An approval item (a `core.human_in_loop` in front of a send/post node, or an agent send) gets its Communications row (`direction` outbound, `external_id` `hil:<id>`) when it is queued, and the same row moves `pending_approval` → `approved` → `sending` → `sent`, or ends `rejected`/`failed`/`expired` (`internal/commsync`; the one writer is `commsync.SetStatus`, which refuses illegal moves). The recipient is saved in People first (`people.kind` `person`|`company`); a post with no recipient links to your own account on that platform (`profile_details.own_account`).
 - **Social lists:** `list ls`.
-- **Image vault:** `image list|search|get|data|add|label|delete|stats|export`, scoped to the profile named by `--profile`. `image data` returns a data URL. `image sync` scans the profile folder and reconciles discovered images. `image delete` keeps files that live in the profile folder and hides them from later syncs; `image unignore <path>` or `image add <path>` brings one back.
+- **Media vault** (images, audio and video; `image` is the command's old name and still works): `media list|search|get|data|add|label|delete|stats|export`, scoped to the profile named by `--profile`. Every item's JSON has a `kind` (`image`, `audio` or `video`, from the file extension; empty for a PDF or text file saved from the extension). Ids stay `img-NNN` for every kind, and workflows refer to them as `@img-NNN`. `media data` returns a data URL (meant for images). `media sync` scans the profile folder and reconciles discovered images; audio and video found there are tracked only after `media scan on` (per profile, **off by default**, operator-only to change; it also gates automatic registration of audio/video a workflow node outputs; `media scan off` drops the discovered entries, never the files; `media add` and extension saves are not affected). `media delete` keeps files that live in the profile folder and hides them from later syncs; `media unignore <path>` or `media add <path>` brings one back. Workflow nodes: `image.vault_save` and `image.vault_get` (names kept) take any media file, and a node that outputs an image path in `file_path`/`image_path` is registered automatically (audio and video only with `media scan on`). MCP: `vault_item_list` returns each item's `kind`. The browser extension can save MP3, WAV, Ogg, M4A, MP4 and WebM (up to 20 MiB) like images and PDFs.
 - **Workflows:**
   - `workflow save` creates or replaces a workflow from the editor's document on stdin.
   - `workflow execution <id>` shows run detail with redacted items; a WAITING run
@@ -1814,7 +1814,12 @@ binding only through `internal/taskbind`, from the database; the `MONOAGENT_TASK
 brief's text and an agent marker, and bind nothing. A token that does not verify binds to nothing that
 exists (every act refused); no token is an ordinary agent, which in a session a chat
 conversation manages can neither verify a task nor claim, finish, release, split, add (a task or a dependency) or attach (it reads). A bound worker reaches the personal board through neither the delegated approve and
-view of `task agents allow` nor `task digest`. Whoever can read the token can use it, for that one
+view of `task agents allow` nor `task digest`. On Linux, for the runtimes listed in `ancestryRuntimes`
+(`internal/dynorg/mission_token.go`; only `claude`, the others unverified live) the token is also bound to the
+worker's process (`internal/agenttokens/mission_process.go`, pid and start stamp recorded through `ExecOptions.OnStart`
+and signed; migration 138): a caller outside that process's tree is refused. Once recorded it fails closed (an unreadable chain or a detached/reparented tool is refused, with an explicit
+message); a failed bind is journalled (`mission_token_process_unbound`). Without a recorded process (older rows,
+unlisted runtimes, a failed bind, the window between the start and the record), or off Linux, whoever can read the token can use it, for that one
 task until the run ends (SECURITY.md, "Honest limits"). An agent that scrubs its own environment (no agent
 marker, no `--as`) is still treated as the operator by the CLI; that weakness is old and matters more now. The MCP tools are `task_session_list` and
 `task_session_get` (read) and, with `--allow-mutations`, `task_split`, `task_verify`
@@ -1894,6 +1899,31 @@ draft session (waiting for the person's plan approval) or a paused one is never 
 master is), and a queued check-in is dropped when it runs if the mission has stopped being running with open
 work. A lead that adds tasks to itself can keep itself woken, but only up to `checkin_limit` check-ins per person
 message, and bounded by the session's `max_tasks` and budget.
+
+**Mission child sessions: policy, marks, ceilings (store only; the spawn path comes in the next phase).** Migration
+139 adds `coder_mission_policy`, `coder_mission_children` and `coder_mission_events`, and `internal/coderhost`
+(`missionchild_store.go`) the store over them. A task session has a policy (mode `off`, `marked` (default) or `all`;
+`max_children` default 2; `share_pct` default 50, 1 to 80), a row per task its lead marked to run in a session of
+its own (unique per profile, session and task; states `marked`, `spawning`, `spawned`, `ended`, `failed`, `gone`,
+`released`) and an audit trail. Only the lead of that session (a `LeadScope` made from its verified session token)
+marks, reserves or links a row; a caller that holds a task-bound mission binding is refused; foreign sessions,
+profiles and tasks all read as one refusal. The lead may raise `max_children` up to the lead session's own
+(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked` (and lower it from `all`) unless the operator turned it off,
+and only the operator turns on mode `all`. What the operator writes binds the lead: an operator `off` stays off until the operator turns the mode on
+(`operator_mode_off`), and an operator `max_children` or `share_pct` is the most the lead may raise its own to
+(`operator_max_children`, `operator_share_pct`; the operator clears a cap with `ClearMaxChildrenCap` / `ClearSharePctCap`); the lead may always lower. An operator who writes a number also sets it as the lead's cap; to give the lead a value without limiting it takes two calls (write, then clear the cap). The
+operator's changes are `floor` audit rows by `operator`, the lead's are `raise` / `lower` / `mode` rows by `lead:<conversation>`. `share_pct` is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live children under
+`min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the carves under
+`share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve returns to
+the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call `Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists counts against the share. Nothing starts a session yet: no CLI verb,
+tool or host pass reads these tables, so marking has no effect on a running mission. Obligations of the next
+phases: the tool layer (P-C) builds the caller with `NewLeadScope(caller, binding)` from the verified mission binding
+(`BindingNone` only when the process was checked and holds none; an unchecked scope is refused); a mission lead that is
+itself a child, or a worker, must not spawn mission children (depth rule); the spawn path (P-B) calls `NotePending` when
+the child's conversation is created and `Touch` between its steps, so `ResetStaleSpawning` does not hand a slow spawn's
+task to a second child. The share is held only for children that exist (their sessions' caps) or are reserved (the carve
+stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. `Reserve` reads the policy, settings, budget and counts it decides on inside the transaction that reserves, after a no-op write took the write lock (the mode-`all` rule row is part of that transaction; the lead's spend, summed from its event log, is read before the lock so a long log does not hold other writers up); a conversation is pending on one row only (partial unique index, and `NotePending` refuses one another row holds); `End` with an empty conversation id does nothing and zeroes `reserved_usd` of a row it ends. Obligations for the host phase (P-B): (a) call `NotePending` from `onCreated` only after the carve is taken (`carveBudget`), and call `FindOrphanCarves(minAge)` in the reconcile pass to find child sessions of a lead with a mission policy that hold a carve and that no row points at (a crash between the two), then stop them and lower their cap with the same release the end path uses; it cannot tell a mission spawn from another child of the lead, so the host keeps its own record of what it started and filters; (b) `DeleteConversation` marks a row `gone` by its child or its pending conversation; (c) ending a `spawning` row returns its reserved carve (`reserved_usd` 0). Deleting a conversation or a
+sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
@@ -2623,7 +2653,7 @@ monoagentcli --profile work coder host stop                        # the host on
   `MONOAGENT_SESSION_TOKEN`; it names that session (profile, conversation, turn) and is valid only while that
   turn is the session's current one (24 h at most; only its hash is stored, in `coder_session_tokens`). Only
   the host mints one and signs the row (HMAC under the profile's vault key); it also names the turn's process, and
-  a call counts only from that process or a descendant of it (Linux; elsewhere the signature and the turn only). A tool that daemonises (`nohup`, `setsid`, a double fork) or runs in a container/another pid namespace is outside the tree and is refused with a distinct reason ("not inside the session's turn process tree"); nothing is loosened for it. A host started from inside a session's turn binds no tokens (it logs a warning).
+  a call counts only from that process or a descendant of it (Linux; elsewhere the signature and the turn only). This process check is a courtesy layer: it reads `/proc` in the caller's own mount namespace, which a same-user process in its own user and mount namespace can present differently (see SECURITY.md, "Persistent coder sessions"); the real boundary against a same-user sibling is the OS user or a sandbox, and a peer-credential verification service is the planned follow-up. A tool that daemonises (`nohup`, `setsid`, a double fork) or runs in a container/another pid namespace is outside the tree and is refused with a distinct reason ("not inside the session's turn process tree"); nothing is loosened for it. A host started from inside a session's turn binds no tokens (it logs a warning).
   The turn keeps it in its environment so its shell and MCP server can call the master tools.
   With a token, `sessions send|stop|pause|resume` and `sessions settings set --patch` act **only on descendants**
   of that session (the parent links are walked up in the database from the target; a peer, an ancestor, the

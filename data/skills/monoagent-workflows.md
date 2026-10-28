@@ -81,7 +81,7 @@ monoagentcli --profile <profile> workflow templates run gemimgmany \
 ```
 
 Use `gemimgmany` whenever the images belong together; use parallel `gemimg` runs
-when the images are unrelated. Generated images are saved to the image vault at
+when the images are unrelated. Generated images are saved to the media vault (which also holds audio and video) at
 `~/.monoagent/vault/img-NNN.png` (also under `~/.monoagent/downloads/`).
 
 Requires a one-time `monoagentcli --profile <profile> login gemini`. If a run reports the Gemini

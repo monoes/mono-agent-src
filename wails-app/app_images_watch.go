@@ -2,9 +2,18 @@
 package main
 
 import (
+	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/imagescan"
+)
+
+// scanAVCacheTTL is how long the watcher trusts one read of the profile's
+// `media scan` setting: the read is a CLI process, the walk is every few
+// seconds, and a switch only has to take effect within the half minute.
+const (
+	scanAVCacheTTL   = 30 * time.Second
+	scanAVCLITimeout = 15 * time.Second
 )
 
 // restartImageWatcher stops any existing image watcher and starts a new one
@@ -40,11 +49,38 @@ func (a *App) restartImageWatcher() {
 // from its last walk. interval <= 0 uses imagescan.DefaultPollInterval.
 func (a *App) startImageWatcher(profileID, root string, interval time.Duration, emit folderEventFunc) *imagescan.Watcher {
 	s := newFolderSyncer(func() {
-		if changed := a.syncFolder(profileID, "image discovery", "image", "sync"); changed != nil {
+		if changed := a.syncFolder(profileID, "media discovery", "media", "sync"); changed != nil {
 			emit("images:changed", folderEventData(profileID, changed))
 		}
 	})
 	w := imagescan.NewWatcher(root, interval, func([]imagescan.FileInfo) { s.trigger() })
+	// Audio and video count only while the profile's `media scan` is on.
+	w.IncludeAV = a.scanAVReader(profileID)
 	w.Start()
 	return w
+}
+
+// scanAVReader answers whether profileID's `media scan` is on, by asking the
+// CLI (which owns the setting; the app reads no database rows itself) and
+// remembering the answer for scanAVCacheTTL. A CLI that cannot answer means
+// off: audio and video are opt-in.
+func (a *App) scanAVReader(profileID string) func() bool {
+	var (
+		mu   sync.Mutex
+		at   time.Time
+		last bool
+	)
+	return func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if !at.IsZero() && time.Since(at) < scanAVCacheTTL {
+			return last
+		}
+		var out struct {
+			ScanAudioVideo bool `json:"scan_audio_video"`
+		}
+		last = a.runProfileCLI(profileID, scanAVCLITimeout, &out, "media", "scan") == nil && out.ScanAudioVideo
+		at = time.Now()
+		return last
+	}
 }

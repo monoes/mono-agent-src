@@ -164,6 +164,7 @@ var seedOverrides = map[string]map[string]any{
 	"task_deps":               {"task_id": 1, "depends_on_task_id": 2},
 	"coder_session_commands":  {"kind": "send"},
 	"coder_session_decisions": {"made_by": "model"},
+	"coder_mission_children":  {"origin": "lead", "state": "marked"},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a

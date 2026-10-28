@@ -188,6 +188,7 @@ func runNoApprovalScenario(t *testing.T, h *Host, l *fakeLauncher, st *Store, n 
 	master, child, missionTurn := fmt.Sprintf("m%d", n), fmt.Sprintf("k%d", n), fmt.Sprintf("person-mission-%d", n)
 	addConversation(t, st, master, "/work/"+master)
 	addConversation(t, st, child, "/work/"+child)
+	defer dropScenario(t, st, name, master, child) // also for the scenarios that return early
 	if err := st.SetRole("p", master, "master", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -303,6 +304,45 @@ func runNoApprovalScenario(t *testing.T, h *Host, l *fakeLauncher, st *Store, n 
 	}
 	// 3. nothing else moved: no approval, setting, budget or access changed
 	diffProtected(t, name, before, protectedState(t, st.db))
+}
+
+// dropScenario removes everything a finished scenario left behind (its conversations, turns, events,
+// sessions, commands, questions and confirmations). The scenarios share one database, and every pass
+// of the host and of ApplyDefaults reads all open rows, so rows that pile up make each later scenario
+// slower and the whole matrix grow with the square of the scenario count (under -race it ran past
+// ten minutes). The bound below fails at once if a scenario ever leaves rows behind again.
+func dropScenario(t *testing.T, st *Store, name string, convs ...string) {
+	t.Helper()
+	for _, c := range convs {
+		for _, q := range []string{
+			`DELETE FROM coder_session_commands WHERE conversation_id = ?`, // finished commands are history the sweep keeps
+			`DELETE FROM ai_chat_events WHERE conversation_id = ?`,
+			`DELETE FROM ai_chat_turns WHERE conversation_id = ?`,
+			`DELETE FROM ai_chat_conversations WHERE id = ?`,
+		} {
+			if _, err := st.db.Exec(q, c); err != nil {
+				t.Fatalf("%s: cleaning up %s: %v", name, c, err)
+			}
+		}
+	}
+	if _, err := st.SweepOrphans(); err != nil {
+		t.Fatalf("%s: sweeping: %v", name, err)
+	}
+	if _, err := st.db.Exec(`DELETE FROM configs WHERE name LIKE ?`, confirmPrefix+"%"); err != nil {
+		t.Fatalf("%s: cleaning confirmations: %v", name, err)
+	}
+	left, per := 0, ""
+	for _, tbl := range []string{"coder_sessions", "coder_session_commands", "coder_session_questions", "coder_session_person_items", "coder_session_decisions"} {
+		var n int
+		if err := st.db.QueryRow(`SELECT COUNT(*) FROM ` + tbl).Scan(&n); err != nil {
+			t.Fatalf("%s: counting %s: %v", name, tbl, err)
+		}
+		left += n
+		per += fmt.Sprintf(" %s=%d", tbl, n)
+	}
+	if left > 20 {
+		t.Fatalf("%s: %d rows are left after the scenario (%s): the matrix would grow with every scenario", name, left, per)
+	}
 }
 
 func endAllTurns(t *testing.T, h *Host, l *fakeLauncher) {

@@ -96,7 +96,8 @@ func (s *Store) CreateMission(ctx context.Context, profileID string, b MissionBi
 
 // VerifyMission finds the mission token presented by a worker or verifier process. Unknown,
 // expired, revoked and not-a-mission tokens are one error. It also refuses a token of another
-// profile than profileID.
+// profile than profileID, and, for a token bound to a process (mission_process.go), a caller
+// that is not that process or one of its descendants.
 func (s *Store) VerifyMission(ctx context.Context, profileID, presented string) (Token, error) {
 	t, err := s.verify(ctx, presented)
 	if err != nil {
@@ -104,6 +105,9 @@ func (s *Store) VerifyMission(ctx context.Context, profileID, presented string) 
 	}
 	if t.Mission == nil || t.ProfileID != profileID {
 		return Token{}, ErrInvalid
+	}
+	if err := s.checkMissionProcess(ctx, t); err != nil {
+		return Token{}, err
 	}
 	return t, nil
 }

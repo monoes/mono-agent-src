@@ -89,7 +89,7 @@ func filesIn(t *testing.T, dir string) []string {
 	return out
 }
 
-// One save is one file and one row in the profile's image/file vault, the
+// One save is one file and one row in the profile's media/file vault, the
 // vault vault_item_list and vault_item_get_path read; a retry of the same
 // client id writes nothing and returns the same item.
 func TestVaultSinkSavesOnceIntoTheProfilesVault(t *testing.T) {

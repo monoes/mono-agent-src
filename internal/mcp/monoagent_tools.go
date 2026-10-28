@@ -130,10 +130,10 @@ func monoagentAdaptedTools() []tool {
 			handler:     chatToolHandler("add_workflow_node"),
 		},
 
-		// Vault (files/images) and profile documents.
+		// Vault (media: images, audio, video, and other files) and profile documents.
 		{
 			name:        "vault_item_list",
-			description: "List files/images stored in the vault.",
+			description: "List the media vault: images, audio, video and other files stored in it (each has a kind: image, audio or video).",
 			schema: objSchema(map[string]interface{}{
 				"limit": intParam("Max items to return (default 50)"),
 			}),

@@ -2,12 +2,12 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 
 const { App, aitaskApi } = vi.hoisted(() => ({
   App: {
     GetApplicationTab: vi.fn(), ConfirmApplicationSubmitted: vi.fn(), ResumeApplicationFill: vi.fn(),
-    StartApplicationQueue: vi.fn(), SweepApplicationTabs: vi.fn(), OpenPathWithOS: vi.fn(),
+    StartApplicationQueue: vi.fn(), GetApplicationAssets: vi.fn(), SweepApplicationTabs: vi.fn(), OpenPathWithOS: vi.fn(),
   },
   aitaskApi: { status: vi.fn(), submit: vi.fn(), startFill: vi.fn(), get: vi.fn(), cancel: vi.fn() },
 }))
@@ -119,6 +119,23 @@ describe('ApplyQueueButton', () => {
     await waitFor(() => expect(onStarted).toHaveBeenCalled())
     expect(App.StartApplicationQueue).toHaveBeenCalledWith(['a1', 'a2'], 0)
     expect(screen.getByRole('status')).toHaveTextContent(/check and submit/)
+  })
+
+  it('docks a collapsed bubble for each queued application once its fill has a chat', async () => {
+    vi.useFakeTimers()
+    try {
+      App.StartApplicationQueue.mockResolvedValue(undefined)
+      App.GetApplicationAssets
+        .mockResolvedValueOnce({ task: null })
+        .mockResolvedValueOnce({ task: { taskId: 't1', conversationId: 'c1', status: 'running' } })
+        .mockResolvedValue({ task: null })
+      render(wrap(<ApplyQueueButton ids={['a1']} />))
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Apply selected/ })) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+      expect(openDraft).not.toHaveBeenCalled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+      expect(openDraft).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'c1', collapsed: true }))
+    } finally { vi.useRealTimers() }
   })
 
   it('coder off: says why and starts nothing', async () => {

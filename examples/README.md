@@ -23,7 +23,7 @@ profiles (`monoagentcli profile list`).
 | `github-issues-to-linear.json` | GitHub "issue opened" webhook → matching Linear issue | `trigger.webhook` | `core.filter` → `service.linear` |
 | `webhook-to-postgres.json` | JSON event in → normalize → insert row into Postgres | `trigger.webhook` | `core.set` → `db.postgres` |
 | `stripe-events-to-sheets.json` | Stripe-style event in → append row to a Sheets ledger | `trigger.webhook` | `service.google_sheets` |
-| `image-gen-vault.json` | Generate an image with Gemini (your browser session), lands in the local image vault | `trigger.manual` | `gemini.generate_image` |
+| `image-gen-vault.json` | Generate an image with Gemini (your browser session), lands in the local media vault | `trigger.manual` | `gemini.generate_image` |
 | `outlook-inbox-sync.json` | Hourly: sync Outlook inbox + sent mail into People (adapted from the bundled template) | `trigger.schedule` | `service.outlook_mail` → `people.sync_outlook_message` (×2 branches) |
 | `telegram-notify.json` | Every morning: RSS items pushed as one Telegram bot message | `trigger.schedule` | `system.rss_read` → `core.code` → `comm.telegram` |
 | `data-pipeline.json` | Fetch API JSON → reshape in code → write CSV → sum totals | `trigger.manual` | `http.request` → `core.code` → `data.spreadsheet` → `core.aggregate` |

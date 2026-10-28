@@ -253,7 +253,7 @@ var nodeDocsImage = []nodeDoc{
   "fit":          "contain",
   "output_field": "resized_path"
 }`,
-		Inputs:  "item with image path field",
+		Inputs:  "item with image, audio or video path field",
 		Outputs: "output_field with path to resized image",
 		Notes:   "fit values: contain (default), cover, fill, width (ignore height), height (ignore width). output_dir optional.",
 	},
@@ -269,7 +269,7 @@ var nodeDocsImage = []nodeDoc{
   "height":       300,
   "output_field": "cropped_path"
 }`,
-		Inputs:  "item with image path field",
+		Inputs:  "item with image, audio or video path field",
 		Outputs: "output_field with path to cropped image",
 		Notes:   "Use aspect_ratio (e.g. '16:9') instead of x/y/w/h for centre-crop. anchor: TopLeft, Top, TopRight, Left, Center (default), Right, BottomLeft, Bottom, BottomRight.",
 	},
@@ -283,7 +283,7 @@ var nodeDocsImage = []nodeDoc{
   "height":       200,
   "output_field": "thumb_path"
 }`,
-		Inputs:  "item with image path field",
+		Inputs:  "item with image, audio or video path field",
 		Outputs: "output_field with path to thumbnail",
 		Notes:   "anchor controls crop position (default Center). output_dir optional.",
 	},
@@ -297,7 +297,7 @@ var nodeDocsImage = []nodeDoc{
   "quality":      85,
   "output_field": "converted_path"
 }`,
-		Inputs:  "item with image path field",
+		Inputs:  "item with image, audio or video path field",
 		Outputs: "output_field with path to converted image",
 		Notes:   "quality applies to JPEG only (1-100, default 85). output_dir optional.",
 	},
@@ -310,7 +310,7 @@ var nodeDocsImage = []nodeDoc{
   "output_field": "nobg_path",
   "bgcolor":      ""
 }`,
-		Inputs:  "item with image path field",
+		Inputs:  "item with image, audio or video path field",
 		Outputs: "output_field with path to PNG with transparent background",
 		Notes: `No API key required — runs fully locally using ONNX Runtime.
 On first use, automatically downloads:
@@ -336,32 +336,32 @@ Output is always PNG. Subsequent calls reuse cached model and ORT session.`,
   "invert":      false,
   "output_field": "adjusted_path"
 }`,
-		Inputs:  "item with image path field",
+		Inputs:  "item with image, audio or video path field",
 		Outputs: "output_field with path to adjusted image",
 		Notes:   "brightness/contrast/saturation range -1.0 to 1.0 (0 = no change). sharpen = sigma (0 = off). blur = sigma (0 = off). gamma default 1.0.",
 	},
 	{
 		Type:     "image.vault_save",
 		Category: "image",
-		Short:    "Save an item's image into the profile's image vault",
+		Short:    "Save an item's image, audio or video file into the profile's media vault",
 		Config: `{
   "field":        "image_path",
   "source":       "workflow",
   "output_field": "vault_id"
 }`,
-		Inputs:  "item with image path field",
-		Outputs: "output_field with the new vault image id (e.g. img-001)",
+		Inputs:  "item with image, audio or video path field",
+		Outputs: "output_field with the new media vault id (e.g. img-001)",
 		Notes:   "Copies the file into ~/.monoagent/vault/, independent of the source path. source is a free-text tag.",
 	},
 	{
 		Type:     "image.vault_get",
 		Category: "image",
-		Short:    "Resolve an image vault id back into a local file path",
+		Short:    "Resolve a media vault id (image, audio or video) back into a local file path",
 		Config: `{
   "field":        "vault_id",
   "output_field": "image_path"
 }`,
-		Inputs:  "item with a vault image id field (e.g. img-001, with or without a leading @)",
+		Inputs:  "item with a media vault id field (e.g. img-001, with or without a leading @)",
 		Outputs: "output_field with the resolved local file path",
 	},
 }
