@@ -2789,6 +2789,21 @@ monoagentcli --profile work coder host stop                        # the host on
   default, answer, choice, alternatives, reason) is returned cleaned of brackets, angle brackets, quotes and
   control characters on one line; the operator's terminal sees every row raw, including `madeBy` and the
   `reversible` flag the model claimed. An agent shell without a token reads nothing.
+- **Ask an ancestor** (`session_ask_ancestor`; MCP, mutating, lead tools only). Approval stays with the PARENT
+  only; a mission lead that wants wider context may ask a PROPER ANCESTOR above its parent (`level`: grandparent
+  by default, `root`, or an ancestor session id), and a very important matter goes to the person instead
+  (`importance=critical`). The caller is the lead as `mission_child_*` identify it (verified session token, no
+  task binding: a worker, a verifier or a session that leads nothing is refused); the target is found by the
+  `parent_session_id` chain of the caller's own session in the same profile, never from input, and the direct
+  parent, itself, a peer, a descendant and any other mission read as one `not_yours`/`invalid_input` refusal.
+  A normal ask is queued to the ancestor lead's chat as a host-made `ask-q-` send: the question is quoted data
+  (cleaned, one line, fenced) that carries no authority. The ancestor replies with the existing `session_send`;
+  while it has an open ask from that session the message is the reply, delivered as sealed data (`ask-r-`).
+  A critical ask reaches no model: it is a person item of kind `ancestor_question` (no timeout, the autonomy
+  matrix does not apply, `ancestor_question` is deliberately not a gap class) and the person's answer comes back
+  through `Store.AnswerAncestorQuestion` as sealed data (`ask-p-`). Limits: 3 open asks, one a minute, 4 KiB each,
+  8 KiB open in total, 6 open asks into one ancestor; a normal ask expires after 6 hours. Every ask is a row of the
+  decisions ledger (class `ancestor_question`: who, level, importance, size, decision; never the text).
 - **Autonomy producer** (`session_park`, `session_record`; CLI `sessions park|record`). They act on the caller's
   OWN session, named by the verified session token: there is no conversation argument, so session A's token cannot
   park or record for B, and a call without a valid token is refused (the operator has no session of its own and

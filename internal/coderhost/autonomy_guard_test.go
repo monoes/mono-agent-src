@@ -183,6 +183,8 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 		"children_control.go:ControlChild": 1, // Enqueue: pause/resume/stop by a master
 		"children.go:spawnWith":            1, // Enqueue: a master's first message to a new child
 		"parked_deliver.go:deliver":        1, // Enqueue: an answer note (answer- turn id)
+		"ask_ancestor.go:AskAncestor":      1, // Enqueue: a normal ask to an ancestor lead (ask-q- turn id, no issuer, sealed text, no authority)
+		"ask_reply.go:closeAndDeliver":     1, // Enqueue: the sealed reply to the asker (ask-r- from an ancestor lead, ask-p- from the person)
 		"missionchild.go:queueCascadeStop": 1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
 		"missionchild.go:reconcileChild":   2, // Enqueue: a pause of a paused mission's child, and the resume of one it paused (no send, no issuer)
 	}
@@ -202,7 +204,7 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 					if sel.Sel.Name == "Enqueue" {
 						got[file+":"+fd.Name.Name]++
 					}
-					if ownedByParked[sel.Sel.Name] && !strings.HasPrefix(file, "parked") && !strings.HasPrefix(file, "ledger") && file+":"+fd.Name.Name != "producer.go:RecordOwn" {
+					if ownedByParked[sel.Sel.Name] && !strings.HasPrefix(file, "parked") && !strings.HasPrefix(file, "ledger") && file+":"+fd.Name.Name != "producer.go:RecordOwn" && file+":"+fd.Name.Name != "ask_ancestor.go:recordAsk" {
 						t.Errorf("%s:%s uses %s, which only the parked-question code may", file, fd.Name.Name, sel.Sel.Name)
 					}
 				}

@@ -1997,9 +1997,17 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   per master, 5 pending slots per child shared by everything a master queues except a stop (sends, pause,
   resume) and 2 master stops apart, queued sends that expire (6 hours; a master's sends, not its pause or resume,
   after 15 minutes), 50 waiting sends and 50 waiting control commands per conversation. `max_concurrent` (default 2) caps the children of one master that run a turn at once (only turns this host started are counted); further sends wait (in order within a chat; across chats the freed slot goes to the master's oldest waiting send), and a held send can expire like any other (15 minutes for a master's, 6 hours for others including `answer-d-` notes) and then fails with the expiry reason.
-- **Check-ins and the streak.** After `checkin_limit` (default 48) host-made turns (`checkin-`, `answer-`,
+- **Check-ins and the streak.** After `checkin_limit` (default 48) host-made turns (`checkin-`, `answer-`, `ask-`,
   `master-`) in a row with no message from a person, a session waits for one. A new path that starts turns
   without a person must use its own prefix and be counted, or it would reset the limit.
+- **The upward ask channel is sealed, authority-free and ancestor-only.** `session_ask_ancestor` takes the caller
+  from the verified session token and the mission-child lead scope (a bound helper is refused) and reaches only a
+  proper ancestor above the caller's parent, read from the `parent_session_id` chain in the caller's profile;
+  approval stays with the parent. The question and the reply are cleaned quoted data in a fixed fence, queued as
+  host-made `ask-` turns that cannot carry a mission confirmation or a person's authority, and counted in the
+  check-in streak. Rate limits (3 open, 1 a minute, 4 KiB, 8 KiB open) are enforced in the INSERT. A critical ask
+  is a person item (`ancestor_question`): no model reads it, no timeout or autonomy class answers it, and the
+  answer path is the operator's `AnswerAncestorQuestion`, which no tool exposes.
 - **Autonomy decides who answers a gap, nothing more.** `risky_action` and `missing_credential` are never
   answered by the model and never take a default. A model-made decision is written to the decisions ledger as the
   model's. The producer tools (`session_park`, `session_record`, `sessions park|record`) take the caller from the
