@@ -101,9 +101,10 @@ const rad = d => (d * Math.PI) / 180
 const round = n => Math.round(n * 100) / 100
 
 // ringPositions places n satellites on a circle (arc 360) or an arc of `arc` degrees
-// centred on `facing` (degrees, 0 = right, 90 = down). Returns [{x, y, angle}] from the
+// centred on `facing` (degrees, 0 = right, 90 = down), topDown to number an arc from its
+// highest point to its lowest whichever side it faces. Returns [{x, y, angle}] from the
 // orbit's centre; y grows downward. A full ring starts at the top.
-export function ringPositions(n, { radius = 60, arc = 360, facing = 0 } = {}) {
+export function ringPositions(n, { radius = 60, arc = 360, facing = 0, topDown = false } = {}) {
   const out = []
   for (let i = 0; i < n; i++) {
     let angle
@@ -112,7 +113,7 @@ export function ringPositions(n, { radius = 60, arc = 360, facing = 0 } = {}) {
     else angle = facing - arc / 2 + (arc * i) / (n - 1)
     out.push({ x: round(radius * Math.cos(rad(angle))), y: round(radius * Math.sin(rad(angle))), angle: round(angle) })
   }
-  return out
+  return topDown ? out.sort((a, b) => a.y - b.y) : out
 }
 
 // linkPath is the thin curved link from the centre (0, 0) to a satellite at (x, y):

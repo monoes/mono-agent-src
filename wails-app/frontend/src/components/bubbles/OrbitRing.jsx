@@ -10,7 +10,8 @@ const STATE_ICON = { running: Activity, waiting: Hourglass, done: Check, failed:
 // Sizes (px) per size step and the geometry of each variant. "arc" orbits a dock
 // bubble on the side that faces the window; "ring" orbits the disc in a pane header.
 const VARIANTS = {
-  arc: { radius: 66, arc: 200, sizes: [22, 26, 30], chip: 26 },
+  // gapDeg is the angle between neighbours, so a few circles sit close together and many fan out up to maxArc.
+  arc: { radius: 78, gapDeg: 26, maxArc: 200, sizes: [24, 28, 32], chip: 28 },
   ring: { radius: 54, arc: 360, sizes: [28, 34, 40], chip: 30 },
 }
 
@@ -61,7 +62,8 @@ export function OrbitRing({ orbit, variant = 'arc', facing = 180, onOpen, label,
   const [moreOpen, setMoreOpen] = useState(false)
   const refs = useRef([])
   const moreRef = useRef(null)
-  const pos = ringPositions(slots, { radius: cfg.radius, arc: cfg.arc, facing })
+  const arc = cfg.arc ?? Math.min(cfg.maxArc, Math.max(0, (slots - 1) * cfg.gapDeg))
+  const pos = ringPositions(slots, { radius: cfg.radius, arc: arc || 1, facing, topDown: cfg.arc === undefined })
 
   useEffect(() => { if (active >= slots) setActive(Math.max(0, slots - 1)) }, [active, slots])
   if (slots === 0) return children || null
@@ -80,7 +82,7 @@ export function OrbitRing({ orbit, variant = 'arc', facing = 180, onOpen, label,
   const chipIndex = sats.length
 
   return (
-    <div className={`orbit orbit-${variant}`} data-testid="orbit">
+    <div className={`orbit orbit-${variant}${facing === 0 ? ' face-right' : ''}`} data-testid="orbit">
       {children}
       <div className="orbit-layer" role="group" aria-label={label || t('bubbles.orbit.groupLabel')}>
         <svg className="orbit-links" width="1" height="1" aria-hidden="true" focusable="false">

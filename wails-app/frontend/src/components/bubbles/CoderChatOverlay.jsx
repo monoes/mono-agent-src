@@ -257,7 +257,9 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
     }
   }, [liveConvId, liveTurnId, t])
 
-  const title = bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
+  // A lite pane is named by its session, which the person sees on the circle; a chat's own title is a redacted summary.
+  const liteOrbit = lite ? orbitOf(orbitSessions, { sessionId: bubble.sessionId }) : null
+  const title = (lite && liteOrbit.root?.title) || bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
   const showStage = !lite && access !== 'scoped' && !confined
   const runtime = bubble.conversationId ? bubble.runtime : setup.runtime
   const model = bubble.model || setup.model
@@ -281,7 +283,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
       <div ref={panelRef} role="dialog" aria-label={t('bubbles.chatLabel', { name: title })} data-testid="bubble-overlay"
         className={`bubble-overlay${closing ? ' closing' : ''}${narrow ? ' narrow' : ''}`}>
         {lite ? (
-          <LitePaneHeader title={title} orbit={orbitOf(orbitSessions, { sessionId: bubble.sessionId })} streaming={conv.streaming}
+          <LitePaneHeader title={title} orbit={liteOrbit} streaming={conv.streaming}
             onStopTurn={conv.stop} onOpenAgent={c => onOpenAgent?.(bubble, c)} onChanged={onChanged}
             onBoard={root => { collapse(); onNavigate?.('tasks', { sessionId: root.id }) }} onClose={onCloseChat} />
         ) : (

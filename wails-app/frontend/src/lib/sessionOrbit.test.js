@@ -99,6 +99,12 @@ describe('geometry', () => {
     expect(p[2].y).toBeLessThan(-9)
     expect(ringPositions(0)).toEqual([])
   })
+  it('numbers an arc from its top to its bottom on either side', () => {
+    for (const facing of [0, 180]) {
+      const ys = ringPositions(5, { radius: 50, arc: 120, facing, topDown: true }).map(p => p.y)
+      expect(ys).toEqual([...ys].sort((a, b) => a - b))
+    }
+  })
   it('a link starts at the centre and ends at the satellite', () => {
     expect(linkPath(30, 40)).toMatch(/^M0 0 Q[-\d.]+ [-\d.]+ 30 40$/)
   })

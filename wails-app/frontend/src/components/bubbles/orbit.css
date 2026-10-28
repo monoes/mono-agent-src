@@ -30,8 +30,8 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 160px;
-  height: 160px;
+  width: 152px;
+  height: 152px;
 }
 .orbit-layer { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 .orbit-ring > :not(.orbit-layer) { position: relative; z-index: 1; }
@@ -83,7 +83,7 @@
   background: radial-gradient(circle at 35% 30%, var(--orbit-face), var(--base) 85%);
   border: 2px solid var(--ring, var(--orbit-idle));
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
-  font-size: calc(var(--size) * 0.36);
+  font-size: max(9px, calc(var(--size) * 0.36));
   font-weight: 700;
   letter-spacing: 0.3px;
   transition: border-color 320ms ease;
@@ -108,10 +108,10 @@
   line-height: 1;
   pointer-events: none;
 }
-.orbit-mark { right: -3px; bottom: -3px; width: 14px; height: 14px; background: var(--ring, var(--orbit-idle)); color: var(--void); transition: background 320ms ease; }
+.orbit-mark { right: -5px; bottom: -5px; width: 14px; height: 14px; background: var(--ring, var(--orbit-idle)); color: var(--void); transition: background 320ms ease; }
 .orbit-count {
-  right: -5px;
-  top: -5px;
+  right: -8px;
+  top: -7px;
   min-width: 15px;
   height: 15px;
   padding: 0 3px;
@@ -159,9 +159,12 @@
   transform: translateX(-50%) translateY(3px);
   transition: opacity 120ms ease, transform 120ms ease, visibility 0s linear 120ms;
 }
-.orbit-tip.below { bottom: auto; top: calc(100% + 8px); }
+.orbit-arc .orbit-tip { bottom: auto; top: 50%; left: auto; right: calc(100% + 8px); transform: translateY(-50%) translateX(3px); }
+.orbit-arc.face-right .orbit-tip { right: auto; left: calc(100% + 8px); transform: translateY(-50%) translateX(-3px); }
+.orbit-ring .orbit-tip.below { bottom: auto; top: calc(100% + 8px); }
 .orbit-tip-title { font-size: 11px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .orbit-sat:hover .orbit-tip, .orbit-sat:focus-visible .orbit-tip { opacity: 1; visibility: visible; transform: translateX(-50%); transition-delay: 0s; }
+.orbit-arc .orbit-sat:hover .orbit-tip, .orbit-arc .orbit-sat:focus-visible .orbit-tip { transform: translateY(-50%); }
 
 /* The "+N" list. */
 .orbit-more {
@@ -207,9 +210,14 @@
 .orbit-more-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .orbit-more-state { color: var(--text-muted); font-size: 9.5px; }
 
+/* In the dock the list opens beside the chip, toward the window, not below it (the chip is the lowest circle). */
+.orbit-arc .orbit-more { top: auto; bottom: -6px; left: auto; right: 22px; transform: none; }
+.orbit-arc.face-right .orbit-more { right: auto; left: 22px; }
+
 /* The dock: a bubble with an orbit makes room for it. */
-.bubble-wrap.has-orbit { margin-block: 52px; }
+.bubble-wrap.has-orbit { margin-block: 66px; }
 .bubble-wrap.has-orbit > .bubble { position: relative; z-index: 1; }
+.bubble-wrap.has-orbit:has(.orbit-slot:hover) .bubble-close { display: none; }
 
 /* ── Lite pane (an opened agent) ── */
 .lite-head {
@@ -223,8 +231,8 @@
 }
 .lite-head-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .lite-title { margin: 0; font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; text-wrap: balance; }
-.lite-state { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary); }
-.lite-state svg { color: var(--lite-ring, var(--text-muted)); }
+.lite-state { display: inline-flex; align-items: flex-start; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary); }
+.lite-state svg { flex: none; margin-top: 2px; color: var(--lite-ring, var(--text-muted)); }
 .lite-state[data-state="running"] { --lite-ring: var(--cyan); }
 .lite-state[data-state="waiting"] { --lite-ring: var(--yellow); }
 .lite-state[data-state="done"] { --lite-ring: var(--green); }
@@ -284,6 +292,9 @@
   }
 }
 
+/* Narrow: the title, state and buttons go under the ring instead of squeezing beside it. */
 @media (max-width: 640px) {
-  .lite-head { padding: 10px 10px 8px; gap: 8px; }
+  .lite-head { position: relative; flex-wrap: wrap; padding: 10px 10px 8px; gap: 4px 8px; }
+  .lite-head-main { flex: 1 1 100%; }
+  .lite-head > .btn { position: absolute; top: 8px; right: 8px; }
 }
