@@ -6,6 +6,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
   GetPeople: vi.fn(),
   GetDashboardStats: vi.fn(),
   GetSummary: vi.fn(),
+  GetSummarySections: vi.fn(),
   GetOrgSummary: vi.fn(),
   ListWorkflows: vi.fn(),
   DeleteSession: vi.fn(),
@@ -66,6 +67,15 @@ describe('api error handling', () => {
     expect(seen).not.toHaveBeenCalled()
     off()
     warn.mockRestore()
+  })
+
+  it('keeps the section poll quiet while no profile is selected', async () => {
+    const seen = vi.fn()
+    const off = onApiError(seen)
+    GoApp.GetSummarySections.mockResolvedValueOnce('{"error":"no profile selected: create a profile first"}')
+    expect(await api.getSummarySections('hil')).toBeNull()
+    expect(seen).not.toHaveBeenCalled()
+    off()
   })
 
   it('degrades a failed read to its safe default', async () => {
