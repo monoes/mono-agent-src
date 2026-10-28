@@ -1900,6 +1900,31 @@ master is), and a queued check-in is dropped when it runs if the mission has sto
 work. A lead that adds tasks to itself can keep itself woken, but only up to `checkin_limit` check-ins per person
 message, and bounded by the session's `max_tasks` and budget.
 
+**Mission child sessions: policy, marks, ceilings (store only; the spawn path comes in the next phase).** Migration
+139 adds `coder_mission_policy`, `coder_mission_children` and `coder_mission_events`, and `internal/coderhost`
+(`missionchild_store.go`) the store over them. A task session has a policy (mode `off`, `marked` (default) or `all`;
+`max_children` default 2; `share_pct` default 50, 1 to 80), a row per task its lead marked to run in a session of
+its own (unique per profile, session and task; states `marked`, `spawning`, `spawned`, `ended`, `failed`, `gone`,
+`released`) and an audit trail. Only the lead of that session (a `LeadScope` made from its verified session token)
+marks, reserves or links a row; a caller that holds a task-bound mission binding is refused; foreign sessions,
+profiles and tasks all read as one refusal. The lead may raise `max_children` up to the lead session's own
+(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked` (and lower it from `all`) unless the operator turned it off,
+and only the operator turns on mode `all`. What the operator writes binds the lead: an operator `off` stays off until the operator turns the mode on
+(`operator_mode_off`), and an operator `max_children` or `share_pct` is the most the lead may raise its own to
+(`operator_max_children`, `operator_share_pct`; the operator clears a cap with `ClearMaxChildrenCap` / `ClearSharePctCap`); the lead may always lower. An operator who writes a number also sets it as the lead's cap; to give the lead a value without limiting it takes two calls (write, then clear the cap). The
+operator's changes are `floor` audit rows by `operator`, the lead's are `raise` / `lower` / `mode` rows by `lead:<conversation>`. `share_pct` is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live children under
+`min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the carves under
+`share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve returns to
+the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call `Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists counts against the share. Nothing starts a session yet: no CLI verb,
+tool or host pass reads these tables, so marking has no effect on a running mission. Obligations of the next
+phases: the tool layer (P-C) builds the caller with `NewLeadScope(caller, binding)` from the verified mission binding
+(`BindingNone` only when the process was checked and holds none; an unchecked scope is refused); a mission lead that is
+itself a child, or a worker, must not spawn mission children (depth rule); the spawn path (P-B) calls `NotePending` when
+the child's conversation is created and `Touch` between its steps, so `ResetStaleSpawning` does not hand a slow spawn's
+task to a second child. The share is held only for children that exist (their sessions' caps) or are reserved (the carve
+stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. `Reserve` reads the policy, settings, budget and counts it decides on inside the transaction that reserves, after a no-op write took the write lock (the mode-`all` rule row is part of that transaction; the lead's spend, summed from its event log, is read before the lock so a long log does not hold other writers up); a conversation is pending on one row only (partial unique index, and `NotePending` refuses one another row holds); `End` with an empty conversation id does nothing and zeroes `reserved_usd` of a row it ends. Obligations for the host phase (P-B): (a) call `NotePending` from `onCreated` only after the carve is taken (`carveBudget`), and call `FindOrphanCarves(minAge)` in the reconcile pass to find child sessions of a lead with a mission policy that hold a carve and that no row points at (a crash between the two), then stop them and lower their cap with the same release the end path uses; it cannot tell a mission spawn from another child of the lead, so the host keeps its own record of what it started and filters; (b) `DeleteConversation` marks a row `gone` by its child or its pending conversation; (c) ending a `spawning` row returns its reserved carve (`reserved_usd` 0). Deleting a conversation or a
+sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
+
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
 operator closes tasks to Done, or the session's `auto_close_verified` does when the
@@ -2628,7 +2653,7 @@ monoagentcli --profile work coder host stop                        # the host on
   `MONOAGENT_SESSION_TOKEN`; it names that session (profile, conversation, turn) and is valid only while that
   turn is the session's current one (24 h at most; only its hash is stored, in `coder_session_tokens`). Only
   the host mints one and signs the row (HMAC under the profile's vault key); it also names the turn's process, and
-  a call counts only from that process or a descendant of it (Linux; elsewhere the signature and the turn only). A tool that daemonises (`nohup`, `setsid`, a double fork) or runs in a container/another pid namespace is outside the tree and is refused with a distinct reason ("not inside the session's turn process tree"); nothing is loosened for it. A host started from inside a session's turn binds no tokens (it logs a warning).
+  a call counts only from that process or a descendant of it (Linux; elsewhere the signature and the turn only). This process check is a courtesy layer: it reads `/proc` in the caller's own mount namespace, which a same-user process in its own user and mount namespace can present differently (see SECURITY.md, "Persistent coder sessions"); the real boundary against a same-user sibling is the OS user or a sandbox, and a peer-credential verification service is the planned follow-up. A tool that daemonises (`nohup`, `setsid`, a double fork) or runs in a container/another pid namespace is outside the tree and is refused with a distinct reason ("not inside the session's turn process tree"); nothing is loosened for it. A host started from inside a session's turn binds no tokens (it logs a warning).
   The turn keeps it in its environment so its shell and MCP server can call the master tools.
   With a token, `sessions send|stop|pause|resume` and `sessions settings set --patch` act **only on descendants**
   of that session (the parent links are walked up in the database from the target; a peer, an ancestor, the
