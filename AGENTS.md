@@ -1728,7 +1728,7 @@ letters, digits and `._#@:-`, the same name for a whole task; `you`,
 not a credential), use `list`, `show`, `next`, `claim`, `comment` (on a
 task they hold), `finish`, `release` and `digest`, and may `add` to the
 Inbox (inside a task session they also use `session new`, `session list`,
-`session show`, `session plan`, `session pause`, `session stop`, `split`,
+`session show`, `session rename` (its own), `session tree`, `session plan`, `session pause`, `session stop`, `split`,
 `depend`, `artifact` and `verify`, below). `digest` has no gate: it runs the same in any
 context, so a session-start hook can call it. A `comment` run under an
 agent context is an agent's comment: it needs a name.
@@ -1786,7 +1786,7 @@ TEXT`, then `task add TITLE --session N --acceptance TEXT [--depends-on IDS]
 [--parent ID] [--kind task|epic|check]` (acceptance criteria are required). A
 draft's tasks sit in the inbox column and nothing hands them out until the user
 runs `task session approve N`, which moves them to Ready and sets the session
-running; an agent cannot approve its own plan. An agent may link a session (`--conversation`)
+running; an agent cannot approve its own plan. Sessions form a tree (migration 142: `task_sessions.parent_session_id`, `kind`, `approval_basis`): `task session new --parent ID --kind K` starts one below another of the profile, at most `tasks.HardMaxSessionDepth` (4) levels, never with more access, budget or caps than its parent (an unset limit takes the parent's), and an agent only below a session it works in; `task session rename ID TITLE` (the operator any, an agent its own) and `task session tree [--json]` read and name them. Archiving a parent does not yet archive its children (needs the operator's confirmation). An agent may link a session (`--conversation`)
 only to its own chat, which it proves with its coder-session token; without one it links none. In a running session an agent uses
 `task next --session N [--claim --as NAME]` (a Ready task whose dependencies are
 all done, never a draft's, a paused session's or an epic), `claim`, `comment`,
