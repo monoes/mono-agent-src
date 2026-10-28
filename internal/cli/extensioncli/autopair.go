@@ -155,6 +155,7 @@ func newExtensionDecideCmd(cfg *Deps, approve bool) *cobra.Command {
 	var code string
 	var all bool
 	var profiles []string
+	var anyProfile bool
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
@@ -163,7 +164,10 @@ func newExtensionDecideCmd(cfg *Deps, approve bool) *cobra.Command {
 			"ids are listed and you choose.\n" +
 			"Approving gives that browser a token that reaches your documents, vault, tasks and page control, so it\n" +
 			"needs the code the browser's OWN side panel shows (`--code ABC-123`, or typed at the prompt in a\n" +
-			"terminal). A request you did not start shows its code only to whoever sent it. " + clicore.OperatorOnlyHelp,
+			"terminal). A request you did not start shows its code only to whoever sent it.\n" +
+			"The browser may then run only the profiles you name with --profiles; with neither --profiles nor --any it\n" +
+			"runs none (and is no default browser) until you allow some with `extension browsers allow`. --any\n" +
+			"gives the old behaviour: any profile. " + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli extension approve 1a2b --code ABC-123\n  monoagentcli extension deny 1a2b\n  monoagentcli extension deny --all",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -206,9 +210,11 @@ func newExtensionDecideCmd(cfg *Deps, approve bool) *cobra.Command {
 					}
 				}
 			}
+			if anyProfile && cmd.Flags().Changed("profiles") {
+				return clicore.InvalidInput("--any and --profiles are alternatives")
+			}
 			var allowed []string
-			if approve && cmd.Flags().Changed("profiles") {
-				allowed = []string{}
+			if approve {
 				for _, p := range profiles {
 					id, err := profileIDFor(cfg, p)
 					if err != nil {
@@ -217,7 +223,7 @@ func newExtensionDecideCmd(cfg *Deps, approve bool) *cobra.Command {
 					allowed = append(allowed, id)
 				}
 			}
-			c, err := extension.DecidePendingClaimWith(found.ID, approve, code, allowed)
+			c, err := extension.DecidePendingClaimWith(found.ID, approve, code, allowed, approve && anyProfile)
 			if err != nil {
 				return decideError(err)
 			}
@@ -245,7 +251,8 @@ func newExtensionDecideCmd(cfg *Deps, approve bool) *cobra.Command {
 		},
 	}
 	if approve {
-		cmd.Flags().StringSliceVar(&profiles, "profiles", nil, "limit the browser to these profiles (ids or names); empty (--profiles=) lets it run no profile of its own. Without the flag it is not limited, even when it replaces a limited browser. Change later with: extension browsers allow")
+		cmd.Flags().StringSliceVar(&profiles, "profiles", nil, "the profiles (ids or names) the browser may run. Without --profiles or --any it may run none until you allow some with: extension browsers allow")
+		cmd.Flags().BoolVar(&anyProfile, "any", false, "let the browser run any profile (unrestricted, as browsers paired before this limit are)")
 		cmd.Flags().StringVar(&code, "code", "", "the confirmation code shown in the browser's side panel (asked for in a terminal)")
 	} else {
 		cmd.Flags().BoolVar(&all, "all", false, "deny every waiting request")

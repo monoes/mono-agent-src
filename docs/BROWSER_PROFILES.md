@@ -70,26 +70,31 @@ that browser.
 
 ## Limiting which profiles a browser may claim
 
-A browser that paired itself has a token of its own, and by default that token
-may claim any profile. To limit it:
+A browser that pairs itself gets a token of its own, and that token may run
+only the profiles you allow. **A newly paired browser starts with none**: it
+connects, but it is no default browser and cannot bind a profile until you
+name some. That is the cost of the limit: after pairing a new browser, run
 
-    monoagentcli extension browsers allow <id> Work Personal   # only these
-    monoagentcli extension browsers allow <id>                 # none of its own (default browser only)
-    monoagentcli extension browsers allow <id> --any           # lift the limit
-    monoagentcli extension approve <claim> --profiles Work     # limit it when pairing
+    monoagentcli extension approve <claim> --profiles Work,Personal   # at pairing
+    monoagentcli extension approve <claim> --any                      # the old behaviour
+    monoagentcli extension browsers allow <id> Work Personal           # later; replaces the set
+    monoagentcli extension browsers allow <id> --any                   # lift the limit
+    monoagentcli extension browsers allow <id>                         # back to nothing
 
-`extension browsers list` shows what each browser may run. After that, a
-browser that names a profile outside its set is refused: its connection is
-closed with the unauthorized code, a binding it sends is not applied, and
-`bind`/`assign`/`set_binding` for a profile outside the set fail with "not
-allowed" without reaching the browser. A browser running a profile you have
-since removed from its set is disconnected within a few seconds. Unbound
-(default) browsers work as before.
+`extension browsers list` shows what each browser may run. A browser serves
+only the profiles in its set: one that names another is refused (its
+connection is closed with the unauthorized code, a binding it sends is not
+applied, and `bind`/`assign`/`set_binding` for it fail with "not allowed"),
+the default-browser fallback skips it for other profiles, and a command that
+names no profile never goes to it. A browser running a profile you have since
+removed from its set is disconnected within a few seconds.
 
-Browsers paired before this existed, and browsers approved without
-`--profiles`, are not limited until you set a limit (they show "any
-profile"). The shared `extension.token` is never limited. Only you can change
-a limit: the command is operator-only like `assign` and `bind`.
+Browsers paired before this limit existed are not limited (they show "any
+profile") until you set one; the shared `extension.token` is never limited.
+Re-pairing a browser with its own token keeps its limit; approving a new
+claim for the same instance replaces the record with whatever that approval
+says. Only you can change a limit: the commands are operator-only like
+`assign` and `bind`.
 
 ## Seeing every profile at once
 

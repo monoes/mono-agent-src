@@ -72,7 +72,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// socket never replaces anything.
 	c := newExtConn(conn, auth, time.Now())
 	s.dropDeletedBinding(c)
-	if !s.installConn(c) {
+	installed := false
+	if !c.whileAllowed(c.boundProfiles(), func() { installed = s.installConn(c) }) {
+		c.closeUnauthorized("this browser is not allowed to run a profile it asked for")
+		return
+	}
+	if !installed {
 		_ = conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(unauthorizedCloseCode, "that browser instance is connected under another token"),
 			time.Now().Add(time.Second))

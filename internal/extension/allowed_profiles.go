@@ -156,3 +156,93 @@ func (c *extConn) closeUnauthorized(reason string) {
 		websocket.FormatCloseMessage(unauthorizedCloseCode, reason), time.Now().Add(time.Second))
 	_ = c.ws.Close()
 }
+
+// policySet is the allowed-set records of the paired browsers behind a list
+// of sockets, read once so one routing decision sees one state.
+type policySet struct {
+	byID   map[string]PairedBrowser
+	failed bool // the state could not be read: limited sockets are not eligible
+}
+
+func pairedPolicies(conns []*extConn) policySet {
+	p := policySet{byID: map[string]PairedBrowser{}}
+	need := false
+	for _, c := range conns {
+		if c.tokenID != "" {
+			need = true
+		}
+	}
+	if !need {
+		return p
+	}
+	unlock, err := lockState()
+	if err != nil {
+		p.failed = true
+		return p
+	}
+	defer unlock()
+	list, err := readBrowsersLocked()
+	if err != nil {
+		p.failed = true
+		return p
+	}
+	for _, e := range list {
+		p.byID[e.ID] = e
+	}
+	return p
+}
+
+// allows reports whether c may serve profile (empty: a command that names no
+// profile). A shared-token socket serves anything; a per-browser one serves
+// what its record allows, and nothing once the record is gone or unreadable.
+func (p policySet) allows(c *extConn, profile string) bool {
+	if c.tokenID == "" {
+		return true
+	}
+	b, ok := p.byID[c.tokenID]
+	if p.failed || !ok {
+		return false
+	}
+	if !b.Restricted {
+		return true
+	}
+	return profile != "" && containsString(b.AllowedProfiles, profile)
+}
+
+// whileAllowed runs fn only if every profile in want is allowed for c's token
+// at this moment, with the state lock held so the owner's change cannot land
+// between the check and fn. It reports whether fn ran. Lock order: bindMu,
+// then the state lock, then c.mu / writeMu; nothing takes them the other way.
+func (c *extConn) whileAllowed(want []string, fn func()) bool {
+	if c.tokenID == "" || len(want) == 0 {
+		fn()
+		return true
+	}
+	unlock, err := lockState()
+	if err != nil {
+		return false
+	}
+	defer unlock()
+	list, err := readBrowsersLocked()
+	if err != nil {
+		return false
+	}
+	for _, e := range list {
+		if e.ID == c.tokenID {
+			if len(e.Outside(want)) > 0 {
+				return false
+			}
+			fn()
+			return true
+		}
+	}
+	return false
+}
+
+func errNotAllowed(out []string) error {
+	first := ""
+	if len(out) > 0 {
+		first = out[0]
+	}
+	return fmt.Errorf("profile %q is not allowed for this browser: change what it may run with `monoagentcli extension browsers allow`", first)
+}

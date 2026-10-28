@@ -45,7 +45,7 @@ func TestBrowsersAllowRestrictsListsAndLifts(t *testing.T) {
 	if out, _ = runExt(t, d, "browsers", "list"); !strings.Contains(out, "p-work, p-home") {
 		t.Fatalf("list = %q", out)
 	}
-	if out, err = runExt(t, d, "browsers", "allow", "aaaa"); err != nil || !strings.Contains(out, "none (default browser only)") {
+	if out, err = runExt(t, d, "browsers", "allow", "aaaa"); err != nil || !strings.Contains(out, "nothing yet") {
 		t.Fatalf("empty set = %q, %v", out, err)
 	}
 	if out, err = runExt(t, d, "browsers", "allow", "aaaa", "--any"); err != nil || !strings.Contains(out, "any profile") {

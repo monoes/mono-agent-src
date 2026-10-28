@@ -2,6 +2,7 @@ package extension
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/account/accounttest"
 	"os"
 	"strings"
 	"testing"
@@ -83,8 +84,9 @@ func TestBindingFrameOutsideTheAllowedSetClosesTheSocket(t *testing.T) {
 	if err := conn.WriteJSON(map[string]any{"kind": "binding", "profile": "p-a", "profiles": []string{"p-a", "p-x"}}); err != nil {
 		t.Fatal(err)
 	}
-	if !closedUnauthorized(conn, 2*time.Second) {
-		t.Fatal("a binding frame naming a profile outside the set did not close the socket with 4401")
+	// Well under the 2s revoke sweep: the frame itself is refused, not the sweep later.
+	if !closedUnauthorized(conn, 800*time.Millisecond) {
+		t.Fatal("a binding frame naming a profile outside the set did not close the socket with 4401 at once")
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for len(srv.Browsers()) != 0 {
@@ -246,10 +248,10 @@ func TestApprovalRecordsTheAllowedSetOnThePairedRecord(t *testing.T) {
 	if c.Restricted || len(c.AllowedProfiles) != 0 {
 		t.Fatalf("a new claim arrived limited by its creator: %+v", c)
 	}
-	if _, err := DecidePendingClaimWith(c.ID, true, PairCode(c.ID, secret), []string{"../evil"}); err == nil {
+	if _, err := DecidePendingClaimWith(c.ID, true, PairCode(c.ID, secret), []string{"../evil"}, false); err == nil {
 		t.Fatal("an invalid profile id was recorded")
 	}
-	if _, err := DecidePendingClaimWith(c.ID, true, PairCode(c.ID, secret), []string{"p-a", "p-b"}); err != nil {
+	if _, err := DecidePendingClaimWith(c.ID, true, PairCode(c.ID, secret), []string{"p-a", "p-b"}, false); err != nil {
 		t.Fatal(err)
 	}
 	out, err := pollClaim(c.ID, secret, "")
@@ -258,14 +260,6 @@ func TestApprovalRecordsTheAllowedSetOnThePairedRecord(t *testing.T) {
 	}
 	if !out.Entry.Restricted || strings.Join(out.Entry.AllowedProfiles, ",") != "p-a,p-b" {
 		t.Fatalf("paired record = %+v", out.Entry)
-	}
-	// Approving with no set leaves the browser unlimited, as before.
-	c2, s2, _ := CreatePendingClaim(PendingClaim{Label: "y", Origin: "chrome-extension://y", Instance: "y-instance-1"})
-	if _, err := DecidePendingClaim(c2.ID, true, PairCode(c2.ID, s2)); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := pollClaim(c2.ID, s2, ""); err != nil || out.Entry.Restricted {
-		t.Fatalf("poll = %+v, %v", out, err)
 	}
 }
 
@@ -284,5 +278,124 @@ func TestTokenRotationKeepsTheAllowedSet(t *testing.T) {
 	list, _ := ListPairedBrowsers()
 	if len(list) != 1 || !list[0].Restricted {
 		t.Fatalf("stored = %+v", list)
+	}
+}
+
+// A restricted browser is never the fallback for a profile outside its set,
+// bound or not; an empty set serves no profile and no profile-less command.
+func TestRestrictedBrowserIsNotTheDefaultForOtherProfiles(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, _ := mintRestricted(t, instA, "p-allowed")
+	a := dialToken(t, wsURL, tok, instA) // connected unbound
+	waitBrowsers(t, srv, 1)
+
+	// Its own profile still reaches it as the default; others do not.
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Profile: "p-allowed"}, &Command{Type: CmdCreateTab}, 3*time.Second)
+		errc <- err
+	}()
+	if cmd := answerNext(t, a, 0, map[string]any{"tabId": 1}); cmd == nil || cmd.Type != CmdCreateTab {
+		t.Fatalf("an allowed profile did not reach its browser: %+v", cmd)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	for _, tgt := range []Target{{Profile: "p-victim"}, {}} {
+		if _, err := srv.SendCommandTo(tgt, &Command{Type: CmdCreateTab}, time.Second); err == nil {
+			t.Fatalf("target %+v reached a browser limited to other profiles", tgt)
+		}
+	}
+	expectSilence(t, a, 200*time.Millisecond)
+}
+
+func TestEmptyAllowedSetServesNothingAndAnUnrestrictedDefaultStillDoes(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	plain := dialBrowserSet(t, wsURL, instA) // shared token, unbound: the default browser
+	waitBrowsers(t, srv, 1)
+	time.Sleep(20 * time.Millisecond)
+	tok, _ := mintRestricted(t, instB) // newer, restricted to nothing, unbound
+	dialToken(t, wsURL, tok, instB)
+	waitBrowsers(t, srv, 2)
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Profile: "p-victim"}, &Command{Type: CmdCreateTab}, 3*time.Second)
+		errc <- err
+	}()
+	if cmd := answerNext(t, plain, 0, map[string]any{"tabId": 1}); cmd == nil || cmd.Type != CmdCreateTab {
+		t.Fatalf("the unrestricted default browser was skipped: %+v", cmd)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The owner narrowing the set while a set_binding waits for the browser's
+// binding lock must stop that command: the policy is read where it is sent.
+func TestNarrowingWhileASetBindingWaitsRefusesIt(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, id := mintRestricted(t, instA, "p-a", "p-b")
+	conn := dialToken(t, wsURL, tok, instA, "p-a")
+	waitBrowsers(t, srv, 1)
+	c := srv.connList()[0]
+
+	c.bindMu.Lock()
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Instance: instA}, setBindingCmd("p-a", "p-b"), 3*time.Second)
+		errc <- err
+	}()
+	time.Sleep(150 * time.Millisecond) // it is now waiting for bindMu
+	if _, err := SetAllowedProfiles(id, []string{"p-a"}, true); err != nil {
+		t.Fatal(err)
+	}
+	c.bindMu.Unlock()
+
+	if err := <-errc; err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("a set_binding that became forbidden while waiting was sent: %v", err)
+	}
+	expectSilence(t, conn, 200*time.Millisecond)
+}
+
+// New pairings start limited to nothing: the owner names what a browser may
+// run (--profiles), or says --any. Automatic pairing is no exception.
+func TestNewPairingsStartRestricted(t *testing.T) {
+	setHome(t, t.TempDir())
+	c, secret, _ := CreatePendingClaim(PendingClaim{Label: "x", Origin: "chrome-extension://x", Instance: "x-instance-1"})
+	if _, err := DecidePendingClaim(c.ID, true, PairCode(c.ID, secret)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := pollClaim(c.ID, secret, "")
+	if err != nil || !out.Entry.Restricted || len(out.Entry.AllowedProfiles) != 0 {
+		t.Fatalf("plain approval = %+v, %v", out.Entry, err)
+	}
+	c2, s2, _ := CreatePendingClaim(PendingClaim{Label: "y", Origin: "chrome-extension://y", Instance: "y-instance-1"})
+	if _, err := DecidePendingClaimWith(c2.ID, true, PairCode(c2.ID, s2), nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := pollClaim(c2.ID, s2, ""); err != nil || out.Entry.Restricted {
+		t.Fatalf("--any approval = %+v, %v", out.Entry, err)
+	}
+	// An approval recorded before this default (no marker) still mints restricted.
+	c3, s3, _ := CreatePendingClaim(PendingClaim{Label: "z", Origin: "chrome-extension://z", Instance: "z-instance-1"})
+	if _, err := DecidePendingClaimWith(c3.ID, true, PairCode(c3.ID, s3), []string{"p-a"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := pollClaim(c3.ID, s3, ""); err != nil || !out.Entry.Restricted || strings.Join(out.Entry.AllowedProfiles, ",") != "p-a" {
+		t.Fatalf("--profiles approval = %+v, %v", out.Entry, err)
+	}
+}
+
+func TestAutomaticPairingStartsRestricted(t *testing.T) {
+	accounttest.Install(t, accounttest.SignedIn)
+	srv := newAutoServer(t)
+	w := claim(srv, claimReq(nil))
+	if w.Code != 200 {
+		t.Fatalf("claim = %d %s", w.Code, w.Body)
+	}
+	list, err := ListPairedBrowsers()
+	if err != nil || len(list) != 1 || !list[0].Restricted || len(list[0].AllowedProfiles) != 0 {
+		t.Fatalf("auto-paired record = %+v, %v", list, err)
 	}
 }

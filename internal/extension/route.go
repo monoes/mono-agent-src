@@ -9,6 +9,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// setBindingWriteTimeout bounds a set_binding write made while the state lock is held.
+const setBindingWriteTimeout = 10 * time.Second
+
 // SendCommandTo sends a command to the browser t resolves to and waits for
 // its response. If the response reports failure, an error is returned.
 func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*Response, error) {
@@ -23,7 +26,7 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	// allowed set is enforced here, where every path to a socket passes.
 	if cmd.Type == CmdSetBinding {
 		if out := c.outsideAllowed(setBindingNames(cmd.Params)); len(out) > 0 {
-			return nil, fmt.Errorf("profile %q is not allowed for this browser: change what it may run with `monoagentcli extension browsers allow`", out[0])
+			return nil, errNotAllowed(out)
 		}
 	}
 
@@ -48,11 +51,30 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		s.pendMu.Unlock()
 	}()
 
-	if err := s.writeCommandTo(c, cmd); err != nil {
+	// A set_binding is sent only if its profiles are still allowed at this
+	// moment (the owner may have narrowed the set while it waited for bindMu).
+	var werr error
+	sent := true
+	if cmd.Type == CmdSetBinding {
+		sent = c.whileAllowed(setBindingNames(cmd.Params), func() {
+			// The state lock is held for this write: a socket that will not
+			// take it is closed rather than left to stall every state change.
+			stuck := time.AfterFunc(setBindingWriteTimeout, func() { _ = c.ws.Close() })
+			defer stuck.Stop()
+			werr = s.writeCommandTo(c, cmd)
+		})
+	} else {
+		werr = s.writeCommandTo(c, cmd)
+	}
+	if !sent {
+		restore()
+		return nil, errNotAllowed(setBindingNames(cmd.Params))
+	}
+	if werr != nil {
 		if restore != nil {
 			restore()
 		}
-		return nil, err
+		return nil, werr
 	}
 	s.logger.Debug().Str("id", cmd.ID).Str("type", cmd.Type).Str("instance", c.id).Msg("command sent")
 
@@ -150,12 +172,11 @@ func (s *Server) serveBinding(c *extConn, msg []byte) {
 		return
 	}
 	profiles := profilesFromWire(f.Profiles, f.Profile)
-	if len(c.outsideAllowed(profiles)) > 0 {
+	if !c.whileAllowed(profiles, func() { c.setBinding(profiles, f.Label) }) {
 		s.logger.Warn().Str("instance", c.id).Msg("binding frame names a profile outside the browser's allowed set: closing it")
 		c.closeUnauthorized("this browser is not allowed to run a profile it asked for")
 		return
 	}
-	c.setBinding(profiles, f.Label)
 	// Off the read loop: the profile source may take seconds to answer, and
 	// this browser's frames must not wait for it.
 	go s.dropDeletedBinding(c)

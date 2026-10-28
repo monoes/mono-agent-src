@@ -235,14 +235,26 @@ func (s *Server) resolve(t Target) (*extConn, error) {
 	if t.Instance != "" {
 		for _, c := range conns {
 			if c.id == t.Instance {
+				if t.Profile != "" && !pairedPolicies(conns).allows(c, t.Profile) {
+					return nil, fmt.Errorf("profile %q is not allowed for browser %s", t.Profile, c.id)
+				}
 				return c, nil
 			}
 		}
 		return nil, fmt.Errorf("%w: %s", ErrBrowserGone, t.Instance)
 	}
+	// A browser whose token is limited to some profiles serves only those:
+	// neither a bound match nor the default-browser fallback may reach a
+	// profile outside its set, and a profile-less command (which any account
+	// of a browser could answer) never goes to a limited browser.
+	policy := pairedPolicies(conns)
+	eligible := func(c *extConn) bool { return policy.allows(c, t.Profile) }
 	var unbound *extConn
 	var boundTo []string
 	for _, c := range conns {
+		if !eligible(c) {
+			continue
+		}
 		set := c.boundProfiles()
 		if t.Profile != "" && slices.Contains(set, t.Profile) {
 			return c, nil
@@ -259,7 +271,12 @@ func (s *Server) resolve(t Target) (*extConn, error) {
 		return unbound, nil
 	}
 	if t.Profile == "" {
-		return conns[0], nil
+		for _, c := range conns {
+			if eligible(c) {
+				return c, nil
+			}
+		}
+		return nil, fmt.Errorf("%w: every connected browser is limited to named profiles; name one", ErrNoExtension)
 	}
 	sort.Strings(boundTo)
 	return nil, &NoBrowserError{Profile: t.Profile, BoundTo: slices.Compact(boundTo)}

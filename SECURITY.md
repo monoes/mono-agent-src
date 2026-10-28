@@ -969,20 +969,28 @@ against an agent running as you:
   socket that authenticated with a different per-browser token.
 - A browser holding the shared bridge token can claim any valid profile id,
   and with sets up to 64 at once, and receive those profiles' browser
-  commands and session data. A browser with a token of its own can be limited
-  to an allowed set of profiles: `extension browsers allow <id> <profile>...`
-  (operator-only), or `extension approve --profiles` when pairing. A claim
-  naming a profile outside the set is refused where the bridge handles it:
-  an auth frame is closed with 4401, a binding frame closes the socket, and a
-  `set_binding` (including one relayed with only the relay token) is refused
-  with an error before anything is sent to the browser. A connected browser
-  that runs a profile the owner has since removed from its set is
-  disconnected within a few seconds. An unbound (default) browser is never
-  affected. The limit is opt-in: a paired record from before it existed, and
-  a browser approved without `--profiles`, is not limited until you set one,
-  and the shared `extension.token` is never limited. It narrows what one
-  mis-paired or compromised browser can reach; it does not stop a process that
-  can edit `~/.monoagent/extension.browsers.json` as your user.
+  commands and session data. A browser with a token of its own is limited to
+  an allowed set of profiles: a browser paired after this limit existed
+  (approved, or paired automatically) starts limited to NO profile, and the
+  owner names what it may run with `extension approve --profiles` or
+  `extension browsers allow <id> <profile>...` (operator-only), or lifts the
+  limit with `--any`. A limited browser serves only profiles in its set, in
+  every way the bridge routes to it: a claim naming another profile is
+  refused (an auth frame is closed with 4401, a binding frame closes the
+  socket at once, a `set_binding`, including one relayed with only the relay
+  token, is refused before anything is sent), the default-browser fallback
+  skips it for any profile outside its set, and a command that names no
+  profile is never sent to it. The allowed set is read where a claim is
+  applied or a command is sent, under the state lock, so a change by the
+  owner takes effect for the next claim or command; a connected browser
+  that runs a profile no longer allowed is disconnected within a few seconds.
+  Records paired before the limit existed, and the shared `extension.token`,
+  are not limited (a compatibility path: set a limit with `browsers allow`;
+  a token rotation by the browser keeps its limit). The limit narrows what
+  one mis-paired or compromised browser can reach; it does not stop a
+  process that can edit `~/.monoagent/extension.browsers.json` as your user,
+  and an unrestricted record or the shared token remains able to claim any
+  profile.
 - The `pair --open` gate is cosmetic against an agent with a shell, which
   can start a bridge of its own and open the pairing page itself.
 - An agent with a shell can also edit the files these commands manage.

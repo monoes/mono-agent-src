@@ -90,7 +90,7 @@ func mayRun(r pairedRow) string {
 	case !r.Restricted:
 		return "any profile"
 	case len(r.AllowedProfiles) == 0:
-		return "none (default browser only)"
+		return "nothing yet (allow a profile)"
 	}
 	return strings.Join(r.AllowedProfiles, ", ")
 }
@@ -103,7 +103,7 @@ func newExtensionBrowsersAllowCmd(cfg *Deps) *cobra.Command {
 		Long: "<id> is an id (or its first 4+ characters) from `extension browsers list`; each profile is a profile\n" +
 			"id or name. The browser can then claim only those profiles: a binding that names another is refused,\n" +
 			"and a connected browser running one that is no longer allowed is disconnected within seconds. With no\n" +
-			"profile the browser may run none of its own (it serves the default browser); `--any` lifts the limit.\n" +
+			"profile the browser may run nothing (it is no default browser either); `--any` lifts the limit.\n" +
 			"Browsers paired before this limit existed are not limited until you set one. The shared\n" +
 			"extension.token is never limited. " + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli extension browsers allow 3f2a9c Work Personal\n  monoagentcli extension browsers allow 3f2a9c --any",
