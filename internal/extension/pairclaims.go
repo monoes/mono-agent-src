@@ -555,14 +555,22 @@ func OpenPairCard(ctx context.Context, db *sql.DB, profileID string, c PendingCl
 	ro, _ := json.Marshal(map[string]string{
 		"claim": c.ID, "browser": label, "origin": origin, "instance": instance,
 		"expiresAt": c.ExpiresAt.Format(time.RFC3339),
-		"summary": fmt.Sprintf("The browser %q (%q) %s. Compare the code shown in the browser panel and type it in the code field to approve; if no browser panel shows a code, deny it.",
+		"summary": fmt.Sprintf("The browser %q (%q) %s. Compare the code shown in the browser panel and type it in the code field to approve; if no browser panel shows a code, deny it. "+
+			"The profiles field lists the profiles this browser may run (comma separated; it starts with the profile of this queue). Type any to let it run every profile. "+
+			"Left empty, this browser can't serve any profile yet: you would have to choose some later with `monoagentcli extension browsers allow`.",
 			label, origin, PairClaimWording),
 	})
+	// The profile of the queue the owner is deciding in is the one preselected.
+	var name string
+	if db.QueryRowContext(ctx, `SELECT name FROM profiles WHERE id = ?`, profileID).Scan(&name) != nil || name == "" {
+		name = profileID
+	}
+	editable, _ := json.Marshal(map[string]string{"code": "", "profiles": clip(name)})
 	nc, _ := json.Marshal(map[string]string{"kind": PairCardKind, "claim": c.ID})
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, readonly_data, editable_data, node_config, profile_id)
-		 VALUES (?, ?, ?, ?, ?, 'pending', ?, '{"code":""}', ?, ?)`,
-		uuid.NewString(), "extpair:"+c.ID, PairCardKind, PairCardKind, "Pair browser: "+label, string(ro), string(nc), profileID)
+		 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+		uuid.NewString(), "extpair:"+c.ID, PairCardKind, PairCardKind, "Pair browser: "+label, string(ro), string(editable), string(nc), profileID)
 	return err
 }
 

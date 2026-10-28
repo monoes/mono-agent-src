@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -86,22 +87,60 @@ func (d Deps) decisionError(id string, err error) error {
 	return err
 }
 
-// pairCardCode is the confirmation code the owner typed for a pairing card:
-// in --data, or in the card's editable "code" field.
-func pairCardCode(cmd *cobra.Command, db *sql.DB, cardID string) string {
-	var doc struct {
-		Code string `json:"code"`
-	}
+// pairCardFields are the card's editable fields: the confirmation code the
+// owner typed and the profiles the browser may run, in --data or in the
+// card's stored fields.
+type pairCardFields struct {
+	Code     string  `json:"code"`
+	Profiles *string `json:"profiles"`
+}
+
+func pairCardInput(cmd *cobra.Command, db *sql.DB, cardID string) pairCardFields {
+	var doc pairCardFields
 	if f := cmd.Flags().Lookup("data"); f != nil {
 		_ = json.Unmarshal([]byte(f.Value.String()), &doc)
 	}
-	if doc.Code == "" {
-		var raw string
-		if db.QueryRowContext(cmd.Context(), `SELECT editable_data FROM hil_pending WHERE id = ?`, cardID).Scan(&raw) == nil {
-			_ = json.Unmarshal([]byte(raw), &doc)
-		}
+	var stored pairCardFields
+	var raw string
+	if db.QueryRowContext(cmd.Context(), `SELECT editable_data FROM hil_pending WHERE id = ?`, cardID).Scan(&raw) == nil {
+		_ = json.Unmarshal([]byte(raw), &stored)
 	}
-	return doc.Code
+	if doc.Code == "" {
+		doc.Code = stored.Code
+	}
+	if doc.Profiles == nil {
+		doc.Profiles = stored.Profiles
+	}
+	return doc
+}
+
+// pairCardProfiles reads the card's profiles field: names or ids, comma
+// separated; "any" (or "*") alone lets the browser run every profile, and an
+// empty field limits it to none. A card without the field (filed by an older
+// bridge) limits the browser to none as well.
+func pairCardProfiles(db *sql.DB, field *string) (ids []string, any bool, err error) {
+	if field == nil {
+		return nil, false, nil
+	}
+	for _, p := range strings.Split(*field, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.EqualFold(p, "any") || p == "*" {
+			any = true
+			continue
+		}
+		var id string
+		if err := db.QueryRow(`SELECT id FROM profiles WHERE id = ? OR LOWER(name) = LOWER(?)`, p, p).Scan(&id); err != nil {
+			return nil, false, fmt.Errorf("profile %q not found (checked both id and name)", p)
+		}
+		ids = append(ids, id)
+	}
+	if any && len(ids) > 0 {
+		return nil, false, errors.New(`"any" cannot be combined with named profiles`)
+	}
+	return ids, any, nil
 }
 
 // decidePairCard decides a browser's request to pair (a card the bridge filed
@@ -114,10 +153,17 @@ func (d Deps) decidePairCard(cmd *cobra.Command, db *sql.DB, cardID, claim strin
 		return true, err
 	}
 	code := ""
+	var allowed []string
+	var anyProfile bool
 	if approve {
-		code = pairCardCode(cmd, db, cardID)
+		in := pairCardInput(cmd, db, cardID)
+		code = in.Code
+		var err error
+		if allowed, anyProfile, err = pairCardProfiles(db, in.Profiles); err != nil {
+			return true, d.InvalidInput("%v", err)
+		}
 	}
-	c, err := extension.DecidePendingClaim(claim, approve, code)
+	c, err := extension.DecidePendingClaimWith(claim, approve, code, allowed, anyProfile)
 	status := "rejected"
 	if approve {
 		status = "approved"

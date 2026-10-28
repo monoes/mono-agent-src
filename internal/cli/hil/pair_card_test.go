@@ -2,7 +2,10 @@ package hil
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,5 +159,130 @@ func TestHILPairCardCodeInEditableFieldAndHostileLabel(t *testing.T) {
 	}
 	if left, _ := extension.ListPendingClaims(); len(left) != 0 {
 		t.Fatalf("claim still waiting: %+v", left)
+	}
+}
+
+// pairCardFixture files a pairing card in profile "default" and returns what a test needs to decide it.
+func pairCardFixture(t *testing.T) (cfg *testConfig, sdb *storage.Database, cardID, code, claimID string) {
+	t.Helper()
+	setHome(t, t.TempDir())
+	cfg = &testConfig{DBPath: newHILTestDB(t), ProfileID: "default"}
+	claim, secret, err := extension.CreatePendingClaim(extension.PendingClaim{Label: "Edge", Origin: "chrome-extension://aaaa", Instance: "edge-instance-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdb, err = storage.NewDatabase(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sdb.Close() })
+	if err := extension.OpenPairCard(context.Background(), sdb.DB, "default", claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := sdb.DB.QueryRow(`SELECT id FROM hil_pending WHERE execution_id = ?`, "extpair:"+claim.ID).Scan(&cardID); err != nil {
+		t.Fatal(err)
+	}
+	return cfg, sdb, cardID, extension.PairCode(claim.ID, secret), claim.ID
+}
+
+// approvedClaim reads the decided claim from the pending file (it stays there until its browser polls).
+func approvedClaim(t *testing.T, id string) extension.PendingClaim {
+	t.Helper()
+	home, _ := os.UserHomeDir()
+	raw, err := os.ReadFile(filepath.Join(home, ".monoagent", "extension.pending.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []extension.PendingClaim
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range list {
+		if c.ID == id {
+			return c
+		}
+	}
+	t.Fatalf("claim %s not in the pending file", id)
+	return extension.PendingClaim{}
+}
+
+func approveCard(t *testing.T, cfg *testConfig, cardID string, data string) error {
+	t.Helper()
+	deps := testDeps(cfg)
+	deps.RequireOperator = func(string) error { return nil }
+	cmd := NewCommand(deps)
+	cmd.SetArgs([]string{"approve", cardID, "--data", data})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	return cmd.Execute()
+}
+
+// The card names the profile whose queue it is in as the profile the browser
+// may run, and says what an empty field means; approving as it stands limits
+// the browser to that profile, with no CLI step for the common one-profile case.
+func TestPairCardPreselectsTheQueuesProfile(t *testing.T) {
+	cfg, sdb, cardID, code, claimID := pairCardFixture(t)
+	var editable, ro string
+	if err := sdb.DB.QueryRow(`SELECT editable_data, readonly_data FROM hil_pending WHERE id = ?`, cardID).Scan(&editable, &ro); err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]string
+	if err := json.Unmarshal([]byte(editable), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if fields["profiles"] == "" {
+		t.Fatalf("the card has no preselected profile: %s", editable)
+	}
+	for _, want := range []string{"profiles field", "any", "can't serve any profile"} {
+		if !strings.Contains(ro, want) {
+			t.Fatalf("card text lacks %q: %s", want, ro)
+		}
+	}
+	fields["code"] = code
+	data, _ := json.Marshal(fields)
+	if err := approveCard(t, cfg, cardID, string(data)); err != nil {
+		t.Fatal(err)
+	}
+	c := approvedClaim(t, claimID)
+	if !c.Restricted || len(c.AllowedProfiles) != 1 || c.AllowedProfiles[0] != "default" || c.Unrestricted {
+		t.Fatalf("approved as shown = %+v", c)
+	}
+}
+
+func TestPairCardProfilesFieldChoices(t *testing.T) {
+	cases := []struct {
+		name, profiles string
+		restricted     bool
+		allowed        []string
+		wantErr        bool
+	}{
+		{"any is an explicit choice", "any", false, nil, false},
+		{"star is any too", "*", false, nil, false},
+		{"empty serves nothing yet", "", true, nil, false},
+		{"several by id", "default, default", true, []string{"default"}, false},
+		{"unknown profile is refused", "ghost", false, nil, true},
+		{"any mixed with a profile is refused", "any, default", false, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _, cardID, code, claimID := pairCardFixture(t)
+			data, _ := json.Marshal(map[string]string{"code": code, "profiles": tc.profiles})
+			err := approveCard(t, cfg, cardID, string(data))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("approved")
+				}
+				if left, _ := extension.ListPendingClaims(); len(left) != 1 {
+					t.Fatalf("a refused choice decided the claim: %+v", left)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := approvedClaim(t, claimID)
+			if c.Restricted != tc.restricted || c.Unrestricted == tc.restricted || strings.Join(c.AllowedProfiles, ",") != strings.Join(tc.allowed, ",") {
+				t.Fatalf("claim = %+v", c)
+			}
+		})
 	}
 }
