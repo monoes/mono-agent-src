@@ -2247,5 +2247,17 @@
     "deleteFailed": "Could not delete {{count}}: {{message}}",
     "dismiss": "Dismiss",
     "mission": "Mission: {{state}}"
+  },
+  "missionToggle": {
+    "label": "Mission",
+    "on": "on",
+    "off": "off",
+    "chip": "Mission",
+    "chipOn": "This chat runs as a mission",
+    "hint": "Run this chat as a mission: the lead plans it and works until you close it",
+    "locked": "This chat is running a mission",
+    "needsAccess": "Missions need coding access or more",
+    "loadFailed": "Could not read the mission setting",
+    "saveFailed": "Could not change the mission setting: {{error}}"
   }
 }

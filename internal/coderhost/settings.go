@@ -41,6 +41,12 @@ type Settings struct {
 	MeshVisible bool   `json:"mesh_visible"`
 	MeshAlias   string `json:"mesh_alias"` // "" = a name made from the project and start time
 	MeshAccept  string `json:"mesh_accept"`
+
+	// Mission: the operator's switch for a mission chat. On, every turn of the
+	// conversation starts as a confirmed mission (the toggle replaces the
+	// mission_propose click). The operator sets it with `settings set --mission`,
+	// which also holds it on while the conversation has an open mission session.
+	Mission bool `json:"mission"`
 }
 
 // AutonomyChoice overrides the preset for one class of gap.
@@ -63,7 +69,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "mission"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {

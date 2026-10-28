@@ -202,13 +202,15 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:  "coder sessions settings set",
 		Short: "Change settings with a JSON object naming only the settings to change (the operator only)",
-		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N]",
+		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N] [--mission on|off]",
 		Flags: `  --patch string       JSON object with the settings to change; a name that is not a setting is refused
   --unattended string  true or false: false turns off the host's own scheduled check-ins for the session (a message you send runs either way)
   --role string        solo, master or child (a child needs --parent: a master with room for it)
   --parent string      The master conversation, with --role child
-  --budget-usd float   The session's spend cap in USD that its children are carved from (0 = none)`,
+  --budget-usd float   The session's spend cap in USD that its children are carved from (0 = none)
+  --mission string     on or off: the chat's Mission toggle. On, every turn is a confirmed mission; it needs coding access or more, and it stays on (off is refused, naming the session) while the chat has an open mission session`,
 		Examples: []string{
+			"monoagentcli --profile work coder sessions settings set <conv> --mission on",
 			`monoagentcli --profile work coder sessions settings set <conv> --patch '{"checkin_minutes": 30, "checkin_limit": 12}'`,
 			"monoagentcli --profile work coder sessions settings set <conv> --role master",
 			"monoagentcli --profile work coder sessions settings set <child> --role child --parent <master>",

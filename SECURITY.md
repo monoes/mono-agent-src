@@ -1687,7 +1687,11 @@ that works a task acts on them. The defences:
   `session approve`, `session resume` and `session budget`: it can open its own plan,
   resume a pause and raise its own budget. That weakness predates sessions and has
   higher stakes with them; the guard stops accidents and injected text, not an agent
-  that works around it on purpose. A session's
+  that works around it on purpose. **The Mission toggle** (`coder sessions settings set --mission on|off`, the `mission`
+  setting) is the operator's: an agent, a master with a session token and `--patch` all get exit 3 (`operator_only`)
+  and nothing is stored. On, every turn of the chat is a confirmed mission (the toggle replaces the card's click, so it
+  is the same trust: the person's word); it needs coding access or more, and it stays on, and cannot be turned
+  off, while the chat has an open (draft, running or paused) mission session. A session's
   goal and a task's acceptance criteria are text an agent wrote and come back
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
   deleted with its profile. A session that has spent its budget hands out no tasks.

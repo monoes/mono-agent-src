@@ -2668,6 +2668,16 @@ monoagentcli --profile work coder host stop                        # the host on
   keeps its status. If the count or the master's settings cannot be
   read (a database error, not just no stored settings) the cap holds, the send is tried again on the next pass
   and the host logs it at most once an hour per master; a stop or pause on a held chat still runs. The autonomy settings are acted on (below). `max_children` and `max_depth` hold when a child is linked.
+- **Mission toggle:** `sessions settings set <conv> --mission on|off` (operator only; an agent or a master with a
+  token is refused, `--patch` included) is the per-chat switch for missions, the `mission` setting. On, every turn of
+  the chat, from the first, is a confirmed mission (`missionConfig`), so the lead gets the mission tools and prompt
+  without proposing; `mission_propose` and `send --mission` still work for chats with it off. It needs coding
+  access or more (`dynorg.MissionAccess`; below that the set is refused and `settings get` says `available:false`).
+  While the chat has an open mission session (draft, running or paused) it stays on: `--mission off` and
+  `--patch '{"mission":false}'` are refused with the session id and the way out (`task session stop|close <id>`;
+  pausing keeps it open). `settings get` has a `mission` object `{on, locked, sessionId, available, reason}`; an open
+  session reads as on and locked even when the flag was never set. The desktop coder pane header shows the switch
+  (disabled with the reason when locked or below access) and a `Mission` chip while it is on.
 - **Masters and children:** `sessions settings set <conv> --role master`, then `--role child --parent <master>`
   for each child (the master must be a master with room under its `max_children`; depth is 2; a session with
   children cannot change role).

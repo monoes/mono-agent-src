@@ -99,6 +99,7 @@ func TestMasterVerbsSpawnAndControlOnlyDescendantsWithTheSessionToken(t *testing
 		{"send", kid, "x", "--mission"}, {"send", kid, "x", "--attach", "/etc/passwd"}, // a master's send is no mission
 		{"settings", "set", kid, "--patch", `{"max_children":9}`}, {"settings", "set", kid, "--patch", `{"mesh_accept":"project"}`}, // operator-only settings
 		{"settings", "set", kid, "--role", "solo"}, {"settings", "set", kid, "--unattended", "false"}, {"settings", "set", kid, "--budget-usd", "5"},
+		{"settings", "set", kid, "--mission", "on"}, {"settings", "set", kid, "--mission", "off"}, {"settings", "set", kid, "--patch", `{"mission":true}`}, // the mission toggle is the operator's
 	} {
 		if out, code := runSessionsCLI(t, m.cfg, args...); code == 0 {
 			t.Errorf("%v was allowed: %s", args, out)
