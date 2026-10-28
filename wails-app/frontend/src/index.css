@@ -2130,3 +2130,22 @@ body.tb-dragging, body.tb-dragging * { cursor: grabbing !important; user-select:
 .startup-overlay__fill { height: 100%; width: 40%; border-radius: 2px; background: var(--cyan); animation: startup-slide 1.2s ease-in-out infinite; }
 .startup-overlay__quip { margin-top: 16px; min-height: 1.4em; color: var(--cyan-dim); font-size: 13px; }
 @keyframes startup-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+
+/* Task sessions: the tree strip, New session form and rename (tokens only). */
+.ts-switcher { flex-wrap: wrap; }
+.ts-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-inline-start: auto; }
+.ts-tree { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.ts-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--radius); color: var(--text); font-size: 12.5px; cursor: pointer; min-width: 0; flex-wrap: wrap; }
+.ts-row:hover { border-color: var(--border-bright); }
+.ts-row.is-selected { border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-glow); }
+.ts-row:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.ts-row-twisty { flex: 0 0 14px; width: 14px; padding: 0; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 11px; cursor: pointer; }
+.ts-row .ts-tab-title { flex: 0 1 auto; min-width: 0; }
+.ts-by { color: var(--text-secondary); }
+.ts-new { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); max-width: 480px; }
+.ts-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.ts-field .input { width: 100%; box-sizing: border-box; }
+.ts-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.ts-form-error { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--red, var(--text)); }
+.ts-rename { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ts-rename .input { min-width: 140px; max-width: 260px; }
