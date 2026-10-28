@@ -237,7 +237,11 @@ func closedUnlessChanged(res sql.Result, err error, id string) error {
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n != 1 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
 		return fmt.Errorf("aitask: task %s is not live: nothing was written", id)
 	}
 	return nil
