@@ -136,3 +136,95 @@ echo "aws=${AWS_SECRET_ACCESS_KEY:-unset}"
 		t.Error("autostart entry was created on the host")
 	}
 }
+
+func symlinkedHome(t *testing.T) (link, real string) {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real = filepath.Join(base, "volume", "me")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link = filepath.Join(base, "home")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	return link, real
+}
+
+func TestSeatbeltProfileNamesResolvedHome(t *testing.T) {
+	link, real := symlinkedHome(t)
+	out, err := seatbeltProfile(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{link, real} {
+		for _, w := range []string{`(subpath "` + p + `/.monoagent")`, `(subpath "` + p + `/Library/Keychains")`,
+			`(literal "` + p + `/.netrc")`, `(subpath "` + p + `/Library/LaunchAgents")`, `(literal "` + p + `/.zshrc")`} {
+			if !strings.Contains(out, w) {
+				t.Errorf("profile lacks %s:\n%s", w, out)
+			}
+		}
+	}
+}
+
+func TestSeatbeltProfileResolvesListedSymlink(t *testing.T) {
+	link, real := symlinkedHome(t)
+	elsewhere := filepath.Join(filepath.Dir(real), "keys")
+	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(real, ".ssh")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := seatbeltProfile(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{`(subpath "` + real + `/.ssh")`, `(subpath "` + elsewhere + `")`} {
+		if !strings.Contains(out, w) {
+			t.Errorf("profile lacks %s:\n%s", w, out)
+		}
+	}
+	_ = link
+}
+
+func TestSeatbeltProfileMissingHomeAndDeterministic(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "not", "there")
+	a, err := seatbeltProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := seatbeltProfile(home)
+	if a != b {
+		t.Error("profile is not deterministic")
+	}
+	if strings.Count(a, `"`+home+`/.ssh"`) != 1 {
+		t.Errorf("rule not emitted exactly once for an unresolvable-different path:\n%s", a)
+	}
+	if _, err := seatbeltProfile("relative/home"); err == nil {
+		t.Error("a relative HOME must be refused")
+	}
+}
+
+func TestSeatbeltProfileQuoting(t *testing.T) {
+	home := filepath.Join(t.TempDir(), `we"ird\dir`)
+	out, err := seatbeltProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.ReplaceAll(strings.ReplaceAll(home, `\`, `\\`), `"`, `\"`)
+	if !strings.Contains(out, `(subpath "`+want+`/.ssh")`) {
+		t.Errorf("path not escaped:\n%s", out)
+	}
+	if strings.Contains(out, `"`+home) {
+		t.Errorf("raw quote leaked:\n%s", out)
+	}
+	for _, bad := range []string{"/tmp/a\nb", "/tmp/a\rb", "/tmp/a\x00b"} {
+		if _, err := seatbeltProfile(bad); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+}

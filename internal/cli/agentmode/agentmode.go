@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -83,7 +84,11 @@ func Profile(rt Runtime) (string, error) {
 	case Bwrap:
 		return bwrapProfile(), nil
 	case Seatbelt:
-		return seatbeltProfile(), nil
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("seatbelt profile: cannot find HOME: %w", err)
+		}
+		return seatbeltProfile(home)
 	case ClaudeCode:
 		return claudeCodeProfile, nil
 	}

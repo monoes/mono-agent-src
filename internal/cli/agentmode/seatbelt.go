@@ -1,0 +1,144 @@
+package agentmode
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+)
+
+// seatbeltEntry is one home-relative location of the macOS profile.
+type seatbeltEntry struct {
+	path   string
+	subdir bool // subpath (the tree below) rather than literal (this path only)
+}
+
+// seatbeltDenyAll are the locations whose reads and writes the profile denies.
+var seatbeltDenyAll = []seatbeltEntry{
+	{".monoagent", true}, {"Library/Keychains", true}, {".ssh", true}, {".aws", true},
+	{".config/gh", true}, {".git-credentials", false}, {".netrc", false},
+}
+
+// seatbeltWriteDeny are home paths the profile makes unwritable (persistence).
+var seatbeltWriteDeny = []seatbeltEntry{
+	{"Library/LaunchAgents", true},
+	{".bashrc", false}, {".bash_profile", false}, {".profile", false},
+	{".zshrc", false}, {".zprofile", false}, {".zshenv", false},
+}
+
+// resolveExisting is filepath.EvalSymlinks for a path that may not exist yet: the longest
+// existing parent is resolved and the missing rest appended.
+func resolveExisting(p string) string {
+	rest := ""
+	for cur := p; ; {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
+}
+
+// seatbeltQuote returns s as a seatbelt string literal. Seatbelt matches resolved paths,
+// and a quote, backslash or control character must not end the string early: the first
+// two are escaped, control characters (newline included) are refused.
+func seatbeltQuote(s string) (string, error) {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("seatbelt profile: path %q contains a control character", s)
+		}
+	}
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`, nil
+}
+
+// seatbeltRules renders one rule line per distinct spelling of every entry: the path as
+// named under home and the one it resolves to, in list order.
+func seatbeltRules(home string, entries []seatbeltEntry) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		given := filepath.Join(home, e.path)
+		for _, p := range []string{given, resolveExisting(given)} {
+			kind := "literal"
+			if e.subdir {
+				kind = "subpath"
+			}
+			q, err := seatbeltQuote(p)
+			if err != nil {
+				return nil, err
+			}
+			rule := "(" + kind + " " + q + ")"
+			if !seen[rule] {
+				seen[rule] = true
+				out = append(out, "  "+rule)
+			}
+		}
+	}
+	return out, nil
+}
+
+// seatbeltProfile renders the macOS profile for home. Seatbelt matches resolved paths, so
+// a HOME or a listed location reached through a symlink is named by both spellings.
+func seatbeltProfile(home string) (string, error) {
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("seatbelt profile: HOME %q is not an absolute path", home)
+	}
+	homes := []string{filepath.Clean(home)}
+	if r := resolveExisting(homes[0]); r != homes[0] {
+		homes = append(homes, r)
+	}
+	var all, write []string
+	for _, h := range homes {
+		a, err := seatbeltRules(h, seatbeltDenyAll)
+		if err != nil {
+			return "", err
+		}
+		w, err := seatbeltRules(h, seatbeltWriteDeny)
+		if err != nil {
+			return "", err
+		}
+		all, write = append(all, a...), append(write, w...)
+	}
+	all, write = dedupe(all), dedupe(write)
+	var b strings.Builder
+	b.WriteString(`;; monoagentcli agent-mode sandbox --runtime seatbelt
+;; Usage: sandbox-exec -f this-file COMMAND [ARGS...]
+;; Written for one HOME: the paths below are that HOME and the location it resolves to, as
+;; macOS matches resolved paths. Print the profile again if HOME changes.
+;; Best effort, not a boundary. Denies read and write of mono-agent's state, the keychain
+;; files, ~/.ssh, ~/.aws, ~/.config/gh, ~/.git-credentials and ~/.netrc, the Mach services
+;; that hand out keychain items (which is what /usr/bin/security talks to), and write of
+;; ~/Library/LaunchAgents and the shell startup files.
+;; Everything else, loopback networking included, stays as it is. The file rules are run
+;; against a real sandbox-exec by TestSeatbeltRealRun on macOS (skipped elsewhere); the
+;; Mach service names are not exercised: check them on your macOS version with:
+;; log stream --predicate 'sender == "Sandbox"' while the agent runs.
+(version 1)
+(allow default)
+(deny file-read* file-write*
+`)
+	b.WriteString(strings.Join(all, "\n") + ")\n(deny file-write*\n")
+	b.WriteString(strings.Join(write, "\n") + ")\n")
+	b.WriteString(`(deny mach-lookup
+  (global-name "com.apple.SecurityServer")
+  (global-name "com.apple.securityd")
+  (global-name "com.apple.secd"))
+`)
+	return b.String(), nil
+}
+
+func dedupe(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}

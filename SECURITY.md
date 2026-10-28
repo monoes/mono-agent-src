@@ -274,7 +274,7 @@ supported way to run a coding agent that you do not fully trust:
    (`--runtime seatbelt`, `sandbox-exec`) denies reading and writing `~/.monoagent`,
    `~/Library/Keychains`, `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.git-credentials` and `~/.netrc`, denies
    looking up the keychain Mach services, and denies writing `~/Library/LaunchAgents` and the shell
-   startup files; everything else stays as it is. It has not been run on a Mac by the authors.
+   startup files; everything else stays as it is. The profile names each location by the path you give and by the one it resolves to (macOS matches resolved paths), so print it again if HOME changes. The file rules have a macOS-only test against `sandbox-exec`; the Mach service names have not been run on a Mac by the authors.
    `--runtime claude-code` prints Claude Code's own sandbox settings.
 2. The agent does not run `monoagentcli` as you. It calls the daemon's HTTP API
    (`127.0.0.1:9322`, `/profiles/{profile}/...`) with a token that opens that one
