@@ -7,13 +7,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zalando/go-keyring"
+
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/tasks"
 	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 )
 
-func TestMain(m *testing.M) { testhome.Main(m) }
+// Tests never touch the real ~/.monoagent or the OS keychain.
+func TestMain(m *testing.M) {
+	keyring.MockInit()
+	testhome.Main(m)
+}
 
 func TestResolve(t *testing.T) {
 	db := testdb.Open(t).DB
