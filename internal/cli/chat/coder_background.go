@@ -409,13 +409,16 @@ func learnTurnMarker(ctx context.Context, runner int) string {
 // rounds at most). With stopIfActive false it stops nothing while a turn is active (active is
 // true): the caller's delete is refused then anyway.
 func stopConversationBackground(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (backgroundStop, bool, error) {
-	res, active, _, err := stopConversationBackgroundSeen(store, profileID, conversationID, stopIfActive)
+	res, active, _, err := stopConversationBackgroundSeen(store, profileID, conversationID, stopIfActive, nil)
 	return res, active, err
 }
 
 // stopConversationBackgroundSeen is stopConversationBackground and the records it handled (with the
 // command text cleared), for a caller that checks no other was recorded since.
-func stopConversationBackgroundSeen(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (res backgroundStop, active bool, seen map[chatevents.ProcessRef]bool, err error) {
+//
+// authorize, when set, is asked right before the first signal of a pass that has something to stop;
+// an error from it ends the pass with nothing signalled, so a refusal never follows a stop.
+func stopConversationBackgroundSeen(store *ai.AIStore, profileID, conversationID string, stopIfActive bool, authorize func() error) (res backgroundStop, active bool, seen map[chatevents.ProcessRef]bool, err error) {
 	res = backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
 	seen = map[chatevents.ProcessRef]bool{}
 	for round := 0; round < 3; round++ {
@@ -437,6 +440,11 @@ func stopConversationBackgroundSeen(store *ai.AIStore, profileID, conversationID
 		}
 		if len(fresh) == 0 {
 			return res, active, seen, nil
+		}
+		if authorize != nil {
+			if err := authorize(); err != nil {
+				return res, active, seen, err
+			}
 		}
 		stop := stopBackground(fresh, 3*time.Second)
 		res.Stopped = append(res.Stopped, stop.Stopped...)

@@ -312,7 +312,10 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						return err
 					}
 				}
-				stop, active, seen, err := stopConversationBackgroundSeen(store, profileID, args[0], false)
+				afterSessionList()
+				stop, active, seen, err := stopConversationBackgroundSeen(store, profileID, args[0], false, func() error {
+					return clicore.RequireOperator(cfg.RequireOperator, "delete a conversation whose turns left processes running (deleting it stops them)")
+				})
 				if err != nil {
 					return err
 				}
@@ -341,7 +344,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 					continue
 				}
 				if errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened) {
-					return clicore.InvalidInput("the conversation keeps recording processes its turns leave running: try again once it is quiet")
+					return clicore.InvalidInput("the conversation keeps recording processes its turns leave running, so it was not deleted (%d process(es) were stopped so far): try again once it is quiet", len(stopped))
 				}
 				if err != nil {
 					return chatStoreErr(err)
@@ -475,6 +478,9 @@ func setOrgMode(cfg *Deps, id, mode string) (ai.Conversation, error) {
 	conv.OrgMode = mode
 	return conv, nil
 }
+
+// afterSessionList is a seam for tests: it runs after the delete has listed the conversation's open sessions.
+var afterSessionList = func() {}
 
 // beforeGuardedDelete is a seam for tests: it runs between stopping a conversation's processes and the delete.
 var beforeGuardedDelete = func() {}

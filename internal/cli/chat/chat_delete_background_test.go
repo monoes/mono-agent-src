@@ -606,3 +606,51 @@ func TestAgentMayDeleteAConversationThatNeverLedAMission(t *testing.T) {
 		t.Fatalf("an agent's delete: %v\n%s", err, out)
 	}
 }
+
+// Deleting a conversation stops the processes its turns left running: that is the operator's. An
+// agent's delete is refused before any signal is sent, so a refusal can never come after a process
+// was already stopped.
+func TestAgentDeleteOfAConversationWithRecordedProcessesIsRefusedBeforeAnySignal(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+
+	out, err := r.history(t, errNotOperator, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("a refused delete stopped a process")
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation is gone: %v", err)
+	}
+}
+
+// A mission opened between the session list and the process stop does not let an agent's delete
+// stop anything: the stop asks for the operator itself, before the first signal.
+func TestAgentDeleteStopsNothingWhenAMissionOpensBeforeTheStop(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	var ts *tasks.Store
+	var id int64
+	afterSessionList = func() {
+		if ts == nil {
+			ts, id = r.leadSession(t, c.ID)
+		}
+	}
+	t.Cleanup(func() { afterSessionList = func() {} })
+
+	if out, err := r.history(t, errNotOperator, "delete", c.ID); err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("the agent's refused delete stopped a process")
+	}
+	if ts == nil || sessionState(t, ts, id) != tasks.SessionRunning {
+		t.Error("the mission opened meanwhile was touched")
+	}
+}
