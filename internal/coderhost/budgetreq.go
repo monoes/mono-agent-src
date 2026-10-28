@@ -83,7 +83,15 @@ func scanBudgetRequest(r interface{ Scan(...any) error }) (BudgetRequest, error)
 	return b, err
 }
 
-func validUSD(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }
+// MinBudgetRequestUSD is the smallest amount worth asking for or granting.
+const MinBudgetRequestUSD = 0.01
+
+func validUSD(v float64) bool {
+	return v >= MinBudgetRequestUSD-1e-12 && !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+// micro is an amount in whole millionths of a dollar: money is compared in integers, without a tolerance.
+func micro(v float64) int64 { return int64(math.Round(v * 1e6)) }
 
 // RequestBudget files the lead's request. target is TargetLead (taskID ignored) or TargetChild (the task of
 // one of its running child sessions). It returns the request; the person sees it as an item.
@@ -96,7 +104,7 @@ func (s *Store) RequestBudget(sc CallerScope, profileID string, sessionID int64,
 		return BudgetRequest{}, err
 	}
 	if !validUSD(amountUSD) || amountUSD > MaxBudgetRequestUSD {
-		return BudgetRequest{}, fmt.Errorf("%w: ask for an amount above 0 and at most $%.0f", ErrInvalid, MaxBudgetRequestUSD)
+		return BudgetRequest{}, fmt.Errorf("%w: ask for at least $%.2f and at most $%.0f", ErrInvalid, MinBudgetRequestUSD, MaxBudgetRequestUSD)
 	}
 	if s.sessionStopped(profileID, lead.Caller.ConversationID) {
 		return BudgetRequest{}, fmt.Errorf("%w: the session is stopped", ErrInvalid)
@@ -196,6 +204,9 @@ func (s *Store) budgetRequestOpen(q querier, b BudgetRequest) bool {
 		State(tstate) == StateStopped || math.Abs(tbudget-b.BudgetUSD) > 1e-9 {
 		return false
 	}
+	if b.Target == TargetLead && b.TargetConversationID != b.LeadConversationID {
+		return false
+	}
 	if b.Target == TargetChild {
 		c, found, err := s.childIn(q, b.ProfileID, b.SessionID, b.TaskID)
 		if err != nil || !found || c.State != ChildSpawned || c.ChildConversationID != b.TargetConversationID {
@@ -218,7 +229,7 @@ func (s *Store) openRowOf(q querier, profileID, target string) (BudgetRequest, e
 func (s *Store) openBudgetItems(profileID string) ([]PersonItem, error) {
 	rows, err := s.db.Query(`SELECT i.id, i.conversation_id, i.ref_id, i.created_at FROM coder_session_person_items i
 		JOIN coder_budget_requests r ON r.id = i.ref_id AND r.profile_id = i.profile_id
-		WHERE i.profile_id = ? AND i.kind = ? AND r.status = 'open' ORDER BY i.id LIMIT ?`, profileID, ItemBudgetRequest, listLimitMax)
+		WHERE i.profile_id = ? AND i.kind = ? AND r.status = 'open' ORDER BY i.id`, profileID, ItemBudgetRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +251,9 @@ func (s *Store) openBudgetItems(profileID string) ([]PersonItem, error) {
 	for _, it := range cand {
 		b, err := s.GetBudgetRequest(profileID, it.RefID)
 		if err == nil && b.Open {
-			out = append(out, it)
+			if out = append(out, it); len(out) == listLimitMax {
+				break
+			}
 		}
 	}
 	return out, nil
@@ -265,7 +278,11 @@ func (s *Store) budgetRequestIn(q querier, profileID string, id int64) (BudgetRe
 
 // ListBudgetRequests lists the profile's requests, newest first; onlyOpen keeps those waiting for the person now.
 func (s *Store) ListBudgetRequests(profileID string, onlyOpen bool) ([]BudgetRequest, error) {
-	rows, err := s.db.Query(`SELECT `+budgetRequestColumns+` FROM coder_budget_requests WHERE profile_id = ? ORDER BY id DESC LIMIT ?`, profileID, listLimitMax)
+	where := ``
+	if onlyOpen {
+		where = ` AND status = 'open'` // the open rows are filtered by what is derived, then limited below
+	}
+	rows, err := s.db.Query(`SELECT `+budgetRequestColumns+` FROM coder_budget_requests WHERE profile_id = ?`+where+` ORDER BY id DESC`, profileID)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +303,7 @@ func (s *Store) ListBudgetRequests(profileID string, onlyOpen bool) ([]BudgetReq
 	out := []BudgetRequest{}
 	for _, b := range all {
 		b.Open = s.budgetRequestOpen(s.db, b)
-		if !onlyOpen || b.Open {
+		if (!onlyOpen || b.Open) && len(out) < listLimitMax {
 			out = append(out, b)
 		}
 	}
@@ -308,8 +325,8 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	if err := operatorOnly(sc); err != nil {
 		return BudgetRequest{}, err
 	}
-	if usd < 0 || math.IsNaN(usd) || math.IsInf(usd, 0) {
-		return BudgetRequest{}, fmt.Errorf("%w: the amount must be a number above 0", ErrInvalid)
+	if usd != 0 && !validUSD(usd) {
+		return BudgetRequest{}, fmt.Errorf("%w: grant at least $%.2f", ErrInvalid, MinBudgetRequestUSD)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -327,7 +344,7 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	if usd == 0 {
 		usd = b.AmountUSD
 	}
-	if usd > b.AmountUSD+1e-9 {
+	if micro(usd) > micro(b.AmountUSD) {
 		return BudgetRequest{}, fmt.Errorf("%w: that is more than was asked ($%.2f)", ErrInvalid, b.AmountUSD)
 	}
 	now := s.stamp()
@@ -358,25 +375,37 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	return b, nil
 }
 
-// budgetRaiseRefusal says why the target's budget may not rise by usd, or "". A child's raise has to fit what its
-// lead has left to carve and the mission's budget; the raise of a lead that is itself a child, what its own master
-// has left. The root lead's budget is the person's to set, so a grant of what was asked is theirs alone.
+// budgetRaiseRefusal says why the target's budget may not rise by usd, or "". It holds the limits a carve holds
+// (roomIn): a child's raise has to fit the mission's budget, the share of the lead's remaining budget the policy
+// allows and what the lead has left, counting the caps its children hold and what it has reserved for children
+// that are still starting. The raise of a lead that is itself a child has to fit what its own master has left.
+// The raise of a root lead (no master) is the person's own allowance: it is not checked against the mission's
+// budget (task_sessions.budget_usd), which it does not raise and which is not a total cap over the lead's own
+// session.
 func (s *Store) budgetRaiseRefusal(q querier, b BudgetRequest, usd float64) (string, error) {
 	holder := "" // the session whose budget the raised cap is carved from
+	share := 100
 	if b.Target == TargetChild {
 		holder = b.LeadConversationID
 		if why, err := missionBudgetRefusal(q, b.ProfileID, b.SessionID, b.LeadConversationID, usd); err != nil || why != "" {
 			return why, err
 		}
+		pol, err := s.policyIn(q, b.ProfileID, b.SessionID)
+		if err != nil {
+			return "", err
+		}
+		share = pol.SharePct
 	} else if err := q.QueryRow(`SELECT parent_conversation_id FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, b.ProfileID, b.TargetConversationID).Scan(&holder); err != nil {
 		return "", err
 	}
 	if holder == "" {
 		return "", nil
 	}
-	var budget, carved float64
-	if err := q.QueryRow(`SELECT budget_usd, (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
-		FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, b.ProfileID, holder, b.ProfileID, holder).Scan(&budget, &carved); err != nil {
+	var budget, carved, reserved float64
+	if err := q.QueryRow(`SELECT budget_usd,
+		(SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?),
+		(SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')
+		FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, b.ProfileID, holder, b.ProfileID, holder, b.ProfileID, holder).Scan(&budget, &carved, &reserved); err != nil {
 		return "", err
 	}
 	if budget <= 0 {
@@ -386,8 +415,9 @@ func (s *Store) budgetRaiseRefusal(q querier, b BudgetRequest, usd float64) (str
 	if err != nil {
 		return "", err
 	}
-	if carved+usd > budget-spent+1e-9 {
-		return fmt.Sprintf("the raise would pass what the session it is carved from has left ($%.2f budget, $%.2f spent, $%.2f held by its children)", budget, spent, carved), nil
+	left := budget - spent
+	if held := carved + reserved + usd; held > left+1e-9 || held > float64(share)/100*left+1e-9 {
+		return fmt.Sprintf("the raise would pass what the session it is carved from can hand out ($%.2f budget, $%.2f spent, $%.2f held by its children, $%.2f reserved, %d%% share)", budget, spent, carved, reserved, share), nil
 	}
 	return "", nil
 }

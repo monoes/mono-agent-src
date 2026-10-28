@@ -1990,11 +1990,16 @@ no `task_id` = its own session budget, a `task_id` = the cap of that running chi
 It raises nothing: the request is a person item (kind `budget_request`, shown with the other items that need you) that
 waits with no timeout, no default and no master. One request may be open per session, a lead may file three an
 hour and twelve per mission. Only the operator answers: `coder sessions budget list [--open]`, `grant <id> [--usd N]`
-(at most what was asked, once, on exactly the session the request names, and only if what it is carved from, the lead's
-remaining budget and the mission's budget, still covers it; otherwise the request stays open and a smaller `--usd` may
-fit) and `decline <id>`. All three refuse any process that holds a coder session token or a mission binding. A
-request whose mission is archived or finished, whose lead or session is stopped or gone, or whose target budget changed since it was filed, is no longer open and
-cannot be granted. A pending request changes nothing else and starts no turn.
+(at most what was asked, in whole cents, once, on exactly the session the request names; a child's raise has to fit
+the same limits a carve fits: the mission's budget, the policy's share of the lead's remaining budget and what the lead
+has left, counting its children's caps and what it has reserved for children still starting; otherwise the request stays
+open and a smaller `--usd` may fit) and `decline <id>`. All three refuse a process that holds a coder session token or a
+mission binding (a courtesy check on the environment and the CLI's operator check, not a barrier against a same-user
+process that can edit the database). A request whose mission is archived or finished, whose lead or session is stopped
+or gone, or whose target's budget changed since it was filed, is void for good: it cannot be granted or declined, even
+if the numbers come back. A grant on a root lead's own budget (a lead with no master) is the person's allowance: it
+does not raise the task-session mission budget, and that mission budget is not a total cap over the lead's own
+session. A pending request changes nothing else and starts no turn.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The

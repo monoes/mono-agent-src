@@ -487,6 +487,10 @@ func splitStatements(sql string) []string {
 
 		if ch == ';' && !inSingleQuote {
 			stmt := strings.TrimSpace(current.String())
+			if inTriggerBody(stmt) {
+				current.WriteRune(ch) // a ';' inside CREATE TRIGGER ... BEGIN ... END ends a body statement, not the trigger
+				continue
+			}
 			if stmt != "" {
 				statements = append(statements, stmt)
 			}
@@ -503,6 +507,21 @@ func splitStatements(sql string) []string {
 	}
 
 	return statements
+}
+
+// inTriggerBody says whether stmt, the text before a ';', is a CREATE TRIGGER that has not reached its closing END.
+func inTriggerBody(stmt string) bool {
+	var code []string // the statement without its comment lines
+	for _, line := range strings.Split(stmt, "\n") {
+		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "--") {
+			code = append(code, t)
+		}
+	}
+	up := strings.ToUpper(strings.Join(code, " "))
+	if !strings.HasPrefix(up, "CREATE TRIGGER") && !strings.HasPrefix(up, "CREATE TEMP TRIGGER") && !strings.HasPrefix(up, "CREATE TEMPORARY TRIGGER") {
+		return false
+	}
+	return !(up == "END" || strings.HasSuffix(up, " END"))
 }
 
 // truncate shortens a string to at most n characters, appending "..." if truncated.

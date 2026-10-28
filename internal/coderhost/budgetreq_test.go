@@ -82,20 +82,20 @@ func (f *mcFix) requests(t *testing.T, onlyOpen bool) []BudgetRequest {
 
 func TestBudgetGrantAppliesToTheRequestedTargetOnly(t *testing.T) {
 	f, child := budgetFix(t)
-	b := f.ask(t, TargetChild, 3)
-	got, err := f.st.GrantBudget(OperatorScope{}, "p", b.ID, 2) // less than asked: exactly that
-	if err != nil || got.GrantedUSD != 2 || got.Status != BudgetRequestGranted {
+	b := f.ask(t, TargetChild, 1.5)
+	got, err := f.st.GrantBudget(OperatorScope{}, "p", b.ID, 1) // less than asked: exactly that
+	if err != nil || got.GrantedUSD != 1 || got.Status != BudgetRequestGranted {
 		t.Fatalf("grant = %+v, %v", got, err)
 	}
-	if f.capOf(t, child) != 6 || f.capOf(t, f.lead.ConversationID) != 10 {
-		t.Fatalf("child %v lead %v, want 6 and 10", f.capOf(t, child), f.capOf(t, f.lead.ConversationID))
+	if f.capOf(t, child) != 5 || f.capOf(t, f.lead.ConversationID) != 10 {
+		t.Fatalf("child %v lead %v, want 5 and 10", f.capOf(t, child), f.capOf(t, f.lead.ConversationID))
 	}
 	b2 := f.ask(t, TargetLead, 1.5)
 	if _, err := f.st.GrantBudget(OperatorScope{}, "p", b2.ID, 0); err != nil {
 		t.Fatal(err)
 	}
-	if f.capOf(t, f.lead.ConversationID) != 11.5 || f.capOf(t, child) != 6 {
-		t.Fatalf("lead %v child %v, want 11.5 and 6", f.capOf(t, f.lead.ConversationID), f.capOf(t, child))
+	if f.capOf(t, f.lead.ConversationID) != 11.5 || f.capOf(t, child) != 5 {
+		t.Fatalf("lead %v child %v, want 11.5 and 5", f.capOf(t, f.lead.ConversationID), f.capOf(t, child))
 	}
 }
 
@@ -154,8 +154,9 @@ func TestBudgetGrantRacesGrantOnce(t *testing.T) {
 
 func TestBudgetGrantStaysInsideTheLeadsRoom(t *testing.T) {
 	f, child := budgetFix(t) // lead $10, child cap $4 carved
-	f.spend(t, f.lead.ConversationID, 5)
-	b := f.ask(t, TargetChild, 3) // $4 held + $3 > $10 - $5 spent
+	f.setPolicy(t, OperatorScope{}, PolicyPatch{SharePct: ip(80)})
+	f.spend(t, f.lead.ConversationID, 2) // $8 left: 80% is $6.4 and $4 is held
+	b := f.ask(t, TargetChild, 3)        // $4 held + $3 > $10 - $5.5 spent
 	_, err := f.st.GrantBudget(OperatorScope{}, "p", b.ID, 0)
 	if !errors.Is(err, ErrLimit) {
 		t.Fatalf("grant past the lead's room: %v", err)
@@ -166,7 +167,7 @@ func TestBudgetGrantStaysInsideTheLeadsRoom(t *testing.T) {
 	if got, _ := f.st.GetBudgetRequest("p", b.ID); got.Status != BudgetRequestOpen || !got.Open {
 		t.Fatalf("a refused grant closed the request: %+v", got)
 	}
-	if _, err := f.st.GrantBudget(OperatorScope{}, "p", b.ID, 1); err != nil { // $5 held fits $10 - $5
+	if _, err := f.st.GrantBudget(OperatorScope{}, "p", b.ID, 2); err != nil { // $6 fits $6.4
 		t.Fatalf("a smaller grant: %v", err)
 	}
 }
@@ -329,9 +330,6 @@ func TestPendingBudgetRequestDoesNotStopTheMission(t *testing.T) {
 	f.ask(t, TargetLead, 1)
 	if after := f.world(t); after != before {
 		t.Fatalf("a pending request changed the mission:\nbefore %s\nafter  %s", before, after)
-	}
-	if _, err := f.st.db.Exec(`UPDATE coder_budget_requests SET created_at = '2000-01-01T00:00:00Z'`); err != nil {
-		t.Fatal(err)
 	}
 	f.st.now = func() time.Time { return time.Now().Add(1000 * time.Hour) }
 	if got := f.requests(t, true); len(got) != 2 {
