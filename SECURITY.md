@@ -251,7 +251,7 @@ supported way to run a coding agent that you do not fully trust:
 
 1. Print a sandbox profile and start the agent inside it. On Linux there are two bwrap profiles:
    `monoagentcli agent-mode sandbox --runtime bwrap --strict > agent-sandbox.sh`, then run
-   `sh agent-sandbox.sh claude` from the project directory. **Strict is the supported separation.**
+   `sh agent-sandbox.sh claude` from the project directory. **Strict is the stronger of the two profiles, best-effort hardening rather than isolation.**
    The filesystem is read-only; `$HOME`, `/tmp`, `/var/tmp` and `/run` are empty in-memory mounts;
    only the current directory, the agent runtimes' own config (`~/.claude`, `~/.codex`,
    `~/.config/opencode`, `~/.gemini`, `~/.config/github-copilot`, which hold their logins) and paths
@@ -263,6 +263,7 @@ supported way to run a coding agent that you do not fully trust:
    its own pid and IPC namespaces and session, no capabilities, and a cleared environment with
    an allowlist (`PATH`, `HOME`, the `MONOAGENT_API_*` variables and the runtimes' API-key and
    config-directory variables), so `SSH_AUTH_SOCK` and cloud credentials are not passed on.
+   Strict is not isolation either: the agent shares the host network (services on loopback and abstract unix sockets stay reachable) and the host root is mounted read-only, so files outside the locations the profile names (backup copies, other mounts) stay readable. Masking is by path, not by file identity: a hard link to a protected file made elsewhere stays readable.
    What stays writable outlives the sandbox: a git hook or editor task inside the current
    directory, and a hooks or settings change inside a runtime's config directory.
    `--compat` (the default for now, and what `--runtime bwrap` prints without `--strict`) keeps the whole

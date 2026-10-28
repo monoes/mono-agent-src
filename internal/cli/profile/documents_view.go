@@ -122,7 +122,9 @@ func (deps Deps) newProfileDocumentsCaptureCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "capture <id>",
 		Short: "Show a browser capture's parts: readable text, screenshot, summary, transcript",
-		Args:  cobra.ExactArgs(1),
+		Long: "Shows a capture's parts. The text can be long: to find something in it run `profile search-knowledge \"<query>\"` first,\n" +
+			"or read the text in sections instead of cutting it off.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d, err := deps.getProfileDocument(cmd, args[0])
 			if err != nil {

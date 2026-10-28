@@ -60,11 +60,14 @@ type Context struct {
 	Accounts  []Account `json:"accounts"`
 	Tasks     Section   `json:"tasks"`
 	Documents Section   `json:"documents"`
-	People    Section   `json:"people"`
-	Workflows Section   `json:"workflows"`
-	Orgs      Section   `json:"orgs"`
-	Vault     Section   `json:"vault"` // names only
-	Extension Extension `json:"extension"`
+	// SecondBrain counts the profile's captured pages and documents that are
+	// indexed for `profile search-knowledge`.
+	SecondBrain int       `json:"second_brain"`
+	People      Section   `json:"people"`
+	Workflows   Section   `json:"workflows"`
+	Orgs        Section   `json:"orgs"`
+	Vault       Section   `json:"vault"` // names only
+	Extension   Extension `json:"extension"`
 }
 
 // Options tunes Build. The zero value lists DefaultRecent items per section
@@ -95,6 +98,7 @@ func Build(ctx context.Context, db *sql.DB, profileID string, opts Options) (*Co
 	c.Tasks = tasksSection(ctx, db, profileID, n)
 	c.Documents = section(ctx, db, `SELECT COUNT(*) FROM vault_documents WHERE profile_id = ?`,
 		`SELECT filename FROM vault_documents WHERE profile_id = ? ORDER BY created_at DESC, seq DESC LIMIT ?`, profileID, n)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vault_documents WHERE profile_id = ? AND indexed = 1`, profileID).Scan(&c.SecondBrain)
 	c.People = section(ctx, db, `SELECT COUNT(*) FROM people WHERE profile_id = ?`,
 		`SELECT COALESCE(NULLIF(full_name, ''), platform_username) || ' (' || platform || ')' FROM people WHERE profile_id = ? ORDER BY updated_at DESC LIMIT ?`, profileID, n)
 	c.Workflows = section(ctx, db, `SELECT COUNT(*) FROM workflows WHERE profile_id = ?`,
@@ -265,6 +269,9 @@ func (c *Context) Block() string {
 	}
 	line(&b, "Tasks", c.Tasks, "`monoagentcli task`")
 	line(&b, "Documents", c.Documents, "`monoagentcli profile documents`")
+	if c.SecondBrain > 0 {
+		fmt.Fprintf(&b, "- Second brain: %d indexed document(s) and captured page(s). For any question about them run `monoagentcli profile search-knowledge \"<query>\"` first (ranked passages with section paths); read a whole one with `profile documents capture <id>` only if search finds nothing, in sections, not cut off with head\n", c.SecondBrain)
+	}
 	line(&b, "People", c.People, "`monoagentcli people`")
 	line(&b, "Workflows", c.Workflows, "`monoagentcli workflow list`")
 	line(&b, "Orgs", c.Orgs, "`monoagentcli org list`")

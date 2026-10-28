@@ -2579,6 +2579,46 @@ older monomind the stage infers it from the `Task` call instead. The lead's own 
 events, and `chat history transcript --by-agent <conversation> <turn>`
 shows the turn split by agent.
 
+#### Agent box (`coder set --box`)
+
+`coder set --box off|compat|strict` (operator only; default `off`, which leaves
+every turn exactly as it was; `coder status --json` reports it as `box`) runs
+the coder lead turn of a `coding`-access chat inside the agent sandbox
+(`internal/agentbox`, bubblewrap, Linux only; other systems return
+`box_unsupported_os`). `strict` leaves the turn the current folder, the
+selected runtime's login files (read-only, with a disposable settings directory
+that vanishes with the turn; other runtimes' directories are not bound) and the
+binaries it starts (monomind, node, the runtime CLI: the file itself, plus a
+package directory only when nothing credential-like sits in it; what could not be
+bound is logged). Forbidden locations (state, the database in use, credentials, every runtime's
+config) are compared and masked by path at their real targets (not by file identity: a hard link elsewhere stays readable); the
+working directory, allowed paths, attachments, the caller's files and the
+binaries are pinned through file descriptors, so a path swapped after the check
+is not followed; the launcher is `bwrap` from a root-owned system location (never
+PATH), the same for the canary and the turn, started with a minimal
+environment; the box has its own `/dev`; only an allowlist and the turn's own
+variables pass (no ambient API url, token or profile); a package directory is
+bound only when its package.json names the agent runner or a runtime and its
+tree holds nothing credential-like; and an unknown `coder.box` value refuses the turn
+(`box_setting_invalid`); `compat` hides a list of paths and keeps the rest writable (best
+effort, not a boundary). The path lists are the ones `agent-mode sandbox`
+prints. Before the turn a canary runs in the same configuration (state
+directory unreadable, no `SSH_AUTH_SOCK`, only the box's own processes, home
+writes not reaching the host); a box that does not hold starts nothing
+(`ErrSandboxRequired`). `workspace` and `full` turns need monoagentcli with the
+user's database, which the box hides, so they end in `box_needs_api_mode`
+while the setting is on; a dynamic org in a boxed chat ends in
+`box_org_unsupported` (its workers would run outside the box). Apply, org and
+dynamic-org turns are untouched. `monomind.ExecOptions.Box` is the hook.
+
+The box is best-effort hardening, not isolation, and `coder.box` stays off by
+default. It shares the host network (services on loopback and abstract unix
+sockets stay reachable from the turn) and it mounts the host root read-only, so
+only the locations it names are hidden: credentials kept elsewhere (backup
+copies, other mounts, a different config directory) remain readable. A
+stricter design would build the filesystem from an explicit list of system
+directories and give the turn a controlled outbound path; it is not built.
+
 ### Persistent coder sessions (`coder host`, `coder sessions`)
 
 A coder turn used to be a child of the desktop app and died with it. A **session** is a coder conversation

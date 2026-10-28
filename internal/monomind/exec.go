@@ -219,6 +219,14 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 	// The run this turn belongs to (a workflow execution, an org run) goes
 	// to monomind as MONOAGENT_RUN_ID, so its lines can be joined with ours.
 	cmd.Env = logging.ChildEnv(ctx, cmd.Env)
+	if opts.Box != nil {
+		boxed, closeBox, err := boxedCommand(ctx, opts, bin, args, cmd.Env)
+		if err != nil {
+			return nil, err
+		}
+		defer closeBox()
+		cmd = boxed
+	}
 	setProcessGroup(cmd)
 	logging.FromContext(ctx).Debug("monomind exec", "runtime", opts.Runtime, "model", opts.Model, "cwd", cwd)
 
