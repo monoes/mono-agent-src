@@ -76,8 +76,8 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session approve",
-		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator only; an empty draft is refused)",
-		Usage:    "monoagentcli [--profile P] task session approve ID",
+		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator; or the lead of its parent when the operator set agent_approval=lead; giant work waits for the person; an empty draft is refused)",
+		Usage:    "monoagentcli [--profile P] task session approve ID [--as NAME]",
 		Examples: []string{"monoagentcli --profile work task session approve 3"},
 	},
 	{

@@ -1682,7 +1682,7 @@ that works a task acts on them. The defences:
   (`task agents allow --approve --view`): a bound worker cannot approve or view the
   personal board through it, the `task digest` hook shows it nothing of that board,
   and a delegated approval never opens a session's task (only `session approve`
-  does). **An agent that scrubs its own environment (no
+  does, by the operator or, under `agent_approval`, the parent's lead: see below). **An agent that scrubs its own environment (no
   agent marker, no `--as`) is treated as the operator by the CLI** and can run
   `session approve`, `session resume` and `session budget`: it can open its own plan,
   resume a pause and raise its own budget. That weakness predates sessions and has
@@ -1868,6 +1868,26 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **Approval of a child session by the lead of its parent (`agentApproval`).**
+  The operator always approves (`session approve`, basis `operator`). An agent
+  approves a session only when the store finds all of: the operator's coder
+  setting `agent_approval` is `lead` on the mission's root chat (default `off`,
+  operator-only, never in `AgentAdjustable`; `approval_ceiling_usd` is the
+  same); the session has a parent; the caller is bound to no task and to no
+  session but that parent, and its verified chat (a coder-session token the host
+  minted for a running turn, resolved by one function, `approver`; never an
+  environment label) is the chat the parent is linked to and not the session's
+  own. Peers, descendants, ancestors above the parent, other missions and other
+  profiles are refused, as is the root session. Basis `lead` is recorded. Giant
+  work is never approved by an agent: more than 25 tasks (or a `max_tasks` over
+  25), a budget over 40 percent of the root's remaining budget or over the
+  operator's USD ceiling, access above the parent's, or a level below the
+  operator's working `max_depth`. It raises a person item (kind `plan_approval`)
+  that waits with no timeout, no default and no master or model answer (it has no
+  question row); the operator's `session approve` of it records basis `person`.
+  Approval changes no access, budget or cap. A process a lead's turn started
+  without a task token still carries the lead's session token and so acts as the
+  lead; that is the existing meaning of the token, not widened.
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and

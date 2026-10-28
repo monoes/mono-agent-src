@@ -1717,7 +1717,7 @@ Only the user approves a task into Ready, moves one to Done or archives
 one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
-`agents allow`, `agents deny`, `session approve`, `session resume`,
+`agents allow`, `agents deny`, `session resume`,
 `session close`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
@@ -1787,6 +1787,7 @@ TEXT`, then `task add TITLE --session N --acceptance TEXT [--depends-on IDS]
 draft's tasks sit in the inbox column and nothing hands them out until the user
 runs `task session approve N`, which moves them to Ready and sets the session
 running; an agent cannot approve its own plan. Sessions form a tree (migration 142: `task_sessions.parent_session_id`, `kind`, `approval_basis`): `task session new --parent ID --kind K` starts one below another of the profile, at most `tasks.HardMaxSessionDepth` (4) levels, never with more access, budget or caps than its parent (an unset limit takes the parent's), and an agent only below a session it works in; `task session rename ID TITLE` (the operator any, an agent its own) and `task session tree [--json]` read and name them. Archiving a parent does not yet archive its children (needs the operator's confirmation). An agent may link a session (`--conversation`)
+Approval below the root (phase A): `task session approve N` is the operator's, or the lead of the session's PARENT when the operator set the coder setting `agent_approval` to `lead` on the mission's root chat (`coder sessions settings set ROOT --patch '{"agent_approval":"lead"}'`, default `off`; `approval_ceiling_usd` is an optional operator ceiling for a session's budget, 0 = off). The lead is identified by its verified coder-session token (`task` `approver`), never a label; it never approves its own session, a root, a peer's, or another mission's, and approval changes no access or budget. Giant work (more than 25 tasks or a `max_tasks` over 25, a budget over 40% of the root's remaining budget or over the ceiling, access above the parent's, a level below the operator's working `max_depth`) is never approved by an agent: the refusal raises a person item (`plan_approval`) that waits with no timeout, and the operator's `session approve` answers it (basis `person`). `approval_basis` is `operator`, `lead` or `person`. `plan_approval` is also a gap class of the autonomy matrix (who answers a parked question about a plan: user, master or model); the code boundaries above hold whatever the matrix says.
 only to its own chat, which it proves with its coder-session token; without one it links none. In a running session an agent uses
 `task next --session N [--claim --as NAME]` (a Ready task whose dependencies are
 all done, never a draft's, a paused session's or an epic), `claim`, `comment`,
@@ -2652,7 +2653,8 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Settings** (`sessions settings get|set`, JSON in `--patch`, only the named settings change, a name that is
   not a setting is refused): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`, `silent_minutes`,
   `active_hours` (`HH:MM-HH:MM`, local time), `checkin_limit`, `autonomy_preset`, `autonomy_classes`,
-  `max_children`, `max_concurrent`, `max_depth`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
+  `max_children`, `max_concurrent`, `max_depth`, `mesh_visible`, `mesh_alias`, `mesh_accept`, `agent_approval` (`off` | `lead`),
+  `approval_ceiling_usd` (both operator-only; see task sessions). `get` lists which
   are operator-only and the values each allows. `max_concurrent` (1 to 10,
   default 2) is the most children of one master that run a turn at once: a send to a further child, from a person
   or a master, stays pending and starts when a slot frees. Sends keep their order within a chat; across chats
@@ -2763,7 +2765,7 @@ monoagentcli --profile work coder host stop                        # the host on
   verbs exist as MCP tools `session_spawn|list|status|send|pause|resume|stop|set|answer` (the mutating ones need
   `--allow-mutations`). `settings set` through a token may change only `checkin_minutes`, `skip_if_unchanged`,
   `checkin_triggers`, `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias` (`AgentAdjustable`, an
-  allowlist; a test fails for a setting in neither list); limits, autonomy, mesh_accept, role, access, unattended
+  allowlist; a test fails for a setting in neither list); limits, autonomy, mesh_accept, agent_approval, role, access, unattended
   and budget are the operator's. A spawn needs a **master** with room under `max_children`, `max_depth` (a
   master is level 1, a child level 2) and a rate of 6 per 10 minutes; the child runs the master's runtime,
   model and folder (or a folder inside it), at most the master's access capped at `workspace` and never `full`
