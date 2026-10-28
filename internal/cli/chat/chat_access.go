@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -107,23 +106,9 @@ type loweredEffects struct {
 // nobody holds. All of it runs before the next turn is admitted.
 func lowerAccessEffects(cfg *Deps, store *ai.AIStore, profileID, conversationID string) (loweredEffects, error) {
 	eff := loweredEffects{Stopped: []int{}, Survivors: []survivor{}}
-	var refs []chatevents.ProcessRef
-	for cursor := ""; ; {
-		turns, next, err := store.ListTurns(conversationID, profileID, cursor, 200)
-		if err != nil {
-			return eff, chatStoreErr(err)
-		}
-		for _, t := range turns {
-			r, err := turnBackgroundRefs(store, profileID, conversationID, t.ID)
-			if err != nil {
-				return eff, err
-			}
-			refs = append(refs, r...)
-		}
-		if next == "" {
-			break
-		}
-		cursor = next
+	refs, _, err := conversationBackgroundRefs(store, profileID, conversationID)
+	if err != nil {
+		return eff, err
 	}
 	stop := stopBackground(refs, 3*time.Second)
 	eff.Stopped = append(eff.Stopped, stop.Stopped...)

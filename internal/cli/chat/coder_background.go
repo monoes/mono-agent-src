@@ -167,6 +167,31 @@ func turnBackgroundRefs(store *ai.AIStore, profileID, conversationID, turnID str
 	}
 }
 
+// conversationBackgroundRefs is every process any turn of the conversation
+// recorded as left running, and whether one of its turns is still active.
+func conversationBackgroundRefs(store *ai.AIStore, profileID, conversationID string) (refs []chatevents.ProcessRef, active bool, err error) {
+	for cursor := ""; ; {
+		turns, next, err := store.ListTurns(conversationID, profileID, cursor, 200)
+		if err != nil {
+			return nil, false, chatStoreErr(err)
+		}
+		for _, t := range turns {
+			if t.Status == "active" {
+				active = true
+			}
+			r, err := turnBackgroundRefs(store, profileID, conversationID, t.ID)
+			if err != nil {
+				return nil, false, err
+			}
+			refs = append(refs, r...)
+		}
+		if next == "" {
+			return refs, active, nil
+		}
+		cursor = next
+	}
+}
+
 func newCoderStopBackgroundCmd(cfg *Deps) *cobra.Command {
 	var conversationID, turnID string
 	cmd := &cobra.Command{

@@ -3,6 +3,7 @@ package chat
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -281,7 +282,7 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <conversation-id>",
-		Short: "Delete a conversation with its turns, events and coder session (refused while a turn is active)",
+		Short: "Delete a conversation with its turns, events and coder session, after stopping the processes its turns left running (refused while a turn is active; exit 5, survivors_remain, and nothing deleted if one cannot be stopped)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, profileID, closeDB, err := openChatHistory(cfg)
@@ -289,6 +290,28 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer closeDB()
+			// The processes the conversation's turns left running are recorded
+			// only in the events deleted with it: stop them first, and keep
+			// the record while one cannot be stopped.
+			refs, active, err := conversationBackgroundRefs(store, profileID, args[0])
+			if err != nil {
+				return err
+			}
+			if !active {
+				if stop := stopBackground(refs, 3*time.Second); len(stop.Survivors) > 0 {
+					if cfg.JSONOutput() {
+						if err := clicore.PrintJSON(map[string]any{"id": args[0], "deleted": false, "survivors": stop.Survivors}); err != nil {
+							return err
+						}
+					} else {
+						for _, sv := range stop.Survivors {
+							fmt.Fprintf(cmd.OutOrStdout(), "  still running: %d %s: %s\n", sv.Pid, sv.Command, sv.Reason)
+						}
+					}
+					return &coderError{code: "survivors_remain", err: &clicore.Error{Code: exitSurvivors, Msg: fmt.Sprintf(
+						"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors); stop them yourself, then delete it again", len(stop.Survivors))}}
+				}
+			}
 			if err := store.DeleteConversation(args[0], profileID); err != nil {
 				return chatStoreErr(err)
 			}
