@@ -48,6 +48,7 @@ func RegisterChildTokenMinter(m ChildTokenMinter) {
 	childMinterMu.Lock()
 	childMinter = m
 	childMinterMu.Unlock()
+	coderhost.SetMissionChildrenReady(launcherMintsChildTokens)
 }
 
 // missionChildren is the dynorg.ChildSpawner of one lead conversation.

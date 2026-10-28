@@ -104,7 +104,11 @@ func toolMissionChildMark(ctx context.Context, s *Server, args json.RawMessage) 
 	if err != nil {
 		return nil, sessionToolErr(err)
 	}
-	return map[string]any{"taskId": row.TaskID, "state": row.State, "size": row.Size, "budgetUsd": row.BudgetUSD, "attempts": row.Attempts}, nil
+	out := map[string]any{"taskId": row.TaskID, "state": row.State, "size": row.Size, "budgetUsd": row.BudgetUSD, "attempts": row.Attempts}
+	if !coderhost.MissionChildrenReady() {
+		out["note"] = "the mark is stored, but sessions of their own are not available yet: the task runs in this turn as a worker"
+	}
+	return out, nil
 }
 
 func toolMissionChildCeiling(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {

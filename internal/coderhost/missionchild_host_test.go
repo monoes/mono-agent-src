@@ -718,6 +718,8 @@ func TestRecoverAdoptsAfterRestart(t *testing.T) {
 }
 
 func TestDigestCarriesChildNumbersOnly(t *testing.T) {
+	SetMissionChildrenReady(func() bool { return true })
+	t.Cleanup(func() { SetMissionChildrenReady(nil) })
 	f := newHostFix(t)
 	f.addTasks(t, 1)
 	m0, _ := f.h.missionOf("p", f.lead.ConversationID)
@@ -782,5 +784,23 @@ func TestMissionChildHostHalfMovesOnlyItsOwnTables(t *testing.T) {
 		if after[k] != before[k] {
 			t.Errorf("%s changed:\nbefore: %.200s\nafter:  %.200s", k, before[k], after[k])
 		}
+	}
+}
+
+// While no launcher can start a child, a mark is not announced: nothing acts on it, and a digest that counts it
+// would mislead the lead and change what skip_if_unchanged compares.
+func TestDormantMarksAreNotAnnounced(t *testing.T) {
+	f := newHostFix(t)
+	m0, _ := f.h.missionOf("p", f.lead.ConversationID)
+	before, _ := json.Marshal(m0)
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := f.h.missionOf("p", f.lead.ConversationID)
+	if after, _ := json.Marshal(m); string(after) != string(before) {
+		t.Fatalf("a dormant mark changed the digest: %s -> %s", before, after)
+	}
+	if text := digestText("scheduled", snapshot{Mission: m}); strings.Contains(text, "queued") {
+		t.Fatalf("a dormant mark is announced:\n%s", text)
 	}
 }

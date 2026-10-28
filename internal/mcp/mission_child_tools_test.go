@@ -106,6 +106,9 @@ func TestLeadMarksItsOwnTaskAndStatusShowsNoTaskText(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"state": "marked"`) || !strings.Contains(out, `"size": "large"`) {
 		t.Fatalf("mark = %v %s", err, out)
 	}
+	if !strings.Contains(out, "not available yet") { // no launcher can start a child session in this process
+		t.Fatalf("the mark does not say that child sessions are not available yet: %s", out)
+	}
 	out, err = m.as(t, m.tokM, "mission_child_status", nil)
 	if err != nil || !strings.Contains(out, fmt.Sprintf(`"taskId": %d`, m.t1.ID)) {
 		t.Fatalf("status = %v %s", err, out)

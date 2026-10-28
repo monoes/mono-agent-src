@@ -3,6 +3,7 @@ package coderhost
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -28,6 +29,27 @@ type missionFact struct {
 	// verified=1 after the operator closes it, so Done and Verified overlap and must not be summed). It is
 	// not part of the digest or of the change signal.
 	Open int `json:"-"`
+}
+
+var (
+	childrenReadyMu sync.Mutex
+	childrenReady   func() bool
+)
+
+// SetMissionChildrenReady installs the launcher's answer to "can a child session start": until it says yes,
+// marks are stored but neither counted nor announced, since nothing acts on them.
+func SetMissionChildrenReady(f func() bool) {
+	childrenReadyMu.Lock()
+	childrenReady = f
+	childrenReadyMu.Unlock()
+}
+
+// MissionChildrenReady says whether a marked task can get a session of its own now (false until set).
+func MissionChildrenReady() bool {
+	childrenReadyMu.Lock()
+	f := childrenReady
+	childrenReadyMu.Unlock()
+	return f != nil && f()
 }
 
 // missionOf is the open (draft, running or paused) task session bound to the conversation, or nil. ok is
@@ -85,6 +107,9 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 		return nil, false
 	}
 	f.ChildRun, f.ChildQueued, f.ChildFailed = cc.Live, cc.Queued, cc.Failed
+	if !MissionChildrenReady() {
+		f.ChildQueued = 0 // nothing starts while the launcher cannot bind a child: a mark is not a queued session
+	}
 	return f, true
 }
 
