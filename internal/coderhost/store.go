@@ -661,12 +661,18 @@ func (s *Store) hostTurnSet(profileID, conversationID string) map[string]bool {
 }
 
 // enqueueCascadeResume queues the pass's own resume unless a person's pause stands, decided by the INSERT itself
-// so a person's pause queued after the pass looked is not followed by a resume queued behind its back.
+// so a person's pause queued after the pass looked is not followed by a resume queued behind its back. The INSERT also
+// holds the dedup (one pending cascade resume) and the control cap Enqueue applies, so concurrent passes or hosts
+// cannot race the pass's own pre-check.
 func (s *Store) enqueueCascadeResume(profileID, conv string) (bool, error) {
 	now := s.stamp()
 	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
-		SELECT ?, ?, 'resume', ?, '', '[]', 'pending', 0, ?, ?, '' WHERE NOT `+personPauseLive,
-		profileID, conv, cascadeTurn, now, now, profileID, conv, cascadeTurn, int64(math.MaxInt64), cascadeTurn, int64(math.MaxInt64))
+		SELECT ?, ?, 'resume', ?, '', '[]', 'pending', 0, ?, ?, ''
+		WHERE NOT `+personPauseLive+`
+		AND NOT EXISTS (SELECT 1 FROM coder_session_commands d WHERE d.profile_id = ? AND d.conversation_id = ? AND d.kind = 'resume' AND d.status = 'pending' AND d.issuer = '' AND d.turn_id = ?)
+		AND (SELECT COUNT(*) FROM coder_session_commands k WHERE k.profile_id = ? AND k.conversation_id = ? AND k.status = 'pending' AND k.kind != 'send') < ?`,
+		profileID, conv, cascadeTurn, now, now, profileID, conv, cascadeTurn, int64(math.MaxInt64), cascadeTurn, int64(math.MaxInt64),
+		profileID, conv, cascadeTurn, profileID, conv, MaxPendingPerChat)
 	if err != nil {
 		return false, err
 	}
