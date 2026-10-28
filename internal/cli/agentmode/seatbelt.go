@@ -1,7 +1,10 @@
 package agentmode
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -25,21 +28,74 @@ var seatbeltWriteDeny = []seatbeltEntry{
 	{".zshrc", false}, {".zprofile", false}, {".zshenv", false},
 }
 
-// resolveExisting is filepath.EvalSymlinks for a path that may not exist yet: the longest
-// existing parent is resolved and the missing rest appended.
-func resolveExisting(p string) string {
-	rest := ""
-	for cur := p; ; {
-		if r, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(r, rest)
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return p
-		}
-		rest = filepath.Join(filepath.Base(cur), rest)
-		cur = parent
+// maxSymlinkHops bounds the links followed while resolving one path (the kernel allows 40).
+const maxSymlinkHops = 255
+
+// resolveExisting is filepath.EvalSymlinks for a path that may not exist yet. It walks the path
+// one component at a time from the root, so a ".." after a symlink means the parent of the
+// link's target, as the kernel reads it; the part that does not exist is appended as written
+// (a missing name cannot be a link). A symlink that points nowhere is followed to where it
+// points. A loop, too many links or an error other than "not found" is returned as an error:
+// the caller must not fall back to the lexical spelling, which would look protected and not be.
+func resolveExisting(p string) (string, error) {
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("seatbelt profile: %q is not an absolute path", p)
 	}
+	rest := splitPath(p)
+	cur := string(filepath.Separator)
+	missing := false // below a name that does not exist: nothing there can be a link
+	for hops := 0; len(rest) > 0; {
+		c := rest[0]
+		rest = rest[1:]
+		switch c {
+		case ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+			continue
+		}
+		next := filepath.Join(cur, c)
+		if missing {
+			cur = next
+			continue
+		}
+		fi, err := os.Lstat(next)
+		if errors.Is(err, fs.ErrNotExist) {
+			missing = true
+			cur = next
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("seatbelt profile: cannot resolve %q: %w", p, err)
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			cur = next
+			continue
+		}
+		if hops++; hops > maxSymlinkHops {
+			return "", fmt.Errorf("seatbelt profile: too many symbolic links resolving %q", p)
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return "", fmt.Errorf("seatbelt profile: cannot resolve %q: %w", p, err)
+		}
+		if filepath.IsAbs(target) {
+			cur = string(filepath.Separator)
+		}
+		rest = append(splitPath(target), rest...)
+	}
+	return cur, nil
+}
+
+// splitPath splits p into its components without cleaning it: "." and ".." are kept.
+func splitPath(p string) []string {
+	var out []string
+	for _, c := range strings.Split(p, string(filepath.Separator)) {
+		if c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // seatbeltQuote returns s as a seatbelt string literal. Seatbelt matches resolved paths,
@@ -62,7 +118,11 @@ func seatbeltRules(home string, entries []seatbeltEntry) ([]string, error) {
 	seen := map[string]bool{}
 	for _, e := range entries {
 		given := filepath.Join(home, e.path)
-		for _, p := range []string{given, resolveExisting(given)} {
+		resolved, err := resolveExisting(given)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range []string{given, resolved} {
 			kind := "literal"
 			if e.subdir {
 				kind = "subpath"
@@ -90,7 +150,11 @@ func seatbeltProfile(home string) (string, error) {
 	// The lexical spelling and the physical one: resolve first (a ".." after a symlink means the
 	// parent of the link's target), only then compare with the cleaned spelling.
 	homes := []string{filepath.Clean(home)}
-	if r := resolveExisting(home); r != homes[0] {
+	r, err := resolveExisting(home)
+	if err != nil {
+		return "", err
+	}
+	if r != homes[0] {
 		homes = append(homes, r)
 	}
 	var all, write []string
