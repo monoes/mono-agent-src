@@ -304,6 +304,8 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		return fmt.Errorf("delete mission confirmations: %w", err)
 	}
 	for _, q := range []string{
+		// A scoped agent token bound to a task of this conversation ends with it.
+		`UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE bound_conversation = ?1 AND profile_id = ?2 AND revoked_at IS NULL`,
 		`DELETE FROM coder_session_commands WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_decisions WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_questions WHERE conversation_id = ? AND profile_id = ?`,

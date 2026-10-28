@@ -328,7 +328,7 @@ func TestAitaskFailCancelAndReads(t *testing.T) {
 	if rw := aitaskReq(t, s, "POST", aitaskPath("at-c", "/cancel"), tc, aitaskTestToken, ``); rw.Code != 200 {
 		t.Fatalf("cancel: %d %s", rw.Code, rw.Body)
 	}
-	if rw := aitaskReq(t, s, "POST", aitaskPath("at-c", "/complete"), tc, aitaskTestToken, `{"summary":"late"}`); rw.Code != 409 {
+	if rw := aitaskReq(t, s, "POST", aitaskPath("at-c", "/complete"), tc, aitaskTestToken, `{"summary":"late"}`); rw.Code != 403 { // cancelling ends the task's token: a stranger, not a closed task
 		t.Fatalf("complete after cancel: %d", rw.Code)
 	}
 	if got := taskNow(t, s, "at-c"); got.Status != aitask.StatusCancelled || len(got.Result) != 0 {
@@ -490,6 +490,25 @@ func TestAitaskReadsScrubSecretsTheCallerNeverPresented(t *testing.T) {
 		body := rw.Body.String()
 		if rw.Code != 200 || strings.Contains(body, other) || strings.Contains(body, other[1:]) || strings.Contains(body, taskTok) {
 			t.Errorf("GET %q: %d %s", tail, rw.Code, body)
+		}
+	}
+}
+
+// A cancelled task (its conversation was deleted, or it was cancelled) is refused to its bound token
+// everywhere: the reads as well as the writes, and the answer does not say the task exists.
+func TestAitaskCancelledTaskRefusesItsBoundTokenEvenForReads(t *testing.T) {
+	s := newTestServer(t, false)
+	seedTask(t, s, "default", "at-c", "conv-c")
+	tc := boundToken(t, s, "default", "tc", agenttokens.ScopeWrite, "at-c", "conv-c")
+	if rw := aitaskReq(t, s, "GET", aitaskPath("at-c", ""), tc, "", ""); rw.Code != 200 {
+		t.Fatalf("status of a live task: %d %s", rw.Code, rw.Body)
+	}
+	if rw := aitaskReq(t, s, "POST", aitaskPath("at-c", "/cancel"), tc, aitaskTestToken, ``); rw.Code != 200 {
+		t.Fatalf("cancel: %d %s", rw.Code, rw.Body)
+	}
+	for _, tail := range []string{"", "/result"} {
+		if rw := aitaskReq(t, s, "GET", aitaskPath("at-c", tail), tc, "", ""); rw.Code != http.StatusForbidden {
+			t.Errorf("GET %q of a cancelled task: %d %s", tail, rw.Code, rw.Body)
 		}
 	}
 }

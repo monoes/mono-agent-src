@@ -182,7 +182,8 @@ func (s *Server) aitaskFor(w http.ResponseWriter, r *http.Request) (*aitask.Serv
 		writeAitaskError(w, r, err)
 		return nil, aitask.Task{}, false
 	}
-	if tok.BoundConversation != t.ConversationID {
+	// A cancelled task (cancelled, or its conversation was deleted) is refused everywhere, reads included.
+	if tok.BoundConversation != t.ConversationID || t.Status == aitask.StatusCancelled {
 		writeError(w, http.StatusForbidden, "this token is not bound to that task")
 		return nil, aitask.Task{}, false
 	}
