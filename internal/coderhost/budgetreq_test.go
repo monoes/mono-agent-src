@@ -258,6 +258,10 @@ func TestBudgetRequestGoesStaleWithItsMission(t *testing.T) {
 		"child session gone": func(f *mcFix, child string) {
 			f.st.db.Exec(`DELETE FROM coder_sessions WHERE conversation_id = ?`, child)
 		},
+		"child stopped": func(f *mcFix, child string) {
+			f.st.db.Exec(`UPDATE coder_sessions SET state = 'stopped' WHERE conversation_id = ?`, child)
+		},
+		"target budget changed": func(f *mcFix, child string) { f.st.SetBudget("p", child, 3.5) },
 		"lead stopped": func(f *mcFix, _ string) {
 			f.st.db.Exec(`UPDATE coder_sessions SET state = 'stopped' WHERE conversation_id = ?`, f.lead.ConversationID)
 		},
@@ -347,4 +351,27 @@ func (f *mcFix) world(t *testing.T) string {
 		b.WriteString(tableDump(t, f.st.db, q))
 	}
 	return b.String()
+}
+
+// A request that went stale does not hold its target's one slot: the lead files again, the old row is void,
+// and the old request can never be granted afterwards, even if what made it stale is undone.
+func TestStaleBudgetRequestIsVoidedWhenTheLeadAsksAgain(t *testing.T) {
+	f, child := budgetFix(t)
+	old := f.ask(t, TargetChild, 1)
+	if err := f.st.SetBudget("p", child, 4.5); err != nil { // the numbers the request shows no longer hold
+		t.Fatal(err)
+	}
+	fresh := f.ask(t, TargetChild, 1)
+	if got, _ := f.st.GetBudgetRequest("p", old.ID); got.Status != BudgetRequestVoid || got.Open {
+		t.Fatalf("old = %+v", got)
+	}
+	if err := f.st.SetBudget("p", child, 4); err != nil { // undone: the old numbers hold again
+		t.Fatal(err)
+	}
+	if _, err := f.st.GrantBudget(OperatorScope{}, "p", old.ID, 0); !errors.Is(err, ErrBudgetRequestClosed) {
+		t.Fatalf("a voided request was granted: %v", err)
+	}
+	if _, err := f.st.GrantBudget(OperatorScope{}, "p", fresh.ID, 0); err == nil {
+		t.Fatal("the fresh request was filed against $4.5, now $4: it must be stale too")
+	}
 }

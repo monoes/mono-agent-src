@@ -1993,7 +1993,7 @@ hour and twelve per mission. Only the operator answers: `coder sessions budget l
 (at most what was asked, once, on exactly the session the request names, and only if what it is carved from, the lead's
 remaining budget and the mission's budget, still covers it; otherwise the request stays open and a smaller `--usd` may
 fit) and `decline <id>`. All three refuse any process that holds a coder session token or a mission binding. A
-request whose mission is archived or finished, whose lead is stopped or whose session is gone is no longer open and
+request whose mission is archived or finished, whose lead or session is stopped or gone, or whose target budget changed since it was filed, is no longer open and
 cannot be granted. A pending request changes nothing else and starts no turn.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it

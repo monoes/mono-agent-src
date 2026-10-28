@@ -25,8 +25,8 @@ import (
 //   - A grant adds the amount to exactly the session the request names, once (the status moves from open in the
 //     same transaction that raises the budget), never more than was asked, and only where the operator's own
 //     limits still hold: a child's raise has to fit what its lead (and the mission's budget) can still carve.
-//   - A request is open only while its mission is running or a draft, its lead is not stopped and its target
-//     still exists; this is derived from the rows each time, so a stale request can be neither answered nor
+//   - A request is open only while its mission is running or a draft, its lead and its target are not stopped, the
+//     target still exists and its budget is still the one the request was filed against; this is derived from the rows each time, so a stale request can be neither answered nor
 //     counted. A pending request changes nothing else: no turn starts, no task or session is touched.
 
 // Kinds, statuses and limits of a budget request.
@@ -143,6 +143,14 @@ func (s *Store) RequestBudget(sc CallerScope, profileID string, sessionID int64,
 	if perHour >= MaxBudgetRequestsPerHour || perMission >= MaxBudgetRequestsPerMission {
 		return BudgetRequest{}, fmt.Errorf("%w: too many budget requests (at most %d an hour and %d for a mission)", ErrLimit, MaxBudgetRequestsPerHour, MaxBudgetRequestsPerMission)
 	}
+	// An open row that is no longer open (see budgetRequestOpen) would hold the target's one slot for good: void it.
+	if old, err := s.openRowOf(tx, profileID, b.TargetConversationID); err != nil {
+		return BudgetRequest{}, err
+	} else if old.ID != 0 && !s.budgetRequestOpen(tx, old) {
+		if _, err := tx.Exec(`UPDATE coder_budget_requests SET status = 'void', answered_at = ? WHERE id = ? AND status = 'open'`, now.Format(timeLayout), old.ID); err != nil {
+			return BudgetRequest{}, err
+		}
+	}
 	b.CreatedAt = now.Format(timeLayout)
 	res, err := tx.Exec(`INSERT INTO coder_budget_requests (profile_id, session_id, lead_conversation_id, target, target_conversation_id, task_id, amount_usd, budget_usd, spent_usd, reason, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
@@ -180,8 +188,12 @@ func (s *Store) budgetRequestOpen(q querier, b BudgetRequest) bool {
 	if err := q.QueryRow(`SELECT state FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, b.ProfileID, b.LeadConversationID).Scan(&state); err != nil || State(state) == StateStopped {
 		return false
 	}
-	var n int
-	if err := q.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, b.ProfileID, b.TargetConversationID).Scan(&n); err != nil || n == 0 {
+	// The person decides on the numbers the request shows: once the target's budget is no longer the one it
+	// was filed against (a grant, the operator, a carve returned), the request is stale and is filed again.
+	var tstate string
+	var tbudget float64
+	if err := q.QueryRow(`SELECT state, budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, b.ProfileID, b.TargetConversationID).Scan(&tstate, &tbudget); err != nil ||
+		State(tstate) == StateStopped || math.Abs(tbudget-b.BudgetUSD) > 1e-9 {
 		return false
 	}
 	if b.Target == TargetChild {
@@ -191,6 +203,15 @@ func (s *Store) budgetRequestOpen(q querier, b BudgetRequest) bool {
 		}
 	}
 	return true
+}
+
+// openRowOf is the target's row still marked open, or the zero request.
+func (s *Store) openRowOf(q querier, profileID, target string) (BudgetRequest, error) {
+	b, err := scanBudgetRequest(q.QueryRow(`SELECT `+budgetRequestColumns+` FROM coder_budget_requests WHERE profile_id = ? AND target_conversation_id = ? AND status = 'open'`, profileID, target))
+	if errors.Is(err, sql.ErrNoRows) {
+		return BudgetRequest{}, nil
+	}
+	return b, err
 }
 
 // openBudgetItems is the open-items finder of the budget_request kind.

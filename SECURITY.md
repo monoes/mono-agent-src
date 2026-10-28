@@ -2060,7 +2060,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   reason is cleaned, capped text. A grant adds at most the amount asked to the one session the request names, once (the
   status leaves `open` in the transaction that raises the budget), and only within what the session it is carved from
   and the mission's budget still cover. A request is open only while its mission is a draft or running, its lead is
-  not stopped and its target exists (derived each time). Filing is limited to one open request per session, three an
+  and its target are not stopped, the target exists and its budget is still the one the request was filed against (derived each time; a stale one is voided when the lead asks again). Filing is limited to one open request per session, three an
   hour per lead and twelve per mission, so a model cannot flood the person's list. Not covered: the person's
   judgement of the numbers, and anything a same-user process can do to the database.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
