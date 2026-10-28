@@ -357,6 +357,46 @@ func childrenOf(pid int) []int {
 	return kids
 }
 
+// pinnedLauncher is the process monomind.Exec started for this turn, pinned when it was reported
+// (OnStart) and recorded with its start time: its pid is only ever believed while that same process
+// is still alive, so a pid reused after it exits is never taken for it.
+type pinnedLauncher struct {
+	pid   int
+	start string
+	h     pinnedProcess
+}
+
+// pinLauncher pins the launcher. nil when it cannot be pinned or its start time cannot be read: no
+// marker is then learned and the turn's processes are not stopped.
+func pinLauncher(pid int) *pinnedLauncher {
+	if pid <= 1 {
+		return nil
+	}
+	h, err := pinProcess(pid)
+	if err != nil {
+		return nil
+	}
+	start := processStart(pid)
+	if start == "" || !h.alive() {
+		h.close()
+		return nil
+	}
+	return &pinnedLauncher{pid: pid, start: start, h: h}
+}
+
+// current says the launcher is still the process that was pinned: its start time reads as recorded
+// and the pin still names a live process (the reads come first, so they belong to it).
+func (l *pinnedLauncher) current() bool {
+	start := processStart(l.pid)
+	return start == l.start && l.h.alive()
+}
+
+func (l *pinnedLauncher) close() {
+	if l != nil {
+		l.h.close()
+	}
+}
+
 // markerPoll is how long the host looks for the turn's marker after the runner starts.
 var markerPoll = 10 * time.Second
 
@@ -365,10 +405,12 @@ var markerPoll = 10 * time.Second
 // turn starts. It is the host's own reading, never the model's or the runtime's report. "" when the
 // child or its marker cannot be read, or the children disagree: the turn's processes are then not
 // stopped.
-func learnTurnMarker(ctx context.Context, runner int) string {
-	// The runner is the one this process started (directly or through a launcher): a pid that is not
-	// below this process is not read.
-	if !descendantOf(runner, os.Getpid()) {
+func learnTurnMarker(ctx context.Context, runner int, launcher *pinnedLauncher) string {
+	// The runner is the process this turn's own launcher started, or below it (a wrapper may sit
+	// between): the launcher is what monomind.Exec reported when it started the process, pinned from
+	// that moment, never something the process says. It must still be that same process now. Any
+	// other pid is not read.
+	if launcher == nil || !launcher.current() || (runner != launcher.pid && !descendantOf(runner, launcher.pid)) || !launcher.current() {
 		return ""
 	}
 	deadline := time.Now().Add(markerPoll)
@@ -379,6 +421,11 @@ func learnTurnMarker(ctx context.Context, runner int) string {
 			if id := processIdentity(kid); strings.HasPrefix(id, "tree:") {
 				seen[id] = true
 			}
+		}
+		// The launcher was the same process throughout the reads above (they come first, the liveness
+		// check after): what was read belongs to its tree.
+		if !launcher.current() {
+			return ""
 		}
 		if len(seen) > 1 {
 			return ""
@@ -409,13 +456,16 @@ func learnTurnMarker(ctx context.Context, runner int) string {
 // rounds at most). With stopIfActive false it stops nothing while a turn is active (active is
 // true): the caller's delete is refused then anyway.
 func stopConversationBackground(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (backgroundStop, bool, error) {
-	res, active, _, err := stopConversationBackgroundSeen(store, profileID, conversationID, stopIfActive)
+	res, active, _, err := stopConversationBackgroundSeen(store, profileID, conversationID, stopIfActive, nil)
 	return res, active, err
 }
 
 // stopConversationBackgroundSeen is stopConversationBackground and the records it handled (with the
 // command text cleared), for a caller that checks no other was recorded since.
-func stopConversationBackgroundSeen(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (res backgroundStop, active bool, seen map[chatevents.ProcessRef]bool, err error) {
+//
+// authorize, when set, is asked right before the first signal of a pass that has something to stop;
+// an error from it ends the pass with nothing signalled, so a refusal never follows a stop.
+func stopConversationBackgroundSeen(store *ai.AIStore, profileID, conversationID string, stopIfActive bool, authorize func() error) (res backgroundStop, active bool, seen map[chatevents.ProcessRef]bool, err error) {
 	res = backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
 	seen = map[chatevents.ProcessRef]bool{}
 	for round := 0; round < 3; round++ {
@@ -437,6 +487,11 @@ func stopConversationBackgroundSeen(store *ai.AIStore, profileID, conversationID
 		}
 		if len(fresh) == 0 {
 			return res, active, seen, nil
+		}
+		if authorize != nil {
+			if err := authorize(); err != nil {
+				return res, active, seen, err
+			}
 		}
 		stop := stopBackground(fresh, 3*time.Second)
 		res.Stopped = append(res.Stopped, stop.Stopped...)

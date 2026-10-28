@@ -422,6 +422,11 @@ func TestDeleteRevokesTheMissionTokensOfItsRuns(t *testing.T) {
 	own := mint(dynorg.TurnOwner("default", c.ID, "t1"))
 	ownRun := mint(dynorg.ConversationOwner("default", c.ID))
 	others := mint(dynorg.TurnOwner("default", other.ID, "t1"))
+	// A token of ANOTHER profile that happens to carry the same owner string is not this profile's.
+	foreign, _, err := at.CreateMission(ctx, "second", agenttokens.MissionBinding{Session: 1, Task: 1, Role: agenttokens.RoleWorker, Actor: "w", Owner: dynorg.TurnOwner("default", c.ID, "t9")}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stranger := mint("run-unrelated")
 
 	// An already revoked token keeps the time it was revoked.
@@ -448,6 +453,9 @@ func TestDeleteRevokesTheMissionTokensOfItsRuns(t *testing.T) {
 	}
 	if !revoked(own) || !revoked(ownRun) {
 		t.Error("a mission token of the deleted conversation's runs is still valid")
+	}
+	if f, err := at.Get(ctx, "second", foreign.ID); err != nil || f.RevokedAt != nil {
+		t.Errorf("another profile's mission token with the same owner was revoked (%v)", err)
 	}
 	if revoked(others) || revoked(stranger) {
 		t.Error("a mission token of another conversation or owner was revoked")
@@ -604,5 +612,80 @@ func TestAgentMayDeleteAConversationThatNeverLedAMission(t *testing.T) {
 	c := r.conv(t, ai.AccessFull)
 	if out, err := r.history(t, errNotOperator, "delete", c.ID); err != nil {
 		t.Fatalf("an agent's delete: %v\n%s", err, out)
+	}
+}
+
+// Deleting a conversation stops the processes its turns left running: that is the operator's. An
+// agent's delete is refused before any signal is sent, so a refusal can never come after a process
+// was already stopped.
+func TestAgentDeleteOfAConversationWithRecordedProcessesIsRefusedBeforeAnySignal(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+
+	out, err := r.history(t, errNotOperator, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("a refused delete stopped a process")
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation is gone: %v", err)
+	}
+}
+
+// A mission opened between the session list and the process stop does not let an agent's delete
+// stop anything: the stop asks for the operator itself, before the first signal.
+func TestAgentDeleteStopsNothingWhenAMissionOpensBeforeTheStop(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	var ts *tasks.Store
+	var id int64
+	afterSessionList = func() {
+		if ts == nil {
+			ts, id = r.leadSession(t, c.ID)
+		}
+	}
+	t.Cleanup(func() { afterSessionList = func() {} })
+
+	if out, err := r.history(t, errNotOperator, "delete", c.ID); err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("the agent's refused delete stopped a process")
+	}
+	if ts == nil || sessionState(t, ts, id) != tasks.SessionRunning {
+		t.Error("the mission opened meanwhile was touched")
+	}
+}
+
+// Whatever ends a delete after something was stopped says what was stopped: here the conversation is
+// removed by someone else between the stop and the delete (not found), and the error still carries the
+// exit code of the failure and the count of what is gone for good.
+func TestDeleteSaysWhatItStoppedWhenItEndsInAnotherError(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	beforeGuardedDelete = func() {
+		if err := r.store.DeleteConversation(c.ID, "default"); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	_, err := r.history(t, nil, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 2 {
+		t.Fatalf("exit %d (%v), want 2 (not found)", exitCodeFor(err), err)
+	}
+	if !strings.Contains(err.Error(), "1 process(es) and 0 mission(s) were stopped before this") {
+		t.Errorf("the error does not say what was stopped: %v", err)
+	}
+	if !gone(pid) {
+		t.Error("the process the delete stopped is still running")
 	}
 }
