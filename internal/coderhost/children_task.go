@@ -98,17 +98,13 @@ func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64
 		if errors.Is(cause, errCarveRefused) {
 			err = s.recordCarveRefused(profileID, sessionID, taskID, c.ConversationID, generation, conv)
 		}
-		other := false
 		if err == nil {
-			other, err = s.ownedByAnother(profileID, sessionID, taskID, generation, conv)
-		}
-		if err == nil && !other {
-			var store *ai.AIStore
-			if store, err = ai.NewAIStore(s.db); err == nil {
-				err = store.DeleteConversation(conv, profileID)
+			if s.beforeCleanupDelete != nil {
+				s.beforeCleanupDelete()
 			}
+			err = s.deleteIfNotOwnedByAnother(profileID, sessionID, taskID, generation, conv)
 		}
-		if err != nil && !errors.Is(err, ai.ErrConversationNotFound) {
+		if err != nil && !errors.Is(err, ai.ErrConversationNotFound) && !errors.Is(err, ai.ErrConversationGuarded) {
 			return fmt.Errorf("%w (and deleting the conversation %s failed, so the reservation is left for the host to recover: %w)", cause, conv, err)
 		}
 	}

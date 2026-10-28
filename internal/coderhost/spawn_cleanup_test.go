@@ -90,3 +90,38 @@ func TestOlderCleanupDoesNotDeleteAConversationAnotherRowOwns(t *testing.T) {
 		t.Fatalf("the newer row = %+v, want it still holding the conversation", r)
 	}
 }
+
+// The ownership check and the delete are one transaction: a reservation that takes the conversation after the
+// cleanup looked (here: just before its delete) keeps it, and its row stays intact.
+func TestCleanupDoesNotDeleteAConversationTakenJustBeforeTheDelete(t *testing.T) {
+	f := newHostFix(t)
+	for i := 0; i < 2; i++ {
+		if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[i], MarkOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[1]); err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.st.Spawn(f.lead, SpawnRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.st.beforeCleanupDelete = func() {
+		if err := f.st.NotePending(f.scope(), "p", f.se.ID, f.ids[1], out.ConversationID); err != nil {
+			t.Error(err)
+		}
+	}
+	_ = f.st.abandonSpawn(f.lead, "p", f.se.ID, f.ids[0], old.Generation, out.ConversationID, ErrInvalid)
+	store, _ := ai.NewAIStore(f.st.db)
+	if _, err := store.GetConversation(out.ConversationID, "p"); err != nil {
+		t.Fatalf("the cleanup deleted a conversation another reservation took before its delete: %v", err)
+	}
+	if r := f.row(t, 1); r.PendingConversationID != out.ConversationID || r.State != ChildSpawning {
+		t.Fatalf("the newer row = %+v, want it still holding the conversation", r)
+	}
+}

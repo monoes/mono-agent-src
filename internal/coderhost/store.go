@@ -118,6 +118,8 @@ type Store struct {
 	afterReserveReads func()
 	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
 	afterChildCreated func()
+	// beforeCleanupDelete runs in abandonSpawn right before the conversation's delete (tests only).
+	beforeCleanupDelete func()
 	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
 	afterStaleSelect func()
 	// betweenCascadeCheckAndResume lets a test act between the pass's pausedByCascade check and its resume.
