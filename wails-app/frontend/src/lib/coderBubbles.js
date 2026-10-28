@@ -196,7 +196,8 @@ export function loadState(storage = globalThis.localStorage, profileId = '') {
 
 export function saveState(state, storage = globalThis.localStorage, profileId = '') {
   try {
-    const bubbles = state.bubbles.filter(b => b.conversationId || (b.kind === 'org' && b.orgName))
+    // A lite pane (an agent opened from an orbit) is reached from its parent's orbit and is not kept.
+    const bubbles = state.bubbles.filter(b => !b.lite && (b.conversationId || (b.kind === 'org' && b.orgName)))
       .map(b => (b.kind === 'org'
         ? { kind: 'org', orgName: b.orgName, runId: b.runId || '', finished: !!b.finished }
         : {
