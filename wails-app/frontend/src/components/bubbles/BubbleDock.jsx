@@ -4,6 +4,7 @@ import { Plus, X, Code2, Network } from 'lucide-react'
 import { folderName } from '../chat/useCoderMode.js'
 import { layoutBubbles, monogram, totalCost, costEstimated } from '../../lib/coderBubbles.js'
 import { OrbitRing } from './OrbitRing.jsx'
+import { PersonItemTray } from './PersonItemViews.jsx'
 import './bubbles.css'
 
 const statusKey = { idle: 'statusIdle', working: 'statusWorking', done: 'statusDone', error: 'statusError', needs: 'statusNeeds' }
@@ -110,6 +111,7 @@ export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = tru
       {canCreate && <button type="button" className="bubble-new" onClick={() => store.openDraft()} title={t('bubbles.newCoderChat')} aria-label={t('bubbles.newCoderChat')}>
         <Plus size={15} />
       </button>}
+      <PersonItemTray />
       {bubbles.length > 0 && (
         <div className="bubble-grip" role="button" tabIndex={0} title={t('bubbles.moveDock')} aria-label={t('bubbles.moveDock')}
           onPointerDown={e => { gripStart.current = e.clientX; e.currentTarget.setPointerCapture?.(e.pointerId) }}

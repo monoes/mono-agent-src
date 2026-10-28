@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, X, Hourglass, Pause, Minus, Activity } from 'lucide-react'
+import { Check, X, Hourglass, Pause, Minus, Activity, BellRing } from 'lucide-react'
 import { monogram } from '../../lib/coderBubbles.js'
 import { ringPositions, linkPath, cycleIndex } from '../../lib/sessionOrbit.js'
 import './orbit.css'
@@ -17,6 +17,7 @@ const VARIANTS = {
 
 export function statusLine(t, c) {
   const parts = [t(`bubbles.orbit.state.${c.state}`)]
+  if (c.waiting > 0) parts.push(t('bubbles.orbit.needsYou', { count: c.waiting }))
   if (c.tasksTotal > 0) parts.push(t('bubbles.orbit.tasks', { done: c.tasksDone, total: c.tasksTotal }))
   if (c.spent > 0) parts.push(`$${c.spent.toFixed(2)}`)
   return parts.join(' · ')
@@ -24,12 +25,13 @@ export function statusLine(t, c) {
 
 function Satellite({ c, pos, size, tabIndex, onOpen, btnRef, onKeyDown, index }) {
   const { t } = useTranslation()
-  const Icon = STATE_ICON[c.state] || Minus
+  const Icon = c.waiting > 0 ? BellRing : STATE_ICON[c.state] || Minus
   const label = t('bubbles.orbit.satelliteLabel', { title: c.title, state: t(`bubbles.orbit.state.${c.state}`) }) +
+    (c.waiting > 0 ? `, ${t('bubbles.orbit.needsYou', { count: c.waiting })}` : '') +
     (c.childCount > 0 ? `, ${t('bubbles.orbit.ownAgents', { count: c.childCount })}` : '')
   return (
     <div className="orbit-slot" style={{ '--x': pos.x, '--y': pos.y, '--d': `${index * 40}ms` }}>
-      <button type="button" ref={btnRef} className={`orbit-sat s${c.size}`} data-state={c.state} data-level={c.level}
+      <button type="button" ref={btnRef} className={`orbit-sat s${c.size}`} data-state={c.state} data-level={c.level} data-needs-you={c.waiting > 0 ? 'true' : undefined}
         style={{ '--size': `${size}px` }} tabIndex={tabIndex} aria-label={label} onClick={() => onOpen?.(c)} onKeyDown={onKeyDown}>
         <span className="orbit-face" aria-hidden="true">
           <span className="orbit-pulse" />

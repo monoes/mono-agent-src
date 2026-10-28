@@ -1194,6 +1194,22 @@ export function PauseOrgAutonomy(arg1, arg2) {
   return window['go']['main']['App']['PauseOrgAutonomy'](arg1, arg2);
 }
 
+export function PersonItemApprove(arg1) {
+  return window['go']['main']['App']['PersonItemApprove'](arg1);
+}
+
+export function PersonItemAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAsk'](arg1, arg2);
+}
+
+export function PersonItemDeny(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemDeny'](arg1, arg2);
+}
+
+export function PersonItemsList() {
+  return window['go']['main']['App']['PersonItemsList']();
+}
+
 export function PickCoderFolder() {
   return window['go']['main']['App']['PickCoderFolder']();
 }

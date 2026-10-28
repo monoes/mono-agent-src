@@ -49,6 +49,8 @@ function circleOf(node) {
     conversationId: s.conversation_id || '',
     title: String(s.title || '').trim() || `#${s.id}`,
     state: orbitState(s),
+    // How many items wait for the person on this agent (a giant plan): the circle shows it apart from a plain draft.
+    waiting: Math.max(0, Number(s.waiting) || 0),
     size: sizeStep(s),
     level: node.depth,
     childCount: node.children.length,

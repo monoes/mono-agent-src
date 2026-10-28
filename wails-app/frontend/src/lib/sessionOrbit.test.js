@@ -114,3 +114,13 @@ describe('geometry', () => {
     expect(cycleIndex(0, 1, 0)).toBe(-1)
   })
 })
+
+describe('the waiting count (open person items)', () => {
+  const S = (id, parent, extra = {}) => ({ id, parent_session_id: parent, conversation_id: `c${id}`, title: `A${id}`, state: 'running', counts: {}, ...extra })
+  it('is carried on the circle and makes a running agent waiting', () => {
+    const o = orbitOf([S(1, 0), S(2, 1, { waiting: 2 }), S(3, 1)], { sessionId: 1 })
+    expect(o.satellites[0]).toMatchObject({ id: 2, state: 'waiting', waiting: 2 })
+    expect(o.satellites[1]).toMatchObject({ id: 3, state: 'running', waiting: 0 })
+  })
+})
+

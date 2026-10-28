@@ -81,6 +81,32 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session approve 3"},
 	},
 	{
+		Name:     "task session person inbox",
+		Short:    "The items that wait for you, the person, oldest first; a giant session's plan shows why it is giant work (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person inbox",
+		Examples: []string{"monoagentcli --profile work --json task session person inbox"},
+	},
+	{
+		Name:     "task session person approve",
+		Short:    "Approve the plan of a giant session that waits for you: it runs and the approval is recorded as the person's (the operator only; needs an open item)",
+		Usage:    "monoagentcli [--profile P] task session person approve ID",
+		Examples: []string{"monoagentcli --profile work task session person approve 7"},
+	},
+	{
+		Name:     "task session person deny",
+		Short:    "Turn a giant plan down: the session stays a draft, the note is kept in its history and sent to its lead (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person deny ID --note TEXT",
+		Flags:    "  --note string   Why (required)",
+		Examples: []string{`monoagentcli --profile work task session person deny 7 --note "split it in two"`},
+	},
+	{
+		Name:     "task session person ask",
+		Short:    "Send a question about a giant plan to its lead as quoted data; the item stays open (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person ask ID --text TEXT",
+		Flags:    "  --text string   Your question (required)",
+		Examples: []string{`monoagentcli --profile work task session person ask 7 --text "why 30 tasks?"`},
+	},
+	{
 		Name:     "task session pause",
 		Short:    "Stop a running session handing out tasks; claims stay (the operator or an agent)",
 		Usage:    "monoagentcli [--profile P] task session pause ID [--as NAME]",
