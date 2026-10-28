@@ -51,7 +51,7 @@ var ErrWindows = errors.New("agent-mode has no Windows profile: Windows has no s
 	"(3) Windows Sandbox or a VM, with the API forwarded in. See \"Agent mode\" in SECURITY.md and run \"" + WindowsDoc + "\" for the steps")
 
 // The profiles contain no path or value of the caller, so nothing can be injected.
-// Paths come from $HOME (bwrap), a -D parameter (seatbelt) or ~ (Claude Code) at the
+// Paths come from $HOME (bwrap), the HOME the profile was printed for (seatbelt) or ~ (Claude Code) at the
 // time the sandbox starts. The bwrap and seatbelt text is generated from the lists in
 // profiles.go, so the printed profile has one source.
 

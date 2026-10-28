@@ -228,3 +228,35 @@ func TestSeatbeltProfileQuoting(t *testing.T) {
 		}
 	}
 }
+
+// A HOME spelled through a symlink and "..": the physical parent of the link target is a
+// different directory from the lexical parent of the link, and the profile must name both.
+func TestSeatbeltProfileDotDotAfterSymlinkNamesThePhysicalHome(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := filepath.Join(root, "other", "actual")
+	target := filepath.Join(actual, "user")
+	alias := filepath.Join(root, "tmp", "alias")
+	for _, d := range []string{target, alias} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(target, filepath.Join(alias, "home")); err != nil {
+		t.Fatal(err)
+	}
+	home := alias + "/home/.." // lexically alias, physically actual
+	out, err := seatbeltProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{alias, actual} {
+		for _, w := range []string{`(subpath "` + p + `/.monoagent")`, `(subpath "` + p + `/.ssh")`, `(literal "` + p + `/.zshrc")`} {
+			if !strings.Contains(out, w) {
+				t.Errorf("profile lacks %s:\n%s", w, out)
+			}
+		}
+	}
+}

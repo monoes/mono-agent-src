@@ -87,8 +87,10 @@ func seatbeltProfile(home string) (string, error) {
 	if !filepath.IsAbs(home) {
 		return "", fmt.Errorf("seatbelt profile: HOME %q is not an absolute path", home)
 	}
+	// The lexical spelling and the physical one: resolve first (a ".." after a symlink means the
+	// parent of the link's target), only then compare with the cleaned spelling.
 	homes := []string{filepath.Clean(home)}
-	if r := resolveExisting(homes[0]); r != homes[0] {
+	if r := resolveExisting(home); r != homes[0] {
 		homes = append(homes, r)
 	}
 	var all, write []string
