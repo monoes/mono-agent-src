@@ -753,3 +753,41 @@ func TestRuntimeBinaryInsideForbiddenLocationIsRefused(t *testing.T) {
 		t.Fatalf("wrap: want %s, got %v", CodeBadPath, err)
 	}
 }
+
+// install.sh puts a regular monoagentcli in ~/.local/bin when /usr/local/bin is not writable;
+// that executable (bound read-only as one file) must still run in a strict box.
+func TestRegularLocalBinExecutableRunsInStrictBox(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	cli := filepath.Join(r.home, ".local", "bin", "monoagentcli")
+	if err := os.MkdirAll(filepath.Dir(cli), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\necho cli-ran\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	b := r.box(Strict)
+	b.Binaries = append(b.Binaries, cli)
+	p, err := b.Wrap(cli, nil, r.env())
+	if err != nil {
+		t.Fatalf("a regular ~/.local/bin executable was refused: %v", err)
+	}
+	defer p.Close()
+	out, err := runPlan(t, p, nil)
+	if err != nil || !strings.Contains(out, "cli-ran") {
+		t.Fatalf("%v %s", err, out)
+	}
+	// only the executable is bound, not the directory it sits in
+	sibling := filepath.Join(r.home, ".local", "bin", "sibling")
+	if err := os.WriteFile(sibling, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p2, err := b.Wrap("/bin/sh", []string{"-c", `test ! -e "$HOME/.local/bin/sibling" && echo hidden`}, r.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p2.Close()
+	if out, err := runPlan(t, p2, nil); err != nil || !strings.Contains(out, "hidden") {
+		t.Fatalf("sibling in ~/.local/bin reachable: %v %s", err, out)
+	}
+}

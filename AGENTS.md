@@ -2532,7 +2532,7 @@ that vanishes with the turn; other runtimes' directories are not bound) and the
 binaries it starts (monomind, node, the runtime CLI: the file itself, plus a
 package directory only when nothing credential-like sits in it; what could not be
 bound is logged). Forbidden locations (state, the database in use, credentials, every runtime's
-config) are compared and masked at their real targets wherever they are; the
+config) are compared and masked by path at their real targets (not by file identity: a hard link elsewhere stays readable); the
 working directory, allowed paths, attachments, the caller's files and the
 binaries are pinned through file descriptors, so a path swapped after the check
 is not followed; the launcher is `bwrap` from a root-owned system location (never

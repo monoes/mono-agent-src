@@ -38,6 +38,24 @@ func underScratch(home, p string) bool {
 	return false
 }
 
+// checkBinaryTarget judges the pinned executable. It is bound as one read-only file, so a
+// regular file directly in ~/.local/bin (where install.sh puts the CLI when /usr/local/bin is
+// not writable, and where user-level runtimes link) is fine although the directory is a
+// startup location for anything else; every other forbidden location still refuses.
+func checkBinaryTarget(home string, forbidden []string, real string) error {
+	localBin := filepath.Join(home, ".local", "bin")
+	if filepath.Dir(real) != localBin {
+		return checkAllowed(home, forbidden, real)
+	}
+	rest := make([]string, 0, len(forbidden))
+	for _, f := range forbidden {
+		if f != localBin {
+			rest = append(rest, f)
+		}
+	}
+	return checkAllowed(home, rest, real)
+}
+
 // packageManifest are the top-level entries of a verified package that are bound, besides the
 // ones its package.json names as main or bin. Everything else in the package directory (its
 // configuration, sources, data) stays out of the box.
@@ -67,7 +85,7 @@ func (b Box) bindBinary(bd *binder, home string, forbidden []string, found strin
 		if err != nil {
 			return nil, err
 		}
-		if err := checkAllowed(home, forbidden, real); err != nil {
+		if err := checkBinaryTarget(home, forbidden, real); err != nil {
 			return nil, err // never bind a credential, state or startup file back as "the binary"
 		}
 		if !seen[real] {
