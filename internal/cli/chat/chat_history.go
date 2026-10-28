@@ -335,6 +335,10 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						return err
 					}
 				}
+				files, err := collectTurnFiles(cfg, store, profileID, args[0])
+				if err != nil {
+					return err
+				}
 				beforeGuardedDelete()
 				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
 				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
@@ -346,6 +350,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				if err != nil {
 					return chatStoreErr(err)
 				}
+				files.remove(warnOnStderr)
 				break
 			}
 			stop := backgroundStop{Stopped: stopped}
