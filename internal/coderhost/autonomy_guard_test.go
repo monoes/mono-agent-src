@@ -184,7 +184,7 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 		"children.go:spawnWith":            1, // Enqueue: a master's first message to a new child
 		"parked_deliver.go:deliver":        1, // Enqueue: an answer note (answer- turn id)
 		"missionchild.go:queueCascadeStop": 1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
-		"missionchild.go:reconcileChild":   1, // Enqueue: a pause of a paused mission's child (no send, no issuer)
+		"missionchild.go:reconcileChild":   2, // Enqueue: a pause of a paused mission's child, and the resume of one it paused (no send, no issuer)
 	}
 	// Only the parked-question code may deliver an answer, apply a default or write the ledger.
 	ownedByParked := map[string]bool{"deliver": true, "applyDefault": true, "Record": true, "redeliver": true}
