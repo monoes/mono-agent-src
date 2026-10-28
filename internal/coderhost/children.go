@@ -243,8 +243,18 @@ func (s *Store) carveBudget(profileID, parent, child string, usd float64) error 
 		   OR ( ? > 0 AND ? <= (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?)
 		        - ? - COALESCE((SELECT SUM(budget_usd) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND conversation_id != ?), 0) + 1e-9 ) )`,
 		usd, s.stamp(), profileID, child, parent, profileID, parent, usd, usd, profileID, parent, spent, profileID, parent, child)
-	return s.applied(res, err, "")
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errCarveNoRoom
+	}
+	return nil
 }
+
+// errCarveNoRoom is the one answer of carveBudget that is a refusal: the conditional statement matched nothing
+// because the share does not fit. Any other error is the storage's and is not a limit.
+var errCarveNoRoom = errors.New("the carve does not fit in the master's budget")
 
 // takeSpawnSlot records one spawn (an attempt: it is kept when the spawn fails after the slot is taken,
 // so a failing loop cannot spawn faster than the limit) if the parent made fewer than SpawnRateMax in
@@ -365,6 +375,10 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		}
 	}
 	if err := s.carveBudget(c.ProfileID, c.ConversationID, conv.ID, req.BudgetUSD); err != nil {
+		if !errors.Is(err, errCarveNoRoom) {
+			undo()
+			return Spawned{}, fmt.Errorf("carving the child's budget: %w", err) // a storage error is not a full limit: the task does not wait on it
+		}
 		if hk.carveRefused != nil {
 			hk.carveRefused()
 		}

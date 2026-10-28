@@ -235,6 +235,24 @@ type NoticePayload struct {
 	// so a later stop never hits a reused pid.
 	Pids      []int        `json:"pids,omitempty"`
 	Processes []ProcessRef `json:"processes,omitempty"`
+	// CoderUsage rides a coder.usage notice: what the turn's result event
+	// reported about its context and per-model tokens.
+	CoderUsage *CoderUsage `json:"coderUsage,omitempty"`
+}
+
+// CoderUsage is a coder turn's token picture: the largest main-thread
+// context sent in one call, and per-model tokens (child agents included).
+type CoderUsage struct {
+	PeakContextTokens int64                      `json:"peakContextTokens,omitempty"`
+	Models            map[string]CoderModelUsage `json:"models,omitempty"`
+}
+
+// CoderModelUsage is one model's tokens in a CoderUsage.
+type CoderModelUsage struct {
+	Input         int64 `json:"input"`
+	Output        int64 `json:"output"`
+	CacheRead     int64 `json:"cacheRead"`
+	CacheCreation int64 `json:"cacheCreation"`
 }
 
 // ProcessRef is a pid plus what identified that process when recorded.

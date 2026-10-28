@@ -1129,6 +1129,14 @@ func (s *Store) expireOrphan(profileID string, sid, tid int64, conv, seenAt stri
 			return false, nil
 		}
 	}
+	// A refused carve is not an attempt (spawn_cleanup.go): give it back.
+	if _, err := tx.Exec(`UPDATE coder_mission_children SET attempts = MAX(attempts - 1, 0)
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND state = 'failed' AND end_reason = 'expired' AND ended_at = ?
+		AND EXISTS (SELECT 1 FROM coder_mission_events e WHERE e.profile_id = ? AND e.session_id = ? AND e.task_id = ? AND e.kind = 'spawn'
+			AND e.note = 'carve refused: gen=' || coder_mission_children.generation || ' conv=' || ?)`,
+		profileID, sid, tid, now, profileID, sid, tid, conv); err != nil {
+		return false, err
+	}
 	if err := addMissionEvent(tx, profileID, sid, tid, "end", "host", "expired: the spawn never linked its conversation", now); err != nil {
 		return false, err
 	}
