@@ -44,7 +44,8 @@ func syncCLI(t *testing.T, reports ...string) string {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, fmt.Sprintf(`echo "$*" >> '%[1]s'
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, fmt.Sprintf(`case "$*" in *"media scan"*) echo '{"scan_audio_video":false}'; exit 0;; esac
+echo "$*" >> '%[1]s'
 i=$(($(wc -l < '%[1]s') - 1)); [ $i -ge %[2]d ] && i=%[3]d
 cat '%[4]s'/r$i
 `, log, len(reports), len(reports)-1, dir)))

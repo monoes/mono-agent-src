@@ -148,3 +148,29 @@ func TestRestartImageWatcher_DiscoversProjectImages(t *testing.T) {
 		t.Fatalf("the app wrote vault_images itself: %d rows, %v", appRows, err)
 	}
 }
+
+// The watcher learns whether audio and video count from the CLI (`media scan`
+// for its profile), remembers the answer for a while instead of starting a
+// process every walk, and treats a CLI that cannot answer as off.
+func TestScanAVReaderAsksTheCLIAndCaches(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "args.log")
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo "$*" >> '`+log+`'
+echo '{"scan_audio_video":true}'
+`))
+	a := newTestApp(t)
+	read := a.scanAVReader("work")
+	if !read() || !read() || !read() {
+		t.Fatal("audio/video should read as on while the CLI says so")
+	}
+	calls := callsSoFar(log)
+	if len(calls) != 1 || !strings.Contains(calls[0], "--profile work") || !strings.HasSuffix(calls[0], "media scan") {
+		t.Fatalf("CLI calls = %v, want one `media scan` for profile work", calls)
+	}
+
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo 'boom' >&2; exit 1
+`))
+	if a.scanAVReader("work")() {
+		t.Fatal("a CLI that cannot answer must read as off: audio and video are opt-in")
+	}
+}
