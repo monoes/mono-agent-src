@@ -167,7 +167,7 @@ func testLauncher(t *testing.T, pid int) *pinnedLauncher {
 	t.Helper()
 	l := pinLauncher(pid)
 	if l == nil {
-		t.Fatalf("pid %d cannot be pinned", pid)
+		t.Skipf("pid %d cannot be pinned here (no pidfd, or not this process's child)", pid)
 	}
 	t.Cleanup(l.close)
 	return l
@@ -199,4 +199,52 @@ func TestLearnTurnMarkerRefusesAnExitedLauncher(t *testing.T) {
 	if got := learnTurnMarker(context.Background(), pid, l); got != "" {
 		t.Errorf("an exited launcher: %q", got)
 	}
+}
+
+// The lookup consults the launcher's pin: with the recorded start time not the process's own (what a
+// reused pid looks like) nothing is learned even though the children are there.
+func TestLearnTurnMarkerConsultsTheLauncherPin(t *testing.T) {
+	old := markerPoll
+	markerPoll = 3 * time.Second
+	t.Cleanup(func() { markerPoll = old })
+	a := runnerWithChildren(t, execTreeEnv+"=tok-pin sleep 30 >/dev/null 2>&1 & wait")
+	for i := 0; i < 100 && len(childrenOf(a)) == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
+	l := testLauncher(t, a)
+	l.start = "elsewhere:1"
+	if got := learnTurnMarker(context.Background(), a, l); got != "" {
+		t.Errorf("a launcher whose start time is not the pinned one: %q", got)
+	}
+}
+
+// A pid that is not this process's child is not taken for the launcher it was reported as.
+func TestPinLauncherOnlyPinsAChildOfThisProcess(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc")
+	}
+	if l := pinLauncher(1); l != nil {
+		t.Error("init was pinned as a launcher")
+	}
+	// A grandchild is not this process's child.
+	outer := runnerWithChildren(t, "sleep 30 & wait")
+	for i := 0; i < 100 && len(childrenOf(outer)) == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if kids := childrenOf(outer); len(kids) > 0 {
+		if l := pinLauncher(kids[0]); l != nil {
+			l.close()
+			t.Error("a grandchild was pinned as a launcher")
+		}
+	}
+}
+
+// The pin is released once, however often it is closed.
+func TestPinnedLauncherCloseIsIdempotent(t *testing.T) {
+	a := runnerWithChildren(t, "sleep 30 & wait")
+	l := testLauncher(t, a)
+	l.close()
+	l.close()
+	var none *pinnedLauncher
+	none.close()
 }
