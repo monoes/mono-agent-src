@@ -15,16 +15,6 @@ var (
 	envAllowlist      = agentbox.EnvAllowlist
 )
 
-// seatbeltWriteDeny are home paths the macOS profile makes unwritable (persistence).
-var seatbeltWriteDeny = []struct {
-	path   string
-	subdir bool
-}{
-	{"Library/LaunchAgents", true},
-	{".bashrc", false}, {".bash_profile", false}, {".profile", false},
-	{".zshrc", false}, {".zprofile", false}, {".zshenv", false},
-}
-
 func shellWords(list []string) string {
 	return strings.Join(list, " ")
 }
@@ -87,46 +77,4 @@ while [ "$i" -lt "$n" ]; do
 done
 exec bwrap "$@"
 `
-}
-
-func seatbeltProfile() string {
-	var b strings.Builder
-	b.WriteString(`;; monoagentcli agent-mode sandbox --runtime seatbelt
-;; Usage: sandbox-exec -D HOME="$HOME" -f this-file COMMAND [ARGS...]
-;; Best effort, not a boundary. Denies read and write of mono-agent's state, the keychain
-;; files, ~/.ssh, ~/.aws, ~/.config/gh, ~/.git-credentials and ~/.netrc, the Mach services
-;; that hand out keychain items (which is what /usr/bin/security talks to), and write of
-;; ~/Library/LaunchAgents and the shell startup files.
-;; Everything else, loopback networking included, stays as it is. Not run on macOS by
-;; the authors: check the rules and the service names on your macOS version with:
-;; log stream --predicate 'sender == "Sandbox"' while the agent runs.
-(version 1)
-(allow default)
-(deny file-read* file-write*
-  (subpath (string-append (param "HOME") "/.monoagent"))
-  (subpath (string-append (param "HOME") "/Library/Keychains"))
-  (subpath (string-append (param "HOME") "/.ssh"))
-  (subpath (string-append (param "HOME") "/.aws"))
-  (subpath (string-append (param "HOME") "/.config/gh"))
-  (literal (string-append (param "HOME") "/.git-credentials"))
-  (literal (string-append (param "HOME") "/.netrc")))
-(deny file-write*
-`)
-	for i, w := range seatbeltWriteDeny {
-		kind := "literal"
-		if w.subdir {
-			kind = "subpath"
-		}
-		b.WriteString("  (" + kind + ` (string-append (param "HOME") "/` + w.path + `"))`)
-		if i == len(seatbeltWriteDeny)-1 {
-			b.WriteString(")")
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString(`(deny mach-lookup
-  (global-name "com.apple.SecurityServer")
-  (global-name "com.apple.securityd")
-  (global-name "com.apple.secd"))
-`)
-	return b.String()
 }
