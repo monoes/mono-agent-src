@@ -1,6 +1,7 @@
 package org
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -19,7 +20,18 @@ var orgToolNames = []string{
 	"org_task_split", "org_task_merge", "org_task_cancel", "org_task_block", "org_plan_graph",
 	"org_recall", "org_remember", "org_learn",
 }
-var bossOrgTools = []string{"org_complete", "org_respawn_role", "org_list_runtime_options", "org_compact_role", "org_clear_role"}
+var bossOrgTools = []string{"org_complete", "org_respawn_role", "org_list_runtime_options"}
+
+// resetOrgTools are the boss's context-reset tools. Monomind offers them only
+// to an org whose run_config.max_role_resets is above 0 (opt in).
+var resetOrgTools = []string{"org_compact_role", "org_clear_role"}
+
+// roleResetsEnabled reports whether the org opted in to the reset tools.
+func roleResetsEnabled(doc *orgdesign.Doc) bool {
+	var n float64
+	raw, ok := doc.RunConfig["max_role_resets"]
+	return ok && json.Unmarshal(raw, &n) == nil && n > 0
+}
 
 // builtinRuntimeTools are the runtime's own tools a role has unless policy
 // denies them.
@@ -61,7 +73,11 @@ func newOrgEffectiveToolsCmd(env *orgEnv) *cobra.Command {
 				tools = append(tools, tool{Name: n, Source: "org", Description: "monomind org tool"})
 			}
 			if r.ReportsTo == nil {
-				for _, n := range bossOrgTools {
+				names := bossOrgTools
+				if roleResetsEnabled(doc) {
+					names = append(append([]string{}, names...), resetOrgTools...)
+				}
+				for _, n := range names {
 					tools = append(tools, tool{Name: n, Source: "org", Description: "monomind org tool (boss only)"})
 				}
 			}
