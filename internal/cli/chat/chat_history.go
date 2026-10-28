@@ -349,15 +349,8 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						return partial(err)
 					}
 				}
-				// What the turns left on disk is best effort: not being able to list it does not keep the
-				// conversation from being deleted.
-				files, ferr := collectTurnFiles(cfg, store, profileID, args[0])
-				if ferr != nil {
-					warnOnStderr("could not list the files the conversation's turns left: %v", ferr)
-					files = turnFiles{}
-				}
 				beforeGuardedDelete()
-				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(cfg, store, profileID, args[0], seen))
 				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
 					continue
 				}
@@ -367,7 +360,6 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				if err != nil {
 					return partial(chatStoreErr(err))
 				}
-				files.remove(warnOnStderr)
 				break
 			}
 			stop := backgroundStop{Stopped: stopped}
@@ -515,7 +507,7 @@ var errBackgroundRecorded = errors.New("a background-process record appeared whi
 // by the caller; then it revokes the mission tokens the conversation's runs minted (owner
 // dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
 // conductor would have swept them. Both are undone with the delete if it is rolled back.
-func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+func deleteGuard(cfg *Deps, store *ai.AIStore, profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
 	return func(ctx context.Context, conn *sql.Conn) error {
 		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
 			return err
@@ -534,6 +526,17 @@ func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRe
 		if err != nil {
 			return fmt.Errorf("revoking the conversation's mission tokens: %w", err)
 		}
+		// Last, and inside the write transaction: no turn can start meanwhile, so the list of what the
+		// turns left on disk is the whole list and no id can be given to a new turn before the files
+		// of the old one are gone. Not being able to list or remove is reported and does not stop the
+		// delete; if a later statement of the delete fails, the files are already gone and the
+		// conversation stays (they are logs and copies, not the conversation).
+		files, ferr := collectTurnFiles(cfg, store, profileID, conversationID)
+		if ferr != nil {
+			warnOnStderr("could not list the files the conversation's turns left: %v", ferr)
+			return nil
+		}
+		files.remove(warnOnStderr)
 		return nil
 	}
 }

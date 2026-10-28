@@ -16,9 +16,11 @@ import (
 // turnFiles are the files a conversation's turns left outside the database: the coder host's log and
 // prompt file of each turn, and the copies of attached files made in the conversation's folder.
 type turnFiles struct {
-	logs       []string
-	copies     []string
-	attachRoot string
+	logDir     string   // the host's turns folder
+	logs       []string // file names in it
+	cwd        string   // the conversation's folder; "" when it has none
+	attachRoot string   // <cwd>/.monoagent/attachments, as a path (what the recorded copies are checked against)
+	copies     []string // recorded copy paths under attachRoot
 }
 
 // collectTurnFiles reads what the conversation's turns left. A copy counts only if the host recorded
@@ -31,7 +33,8 @@ func collectTurnFiles(cfg *Deps, store *ai.AIStore, profileID, conversationID st
 		return out, chatStoreErr(err)
 	}
 	if conv.Cwd != "" {
-		out.attachRoot = filepath.Join(filepath.Clean(conv.Cwd), ".monoagent", "attachments")
+		out.cwd = filepath.Clean(conv.Cwd)
+		out.attachRoot = filepath.Join(out.cwd, ".monoagent", "attachments")
 	}
 	for cursor := ""; ; {
 		turns, next, err := store.ListTurns(conversationID, profileID, cursor, 200)
@@ -40,8 +43,8 @@ func collectTurnFiles(cfg *Deps, store *ai.AIStore, profileID, conversationID st
 		}
 		for _, t := range turns {
 			if hostID.MatchString(t.ID) {
-				dir := filepath.Join(hostDir(cfg), "turns")
-				out.logs = append(out.logs, filepath.Join(dir, t.ID+".log"), filepath.Join(dir, t.ID+".prompt"))
+				out.logDir = filepath.Join(hostDir(cfg), "turns")
+				out.logs = append(out.logs, t.ID+".log", t.ID+".prompt")
 			}
 			if out.attachRoot == "" {
 				continue
@@ -75,27 +78,90 @@ func collectTurnFiles(cfg *Deps, store *ai.AIStore, profileID, conversationID st
 	}
 }
 
+// afterLstat is a seam for tests: it runs between a folder being inspected and being opened.
+var afterLstat = func(path string) {}
+
+// openPinnedDir opens dir as a root, and only if it is the folder that was inspected: it must be a
+// real folder (not a link) when looked at, and the folder opened must be that same one. A folder
+// swapped for a link between the two is refused, and once it is open the handle names the folder
+// whatever happens to the path after.
+func openPinnedDir(dir string) (*os.Root, error) {
+	lst, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !lst.IsDir() {
+		return nil, fmt.Errorf("%s is not a plain folder", dir)
+	}
+	afterLstat(dir)
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	st, err := r.Stat(".")
+	if err != nil || !os.SameFile(lst, st) {
+		r.Close()
+		return nil, fmt.Errorf("%s changed while it was being opened", dir)
+	}
+	return r, nil
+}
+
+// openPinnedSub is openPinnedDir for the folder name inside parent.
+func openPinnedSub(parent *os.Root, name, full string) (*os.Root, error) {
+	lst, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !lst.IsDir() {
+		return nil, fmt.Errorf("%s is not a plain folder", full)
+	}
+	afterLstat(full)
+	r, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	st, err := r.Stat(".")
+	if err != nil || !os.SameFile(lst, st) {
+		r.Close()
+		return nil, fmt.Errorf("%s changed while it was being opened", full)
+	}
+	return r, nil
+}
+
 // remove deletes the files, best effort: one that is gone already is fine, and one that cannot be
-// removed is reported and does not undo the delete. The copies are removed through the attachments
-// folder opened as a root: a path that would leave it through a link is refused by the system, a link
-// is removed as itself, and nothing is followed. When the attachments folder is itself a link (or its
-// parent is one that leads elsewhere than the conversation's folder), no copy is touched.
+// removed is reported. Every folder is opened as a pinned root first (see openPinnedDir) and the
+// removal goes through that handle, so a folder or a link swapped in later cannot redirect it; a
+// link is removed as itself and nothing is followed. The conversation's folder itself is the
+// conversation's own and is opened as it is.
 func (f turnFiles) remove(warn func(format string, a ...any)) {
-	for _, p := range f.logs {
-		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			warn("could not remove %s: %v", p, err)
+	if f.logDir != "" && len(f.logs) > 0 {
+		if root, err := openPinnedDir(f.logDir); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				warn("could not open %s: %v", f.logDir, err)
+			}
+		} else {
+			for _, name := range f.logs {
+				if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					warn("could not remove %s: %v", filepath.Join(f.logDir, name), err)
+				}
+			}
+			root.Close()
 		}
 	}
-	if f.attachRoot == "" || len(f.copies) == 0 {
+	if f.cwd == "" || len(f.copies) == 0 {
 		return
 	}
-	if fi, err := os.Lstat(f.attachRoot); err != nil || fi.Mode()&fs.ModeSymlink != 0 {
+	cwd, err := os.OpenRoot(f.cwd)
+	if err != nil {
 		return
 	}
-	if real, err := filepath.EvalSymlinks(f.attachRoot); err != nil || real != filepath.Join(evalDir(filepath.Dir(filepath.Dir(f.attachRoot))), ".monoagent", "attachments") {
+	defer cwd.Close()
+	meta, err := openPinnedSub(cwd, ".monoagent", filepath.Join(f.cwd, ".monoagent"))
+	if err != nil {
 		return
 	}
-	root, err := os.OpenRoot(f.attachRoot)
+	defer meta.Close()
+	root, err := openPinnedSub(meta, "attachments", f.attachRoot)
 	if err != nil {
 		return
 	}
@@ -117,14 +183,6 @@ func (f turnFiles) remove(warn func(format string, a ...any)) {
 	for d := range dirs {
 		_ = root.Remove(d) // only while empty
 	}
-}
-
-// evalDir is dir with links resolved, or dir itself when it cannot be.
-func evalDir(dir string) string {
-	if real, err := filepath.EvalSymlinks(dir); err == nil {
-		return real
-	}
-	return dir
 }
 
 func warnOnStderr(format string, a ...any) { fmt.Fprintf(os.Stderr, "warning: "+format+"\n", a...) }

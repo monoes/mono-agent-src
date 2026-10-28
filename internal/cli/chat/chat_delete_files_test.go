@@ -168,3 +168,126 @@ func TestDeleteSkipsCopiesWhenTheAttachmentsFolderIsALink(t *testing.T) {
 		t.Error("a normal copy was not removed")
 	}
 }
+
+// A folder swapped for a link between being inspected and being opened does not redirect the
+// removal: the one opened must be the one inspected.
+func TestDeleteSurvivesTheAttachmentsFolderBeingSwappedForALink(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	attach := filepath.Join(c.Cwd, ".monoagent", "attachments")
+	copyIn := filepath.Join(attach, "t1", "report.txt")
+	touchFile(t, copyIn)
+	victimDir := t.TempDir()
+	victim := filepath.Join(victimDir, "t1", "report.txt") // the same relative name, outside
+	touchFile(t, victim)
+	recordStarted(t, r, c.ID, "t1", copyIn)
+
+	swapped := false
+	afterLstat = func(path string) {
+		if path != attach || swapped {
+			return
+		}
+		swapped = true
+		if err := os.Rename(attach, attach+".real"); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := os.Symlink(victimDir, attach); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterLstat = func(string) {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if !swapped {
+		t.Fatal("the seam never ran")
+	}
+	if !exists(victim) {
+		t.Error("a file outside the conversation's folder, reached through a swapped folder, was removed")
+	}
+}
+
+// The same for the host's turns folder, which holds the logs.
+func TestDeleteSurvivesTheTurnsFolderBeingSwappedForALink(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logs := filepath.Join(hostDir(cfg), "turns")
+	touchFile(t, filepath.Join(logs, "t1.log"))
+	victimDir := t.TempDir()
+	victim := filepath.Join(victimDir, "t1.log")
+	touchFile(t, victim)
+	recordStarted(t, r, c.ID, "t1")
+
+	swapped := false
+	afterLstat = func(path string) {
+		if path != logs || swapped {
+			return
+		}
+		swapped = true
+		if err := os.Rename(logs, logs+".real"); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := os.Symlink(victimDir, logs); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterLstat = func(string) {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if !swapped {
+		t.Fatal("the seam never ran")
+	}
+	if !exists(victim) {
+		t.Error("a log outside the turns folder, reached through a swapped folder, was removed")
+	}
+}
+
+// Nothing a turn that starts after the list was made can leave is missed or mistaken: the list is
+// made and the files are removed inside the delete's write transaction, so a turn cannot be admitted
+// in between, and its id cannot be given to a new turn before the old files are gone.
+func TestDeleteRemovesTheFilesInsideItsTransaction(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	log := filepath.Join(hostDir(cfg), "turns", "t1.log")
+	touchFile(t, log)
+	recordStarted(t, r, c.ID, "t1")
+	// A turn that is admitted and finished after the delete began listing must find the conversation
+	// gone or be refused: the seam runs before the transaction, so its files are in the list.
+	late := filepath.Join(hostDir(cfg), "turns", "t2.log")
+	touchFile(t, late)
+	beforeGuardedDelete = func() { recordStarted(t, r, c.ID, "t2") }
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if exists(log) || exists(late) {
+		t.Errorf("a turn's log survived: t1 %v, t2 %v", exists(log), exists(late))
+	}
+}
+
+// recordStarted records a finished turn of the conversation with the given attached copies.
+func recordStarted(t *testing.T, r *accessRig, convID, turnID string, copies ...string) {
+	t.Helper()
+	if _, _, err := r.store.CreateTurn(convID, "default", turnID, "i", "go"); err != nil {
+		t.Fatal(err)
+	}
+	atts := make([]chatevents.TurnAttachment, len(copies))
+	for i, p := range copies {
+		atts[i] = chatevents.TurnAttachment{Name: filepath.Base(p), Path: p}
+	}
+	started := chatevents.TurnStartedPayload{Backend: "agent", Text: "hi", Attachments: atts}
+	if _, err := r.store.AppendEvent("default", convID, turnID, chatevents.EventTurnStarted, started); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.store.FinalizeTurn("default", convID, turnID, chatevents.StatusCompleted, "", nil, false); err != nil {
+		t.Fatal(err)
+	}
+}
