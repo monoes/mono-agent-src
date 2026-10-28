@@ -85,3 +85,27 @@ func TestPairExtensionShellsOutToCLI(t *testing.T) {
 		t.Errorf("argv log:\n%s", log)
 	}
 }
+
+// An id or browser that starts with '-' would be read by the CLI as a flag.
+func TestBrowserCallsRefuseFlagLikeArguments(t *testing.T) {
+	argsLog := fakeBrowsersCLI(t)
+	a := newTestApp(t)
+	a.ctx = context.Background()
+	a.selectForTest("p-work")
+
+	if _, err := a.AssignBrowser("--json", "x"); err == nil {
+		t.Error("AssignBrowser accepted a profile that starts with '-'")
+	}
+	if _, err := a.AssignBrowser("p-home", "--force"); err == nil {
+		t.Error("AssignBrowser accepted an instance that starts with '-'")
+	}
+	if _, err := a.BindBrowser("-x", "p-home"); err == nil {
+		t.Error("BindBrowser accepted an instance that starts with '-'")
+	}
+	if _, err := a.BindBrowser("3f2a91c0-0000-4000-8000-000000000001", "--all"); err == nil {
+		t.Error("BindBrowser accepted a profile that starts with '-'")
+	}
+	if log, _ := os.ReadFile(argsLog); strings.Contains(string(log), " -") {
+		t.Errorf("a flag-like argument reached the CLI:\n%s", log)
+	}
+}

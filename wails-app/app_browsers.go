@@ -67,9 +67,13 @@ func (a *App) AssignBrowser(profileID, instance string) (*AssignReport, error) {
 	if profileID == "" {
 		return nil, errors.New("no profile given")
 	}
+	instance = strings.TrimSpace(instance)
+	if strings.HasPrefix(profileID, "-") || strings.HasPrefix(instance, "-") {
+		return nil, errors.New("invalid profile or browser")
+	}
 	args := []string{"extension", "assign", profileID}
-	if i := strings.TrimSpace(instance); i != "" {
-		args = append(args, i)
+	if instance != "" {
+		args = append(args, instance)
 	}
 	var r AssignReport
 	if err := a.runMonoCLI("", &r, args...); err != nil {
@@ -91,9 +95,13 @@ func (a *App) BindBrowser(instance, profileID string) (*BrowserRow, error) {
 	if instance == "" {
 		return nil, errors.New("no browser given")
 	}
+	profileID = strings.TrimSpace(profileID)
+	if strings.HasPrefix(instance, "-") || strings.HasPrefix(profileID, "-") {
+		return nil, errors.New("invalid profile or browser")
+	}
 	args := []string{"extension", "unbind", instance}
-	if p := strings.TrimSpace(profileID); p != "" {
-		args = []string{"extension", "bind", instance, p}
+	if profileID != "" {
+		args = []string{"extension", "bind", instance, profileID}
 	}
 	var row BrowserRow
 	if err := a.runMonoCLI("", &row, args...); err != nil {
