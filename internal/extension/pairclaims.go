@@ -90,6 +90,10 @@ type PendingClaim struct {
 	DecidedAt *time.Time `json:"decidedAt,omitempty"`
 	CreatedAt time.Time  `json:"createdAt"`
 	ExpiresAt time.Time  `json:"expiresAt"`
+	// Restricted and AllowedProfiles are what the owner limited the browser to
+	// when approving (allowed_profiles.go); they become its paired record.
+	Restricted      bool     `json:"restricted,omitempty"`
+	AllowedProfiles []string `json:"allowedProfiles,omitempty"`
 }
 
 // codeAlphabet has no 0/O/1/I/L: the code is read off a screen and typed.
@@ -202,6 +206,7 @@ func createPendingClaim(c PendingClaim) (_ PendingClaim, secret string, replaced
 	c.ID, c.SecretHash, c.Status = hex.EncodeToString(idb), hashToken(secret), ClaimPending
 	c.CodeHash = codeDigest(c.ID, PairCode(c.ID, secret))
 	c.DecidedAt = nil
+	c.Restricted, c.AllowedProfiles = false, nil // only the owner's approval limits a browser
 	c.Label, c.Origin, c.Agent = clip(c.Label), clip(c.Origin), clip(c.Agent)
 	c.CreatedAt, c.ExpiresAt = now, now.Add(PendingClaimTTL)
 
@@ -345,6 +350,20 @@ func FindPendingClaim(idOrPrefix string) (PendingClaim, error) {
 // shows. It is the only way a claim becomes approved, and runs only from the
 // owner's channels.
 func DecidePendingClaim(idOrPrefix string, approve bool, code string) (PendingClaim, error) {
+	return DecidePendingClaimWith(idOrPrefix, approve, code, nil)
+}
+
+// DecidePendingClaimWith is DecidePendingClaim that also limits the approved
+// browser to the allowed profiles (nil leaves it unrestricted; an empty,
+// non-nil list restricts it to no profile of its own). Invalid ids are an error.
+func DecidePendingClaimWith(idOrPrefix string, approve bool, code string, allowed []string) (PendingClaim, error) {
+	var clean []string
+	if allowed != nil {
+		clean = cleanProfiles(allowed)
+		if len(clean) != len(dedupe(allowed)) {
+			return PendingClaim{}, fmt.Errorf("not a valid profile id in %q", allowed)
+		}
+	}
 	unlock, err := lockState()
 	if err != nil {
 		return PendingClaim{}, err
@@ -374,6 +393,9 @@ func DecidePendingClaim(idOrPrefix string, approve bool, code string) (PendingCl
 	list[hit].Status = ClaimDenied
 	if approve {
 		list[hit].Status = ClaimApproved
+		if allowed != nil {
+			list[hit].Restricted, list[hit].AllowedProfiles = true, clean
+		}
 	}
 	at := now.UTC()
 	list[hit].DecidedAt = &at
@@ -460,6 +482,7 @@ func pollClaim(id, secret, origin string) (PollOutcome, error) {
 	}
 	token, entry, err := addPairedBrowserLocked(PairedBrowser{
 		Label: c.Label, Origin: c.Origin, Agent: c.Agent, Instance: c.Instance,
+		Restricted: c.Restricted, AllowedProfiles: c.AllowedProfiles,
 	}, mintOpts{ID: c.ID, ReplaceInstance: true})
 	if err != nil {
 		if errors.Is(err, ErrBrowserLimit) {

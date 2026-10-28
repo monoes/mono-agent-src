@@ -68,6 +68,29 @@ drop a running workflow's commands.
 The first profile a browser lists is also the default for captures saved from
 that browser.
 
+## Limiting which profiles a browser may claim
+
+A browser that paired itself has a token of its own, and by default that token
+may claim any profile. To limit it:
+
+    monoagentcli extension browsers allow <id> Work Personal   # only these
+    monoagentcli extension browsers allow <id>                 # none of its own (default browser only)
+    monoagentcli extension browsers allow <id> --any           # lift the limit
+    monoagentcli extension approve <claim> --profiles Work     # limit it when pairing
+
+`extension browsers list` shows what each browser may run. After that, a
+browser that names a profile outside its set is refused: its connection is
+closed with the unauthorized code, a binding it sends is not applied, and
+`bind`/`assign`/`set_binding` for a profile outside the set fail with "not
+allowed" without reaching the browser. A browser running a profile you have
+since removed from its set is disconnected within a few seconds. Unbound
+(default) browsers work as before.
+
+Browsers paired before this existed, and browsers approved without
+`--profiles`, are not limited until you set a limit (they show "any
+profile"). The shared `extension.token` is never limited. Only you can change
+a limit: the command is operator-only like `assign` and `bind`.
+
 ## Seeing every profile at once
 
 The desktop dashboard has a **This profile / All profiles** toggle. All

@@ -19,6 +19,13 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	if err != nil {
 		return nil, err
 	}
+	// The relay forwards this with only the relay token, so the browser's
+	// allowed set is enforced here, where every path to a socket passes.
+	if cmd.Type == CmdSetBinding {
+		if out := c.outsideAllowed(setBindingNames(cmd.Params)); len(out) > 0 {
+			return nil, fmt.Errorf("profile %q is not allowed for this browser: change what it may run with `monoagentcli extension browsers allow`", out[0])
+		}
+	}
 
 	// An unbind is effective at once: the bridge stops routing the removed
 	// profiles to this browser before the extension has stored the change,
@@ -142,7 +149,13 @@ func (s *Server) serveBinding(c *extConn, msg []byte) {
 		s.logger.Warn().Err(err).Msg("invalid binding frame")
 		return
 	}
-	c.setBinding(profilesFromWire(f.Profiles, f.Profile), f.Label)
+	profiles := profilesFromWire(f.Profiles, f.Profile)
+	if len(c.outsideAllowed(profiles)) > 0 {
+		s.logger.Warn().Str("instance", c.id).Msg("binding frame names a profile outside the browser's allowed set: closing it")
+		c.closeUnauthorized("this browser is not allowed to run a profile it asked for")
+		return
+	}
+	c.setBinding(profiles, f.Label)
 	// Off the read loop: the profile source may take seconds to answer, and
 	// this browser's frames must not wait for it.
 	go s.dropDeletedBinding(c)

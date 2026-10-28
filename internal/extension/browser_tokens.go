@@ -45,6 +45,11 @@ type PairedBrowser struct {
 	Instance  string    `json:"instance,omitempty"`
 	TokenHash string    `json:"tokenHash"`
 	PairedAt  time.Time `json:"pairedAt"`
+	// Restricted limits which profiles this browser's token may claim to
+	// AllowedProfiles (allowed_profiles.go). A record written before the
+	// limit existed has neither field and is unrestricted.
+	Restricted      bool     `json:"restricted,omitempty"`
+	AllowedProfiles []string `json:"allowedProfiles,omitempty"`
 }
 
 // ErrNoSuchBrowser means a revoke named no paired browser (or several).

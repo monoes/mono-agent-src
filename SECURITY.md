@@ -967,13 +967,22 @@ against an agent running as you:
   A per-browser token, however, speaks only for the instance it was paired
   with: it cannot connect as another instance, and no connection replaces a
   socket that authenticated with a different per-browser token.
-- A paired browser, or anything holding the bridge token, can claim any
-  valid profile id, and with sets it can claim up to 64 at once and receive
-  those profiles' browser commands and session data. That widens what one
-  mis-paired or compromised browser can see, from one profile to many. It is
-  not a new trust boundary: the token already let such a caller claim any
-  one profile. Limiting a browser's token to an allowed set of profiles when
-  it is paired would close this, and is not part of this change.
+- A browser holding the shared bridge token can claim any valid profile id,
+  and with sets up to 64 at once, and receive those profiles' browser
+  commands and session data. A browser with a token of its own can be limited
+  to an allowed set of profiles: `extension browsers allow <id> <profile>...`
+  (operator-only), or `extension approve --profiles` when pairing. A claim
+  naming a profile outside the set is refused where the bridge handles it:
+  an auth frame is closed with 4401, a binding frame closes the socket, and a
+  `set_binding` (including one relayed with only the relay token) is refused
+  with an error before anything is sent to the browser. A connected browser
+  that runs a profile the owner has since removed from its set is
+  disconnected within a few seconds. An unbound (default) browser is never
+  affected. The limit is opt-in: a paired record from before it existed, and
+  a browser approved without `--profiles`, is not limited until you set one,
+  and the shared `extension.token` is never limited. It narrows what one
+  mis-paired or compromised browser can reach; it does not stop a process that
+  can edit `~/.monoagent/extension.browsers.json` as your user.
 - The `pair --open` gate is cosmetic against an agent with a shell, which
   can start a bridge of its own and open the pairing page itself.
 - An agent with a shell can also edit the files these commands manage.
