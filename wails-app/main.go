@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/gitsafe"
 	"github.com/monoes/mono-agent/internal/nodemgr"
 	"github.com/monoes/mono-agent/internal/shellpath"
 	"github.com/wailsapp/wails/v2"
@@ -21,7 +20,7 @@ import (
 )
 
 // Version is injected at build time via ldflags.
-// Falls back to git describe at runtime when built without ldflags (e.g. wails dev).
+// An unstamped build (e.g. wails dev) reports "dev"; no git is run at start-up.
 var (
 	version   = ""
 	buildDate = ""
@@ -29,11 +28,7 @@ var (
 
 func init() {
 	if version == "" {
-		if out, err := gitsafe.Command(context.Background(), "describe", "--tags", "--always").Output(); err == nil {
-			version = strings.TrimSpace(string(out))
-		} else {
-			version = "dev"
-		}
+		version = "dev"
 	}
 	if buildDate == "" {
 		buildDate = time.Now().UTC().Format("2006-01-02T15:04:05Z")
