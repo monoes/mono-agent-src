@@ -605,7 +605,7 @@ func (f *hostFix) commandsForStops(t *testing.T) []string {
 	return out
 }
 
-func TestPausedMissionPausesItsChildrenAndNothingResumesThem(t *testing.T) {
+func TestPausedMissionPausesItsChildrenAndResumesThemWhenItRunsAgain(t *testing.T) {
 	f := newHostFix(t)
 	a := f.task(t, 0, 0)
 	if err := f.h.Tick(); err != nil {
@@ -628,8 +628,39 @@ func TestPausedMissionPausesItsChildrenAndNothingResumesThem(t *testing.T) {
 	if state(t, f.st, a.ConversationID).State != StatePaused {
 		t.Fatal("the child was not paused")
 	}
-	// the mission runs again: the pass does not resume the child
+	// the mission runs again: the pass resumes the child it paused, once
 	if _, err := f.st.db.Exec(`UPDATE task_sessions SET state = 'running' WHERE id = ?`, f.se.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.h.missionChildPass()
+	f.h.missionChildPass() // a second pass queues nothing more
+	if n := rowsOf(t, f.st, `SELECT id FROM coder_session_commands WHERE kind = 'resume' AND status = 'pending' AND issuer = '' AND turn_id = 'mission-cascade'`); n == "" || strings.Count(n, "\n") != 0 {
+		t.Fatalf("pending host resumes = %q, want exactly one", n)
+	}
+	if err := f.h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if state(t, f.st, a.ConversationID).State == StatePaused {
+		t.Fatal("the pass did not resume the child it paused")
+	}
+	f.h.missionChildPass()
+	if n := rowsOf(t, f.st, `SELECT id FROM coder_session_commands WHERE kind = 'resume'`); strings.Count(n, "\n") != 0 {
+		t.Fatalf("a resume storm: %q", n)
+	}
+	f.finish()
+}
+
+// A child a person paused (not the pass) stays paused when the mission runs.
+func TestAPersonsPauseOfAChildSurvivesTheMissionRunning(t *testing.T) {
+	f := newHostFix(t)
+	a := f.task(t, 0, 0)
+	if err := f.h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Enqueue(Command{ProfileID: "p", ConversationID: a.ConversationID, Kind: KindPause}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.h.Tick(); err != nil {
 		t.Fatal(err)
 	}
 	f.h.missionChildPass()
@@ -637,7 +668,7 @@ func TestPausedMissionPausesItsChildrenAndNothingResumesThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state(t, f.st, a.ConversationID).State != StatePaused {
-		t.Fatal("the pass resumed a paused child")
+		t.Fatal("the pass resumed a child that a person paused")
 	}
 	f.finish()
 }

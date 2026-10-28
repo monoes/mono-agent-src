@@ -128,6 +128,13 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		}
 		return nil
 	}
+	if ms.state == "running" && cs.State == StatePaused && st.pausedByCascade(r.ProfileID, r.ChildConversationID) && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindResume) {
+		// the mission runs again and nobody but this pass paused the child: it goes on, with the same host-made command
+		if _, err := st.Enqueue(Command{ProfileID: r.ProfileID, ConversationID: r.ChildConversationID, Kind: KindResume, TurnID: cascadeTurn}); err != nil {
+			return err
+		}
+		return nil
+	}
 	idle := cs.State == StateIdle && cs.TurnID == "" && st.PendingFor(r.ProfileID, r.ChildConversationID) == 0
 	if cs.State != StateStopped && !idle {
 		return nil // running, paused, waiting for a person or still has a message to take
@@ -259,6 +266,15 @@ func (s *Store) hasPendingCascade(profileID, conv string, kind Kind) bool {
 	var n int
 	return s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = ? AND status = 'pending' AND issuer = '' AND turn_id = ?`,
 		profileID, conv, string(kind), cascadeTurn).Scan(&n) != nil || n > 0
+}
+
+// pausedByCascade says whether the newest pause or resume that reached the conversation is the pass's own pause,
+// carried out. A person's pause or resume after it, or one still waiting, means the pause is not the pass's to undo.
+func (s *Store) pausedByCascade(profileID, conv string) bool {
+	var status, issuer, turn string
+	err := s.db.QueryRow(`SELECT kind || ':' || status, issuer, turn_id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind IN ('pause', 'resume') AND status IN ('pending', 'done')
+		ORDER BY id DESC LIMIT 1`, profileID, conv).Scan(&status, &issuer, &turn)
+	return err == nil && status == "pause:done" && issuer == "" && turn == cascadeTurn
 }
 
 // turnFloor is the time a stop must be newer than to count for the conversation: when its last turn began, or
