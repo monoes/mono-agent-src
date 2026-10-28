@@ -173,18 +173,26 @@ func (c *extConn) info() ConnInfo {
 // installConn makes c the socket for its browser and closes the one it
 // replaces. That is routine: an MV3 service worker that respawns before its
 // previous socket was reaped reconnects on top of itself many times a day.
-func (s *Server) installConn(c *extConn) {
+// It refuses (false) when the socket it would replace authenticated with a
+// per-browser token and c did not present that same token: only the browser
+// itself, or the shared token's owner after revoking it, takes that slot.
+func (s *Server) installConn(c *extConn) bool {
 	s.connMu.Lock()
 	if s.conns == nil {
 		s.conns = make(map[string]*extConn)
 	}
 	old := s.conns[c.id]
+	if old != nil && old.tokenID != "" && old.tokenID != c.tokenID {
+		s.connMu.Unlock()
+		return false
+	}
 	s.conns[c.id] = c
 	s.connMu.Unlock()
 	if old != nil {
 		s.logger.Info().Str("instance", c.id).Msg("replacing the previous connection from this browser")
 		_ = old.ws.Close()
 	}
+	return true
 }
 
 // removeConn forgets c, unless a newer socket from the same browser has

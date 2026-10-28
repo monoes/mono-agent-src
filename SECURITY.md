@@ -958,7 +958,14 @@ against an agent running as you:
   directly: post a `set_binding` to `/monoagent/relay`, or connect to the
   websocket as a browser and claim a profile in a `binding` frame, so an
   endpoint it runs would receive that profile's browser actions. The gates
-  above don't cover that path. This is the same as before profile sets.
+  above don't cover that path: the relay has no operator/agent distinction
+  (the operator marker is a property of the CLI process and cannot cross the
+  HTTP hop), so the relay token is the credential for `set_binding`, exactly
+  as it is for `click` or `eval`. This is the same as before profile sets;
+  `TestRelaySetBindingNeedsTheRelayToken` pins that the token is required.
+  A per-browser token, however, speaks only for the instance it was paired
+  with: it cannot connect as another instance, and no connection replaces a
+  socket that authenticated with a different per-browser token.
 - A paired browser, or anything holding the bridge token, can claim any
   valid profile id, and with sets it can claim up to 64 at once and receive
   those profiles' browser commands and session data. That widens what one

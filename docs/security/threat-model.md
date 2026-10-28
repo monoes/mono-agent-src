@@ -68,7 +68,10 @@ one endpoint, might try to cross:
    is not part of this change. The CLI's operator-only guards (`bind`,
    `unbind`, `assign`) stop an agent shell that does not hold the bridge
    token; a caller who can read the token can already send `set_binding`
-   directly, as on master.
+   directly, as on master (the relay cannot tell operator from agent, so the
+   relay token is the credential for it). A per-browser token is pinned to
+   the instance it was paired with and cannot displace another browser's
+   socket.
 2. **Extension ↔ page.** Content-script and cookie/debugger access is scoped
    to explicitly granted origins (MA-05) rather than `<all_urls>` by
    default. `chrome.debugger` is called out separately because Chrome does
