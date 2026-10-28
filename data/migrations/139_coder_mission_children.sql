@@ -61,7 +61,3 @@ CREATE TABLE IF NOT EXISTS coder_mission_events (
     at         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_coder_mission_events_session ON coder_mission_events(profile_id, session_id, id);
-
--- the host's pass looks up the newest stop commands of one conversation (internal/coderhost/missionchild.go); the
--- existing index serves the queue, not that lookup
-CREATE INDEX IF NOT EXISTS idx_coder_session_commands_chat ON coder_session_commands(profile_id, conversation_id, kind);
