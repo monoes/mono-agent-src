@@ -2,6 +2,7 @@ package ai
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"testing"
 )
@@ -36,9 +37,20 @@ func TestChatEvents_DeleteConversationRemovesItsAnswers(t *testing.T) {
 // Every table that names a conversation has a decision for what deleting one does to its rows.
 // A new table or column that names a conversation fails here until it is listed: decide whether
 // DeleteConversation removes, closes or revokes its rows, and add the case to a test.
+//
+// The test finds columns by name (anything containing "conversation") plus the columns in
+// conversationAliases, which hold a conversation id under another name. A column like that is not
+// found by name: add it to conversationAliases when you add it to the schema.
 func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 	_, db := newChatEventStore(t)
+	// Columns that hold a conversation id under a name that does not say so.
+	conversationAliases := map[string]bool{
+		"coder_session_spawns.parent": true,
+		"coder_session_spawns.child":  true,
+	}
 	decided := map[string]string{
+		"coder_session_spawns.parent":                    "deleted with the parent's spawn log",
+		"coder_session_spawns.child":                     "kept on purpose: removing it would hand the master its spawn-rate slot back",
 		"agent_tokens.bound_conversation":                "open: a token bound to the conversation stays valid",
 		"ai_budget_reservations.conversation_id":         "open: held until the spend is synced",
 		"ai_chat_answers.conversation_id":                "deleted",
@@ -61,7 +73,7 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		"coder_sessions.parent_conversation_id":          "children detached to solo",
 		"task_sessions.conversation_id":                  "open: a mission session of the deleted lead keeps running",
 	}
-	rows, err := db.Query(`SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND p.name LIKE '%conversation%'`)
+	rows, err := db.Query(`SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND (p.name LIKE '%conversation%' OR m.name || '.' || p.name IN ('coder_session_spawns.parent', 'coder_session_spawns.child'))`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +87,11 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		found = append(found, col)
 	}
 	sort.Strings(found)
+	for alias := range conversationAliases {
+		if !slices.Contains(found, alias) {
+			t.Errorf("%s is listed as an alias of a conversation id but no longer exists", alias)
+		}
+	}
 	seen := map[string]bool{}
 	for _, col := range found {
 		seen[col] = true
