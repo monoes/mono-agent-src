@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -96,7 +97,7 @@ func TestDeleteDropsAStaleRecordAndNeverSignalsTheNewOwnerOfThePid(t *testing.T)
 	r := newAccessRig(t, true)
 	c := r.conv(t, ai.AccessFull)
 	other := startStranger(t)
-	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: other.Process.Pid, Identity: "tree:the-turn-that-is-gone", Start: "boot-of-the-turn:1"})
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: other.Process.Pid, Identity: "tree:the-turn-that-is-gone", Start: "aabbccddeeff:1"})
 
 	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
 		t.Fatalf("a stale record blocked the delete: %v\n%s", err, out)
@@ -268,7 +269,7 @@ func TestDeleteNeverSignalsARightMarkerWithAnotherStartTime(t *testing.T) {
 	c := r.conv(t, ai.AccessFull)
 	pid := background(t)
 	id := processIdentity(pid)
-	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: pid, Identity: id, Start: "elsewhere:1", Root: id})
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: pid, Identity: id, Start: "aabbccddeeff:1", Root: id})
 
 	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
 		t.Fatalf("delete: %v\n%s", err, out)
@@ -339,5 +340,54 @@ func TestDeleteStopsAProcessRecordedBeforeTheDeleteCommits(t *testing.T) {
 	}
 	if _, err := r.store.GetConversation(c.ID, "default"); err == nil {
 		t.Error("the conversation is still there")
+	}
+}
+
+// A turn process that has ended but is not reaped yet (a zombie) runs nothing: it is gone, not a
+// survivor that blocks the delete.
+func TestDeleteTreatsAZombieAsGone(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	// The shell starts a short child and becomes a process that never reaps it.
+	parent := exec.Command("bash", "-c", "sleep 0.1 & exec sleep 60")
+	if err := parent.Start(); err != nil {
+		t.Skip("no bash: " + err.Error())
+	}
+	reaped := make(chan struct{})
+	go func() { parent.Wait(); close(reaped) }()
+	t.Cleanup(func() { parent.Process.Kill(); <-reaped })
+	var zombie int
+	for i := 0; i < 100 && zombie == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+		for _, k := range childrenOf(parent.Process.Pid) {
+			if procStateLetter(k) == 'Z' {
+				zombie = k
+			}
+		}
+	}
+	if zombie == 0 {
+		t.Skip("no zombie to test with")
+	}
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: zombie, Identity: "tree:x", Root: "tree:x", Start: processStart(zombie)})
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("a zombie blocked the delete: %v\n%s", err, out)
+	}
+}
+
+// A Start recorded in another form (an unhashed boot id) is not evidence that the pid was reused: the
+// record is not dropped as stale, and the process that still matches is stopped as usual.
+func TestDeleteDoesNotDropARecordWithAnIncomparableStart(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	id := processIdentity(pid)
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: pid, Identity: id, Root: id, Start: "3f2c1e0a-9b8d-4c7e-a1b2-c3d4e5f60718:123"})
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if !gone(pid) {
+		t.Error("a process that still matches was dropped from the record while running")
 	}
 }

@@ -63,7 +63,9 @@ func TestLearnTurnMarker(t *testing.T) {
 		t.Errorf("one marked child: %q", got)
 	}
 	two := runnerWithChildren(t, execTreeEnv+"=tok-a sleep 30 & "+execTreeEnv+"=tok-b sleep 30 & wait")
-	time.Sleep(300 * time.Millisecond)
+	for i := 0; i < 100 && len(childrenOf(two)) < 2; i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
 	if got := learnTurnMarker(context.Background(), two); got != "" {
 		t.Errorf("children with different markers must not be guessed between: %q", got)
 	}
@@ -76,5 +78,37 @@ func TestLearnTurnMarker(t *testing.T) {
 	cancel()
 	if got := learnTurnMarker(ctx, none); got != "" {
 		t.Errorf("a cancelled lookup: %q", got)
+	}
+}
+
+// The runner the lookup reads must be one this process started: a pid that is not below it (the
+// event names init, or someone else's process) is not read at all.
+func TestLearnTurnMarkerIgnoresARunnerThatIsNotOurs(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc")
+	}
+	old := markerPoll
+	markerPoll = 300 * time.Millisecond
+	t.Cleanup(func() { markerPoll = old })
+	if got := learnTurnMarker(context.Background(), 1); got != "" {
+		t.Errorf("init as the runner: %q", got)
+	}
+	if got := learnTurnMarker(context.Background(), 0); got != "" {
+		t.Errorf("pid 0: %q", got)
+	}
+}
+
+func TestStartComparable(t *testing.T) {
+	for name, tc := range map[string]struct {
+		a, b string
+		want bool
+	}{
+		"same form":           {"aabbccddeeff:123", "112233445566:9", true},
+		"raw boot id vs hash": {"3f2c1e0a-9b8d-4c7e-a1b2-c3d4e5f60718:123", "112233445566:9", false},
+		"no colon":            {"123", "112233445566:9", false},
+	} {
+		if got := startComparable(tc.a, tc.b); got != tc.want {
+			t.Errorf("%s: %v", name, got)
+		}
 	}
 }

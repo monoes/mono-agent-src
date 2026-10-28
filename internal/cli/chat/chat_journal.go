@@ -104,6 +104,7 @@ type turnJournal struct {
 	markerMu   sync.Mutex
 	marker     string
 	stopMarker context.CancelFunc
+	markerDone chan struct{}
 }
 
 // lockedEmitter journals through a turnJournal whose mu the caller holds.
@@ -234,12 +235,14 @@ func (j *turnJournal) handle(ev monomind.Event) {
 		if ev.Pid > 0 && j.stopMarker == nil {
 			ctx, cancel := context.WithCancel(context.Background())
 			j.stopMarker = cancel
-			go func(runner int) {
+			j.markerDone = make(chan struct{})
+			go func(runner int, done chan struct{}) {
+				defer close(done)
 				m := learnTurnMarker(ctx, runner)
 				j.markerMu.Lock()
 				j.marker = m
 				j.markerMu.Unlock()
-			}(ev.Pid)
+			}(ev.Pid, j.markerDone)
 		}
 		// The badge the app shows on the turn; message is the status key.
 		if ev.SandboxStatus != "" {
@@ -332,7 +335,14 @@ func (j *turnJournal) finishCode(stopRequested bool, res *monomind.TurnResult, c
 	j.closeOpenNativeCallsLocked()
 	j.finished = true
 	if j.stopMarker != nil {
+		// A turn that ends at once may end before the lookup does: give it a moment, then stop it
+		// and wait for its answer, so the marker read below is the lookup's last word.
+		select {
+		case <-j.markerDone:
+		case <-time.After(300 * time.Millisecond):
+		}
 		j.stopMarker()
+		<-j.markerDone
 	}
 	// The runtime's own helpers (e.g. the MCP servers opencode starts) are
 	// still alive when it reports done and exit with it; only processes

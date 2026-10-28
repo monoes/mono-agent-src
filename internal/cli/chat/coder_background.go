@@ -58,6 +58,62 @@ func processIdentity(pid int) string {
 	return ""
 }
 
+// startComparable is true when two start values are made the same way (a hashed boot id of the same
+// length before the colon); one of another form is not evidence that the pid was reused.
+func startComparable(a, b string) bool {
+	i, j := strings.IndexByte(a, ':'), strings.IndexByte(b, ':')
+	return i > 0 && i == j
+}
+
+// procStateLetter is the state letter of /proc/<pid>/stat ('Z' for a zombie), 0 when unknown.
+func procStateLetter(pid int) byte {
+	if runtime.GOOS != "linux" || pid <= 0 {
+		return 0
+	}
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0
+	}
+	k := bytes.LastIndexByte(stat, ')')
+	if k < 0 || k+2 >= len(stat) {
+		return 0
+	}
+	return stat[k+2]
+}
+
+// parentOf is the parent pid of pid (Linux; 0 when unknown).
+func parentOf(pid int) int {
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0
+	}
+	k := bytes.LastIndexByte(stat, ')')
+	if k < 0 {
+		return 0
+	}
+	f := strings.Fields(string(stat[k+1:]))
+	if len(f) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(f[1])
+	return n
+}
+
+// descendantOf says pid is below ancestor in the process tree (a few levels: the runner is started
+// through at most a launcher or two).
+func descendantOf(pid, ancestor int) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	for i := 0; i < 8 && pid > 1; i++ {
+		pid = parentOf(pid)
+		if pid == ancestor {
+			return true
+		}
+	}
+	return false
+}
+
 // statStartTime is the starttime (field 22) of a /proc/<pid>/stat line; "" when it is not there.
 // comm may hold spaces and parentheses, so the fields are counted from the last ')'.
 func statStartTime(stat string) string {
@@ -238,10 +294,12 @@ const (
 func judgeRef(r chatevents.ProcessRef, h pinnedProcess) (refVerdict, string) {
 	now := processIdentity(r.Pid)
 	start := processStart(r.Pid)
-	if !h.alive() {
+	state := procStateLetter(r.Pid)
+	if !h.alive() || state == 'Z' {
+		// A zombie has ended: it runs nothing and only waits to be reaped.
 		return refGone, ""
 	}
-	if r.Start != "" && start != "" && start != r.Start {
+	if r.Start != "" && start != "" && startComparable(r.Start, start) && start != r.Start {
 		// Another process holds the pid (its start time is not the recorded one, and a process cannot
 		// change that): the one the turn started is gone and this record is stale. Nothing is signalled.
 		return refGone, ""
@@ -264,6 +322,26 @@ func childrenOf(pid int) []int {
 	if runtime.GOOS != "linux" {
 		return nil
 	}
+	// The kernel's own list, when it keeps one (CONFIG_PROC_CHILDREN).
+	if tasks, err := os.ReadDir("/proc/" + strconv.Itoa(pid) + "/task"); err == nil {
+		var kids []int
+		ok := false
+		for _, t := range tasks {
+			b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/task/" + t.Name() + "/children")
+			if err != nil {
+				continue
+			}
+			ok = true
+			for _, f := range strings.Fields(string(b)) {
+				if n, err := strconv.Atoi(f); err == nil {
+					kids = append(kids, n)
+				}
+			}
+		}
+		if ok {
+			return kids
+		}
+	}
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil
@@ -271,18 +349,7 @@ func childrenOf(pid int) []int {
 	var kids []int
 	for _, e := range entries {
 		n, err := strconv.Atoi(e.Name())
-		if err != nil || n <= 0 {
-			continue
-		}
-		stat, err := os.ReadFile("/proc/" + e.Name() + "/stat")
-		if err != nil {
-			continue
-		}
-		k := bytes.LastIndexByte(stat, ')')
-		if k < 0 {
-			continue
-		}
-		if f := strings.Fields(string(stat[k+1:])); len(f) > 1 && f[1] == strconv.Itoa(pid) {
+		if err == nil && n > 0 && parentOf(n) == pid {
 			kids = append(kids, n)
 		}
 	}
@@ -298,7 +365,13 @@ var markerPoll = 10 * time.Second
 // child or its marker cannot be read, or the children disagree: the turn's processes are then not
 // stopped.
 func learnTurnMarker(ctx context.Context, runner int) string {
+	// The runner is the one this process started (directly or through a launcher): a pid that is not
+	// below this process is not read.
+	if !descendantOf(runner, os.Getpid()) {
+		return ""
+	}
 	deadline := time.Now().Add(markerPoll)
+	last := ""
 	for {
 		seen := map[string]bool{}
 		for _, kid := range childrenOf(runner) {
@@ -306,22 +379,26 @@ func learnTurnMarker(ctx context.Context, runner int) string {
 				seen[id] = true
 			}
 		}
-		switch len(seen) {
-		case 1:
-			for id := range seen {
-				return id
-			}
-		case 0:
-		default:
+		if len(seen) > 1 {
 			return ""
 		}
+		cur := ""
+		for id := range seen {
+			cur = id
+		}
+		// One marker, seen on two scans in a row: a child that shows up beside it in between is
+		// not missed by the first look.
+		if cur != "" && cur == last {
+			return cur
+		}
+		last = cur
 		if ctx.Err() != nil || time.Now().After(deadline) {
 			return ""
 		}
 		select {
 		case <-ctx.Done():
 			return ""
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(60 * time.Millisecond):
 		}
 	}
 }
