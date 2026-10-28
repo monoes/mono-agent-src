@@ -119,6 +119,8 @@ type Store struct {
 	afterChildCreated func()
 	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
 	afterStaleSelect func()
+	// betweenCascadeCheckAndResume lets a test act between the pass's pausedByCascade check and its resume.
+	betweenCascadeCheckAndResume func()
 	// onSpent sees the handle every Spent read goes through.
 	onSpent func(q querier)
 }

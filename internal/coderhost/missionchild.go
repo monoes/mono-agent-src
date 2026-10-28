@@ -130,10 +130,11 @@ func (h *Host) reconcileChild(r ChildRow) error {
 	}
 	if ms.state == "running" && cs.State == StatePaused && st.pausedByCascade(r.ProfileID, r.ChildConversationID) && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindResume) {
 		// the mission runs again and nobody but this pass paused the child: it goes on, with the same host-made command
-		if _, err := st.Enqueue(Command{ProfileID: r.ProfileID, ConversationID: r.ChildConversationID, Kind: KindResume, TurnID: cascadeTurn}); err != nil {
-			return err
+		if st.betweenCascadeCheckAndResume != nil {
+			st.betweenCascadeCheckAndResume()
 		}
-		return nil
+		_, err := st.enqueueCascadeResume(r.ProfileID, r.ChildConversationID) // refused by the statement itself if a person's pause came in since the check
+		return err
 	}
 	idle := cs.State == StateIdle && cs.TurnID == "" && st.PendingFor(r.ProfileID, r.ChildConversationID) == 0
 	if cs.State != StateStopped && !idle {
