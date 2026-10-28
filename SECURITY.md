@@ -1955,6 +1955,22 @@ injected text and a confused script inside the rules; it is not a sandbox agains
 - **Mesh text is data.** What other agents send to a session over monomind's mesh is sealed as untrusted peer
   content in front of its next turn; it starts no turn and carries no authority. The mesh name is not a trust
   anchor and `mesh_accept` (`none`, `subtree` or `project`; default `subtree`) limits who is heard.
+- **Mission child sessions: policy and marks (data model only).** The tables `coder_mission_policy`,
+  `coder_mission_children` and `coder_mission_events` (migration 139) hold, per task session, a policy (mode `off`,
+  `marked` or `all`; `max_children`; `share_pct`), the tasks its lead marked, and an audit row for every change with
+  who made it. This surface starts no session and no turn: nothing in the host reads these tables to spawn yet, so a
+  mark has no effect on a running mission. What the store enforces for the spawn path to come: only the lead of that
+  task session (its conversation equals `task_sessions.conversation_id`, taken from a verified session token) marks,
+  reserves or links; a process that also holds a task-bound mission binding (a worker or verifier) is refused, but only if the tool layer passes the verified binding result to `NewLeadScope` (a scope built without that check is refused; whether the tool layer does it is for the next phase to build and verify); a task
+  of another session or profile, a session that does not exist and a caller that is not the lead are refused with one
+  text. A mark in a draft session is stored and reserves nothing until the person has approved the plan. The lead
+  raises `max_children` only up to the session's own operator-only `max_children` setting and `share_pct` only up
+  to 80 (1 to 80 for everyone); it can switch the mode between `off` and `marked` (unless the person turned it off: an operator `off` stays off until the operator turns the mode on) and lower it from `all`, and mode `all` (every worker task becomes a child) is the
+  operator's alone to turn on. A `max_children` or `share_pct` the operator writes is a cap the lead cannot raise past (the operator clears it to give the lead its freedom back); the lead may always lower, and every such change is an audit row naming who. None of it writes a setting, access level or the lead's budget. The one write outside these
+  tables lowers a finished child's own cap to what it spent (never up, never to 0 which means uncapped) so the unspent
+  carve returns to the lead. The share is held only for children that exist or are reserved (a marked task holds nothing), and the statement that reserves checks it. A lead's own audit rows are bounded per kind (a flood of one kind, say marks or raises, can push out only earlier rows of that kind, never a raise by a flood of marks or lowers); identical repeated marks of one task collapse and a change of size or budget is a row of its own; changes of the default budget are recorded; the operator's and the host's rows are not rotated. A child's state change, its audit row and the lowering of its cap are one transaction, so a failure leaves the row live to be ended again. Known gap, not new: an agent can link a task session to any conversation of its profile, so a worker that holds no binding could become the lead of a session of its own; the binding check does not close that, and a mission lead that is itself a child (or a worker) must be refused by the spawn path (depth rule, next phase). The files read `tasks` and `task_sessions` and write neither; a static test lists the
+  tables they may name. Not yet built or checked: the spawn, the child's token, the cascade on stop and the host
+  reconciler (later phases of the plan).
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder
