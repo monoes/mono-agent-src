@@ -67,6 +67,10 @@ type coderSettings struct {
 	// coder chat always was. Only the operator changes it, and an agent-run
 	// creation never takes it (chat_default_access.go).
 	DefaultAccess string `json:"defaultAccess,omitempty"`
+	// Box (coder.box) is off (default), compat or strict: whether a coder lead turn of a
+	// coding-access chat runs inside the agent sandbox (internal/agentbox). Nothing turns it
+	// on; only the operator changes it.
+	Box string `json:"box,omitempty"`
 }
 
 const (
@@ -214,6 +218,7 @@ func currentCoderStatus(cmd *cobra.Command, s coderSettings) coderStatus {
 		st.DefaultAccessSource = defaultAccessFromSet
 	}
 	st.DefaultAccess = s.defaultAccess()
+	st.Box = s.boxMode()
 	set, err := capabilityProbe(cmd)
 	if err == nil && set != nil {
 		st.MonomindVersion = set.Version
@@ -348,6 +353,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
+			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s (off by default; best-effort hardening, not isolation: the host network is shared and the host root is read-only)\n", st.Box)
 			if !st.Ready {
 				fmt.Fprintf(cmd.OutOrStdout(), "missing monomind capabilities: %v\n", st.MissingCapabilities)
 			}
