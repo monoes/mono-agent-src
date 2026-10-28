@@ -3,8 +3,12 @@
 package chat
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -39,3 +43,31 @@ func (p *pidfd) signal(sig signalNumber) error {
 
 func (p *pidfd) pinsPid() bool { return true }
 func (p *pidfd) close()        { _ = unix.Close(p.fd) }
+
+// groupMembers is the pids in process group pgid, other than pgid itself (Linux).
+func groupMembers(pgid int) []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for _, e := range entries {
+		n, err := strconv.Atoi(e.Name())
+		if err != nil || n <= 0 || n == pgid {
+			continue
+		}
+		stat, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		k := bytes.LastIndexByte(stat, ')')
+		if k < 0 {
+			continue
+		}
+		// after ')': state, ppid, pgrp
+		if f := strings.Fields(string(stat[k+1:])); len(f) > 2 && f[2] == strconv.Itoa(pgid) {
+			out = append(out, n)
+		}
+	}
+	return out
+}

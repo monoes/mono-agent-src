@@ -23,3 +23,6 @@ func (p *pidHandle) signal(sig signalNumber) error { return syscall.Kill(p.pid, 
 
 func (p *pidHandle) pinsPid() bool { return false }
 func (p *pidHandle) close()        {}
+
+// groupMembers: no way to list a group here.
+func groupMembers(int) []int { return nil }

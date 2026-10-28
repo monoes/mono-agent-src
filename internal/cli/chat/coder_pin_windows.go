@@ -14,3 +14,6 @@ type signalNumber = syscall.Signal
 func pinProcessOS(int) (pinnedProcess, error) {
 	return nil, fmt.Errorf("%w: not supported on Windows", errCannotPin)
 }
+
+// groupMembers: no way to list a group here.
+func groupMembers(int) []int { return nil }

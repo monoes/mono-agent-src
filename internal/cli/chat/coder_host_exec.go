@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
@@ -372,17 +373,52 @@ func (t *adoptedTurn) Wait() error {
 // (each look can fork a ps).
 var adoptedPoll = time.Second
 
+// pinMembers pins the members of the turn's process group other than the leader, once the leader's
+// start time matches the turn's, and checks again afterwards that it still does: the list was then
+// the turn's own group. Where members cannot be listed or pinned, none are returned.
+func (t *adoptedTurn) pinMembers() []pinnedProcess {
+	if t.pid <= 1 || t.stamp == "" || stampOf(t.pid) != t.stamp {
+		return nil
+	}
+	var pinned []pinnedProcess
+	for _, m := range groupMembers(t.pid) {
+		if h, err := pinProcess(m); err == nil {
+			pinned = append(pinned, h)
+		}
+	}
+	if stampOf(t.pid) != t.stamp {
+		for _, h := range pinned {
+			h.close()
+		}
+		return nil
+	}
+	return pinned
+}
+
 func (t *adoptedTurn) Stop() {
 	t.once.Do(func() {
 		t.bg.Add(1)
 		go func() {
 			defer t.bg.Done()
+			// While the leader is verifiably the turn's, the other members of its group are pinned
+			// (a pidfd on Linux): a child that ignores SIGTERM outlives a leader that exits on it, and
+			// by then it could not be told from a stranger by its group alone.
+			members := t.pinMembers()
+			defer func() {
+				for _, m := range members {
+					m.close()
+				}
+			}()
 			signalAdopted(t.pid, t.stamp, terminateGroup)
 			// Not this process's child, so the group is signalled only while the leader is
-			// verifiably the same process. A leader that ends first leaves any child that
-			// ignored SIGTERM running: it cannot be told from a stranger by then.
+			// verifiably the same process; what is pinned is killed through its pin.
 			time.Sleep(hostTurnGrace)
 			signalAdopted(t.pid, t.stamp, killGroup)
+			for _, m := range members {
+				if m.alive() {
+					_ = m.signal(syscall.SIGKILL)
+				}
+			}
 		}()
 	})
 }
