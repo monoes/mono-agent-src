@@ -2,14 +2,10 @@ package storage
 
 import (
 	"database/sql"
-	"io/fs"
-	"regexp"
-	"sort"
-	"strconv"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/monoes/mono-agent/data"
 )
 
 // A trigger body may hold CASE ... END expressions; only the END that closes the BEGIN ends the trigger.
@@ -88,56 +84,42 @@ func TestUnterminatedTriggerIsAnExplicitError(t *testing.T) {
 	}
 }
 
-// The budget-request triggers live on tables other migrations may rebuild. A rebuild drops the triggers of the
-// table, so a migration after 143 that drops or renames one of these tables has to create the triggers again.
-func TestLaterMigrationsThatRebuildATriggerTableRecreateItsTriggers(t *testing.T) {
-	needs := map[string][]string{
-		"coder_sessions":         {"trg_coder_budget_requests_session_moved", "trg_coder_budget_requests_session_gone"},
-		"task_sessions":          {"trg_coder_budget_requests_mission_ended", "trg_coder_budget_requests_mission_gone"},
-		"coder_mission_children": {"trg_coder_budget_requests_child_moved", "trg_coder_budget_requests_child_gone"},
-	}
-	files, err := fs.Glob(data.MigrationsFS, "migrations/*.sql")
+// The budget-request triggers live on tables other migrations may rebuild, and a rebuild drops the triggers of
+// the table. So the check is on the schema the migrations leave, not on their text: after all of them, the
+// database has each of the triggers, on the table it belongs to.
+func TestBudgetRequestTriggersSurviveEveryMigration(t *testing.T) {
+	db, err := NewDatabase(filepath.Join(t.TempDir(), "schema.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sort.Strings(files)
-	numRe := regexp.MustCompile(`migrations/(\d+)_`)
-	for _, f := range files {
-		m := numRe.FindStringSubmatch(f)
-		if m == nil {
-			continue
-		}
-		if n, _ := strconv.Atoi(m[1]); n <= 143 {
-			continue
-		}
-		raw, err := data.MigrationsFS.ReadFile(f)
-		if err != nil {
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"trg_coder_budget_requests_pinned":        "coder_budget_requests",
+		"trg_coder_budget_requests_once":          "coder_budget_requests",
+		"trg_coder_budget_requests_session_moved": "coder_sessions",
+		"trg_coder_budget_requests_session_gone":  "coder_sessions",
+		"trg_coder_budget_requests_mission_ended": "task_sessions",
+		"trg_coder_budget_requests_mission_gone":  "task_sessions",
+		"trg_coder_budget_requests_child_moved":   "coder_mission_children",
+		"trg_coder_budget_requests_child_gone":    "coder_mission_children",
+	}
+	rows, err := db.DB.Query(`SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_coder_budget_requests_%'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var name, tbl string
+		if err := rows.Scan(&name, &tbl); err != nil {
 			t.Fatal(err)
 		}
-		src := string(raw)
-		for table, triggers := range needs {
-			rebuild := regexp.MustCompile(`(?i)(drop\s+table\s+(if\s+exists\s+)?` + table + `\b|alter\s+table\s+` + table + `\s+rename\s+to\b|alter\s+table\s+\w+\s+rename\s+to\s+` + table + `\b)`)
-			if !rebuild.MatchString(src) {
-				continue
-			}
-			for _, trg := range triggers {
-				if !strings.Contains(src, trg) {
-					t.Errorf("%s rebuilds %s without recreating %s: the budget-request triggers would be lost", f, table, trg)
-				}
-			}
-		}
+		got[name] = tbl
 	}
-}
-
-// Every trigger the budget-request migration names for the guard above exists in it.
-func TestBudgetRequestTriggersNamedByTheGuardExist(t *testing.T) {
-	raw, err := data.MigrationsFS.ReadFile("migrations/143_coder_budget_requests.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, trg := range []string{"session_moved", "session_gone", "mission_ended", "mission_gone", "child_moved", "child_gone"} {
-		if !strings.Contains(string(raw), "trg_coder_budget_requests_"+trg) {
-			t.Errorf("migration 143 has no trigger %s", trg)
-		}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("triggers after all migrations = %v, want %v: a migration that rebuilds a table has to recreate its triggers", got, want)
 	}
 }

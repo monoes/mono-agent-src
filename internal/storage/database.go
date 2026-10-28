@@ -458,68 +458,108 @@ func checkDuplicateVersions(migrations []migration) error {
 }
 
 // splitStatements splits a SQL script by semicolons while respecting quoted
-// strings and comments, and keeps a CREATE TRIGGER whole (see splitStatementsChecked). A script whose trigger
-// never reaches its END comes out with that trigger as its last statement, which SQLite refuses.
+// strings, quoted identifiers and comments, and keeps a CREATE TRIGGER whole (see splitStatementsChecked). A
+// script whose trigger never reaches its END comes out with that trigger as its last statement, which SQLite
+// refuses.
 func splitStatements(sql string) []string {
 	statements, _ := splitStatementsChecked(sql)
 	return statements
 }
 
+// Lexer states of splitStatementsChecked: what the next character is part of.
+const (
+	lexNormal   = iota
+	lexSingle   // 'string' ('' is an escaped quote: it closes and reopens)
+	lexDouble   // "identifier"
+	lexBacktick // `identifier`
+	lexBracket  // [identifier]
+	lexLine     // -- comment, to the end of the line
+	lexBlock    // /* comment */
+)
+
 // splitStatementsChecked is splitStatements that also says when a CREATE TRIGGER is never closed by its END, so
-// the migration runner can refuse the script explicitly. A ';' ends a statement except inside a trigger's
-// BEGIN ... END body; the body ends at the END that is not the end of a CASE expression (words in comments,
-// quoted strings and quoted identifiers do not count). Every other statement splits exactly as it always did.
+// the migration runner can refuse the script explicitly. One lexer reads the script: a ';' ends a statement only
+// in normal text, and only outside a trigger's BEGIN ... END body; the body ends at the END that is not the end of
+// a CASE expression. The words CASE, BEGIN and END are counted only in normal text, never inside strings, quoted
+// identifiers or comments.
 func splitStatementsChecked(sql string) ([]string, error) {
 	var statements []string
 	var current strings.Builder
 	var trig triggerScan
-	inSingleQuote := false
-	inLineComment := false
+	state := lexNormal
 	runes := []rune(sql)
 
 	for i := 0; i < len(runes); i++ {
 		ch := runes[i]
-
-		// Handle line comments (-- ...)
-		if !inSingleQuote && ch == '-' && i+1 < len(runes) && runes[i+1] == '-' {
-			trig.flush()
-			inLineComment = true
-			current.WriteRune(ch)
-			continue
+		var next rune
+		if i+1 < len(runes) {
+			next = runes[i+1]
 		}
-		if inLineComment {
-			current.WriteRune(ch)
+		switch state {
+		case lexSingle:
+			if ch == '\'' {
+				state = lexNormal
+			}
+		case lexDouble:
+			if ch == '"' {
+				state = lexNormal
+			}
+		case lexBacktick:
+			if ch == '`' {
+				state = lexNormal
+			}
+		case lexBracket:
+			if ch == ']' {
+				state = lexNormal
+			}
+		case lexLine:
 			if ch == '\n' {
-				inLineComment = false
+				state = lexNormal
 			}
-			continue
-		}
-
-		// Handle single-quoted strings.
-		if ch == '\'' && !inLineComment {
-			trig.flush()
-			inSingleQuote = !inSingleQuote
-			current.WriteRune(ch)
-			continue
-		}
-
-		if ch == ';' && !inSingleQuote {
-			trig.flush()
-			if trig.open() {
-				current.WriteRune(ch) // a ';' inside a trigger's body ends a body statement, not the trigger
+		case lexBlock:
+			if ch == '*' && next == '/' {
+				current.WriteRune(ch)
+				i++
+				ch = next
+				state = lexNormal
+			}
+		default: // normal text
+			switch {
+			case ch == '-' && next == '-':
+				trig.flush()
+				state = lexLine
+			case ch == '/' && next == '*':
+				trig.flush()
+				current.WriteRune(ch)
+				i++
+				ch = next
+				state = lexBlock
+			case ch == '\'':
+				trig.flush()
+				state = lexSingle
+			case ch == '"':
+				trig.flush()
+				state = lexDouble
+			case ch == '`':
+				trig.flush()
+				state = lexBacktick
+			case ch == '[':
+				trig.flush()
+				state = lexBracket
+			case ch == ';':
+				trig.flush()
+				if trig.open() {
+					break // a ';' inside a trigger's body ends a body statement, not the trigger
+				}
+				if stmt := strings.TrimSpace(current.String()); stmt != "" {
+					statements = append(statements, stmt)
+				}
+				current.Reset()
+				trig = triggerScan{}
 				continue
+			default:
+				trig.feed(ch)
 			}
-			stmt := strings.TrimSpace(current.String())
-			if stmt != "" {
-				statements = append(statements, stmt)
-			}
-			current.Reset()
-			trig = triggerScan{}
-			continue
-		}
-
-		if !inSingleQuote {
-			trig.feed(ch)
 		}
 		current.WriteRune(ch)
 	}
@@ -537,52 +577,23 @@ func splitStatementsChecked(sql string) ([]string, error) {
 
 // triggerScan follows the words of one statement just far enough to tell where a CREATE TRIGGER ends: it reads
 // the statement's first words, then counts CASE ... END pairs so that only the END that closes the trigger's
-// BEGIN counts. Quoted identifiers ("x", `x`, [x]) and block comments hide their words; the caller hides
-// single-quoted strings and line comments.
+// BEGIN counts. The lexer feeds it only characters of normal text.
 type triggerScan struct {
-	word                    []rune
-	words                   []string // the statement's first three words
-	isTrigger               bool
-	sawBegin, ended         bool
-	caseDepth               int
-	inDQ, inBT, inBR, inBlk bool
-	prev                    rune
+	word            []rune
+	words           []string // the statement's first three words
+	isTrigger       bool
+	sawBegin, ended bool
+	caseDepth       int
 }
 
 func (t *triggerScan) open() bool { return t.isTrigger && !t.ended }
 
 func (t *triggerScan) feed(ch rune) {
-	switch {
-	case t.inBlk:
-		if t.prev == '*' && ch == '/' {
-			t.inBlk = false
-			ch = 0
-		}
-	case t.inDQ:
-		t.inDQ = ch != '"'
-	case t.inBT:
-		t.inBT = ch != '`'
-	case t.inBR:
-		t.inBR = ch != ']'
-	case t.prev == '/' && ch == '*':
-		t.flush()
-		t.inBlk = true
-		ch = 0
-	case ch == '"':
-		t.flush()
-		t.inDQ = true
-	case ch == '`':
-		t.flush()
-		t.inBT = true
-	case ch == '[':
-		t.flush()
-		t.inBR = true
-	case unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_':
+	if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' {
 		t.word = append(t.word, ch)
-	default:
-		t.flush()
+		return
 	}
-	t.prev = ch
+	t.flush()
 }
 
 func (t *triggerScan) flush() {
@@ -593,7 +604,7 @@ func (t *triggerScan) flush() {
 	t.word = t.word[:0]
 	if len(t.words) < 3 {
 		t.words = append(t.words, w)
-		if n := len(t.words); n >= 2 && t.words[0] == "CREATE" && !t.isTrigger {
+		if n := len(t.words); !t.isTrigger && n >= 2 && t.words[0] == "CREATE" {
 			t.isTrigger = t.words[1] == "TRIGGER" || (n == 3 && (t.words[1] == "TEMP" || t.words[1] == "TEMPORARY") && t.words[2] == "TRIGGER")
 		}
 	}
