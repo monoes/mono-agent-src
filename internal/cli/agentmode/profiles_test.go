@@ -229,66 +229,6 @@ func TestSeatbeltProfileQuoting(t *testing.T) {
 	}
 }
 
-// A HOME spelled through a symlink and "..": the physical parent of the link target is a
-// different directory from the lexical parent of the link, and the profile must name both.
-func TestSeatbeltProfileDotDotAfterSymlinkNamesThePhysicalHome(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	actual := filepath.Join(root, "other", "actual")
-	target := filepath.Join(actual, "user")
-	alias := filepath.Join(root, "tmp", "alias")
-	for _, d := range []string{target, alias} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Symlink(target, filepath.Join(alias, "home")); err != nil {
-		t.Fatal(err)
-	}
-	home := alias + "/home/.." // lexically alias, physically actual
-	out, err := seatbeltProfile(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range []string{alias, actual} {
-		for _, w := range []string{`(subpath "` + p + `/.monoagent")`, `(subpath "` + p + `/.ssh")`, `(literal "` + p + `/.zshrc")`} {
-			if !strings.Contains(out, w) {
-				t.Errorf("profile lacks %s:\n%s", w, out)
-			}
-		}
-	}
-}
-
-// The final component does not exist yet, so the whole path cannot be resolved at once: the
-// ".." after the symlink still has to mean the parent of the link's target.
-func TestSeatbeltProfileMissingHomeAfterDotDotKeepsTheSymlinkMeaning(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	actual := filepath.Join(root, "other", "actual")
-	alias := filepath.Join(root, "tmp", "alias")
-	for _, d := range []string{filepath.Join(actual, "user"), alias} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Symlink(filepath.Join(actual, "user"), filepath.Join(alias, "home")); err != nil {
-		t.Fatal(err)
-	}
-	out, err := seatbeltProfile(alias + "/home/../not-created")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range []string{filepath.Join(alias, "not-created"), filepath.Join(actual, "not-created")} {
-		if w := `(subpath "` + p + `/.ssh")`; !strings.Contains(out, w) {
-			t.Errorf("profile lacks %s:\n%s", w, out)
-		}
-	}
-}
-
 // A HOME that cannot be resolved (a symlink loop) must not print a profile that names only the
 // lexical spelling: the sandbox would look protected and not be.
 func TestSeatbeltProfileRefusesAHomeThatCannotBeResolved(t *testing.T) {
@@ -326,5 +266,120 @@ func TestSeatbeltProfileBrokenHomeSymlinkNamesItsTarget(t *testing.T) {
 		if w := `(subpath "` + p + `/.ssh")`; !strings.Contains(out, w) {
 			t.Errorf("profile lacks %s:\n%s", w, out)
 		}
+	}
+}
+
+// A HOME with a ".." component is refused: no real home has one, and what ".." means below a
+// symlink, a file or a missing name is exactly what the kernel and a lexical clean disagree on.
+func TestSeatbeltProfileRefusesDotDotInHome(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "dir")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, home := range []string{dir + "/..", dir + "/../home", link + "/..", link + "/../not-created",
+		file + "/..", root + "/missing/..", root + "/missing/../home", "/.."} {
+		if out, err := seatbeltProfile(home); err == nil {
+			t.Errorf("HOME %q printed a profile:\n%s", home, out)
+		}
+	}
+}
+
+// A ".." that comes from a symlink's own target is read as the kernel does: the parent of the
+// directory the link sits in; below a file or a missing name it is an error.
+func TestSeatbeltProfileDotDotInALinkTarget(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(root, "real", "user")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "links"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ok := filepath.Join(root, "links", "home")
+	if err := os.Symlink("../real/user", ok); err != nil { // relative, with ..
+		t.Fatal(err)
+	}
+	out, err := seatbeltProfile(ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := `(subpath "` + real + `/.ssh")`; !strings.Contains(out, w) {
+		t.Errorf("profile lacks %s:\n%s", w, out)
+	}
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"belowfile": file + "/..", "belowmissing": filepath.Join(root, "missing") + "/.."} {
+		l := filepath.Join(root, name)
+		if err := os.Symlink(target, l); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := seatbeltProfile(l); err == nil {
+			t.Errorf("link %s -> %s printed a profile:\n%s", name, target, out)
+		}
+	}
+}
+
+// The link limit is exact: a chain of 255 links resolves, one more does not.
+func TestSeatbeltProfileLinkLimitBoundary(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	chain := func(n int) string { // n links in a row ending at real
+		prev := real
+		for i := 0; i < n; i++ {
+			l := filepath.Join(root, fmt.Sprintf("c%d-%d", n, i))
+			if err := os.Symlink(prev, l); err != nil {
+				t.Fatal(err)
+			}
+			prev = l
+		}
+		return prev
+	}
+	// The numbers are written out on purpose: the test pins the limit, it does not follow it.
+	if _, err := seatbeltProfile(chain(255)); err != nil {
+		t.Errorf("a chain of 255 links: %v", err)
+	}
+	if out, err := seatbeltProfile(chain(256)); err == nil {
+		t.Errorf("a chain of 256 links printed a profile:\n%s", out)
+	}
+}
+
+// A loop at one entry below a plain HOME (HOME/.ssh) is an error, not a lexical-only rule.
+func TestSeatbeltProfileRefusesALoopAtAnEntry(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := filepath.Join(home, ".ssh"), filepath.Join(home, "other")
+	if err := os.Symlink(b, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(a, b); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := seatbeltProfile(home); err == nil {
+		t.Fatalf("a loop at HOME/.ssh printed a profile:\n%s", out)
 	}
 }

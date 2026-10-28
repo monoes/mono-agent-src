@@ -44,6 +44,7 @@ func resolveExisting(p string) (string, error) {
 	rest := splitPath(p)
 	cur := string(filepath.Separator)
 	missing := false // below a name that does not exist: nothing there can be a link
+	isDir := true    // what cur is: ".." is only meaningful after a directory
 	for hops := 0; len(rest) > 0; {
 		c := rest[0]
 		rest = rest[1:]
@@ -51,25 +52,28 @@ func resolveExisting(p string) (string, error) {
 		case ".":
 			continue
 		case "..":
+			if missing || !isDir {
+				return "", fmt.Errorf("seatbelt profile: %q has \"..\" after a name that is missing or is not a directory", p)
+			}
 			cur = filepath.Dir(cur)
 			continue
 		}
 		next := filepath.Join(cur, c)
 		if missing {
-			cur = next
+			cur, isDir = next, false
 			continue
 		}
 		fi, err := os.Lstat(next)
 		if errors.Is(err, fs.ErrNotExist) {
 			missing = true
-			cur = next
+			cur, isDir = next, false
 			continue
 		}
 		if err != nil {
 			return "", fmt.Errorf("seatbelt profile: cannot resolve %q: %w", p, err)
 		}
 		if fi.Mode()&os.ModeSymlink == 0 {
-			cur = next
+			cur, isDir = next, fi.IsDir()
 			continue
 		}
 		if hops++; hops > maxSymlinkHops {
@@ -149,6 +153,11 @@ func seatbeltProfile(home string) (string, error) {
 	}
 	// The lexical spelling and the physical one: resolve first (a ".." after a symlink means the
 	// parent of the link's target), only then compare with the cleaned spelling.
+	for _, c := range splitPath(home) {
+		if c == ".." {
+			return "", fmt.Errorf("seatbelt profile: HOME %q contains \"..\"; give the path without it", home)
+		}
+	}
 	homes := []string{filepath.Clean(home)}
 	r, err := resolveExisting(home)
 	if err != nil {
