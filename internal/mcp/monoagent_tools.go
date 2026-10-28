@@ -151,7 +151,7 @@ func monoagentAdaptedTools() []tool {
 		},
 		{
 			name:        "profile_document_search",
-			description: "Search the user's uploaded profile documents (résumé, cover letters, etc.) for relevant content. Requires the monomind CLI on PATH — fails with an install hint if it isn't.",
+			description: "Search the profile's second brain (uploaded documents, captured pages) and get ranked passages with section paths. Use this first for questions about the user's documents or saved pages. Requires the monomind CLI on PATH — fails with an install hint if it isn't.",
 			schema: objSchema(map[string]interface{}{
 				"query": strParam("Search query"),
 			}, "query"),
