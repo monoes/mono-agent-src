@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Trash2, Plus, Search, Image as ImageIcon, FileText } from 'lucide-react'
+import { Trash2, Plus, Search, Image as ImageIcon, FileText, Music, Film } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
-import { isVaultImage, vaultFileKind } from '../lib/vaultItems.js'
+import { isVaultImage, vaultFileKind, vaultKind } from '../lib/vaultItems.js'
 import ImageDetailModal from '../components/ImageDetailModal'
 import RefreshButton from '../components/RefreshButton.jsx'
 import { limiter } from '../lib/limiter.js'
 
-// Each thumbnail is one `monoagentcli image data` call, so they load when
+// Each thumbnail is one `monoagentcli media data` call, so they load when
 // scrolled into view and at most 4 at a time — a vault of hundreds of images
 // must not start hundreds of processes at once.
 const loadThumb = limiter(4)
@@ -38,19 +38,22 @@ function VaultThumb({ id }) {
 }
 
 // FileThumb stands in for a thumbnail on a vault item that is not an image
-// (a PDF or text file the extension saved): an icon and its kind, no <img>.
+// (audio, video, or a PDF or text file the extension saved): an icon and its
+// kind, no <img>.
 function FileThumb({ item }) {
+  const kind = vaultKind(item)
+  const Icon = kind === 'audio' ? Music : kind === 'video' ? Film : FileText
   return (
     <div
       role="img"
-      aria-label={`file ${item.label || item.filename}`}
+      aria-label={`${kind || 'file'} ${item.label || item.filename}`}
       title={item.label || item.filename}
       style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center', color: '#64748b', gap: 1,
       }}
     >
-      <FileText size={14} />
+      <Icon size={14} />
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7 }}>{vaultFileKind(item)}</span>
     </div>
   )
@@ -89,7 +92,7 @@ const sourceBadge = (source) => {
   )
 }
 
-export default function ImageVault({ isActive = true }) {
+export default function MediaVault({ isActive = true }) {
   const [images, setImages] = useState([])
   const [stats, setStats] = useState(null)
   const [search, setSearch] = useState('')
@@ -152,14 +155,14 @@ export default function ImageVault({ isActive = true }) {
   const handleDrop = (e) => {
     e.preventDefault()
     setDragging(false)
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
+    const files = Array.from(e.dataTransfer.files).filter(f => /^(image|audio|video)\//.test(f.type))
     if (!files.length) return
     setError(null)
     // Use first dropped file's path (Wails WebKit sets file.path on drop)
     const promises = files.map(async (file) => {
       const path = file.path
       if (!path) {
-        setError('Drag-drop path unavailable — use the Add Image button instead')
+        setError('Drag-drop path unavailable — use the Add Media button instead')
         return
       }
       await WailsApp.AddVaultImage(path, '')
@@ -193,9 +196,9 @@ export default function ImageVault({ isActive = true }) {
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
         <div>
-          <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>Image Vault</div>
+          <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>Media Vault</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569' }}>
-            {stats ? `${stats.count} images · ${fmtBytes(stats.total_bytes)}` : 'loading…'}
+            {stats ? `${stats.count} items · ${fmtBytes(stats.total_bytes)}` : 'loading…'}
           </div>
         </div>
         <div style={{ flex: 1 }} />
@@ -222,7 +225,7 @@ export default function ImageVault({ isActive = true }) {
             display: 'flex', alignItems: 'center', gap: 5,
           }}
         >
-          <Plus size={12} /> Add Image
+          <Plus size={12} /> Add Media
         </button>
       </div>
 
@@ -234,7 +237,7 @@ export default function ImageVault({ isActive = true }) {
         color: dragging ? '#00b4d8' : '#1e3a4f', textAlign: 'center',
         transition: 'all 0.15s',
       }}>
-        {dragging ? 'Drop to add to vault' : 'Drop images anywhere to add them to the vault'}
+        {dragging ? 'Drop to add to vault' : 'Drop images, audio or video anywhere to add them to the vault'}
       </div>
 
       {/* Error */}
@@ -270,7 +273,7 @@ export default function ImageVault({ isActive = true }) {
           }}>
             <ImageIcon size={32} style={{ opacity: 0.3 }} />
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              {search ? 'No images match your search' : 'No images yet — run a workflow or drop images here'}
+              {search ? 'Nothing matches your search' : 'Nothing here yet — run a workflow or drop images, audio or video here'}
             </div>
           </div>
         )}

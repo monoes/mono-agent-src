@@ -8,8 +8,8 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// ImageVaultSaveNode copies an item's image file into the profile's image
-// vault (~/.monoagent/vault/), so it survives independently of wherever the
+// ImageVaultSaveNode copies an item's image, audio or video file into the
+// profile's media vault (~/.monoagent/vault/), so it survives independently of wherever the
 // source file lives (a temp dir, a downloaded file, another node's output)
 // and can be referenced later by id from any workflow.
 type ImageVaultSaveNode struct{}

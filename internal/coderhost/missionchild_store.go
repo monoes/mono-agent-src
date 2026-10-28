@@ -532,10 +532,6 @@ func (s *Store) writePolicy(cur, next Policy, notes []MissionEvent) (bool, error
 	return true, tx.Commit()
 }
 
-type execer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
-
 // querier is what both the database and a transaction offer; the room check reads through the
 // transaction that reserves, so what it decides on cannot change before the reserving statement runs.
 type querier interface {
@@ -861,7 +857,8 @@ func takeReservation(db execer, profileID string, sessionID, taskID int64, lead 
 }
 
 // SetSpawned links the child conversation to a reserved task: spawning -> spawned. The conversation must be
-// a descendant of the lead and not linked to another task.
+// a descendant of the lead. A row that has a pending conversation links exactly that one; a row with none
+// takes one that no other row holds as its child or its pending. One statement decides all of it.
 func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string) (ChildRow, error) {
 	l, _, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
@@ -872,8 +869,11 @@ func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID i
 	}
 	now := s.stamp()
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'spawned', child_conversation_id = ?, spawned_at = ?, updated_at = ?
-		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'`,
-		childConversationID, now, now, profileID, sessionID, taskID, l.Caller.ConversationID)
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'
+		AND (pending_conversation_id = ? OR (pending_conversation_id = '' AND NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ?
+			AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?) AND NOT (o.session_id = ? AND o.task_id = ?))))`,
+		childConversationID, now, now, profileID, sessionID, taskID, l.Caller.ConversationID,
+		childConversationID, profileID, childConversationID, childConversationID, sessionID, taskID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return ChildRow{}, fmt.Errorf("%w: that conversation is linked to a task already", ErrInvalid)
@@ -881,7 +881,13 @@ func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID i
 		return ChildRow{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return ChildRow{}, fmt.Errorf("%w: the task is not waiting for its session", ErrInvalid)
+		var other int
+		_ = s.db.QueryRow(`SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND (child_conversation_id = ? OR pending_conversation_id = ?) AND NOT (session_id = ? AND task_id = ?)`,
+			profileID, childConversationID, childConversationID, sessionID, taskID).Scan(&other)
+		if other > 0 {
+			return ChildRow{}, fmt.Errorf("%w: that conversation is linked to a task already", ErrInvalid)
+		}
+		return ChildRow{}, fmt.Errorf("%w: the task is not waiting for its session, or that conversation is not the one it has pending", ErrInvalid)
 	}
 	c, _, err := s.Child(profileID, sessionID, taskID)
 	return c, err
@@ -944,27 +950,30 @@ func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset int, ended []str
 	}
 	n, _ := res.RowsAffected()
 	reset = int(n)
-	rows, err := s.db.Query(`SELECT profile_id, session_id, task_id, pending_conversation_id FROM coder_mission_children
+	rows, err := s.db.Query(`SELECT profile_id, session_id, task_id, pending_conversation_id, updated_at FROM coder_mission_children
 		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND updated_at < ?`, old)
 	if err != nil {
 		return reset, nil, err
 	}
 	type orphan struct {
-		profile, conv string
-		sid, tid      int64
+		profile, conv, seenAt string // seenAt: the row's clock as selected
+		sid, tid              int64
 	}
 	var list []orphan
 	for rows.Next() {
 		var o orphan
-		if err := rows.Scan(&o.profile, &o.sid, &o.tid, &o.conv); err != nil {
+		if err := rows.Scan(&o.profile, &o.sid, &o.tid, &o.conv, &o.seenAt); err != nil {
 			rows.Close()
 			return reset, nil, err
 		}
 		list = append(list, o)
 	}
 	rows.Close()
+	if s.afterStaleSelect != nil {
+		s.afterStaleSelect()
+	}
 	for _, o := range list {
-		attached, err := s.expireOrphan(o.profile, o.sid, o.tid, o.conv)
+		attached, err := s.expireOrphan(o.profile, o.sid, o.tid, o.conv, o.seenAt)
 		if err != nil {
 			return reset, ended, err
 		}
@@ -1011,12 +1020,12 @@ func (s *Store) FindOrphanCarves(minAge time.Duration) ([]OrphanCarve, error) {
 	return out, rows.Err()
 }
 
-// expireOrphan fails one stale reservation whose spawn created a conversation but never linked it, in one
+// expireOrphan fails one stale reservation, if its clock still reads seenAt (a Touch since the selection keeps it), whose spawn created a conversation but never linked it, in one
 // transaction with its audit row and the lowering of the orphan's cap. The conversation is attached to the row
 // (attached true: the host should stop it) unless another task already owns it, in which case the row still
 // fails, with no conversation, and the other task's session is left alone. Either way the reservation stops
 // holding a slot and its reserved carve.
-func (s *Store) expireOrphan(profileID string, sid, tid int64, conv string) (attached bool, err error) {
+func (s *Store) expireOrphan(profileID string, sid, tid int64, conv, seenAt string) (attached bool, err error) {
 	// The spend is read before the transaction (it is computed from the event log in Go, not in one statement).
 	// A turn that finishes in between leaves the cap a little below the real spend; the conversation is being
 	// stopped anyway, and the lead's own Spent catches up, so this is accepted.
@@ -1032,7 +1041,8 @@ func (s *Store) expireOrphan(profileID string, sid, tid int64, conv string) (att
 	defer func() { _ = tx.Rollback() }()
 	r, err := tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'expired', child_conversation_id = pending_conversation_id, reserved_usd = 0, ended_at = ?, updated_at = ?
 		WHERE state = 'spawning' AND profile_id = ? AND session_id = ? AND task_id = ? AND child_conversation_id = '' AND pending_conversation_id = ?
-		AND NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND o.child_conversation_id = ?)`, now, now, profileID, sid, tid, conv, profileID, conv)
+		AND updated_at = ?
+		AND NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND o.child_conversation_id = ?)`, now, now, profileID, sid, tid, conv, seenAt, profileID, conv)
 	if err != nil {
 		return false, err
 	}
@@ -1040,7 +1050,7 @@ func (s *Store) expireOrphan(profileID string, sid, tid int64, conv string) (att
 		attached = true
 	} else {
 		r, err = tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'expired', reserved_usd = 0, ended_at = ?, updated_at = ?
-			WHERE state = 'spawning' AND profile_id = ? AND session_id = ? AND task_id = ? AND child_conversation_id = '' AND pending_conversation_id = ?`, now, now, profileID, sid, tid, conv)
+			WHERE state = 'spawning' AND profile_id = ? AND session_id = ? AND task_id = ? AND child_conversation_id = '' AND pending_conversation_id = ? AND updated_at = ?`, now, now, profileID, sid, tid, conv, seenAt)
 		if err != nil {
 			return false, err
 		}

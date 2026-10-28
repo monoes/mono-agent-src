@@ -163,11 +163,10 @@ func TestAConversationIsPendingOnOneTaskOnly(t *testing.T) {
 		t.Fatalf("the schema let two rows share a pending conversation: %v", err)
 	}
 	// a conversation another task already runs in is refused too
-	y := spawn(t, f.st, f.lead)
-	if _, err := f.st.SetSpawned(f.scope(), "p", f.se.ID, f.ids[0], y); err != nil {
+	if _, err := f.st.SetSpawned(f.scope(), "p", f.se.ID, f.ids[0], x); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.NotePending(f.scope(), "p", f.se.ID, f.ids[1], y); !errors.Is(err, ErrInvalid) {
+	if err := f.st.NotePending(f.scope(), "p", f.se.ID, f.ids[1], x); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a task took a conversation another task runs in as its pending: %v", err)
 	}
 }

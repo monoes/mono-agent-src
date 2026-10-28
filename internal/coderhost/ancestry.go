@@ -1,36 +1,22 @@
 package coderhost
 
-import "os"
+import "github.com/monoes/mono-agent/internal/procchain"
 
-const maxAncestors = 64
+// ancestrySupported: process ancestry can be read, so a session token is bound to its turn's
+// process. Where it is false a token is checked by its signature and turn only (documented
+// fallback, see sessiontoken.go).
+const ancestrySupported = procchain.Supported
+
+// ProcStamp identifies a process across pid reuse ("" when unreadable or unsupported).
+func ProcStamp(pid int) string { return procchain.Stamp(pid) }
 
 // callerChain lists this process and its parent chain, nearest first; ok is false when the chain
-// cannot be read to its end (pid 1 or the top). A variable so tests can stand in for a caller.
-var callerChain = func() (pids []int, ok bool) {
-	pid := os.Getpid()
-	for i := 0; i < maxAncestors && pid > 1; i++ {
-		pids = append(pids, pid)
-		p, readable := parentPID(pid)
-		if !readable {
-			return pids, false
-		}
-		pid = p
-	}
-	return pids, true
-}
+// cannot be read to its end. A variable so tests can stand in for a caller.
+var callerChain = func() ([]int, bool) { return procchain.Chain() }
 
 // descendsFrom says whether the calling process is the process pid (with the start stamp
-// stamp) or one of its descendants. Workers a turn starts are its descendants and keep working;
-// a sibling process that merely read the turn's environment is not.
+// stamp) or one of its descendants. An unreadable chain that does not show it is a no.
 func descendsFrom(pid int, stamp string) bool {
-	if pid <= 1 {
-		return false
-	}
 	chain, _ := callerChain()
-	for _, p := range chain {
-		if p == pid {
-			return stamp == "" || ProcStamp(p) == stamp
-		}
-	}
-	return false
+	return procchain.InChain(chain, pid, stamp)
 }

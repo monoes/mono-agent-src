@@ -1,6 +1,6 @@
 {
   "name": "Image Gen to Vault",
-  "description": "Manual run: generate an image from a prompt with Gemini in your own logged-in browser session (no API key) and store the result in the local image vault. Run `monoagentcli login gemini` once before running.",
+  "description": "Manual run: generate an image from a prompt with Gemini in your own logged-in browser session (no API key) and store the result in the local media vault. Run `monoagentcli login gemini` once before running.",
   "version": 1,
   "is_active": false,
   "nodes": [

@@ -198,10 +198,18 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	if !strings.Contains(res.Note, "attempt 2 of 2") {
 		t.Fatalf("the new conductor did not count the dead verifier: %q", res.Note)
 	}
+	// The re-run verifier of One: wire may give its verdict before that step looks for ready
+	// tasks (then the same step already starts the integration check) or after it (then the next
+	// step does): either way exactly one step starts it, and it is the lead's own.
+	first := res
 	e.verified(c1)
-	res = e.next(L2)
-	if got := e.startedIDs(res); len(got) != 1 || got[0] != chk || res.Started[0].Executor != ExecLead {
-		t.Fatalf("the integration check is the lead's own: %+v note=%q waiting=%+v running=%+v", res, res.Note, res.Waiting, res.Running)
+	begun := append([]StartedTask{}, first.Started...)
+	if len(begun) == 0 {
+		res = e.next(L2)
+		begun = append(begun, res.Started...)
+	}
+	if len(begun) != 1 || begun[0].TaskID != chk || begun[0].Executor != ExecLead {
+		t.Fatalf("the integration check is the lead's own: %+v first=%+v last=%+v", begun, first, res)
 	}
 	lead := tasks.Actor{Kind: tasks.Agent, Name: missionLeadName, Session: e.sid, Task: chk}
 	if _, err := e.store.SessionFinish(tbg, "default", e.sid, chk, tasks.Outcome{Result: "go build and go test pass on the merged tree"}, lead); err != nil {

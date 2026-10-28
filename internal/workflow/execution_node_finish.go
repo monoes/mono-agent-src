@@ -126,7 +126,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 
 	outputs := alwaysOutputData(t.config, t.outputs)
 
-	// Auto-register any image files produced by the node into the image vault.
+	// Auto-register any image, audio or video files produced by the node into the media vault.
 	autoRegisterItemImages(ctx, outputs, r.wf.ID, r.exec.ID)
 
 	// Collect items per handle: "main" feeds nodeOutputs and the success

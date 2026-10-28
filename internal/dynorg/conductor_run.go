@@ -250,11 +250,12 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	// which is not started here, keeps it. An empty value overrides the inherited one.
 	opts.Env[SessionTokenEnv] = ""
 	missionEnv(w, opts.Env) // a mission worker's labels (they bind nothing)
-	unbind, err := c.bindMission(ctx, w, opts.Env)
+	tokenID, unbind, err := c.mintMission(ctx, w, opts.Env)
 	if err != nil {
 		return nil, err
 	}
-	defer unbind() // the token ends with the run
+	defer unbind()                                  // the token ends with the run
+	opts.OnStart = c.bindMissionProcess(m, tokenID) // names the run's process once it has started
 	// A coder chat's worker: the coder kind of browser permissions, vouched
 	// for by a token of its own that counts while this run does.
 	kindEnv, _, kindDone := browserctl.IssueAgentKind(browserctl.KindCoder)

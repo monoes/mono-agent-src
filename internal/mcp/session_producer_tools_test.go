@@ -34,12 +34,12 @@ func TestSessionParkAndRecordActOnTheCallersOwnSession(t *testing.T) {
 			t.Errorf("park %v = %v", args, err)
 		}
 	}
-	for i := 1; i < coderhost.MaxOpenQuestions; i++ {
-		if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "risky_action", "question": "q"}); err != nil {
+	for i := 1; i < coderhost.MaxOpenQuestions; i++ { // not risky: risky parks have their own hourly limit
+		if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "ambiguity", "question": "q"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "risky_action", "question": "q"}); err == nil || !strings.Contains(err.Error(), "limit") {
+	if _, err := sf.as(t, sf.tokA, "session_park", map[string]any{"class": "ambiguity", "question": "q"}); err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("over the cap = %v", err)
 	}
 
@@ -50,13 +50,23 @@ func TestSessionParkAndRecordActOnTheCallersOwnSession(t *testing.T) {
 	for _, args := range []map[string]any{
 		{"class": "risky_action", "choice": "go"},
 		{"class": "missing_credential", "choice": "guess", "reversible": true},
-		{"class": "ambiguity", "choice": "irreversible one"},
 	} {
 		if _, err := sf.as(t, sf.tokA, "session_record", args); err == nil || !strings.Contains(err.Error(), "invalid_input") {
 			t.Errorf("record %v = %v", args, err)
 		}
 	}
-	if l, _ := sf.store.ListDecisions(sf.profile, sf.a, coderhost.LedgerFilter{}); len(l) != 1 || l[0].MadeBy != "model" {
+	// any non-hard class may be recorded, even one the policy leaves to the master
+	if _, err := sf.as(t, sf.tokA, "session_record", map[string]any{"class": "ambiguity", "choice": "irreversible one"}); err != nil {
+		t.Fatalf("irreversible record = %v", err)
+	}
+	// the master has no master: a gap that is not risky is refused, nothing is parked
+	if _, err := sf.as(t, sf.tokM, "session_park", map[string]any{"class": "ambiguity", "question": "which db?"}); err == nil || !strings.Contains(err.Error(), "no_master") || !strings.Contains(err.Error(), "session_record") {
+		t.Fatalf("masterless park = %v", err)
+	}
+	if sf.store.OpenParked(sf.profile, sf.master) != 0 {
+		t.Fatal("a refused masterless park left a question")
+	}
+	if l, _ := sf.store.ListDecisions(sf.profile, sf.a, coderhost.LedgerFilter{}); len(l) != 2 || l[0].MadeBy != "model" {
 		t.Fatalf("ledger = %+v", l)
 	}
 	if l, _ := sf.store.ListDecisions(sf.profile, sf.b, coderhost.LedgerFilter{}); len(l) != 0 {
@@ -83,6 +93,20 @@ func TestSessionRecordIsRateLimitedPerSession(t *testing.T) {
 		}
 	}
 	if _, err := sf.as(t, sf.tokA, "session_record", args); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("over the rate = %v", err)
+	}
+}
+
+// A session with no master may park only a few risky questions an hour: the limit is a clear "limit" error.
+func TestSessionParkMasterlessRateIsALimitError(t *testing.T) {
+	sf := newSessionFixture(t)
+	for i := 0; i < coderhost.MaxPersonItemsPerHour; i++ {
+		if _, err := sf.as(t, sf.tokM, "session_park", map[string]any{"class": "risky_action", "question": "q"}); err != nil {
+			t.Fatalf("park %d: %v", i, err)
+		}
+	}
+	_, err := sf.as(t, sf.tokM, "session_park", map[string]any{"class": "missing_credential", "question": "q"})
+	if err == nil || !strings.HasPrefix(err.Error(), "limit:") || !strings.Contains(err.Error(), "risky questions an hour") || !strings.Contains(err.Error(), "wait for the person") {
 		t.Fatalf("over the rate = %v", err)
 	}
 }

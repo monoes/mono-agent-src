@@ -1,4 +1,4 @@
-// Package image is `monoagentcli image`: the active profile's image vault (internal/vault's
+// Package image is `monoagentcli media` (once `image`): the active profile's media vault (images, audio, video) (internal/vault's
 // vault_images). Everything the commands need from the CLI around them comes in through Deps,
 // so they can be tested in isolation.
 package image
@@ -27,6 +27,10 @@ type Deps struct {
 	NotFound func(format string, a ...interface{}) error
 	// InvalidInput builds the CLI's invalid-input error (exit code 3).
 	InvalidInput func(format string, a ...interface{}) error
+	// RequireOperator refuses what only the operator may do (not an agent, the
+	// chat or a workflow run: the CLI's operator check, nil error for the user). Unwired, the
+	// command that needs it refuses (clicore.RequireOperator).
+	RequireOperator func(what string) error
 	// WriteJSON writes the --json document.
 	WriteJSON func(w io.Writer, v any) error
 	// NewTable is the CLI's borderless table with these headers.

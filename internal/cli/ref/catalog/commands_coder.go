@@ -143,7 +143,7 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:  "coder sessions park",
-		Short: "Park a question about your own session when nobody present can answer it (needs the session token of a coder turn; the operator has no session of its own); refused when the policy lets you decide, and risky_action / missing_credential are never reversible",
+		Short: "Park a question about your own session when nobody present can answer it (needs the session token of a coder turn; the operator has no session of its own); refused when the policy lets you decide; a session with no master (solo, master, orphaned child) parks only risky_action / missing_credential gaps, which wait for the person with no timeout, and is refused any other (decide and record, or stop); risky_action / missing_credential are never reversible",
 		Usage: "monoagentcli [--profile P] coder sessions park --class C --question TEXT [--option TEXT]... [--default TEXT] [--reversible]",
 		Flags: `  --class string     ambiguity, scope_growth, verification_failed, child_conflict, risky_action or missing_credential
   --question string  The question
@@ -154,7 +154,7 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:  "coder sessions record",
-		Short: "Record a decision you made for your own session, shown in the ledger as made by the model (needs the session token of a coder turn); refused for risky_action / missing_credential and for any class the policy leaves to a master or the user",
+		Short: "Record a decision you made for your own session, shown in the ledger as made by the model (needs the session token of a coder turn); any class may be recorded whatever the autonomy preset (the ledger and its revert are the control) except risky_action / missing_credential, which are refused",
 		Usage: "monoagentcli [--profile P] coder sessions record --class C --choice TEXT [--question TEXT] [--alternative TEXT]... [--reason TEXT] [--reversible]",
 		Flags: `  --class string        ambiguity, scope_growth, verification_failed, child_conflict, risky_action or missing_credential
   --choice string       What you chose

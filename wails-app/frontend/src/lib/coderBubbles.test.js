@@ -247,3 +247,13 @@ describe('org bubbles (#229)', () => {
     })
   })
 })
+
+describe('bubble storage per profile', () => {
+  it('keeps each profile its own list', () => {
+    const mem = {}
+    const storage = { getItem: k => mem[k] ?? null, setItem: (k, v) => { mem[k] = v } }
+    saveState({ bubbles: [{ conversationId: 'c1' }], side: 'right' }, storage, 'a')
+    expect(loadState(storage, 'b').bubbles).toEqual([])
+    expect(loadState(storage, 'a').bubbles.map(b => b.key)).toEqual(['c1'])
+  })
+})

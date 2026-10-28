@@ -12,6 +12,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/logging"
 )
 
 // tokenMargin is how long a mission token outlives the run's own timeout: the run is cut at
@@ -76,8 +77,57 @@ func (c *Conductor) sweepMissionTokens(mc *MissionRun) {
 // A conductor without a token store (a test's fake) binds nothing: the process is an
 // ordinary agent, which cannot record a verdict in a mission session.
 func (c *Conductor) bindMission(ctx context.Context, w *worker, env map[string]string) (func(), error) {
+	_, unbind, err := c.mintMission(ctx, w, env)
+	return unbind, err
+}
+
+// ancestryRuntimes are the runtimes whose shells and tool servers are all descendants of the
+// process monomind starts, so a mission token can be bound to that process tree. A runtime that
+// is not listed is left unbound (today's behaviour: the token is accepted from any process that
+// holds it): a runtime that runs its tools in a daemon outside the tree would otherwise lose its
+// worker. Only claude is listed; the others are unverified live.
+var ancestryRuntimes = map[string]bool{"claude": true}
+
+// bindMissionProcess is what binds the token id to the run's process once it has started: the
+// pid monomind reports and its start stamp. Where the runtime is not listed, ancestry cannot be
+// read (not Linux) or the stamp cannot be read, the token stays unbound; a failure is journalled
+// and also leaves it unbound (it is then accepted as before).
+func (c *Conductor) bindMissionProcess(m Model, id string) func(pid int) {
+	mc := c.cfg.Missions
+	if id == "" || mc == nil || mc.Tokens == nil || !ancestryRuntimes[m.Runtime] || !agenttokens.MissionProcessSupported() {
+		return nil
+	}
+	return func(pid int) {
+		stamp := ""
+		for i := 0; i < 3 && stamp == ""; i++ {
+			if stamp = agenttokens.ProcessStamp(pid); stamp == "" {
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+		if stamp == "" {
+			c.missionBindFailed("the worker's start time could not be read")
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 2*time.Second)
+		defer cancel()
+		if err := mc.Tokens.BindMissionProcess(ctx, mc.ProfileID, id, pid, stamp); err != nil {
+			c.missionBindFailed(err.Error())
+		}
+	}
+}
+
+// missionBindFailed journals and logs a token that stays unbound: it then works from any process
+// that holds it, until the run ends.
+func (c *Conductor) missionBindFailed(why string) {
+	logging.FromContext(c.ctx).Warn("mission token left unbound to its worker's process", "why", why)
+	c.notice("mission_token_process_unbound",
+		"A worker's task token could not be bound to its process ("+why+"); it works from any process until it ends.", chatevents.SeverityWarning)
+}
+
+// mintMission is bindMission that also returns the id of the token it minted ("" when none).
+func (c *Conductor) mintMission(ctx context.Context, w *worker, env map[string]string) (string, func(), error) {
 	if w.task == nil || c.cfg.Missions == nil || c.cfg.Missions.Tokens == nil {
-		return func() {}, nil
+		return "", func() {}, nil
 	}
 	mc := c.cfg.Missions
 	c.sweepMissionTokens(mc)
@@ -89,10 +139,10 @@ func (c *Conductor) bindMission(ctx context.Context, w *worker, env map[string]s
 		Session: w.task.session, Task: w.task.task.ID, Role: role, Actor: w.task.name, Owner: mc.runOwner(),
 	}, ttl+tokenMargin)
 	if err != nil {
-		return nil, fmt.Errorf("task #%d: its process could not be bound to the task: %w", w.task.task.ID, err)
+		return "", nil, fmt.Errorf("task #%d: its process could not be bound to the task: %w", w.task.task.ID, err)
 	}
 	env[agenttokens.EnvMissionToken] = secret
-	return func() { c.revokeMissionToken(mc, tok.ID) }, nil
+	return tok.ID, func() { c.revokeMissionToken(mc, tok.ID) }, nil
 }
 
 // revokeMissionToken ends a token with its run. A token that is already gone is done. A failed revoke is retried, then journalled:

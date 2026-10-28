@@ -25,21 +25,24 @@ func TestParkAndRecordActOnTheCallersOwnSessionWithTheTokenOnly(t *testing.T) {
 		{"park", "--class", "ambiguity", "--question", "tabs?", "--reversible"},
 		{"record", "--class", "risky_action", "--choice", "do it"},
 		{"record", "--class", "missing_credential", "--choice", "use a guess", "--reversible"},
-		{"record", "--class", "ambiguity", "--choice", "c"}, // irreversible: the policy leaves it to a person
 	} {
 		if out, code := runSessionsCLI(t, m.cfg, args...); code == 0 {
 			t.Errorf("%v was allowed: %s", args, out)
 		}
 	}
 	out, code = runSessionsCLI(t, m.cfg, "park", "--class", "ambiguity", "--question", "tabs?", "--reversible")
-	if !strings.Contains(out, "coder sessions record") {
-		t.Fatalf("the refusal does not tell the model to record: %s", out)
+	if code == 0 || !strings.Contains(out, "no master to answer: decide and call record, or stop") {
+		t.Fatalf("the refusal does not tell the model to record or stop: %d %s", code, out)
+	}
+	// any non-hard class may be recorded, even an irreversible one
+	if out, code := runSessionsCLI(t, m.cfg, "record", "--class", "ambiguity", "--choice", "c"); code != 0 {
+		t.Fatalf("irreversible record: %d %s", code, out)
 	}
 	if out, code := runSessionsCLI(t, m.cfg, "record", "--class", "ambiguity", "--question", "tabs?", "--choice", "tabs", "--alternative", "spaces", "--reason", "repo style", "--reversible"); code != 0 {
 		t.Fatalf("record: %d %s", code, out)
 	}
 	rows, _ := cs.ListDecisions("default", m.master, coderhost.LedgerFilter{})
-	if len(rows) != 1 || rows[0].MadeBy != "model" || rows[0].Choice != "tabs" {
+	if len(rows) != 2 || rows[0].MadeBy != "model" || rows[1].MadeBy != "model" {
 		t.Fatalf("ledger = %+v", rows)
 	}
 	if len(pendingCommands(t, m.dbPath)) != 0 {
@@ -151,4 +154,18 @@ func mustRun(t *testing.T, m masterTurn, args ...string) string {
 		t.Fatalf("%v: exit %d %s", args, code, out)
 	}
 	return out
+}
+
+// The hourly limit on risky parks of a session with no master is an input error saying why.
+func TestParkMasterlessRateIsAnInputError(t *testing.T) {
+	m := newMasterTurn(t)
+	for i := 0; i < coderhost.MaxPersonItemsPerHour; i++ {
+		if out, code := runSessionsCLI(t, m.cfg, "park", "--class", "risky_action", "--question", "q"); code != 0 {
+			t.Fatalf("park %d: %d %s", i, code, out)
+		}
+	}
+	out, code := runSessionsCLI(t, m.cfg, "park", "--class", "risky_action", "--question", "q")
+	if code == 0 || !strings.Contains(out, "risky questions an hour") {
+		t.Fatalf("over the rate: %d %s", code, out)
+	}
 }

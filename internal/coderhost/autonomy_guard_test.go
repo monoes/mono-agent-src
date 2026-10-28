@@ -38,7 +38,7 @@ var approvalWriters = []string{
 var autonomyFiles = []string{"autonomy*.go", "ledger*.go", "parked*.go", "producer.go", "session_answer.go"}
 
 // tablesAllowed are the only tables these files may name in SQL.
-var tablesAllowed = map[string]bool{"coder_session_questions": true, "coder_session_decisions": true, "coder_session_commands": true, "coder_sessions": true}
+var tablesAllowed = map[string]bool{"coder_session_questions": true, "coder_session_decisions": true, "coder_session_commands": true, "coder_sessions": true, "coder_session_person_items": true}
 
 var (
 	sqlTable      = regexp.MustCompile(`(?i)\b(?:FROM|INTO|UPDATE|JOIN)\s+([a-z_][a-z_0-9]*)`)

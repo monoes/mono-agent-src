@@ -102,6 +102,7 @@ describe('auto-dock', () => {
     expect(loadState().bubbles.map(b => b.key)).toEqual(['org:acme'])
     cleanup()
     const again = renderHook(useDock)
+    await act(async () => {})
     expect(orgKeys(again.result)).toEqual(['org:acme'])
     expect(result).toBeTruthy()
   })
