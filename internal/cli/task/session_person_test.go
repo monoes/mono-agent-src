@@ -60,7 +60,7 @@ func TestPersonListShowsTheGiantItemWithItsReasons(t *testing.T) {
 	t.Parallel()
 	db, _, big := giantWithItem(t)
 	var l personList
-	mustTaskJSON(t, db, "default", &l, "", "session", "person", "list")
+	mustTaskJSON(t, db, "default", &l, "", "session", "person", "inbox")
 	if len(l.Items) != 1 {
 		t.Fatalf("items = %+v", l.Items)
 	}
@@ -78,7 +78,7 @@ func TestPersonListShowsTheGiantItemWithItsReasons(t *testing.T) {
 func TestPersonVerbsRefuseEveryAgentContext(t *testing.T) {
 	t.Parallel()
 	verbs := [][]string{
-		{"list"},
+		{"inbox"},
 		{"approve", "SESSION"},
 		{"deny", "SESSION", "--note", "no"},
 		{"ask", "SESSION", "--text", "why"},

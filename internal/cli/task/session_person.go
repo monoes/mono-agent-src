@@ -50,19 +50,19 @@ func (d Deps) newSessionPersonCmd() *cobra.Command {
 		Short: "The items that wait for you, the person: list them, approve a giant plan, deny it with a note, or ask its lead more (you only)",
 		Long: "A session that is giant work (more than 25 tasks, a large share of the mission's budget, more access than its parent, " +
 			"a level beyond the working depth) is never approved by an agent: it raises a person item that waits with no timeout. " +
-			"`list` shows what waits and why; `approve` approves the plan (recorded as the person's approval); `deny --note` leaves the " +
+			"`inbox` lists what waits and why; `approve` approves the plan (recorded as the person's approval); `deny --note` leaves the " +
 			"session a draft and sends the note to its lead; `ask --text` sends a question to the lead and leaves the item open.",
 	}
-	cmd.AddCommand(d.newPersonListCmd(), d.newPersonApproveCmd(), d.newPersonDenyCmd(), d.newPersonAskCmd())
+	cmd.AddCommand(d.newPersonInboxCmd(), d.newPersonApproveCmd(), d.newPersonDenyCmd(), d.newPersonAskCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
 	return cmd
 }
 
-func (d Deps) newPersonListCmd() *cobra.Command {
+func (d Deps) newPersonInboxCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
+		Use:   "inbox",
 		Short: "List the items that wait for you, oldest first, with why a plan is giant work",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

@@ -10,13 +10,13 @@ package main
 
 import "strings"
 
-// PersonItemsList is `task session person list`: {"items":[…]} with each item's kind, session,
+// PersonItemsList is `task session person inbox`: {"items":[…]} with each item's kind, session,
 // agent chat, why it is giant work and its numbers.
 func (a *App) PersonItemsList() string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
-	return a.taskCLI("", "session", "person", "list")
+	return a.taskCLI("", "session", "person", "inbox")
 }
 
 // PersonItemApprove is `task session person approve ID`.

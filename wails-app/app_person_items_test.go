@@ -24,7 +24,7 @@ func TestPersonItemBindingsRunTheCLI(t *testing.T) {
 	}
 	p := "--profile|work|--json|task|session|person|"
 	want := []string{
-		p + "list|",
+		p + "inbox|",
 		p + "approve|7|",
 		p + "deny|7|--note=--split it|",
 		p + "ask|7|--text=why 30 tasks?|",

@@ -81,10 +81,10 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session approve 3"},
 	},
 	{
-		Name:     "task session person list",
+		Name:     "task session person inbox",
 		Short:    "The items that wait for you, the person, oldest first; a giant session's plan shows why it is giant work (the operator only)",
-		Usage:    "monoagentcli [--profile P] task session person list",
-		Examples: []string{"monoagentcli --profile work --json task session person list"},
+		Usage:    "monoagentcli [--profile P] task session person inbox",
+		Examples: []string{"monoagentcli --profile work --json task session person inbox"},
 	},
 	{
 		Name:     "task session person approve",
