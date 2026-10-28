@@ -93,7 +93,8 @@ func TestARunningTurnsTokenIsNotRevokedByThePass(t *testing.T) {
 	}
 	f.h.missionChildPass()
 	if rv.revoked(out.ConversationID) {
-		x, _, _ := f.st.GetSession("p", out.ConversationID); t.Fatalf("a pass revoked the token of a running turn: %v %+v", rv.calls, x)
+		x, _, _ := f.st.GetSession("p", out.ConversationID)
+		t.Fatalf("a pass revoked the token of a running turn: %v %+v", rv.calls, x)
 	}
 	f.finish()
 }
