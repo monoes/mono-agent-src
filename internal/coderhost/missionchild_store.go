@@ -801,6 +801,11 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if !room.OK {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, room.Reason)
 	}
+	if reason, err := missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
+		return ChildRow{}, err
+	} else if reason != "" {
+		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, reason) // before takeReservation: no attempt is used
+	}
 	if !have { // mode all
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO coder_mission_children (profile_id, session_id, task_id, lead_conversation_id, origin, state, created_at, updated_at)
 			VALUES (?, ?, ?, ?, 'rule', 'marked', ?, ?)`, profileID, sessionID, taskID, m.lead, now, now); err != nil {
@@ -829,6 +834,34 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	}
 	c, _, err := s.Child(profileID, sessionID, taskID)
 	return c, err
+}
+
+// missionBudgetRefusal says why a child may not start under the mission's own budget (task_sessions.budget_usd),
+// or "" when it may. A child's spend never reaches the mission's spent_usd, so the budget binds children through
+// their caps: with a mission budget the carve must be positive, and the caps the lead's children already hold
+// (running sessions and reserved ones) plus this carve must fit what the mission has left. A mission without a
+// budget does not refuse here.
+func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
+	var budget, spent float64
+	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
+		return "", err
+	}
+	if budget <= 0 {
+		return "", nil
+	}
+	if carve <= 0 {
+		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
+	}
+	var held float64
+	if err := q.QueryRow(`SELECT (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
+		+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')`,
+		profileID, lead, profileID, lead).Scan(&held); err != nil {
+		return "", err
+	}
+	if held+carve > budget-spent+1e-9 {
+		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil
+	}
+	return "", nil
 }
 
 // takeReservation is the one statement that moves a marked task to spawning and stores its carve on the row.
