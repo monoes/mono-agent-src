@@ -92,9 +92,21 @@ func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64
 		// The conversation goes first. The row keeps its pending id until it is gone, so a crash or a failed
 		// delete leaves a spawning row that names the conversation, which the host's stale pass ends and stops. A
 		// delete that succeeds marks the row gone itself.
-		store, err := ai.NewAIStore(s.db)
+		// A refused carve is written down first, so the stale pass can give the attempt back if the delete fails.
+		// The conversation is deleted only if no other reservation owns it now (spawn_cleanup.go).
+		var err error
+		if errors.Is(cause, errCarveRefused) {
+			err = s.recordCarveRefused(profileID, sessionID, taskID, c.ConversationID, generation, conv)
+		}
+		other := false
 		if err == nil {
-			err = store.DeleteConversation(conv, profileID)
+			other, err = s.ownedByAnother(profileID, sessionID, taskID, generation, conv)
+		}
+		if err == nil && !other {
+			var store *ai.AIStore
+			if store, err = ai.NewAIStore(s.db); err == nil {
+				err = store.DeleteConversation(conv, profileID)
+			}
 		}
 		if err != nil && !errors.Is(err, ai.ErrConversationNotFound) {
 			return fmt.Errorf("%w (and deleting the conversation %s failed, so the reservation is left for the host to recover: %w)", cause, conv, err)
