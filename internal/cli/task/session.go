@@ -183,6 +183,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 		d.newSessionTreeCmd(),
 		d.newSessionPlanCmd(),
 		d.newSessionApproveCmd(),
+		d.newSessionPersonCmd(),
 		d.newSessionLifecycleCmd("pause", "Stop a running session handing out tasks (you or an agent)", true,
 			func(s *tasks.Store, ctx context.Context, p string, id int64, a tasks.Actor) (tasks.Session, error) {
 				return s.PauseSession(ctx, p, id, a)
