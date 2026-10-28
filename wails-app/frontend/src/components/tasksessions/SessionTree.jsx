@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
@@ -9,9 +9,15 @@ import { progress, sessionTree, spendParts, visibleRows } from '../../lib/taskSe
 // Down move between the rows on show, Left collapses (or goes to the parent),
 // Right expands (or goes to the first child), Enter chooses. One row is in the
 // tab order (the chosen one, else the first).
-export default function SessionTree({ sessions, selectedId, onSelect }) {
+// ui is {current: {collapsed, refocus}} kept by the page above: choosing a row
+// remounts the page (it is keyed by its session), so what the tree remembers
+// (the collapsed rows, and that a key press chose the row so the focus comes
+// back to it) lives there and not in this component.
+export default function SessionTree({ sessions, selectedId, onSelect, ui }) {
   const { t } = useTranslation()
-  const [collapsed, setCollapsed] = useState(() => new Set())
+  const own = useRef({ collapsed: new Set(), refocus: false })
+  const keep = ui || own
+  const [collapsed, setCollapsed] = useState(() => keep.current.collapsed)
   const [focusId, setFocusId] = useState(undefined) // undefined: follow the selection; null: Personal
   const rows = useMemo(() => visibleRows(sessionTree(sessions), collapsed), [sessions, collapsed])
   const ids = [null, ...rows.map(r => r.session.id)]
@@ -23,8 +29,14 @@ export default function SessionTree({ sessions, selectedId, onSelect }) {
   const toggle = (id, on) => setCollapsed(prev => {
     const next = new Set(prev)
     if (on) next.delete(id); else next.add(id)
+    keep.current.collapsed = next
     return next
   })
+  useEffect(() => {
+    if (!keep.current.refocus) return
+    keep.current.refocus = false
+    document.querySelector('[data-ts-row][tabindex="0"]')?.focus()
+  }, [keep])
   const onKey = (e, row) => {
     const at = ids.indexOf(row ? row.session.id : null)
     switch (e.key) {
@@ -42,7 +54,7 @@ export default function SessionTree({ sessions, selectedId, onSelect }) {
         if (row.expanded) toggle(row.session.id, false)
         else if (row.parentId) move(row.parentId)
         break
-      case 'Enter': case ' ': e.preventDefault(); onSelect(row ? row.session.id : null); break
+      case 'Enter': case ' ': e.preventDefault(); keep.current.refocus = true; onSelect(row ? row.session.id : null); break
       default:
     }
   }

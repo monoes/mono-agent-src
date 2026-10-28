@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
@@ -13,14 +13,18 @@ import { hasSessionTree, progress, spendParts } from '../../lib/taskSessionModel
 // for a chosen session, Rename. Once a session has a parent the strip is a
 // collapsible tree (SessionTree). onCreate({title, goal, parentId}) and
 // onRename(id, title) resolve to the CLI's document or {error}.
-export default function SessionSwitcher({ sessions, selectedId, onSelect, error = false, onRetry, onCreate, onRename }) {
+export default function SessionSwitcher({ sessions, selectedId, onSelect, error = false, onRetry, onCreate, onRename, treeUi }) {
   const { t } = useTranslation()
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const newBtn = useRef(null)
+  const renameBtn = useRef(null)
+  // A form that closes without choosing anything gives the focus back to its button.
+  const back = (ref) => requestAnimationFrame(() => ref.current?.focus())
   useEffect(() => { setRenaming(false) }, [selectedId])
   // A session chosen from elsewhere (a chat's plan card) may sit past the strip's edge: show it.
   useEffect(() => {
-    document.querySelector('[data-ts-tab][aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    document.querySelector('[data-ts-tab][aria-selected="true"], [data-ts-row][aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [selectedId, sessions.length])
   const ids = [null, ...sessions.map(s => s.id)]
   const onKey = (e, id) => {
@@ -41,7 +45,7 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
   )
   const chosen = sessions.find(x => x.id === selectedId)
   const nested = hasSessionTree(sessions)
-  const tabs = nested ? <SessionTree sessions={sessions} selectedId={selectedId} onSelect={onSelect} /> : (
+  const tabs = nested ? <SessionTree sessions={sessions} selectedId={selectedId} onSelect={onSelect} ui={treeUi} /> : (
     <div role="tablist" aria-label={t('tasks.session.switcher')} className="ts-tabs">
       {tab(null, <span className="ts-tab-title">{t('tasks.session.personal')}</span>, null)}
       {sessions.map(s => {
@@ -63,11 +67,11 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
     {tabs}
     <span className="ts-tools">
       {onRename && chosen && (renaming
-        ? <SessionRename session={chosen} onRename={onRename} onDone={() => setRenaming(false)} />
-        : <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRenaming(true)}>{t('tasks.session.rename')}</button>)}
+        ? <SessionRename session={chosen} onRename={onRename} onDone={() => { setRenaming(false); back(renameBtn) }} />
+        : <button ref={renameBtn} type="button" className="btn btn-ghost btn-sm" onClick={() => setRenaming(true)}>{t('tasks.session.rename')}</button>)}
       {onCreate && (
         <button
-          type="button" className="btn btn-ghost btn-sm" aria-haspopup="dialog" aria-expanded={creating}
+          ref={newBtn} type="button" className="btn btn-ghost btn-sm" aria-haspopup="dialog" aria-expanded={creating}
           onClick={() => setCreating(v => !v)}
         >{t('tasks.session.new')}</button>
       )}
@@ -81,7 +85,7 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
     {creating && onCreate && (
       <SessionNew
         sessions={sessions.filter(x => !x.archived)} defaultParent={chosen?.id || 0} onCreate={onCreate}
-        onClose={(res) => { setCreating(false); if (res?.session?.id) onSelect(res.session.id) }}
+        onClose={(res) => { setCreating(false); if (res?.session?.id) onSelect(res.session.id); else back(newBtn) }}
       />
     )}
     </div>

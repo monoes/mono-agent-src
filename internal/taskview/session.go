@@ -30,6 +30,10 @@ type SessionView struct {
 	UpdatedAt         time.Time           `json:"updated_at"`
 	Rev               int64               `json:"rev"`
 	Counts            tasks.SessionCounts `json:"counts"`
+	ParentSessionID   int64               `json:"parent_session_id,omitempty"` // left out for a top-level session
+	Kind              string              `json:"kind"`
+	Depth             int                 `json:"depth"` // 1 for a top-level session
+	ApprovalBasis     string              `json:"approval_basis"`
 }
 
 // SessionOf is the view of a session.
@@ -40,6 +44,7 @@ func SessionOf(s tasks.Session) SessionView {
 		MaxDepth: s.MaxDepth, MaxRetries: s.MaxRetries, AutoCloseVerified: s.AutoCloseVerified, CreatedBy: s.CreatedBy,
 		ApprovedBy: s.ApprovedBy, ApprovedAt: s.ApprovedAt, Archived: s.Archived, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 		Rev: s.Rev, Counts: s.Counts,
+		ParentSessionID: s.ParentSessionID, Kind: s.Kind, Depth: s.Depth, ApprovalBasis: s.ApprovalBasis,
 	}
 }
 
