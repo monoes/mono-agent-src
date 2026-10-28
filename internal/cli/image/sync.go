@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/imagescan"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/vault"
@@ -67,9 +68,10 @@ func (d Deps) newMediaScanCmd() *cobra.Command {
 		Short: "Show or set whether audio and video in the profile folder are tracked (off by default)",
 		Long: "Images in the profile's folder are always tracked by `media sync`. Audio and video there are " +
 			"tracked only when this is on, because a project folder can hold many large recordings nobody " +
-			"meant for the vault. It is a per-profile setting and does not affect `media add`, workflow " +
-			"outputs or files saved from the browser extension. Turning it off drops the discovered audio " +
-			"and video entries on the next sync; their files stay where they are.",
+			"meant for the vault. It is a per-profile setting; it also decides whether a workflow node's " +
+			"audio or video output is registered (images always are), and it does not affect `media add` or " +
+			"files saved from the browser extension. Only the operator can change it. Turning it off drops " +
+			"the discovered audio and video entries on the next sync; their files stay where they are.",
 		Example: "  monoagentcli media scan\n  monoagentcli media scan on",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -78,6 +80,9 @@ func (d Deps) newMediaScanCmd() *cobra.Command {
 			}
 			return d.withImageDB(func(db *sql.DB) error {
 				if len(args) == 1 {
+					if err := clicore.RequireOperator(d.RequireOperator, "switch audio and video discovery "+args[0]); err != nil {
+						return err
+					}
 					if err := vault.SetScanAV(cmd.Context(), db, d.ProfileID(), args[0] == "on"); err != nil {
 						return err
 					}

@@ -192,9 +192,9 @@ More ready-to-run workflows (RSS→AI→email, Sheets→Gmail, Stripe→Sheets s
 <td width="50%">
 
 ### 🖼️ Media Vault
-- Every workflow-generated image, audio or video file registered with provenance (which run, which node)
+- Every workflow-generated image registered with provenance (which run, which node); audio and video too once you switch `media scan on`
 - Reference items in prompts and posts as `{{@img-001}}`
-- Save audio and video from a web page with the browser extension; audio and video in a profile folder are tracked only if you switch `media scan on`
+- Save audio and video from a web page with the browser extension; audio and video in a profile folder are tracked only if you switch `media scan on` (off by default)
 - Audio and video play in the app; images get a fullscreen editor — crop, resize, rotate, filters
 - AI background removal (U2-Net) plus a full image-processing node set
 - Profile-scoped: each workspace sees only its own vault

@@ -198,6 +198,10 @@ func imageMIMEType(path string) string {
 	return "image/png"
 }
 
+// maxDataBytes is the most `media data` reads of an item that is not an image
+// (it holds the file, then its base64, in memory); `media export` has no limit.
+const maxDataBytes = 25 << 20
+
 func (d Deps) newImageDataCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "data <id>",
@@ -211,6 +215,10 @@ func (d Deps) newImageDataCmd() *cobra.Command {
 				im, err := vault.GetImage(cmd.Context(), db, d.ProfileID(), args[0])
 				if err != nil {
 					return d.imageErr(err)
+				}
+				if fi, statErr := os.Stat(im.Path); statErr == nil && im.Kind != "image" && fi.Size() > maxDataBytes {
+					return d.InvalidInput("%s is %d MiB: `media data` reads the whole file into memory, so it takes at most %d MiB of audio, video or other files; use `media export %s <file>` instead",
+						im.ID, fi.Size()>>20, maxDataBytes>>20, im.ID)
 				}
 				data, err := os.ReadFile(im.Path)
 				if err != nil {

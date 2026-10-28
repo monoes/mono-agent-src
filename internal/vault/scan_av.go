@@ -11,8 +11,10 @@ import (
 // profile has switched that on (`media scan on`): a project folder can hold
 // many large recordings nobody meant for the vault. The switch is one row of
 // the settings table per profile, absent (off) by default. Images in the
-// folder are always tracked. Audio and video the user adds with `media add`,
-// a workflow produces, or the extension saves are never affected by it.
+// folder are always tracked. The switch also decides whether a workflow
+// node's audio or video output is registered on its own (an image always
+// is). Audio and video the user adds with `media add` or the extension saves
+// are never affected by it.
 
 func scanAVKey(profileID string) string { return "media_scan_av:" + profileID }
 

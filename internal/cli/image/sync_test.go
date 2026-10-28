@@ -169,3 +169,23 @@ func TestImageSyncInvalidProfile(t *testing.T) {
 		}
 	}
 }
+
+// An agent may read the audio/video setting but not change it: switching it on
+// would put the user's recordings in reach of the tools agents read the vault
+// through.
+func TestMediaScanIsOperatorOnly(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	seedProfiles(t, dbPath, "work")
+	agent := &testConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "work", NotOperator: true}
+	if out, err := runImage(t, agent, "scan"); err != nil || strings.Contains(out, "true") {
+		t.Fatalf("an agent reading the setting: %q, %v; want it off and allowed", out, err)
+	}
+	for _, v := range []string{"on", "off"} {
+		if _, err := runImage(t, agent, "scan", v); exitCode(err) != 3 {
+			t.Errorf("an agent running `scan %s`: exit %d (%v), want 3", v, exitCode(err), err)
+		}
+	}
+	if out, _ := runImage(t, agent, "scan"); strings.Contains(out, "true") {
+		t.Fatalf("a refused `scan on` switched it on: %q", out)
+	}
+}

@@ -305,13 +305,26 @@ func restorePerItemFields(resolvedConfig map[string]interface{}, state *perItemF
 	}
 }
 
-// autoRegisterItemImages checks if an output item contains an unregistered image,
-// audio or video file path in its JSON (e.g. file_path or image_path) and
-// registers it in the media vault.
+// autoRegisterItemImages checks if an output item contains an unregistered image
+// file path in its JSON (e.g. file_path or image_path) and registers it in the
+// media vault. An audio or video path is registered the same way only when the
+// profile has switched audio and video on (`media scan on`, off by default):
+// a node can write a path anywhere, and a recording nobody chose to keep must
+// not reach the vault, or the tools agents read it through, by being named.
 func autoRegisterItemImages(ctx context.Context, outputs []NodeOutput, wfID, execID string) {
 	vaultDB := vault.DBFromContext(ctx)
 	if vaultDB == nil {
 		return
+	}
+	avKnown, avOn := false, false
+	withAV := func() bool {
+		if !avKnown {
+			avKnown = true
+			if profileID, err := vault.ProfileIDFromContext(ctx); err == nil {
+				avOn, _ = vault.ScanAVEnabled(ctx, vaultDB, profileID)
+			}
+		}
+		return avOn
 	}
 	for _, out := range outputs {
 		for _, item := range out.Items {
@@ -326,7 +339,7 @@ func autoRegisterItemImages(ctx context.Context, outputs []NodeOutput, wfID, exe
 				if !ok || p == "" {
 					continue
 				}
-				if !imagescan.IsMediaFile(p) {
+				if kind := imagescan.MediaKind(p); kind == "" || (kind != imagescan.KindImage && !withAV()) {
 					continue
 				}
 				fi, err := os.Stat(p)

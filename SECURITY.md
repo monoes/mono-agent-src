@@ -884,7 +884,9 @@ read. It is one bridge request method, `vault.save`
   taken); only PNG, JPEG, GIF, WebP, MP3, WAV, Ogg, M4A, MP4, WebM, PDF,
   plain text, Markdown and CSV, and the bytes must sniff as the type they
   claim (no SVG, HTML or executables; an audio or video file is never
-  played or decoded by MonoAgent in the bridge, only stored); the name is a label of at
+  played or decoded by MonoAgent in the bridge, only stored; an M4A and an MP4
+  are the same container, so either label is accepted for either: the label
+  is the sender's claim and changes only the extension the file is stored under); the name is a label of at
   most 255 bytes with no path separator, control or bidi character and not
   `.` or `..` (the file itself is stored as `img-NNN` plus the type's
   extension, 0600, never under the sent name); the profile id is a valid
