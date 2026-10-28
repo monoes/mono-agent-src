@@ -3,10 +3,14 @@ package chat
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os/exec"
+	"strings"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 )
 
 // missionActor is the name the coder lead plans missions under.
@@ -20,8 +24,10 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 	if !dynorg.MissionAccess(t.access) || conversationID == "" {
 		return nil
 	}
+	store := tasks.NewStore(db)
+	store.SetEvidenceChecker(gitevidence.Checker(""))
 	m := &dynorg.MissionConfig{
-		Store: tasks.NewStore(db), ProfileID: profileID, ConversationID: conversationID,
+		Store: store, ProfileID: profileID, ConversationID: conversationID,
 		Actor: missionActor, Access: t.access, Confirmed: t.missionConfirmed,
 	}
 	if !m.Confirmed && m.HasOpenSession(ctx) {
@@ -34,11 +40,30 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 // mission_report, mission_verify, mission_finish, org_spawn's task_id) to the profile's
 // task store. It is nil unless the lead is a confirmed mission planner; the session is
 // resolved from the conversation by the conductor, never named by the lead.
-func missionRun(m *dynorg.MissionConfig) *dynorg.MissionRun {
+func missionRun(m *dynorg.MissionConfig, db *sql.DB, turnID string) *dynorg.MissionRun {
 	if !m.Planning() {
 		return nil
 	}
-	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID}
+	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID, Tokens: agenttokens.NewStore(db),
+		Owner: dynorg.TurnOwner(m.ProfileID, m.ConversationID, turnID), Live: turnRunning(db, m.ProfileID)}
+}
+
+// turnRunning reports, for the owner of a turn's mission tokens, whether that turn is still
+// active. A turn the database does not know is not running; a database that cannot answer says
+// it is, so that a sweep never ends a run it cannot show to be over.
+func turnRunning(db *sql.DB, profileID string) func(context.Context, string) bool {
+	return func(ctx context.Context, owner string) bool {
+		_, turn, ok := strings.Cut(owner, "/")
+		if !ok || turn == "" {
+			return false
+		}
+		var status string
+		err := db.QueryRowContext(ctx, `SELECT status FROM ai_chat_turns WHERE id = ? AND profile_id = ?`, turn, profileID).Scan(&status)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false
+		}
+		return err != nil || status == "active"
+	}
 }
 
 // missionMaxAgents is the per-turn worker cap of a turn: a confirmed mission gets the larger

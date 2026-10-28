@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
 	"github.com/monoes/mono-agent/internal/testdb"
@@ -39,16 +40,46 @@ func TestMissionConfigGates(t *testing.T) {
 func TestMissionRunOnlyForAConfirmedLead(t *testing.T) {
 	db := testdb.Open(t).DB
 	ctx := context.Background()
-	if mr := missionRun(nil); mr != nil {
+	if mr := missionRun(nil, db, "t1"); mr != nil {
 		t.Errorf("no mission setup: %+v", mr)
 	}
-	if mr := missionRun(missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"})); mr != nil {
+	if mr := missionRun(missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}), db, "t1"); mr != nil {
 		t.Errorf("unconfirmed lead got the mission engine: %+v", mr)
 	}
 	m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true})
-	mr := missionRun(m)
-	if mr == nil || mr.Store == nil || mr.ProfileID != "default" || mr.Session != 0 {
+	mr := missionRun(m, db, "t1")
+	if mr == nil || mr.Store == nil || mr.Tokens == nil || mr.ProfileID != "default" || mr.Session != 0 {
 		t.Fatalf("confirmed lead: %+v (the session is the conversation's, never preset)", mr)
+	}
+	// The tokens it mints are owned by this turn of this conversation, and a sweep can ask whether
+	// another turn still runs: without these a revoke by owner would never reach a crashed run.
+	if want := dynorg.TurnOwner("default", "c1", "t1"); mr.Owner != want || mr.Live == nil {
+		t.Errorf("owner %q (want %q), live check set: %v", mr.Owner, want, mr.Live != nil)
+	}
+}
+
+func TestTurnRunningReadsTheTurnTable(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	if _, err := db.Exec(`INSERT INTO ai_chat_conversations (id, profile_id, backend, created_at, updated_at) VALUES ('c1','default','test','','')`); err != nil {
+		t.Fatal(err)
+	}
+	for id, status := range map[string]string{"run": "active", "over": "interrupted"} {
+		if _, err := db.Exec(`INSERT INTO ai_chat_turns (id, conversation_id, profile_id, prompt, status, created_at, updated_at) VALUES (?, 'c1', 'default', 'p', ?, 'x', 'x')`, id, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live := turnRunning(db, "default")
+	for turn, want := range map[string]bool{"run": true, "over": false, "unknown": false} {
+		if got := live(ctx, dynorg.TurnOwner("default", "c1", turn)); got != want {
+			t.Errorf("turn %s running = %v, want %v", turn, got, want)
+		}
+	}
+	if live(ctx, "run-abc") {
+		t.Error("an owner with no turn is running")
+	}
+	if turnRunning(db, "other")(ctx, dynorg.TurnOwner("default", "c1", "run")) {
+		t.Error("another profile's turn id counted")
 	}
 }
 
@@ -87,11 +118,12 @@ func TestSessionConversationValidationAcceptsHostCoderConversations(t *testing.T
 	defer db.Close()
 	st := tasks.NewStore(db.DB)
 	ctx := context.Background()
-	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor} // the lead links its own chat: the store checks an agent's
+	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: conv.ID} // the lead links its own chat
+	opOther := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: "no-such-chat"}
 	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: conv.ID}, op); err != nil {
 		t.Fatalf("a coder conversation was refused: %v", err)
 	}
-	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M2", ConversationID: "no-such-chat"}, op); err == nil {
+	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M2", ConversationID: "no-such-chat"}, opOther); err == nil {
 		t.Fatal("an unknown conversation was accepted")
 	}
 	if _, err := st.CreateSession(ctx, "other-profile", tasks.SessionInput{Title: "M3", ConversationID: conv.ID}, op); err == nil {

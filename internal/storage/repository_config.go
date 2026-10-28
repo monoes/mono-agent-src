@@ -92,8 +92,21 @@ func (d *Database) DeleteTemplate(id int) error {
 // Configs
 // ---------------------------------------------------------------------------
 
-// SaveConfig inserts or replaces a named configuration entry.
+// ConfigWriteGuard, when set, is asked before every write of a configs row
+// through this package and refuses the write with its error. Whoever owns the
+// rule that says which rows only the operator may write installs it once at
+// startup (internal/config does; this package cannot import it). Nil, as in a
+// test that builds a raw database, allows every write.
+var ConfigWriteGuard func(name string) error
+
+// SaveConfig inserts or replaces a named configuration entry. It consults
+// ConfigWriteGuard first.
 func (d *Database) SaveConfig(name, configData string) error {
+	if g := ConfigWriteGuard; g != nil {
+		if err := g(name); err != nil {
+			return err
+		}
+	}
 	now := time.Now().UTC()
 	_, err := d.DB.Exec(`
 		INSERT INTO configs (name, config_data, created_at, updated_at)

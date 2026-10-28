@@ -29,9 +29,10 @@ func doctorDeps(cfg *globalConfig) doctorcli.Deps {
 // healthEnvDeps is the real machine's environment on cfg (--db-path, --profile).
 func healthEnvDeps(cfg *globalConfig) doctorcli.EnvDeps {
 	return doctorcli.EnvDeps{
-		DBPath:    func() string { return cfg.DBPath },
-		ProfileID: func() string { return cfg.ProfileID },
-		Version:   getVersion,
+		RequireOperator: requireOperator,
+		DBPath:          func() string { return cfg.DBPath },
+		ProfileID:       func() string { return cfg.ProfileID },
+		Version:         getVersion,
 		LatestVersion: func(ctx context.Context) (string, error) {
 			info, err := fetchLatest(ctx, false)
 			if err != nil {

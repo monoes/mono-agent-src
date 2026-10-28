@@ -11,10 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 )
 
 // maxStdinBytes is how much of standard input `task add --stdin` reads.
@@ -100,6 +102,7 @@ func (d Deps) withTasks(cmd *cobra.Command, fn func(ctx context.Context, store *
 	}
 	defer db.Close()
 	store := tasks.NewStore(db.DB)
+	store.SetEvidenceChecker(gitevidence.Checker(""))
 	p, err := store.Profile(cmd.Context(), d.ProfileID())
 	if err != nil {
 		return d.taskErr(err)
@@ -187,7 +190,7 @@ func (d Deps) callerFor(as string) Caller {
 	// A task binding is itself an agent marker, including a damaged binding:
 	// losing the usual runtime marker must not turn a worker into the operator.
 	if marker == "" {
-		for _, key := range []string{boundSessionEnv, boundTaskEnv} {
+		for _, key := range []string{boundSessionEnv, boundTaskEnv, agenttokens.EnvMissionToken} {
 			if strings.TrimSpace(d.Getenv(key)) != "" {
 				marker = key
 				break
@@ -195,7 +198,8 @@ func (d Deps) callerFor(as string) Caller {
 		}
 	}
 	if name != "" || marker != "" || blank || envBlank {
-		return Caller{d: d, actor: tasks.Actor{Kind: tasks.Agent, Name: name, Session: d.boundSession(), Task: d.boundTask(), Verifier: d.boundVerifier()}, marker: marker, asBlank: blank && name == "", envBlank: envBlank}
+		actor := d.missionBinding().Apply(tasks.Actor{Kind: tasks.Agent, Name: name})
+		return Caller{d: d, actor: actor, marker: marker, asBlank: blank && name == "", envBlank: envBlank}
 	}
 	return Caller{d: d, actor: tasks.Actor{Kind: tasks.Human}}
 }
@@ -227,7 +231,9 @@ func (d Deps) author(c Caller) tasks.Actor {
 	if tasks.CheckAgentName(by) != nil {
 		by, _, _ = strings.Cut(by, ":") // a run marker no name can hold
 	}
-	return tasks.Actor{Kind: tasks.Agent, Name: by, Session: d.boundSession(), Task: d.boundTask(), Verifier: d.boundVerifier()}
+	a := c.actor
+	a.Kind, a.Name = tasks.Agent, by
+	return a
 }
 
 // notOperator is NotOperator's answer; without one the caller isn't the

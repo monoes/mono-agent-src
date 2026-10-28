@@ -2,6 +2,7 @@ package workflowedit
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/operator"
 	"strings"
 	"testing"
 
@@ -30,6 +31,9 @@ func TestParseNodeHandle(t *testing.T) {
 // save creates the workflow (tagged with the profile, default schemas filled in), and an edit
 // keeps the stored activation, version and creation time.
 func TestSaveCreatesAndEdits(t *testing.T) {
+	for _, k := range operator.MarkerEnv() { // the operator's own terminal: its create keeps its flag
+		t.Setenv(k, "")
+	}
 	cfg := newTestDB(t, "")
 	out, err := run(t, cfg, editorDoc, "save")
 	var saved workflow.Workflow

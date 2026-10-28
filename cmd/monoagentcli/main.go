@@ -96,8 +96,8 @@ func agentLogFilter() func(string) string {
 // test can call it. Tests that call newRootCmd().Execute() skip the gate by
 // design; the engine and the runners judge the account themselves.
 func run(args []string, stdout, stderr io.Writer) int {
-	// First of all: the coder host's mission token leaves the environment before the
-	// guard, a probe or any command can start a process that would inherit it.
+	// First of all: the coder host's mission token is read from its inherited pipe, which is then
+	// closed, before the guard, a probe or any command can start a process.
 	coderhost.StashMissionToken()
 	if args == nil {
 		args = []string{} // cobra reads os.Args for a nil slice

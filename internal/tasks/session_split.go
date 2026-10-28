@@ -50,6 +50,9 @@ func (s *Store) SplitTask(ctx context.Context, profileID string, sessionID, id i
 		if err != nil {
 			return err
 		}
+		if err := s.noUnboundInManaged(ctx, x, profileID, sessionID, actor, "split a task"); err != nil {
+			return err
+		}
 		if err := s.checkScope(ctx, x, profileID, id, sessionID, actor); err != nil {
 			return err
 		}

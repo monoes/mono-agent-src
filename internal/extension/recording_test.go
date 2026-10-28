@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -98,38 +99,67 @@ func TestRecordingFramesOverWebSocketLandAsEnvelope(t *testing.T) {
 }
 
 func TestRecordingIdleReaperRunsWithoutAConnection(t *testing.T) {
-	srv, ext, inbox := startCaptureServerWith(t, func(s *Server) { s.SetRecordingReapInterval(20 * time.Millisecond) })
-
-	var mu sync.Mutex
-	now := time.Now()
-	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
-	srv.SetRecordingIngest(&recording.Ingest{Writer: &capture.Writer{Inbox: inbox}, Now: clock})
-	done := make(chan string, 1)
-	srv.OnRecording(func(res *capture.Result, err error) {
-		if err == nil {
-			done <- res.Path
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	inbox := filepath.Join(t.TempDir(), "inbox")
+	synctest.Test(t, func(t *testing.T) {
+		srv := NewServer("127.0.0.1:9222", zerolog.Nop())
+		ing := &recording.Ingest{Writer: &capture.Writer{Inbox: inbox}, Now: time.Now}
+		srv.SetRecordingIngest(ing)
+		type outcome struct {
+			res *capture.Result
+			err error
+		}
+		done := make(chan outcome, 1)
+		srv.OnRecording(func(res *capture.Result, err error) { done <- outcome{res, err} })
+		ctx, cancel := context.WithCancel(context.Background())
+		srv.startRecordingReaper(ctx)
+		defer func() { cancel(); srv.waitRecordingReaper() }()
+		// Recovery must finish before this process creates its recording. The
+		// real ticker now waits on the bubble's clock, with no socket at all.
+		synctest.Wait()
+		for _, frame := range []recording.Frame{
+			{Op: recording.OpStart, RecordingID: "rec-ws", URL: "https://example.com/"},
+			{Op: recording.OpEvent, RecordingID: "rec-ws", Event: &recording.Event{ID: "e1", Seq: 1, Type: recording.EvClick, URL: "https://example.com/"}},
+		} {
+			if _, err := ing.Handle(&frame); err != nil {
+				t.Fatal(err)
+			}
+		}
+		started := time.Now()
+		synctest.Wait()
+		select {
+		case got := <-done:
+			t.Fatalf("recording reaped before idle: %+v", got)
+		default:
+		}
+		// This is a virtual-time guard: it costs no wall time and fails even
+		// if the periodic reaping is removed. No shortened production interval.
+		guard := time.NewTimer(recording.DefaultIdleTimeout + defaultRecordingReapInterval)
+		defer guard.Stop()
+		select {
+		case got := <-done:
+			if got.err != nil {
+				t.Fatal(got.err)
+			}
+			if elapsed := time.Since(started); elapsed != recording.DefaultIdleTimeout {
+				t.Fatalf("reaped at virtual time %v, want %v", elapsed, recording.DefaultIdleTimeout)
+			}
+			meta, err := capture.ReadMeta(got.res.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var reason string
+			if err := json.Unmarshal(meta.Extra[recording.ExtraStopReason], &reason); err != nil {
+				t.Fatal(err)
+			}
+			if reason != recording.StopIdle {
+				t.Fatalf("stopReason = %q", reason)
+			}
+		case <-guard.C:
+			t.Fatal("idle recording never reaped")
 		}
 	})
-	ext.send(recFrame("b1", "start", map[string]any{"url": "https://example.com/"}))
-	ext.nextAck("b1")
-	ext.send(recFrame("b2", "event", map[string]any{"event": map[string]any{"id": "e1", "seq": 1, "type": "click", "url": "https://example.com/"}}))
-	ext.nextAck("b2")
-	_ = ext.conn.Close() // the service worker goes away mid-recording
-
-	mu.Lock()
-	now = now.Add(recording.DefaultIdleTimeout + time.Minute)
-	mu.Unlock()
-	select {
-	case path := <-done:
-		meta, _ := capture.ReadMeta(path)
-		var reason string
-		_ = json.Unmarshal(meta.Extra[recording.ExtraStopReason], &reason)
-		if reason != recording.StopIdle {
-			t.Fatalf("stopReason = %q", reason)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("idle recording never reaped")
-	}
 }
 
 // argvRunner records the argv it was asked to run and answers with out.

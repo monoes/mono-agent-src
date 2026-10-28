@@ -95,7 +95,7 @@ func hasString(list []string, s string) bool {
 // requires `profile`, except the global tools, which do not take it.
 func TestEveryScopedToolRequiresTheProfileArgument(t *testing.T) {
 	s, rt := twoProfileServer(t)
-	if err := rt.store.CreateWorkflow(context.Background(), &workflow.Workflow{ID: "wf-tool", Name: "Do the thing", ProfileID: profA, IsActive: true}); err != nil {
+	if err := rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), &workflow.Workflow{ID: "wf-tool", Name: "Do the thing", ProfileID: profA, IsActive: true}); err != nil {
 		t.Fatal(err)
 	}
 	defs := toolDefs(t, s)
@@ -318,7 +318,7 @@ func itoa(n int64) string {
 // with another profile does not find the workflow.
 func TestAWorkflowToolIsBoundToItsWorkflowsProfile(t *testing.T) {
 	s, rt := twoProfileServer(t)
-	if err := rt.store.CreateWorkflow(context.Background(), &workflow.Workflow{ID: "wf-tool", Name: "Do the thing", ProfileID: profA, IsActive: true}); err != nil {
+	if err := rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), &workflow.Workflow{ID: "wf-tool", Name: "Do the thing", ProfileID: profA, IsActive: true}); err != nil {
 		t.Fatal(err)
 	}
 	var name string

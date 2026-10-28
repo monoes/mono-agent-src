@@ -3,6 +3,8 @@ package task
 import (
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/agenttokens"
 )
 
 // sessionDoc is the part of a session's document that the tests read.
@@ -158,6 +160,7 @@ var sessionOperatorCommands = [][]string{
 	{"session", "approve", "1"},
 	{"session", "resume", "1"},
 	{"session", "archive", "1"},
+	{"session", "close", "1"},
 	{"session", "budget", "1", "--usd", "5"},
 	{"session", "budget", "1", "--auto-close", "on"},
 	{"session", "budget", "1", "--max-tasks", "999"},
@@ -295,73 +298,45 @@ func TestSessionSplitDependArtifactVerifyCommands(t *testing.T) {
 	}
 }
 
-func TestSessionBoundAgentEnvironment(t *testing.T) {
+// A worker's token binds its process to one task of one session; the commands it runs reach
+// nothing else.
+func TestSessionTaskBoundAgentEnvironment(t *testing.T) {
 	t.Parallel()
 	db := newTaskTestDB(t)
 	one, two := sessionNew(t, db), sessionNew(t, db)
-	t1 := sessionAdd(t, db, one, "one")
-	t2 := sessionAdd(t, db, two, "two")
+	mine := sessionAdd(t, db, one, "mine")
+	other := sessionAdd(t, db, one, "other")
+	elsewhere := sessionAdd(t, db, two, "elsewhere")
 	var d sessionDoc
 	mustTaskJSON(t, db, "default", &d, "", "session", "approve", id(one))
 	mustTaskJSON(t, db, "default", &d, "", "session", "approve", id(two))
 	personal := opsAdd(t, db, "personal")
-	setenv(t, "MONOAGENT_TASK_SESSION", id(one))
-	// bound to session one: it works there, and nowhere else
-	var got sessionTaskDoc
-	mustTaskJSON(t, db, "default", &got, "", "next", "--session", id(one), "--claim", "--as", "w")
-	if got.Task == nil || got.Task.ID != t1 {
-		t.Fatalf("own session: %+v", got.Task)
-	}
-	for _, args := range [][]string{
-		{"next", "--session", id(two), "--claim", "--as", "w"},
-		{"claim", id(t2), "--as", "w"},
-		{"comment", id(t2), "hello", "--as", "w"},
-		{"next", "--as", "w"},
-		{"add", "x", "--as", "w"},
-		{"session", "stop", id(two), "--as", "w"},
-		{"session", "show", id(two), "--as", "w"},
-		{"show", id(personal), "--as", "w"},
-		{"show", id(t2), "--as", "w"},
-	} {
-		if _, _, err := runTask(t, db, "default", true, "", args...); err == nil {
-			t.Errorf("task %s: a bound agent reached another session", strings.Join(args, " "))
-		}
-	}
-	setenv(t, "MONOAGENT_TASK_SESSION", "")
-	st := sessionState(t, db, two)
-	if st.Session.State != "running" || st.Session.Counts.Ready != 1 || st.Session.Counts.InProgress != 0 {
-		t.Fatalf("session two was touched: %+v", st.Session)
-	}
-}
-
-func TestSessionTaskBoundAgentEnvironment(t *testing.T) {
-	t.Parallel()
-	db := newTaskTestDB(t)
-	one := sessionNew(t, db)
-	mine := sessionAdd(t, db, one, "mine")
-	other := sessionAdd(t, db, one, "other")
-	var d sessionDoc
-	mustTaskJSON(t, db, "default", &d, "", "session", "approve", id(one))
-	setenv(t, "MONOAGENT_TASK_SESSION", id(one))
-	setenv(t, "MONOAGENT_TASK_ID", id(mine))
+	bindProcess(t, db, agenttokens.MissionBinding{Session: one, Task: mine, Role: agenttokens.RoleWorker, Actor: "w"})
 	var got sessionTaskDoc
 	mustTaskJSON(t, db, "default", &got, "", "claim", id(mine), "--as", "w")
 	for _, args := range [][]string{
 		{"claim", id(other), "--as", "w"},
+		{"claim", id(elsewhere), "--as", "w"},
 		{"next", "--session", id(one), "--claim", "--as", "w"},
 		{"add", "x", "--session", id(one), "--acceptance", "y", "--as", "w"},
 		{"comment", id(other), "hello", "--as", "w"},
 		{"finish", id(other), "--result", "stolen", "--as", "w"},
+		{"session", "show", id(two), "--as", "w"},
+		{"session", "stop", id(two), "--as", "w"},
+		{"show", id(personal), "--as", "w"},
+		{"show", id(elsewhere), "--as", "w"},
 	} {
 		if _, _, err := runTask(t, db, "default", true, "", args...); err == nil {
-			t.Errorf("task %s: an agent bound to a task reached another", strings.Join(args, " "))
+			t.Errorf("task %s: an agent bound to a task reached beyond it", strings.Join(args, " "))
 		}
 	}
-	setenv(t, "MONOAGENT_TASK_ID", "")
-	setenv(t, "MONOAGENT_TASK_SESSION", "")
+	setenv(t, agenttokens.EnvMissionToken, "")
 	st := sessionState(t, db, one)
 	if st.Session.Counts.Total != 2 || st.Session.Counts.InProgress != 1 || st.Session.Counts.Ready != 1 {
 		t.Fatalf("the session was touched beyond the bound task: %+v", st.Session.Counts)
+	}
+	if st := sessionState(t, db, two); st.Session.State != "running" || st.Session.Counts.Ready != 1 || st.Session.Counts.InProgress != 0 {
+		t.Fatalf("session two was touched: %+v", st.Session)
 	}
 }
 
@@ -376,9 +351,7 @@ func TestSessionTaskVerifierEnvironment(t *testing.T) {
 	var got sessionTaskDoc
 	mustTaskJSON(t, db, "default", &got, "", "claim", id(mine), "--as", "worker")
 	mustTaskJSON(t, db, "default", &got, "", "finish", id(mine), "--result", "done", "--as", "worker")
-	setenv(t, "MONOAGENT_TASK_SESSION", id(one))
-	setenv(t, "MONOAGENT_TASK_ID", id(mine))
-	setenv(t, "MONOAGENT_TASK_ROLE", "verifier")
+	bindProcess(t, db, agenttokens.MissionBinding{Session: one, Task: mine, Role: agenttokens.RoleVerifier, Actor: "v"})
 	for _, args := range [][]string{
 		{"claim", id(other), "--as", "v"},
 		{"claim", id(mine), "--as", "v"},
@@ -392,9 +365,7 @@ func TestSessionTaskVerifierEnvironment(t *testing.T) {
 	}
 	mustTaskJSON(t, db, "default", &got, "", "comment", id(mine), "ran the tests", "--as", "v")
 	mustTaskJSON(t, db, "default", &got, "", "verify", id(mine), "--pass", "--note", "ok", "--as", "v")
-	setenv(t, "MONOAGENT_TASK_ROLE", "")
-	setenv(t, "MONOAGENT_TASK_ID", "")
-	setenv(t, "MONOAGENT_TASK_SESSION", "")
+	setenv(t, agenttokens.EnvMissionToken, "")
 	st := sessionState(t, db, one)
 	if st.Session.Counts.Verified != 1 || st.Session.Counts.Ready != 1 || st.Session.Counts.InProgress != 0 {
 		t.Fatalf("a verifier's binding did more or less than verify its task: %+v", st.Session.Counts)

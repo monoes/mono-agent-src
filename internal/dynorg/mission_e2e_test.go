@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -47,7 +48,7 @@ func (e *e2eRig) exec(ctx context.Context, o monomind.ExecOptions, on func(monom
 		return e.ex.exec(ctx, o, on)
 	}
 	if m := taskRE.FindStringSubmatch(o.Prompt + o.SystemPrompt); m != nil {
-		act := verifierActorOf(e.t, o.Env) // the binding of the worker's environment
+		act := verifierActorOf(e.t, e.db, o.Env) // the binding of the worker's environment
 		d, err := e.store.SessionTask(tbg, "default", act.Session, act.Task, act)
 		if err != nil {
 			e.t.Errorf("a worker reading its own task: %v", err)
@@ -101,10 +102,11 @@ func newE2E(t *testing.T) *e2eRig {
 	// run goes through the fake exec (counted by the tests)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("MONOES_BASE_URL", "http://127.0.0.1:9")
-	store := tasks.NewStore(openMissionDB(t))
-	r := &missionRig{t: t, store: store, clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
+	db := openMissionDB(t)
+	store := tasks.NewStore(db)
+	r := &missionRig{t: t, db: db, store: store, clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
 	store.SetClock(r.clk.now)
-	r.mc = &MissionRun{Store: store, ProfileID: "default", Poll: 10 * time.Millisecond, Lease: time.Minute}
+	r.mc = &MissionRun{Store: store, ProfileID: "default", Tokens: agenttokens.NewStore(db), Poll: 10 * time.Millisecond, Lease: time.Minute}
 	e := &e2eRig{missionRig: r}
 	// another conversation's mission, with a task ready to take
 	se, err := store.CreateSession(tbg, "default", tasks.SessionInput{Title: "someone else's", Goal: "g", ConversationID: "conv-other"}, operator)
@@ -198,13 +200,13 @@ func mustJSON(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func (e *e2eRig) runToVerdict(c *Conductor, id int64) {
 	e.t.Helper()
 	// a verifier's run ends a moment after its verdict: mission_next skips a task with a worker
-	eventually(e.t, "no worker on the task", func() bool { return c.taskWorker(id) == nil })
+	e.workerEnded(c, id)
 	res := e.next(c)
 	if got := e.startedIDs(res); len(got) != 1 || got[0] != id {
 		e.t.Fatalf("mission_next started %v, want only #%d: %+v", got, id, res)
 	}
 	e.waitStatus(id, tasks.StatusReview)
-	eventually(e.t, "the worker to end", func() bool { return c.taskWorker(id) == nil })
+	e.workerEnded(c, id)
 	if _, err := c.Handle(tbg, ToolMissionVerify, mustJSON(map[string]any{"task_id": id})); err != nil {
 		e.t.Fatal(err)
 	}
@@ -231,8 +233,8 @@ func (e *e2eRig) closeOut(c *Conductor, ids map[string]int64) {
 	}
 	e.waitStatus(chk, tasks.StatusDone)
 	v = e.finishOf(c)
-	if !v.Finished || e.session().State != tasks.SessionDone || len(v.MergesRemaining) != 0 {
-		t.Fatalf("the mission closes: %+v", v)
+	if v.Finished || !v.CloseProposed || e.session().State != tasks.SessionRunning || len(v.MergesRemaining) != 0 {
+		t.Fatalf("the mission proposes its close and stays running: %+v", v)
 	}
 	if n := len(e.em.find(chatevents.EventMissionReport)); n != 1 {
 		t.Fatalf("%d mission.report events", n)
@@ -257,6 +259,15 @@ func (e *e2eRig) closeOut(c *Conductor, ids map[string]int64) {
 	}
 	if n != 1 || e.session().SpentUSD <= 0 {
 		t.Fatalf("%d integration tasks, spent %v", n, e.session().SpentUSD)
+	}
+	if again := e.finishOf(c); again.Finished || !again.ReadyToClose || len(e.em.find(chatevents.EventMissionReport)) != 1 {
+		t.Fatalf("a second mission_finish must only wait: %+v", again)
+	}
+	if _, err := e.store.CloseSession(tbg, "default", e.sid, tasks.SessionDone, "ok", operator); err != nil {
+		t.Fatal(err)
+	}
+	if se := e.session(); se.State != tasks.SessionDone {
+		t.Fatalf("session %s after the operator closed it", se.State)
 	}
 	if _, err := c.Handle(tbg, ToolMissionFinish, mustJSON(map[string]any{"session": e.otherS})); err == nil {
 		t.Fatal("the lead named another conversation's session")

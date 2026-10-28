@@ -176,6 +176,12 @@ func addInbox(out *Summary, p ProfilePart) {
 		d.PeopleReview += s.PeopleReview
 		d.Drafts += s.Drafts
 		d.LinkSuggestions += s.LinkSuggestions
+		for k, n := range s.CoderItems {
+			if d.CoderItems == nil {
+				d.CoderItems = map[string]int{}
+			}
+			d.CoderItems[k] += n
+		}
 		d.Total += s.Total
 		if s.OldestWaitingSince != "" && (d.OldestWaitingSince == "" || before(s.OldestWaitingSince, d.OldestWaitingSince)) {
 			d.OldestWaitingSince = s.OldestWaitingSince

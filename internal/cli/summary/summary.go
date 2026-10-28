@@ -1,7 +1,6 @@
 package summarycli
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/automation"
-	"github.com/monoes/mono-agent/internal/cli/workflowio"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/operator"
@@ -85,17 +83,19 @@ func (d Deps) newSummaryCmd() *cobra.Command {
 }
 
 // readOnlyHybridStore is openWorkflowStore without its file→SQLite backfill:
-// summary is polled and must not write workflow rows.
+// summary is polled and must not write workflow rows. SetReadOnly keeps the store's own reads from
+// writing them too (it neither takes in the files older versions left nor imports an outside edit,
+// and it neither recovers an unfinished change nor stamps an owner into a file: a poll writes nothing).
 func readOnlyHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 	sqlStore := workflow.NewSQLiteWorkflowStore(db.DB)
 	dir := expandPath("~/.monoagent/workflows")
-	fileStore, err := workflow.NewWorkflowFileStore(dir)
+	fileStore, err := workflow.OpenWorkflowFileStore(dir) // never creates the folder
 	if err != nil {
 		return workflow.NewHybridWorkflowStore(nil, sqlStore)
 	}
-	// Stamping touches only ownerless files, never workflow rows.
-	_ = workflowio.StampFileWorkflows(context.Background(), db.DB, dir)
-	return workflow.NewHybridWorkflowStore(fileStore, sqlStore)
+	store := workflow.NewHybridWorkflowStore(fileStore, sqlStore)
+	store.SetReadOnly()
+	return store
 }
 
 func (d Deps) parseSummarySections(csv string) (map[string]bool, error) {
@@ -180,8 +180,12 @@ func printSummaryText(out io.Writer, s summary.Summary) {
 		fmt.Fprintf(out, "next run      %s %s%s\n", sc.Upcoming[0].NextRun, sc.Upcoming[0].WorkflowName, state)
 	}
 	if h := s.HIL; h != nil {
-		fmt.Fprintf(out, "needs you     %d (approvals %d, leads %d, drafts %d, links %d)\n",
-			h.Total, h.WorkflowPending, h.PeopleReview, h.Drafts, h.LinkSuggestions)
+		coder := 0
+		for _, n := range h.CoderItems {
+			coder += n
+		}
+		fmt.Fprintf(out, "needs you     %d (approvals %d, leads %d, drafts %d, links %d, coder requests %d)\n",
+			h.Total, h.WorkflowPending, h.PeopleReview, h.Drafts, h.LinkSuggestions, coder)
 	}
 	if p := s.People; p != nil {
 		fmt.Fprintf(out, "people        %d (+%d this week, %d lists)\n", p.Total, p.Added7d, p.Lists)

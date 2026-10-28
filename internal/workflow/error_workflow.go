@@ -71,7 +71,11 @@ func (e *WorkflowEngine) fireErrorWorkflow(ctx context.Context, executionID, err
 	if err != nil || wf == nil {
 		return "", err
 	}
-	targetID := errorWorkflowID(ctx, e.store.RawDB(), wf)
+	// A definition the operator never approved (an agent's or the chat's)
+	// names no error workflow of its own: it would start one as the
+	// operator's run. An approval check that fails counts as unapproved.
+	approved, _ := operatorApproved(ctx, e.store, wf)
+	targetID := errorWorkflowID(ctx, e.store.RawDB(), wf, approved)
 	if targetID == "" {
 		return "", nil
 	}

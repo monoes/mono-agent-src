@@ -171,11 +171,11 @@ func TestHostMissionConfirmedIsSingleUseAndBoundToTheSession(t *testing.T) {
 	}
 }
 
-func TestExecLauncherPassesTheTokenInTheEnvironmentNeverInArguments(t *testing.T) {
+func TestExecLauncherPassesTheTokenOnAPipeNeverInEnvironmentOrArguments(t *testing.T) {
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args.log")
 	bin := filepath.Join(dir, "fake")
-	script := "#!/bin/sh\necho \"$* tok=$MONOAGENT_MISSION_TOKEN\" >> '" + argsLog + "'\ncat >/dev/null\necho '{\"admitted\":true,\"existed\":false}'\n"
+	script := "#!/bin/sh\ntok=; [ -n \"$MONOAGENT_MISSION_FD\" ] && read -r tok <&3\necho \"$* tok=$tok envhas=$(tr '\\0' '\\n' </proc/self/environ | grep -c abc123)\" >> '" + argsLog + "'\ncat >/dev/null\necho '{\"admitted\":true,\"existed\":false}'\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestExecLauncherPassesTheTokenInTheEnvironmentNeverInArguments(t *testing.T
 	}
 	b, _ := os.ReadFile(argsLog)
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if len(lines) != 2 || strings.Contains(lines[0], "--mission") || !strings.HasSuffix(lines[0], "tok=") || !strings.HasSuffix(lines[1], "--prompt-stdin tok=12.abc123") || strings.Contains(lines[1], "--mission") {
+	if len(lines) != 2 || strings.Contains(lines[0], "--mission") || !strings.HasSuffix(lines[0], "tok= envhas=0") || !strings.HasSuffix(lines[1], "--prompt-stdin tok=12.abc123 envhas=0") || strings.Contains(lines[1], "--mission") {
 		t.Fatalf("args = %q", lines)
 	}
 }
@@ -214,13 +214,13 @@ func TestHostRunTurnGetsMissionToolsOnlyFromTheOperatorsRecord(t *testing.T) {
 	}
 	turn := func(id, token string) string {
 		t.Helper()
-		t.Setenv(coderhost.MissionTokenEnv, token) // what the host sets for the child
+		handOffMissionToken(t, token) // what the host hands the child
 		args := []string{"--conversation", conv.ID, "--turn", id}
 		if out, err := runChatCmd(t, dbPath, bin, append(args, "--", "start the mission --mission")...); err != nil {
 			t.Fatalf("turn %s: %v\n%s", id, err, out)
 		}
-		if os.Getenv(coderhost.MissionTokenEnv) != "" {
-			t.Error("the token stayed in the environment the turn's runtime inherits")
+		if os.Getenv(coderhost.MissionFDEnv) != "" {
+			t.Error("the handoff marker stayed in the environment the turn's runtime inherits")
 		}
 		return leadToolNames(t, argsLog)
 	}

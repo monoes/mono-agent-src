@@ -61,7 +61,7 @@ func (r *recordingSync) fn(_ context.Context, _ *sql.DB, pid string, n []KGNode,
 
 func memTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "mem.db"))
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "mem.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		t.Fatal(err)
 	}

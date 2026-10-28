@@ -117,7 +117,7 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	}
 	e.ex.release(s)
 	e.waitStatus(s, tasks.StatusReview)
-	eventually(t, "Setup's worker to end", func() bool { return L1.taskWorker(s) == nil })
+	e.workerEnded(L1, s)
 	if _, err := e.verify(s); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	e.ex.release(b1, b2)
 	e.waitStatus(b1, tasks.StatusReview)
 	e.waitStatus(b2, tasks.StatusReview)
-	eventually(t, "both workers to end", func() bool { return L1.taskWorker(b1) == nil && L1.taskWorker(b2) == nil })
+	e.workersEnded(L1, b1, b2)
 	for _, id := range []int64{b1, b2} {
 		if _, err := e.verify(id); err != nil {
 			t.Fatal(err)
@@ -143,7 +143,7 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	}
 	e.verified(b1)
 	e.waitStatus(b2, tasks.StatusReady) // one failed verification
-	eventually(t, "the failed verifier to end", func() bool { return L1.taskWorker(b2) == nil })
+	e.workerEnded(L1, b2)
 	if tk := e.task(b2); tk.Retries != 1 || tk.Blocked || tk.Verified {
 		t.Fatalf("after one failure: %+v", tk)
 	}
@@ -159,7 +159,7 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	e.ex.release(c1) // Two: model's gate is open for good
 	e.waitStatus(b2, tasks.StatusReview)
 	e.waitStatus(c1, tasks.StatusReview)
-	eventually(t, "the workers to end", func() bool { return L1.taskWorker(b2) == nil && L1.taskWorker(c1) == nil })
+	e.workersEnded(L1, b2, c1)
 	if _, err := e.verify(c1); err != nil { // its verifier will die
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	}
 	e.ex.release(c2)
 	e.waitStatus(c2, tasks.StatusReview)
-	eventually(t, "Two: wire's worker to end", func() bool { return L1.taskWorker(c2) == nil })
+	e.workerEnded(L1, c2)
 	if _, err := e.verify(c2); err != nil {
 		t.Fatal(err)
 	}
@@ -198,10 +198,18 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	if !strings.Contains(res.Note, "attempt 2 of 2") {
 		t.Fatalf("the new conductor did not count the dead verifier: %q", res.Note)
 	}
+	// The re-run verifier of One: wire may give its verdict before that step looks for ready
+	// tasks (then the same step already starts the integration check) or after it (then the next
+	// step does): either way exactly one step starts it, and it is the lead's own.
+	first := res
 	e.verified(c1)
-	res = e.next(L2)
-	if got := e.startedIDs(res); len(got) != 1 || got[0] != chk || res.Started[0].Executor != ExecLead {
-		t.Fatalf("the integration check is the lead's own: %+v", res)
+	begun := append([]StartedTask{}, first.Started...)
+	if len(begun) == 0 {
+		res = e.next(L2)
+		begun = append(begun, res.Started...)
+	}
+	if len(begun) != 1 || begun[0].TaskID != chk || begun[0].Executor != ExecLead {
+		t.Fatalf("the integration check is the lead's own: %+v first=%+v last=%+v", begun, first, res)
 	}
 	lead := tasks.Actor{Kind: tasks.Agent, Name: missionLeadName, Session: e.sid, Task: chk}
 	if _, err := e.store.SessionFinish(tbg, "default", e.sid, chk, tasks.Outcome{Result: "go build and go test pass on the merged tree"}, lead); err != nil {
@@ -272,13 +280,19 @@ func TestMissionEndToEndParallelBranchesFailuresResumeMergeAndClose(t *testing.T
 	}
 	e.verified(chk)
 	v = e.finishOf(L3)
-	if !v.Finished || len(v.MergesRemaining) != 0 || v.Session.State != string(tasks.SessionDone) {
+	if v.Finished || !v.CloseProposed || len(v.MergesRemaining) != 0 || v.Session.State != string(tasks.SessionRunning) {
 		t.Fatalf("finish after the merges and the second check: %+v", v)
 	}
 
-	// the final state, exactly
-	if se := e.session(); se.State != tasks.SessionDone {
+	// the final state, exactly: still running until the operator closes it
+	if se := e.session(); se.State != tasks.SessionRunning {
 		t.Fatalf("session %s", se.State)
+	}
+	if _, err := e.store.CloseSession(tbg, "default", e.sid, tasks.SessionDone, "ok", operator); err != nil {
+		t.Fatal(err)
+	}
+	if se := e.session(); se.State != tasks.SessionDone {
+		t.Fatalf("session %s after the operator closed it", se.State)
 	}
 	wantRetries := map[int64]int{b2: 1}
 	for title, id := range ids {

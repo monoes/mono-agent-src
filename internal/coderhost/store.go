@@ -47,8 +47,13 @@ const (
 const (
 	MaxMessageBytes   = 256 << 10
 	MaxPendingPerChat = 50
-	MaxAttachments    = 10
-	pendingBatch      = 200
+	// MaxPendingMaster is how many master-made sends may wait for one child; the rest of
+	// MaxPendingPerChat stays for a person's.
+	MaxPendingMaster = 5
+	// MaxPendingMasterStops is how many stops masters may have waiting for one child.
+	MaxPendingMasterStops = 2
+	MaxAttachments        = 10
+	pendingBatch          = 200
 	// MaxSendAge is how long a queued send stays valid.
 	MaxSendAge = 6 * time.Hour
 	// MaxCheckinAge is how long a check-in the host queued for itself stays valid: its digest is a
@@ -80,6 +85,9 @@ type Command struct {
 	// marker, never a confirmation: it only makes a missing or expired confirmation
 	// record fail the command instead of running it as a plain turn.
 	WantsMission bool `json:"wantsMission,omitempty"`
+	// Issuer is the master (conversation id) that queued the command; "" for a person or the
+	// host. The host runs such a command only while the target is still a child of the issuer.
+	Issuer string `json:"issuer,omitempty"`
 }
 
 // Session is a coder conversation as the host tracks it.
@@ -101,6 +109,16 @@ type Session struct {
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// afterPolicyRead lets a test act between SetPolicy's read and its write.
+	afterPolicyRead func()
+	// beforeReserveTx lets a test act between Reserve's checks and the transaction that reserves.
+	beforeReserveTx func()
+	// afterReserveReads runs inside Reserve's transaction, after its reads and before the reserving statement.
+	afterReserveReads func()
+	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
+	afterStaleSelect func()
+	// onSpent sees the handle every Spent read goes through.
+	onSpent func(q querier)
 }
 
 // NewStore wraps an open, migrated database.
@@ -146,18 +164,50 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	if waiting >= MaxPendingPerChat {
 		return c, ErrQueueFull
 	}
-	if c.WantsMission && (c.Kind != KindSend || HostMade(c.TurnID)) {
+	// Issuer is the authority for "a master made this", not the turn id: an issuer-tagged send can never
+	// be a mission, and a master- turn id is the master tools' alone (a caller with no issuer cannot use it).
+	if c.Issuer == "" && strings.HasPrefix(c.TurnID, MasterTurnPrefix) {
+		return c, errors.New("coder host: turn ids starting with " + MasterTurnPrefix + " belong to the master tools")
+	}
+	if c.WantsMission && (c.Kind != KindSend || HostMade(c.TurnID) || c.Issuer != "") {
 		return c, errors.New("coder host: only a person's send can ask for a mission")
 	}
-	mark := ""
+	mark := 0
 	if c.WantsMission {
-		mark = wantsMissionMark // lives in the error column while the command is pending
+		mark = 1
 	}
 	now := s.stamp()
-	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`, c.ProfileID, c.ConversationID, string(c.Kind), c.TurnID, c.Message, string(att), mark, now, now)
+	// Everything a master queues for a child (sends, pause, resume; not stop, which always has room) shares MaxPendingMaster
+	// slots, taken by the INSERT itself so concurrent callers cannot pass the cap together; the rest
+	// of MaxPendingPerChat stays for a person's.
+	// A master's stops are few: one pending stop per issuer (a repeat is a no-op) and at most
+	// MaxPendingMasterStops for a child, so a master cannot fill the person's slots; taken by the INSERT itself.
+	masterStop := c.Kind == KindStop && c.Issuer != ""
+	masterMade := (c.Issuer != "" && c.Kind != KindStop) || (c.Kind == KindSend && strings.HasPrefix(c.TurnID, MasterTurnPrefix))
+	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
+		SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?
+		WHERE (? = 0 OR (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
+			AND ((issuer != '' AND kind != 'stop') OR (kind = 'send' AND substr(turn_id, 1, ?) = ?))) < ?)
+		AND (? = 0 OR (
+			NOT EXISTS (SELECT 1 FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ?)
+			AND (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer != '') < ?))`,
+		c.ProfileID, c.ConversationID, string(c.Kind), c.TurnID, c.Message, string(att), mark, now, now, c.Issuer,
+		boolInt(masterMade), c.ProfileID, c.ConversationID, len(MasterTurnPrefix), MasterTurnPrefix, MaxPendingMaster,
+		boolInt(masterStop), c.ProfileID, c.ConversationID, c.Issuer, c.ProfileID, c.ConversationID, MaxPendingMasterStops)
 	if err != nil {
 		return c, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if masterStop { // one pending stop from the same issuer makes a new one a no-op
+			var id int64
+			if s.db.QueryRow(`SELECT id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ? ORDER BY id LIMIT 1`,
+				c.ProfileID, c.ConversationID, c.Issuer).Scan(&id) == nil {
+				if got, ok, err := s.GetCommand(id); err == nil && ok {
+					return got, nil
+				}
+			}
+		}
+		return c, ErrQueueFull
 	}
 	c.ID, _ = res.LastInsertId()
 	c.Status, c.CreatedAt, c.UpdatedAt = CmdPending, now, now
@@ -168,12 +218,15 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 // Sends to a chat that is paused or has a turn are left out, so a pile of
 // blocked sends cannot push a later resume or stop (or another chat's send) out
 // of the window; they are picked up on a later pass, once the chat is free.
-func (s *Store) Pending() ([]Command, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at
+func (s *Store) Pending() ([]Command, error) { return s.pendingWhere("", nil) }
+
+// pendingWhere is Pending narrowed by extra (a SQL condition on c, or "") and its args.
+func (s *Store) pendingWhere(extra string, args []any) ([]Command, error) {
+	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
 		FROM coder_session_commands c WHERE status = 'pending'
 		AND (kind != 'send' OR NOT EXISTS (SELECT 1 FROM coder_sessions s
-			WHERE s.profile_id = c.profile_id AND s.conversation_id = c.conversation_id AND (s.state = 'paused' OR s.turn_pid > 0 OR s.turn_id != '')))
-		ORDER BY id LIMIT ?`, pendingBatch)
+			WHERE s.profile_id = c.profile_id AND s.conversation_id = c.conversation_id AND (s.state = 'paused' OR s.turn_pid > 0 OR s.turn_id != '')))`+extra+`
+		ORDER BY id LIMIT ?`, append(args, pendingBatch)...)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +235,7 @@ func (s *Store) Pending() ([]Command, error) {
 	for rows.Next() {
 		var c Command
 		var kind, att string
-		if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.WantsMission, &c.CreatedAt, &c.UpdatedAt, &c.Issuer); err != nil {
 			return nil, err
 		}
 		c.Kind = Kind(kind)
@@ -209,20 +262,33 @@ func (s *Store) CancelPendingSends(profileID, conversationID string, beforeID in
 	return int(n), nil
 }
 
+// CancelChildMasterSends fails the master-made sends still waiting for the children of a master
+// (it was stopped), with the reason.
+func (s *Store) CancelChildMasterSends(profileID, master, reason string) error {
+	_, err := s.db.Exec(`UPDATE coder_session_commands SET status = 'failed', error = ?, updated_at = ?
+		WHERE profile_id = ? AND kind = 'send' AND status = 'pending' AND issuer = ?`,
+		reason, s.stamp(), profileID, master)
+	return err
+}
+
+// expiredMarker is the error of a send that waited too long. A send the max_concurrent cap
+// holds can expire like any other; ReopenFailedAnswers does not count that against an answer.
+const expiredMarker = "expired before the host could run it"
+
 // ExpireSends fails the sends that have waited longer than MaxSendAge, so a
 // message queued while no host ran does not start a full-access turn days later.
 func (s *Store) ExpireSends() error {
 	ids := s.pendingMissionIDs(`created_at < ?`, s.now().Add(-MaxSendAge).UTC().Format(timeLayout))
-	_, err := s.db.Exec(`UPDATE coder_session_commands SET status = 'failed', error = 'expired before the host could run it', updated_at = ?
-		WHERE kind = 'send' AND status = 'pending' AND (created_at < ? OR (substr(turn_id, 1, 8) = 'checkin-' AND created_at < ?))`,
-		s.stamp(), s.now().Add(-MaxSendAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout))
+	_, err := s.db.Exec(`UPDATE coder_session_commands SET status = 'failed', error = '`+expiredMarker+`', updated_at = ?
+		WHERE kind = 'send' AND status = 'pending' AND (created_at < ? OR (substr(turn_id, 1, 8) = 'checkin-' AND created_at < ?) OR (issuer != '' AND created_at < ?))`,
+		s.stamp(), s.now().Add(-MaxSendAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout))
 	s.revokeCommands(ids)
 	return err
 }
 
 // GetCommand returns one command.
 func (s *Store) GetCommand(id int64) (Command, bool, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, created_at, updated_at
+	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
 		FROM coder_session_commands WHERE id = ?`, id)
 	if err != nil {
 		return Command{}, false, err
@@ -233,7 +299,7 @@ func (s *Store) GetCommand(id int64) (Command, bool, error) {
 	}
 	var c Command
 	var kind, att string
-	if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := rows.Scan(&c.ID, &c.ProfileID, &c.ConversationID, &kind, &c.TurnID, &c.Message, &att, &c.Status, &c.Error, &c.WantsMission, &c.CreatedAt, &c.UpdatedAt, &c.Issuer); err != nil {
 		return Command{}, false, err
 	}
 	c.Kind = Kind(kind)
@@ -246,6 +312,17 @@ func (s *Store) GetCommand(id int64) (Command, bool, error) {
 func (s *Store) SetCommand(id int64, status, errText string) error {
 	_, err := s.db.Exec(`UPDATE coder_session_commands SET status = ?, error = ?, updated_at = ? WHERE id = ?`, status, errText, s.stamp(), id)
 	return err
+}
+
+// setCommandIfPending ends a command only while it is still pending (a compare-and-set), and
+// says whether it did: a command another process already ended keeps its status.
+func (s *Store) setCommandIfPending(id int64, status, errText string) (bool, error) {
+	res, err := s.db.Exec(`UPDATE coder_session_commands SET status = ?, error = ?, updated_at = ? WHERE id = ? AND status = 'pending'`, status, errText, s.stamp(), id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
 }
 
 const sessionCols = `profile_id, conversation_id, state, role, parent_conversation_id, unattended, turn_id, turn_pid, turn_stamp, created_at, updated_at`
@@ -296,6 +373,17 @@ func (s *Store) SweepOrphans() (int, error) {
 	for _, q := range []string{
 		`DELETE FROM coder_session_commands WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`,
 		`DELETE FROM coder_sessions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_sessions.conversation_id AND c.profile_id = coder_sessions.profile_id)`,
+		`DELETE FROM coder_session_decisions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_decisions.conversation_id AND c.profile_id = coder_session_decisions.profile_id)`,
+		`DELETE FROM coder_session_questions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_questions.conversation_id AND c.profile_id = coder_session_questions.profile_id)`,
+		`DELETE FROM coder_session_person_items WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_person_items.conversation_id AND c.profile_id = coder_session_person_items.profile_id)`,
+		`DELETE FROM coder_session_turn_caps WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_turn_caps.conversation_id AND c.profile_id = coder_session_turn_caps.profile_id)`,
+		`DELETE FROM coder_session_host_turns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_host_turns.conversation_id AND c.profile_id = coder_session_host_turns.profile_id)`,
+		`DELETE FROM coder_session_tokens WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_tokens.conversation_id AND c.profile_id = coder_session_tokens.profile_id)`,
+		`DELETE FROM coder_session_spawns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_spawns.parent AND c.profile_id = coder_session_spawns.profile_id)`,
+		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state IN ('spawning', 'spawned') AND child_conversation_id <> '' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.child_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
+		`DELETE FROM coder_mission_events WHERE session_id IN (SELECT p.session_id FROM coder_mission_policy p WHERE p.profile_id = coder_mission_events.profile_id AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = p.lead_conversation_id AND c.profile_id = p.profile_id))`,
+		`DELETE FROM coder_mission_children WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.lead_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
+		`DELETE FROM coder_mission_policy WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_policy.lead_conversation_id AND c.profile_id = coder_mission_policy.profile_id)`,
 	} {
 		res, err := s.db.Exec(q)
 		if err != nil {
@@ -500,6 +588,7 @@ func (s *Store) CheckinStreak(profileID, conversationID string) (streak int, las
 		return 0, time.Time{}, false, err
 	}
 	defer rows.Close()
+	marked := s.hostTurnSet(profileID, conversationID)
 	first := true
 	for rows.Next() {
 		var id, status, upd string
@@ -509,7 +598,7 @@ func (s *Store) CheckinStreak(profileID, conversationID string) (streak int, las
 		if first {
 			lastTurnAt, _ = time.Parse(time.RFC3339Nano, upd)
 		}
-		if !strings.HasPrefix(id, "checkin-") {
+		if !HostMade(id) && !marked[id] {
 			break
 		}
 		if first {
@@ -519,4 +608,32 @@ func (s *Store) CheckinStreak(profileID, conversationID string) (streak int, las
 		streak++
 	}
 	return streak, lastTurnAt, lastFailed, rows.Err()
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// MarkHostTurn records that a turn started from a send a master queued, whatever its turn id.
+func (s *Store) MarkHostTurn(profileID, conversationID, turnID string) {
+	_, _ = s.db.Exec(`INSERT OR IGNORE INTO coder_session_host_turns (profile_id, conversation_id, turn_id) VALUES (?, ?, ?)`, profileID, conversationID, turnID)
+}
+
+func (s *Store) hostTurnSet(profileID, conversationID string) map[string]bool {
+	out := map[string]bool{}
+	rows, err := s.db.Query(`SELECT turn_id FROM coder_session_host_turns WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			out[id] = true
+		}
+	}
+	return out
 }

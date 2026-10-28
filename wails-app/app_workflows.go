@@ -267,11 +267,21 @@ func (a *App) SetWorkflowActive(id string, active bool) error {
 	if err := a.signedOut(); err != nil {
 		return err
 	}
-	verb := "deactivate"
 	if active {
-		verb = "activate"
+		return a.runMonoCLI("", nil, "workflow", "activate", id)
 	}
-	return a.runMonoCLI("", nil, "workflow", verb, id)
+	// Deactivating can succeed in the database only (an unfinished change left the file as it is):
+	// the CLI says so in a note, which goes to the log instead of being dropped.
+	var res struct {
+		Note string `json:"note"`
+	}
+	if err := a.runMonoCLI("", &res, "workflow", "deactivate", id); err != nil {
+		return err
+	}
+	if res.Note != "" {
+		a.emitLog("WORKFLOW", "WARN", "Workflow "+id+": "+res.Note)
+	}
+	return nil
 }
 
 // workflowSummaryOf is the list/save row for wf, timestamps in RFC 3339.

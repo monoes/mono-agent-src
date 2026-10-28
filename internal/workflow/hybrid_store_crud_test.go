@@ -48,6 +48,7 @@ func TestHybridCRUD_SQLiteOnly(t *testing.T) {
 		t.Fatalf("ListWorkflows = %d, %v", len(list), err)
 	}
 
+	approveForTest(t, h, "wf-sql")
 	if err := h.SetWorkflowActive(ctx, "wf-sql", true); err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +106,7 @@ func TestHybridSetWorkflowActive_FileCopy(t *testing.T) {
 	if err := h.CreateWorkflow(ctx, mirrorWF("wf-act", "a-trig")); err != nil {
 		t.Fatal(err)
 	}
+	approveForTest(t, h, "wf-act")
 	if err := h.SetWorkflowActive(ctx, "wf-act", true); err != nil {
 		t.Fatal(err)
 	}
@@ -112,5 +114,16 @@ func TestHybridSetWorkflowActive_FileCopy(t *testing.T) {
 	fromSQL, _ := s.GetWorkflow(ctx, "wf-act")
 	if fromFile == nil || !fromFile.IsActive || fromSQL == nil || !fromSQL.IsActive {
 		t.Errorf("active flag: file %+v, sql %+v", fromFile, fromSQL)
+	}
+}
+
+// approveForTest records the workflow's current definition as the operator's, as `workflow
+// activate` or a save from the app would, so a test of something else can switch it on.
+func approveForTest(t *testing.T, store interface {
+	ApproveDefinition(ctx context.Context, workflowID string) error
+}, id string) {
+	t.Helper()
+	if err := store.ApproveDefinition(context.Background(), id); err != nil {
+		t.Fatal(err)
 	}
 }

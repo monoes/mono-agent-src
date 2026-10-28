@@ -77,16 +77,26 @@ func (s *Store) transition(ctx context.Context, profileID string, id int64, acto
 		}
 		if actor.Task != 0 || actor.Verifier {
 			// A worker or a verifier does its one task; stopping or pausing the whole session is
-			// for the operator and for the agent that runs the session (the lead, bound to none).
+			// for the operator and for the agent that runs the session (the lead and the conductor, whose
+			// in-process actor is bound to the session: Session set, no task).
 			return Session{}, bindingRefused("this agent is bound to task #%d: it cannot %s the session", actor.Task, kind)
 		}
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		// In a session a conversation manages, only the operator and the lead (bound to the
+		// session) may pause or stop it: an agent with no binding may not end the others' work.
+		if err := s.noUnboundInManaged(ctx, x, profileID, id, actor, kind+" a session"); err != nil {
+			return err
+		}
 		if !slices.Contains(from, se.State) || se.Archived {
 			return sessionNotReady("session #%d is %s: it cannot %s now", id, se.State, kind)
 		}
-		if to == SessionStopped {
-			if err := s.releaseClaims(ctx, x, profileID, id, actor); err != nil {
+		if to == SessionStopped || kind == "close" {
+			why := "the session was stopped"
+			if kind == "close" {
+				why = "the session was closed"
+			}
+			if err := s.releaseClaims(ctx, x, profileID, id, actor, why); err != nil {
 				return err
 			}
 		}
@@ -98,7 +108,7 @@ func (s *Store) transition(ctx context.Context, profileID string, id int64, acto
 }
 
 // releaseClaims takes every claim of the session's tasks back: the tasks go to Ready.
-func (s *Store) releaseClaims(ctx context.Context, x dbx, profileID string, id int64, actor Actor) error {
+func (s *Store) releaseClaims(ctx context.Context, x dbx, profileID string, id int64, actor Actor, why string) error {
 	rows, err := x.QueryContext(ctx, `SELECT id FROM tasks WHERE session_id = ? AND claimed_by <> ''`, id)
 	if err != nil {
 		return fmt.Errorf("tasks: reading the claims of session #%d: %w", id, err)
@@ -121,7 +131,7 @@ func (s *Store) releaseClaims(ctx context.Context, x dbx, profileID string, id i
 		if err != nil {
 			return err
 		}
-		if err := s.moveTx(ctx, x, profileID, cur, StatusReady, Placement{Bottom: true}, actor, "released", "the session was stopped"); err != nil {
+		if err := s.moveTx(ctx, x, profileID, cur, StatusReady, Placement{Bottom: true}, actor, "released", why); err != nil {
 			return err
 		}
 	}

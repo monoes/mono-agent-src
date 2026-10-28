@@ -163,9 +163,10 @@ live under ~/.monoagent/attachments/<message>/.
   set <key> <val>   Set a config value
   get <key>         Get a config value
   delete <key>      Delete a config entry
-  set and delete of a row that gates approvals, permissions or sandboxing
-  (browser_agent_permissions, browser_agent_allowlist, coder_mode,
-  sandbox.fallback, automation.autoRepair, coder_projects) are the operator's own: an agent,
+  set and delete of a row that changes what agents may do or what runs
+  unattended (browser_agent_permissions, browser_agent_allowlist, coder_mode,
+  sandbox.fallback, automation.autoRepair, coder_projects,
+  applications.max_parked, memory.runs, workflow.error_workflow) are the operator's own: an agent,
   the chat's runs and workflow processes get exit 3, operator_only`,
 		Examples: []string{
 			"monoagentcli config list",

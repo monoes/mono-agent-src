@@ -32,6 +32,17 @@ an existing template.
 FILE LOCATION
   ~/.monoagent/workflows/<workflow-id>.json
   The filename MUST match the workflow's "id" field exactly.
+  Editing the file of a workflow that already exists is supported. The next command that opens
+  the workflows reads it, and when the definition differs from what is stored it records the new
+  content as a version noted "edited outside the app". The file itself is never rewritten by that
+  step, and a file that does not parse is left alone ('monoagentcli doctor' lists it). An imported
+  edit removes the workflow's earlier approvals, so the edited workflow runs as unapproved until
+  you approve it. A file is not read while a save of the same workflow is in progress.
+
+  A NEW file written into the folder is not picked up by itself (it could name any profile).
+  Create workflows with 'workflow import --file <json>', 'workflow save' or a template. 'doctor'
+  lists a file that appeared on its own with its profile, nodes and sha; adopting it (the exact
+  'doctor fix workflows.publications.adopt:...' it prints) creates it inactive and unapproved.
 
 SCHEMA
   {
@@ -90,6 +101,7 @@ EXAMPLE — minimal two-node workflow:
     ]
   }
 
+Import it: monoagentcli --profile <profile> workflow import --file hello-v1.json
 Run: monoagentcli workflow run hello-v1
 
 `)

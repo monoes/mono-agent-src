@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
+
+	"github.com/monoes/mono-agent/internal/gitsafe"
 )
 
 // The git and file-system helpers of isolated writers (worktree.go): the
@@ -106,9 +109,12 @@ func checkTree(ctx context.Context, dir, branch string) error {
 }
 
 // commitAll commits every change in the worktree dir on branch, if there
-// is any. It is a checkpoint: hooks and signing are skipped.
+// is any. It is a checkpoint: the repository's hooks and signing are skipped.
 func commitAll(ctx context.Context, dir, branch, msg string) error {
 	if err := checkTree(ctx, dir, branch); err != nil {
+		return err
+	}
+	if err := refuseProgramConfig(ctx, dir); err != nil {
 		return err
 	}
 	if _, err := gitRun(ctx, dir, "add", "--all"); err != nil {
@@ -140,39 +146,40 @@ func withIdentity(ctx context.Context, dir string, args ...string) []string {
 	return append(pre, args...)
 }
 
-// gitEnvDrop are variables that would point git somewhere other than the
-// folder it is run in.
-var gitEnvDrop = []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_NAMESPACE"}
-
-// gitEnv is the environment git runs with: this process's, without what
-// would redirect it, and never prompting.
+// gitEnv is the environment git runs with: this process's, without what would redirect it
+// or make it run a program (internal/gitsafe), and never prompting.
 func gitEnv() []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		k, _, _ := strings.Cut(kv, "=")
-		drop := false
-		for _, d := range gitEnvDrop {
-			if strings.EqualFold(k, d) {
-				drop = true
-				break
-			}
-		}
-		if !drop {
-			env = append(env, kv)
-		}
-	}
-	return append(env, "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C")
+	// gitsafe.Environ drops what redirects git or names a program and pins GIT_NO_LAZY_FETCH=1
+	// (git must not fetch a missing object through a remote the repository names) and an empty
+	// GIT_ALLOW_PROTOCOL (an allowlist the repository's configuration cannot widen; the conductor
+	// never fetches or clones). GIT_PROTOCOL_FROM_USER=0 closes git's "user" protocol policy.
+	return append(gitsafe.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "LC_ALL=C", "GIT_PROTOCOL_FROM_USER=0")
 }
 
-// gitRun runs git in dir and returns its stdout; an error carries stderr.
+// gitRun runs git in dir and returns its stdout; an error carries stderr. The folders it runs
+// in share a repository configuration an agent can write, so the settings that name a program
+// (file system monitor, hooks, pager, editor, signature verifier, ssh) are pinned to inert
+// values for every call (gitsafe.Args); a user's hooks and signing therefore do not apply to
+// the scheduler's own checkpoint and merge commits. Content filters and merge drivers are
+// not covered: git has no switch for them.
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	pins, err := gitPins()
+	if err != nil {
+		return "", err
+	}
+	// gitsafe first: the conductor's own pins (the hooks directory) come later and win
+	cmd := exec.CommandContext(ctx, "git", append(append(append([]string{"-C", dir}, gitsafe.Args()...), pins...), args...)...)
 	cmd.Env = gitEnv()
+	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	so := &limitWriter{w: &stdout, max: maxGitOutput}
+	cmd.Stdout, cmd.Stderr = so, &limitWriter{w: &stderr, max: 64 << 10}
 	if err := cmd.Run(); err != nil {
+		if so.over {
+			return "", errors.New("git printed more than the conductor reads")
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = strings.TrimSpace(stdout.String())
@@ -183,4 +190,22 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 		return stdout.String(), errors.New(boundText(msg, 600))
 	}
 	return stdout.String(), nil
+}
+
+// maxGitOutput bounds what one conductor git call keeps of its output.
+const maxGitOutput = 16 << 20
+
+// limitWriter keeps the first max bytes; past that it fails, which ends the process's pipe.
+type limitWriter struct {
+	w    *bytes.Buffer
+	max  int
+	over bool
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if l.w.Len()+len(p) > l.max {
+		l.over = true
+		return 0, errors.New("output limit reached")
+	}
+	return l.w.Write(p)
 }

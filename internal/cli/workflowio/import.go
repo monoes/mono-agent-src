@@ -344,11 +344,8 @@ func (d Deps) newImportCmd() *cobra.Command {
 				}
 			}
 
-			if err := d.CreateWorkflow(ctx, store, &wf, overwrite); err != nil {
+			if err := d.CreateWorkflow(operator.ApprovingContext(ctx), store, &wf, overwrite); err != nil {
 				return err
-			}
-			if err := operator.ApproveWorkflow(ctx, store, wf.ID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: recording this workflow as yours failed, so its runs count as an AI's until you save or activate it again: %v\n", err)
 			}
 
 			recordImport(importIndexEntry{ID: wf.ID, Name: wf.Name, Source: source, Hash: hash})
@@ -491,5 +488,6 @@ func (d Deps) newExportCmd() *cobra.Command {
 // workflowIDTaken reports whether any profile already has a workflow with id.
 func workflowIDTaken(ctx context.Context, store *workflow.HybridWorkflowStore, id string) bool {
 	wf, err := store.GetWorkflow(ctx, id)
-	return err == nil && wf != nil
+	// A workflow that cannot be read is not free either: do not reuse its id.
+	return err != nil || wf != nil
 }

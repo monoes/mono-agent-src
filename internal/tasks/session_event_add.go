@@ -12,13 +12,20 @@ import (
 const (
 	EventPlanRevised = "plan_revised"
 	EventNote        = "note"
+	// EventCloseProposed records that a mission's close was proposed to the operator (the
+	// card was emitted); only the operator's process writes it.
+	EventCloseProposed = "close_proposed"
 )
 
-var writableEventKinds = map[string]bool{EventPlanRevised: true, EventNote: true}
+var writableEventKinds = map[string]bool{EventPlanRevised: true, EventNote: true, EventCloseProposed: true}
 
 // AddSessionEvent writes one event of an allowed kind (plan_revised, note) to a session's
 // history. The operator and a named agent may; an agent bound to a session writes only to
 // its own. A closed session takes none.
+//
+// It does not call noUnboundInManaged: it is reached only from the conductor (internal/dynorg),
+// never from the CLI, MCP or HTTP, so no agent without a binding gets here. Do not expose it
+// to those without adding that check.
 func (s *Store) AddSessionEvent(ctx context.Context, profileID string, sessionID int64, kind, note string, actor Actor) error {
 	if err := actorIn(actor, sessionID); err != nil {
 		return err
@@ -28,6 +35,9 @@ func (s *Store) AddSessionEvent(ctx context.Context, profileID string, sessionID
 	}
 	if !writableEventKinds[kind] {
 		return invalid("a session event of kind %q cannot be written: use plan_revised or note", echo(kind))
+	}
+	if kind == EventCloseProposed && actor.Kind != Human {
+		return operatorOnly("record a proposed close")
 	}
 	if strings.TrimSpace(note) == "" && kind == EventNote {
 		return invalid("a note needs text")

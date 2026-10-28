@@ -37,7 +37,7 @@ func buildTaskBrief(se tasks.Session, t tasks.Task, deps []tasks.SessionTaskDeta
 	}
 	b.WriteString("## How it will be judged\n\n" + f.wrap(boundText(strings.TrimSpace(t.Acceptance), maxBriefAccept)) + "\n")
 	b.WriteString("A different agent checks your work against exactly this. Meet each criterion, and say in your report how you checked it " +
-		"(the command you ran and its result, the test name, the file). A code task needs evidence: a commit, a diff, or test output.\n\n")
+		"(the command you ran and its result, the test name, the file). A code task needs evidence: a commit you made for this task (a new one, not a merge), a diff, or test output.\n\n")
 	if len(deps) > 0 {
 		b.WriteString("## What the tasks you depend on produced\n\n")
 		for _, d := range deps {
@@ -47,7 +47,7 @@ func buildTaskBrief(se tasks.Session, t tasks.Task, deps []tasks.SessionTaskDeta
 	b.WriteString("## Handing it back\n\n")
 	fmt.Fprintf(&b, "Your report is attached to the task and the task goes to review when you finish; write it as your last message. "+
 		"You act as %s on this one task: you may run `monoagentcli task comment %d --as %s TEXT` for progress, "+
-		"`monoagentcli task artifact %d --kind commit|file|test|diff|report --ref REF --as %s` for evidence, and "+
+		"`monoagentcli task artifact %d --kind commit|file|test|diff|report --ref REF --as %s` for evidence (a commit is attached by its full object id, `git rev-parse HEAD`, never an abbreviation), and "+
 		"`monoagentcli task finish %d --as %s --result TEXT` when done (or --question TEXT if you cannot go on). "+
 		"That binding is a convention your environment carries, not a sandbox: it is not permission to touch any other task, the personal board or another session, and you must not.\n",
 		name, t.ID, name, t.ID, name, t.ID, name)
@@ -78,10 +78,10 @@ func writeDependency(b *strings.Builder, f *fence, d tasks.SessionTaskDetail) {
 	b.WriteString("\n")
 }
 
-// lastResult is the report of a task: its newest report artifact, else its newest result event.
+// lastResult is the report of a task: its newest report artifact (not the mission's own final report), else its newest result event.
 func lastResult(d tasks.SessionTaskDetail) string {
 	for i := len(d.Artifacts) - 1; i >= 0; i-- {
-		if d.Artifacts[i].Kind == "report" && strings.TrimSpace(d.Artifacts[i].Note) != "" {
+		if d.Artifacts[i].Kind == "report" && d.Artifacts[i].Ref != tasks.FinalReportRef && strings.TrimSpace(d.Artifacts[i].Note) != "" {
 			return d.Artifacts[i].Note
 		}
 	}

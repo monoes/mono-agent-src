@@ -88,9 +88,13 @@ func loadWorkflowsSettings(ctx context.Context, db *sql.DB, ws []Workflow) {
 }
 
 // errorWorkflowID returns the id of wf's error workflow: its own
-// error_workflow setting, else the configured default, else "".
-func errorWorkflowID(ctx context.Context, db *sql.DB, wf *Workflow) string {
-	if id, _ := wf.Settings[ErrorWorkflowSetting].(string); strings.TrimSpace(id) != "" {
+// error_workflow setting, else the configured default, else "". The own
+// setting counts only when approved says the operator approved wf's
+// definition: whoever can save a workflow can write that setting, and the
+// error workflow it names would start as the operator's own run (the
+// default is reserved to the operator, internal/operator.ReservedConfig).
+func errorWorkflowID(ctx context.Context, db *sql.DB, wf *Workflow, approved bool) string {
+	if id, _ := wf.Settings[ErrorWorkflowSetting].(string); approved && strings.TrimSpace(id) != "" {
 		return strings.TrimSpace(id)
 	}
 	if db == nil {

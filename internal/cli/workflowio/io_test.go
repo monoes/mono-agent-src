@@ -200,6 +200,11 @@ func TestOwnedWorkflowAndFile(t *testing.T) {
 	defer db.Close()
 	store := d.WorkflowStore(db)
 	ctx := context.Background()
+	for _, p := range []string{"p1", "p2"} {
+		if _, err := db.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES (?, ?)`, p, p); err != nil {
+			t.Fatal(err)
+		}
+	}
 	wf := &workflow.Workflow{ID: "o1", Name: "O", Version: 1, ProfileID: "p1",
 		Nodes: []workflow.WorkflowNode{{ID: "t", Type: "trigger.manual", Name: "T", PositionX: 5}}}
 	if err := d.CreateWorkflow(ctx, store, wf, false); err != nil {

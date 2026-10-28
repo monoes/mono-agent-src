@@ -23,6 +23,9 @@ import (
 
 // EnvDeps is what the real-machine environment takes from the CLI around it.
 type EnvDeps struct {
+	// RequireOperator refuses what only the operator's own terminal may do (adopting a workflow
+	// file, settling an unfinished workflow change). nil refuses.
+	RequireOperator func(what string) error
 	// DBPath is --db-path as given.
 	DBPath func() string
 	// ProfileID is --profile as given (an id or a name; "" for the active profile).
@@ -156,6 +159,7 @@ func NewHealthEnv(d EnvDeps, projects []string) (*health.Env, func()) {
 			env.PendingMigrations = db.PendingMigrations
 			env.QuickCheck = db.QuickCheck
 			addDBSchemaHook(env, db)
+			addWorkflowPublicationHooks(env, d.RequireOperator)
 			env.VaultState = func(ctx context.Context, id string) (string, error) {
 				st, err := secrets.CheckVault(ctx, db.DB, id)
 				return string(st), err

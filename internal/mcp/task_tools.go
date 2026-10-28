@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 )
 
 // taskBoardIntro opens the description of every task tool (spec 8): which board
@@ -30,11 +31,12 @@ func (s *Server) taskBoard(ctx context.Context) (*tasks.Store, tasks.Profile, ta
 		return nil, tasks.Profile{}, tasks.Actor{}, err
 	}
 	store := tasks.NewStore(rt.db.DB)
+	store.SetEvidenceChecker(gitevidence.Checker(""))
 	p, err := store.Profile(ctx, profileOf(ctx))
 	if err != nil {
 		return nil, tasks.Profile{}, tasks.Actor{}, taskToolErr(err)
 	}
-	return store, p, s.taskActor(), nil
+	return store, p, s.boundTaskActor(ctx, rt.db.DB, p.ID), nil
 }
 
 // taskToolNames is the family by name: what a server started with --tasks-only

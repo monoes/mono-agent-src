@@ -108,6 +108,13 @@ func newCoderSessionsSettingsGetCmd(cfg *Deps) *cobra.Command {
 		Short: "Show a coder session's settings and whether it runs unattended",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			visible, verr := visibleToToken(cfg)
+			if verr != nil {
+				return verr
+			}
+			if visible != nil && !visible(args[0]) { // the same refusal whether the session exists or not
+				return masterErr(coderhost.ErrNotYours)
+			}
 			v, err := sessionSettingsOf(cfg, args[0], nil)
 			if err != nil {
 				return err
@@ -121,6 +128,7 @@ func newCoderSessionsSettingsGetCmd(cfg *Deps) *cobra.Command {
 
 func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 	var patch, unattended, role, parent string
+	var budget float64
 	cmd := &cobra.Command{
 		Use:   "set CONVERSATION",
 		Short: "Change settings with a JSON object naming only the settings to change",
@@ -130,11 +138,14 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 			"host checks in on at the master's interval) or a child of one.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if sessionTokenFromEnv() != "" { // a master's turn: agent-adjustable settings of its descendants only
+				return masterSet(cfg, cmd, args[0], patch, unattended != "" || role != "" || parent != "" || cmd.Flags().Changed("budget-usd"))
+			}
 			if err := clicore.RequireOperator(cfg.RequireOperator, "change a coder session's settings"); err != nil {
 				return err
 			}
-			if patch == "" && unattended == "" && role == "" {
-				return clicore.InvalidInput("nothing to change: give --patch, --unattended and/or --role")
+			if patch == "" && unattended == "" && role == "" && !cmd.Flags().Changed("budget-usd") {
+				return clicore.InvalidInput("nothing to change: give --patch, --unattended, --role and/or --budget-usd")
 			}
 			if parent != "" && role != "child" {
 				return clicore.InvalidInput("--parent goes with --role child")
@@ -182,6 +193,13 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 				}
 				changed = append(changed, "role")
 			}
+			if cmd.Flags().Changed("budget-usd") {
+				if err := cs.SetBudget(profileID, args[0], budget); err != nil {
+					db.Close()
+					return clicore.InvalidInput("%v", err)
+				}
+				changed = append(changed, "budget_usd")
+			}
 			if unattended != "" {
 				if err := cs.SetUnattended(profileID, args[0], unattended == "true"); err != nil {
 					db.Close()
@@ -200,6 +218,7 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&patch, "patch", "", "JSON object with the settings to change")
 	cmd.Flags().StringVar(&unattended, "unattended", "", "true or false: false turns off the host's own scheduled check-ins for the session")
 	cmd.Flags().StringVar(&role, "role", "", "solo, master or child (a child needs --parent: a master with room for it)")
+	cmd.Flags().Float64Var(&budget, "budget-usd", 0, "The session's spend cap in USD that its children are carved from (0 = none; not below what its children hold)")
 	cmd.Flags().StringVar(&parent, "parent", "", "the master conversation, with --role child")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd

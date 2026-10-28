@@ -13,48 +13,14 @@ import (
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
-// boundSessionEnv names the session an agent's process is bound to: the carrier of the
-// session a worker's token will hold. An agent that sets it may act only in that session.
-const boundSessionEnv = "MONOAGENT_TASK_SESSION"
-
-// boundNumber reads a binding variable: 0 when it is blank, the number when it is one, and -1
-// (a binding to nothing that exists, which refuses every act) when it is set to anything else:
-// a garbled worker environment is not an unbound process.
-func boundNumber(raw string) int64 {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0
-	}
-	n, err := strconv.ParseInt(strings.TrimPrefix(raw, "#"), 10, 64)
-	if err != nil || n <= 0 {
-		return -1
-	}
-	return n
-}
-
-// boundSession reads boundSessionEnv. A task without its session is a damaged
-// binding (-1), not an unbound Personal-board caller.
-func (d Deps) boundSession() int64 {
-	session := boundNumber(d.Getenv(boundSessionEnv))
-	if session == 0 && d.boundTask() != 0 {
-		return -1
-	}
-	return session
-}
-
-// boundTaskEnv narrows boundSessionEnv to one task: what a mission worker's process holds.
-const boundTaskEnv = "MONOAGENT_TASK_ID"
-
-// boundTask reads boundTaskEnv: 0 when it is not set.
-func (d Deps) boundTask() int64 { return boundNumber(d.Getenv(boundTaskEnv)) }
-
-// boundRoleEnv narrows the task binding to a verifier's: "verifier" lets the process verify,
-// comment on and attach evidence to its one task and nothing else.
-const boundRoleEnv = "MONOAGENT_TASK_ROLE"
-
-func (d Deps) boundVerifier() bool {
-	return d.boundTask() != 0 && strings.TrimSpace(d.Getenv(boundRoleEnv)) == "verifier"
-}
+// boundSessionEnv and boundTaskEnv are the labels a conductor leaves in a worker's environment
+// (the brief's text, and an agent-context marker for the operator guard). They scope nothing:
+// the process can change them. What binds a process to a session, a task and a role is the
+// mission token it carries (agenttokens.EnvMissionToken), verified by missionBinding.
+const (
+	boundSessionEnv = "MONOAGENT_TASK_SESSION"
+	boundTaskEnv    = "MONOAGENT_TASK_ID"
+)
 
 // parseSessionID reads 3 or #3.
 func (d Deps) parseSessionID(s string) (int64, error) {
@@ -197,8 +163,8 @@ agents work inside the session only: they add follow-ups, claim, comment, finish
 split, attach artifacts and verify, and nothing outside it. A verifier marks a
 task verified; closing it to Done stays yours unless you turned on auto-close.
 
-Only you approve, resume, set the budget, the limits, the access level and
-auto-close, and archive. Pausing and stopping are open to agents; stop releases
+Only you approve, resume, close, set the budget, the limits, the access level and
+auto-close, and archive. A mission's lead only proposes the close. Pausing and stopping are open to agents; stop releases
 every claim. Add tasks with task add --session N --acceptance TEXT. See: monoagentcli ref tasks`,
 	}
 	cmd.AddCommand(
@@ -223,6 +189,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 			func(s *tasks.Store, ctx context.Context, p string, id int64, a tasks.Actor) (tasks.Session, error) {
 				return s.ArchiveSession(ctx, p, id, a)
 			}),
+		d.newSessionCloseCmd(),
 		d.newSessionBudgetCmd(),
 	)
 	for _, sub := range cmd.Commands() {
@@ -247,6 +214,13 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 					return err
 				}
 			}
+			if actor.Kind == tasks.Agent && strings.TrimSpace(conversation) != "" {
+				chat, err := d.ownChat()
+				if err != nil {
+					return err
+				}
+				actor.Conversation = chat
+			}
 			in := tasks.SessionInput{
 				Title: strings.Join(args, " "), Goal: goal, ConversationID: conversation,
 				AccessLevel: access, BudgetUSD: budget, MaxTasks: maxTasks, MaxDepth: maxDepth, ClientID: clientID,
@@ -261,7 +235,7 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&goal, "goal", "", "What the session is for (the plan card shows it)")
-	cmd.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the session belongs to")
+	cmd.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the session belongs to (an agent: only its own chat)")
 	cmd.Flags().StringVar(&clientID, "client-id", "", "An idempotency key (up to 64 letters, digits, - or _): a repeat in the profile returns the same session, with deduped true")
 	cmd.Flags().Float64Var(&budget, "budget-usd", 0, "Budget in dollars (you only; 0 for none)")
 	cmd.Flags().IntVar(&maxTasks, "max-tasks", 0, "Most tasks the session holds (you only; default 200)")
