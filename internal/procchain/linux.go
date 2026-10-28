@@ -1,6 +1,6 @@
 //go:build linux
 
-package coderhost
+package procchain
 
 import (
 	"bytes"
@@ -8,12 +8,12 @@ import (
 	"strconv"
 )
 
-// ancestrySupported: process ancestry can be read, so a session token is bound to its turn's process.
-const ancestrySupported = true
+// Supported: process ancestry can be read, so a token can be bound to a process.
+const Supported = true
 
-// ProcStamp identifies a process across pid reuse: its start time in clock ticks since boot
+// procStamp identifies a process across pid reuse: its start time in clock ticks since boot
 // (field 22 of /proc/<pid>/stat). "" when it cannot be read.
-func ProcStamp(pid int) string {
+func procStamp(pid int) string {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return ""

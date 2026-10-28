@@ -2,6 +2,8 @@ package task
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
@@ -33,5 +35,9 @@ func (d Deps) missionBinding() taskbind.Binding {
 	if err != nil {
 		return taskbind.Binding{State: taskbind.Invalid}
 	}
-	return taskbind.Resolve(ctx, db.DB, p.ID, token)
+	b := taskbind.Resolve(ctx, db.DB, p.ID, token)
+	if b.Outside {
+		fmt.Fprintln(os.Stderr, "task: refused: "+b.Err.Error())
+	}
+	return b
 }

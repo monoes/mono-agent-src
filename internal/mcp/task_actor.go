@@ -99,3 +99,13 @@ func (s *Server) taskActor() tasks.Actor {
 func (s *Server) boundTaskActor(ctx context.Context, db *sql.DB, profileID string) tasks.Actor {
 	return taskbind.Resolve(ctx, db, profileID, os.Getenv(agenttokens.EnvMissionToken)).Apply(s.taskActor())
 }
+
+// outsideWorkerTree is the error a task tool returns when its token is genuine but this server
+// is not inside the worker's process tree (a detached or reparented server, another namespace):
+// the refusal says why, instead of reading like a bad token.
+func outsideWorkerTree(ctx context.Context, db *sql.DB, profileID string) error {
+	if b := taskbind.Resolve(ctx, db, profileID, os.Getenv(agenttokens.EnvMissionToken)); b.Outside {
+		return b.Err
+	}
+	return nil
+}
