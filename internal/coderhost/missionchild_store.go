@@ -898,6 +898,12 @@ func takeReservation(db execer, profileID string, sessionID, taskID int64, lead 
 // a descendant of the lead. A row that has a pending conversation links exactly that one; a row with none
 // takes one that no other row holds as its child or its pending. One statement decides all of it.
 func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string) (ChildRow, error) {
+	return s.setSpawned(sc, profileID, sessionID, taskID, childConversationID, 0)
+}
+
+// setSpawned is SetSpawned fenced on the reservation's attempt number (0: not fenced): a spawn whose reservation
+// was reset and taken again by a newer attempt links nothing.
+func (s *Store) setSpawned(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string, attempt int) (ChildRow, error) {
 	l, _, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
 		return ChildRow{}, err
@@ -907,10 +913,10 @@ func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID i
 	}
 	now := s.stamp()
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'spawned', child_conversation_id = ?, spawned_at = ?, updated_at = ?
-		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND (? = 0 OR attempts = ?)
 		AND (pending_conversation_id = ? OR (pending_conversation_id = '' AND NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ?
 			AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?) AND NOT (o.session_id = ? AND o.task_id = ?))))`,
-		childConversationID, now, now, profileID, sessionID, taskID, l.Caller.ConversationID,
+		childConversationID, now, now, profileID, sessionID, taskID, l.Caller.ConversationID, attempt, attempt,
 		childConversationID, profileID, childConversationID, childConversationID, sessionID, taskID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -935,6 +941,10 @@ func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID i
 // which conversation the reserved task is about to own, and refreshes the row's clock. From then on
 // ResetStaleSpawning ends the row instead of handing the task to a second child.
 func (s *Store) NotePending(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string) error {
+	return s.notePending(sc, profileID, sessionID, taskID, childConversationID, 0)
+}
+
+func (s *Store) notePending(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string, attempt int) error {
 	l, _, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
 		return err
@@ -942,26 +952,31 @@ func (s *Store) NotePending(sc CallerScope, profileID string, sessionID, taskID 
 	if childConversationID == "" || !s.IsDescendant(profileID, l.Caller.ConversationID, childConversationID) {
 		return fmt.Errorf("%w: %s", ErrNotYours, childConversationID)
 	}
-	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, childConversationID)
+	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, childConversationID, attempt)
 }
 
 // Touch refreshes the clock of a reserved task while its spawn is still running, so a slow spawn is not taken
 // for a dead one. The spawn path calls it between its steps.
 func (s *Store) Touch(sc CallerScope, profileID string, sessionID, taskID int64) error {
+	return s.touch(sc, profileID, sessionID, taskID, 0)
+}
+
+func (s *Store) touch(sc CallerScope, profileID string, sessionID, taskID int64, attempt int) error {
 	l, _, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
 		return err
 	}
-	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, "")
+	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, "", attempt)
 }
 
-func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, pending string) error {
+// attempt fences the write on the reservation that made it (0: not fenced).
+func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, pending string, attempt int) error {
 	// A conversation is pending on one task only: another row holding it, as its child or as its pending, refuses.
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET updated_at = ?, pending_conversation_id = CASE WHEN ? <> '' THEN ? ELSE pending_conversation_id END
-		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND (? = 0 OR attempts = ?)
 		AND (? = '' OR NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?)
 			AND NOT (o.session_id = ? AND o.task_id = ?)))`,
-		s.stamp(), pending, pending, profileID, sessionID, taskID, lead,
+		s.stamp(), pending, pending, profileID, sessionID, taskID, lead, attempt, attempt,
 		pending, profileID, pending, pending, sessionID, taskID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
