@@ -35,6 +35,8 @@ func TestAdviceBranches(t *testing.T) {
 		{"a parallel branch is not small", big, ReasonParallel, false, AdviceAccept},
 		{"a task above size s is not small", FactsOf([]ScopeTask{{ID: 1, Size: "m"}}), ReasonLongRunning, false, AdviceAccept},
 		{"a task with no size counts as above s", FactsOf([]ScopeTask{{ID: 1}}), ReasonLongRunning, false, AdviceAccept},
+		{"two independent read-only tasks are a parallel branch", FactsOf([]ScopeTask{{ID: 1, Size: "s"}, {ID: 2, Size: "s"}}), ReasonLongRunning, false, AdviceAccept},
+		{"two writers at once are not small, whatever else is read", SpawnFacts{OpenTasks: 2, Writers: 2}, ReasonLongRunning, false, AdviceAccept},
 		{"isolation for a high-risk task is accepted at once", highRisk, ReasonIsolation, false, AdviceAccept},
 		{"isolation for a task that is not high risk is refused once", FactsOf([]ScopeTask{{ID: 1, Size: "s", Risk: "medium"}}), ReasonIsolation, false, AdviceRefuse},
 		{"a high-risk task with another reason is refused once", highRisk, ReasonParallel, false, AdviceRefuse},

@@ -230,8 +230,9 @@ func TestSpawnSessionValidatesTheRequest(t *testing.T) {
 		"unknown level": {Title: "x", Kind: "task", Reason: ReasonParallel, TaskIDs: f.ids, Access: "root"},
 	}
 	for name, r := range bad {
-		if _, err := f.spawnSession(r); err == nil {
-			t.Errorf("%s was accepted", name)
+		// refused for itself, not merely advised against as a small scope
+		if _, err := f.spawnSession(r); err == nil || errors.Is(err, ErrSpawnAdvice) {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 	if countRows(t, f.st, `SELECT COUNT(*) FROM coder_sessions WHERE role = 'child'`) != 0 || countRows(t, f.st, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id IS NOT NULL`) != 0 {
