@@ -2052,6 +2052,17 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   the caps are written only by `coder sessions mission-children set`, which refuses any process holding a session
   token or a mission binding. A worker-added follow-up in mode `all` becomes a child only within the ceiling, the
   spawn rate, the carve, three attempts per task and the existing limits on workers per task.
+- **Budget requests (P-F).** The lead's one tool, `mission_budget_request` (needs `--allow-mutations`), files a
+  request and raises nothing. It is a person item with no timeout, default, master or model answer: only
+  `coder sessions budget grant|decline` answers it, and those refuse any process holding a coder session token or a
+  mission binding; `GrantBudget` and `DeclineBudget` take only the person's scope and are named by no other package
+  (a static test). The numbers (the target's budget and spend) are read by the host, the amount is validated and the
+  reason is cleaned, capped text. A grant adds at most the amount asked to the one session the request names, once (the
+  status leaves `open` in the transaction that raises the budget), and only within what the session it is carved from
+  and the mission's budget still cover. A request is open only while its mission is a draft or running, its lead is
+  not stopped and its target exists (derived each time). Filing is limited to one open request per session, three an
+  hour per lead and twelve per mission, so a model cannot flood the person's list. Not covered: the person's
+  judgement of the numbers, and anything a same-user process can do to the database.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

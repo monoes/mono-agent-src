@@ -1984,6 +1984,18 @@ setting, turn on mode `all` or lift an operator's `off` or cap. The operator's c
 token or a mission binding. An operator who writes a number also sets it as the lead's cap; giving the lead a value
 without limiting takes two calls.
 
+**Budget requests.** When a mission's budget (or a child session's cap) is used up, the lead may ask the person for
+more with the MCP tool `mission_budget_request{amount_usd,reason?,task_id?}` (mutating: needs `--allow-mutations`;
+no `task_id` = its own session budget, a `task_id` = the cap of that running child session; at most $50 a request).
+It raises nothing: the request is a person item (kind `budget_request`, shown with the other items that need you) that
+waits with no timeout, no default and no master. One request may be open per session, a lead may file three an
+hour and twelve per mission. Only the operator answers: `coder sessions budget list [--open]`, `grant <id> [--usd N]`
+(at most what was asked, once, on exactly the session the request names, and only if what it is carved from, the lead's
+remaining budget and the mission's budget, still covers it; otherwise the request stays open and a smaller `--usd` may
+fit) and `decline <id>`. All three refuse any process that holds a coder session token or a mission binding. A
+request whose mission is archived or finished, whose lead is stopped or whose session is gone is no longer open and
+cannot be granted. A pending request changes nothing else and starts no turn.
+
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
 operator closes tasks to Done, or the session's `auto_close_verified` does when the
@@ -2634,6 +2646,7 @@ monoagentcli --profile work coder sessions list --json            # sessions, st
 monoagentcli --profile work coder sessions stop|pause|resume <conv>
 monoagentcli --profile work coder sessions command <id>            # how one queued command ended: pending, done, or failed with the reason
 monoagentcli --profile work coder sessions mission-children list                 # operator: child-session policy per mission lead (set: see Missions)
+monoagentcli --profile work coder sessions budget list --open|grant <id> [--usd N]|decline <id>   # operator: a mission lead's requests for more budget (see Missions)
 monoagentcli --profile work coder host status --json               # running? pid, since when
 monoagentcli --profile work coder host stop                        # the host only; running turns keep going
 ```
