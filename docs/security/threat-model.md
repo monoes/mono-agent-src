@@ -51,9 +51,27 @@ one endpoint, might try to cross:
    already drive every paired browser; binding adds routing, not a new
    capability. `/monoagent/health` (unauthenticated) reports only a browser
    count; which profile and label each browser has is behind the token at
-   `/monoagent/browsers` and `/monoagent/resolve`. A reported profile id
-   that `profiledir.ValidProfileID` rejects is dropped. A command for a
-   profile is never sent to a browser bound to a different profile.
+   `/monoagent/browsers` and `/monoagent/resolve`.
+   A browser runs a set of profiles (at most 64, each id at most 128 bytes).
+   A reported profile id that `profiledir.ValidProfileID` rejects, a
+   duplicate, and an id beyond the cap are dropped, and ids of deleted
+   profiles leave the set. A command for a profile is never sent to a
+   browser whose set lacks that profile (except to an unbound default
+   browser); a profile removed from a browser stops routing there before the
+   extension answers.
+   Known limits, stated plainly: a paired browser (or any holder of the
+   bridge token) can claim any valid profile id, and with sets it can claim
+   up to 64 at once and receive those profiles' commands and session data.
+   That widens the blast radius of one mis-paired or compromised browser from
+   one profile to many; it is not a new trust boundary. The real mitigation,
+   binding a browser's token to an allowed set of profiles at pairing time,
+   is not part of this change. The CLI's operator-only guards (`bind`,
+   `unbind`, `assign`) stop an agent shell that does not hold the bridge
+   token; a caller who can read the token can already send `set_binding`
+   directly, as on master (the relay cannot tell operator from agent, so the
+   relay token is the credential for it). A per-browser token is pinned to
+   the instance it was paired with and cannot displace another browser's
+   socket.
 2. **Extension ↔ page.** Content-script and cookie/debugger access is scoped
    to explicitly granted origins (MA-05) rather than `<all_urls>` by
    default. `chrome.debugger` is called out separately because Chrome does

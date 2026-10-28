@@ -274,7 +274,7 @@ func (d Deps) newProfileDeleteCmd() *cobra.Command {
 			impact.Warnings = append(impact.Warnings, attWarnings...)
 			if d.UnbindBrowsers != nil {
 				if n, err := d.UnbindBrowsers(ctx, p.ID); err != nil {
-					impact.Warnings = append(impact.Warnings, "browsers bound to the profile were not all unbound (`monoagentcli extension unbind <browser>`): "+err.Error())
+					impact.Warnings = append(impact.Warnings, "browsers bound to the profile were not all unbound (`monoagentcli extension unbind <browser> <profile>`): "+err.Error())
 				} else {
 					impact.BrowsersUnbound = n
 				}

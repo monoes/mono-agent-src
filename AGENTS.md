@@ -646,7 +646,7 @@ dangerous calls.
   and workflows read secrets' metadata and write other entries as before.
   The `--help` of each of these says so ("The user's own: an agent, the
   chat or a workflow is refused"), and a nil operator check refuses
-  (`clicore.OperatorRefusal`). So are `extension bind|unbind|reset`,
+  (`clicore.OperatorRefusal`). So are `extension bind|unbind|assign|reset`,
   `extension pair --open` and `extension install --zip`, which change which
   profile a browser acts as, which bridge it pairs with, or the extension
   code it loads; `extension pair` printing the token stays open (an agent can

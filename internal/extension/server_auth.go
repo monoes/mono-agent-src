@@ -32,8 +32,10 @@ type authFrame struct {
 	Token    string `json:"token"`
 	Instance string `json:"instance,omitempty"`
 	Profile  string `json:"profile,omitempty"`
-	Label    string `json:"label,omitempty"`
-	Version  string `json:"version,omitempty"`
+	// Profiles is the whole set (extension >= 1.12.0, see SupportsProfileSets); Profile is its first.
+	Profiles []string `json:"profiles,omitempty"`
+	Label    string   `json:"label,omitempty"`
+	Version  string   `json:"version,omitempty"`
 
 	// tokenID is the per-browser token (browser_tokens.go) the socket
 	// authenticated with; empty for the shared extension.token. Never on the wire.
@@ -70,11 +72,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// socket never replaces anything.
 	c := newExtConn(conn, auth, time.Now())
 	s.dropDeletedBinding(c)
-	s.installConn(c)
+	if !s.installConn(c) {
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(unauthorizedCloseCode, "that browser instance is connected under another token"),
+			time.Now().Add(time.Second))
+		_ = conn.Close()
+		return
+	}
 
 	s.connOnce.Do(func() { close(s.connected) })
 	s.logger.Info().Str("remote", conn.RemoteAddr().String()).Str("instance", c.id).
-		Str("profile", c.boundProfile()).Msg("extension connected")
+		Strs("profiles", c.boundProfiles()).Msg("extension connected")
 
 	done := make(chan struct{})
 	go s.pingLoop(c, done)
@@ -103,19 +111,45 @@ func (s *Server) authenticate(conn *websocket.Conn) (authFrame, bool) {
 			auth.tokenID = ""
 		} else if b, found := pairedBrowserForToken(auth.Token); found {
 			auth.tokenID = b.ID
+			if reason := instanceMismatch(b, auth.Instance); reason != "" {
+				return s.refuseAuth(conn, reason)
+			}
 		} else {
 			ok = false
 		}
 	}
 	if !ok {
-		s.noteAuthFailure()
-		s.logger.Warn().Msg("rejected extension connection: bad or missing auth token")
-		_ = conn.WriteControl(websocket.CloseMessage,
-			websocket.FormatCloseMessage(unauthorizedCloseCode, "unauthorized"),
-			time.Now().Add(time.Second))
-		return authFrame{}, false
+		return s.refuseAuth(conn, "unauthorized")
 	}
 	return auth, true
+}
+
+// instanceMismatch is why a per-browser token may not connect as instance:
+// a token paired to one browser instance speaks only for it, and a token
+// without a recorded instance may not take an instance another paired
+// browser holds. Empty means allowed. (The shared extension.token picks its
+// own instance; installConn still stops it displacing a per-browser socket.)
+func instanceMismatch(b PairedBrowser, instance string) string {
+	if b.Instance != "" {
+		if instance != b.Instance {
+			return "this token is paired to a different browser instance"
+		}
+		return ""
+	}
+	if other, held := PairedBrowserForInstance(instance); held && other.ID != b.ID {
+		return "that browser instance is paired with another token"
+	}
+	return ""
+}
+
+// refuseAuth counts a failed handshake and closes the socket with reason.
+func (s *Server) refuseAuth(conn *websocket.Conn, reason string) (authFrame, bool) {
+	s.noteAuthFailure()
+	s.logger.Warn().Str("reason", reason).Msg("rejected extension connection")
+	_ = conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(unauthorizedCloseCode, reason),
+		time.Now().Add(time.Second))
+	return authFrame{}, false
 }
 
 // revokeCheckInterval is how often a per-browser socket checks its token is still paired.

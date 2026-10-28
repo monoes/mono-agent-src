@@ -954,6 +954,8 @@ export namespace main {
 	    label: string;
 	    profile_id: string;
 	    profile_name: string;
+	    profile_ids: string[];
+	    profile_names: string[];
 	    legacy: boolean;
 	    conflict: boolean;
 	    version: string;
@@ -969,11 +971,47 @@ export namespace main {
 	        this.label = source["label"];
 	        this.profile_id = source["profile_id"];
 	        this.profile_name = source["profile_name"];
+	        this.profile_ids = source["profile_ids"];
+	        this.profile_names = source["profile_names"];
 	        this.legacy = source["legacy"];
 	        this.conflict = source["conflict"];
 	        this.version = source["version"];
 	        this.connected_at = source["connected_at"];
 	    }
+	}
+	export class AssignReport {
+	    profile_id: string;
+	    instance: string;
+	    changed: BrowserRow[];
+
+	    static createFrom(source: any = {}) {
+	        return new AssignReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profile_id = source["profile_id"];
+	        this.instance = source["instance"];
+	        this.changed = this.convertValues(source["changed"], BrowserRow);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ExtensionInfo {
 	    path: string;

@@ -16,7 +16,7 @@ func TestTheUsersOwnCommandsSaySoInTheirHelp(t *testing.T) {
 		{"api", "key", "create"}, {"api", "key", "update"}, {"api", "key", "revoke"},
 		{"jev", "enable"}, {"jev", "key", "set"}, {"jev", "key", "adopt"}, {"jev", "key", "remove"},
 		{"org", "teardown-profile"},
-		{"extension", "bind"}, {"extension", "unbind"}, {"extension", "reset"},
+		{"extension", "bind"}, {"extension", "unbind"}, {"extension", "assign"}, {"extension", "reset"},
 		{"extension", "autopair"}, {"extension", "approve"}, {"extension", "deny"},
 	} {
 		cmd, _, err := root.Find(path)

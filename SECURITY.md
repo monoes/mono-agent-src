@@ -928,13 +928,13 @@ read. It is one bridge request method, `vault.save`
 
 ### Extension commands that only the user runs
 
-`extension bind`, `extension unbind`, `extension reset`, `extension pair
+`extension bind`, `extension unbind`, `extension assign`, `extension reset`, `extension pair
 --open` and `extension install --zip` refuse an agent, the chat and a
 workflow run: any process carrying one of the operator markers, or whose
 parent process carries one. They exit 3 with code `operator_only`.
 
-- `bind` and `unbind` decide which profile a browser acts as, so an agent
-  could point your browser, with its logged-in accounts, at another
+- `bind`, `unbind` and `assign` decide which profiles a browser acts as, so
+  an agent could point your browser, with its logged-in accounts, at another
   profile, or take its profile away.
 - `reset` revokes the pairing token and cuts every browser off until you
   pair it again.
@@ -959,7 +959,21 @@ against an agent running as you:
   directly: post a `set_binding` to `/monoagent/relay`, or connect to the
   websocket as a browser and claim a profile in a `binding` frame, so an
   endpoint it runs would receive that profile's browser actions. The gates
-  above don't cover that path.
+  above don't cover that path: the relay has no operator/agent distinction
+  (the operator marker is a property of the CLI process and cannot cross the
+  HTTP hop), so the relay token is the credential for `set_binding`, exactly
+  as it is for `click` or `eval`. This is the same as before profile sets;
+  `TestRelaySetBindingNeedsTheRelayToken` pins that the token is required.
+  A per-browser token, however, speaks only for the instance it was paired
+  with: it cannot connect as another instance, and no connection replaces a
+  socket that authenticated with a different per-browser token.
+- A paired browser, or anything holding the bridge token, can claim any
+  valid profile id, and with sets it can claim up to 64 at once and receive
+  those profiles' browser commands and session data. That widens what one
+  mis-paired or compromised browser can see, from one profile to many. It is
+  not a new trust boundary: the token already let such a caller claim any
+  one profile. Limiting a browser's token to an allowed set of profiles when
+  it is paired would close this, and is not part of this change.
 - The `pair --open` gate is cosmetic against an agent with a shell, which
   can start a bridge of its own and open the pairing page itself.
 - An agent with a shell can also edit the files these commands manage.

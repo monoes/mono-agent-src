@@ -225,10 +225,19 @@ func (r *RemoteSender) Browsers() ([]ConnInfo, error) {
 	return body.Browsers, err
 }
 
-// SetBinding binds one browser to a monoagent profile ("" unbinds it). An
-// empty label leaves the browser's label alone.
-func (r *RemoteSender) SetBinding(instance, profile, label string) error {
-	params := map[string]interface{}{"profile": profile}
+// SetBinding makes profiles the set of profiles one browser runs (none
+// unbinds it). It sends the first one as the legacy `profile` too, so an
+// extension from before sets still binds that one. An empty label leaves the
+// browser's label alone.
+func (r *RemoteSender) SetBinding(instance string, profiles []string, label string) error {
+	profile := ""
+	if len(profiles) > 0 {
+		profile = profiles[0]
+	}
+	if profiles == nil {
+		profiles = []string{}
+	}
+	params := map[string]interface{}{"profile": profile, "profiles": profiles}
 	if label != "" {
 		params["label"] = label
 	}

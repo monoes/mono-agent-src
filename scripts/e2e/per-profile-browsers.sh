@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Two real Chromium profiles, two monoagent profiles, one private bridge.
-# Proves: each profile's command lands in its own browser, both at once, and
-# a profile with no browser gets the explanatory error. Never touches the
+# Two real Chromium profiles, three monoagent profiles, one private bridge.
+# Proves: each profile's command lands in its own browser, both at once, a
+# profile with no browser gets the explanatory error, and several profiles
+# can share one browser. Never touches the
 # real HOME, port 9222, or the user's browsers.
 set -euo pipefail
 
@@ -82,6 +83,31 @@ mc extension unbind "E2E Personal"
 mc --profile Solo --json capture page --formats mhtml --out "$W/inbox-solo" >"$W/cap-solo.json"
 grep -q personal.html <(jq -r .meta.url "$W/cap-solo.json") || { echo "FAIL: Solo did not use the default browser"; exit 1; }
 echo "PASS: unbind makes a default browser that unbound profiles use"
+# 4. Several profiles share one browser: assign Solo to Work's browser.
+if out=$(mc extension assign Solo "no-such-browser" 2>&1); then
+  echo "FAIL: assigning to an unattached browser succeeded: $out"; exit 1
+fi
+grep -q "not attached to the bridge" <<<"$out" || { echo "FAIL: unexpected assign error: $out"; exit 1; }
+mc extension assign Solo "E2E Work"
+for _ in $(seq 50); do
+  n=$(mc --json extension browsers | jq --arg w "$WORK" --arg s "$SOLO" '[.browsers[] | select(.label == "E2E Work") | select((.profile_ids | index($w)) and (.profile_ids | index($s)))] | length')
+  [ "$n" = 1 ] && break; sleep 0.2
+done
+[ "$n" = 1 ] || { echo "FAIL: E2E Work does not run both Work and Solo"; mc extension browsers; exit 1; }
+mc --profile Solo --json capture page --formats mhtml --out "$W/inbox-solo2" >"$W/cap-solo2.json"
+mc --profile Work --json capture page --formats mhtml --out "$W/inbox-work2" >"$W/cap-work2.json"
+grep -q work.html <(jq -r .meta.url "$W/cap-solo2.json") || { echo "FAIL: Solo did not run in the shared browser"; exit 1; }
+grep -q work.html <(jq -r .meta.url "$W/cap-work2.json") || { echo "FAIL: Work lost its browser to Solo"; exit 1; }
+echo "PASS: Work and Solo share one browser"
+
+# 5. unbind with a profile removes only that profile; assign with no browser removes it everywhere.
+mc extension unbind "E2E Work" Solo
+n=$(mc --json extension browsers | jq --arg w "$WORK" '[.browsers[] | select(.label == "E2E Work") | select(.profile_ids == [$w])] | length')
+[ "$n" = 1 ] || { echo "FAIL: unbind <browser> <profile> did not leave only Work"; exit 1; }
+mc extension assign Work
+n=$(mc --json extension browsers | jq '[.browsers[] | select(.profile_ids != [])] | length')
+[ "$n" = 0 ] || { echo "FAIL: assign <profile> did not clear it everywhere"; exit 1; }
+echo "PASS: unbind <profile> and assign <profile> remove it"
 mono_scan_log "$W/bridge.log"
 mono_check_clean
 echo "ALL PASS"
