@@ -1728,7 +1728,7 @@ letters, digits and `._#@:-`, the same name for a whole task; `you`,
 not a credential), use `list`, `show`, `next`, `claim`, `comment` (on a
 task they hold), `finish`, `release` and `digest`, and may `add` to the
 Inbox (inside a task session they also use `session new`, `session list`,
-`session show`, `session plan`, `session pause`, `session stop`, `split`,
+`session show`, `session rename` (its own), `session tree`, `session plan`, `session pause`, `session stop`, `split`,
 `depend`, `artifact` and `verify`, below). `digest` has no gate: it runs the same in any
 context, so a session-start hook can call it. A `comment` run under an
 agent context is an agent's comment: it needs a name.

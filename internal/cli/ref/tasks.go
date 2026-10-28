@@ -105,7 +105,7 @@ WHO MAY DO WHAT
   running session), claim, comment, finish and release by task id, add follow-ups (Ready
   at once; the session's max tasks is the bound), split a task that has not begun,
   depend, artifact, and verify. An agent may also run session new, session list, session show,
-  session plan, session pause and session stop (stop releases every claim; only the operator resumes). It may not set
+  session rename (its own sessions), session tree, session plan, session pause and session stop (stop releases every claim; only the operator resumes). It may not set
   the budget, the limits, the access level or auto-close: that is session budget ID --usd N
   --max-tasks N --max-depth N --max-retries N --access LEVEL --auto-close on|off --spend N --note TEXT
   (session new takes --budget-usd), the operator's. session new takes an optional --client-id KEY

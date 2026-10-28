@@ -40,6 +40,8 @@ var refTaskGate = []struct {
 	{"session new", false, []string{"session", "new", "x"}},
 	{"session list", false, []string{"session", "list"}},
 	{"session show", false, []string{"session", "show", "1"}},
+	{"session rename", false, []string{"session", "rename", "1", "x"}},
+	{"session tree", false, []string{"session", "tree"}},
 	{"session plan", false, []string{"session", "plan", "1"}},
 	{"session approve", true, []string{"session", "approve", "1"}},
 	{"session pause", false, []string{"session", "pause", "1"}},
