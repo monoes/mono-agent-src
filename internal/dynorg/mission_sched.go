@@ -354,7 +354,7 @@ func (c *Conductor) missionStep(ctx context.Context, sid int64, start bool) (Ste
 		st, err := c.startTask(ctx, sid, t, exec, SpawnRequest{Access: accessFor(exec, access)})
 		if err != nil {
 			reason := "could not start: " + err.Error()
-			if errors.Is(err, ErrChildrenFull) {
+			if errors.Is(err, ErrChildrenFull) || errors.Is(err, ErrChildUnsettled) {
 				reason = err.Error() // the queue, not a failure
 			}
 			res.Waiting = append(res.Waiting, WaitingTask{TaskID: t.ID, Title: t.Title, Reason: reason})

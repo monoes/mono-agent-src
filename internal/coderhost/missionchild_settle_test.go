@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ func TestARemarkDoesNotLoseTheSettlementOfTheEarlierChild(t *testing.T) {
 		t.Fatalf("row %+v spent %v", r, f.missionSpent(t))
 	}
 	// the lead marks the task again before a later pass succeeded: refused, and the old conversation stays findable
-	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 2}); err == nil || !strings.Contains(err.Error(), "settled") {
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 2}); err == nil || !strings.Contains(err.Error(), "settled") || !errors.Is(err, ErrChildUnsettled) || !errors.Is(err, ErrInvalid) {
 		t.Fatalf("re-mark of an unsettled child: %v", err)
 	}
 	if r := f.row(t, 0); r.ChildConversationID != conv {

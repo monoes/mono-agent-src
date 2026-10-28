@@ -730,7 +730,7 @@ func (s *Store) Mark(sc CallerScope, profileID string, sessionID, taskID int64, 
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		if r, ok, _ := s.Child(profileID, sessionID, taskID); ok && (r.State == ChildEnded || r.State == ChildFailed || r.State == ChildGone) {
-			return ChildRow{}, fmt.Errorf("%w: the earlier child session of that task is still being settled (its spend is not on the mission's meter yet); try again shortly", ErrInvalid)
+			return ChildRow{}, fmt.Errorf("%w: %w: the earlier child session of that task is still being settled (its spend is not on the mission's meter yet); try again shortly", ErrInvalid, ErrChildUnsettled)
 		}
 		return ChildRow{}, fmt.Errorf("%w: that task already runs in its own session", ErrInvalid)
 	}

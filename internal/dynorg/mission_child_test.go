@@ -20,18 +20,19 @@ import (
 // fakeSpawner stands in for the coder host's mission child sessions. It keeps one row per task (the store's
 // UNIQUE key), a ceiling and a report per child.
 type fakeSpawner struct {
-	mu      sync.Mutex
-	ready   bool
-	mode    string
-	marked  map[int64]bool
-	rows    map[int64]*fakeChild
-	ceiling int
-	full    bool   // Spawn answers ErrChildrenFull whatever the room
-	blocked string // the lead cannot have children
-	spawns  []fakeSpawn
-	marks   []fakeMark
-	reports map[string]string
-	exhaust bool
+	mu        sync.Mutex
+	ready     bool
+	mode      string
+	marked    map[int64]bool
+	rows      map[int64]*fakeChild
+	ceiling   int
+	full      bool   // Spawn answers ErrChildrenFull whatever the room
+	blocked   string // the lead cannot have children
+	spawns    []fakeSpawn
+	marks     []fakeMark
+	reports   map[string]string
+	exhaust   bool
+	unsettled bool // Spawn answers ErrChildUnsettled
 	// barrier holds each Spawn until that many callers are inside it, so two conductors that both saw the task free
 	// both reach the store; the loser then answers late, after the winner went on.
 	barrier int
@@ -106,6 +107,9 @@ func (f *fakeSpawner) Spawn(_ context.Context, sid, tid int64, brief string) err
 	defer f.mu.Unlock()
 	if f.full {
 		return fmt.Errorf("%w: the host is busy", ErrChildrenFull)
+	}
+	if f.unsettled {
+		return fmt.Errorf("%w: its spend is not on the meter", ErrChildUnsettled)
 	}
 	if r, ok := f.rows[tid]; ok && (r.state == "spawning" || r.state == "spawned") {
 		if f.barrier > 0 {
@@ -263,6 +267,42 @@ func TestChildrenFullLeavesTaskWaiting(t *testing.T) {
 	r.c.msched.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("failures counted for a full host: %d", n)
+	}
+}
+
+// An auto-retry right after a row ended but before it is charged is refused as "still being settled": the task
+// waits and is retried, and no failure is counted for it.
+func TestUnsettledChildRetryIsAWaitNotAFailure(t *testing.T) {
+	r, fs := childRig(t, "all", rigOpts{})
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	fs.end(a.ID, "expired", "")
+	fs.mu.Lock()
+	fs.rows[a.ID].state = "ended"
+	fs.unsettled = true
+	fs.mu.Unlock()
+	r.next(r.c)
+	eventually(t, "the claim to be given back", func() bool { tk := r.task(a.ID); return tk.Status == tasks.StatusReady && tk.Claim == nil })
+	r.c.msched.mu.Lock()
+	before := r.c.msched.failures[a.ID]
+	r.c.msched.mu.Unlock()
+	res := r.next(r.c)
+	if why := r.waitingReason(res, a.ID); !strings.Contains(why, "being settled") {
+		t.Fatalf("waiting = %q", why)
+	}
+	r.c.msched.mu.Lock()
+	after := r.c.msched.failures[a.ID]
+	r.c.msched.mu.Unlock()
+	if after != before {
+		t.Fatalf("failures %d -> %d for an unsettled row", before, after)
+	}
+	fs.mu.Lock()
+	fs.unsettled = false
+	fs.mu.Unlock()
+	r.next(r.c)
+	if fs.spawnCount() != 2 {
+		t.Fatalf("spawns = %d, want the retry to go through once settled", fs.spawnCount())
 	}
 }
 

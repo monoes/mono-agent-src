@@ -26,6 +26,10 @@ import (
 // ErrChildrenFull is why a task could not get a session of its own now: the mission's child sessions, its running
 // turns or its share of the lead's budget are used up. It wraps ErrLimit. Nothing was reserved or created, so the
 // conductor leaves the task waiting and asks again later.
+// ErrChildUnsettled is why a re-mark was refused: the task's earlier child session has ended but its spend is not
+// on the mission's meter yet. It is a state that passes, not a failure: try again shortly.
+var ErrChildUnsettled = errors.New("the earlier child session is still being settled")
+
 var ErrChildrenFull = errors.New("the mission's child sessions are full")
 
 // errCarveRefused marks a spawn whose carve was refused after its conversation existed: not an attempt, so the

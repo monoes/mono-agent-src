@@ -162,6 +162,9 @@ func (m *missionChildren) Spawn(ctx context.Context, sid, tid int64, brief strin
 		}
 		row, _, _ := store.Child(m.profileID, sid, tid)
 		if _, err := store.Mark(scope, m.profileID, sid, tid, coderhost.MarkOptions{Size: row.Size, BudgetUSD: row.BudgetUSD}); err != nil {
+			if errors.Is(err, coderhost.ErrChildUnsettled) {
+				return fmt.Errorf("%w: %v", dynorg.ErrChildUnsettled, err)
+			}
 			return err
 		}
 	}
