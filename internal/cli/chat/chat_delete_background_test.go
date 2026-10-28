@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"runtime"
@@ -8,8 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/storage"
 )
 
 // Deleting a conversation stops the processes its turns left running: the
@@ -389,5 +393,51 @@ func TestDeleteDoesNotDropARecordWithAnIncomparableStart(t *testing.T) {
 	}
 	if !gone(pid) {
 		t.Error("a process that still matches was dropped from the record while running")
+	}
+}
+
+// The mission tokens a conversation's runs minted end with it: they are revoked by owner in the same
+// transaction as the delete, whether or not a later conductor would have swept them. Another
+// conversation's, and an unrelated owner's, are untouched.
+func TestDeleteRevokesTheMissionTokensOfItsRuns(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	other := r.conv(t, ai.AccessFull)
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	at := agenttokens.NewStore(db.DB)
+	ctx := context.Background()
+	mint := func(owner string) string {
+		t.Helper()
+		tok, _, err := at.CreateMission(ctx, "default", agenttokens.MissionBinding{Session: 1, Task: 1, Role: agenttokens.RoleWorker, Actor: "w", Owner: owner}, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok.ID
+	}
+	own := mint(dynorg.TurnOwner("default", c.ID, "t1"))
+	ownRun := mint(dynorg.ConversationOwner("default", c.ID))
+	others := mint(dynorg.TurnOwner("default", other.ID, "t1"))
+	stranger := mint("run-unrelated")
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	revoked := func(id string) bool {
+		t.Helper()
+		tok, err := at.Get(ctx, "default", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok.RevokedAt != nil
+	}
+	if !revoked(own) || !revoked(ownRun) {
+		t.Error("a mission token of the deleted conversation's runs is still valid")
+	}
+	if revoked(others) || revoked(stranger) {
+		t.Error("a mission token of another conversation or owner was revoked")
 	}
 }

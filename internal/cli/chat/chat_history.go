@@ -317,7 +317,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors); stop them yourself, then delete it again", len(stop.Survivors))}}
 				}
 				beforeGuardedDelete()
-				err = store.DeleteConversationGuarded(args[0], profileID, noNewBackgroundRecords(profileID, args[0], seen))
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
 				if errors.Is(err, errBackgroundRecorded) && attempt < 3 {
 					continue
 				}
@@ -463,33 +463,48 @@ var beforeGuardedDelete = func() {}
 // errBackgroundRecorded is a delete that found a background-process record it had not handled.
 var errBackgroundRecorded = errors.New("a background-process record appeared while the conversation was being deleted")
 
-// noNewBackgroundRecords is the guard of a delete: inside its write transaction it reads the
-// conversation's coder.background records again and refuses if any was not handled (stopped, found
-// gone or reported) by the caller.
-func noNewBackgroundRecords(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+// deleteGuard is the guard of a delete, run inside its write transaction. It reads the conversation's
+// coder.background records again and refuses if any was not handled (stopped, found gone or reported)
+// by the caller; then it revokes the mission tokens the conversation's runs minted (owner
+// dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
+// conductor would have swept them. Both are undone with the delete if it is rolled back.
+func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
 	return func(ctx context.Context, conn *sql.Conn) error {
-		rows, err := conn.QueryContext(ctx, `SELECT payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type = ?`,
-			profileID, conversationID, string(chatevents.EventNotice))
-		if err != nil {
+		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var raw string
-			if err := rows.Scan(&raw); err != nil {
-				return err
-			}
-			var n chatevents.NoticePayload
-			if json.Unmarshal([]byte(raw), &n) != nil || n.Code != noticeCoderBackground {
-				continue
-			}
-			for _, r := range n.Processes {
-				r.Command = ""
-				if !seen[r] {
-					return errBackgroundRecorded
-				}
+		owner := dynorg.ConversationOwner(profileID, conversationID)
+		_, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+			WHERE mission_owner <> '' AND (mission_owner = ?1 OR mission_owner LIKE ?1 || '/%') AND revoked_at IS NULL`, owner)
+		if err != nil {
+			return fmt.Errorf("revoking the conversation's mission tokens: %w", err)
+		}
+		return nil
+	}
+}
+
+func noNewRecords(ctx context.Context, conn *sql.Conn, profileID, conversationID string, seen map[chatevents.ProcessRef]bool) error {
+	rows, err := conn.QueryContext(ctx, `SELECT payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type = ?`,
+		profileID, conversationID, string(chatevents.EventNotice))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		var n chatevents.NoticePayload
+		if json.Unmarshal([]byte(raw), &n) != nil || n.Code != noticeCoderBackground {
+			continue
+		}
+		for _, r := range n.Processes {
+			r.Command = ""
+			if !seen[r] {
+				return errBackgroundRecorded
 			}
 		}
-		return rows.Err()
 	}
+	return rows.Err()
 }
