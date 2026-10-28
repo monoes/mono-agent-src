@@ -508,21 +508,24 @@ func (s *Store) SetRole(profileID, conversationID, role, parent string) error {
 		if err != nil {
 			return err
 		}
-		if !ok || p.Role != "master" || p.State == StateStopped {
+		if !ok || (p.Role != "master" && p.Role != "child") || p.State == StateStopped {
 			return errors.New("the master must be a running master session of this profile")
 		}
 		ps, err := s.GetSettings(profileID, parent)
 		if err != nil {
 			return err
 		}
-		if ps.MaxDepth < 2 {
+		if p.Role == "child" && ps.MaxChildren == 0 {
+			return errors.New("the master must be a running master session of this profile")
+		}
+		if lvl, ok := s.level(profileID, parent); !ok || lvl+1 > min(ps.MaxDepth, MaxSessionDepth) {
 			return errors.New("the master's max_depth does not allow children")
 		}
 		res, err := s.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = ?, updated_at = ?
 			WHERE profile_id = ? AND conversation_id = ?
 			AND NOT EXISTS (SELECT 1 FROM coder_sessions k WHERE k.profile_id = ? AND k.parent_conversation_id = ?)
 			AND (SELECT COUNT(*) FROM coder_sessions sib WHERE sib.profile_id = ? AND sib.parent_conversation_id = ? AND sib.conversation_id != ? AND sib.state != 'stopped') < ?
-			AND EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = ? AND m.conversation_id = ? AND m.role = 'master' AND m.parent_conversation_id = '' AND m.state != 'stopped')`,
+			AND EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = ? AND m.conversation_id = ? AND m.role IN ('master', 'child') AND m.state != 'stopped')`,
 			parent, s.stamp(), profileID, conversationID,
 			profileID, conversationID,
 			profileID, parent, conversationID, ps.MaxChildren,
