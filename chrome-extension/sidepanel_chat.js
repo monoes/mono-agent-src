@@ -245,7 +245,10 @@
     const answer = await ask({ type: "chat_events", profile, conversation: chat.conversation, after_seq: chat.lastSeq, turn: chat.turn });
     if (mine !== loadSeq || active) return;
     if (!answer.ok) return giveUp();
+    const unread = Core.unreadAfterFailure(chat);
     if (applyAll(answer.events || [])) save();
+    // The reply the failure hid has come: the retry's page sharing is spent.
+    if (unread && !Core.unreadAfterFailure(chat)) usePage = false;
     remote = !!answer.turn_active;
     if (!remote) {
       Core.closeOpen(chat);
@@ -264,7 +267,9 @@
     remote = false;
     chat = await Core.loadState(chrome.storage.local, profile);
     if (mine !== loadSeq) return;
-    usePage = !chat.messages.length; // only a conversation's first message shares the page by default
+    // Only a conversation's first message shares the page by default, and a
+    // first message whose reply failed was never read: its retry shares it too.
+    usePage = !chat.messages.length || Core.unreadAfterFailure(chat);
     refusal = "";
     pending = [];
     drawAttached();
@@ -429,7 +434,9 @@
     } else {
       Core.failTurn(chat, describeFailure(answer));
     }
-    usePage = false; // the page was for this message; a follow-up shares nothing unless asked
+    // The page was for this message; a follow-up shares nothing unless asked.
+    // A failed reply read nothing, so the retry shares the page again.
+    if (answer.ok) usePage = false;
     await save();
     draw();
     // The turn may have outlived this request (the worker slept, the socket
