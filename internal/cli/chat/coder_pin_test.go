@@ -60,24 +60,24 @@ func TestLearnTurnMarker(t *testing.T) {
 	t.Cleanup(func() { markerPoll = old })
 
 	one := runnerWithChildren(t, execTreeEnv+"=tok-one sleep 30 & wait")
-	if got := learnTurnMarker(context.Background(), one); got != "tree:tok-one" {
+	if got := learnTurnMarker(context.Background(), one, testLauncher(t, one)); got != "tree:tok-one" {
 		t.Errorf("one marked child: %q", got)
 	}
 	two := runnerWithChildren(t, execTreeEnv+"=tok-a sleep 30 & "+execTreeEnv+"=tok-b sleep 30 & wait")
 	for i := 0; i < 100 && len(childrenOf(two)) < 2; i++ {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if got := learnTurnMarker(context.Background(), two); got != "" {
+	if got := learnTurnMarker(context.Background(), two, testLauncher(t, two)); got != "" {
 		t.Errorf("children with different markers must not be guessed between: %q", got)
 	}
 	none := runnerWithChildren(t, "sleep 30 & wait")
 	markerPoll = 300 * time.Millisecond
-	if got := learnTurnMarker(context.Background(), none); got != "" {
+	if got := learnTurnMarker(context.Background(), none, testLauncher(t, none)); got != "" {
 		t.Errorf("a child with no marker: %q", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if got := learnTurnMarker(ctx, none); got != "" {
+	if got := learnTurnMarker(ctx, none, testLauncher(t, none)); got != "" {
 		t.Errorf("a cancelled lookup: %q", got)
 	}
 }
@@ -91,10 +91,10 @@ func TestLearnTurnMarkerIgnoresARunnerThatIsNotOurs(t *testing.T) {
 	old := markerPoll
 	markerPoll = 300 * time.Millisecond
 	t.Cleanup(func() { markerPoll = old })
-	if got := learnTurnMarker(context.Background(), 1); got != "" {
+	if got := learnTurnMarker(context.Background(), 1, testLauncher(t, os.Getpid())); got != "" {
 		t.Errorf("init as the runner: %q", got)
 	}
-	if got := learnTurnMarker(context.Background(), 0); got != "" {
+	if got := learnTurnMarker(context.Background(), 0, testLauncher(t, os.Getpid())); got != "" {
 		t.Errorf("pid 0: %q", got)
 	}
 }
@@ -138,5 +138,65 @@ func TestDescendantOf(t *testing.T) {
 	}
 	if descendantOf(1, os.Getpid()) || descendantOf(inner, 1<<30) {
 		t.Error("a process that is not below the ancestor is recognised")
+	}
+}
+
+// The runner must be the launcher's process or below it: a runner of the same host that the launcher
+// did not start is not read, and neither is a launcher of 0.
+func TestLearnTurnMarkerNeedsTheRunnerBelowTheLauncher(t *testing.T) {
+	old := markerPoll
+	markerPoll = 300 * time.Millisecond
+	t.Cleanup(func() { markerPoll = old })
+	a := runnerWithChildren(t, execTreeEnv+"=tok-a sleep 30 & wait")
+	b := runnerWithChildren(t, execTreeEnv+"=tok-b sleep 30 & wait")
+	time.Sleep(200 * time.Millisecond)
+	if got := learnTurnMarker(context.Background(), a, testLauncher(t, b)); got != "" {
+		t.Errorf("a runner that is not below the launcher: %q", got)
+	}
+	if got := learnTurnMarker(context.Background(), a, nil); got != "" {
+		t.Errorf("no launcher: %q", got)
+	}
+	markerPoll = 3 * time.Second
+	if got := learnTurnMarker(context.Background(), a, testLauncher(t, a)); got != "tree:tok-a" {
+		t.Errorf("the launcher's own process: %q", got)
+	}
+}
+
+// testLauncher pins pid as the launcher, for the lookup tests.
+func testLauncher(t *testing.T, pid int) *pinnedLauncher {
+	t.Helper()
+	l := pinLauncher(pid)
+	if l == nil {
+		t.Fatalf("pid %d cannot be pinned", pid)
+	}
+	t.Cleanup(l.close)
+	return l
+}
+
+// A launcher that has exited is no longer the process that was pinned, whatever a delayed or forged
+// start event names, and whoever has the pid since: nothing is learned.
+func TestLearnTurnMarkerRefusesAnExitedLauncher(t *testing.T) {
+	old := markerPoll
+	markerPoll = 300 * time.Millisecond
+	t.Cleanup(func() { markerPoll = old })
+	c := exec.Command("sh", "-c", execTreeEnv+"=tok-gone sleep 30 >/dev/null 2>&1 & wait")
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := c.Process.Pid
+	for i := 0; i < 100 && len(childrenOf(pid)) == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
+	l := testLauncher(t, pid)
+	if got := learnTurnMarker(context.Background(), pid, l); got != "tree:tok-gone" {
+		t.Fatalf("the live launcher: %q", got)
+	}
+	c.Process.Kill()
+	c.Wait() // reaped: the pid is free to be reused
+	if l.current() {
+		t.Error("the pin still takes an exited launcher for the process it pinned")
+	}
+	if got := learnTurnMarker(context.Background(), pid, l); got != "" {
+		t.Errorf("an exited launcher: %q", got)
 	}
 }
