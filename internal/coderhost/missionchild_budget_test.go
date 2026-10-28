@@ -39,3 +39,32 @@ func TestMissionBudgetBindsChildrenWhoseLeadHasNoCap(t *testing.T) {
 		t.Fatalf("two carves passed the mission's remaining budget: %v", err)
 	}
 }
+
+// A carve the lead's budget no longer covers (it was lowered after the reservation read it) is a refusal, not a
+// failed attempt: the task goes back to marked with all its attempts, and no conversation is left.
+func TestACarveRefusedAfterTheConversationExistsUsesNoAttempt(t *testing.T) {
+	f := newMC(t, true)
+	if err := f.st.SetBudget("p", f.lead.ConversationID, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 3}); err != nil {
+		t.Fatal(err)
+	}
+	f.st.afterChildCreated = func() {
+		if _, err := f.st.db.Exec(`UPDATE coder_sessions SET budget_usd = 0.5 WHERE profile_id = 'p' AND conversation_id = ?`, f.lead.ConversationID); err != nil {
+			t.Error(err)
+		}
+	}
+	_, err := f.st.SpawnForTask(f.scope(), "p", f.se.ID, f.ids[0], "brief")
+	if !errors.Is(err, ErrLimit) {
+		t.Fatalf("spawn = %v, want a limit refusal", err)
+	}
+	r, _, cerr := f.st.Child("p", f.se.ID, f.ids[0])
+	if cerr != nil || r.State != ChildMarked || r.Attempts != 0 || r.EndReason != "" {
+		t.Fatalf("a carve refusal used an attempt: %+v %v", r, cerr)
+	}
+	var n int
+	if f.st.db.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE role = 'child'`).Scan(&n) != nil || n != 0 {
+		t.Fatalf("%d child sessions left", n)
+	}
+}

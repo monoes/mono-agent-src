@@ -300,6 +300,7 @@ func (s *Store) mayHaveChildren(c Caller) (Settings, error) {
 type spawnHooks struct {
 	onCreated     func(conversationID string) error // the conversation exists and is linked to the master as its child
 	beforeMessage func(conversationID string) error // the carve and the settings are in place; the first message is next
+	carveRefused  func()                            // the carve was refused after the conversation existed; runs before the conversation is deleted
 }
 
 // spawnWith is Spawn with hooks; every limit of Spawn applies to every caller.
@@ -364,6 +365,9 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		}
 	}
 	if err := s.carveBudget(c.ProfileID, c.ConversationID, conv.ID, req.BudgetUSD); err != nil {
+		if hk.carveRefused != nil {
+			hk.carveRefused()
+		}
 		undo()
 		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left", ErrLimit)
 	}

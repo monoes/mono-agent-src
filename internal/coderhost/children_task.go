@@ -54,9 +54,15 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 	out, err := s.spawnWith(c, SpawnRequest{Message: brief, BudgetUSD: row.ReservedUSD}, spawnHooks{
 		onCreated: func(conv string) error {
 			created = conv
+			if s.afterChildCreated != nil {
+				s.afterChildCreated()
+			}
 			return s.NotePending(sc, profileID, sessionID, taskID, conv)
 		},
 		beforeMessage: func(string) error { return s.Touch(sc, profileID, sessionID, taskID) },
+		carveRefused: func() { // a refusal, not an attempt: the row lets go of the conversation before it is deleted, so it is not marked gone
+			_ = s.releaseReservation(profileID, sessionID, taskID, c.ConversationID, false, "the carve was refused: the lead's budget no longer covers it")
+		},
 	})
 	if err == nil {
 		if _, err = s.SetSpawned(sc, profileID, sessionID, taskID, out.ConversationID); err != nil {

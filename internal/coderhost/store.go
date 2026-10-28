@@ -115,6 +115,8 @@ type Store struct {
 	beforeReserveTx func()
 	// afterReserveReads runs inside Reserve's transaction, after its reads and before the reserving statement.
 	afterReserveReads func()
+	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
+	afterChildCreated func()
 	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
 	afterStaleSelect func()
 	// onSpent sees the handle every Spent read goes through.
