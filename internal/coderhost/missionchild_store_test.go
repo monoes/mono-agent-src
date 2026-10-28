@@ -1023,7 +1023,7 @@ func TestMissionStoreCallsMoveOnlyTheirOwnTables(t *testing.T) {
 	after := protectedState(t, f.st.db)
 	for k, b := range before {
 		switch k {
-		case "coder_mission_policy", "coder_mission_children", "coder_mission_events":
+		case "coder_mission_policy", "coder_mission_children", "coder_mission_events", "coder_mission_generation":
 			if after[k] == b {
 				t.Errorf("%s did not change: the test exercised nothing", k)
 			}

@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -155,23 +156,25 @@ type MarkOptions struct {
 
 // ChildRow is one task marked to run in its own session.
 type ChildRow struct {
-	ID                  int64   `json:"id"`
-	ProfileID           string  `json:"profileId"`
-	SessionID           int64   `json:"sessionId"`
-	TaskID              int64   `json:"taskId"`
-	LeadConversationID  string  `json:"leadConversationId"`
-	ChildConversationID string  `json:"childConversationId,omitempty"`
-	Origin              string  `json:"origin"`
-	Size                string  `json:"size,omitempty"`
-	BudgetUSD           float64 `json:"budgetUsd"`
-	ReservedUSD         float64 `json:"reservedUsd"` // the carve held while the task is spawning
-	State               string  `json:"state"`
-	EndReason           string  `json:"endReason,omitempty"`
-	Attempts            int     `json:"attempts"`
-	CreatedAt           string  `json:"createdAt"`
-	UpdatedAt           string  `json:"updatedAt"`
-	SpawnedAt           string  `json:"spawnedAt,omitempty"`
-	EndedAt             string  `json:"endedAt,omitempty"`
+	ID                    int64   `json:"id"`
+	ProfileID             string  `json:"profileId"`
+	SessionID             int64   `json:"sessionId"`
+	TaskID                int64   `json:"taskId"`
+	LeadConversationID    string  `json:"leadConversationId"`
+	ChildConversationID   string  `json:"childConversationId,omitempty"`
+	PendingConversationID string  `json:"pendingConversationId,omitempty"` // created by a spawn that has not linked it yet
+	Origin                string  `json:"origin"`
+	Size                  string  `json:"size,omitempty"`
+	BudgetUSD             float64 `json:"budgetUsd"`
+	ReservedUSD           float64 `json:"reservedUsd"` // the carve held while the task is spawning
+	State                 string  `json:"state"`
+	EndReason             string  `json:"endReason,omitempty"`
+	Attempts              int     `json:"attempts"`
+	Generation            int64   `json:"generation,omitempty"` // identifies the current reservation; taken from a counter that never repeats
+	CreatedAt             string  `json:"createdAt"`
+	UpdatedAt             string  `json:"updatedAt"`
+	SpawnedAt             string  `json:"spawnedAt,omitempty"`
+	EndedAt               string  `json:"endedAt,omitempty"`
 }
 
 // MissionEvent is one audit row.
@@ -545,7 +548,11 @@ type querier interface {
 // are bounded by tasks times attempts).
 func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
 	if len(note) > 300 {
-		note = note[:300]
+		n := 300
+		for n > 0 && !utf8.RuneStart(note[n]) { // never cut a multibyte character in two
+			n--
+		}
+		note = note[:n]
 	}
 	if _, err := db.Exec(`INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		profileID, sessionID, taskID, kind, who, note, at); err != nil {
@@ -616,11 +623,11 @@ func (s *Store) taskMarkable(profileID string, sessionID, taskID int64) error {
 	return nil
 }
 
-const childColumns = `id, profile_id, session_id, task_id, lead_conversation_id, child_conversation_id, origin, size, budget_usd, reserved_usd, state, end_reason, attempts, created_at, updated_at, spawned_at, ended_at`
+const childColumns = `id, profile_id, session_id, task_id, lead_conversation_id, child_conversation_id, pending_conversation_id, origin, size, budget_usd, reserved_usd, state, end_reason, attempts, generation, created_at, updated_at, spawned_at, ended_at`
 
 func scanChild(r interface{ Scan(...any) error }) (ChildRow, error) {
 	var c ChildRow
-	err := r.Scan(&c.ID, &c.ProfileID, &c.SessionID, &c.TaskID, &c.LeadConversationID, &c.ChildConversationID, &c.Origin, &c.Size, &c.BudgetUSD, &c.ReservedUSD, &c.State, &c.EndReason, &c.Attempts, &c.CreatedAt, &c.UpdatedAt, &c.SpawnedAt, &c.EndedAt)
+	err := r.Scan(&c.ID, &c.ProfileID, &c.SessionID, &c.TaskID, &c.LeadConversationID, &c.ChildConversationID, &c.PendingConversationID, &c.Origin, &c.Size, &c.BudgetUSD, &c.ReservedUSD, &c.State, &c.EndReason, &c.Attempts, &c.Generation, &c.CreatedAt, &c.UpdatedAt, &c.SpawnedAt, &c.EndedAt)
 	return c, err
 }
 
@@ -798,7 +805,12 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 		return ChildRow{}, err
 	}
 	if !room.OK {
-		return ChildRow{}, fmt.Errorf("%w: %s", ErrLimit, room.Reason)
+		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, room.Reason)
+	}
+	if reason, err := missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
+		return ChildRow{}, err
+	} else if reason != "" {
+		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, reason) // before takeReservation: no attempt is used
 	}
 	if !have { // mode all
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO coder_mission_children (profile_id, session_id, task_id, lead_conversation_id, origin, state, created_at, updated_at)
@@ -818,7 +830,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 		return ChildRow{}, err
 	}
 	if !won { // the deferred rollback takes the rule row back with it
-		return ChildRow{}, fmt.Errorf("%w: the task is already starting, or the child limit or the budget share was just reached", ErrLimit)
+		return ChildRow{}, fmt.Errorf("%w: %w: the task is already starting, or the child limit or the budget share was just reached", ErrLimit, ErrChildrenFull)
 	}
 	if err := addMissionEvent(tx, profileID, sessionID, taskID, "spawn", "lead:"+l.Caller.ConversationID, fmt.Sprintf("reserved $%.2f", carve), now); err != nil {
 		return ChildRow{}, err
@@ -830,6 +842,34 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	return c, err
 }
 
+// missionBudgetRefusal says why a child may not start under the mission's own budget (task_sessions.budget_usd),
+// or "" when it may. A child's spend never reaches the mission's spent_usd, so the budget binds children through
+// their caps: with a mission budget the carve must be positive, and the caps the lead's children already hold
+// (running sessions and reserved ones) plus this carve must fit what the mission has left. A mission without a
+// budget does not refuse here.
+func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
+	var budget, spent float64
+	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
+		return "", err
+	}
+	if budget <= 0 {
+		return "", nil
+	}
+	if carve <= 0 {
+		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
+	}
+	var held float64
+	if err := q.QueryRow(`SELECT (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
+		+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')`,
+		profileID, lead, profileID, lead).Scan(&held); err != nil {
+		return "", err
+	}
+	if held+carve > budget-spent+1e-9 {
+		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil
+	}
+	return "", nil
+}
+
 // takeReservation is the one statement that moves a marked task to spawning and stores its carve on the row.
 // It holds the attempts limit, the lead's ceiling and, for a lead with a budget (shareCap >= 0), the share
 // itself, and it needs the mode not off and the mission running: what the lead's children already hold (their sessions' caps) plus what reserved children will
@@ -837,7 +877,13 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 // So callers racing for the last slot, or reserving twice before the first child is created, cannot both win.
 // (A spawning row whose session already holds its carve is counted twice until it is linked: on the safe side.)
 func takeReservation(db execer, profileID string, sessionID, taskID int64, lead string, ceiling int, carve, shareCap float64, now string) (bool, error) {
-	res, err := db.Exec(`UPDATE coder_mission_children SET state = 'spawning', attempts = attempts + 1, reserved_usd = ?, updated_at = ?
+	// The reservation's identity is the next number of a counter that only goes up (never reused, whatever
+	// happens to the row). The caller holds the write lock (Reserve's transaction), so the number read back is the
+	// one taken here; a statement that loses the race leaves a gap, which is harmless.
+	if _, err := db.Exec(`UPDATE coder_mission_generation SET n = n + 1 WHERE id = 1`); err != nil {
+		return false, err
+	}
+	res, err := db.Exec(`UPDATE coder_mission_children SET state = 'spawning', attempts = attempts + 1, generation = (SELECT n FROM coder_mission_generation WHERE id = 1), reserved_usd = ?, updated_at = ?
 		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'marked' AND attempts < ?
 		AND (SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state IN ('spawning', 'spawned')) < ?
 		AND (? < 0 OR ? + (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
@@ -859,6 +905,12 @@ func takeReservation(db execer, profileID string, sessionID, taskID int64, lead 
 // a descendant of the lead. A row that has a pending conversation links exactly that one; a row with none
 // takes one that no other row holds as its child or its pending. One statement decides all of it.
 func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string) (ChildRow, error) {
+	return s.setSpawned(sc, profileID, sessionID, taskID, childConversationID, 0)
+}
+
+// setSpawned is SetSpawned fenced on the reservation's generation (0: not fenced): a spawn whose reservation
+// was reset and taken again by a newer attempt links nothing.
+func (s *Store) setSpawned(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string, generation int64) (ChildRow, error) {
 	l, _, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
 		return ChildRow{}, err
@@ -868,10 +920,10 @@ func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID i
 	}
 	now := s.stamp()
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'spawned', child_conversation_id = ?, spawned_at = ?, updated_at = ?
-		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND (? = 0 OR generation = ?)
 		AND (pending_conversation_id = ? OR (pending_conversation_id = '' AND NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ?
 			AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?) AND NOT (o.session_id = ? AND o.task_id = ?))))`,
-		childConversationID, now, now, profileID, sessionID, taskID, l.Caller.ConversationID,
+		childConversationID, now, now, profileID, sessionID, taskID, l.Caller.ConversationID, generation, generation,
 		childConversationID, profileID, childConversationID, childConversationID, sessionID, taskID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -896,6 +948,10 @@ func (s *Store) SetSpawned(sc CallerScope, profileID string, sessionID, taskID i
 // which conversation the reserved task is about to own, and refreshes the row's clock. From then on
 // ResetStaleSpawning ends the row instead of handing the task to a second child.
 func (s *Store) NotePending(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string) error {
+	return s.notePending(sc, profileID, sessionID, taskID, childConversationID, 0)
+}
+
+func (s *Store) notePending(sc CallerScope, profileID string, sessionID, taskID int64, childConversationID string, generation int64) error {
 	l, _, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
 		return err
@@ -903,26 +959,31 @@ func (s *Store) NotePending(sc CallerScope, profileID string, sessionID, taskID 
 	if childConversationID == "" || !s.IsDescendant(profileID, l.Caller.ConversationID, childConversationID) {
 		return fmt.Errorf("%w: %s", ErrNotYours, childConversationID)
 	}
-	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, childConversationID)
+	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, childConversationID, generation)
 }
 
 // Touch refreshes the clock of a reserved task while its spawn is still running, so a slow spawn is not taken
 // for a dead one. The spawn path calls it between its steps.
 func (s *Store) Touch(sc CallerScope, profileID string, sessionID, taskID int64) error {
+	return s.touch(sc, profileID, sessionID, taskID, 0)
+}
+
+func (s *Store) touch(sc CallerScope, profileID string, sessionID, taskID int64, generation int64) error {
 	l, _, err := s.leadOf(sc, profileID, sessionID)
 	if err != nil {
 		return err
 	}
-	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, "")
+	return s.touchSpawning(profileID, sessionID, taskID, l.Caller.ConversationID, "", generation)
 }
 
-func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, pending string) error {
+// generation fences the write on the reservation that made it (0: not fenced).
+func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, pending string, generation int64) error {
 	// A conversation is pending on one task only: another row holding it, as its child or as its pending, refuses.
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET updated_at = ?, pending_conversation_id = CASE WHEN ? <> '' THEN ? ELSE pending_conversation_id END
-		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning'
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND (? = 0 OR generation = ?)
 		AND (? = '' OR NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?)
 			AND NOT (o.session_id = ? AND o.task_id = ?)))`,
-		s.stamp(), pending, pending, profileID, sessionID, taskID, lead,
+		s.stamp(), pending, pending, profileID, sessionID, taskID, lead, generation, generation,
 		pending, profileID, pending, pending, sessionID, taskID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {

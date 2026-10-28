@@ -58,6 +58,12 @@ type Host struct {
 	CheckinEvery time.Duration
 	lastCheckin  time.Time
 
+	// MissionChildEvery is how often the mission child pass runs (default 5 s); see missionchild.go.
+	MissionChildEvery time.Duration
+	lastMissionPass   time.Time
+	orphanSeen        map[string]bool     // orphaned carves already reported; Tick only
+	leadFacts         map[string]leadFact // what one pass read about each lead; Tick only
+
 	mu   sync.Mutex // serializes session changes between the loop and the turn watchers
 	live map[string]Turn
 	wg   sync.WaitGroup
@@ -143,6 +149,7 @@ func (h *Host) Tick() error {
 	if err := h.Store.ExpireSends(); err != nil {
 		return err
 	}
+	h.missionChildPassIfDue() // observes mission child sessions; takes no part in the command pass below
 	cmds, err := h.pendingOrdered()
 	if err != nil {
 		return err

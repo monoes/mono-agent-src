@@ -115,6 +115,8 @@ type Store struct {
 	beforeReserveTx func()
 	// afterReserveReads runs inside Reserve's transaction, after its reads and before the reserving statement.
 	afterReserveReads func()
+	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
+	afterChildCreated func()
 	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
 	afterStaleSelect func()
 	// onSpent sees the handle every Spent read goes through.
@@ -403,6 +405,21 @@ func (s *Store) SaveSession(x Session) error {
 	_, err := s.db.Exec(`UPDATE coder_sessions SET state = ?, turn_id = ?, turn_pid = ?, turn_stamp = ?, updated_at = ? WHERE profile_id = ? AND conversation_id = ?`,
 		string(x.State), x.TurnID, x.TurnPID, x.TurnStamp, s.stamp(), x.ProfileID, x.ConversationID)
 	return err
+}
+
+// StopIfIdle marks a session stopped only if, at the moment of the write, it is idle, names no turn, records no turn process and has no
+// command pending: one statement, so a command that arrives between a caller's look and this write keeps the
+// session as it is. It says whether the session was stopped.
+func (s *Store) StopIfIdle(profileID, conversationID string) (bool, error) {
+	res, err := s.db.Exec(`UPDATE coder_sessions SET state = ?, updated_at = ?
+		WHERE profile_id = ? AND conversation_id = ? AND state = ? AND turn_id = '' AND turn_pid = 0
+		AND NOT EXISTS (SELECT 1 FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending')`,
+		string(StateStopped), s.stamp(), profileID, conversationID, string(StateIdle), profileID, conversationID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // ListSessions returns the sessions of a profile ("" for all), most recently

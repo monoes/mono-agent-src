@@ -52,7 +52,18 @@ type PlanTask struct {
 	Size       string   `json:"size,omitempty"`
 	Risk       string   `json:"risk,omitempty"`
 	Executor   string   `json:"executor,omitempty"`
+	// OwnSession, SessionSize and SessionBudgetUSD are the lead's wish that the task runs in a coder session of
+	// its own (mission_child_mark does the same later). They are stored as a mark, never as task text, and the
+	// policy still decides whether a session starts. Nothing else about the session is chosen here: not its
+	// access, folder or model.
+	OwnSession       bool    `json:"own_session,omitempty"`
+	SessionSize      string  `json:"session_size,omitempty"`
+	SessionBudgetUSD float64 `json:"session_budget_usd,omitempty"`
 }
+
+// MaxSessionBudgetUSD caps the budget a plan may wish for one task's session; the store's room check still holds
+// the lead's share.
+const MaxSessionBudgetUSD = 50.0
 
 // Rejection is why one task (or, with an empty Ref, the plan as a whole) was
 // refused.
@@ -186,6 +197,9 @@ func ValidatePlan(tasks []PlanTask, existing map[int64]bool, existingTotal, limi
 			if r := cleanFile(f); r != "" {
 				add("%s", r)
 			}
+		}
+		if why := ownSessionProblem(t, kind); why != "" {
+			add("%s", why)
 		}
 		if t.Risk != "" && t.Risk != "low" && t.Risk != "medium" && t.Risk != "high" {
 			add("risk %q is not low, medium or high", t.Risk)
@@ -330,4 +344,19 @@ func ParseTaskMeta(notes string) (m TaskMeta, ok bool) {
 		return TaskMeta{}, false
 	}
 	return m, true
+}
+
+// ownSessionProblem says what is wrong with a task's wish for a session of its own ("" = nothing).
+func ownSessionProblem(t PlanTask, kind string) string {
+	switch {
+	case !t.OwnSession && (t.SessionSize != "" || t.SessionBudgetUSD != 0):
+		return "session_size and session_budget_usd need own_session"
+	case t.OwnSession && kind != kindTask:
+		return "only a task (not an epic or a check) can run in a session of its own"
+	case t.SessionSize != "" && t.SessionSize != "large" && t.SessionSize != "small":
+		return fmt.Sprintf("session_size %q is not large or small", t.SessionSize)
+	case t.SessionBudgetUSD < 0 || t.SessionBudgetUSD > MaxSessionBudgetUSD || t.SessionBudgetUSD != t.SessionBudgetUSD:
+		return fmt.Sprintf("session_budget_usd must be between 0 and %.0f", MaxSessionBudgetUSD)
+	}
+	return ""
 }

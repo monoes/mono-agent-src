@@ -123,3 +123,5 @@
 137_coder_person_items.sql
 138_mission_token_process.sql
 139_coder_mission_children.sql
+140_coder_session_commands_chat_idx.sql
+141_coder_mission_child_generation.sql

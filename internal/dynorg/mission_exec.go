@@ -20,6 +20,14 @@ import (
 // startTask gives one ready task to an executor.
 func (c *Conductor) startTask(ctx context.Context, sid int64, t tasks.Task, exec string, req SpawnRequest) (StartedTask, error) {
 	st := StartedTask{TaskID: t.ID, Title: t.Title, Executor: exec}
+	if mc, err := c.missions(); err == nil {
+		if d := c.childDecide(ctx, mc, sid, t, exec); d.wanted {
+			if d.wait != "" {
+				return st, errors.New(d.wait)
+			}
+			return c.startChild(ctx, sid, t, st)
+		}
+	}
 	if exec != ExecLead {
 		req.TaskID, req.executor = t.ID, exec
 		if exec == ExecSubagent {
@@ -420,6 +428,9 @@ func (c *Conductor) missionClose() {
 	}
 	c.msched.mu.Unlock()
 	for id, oc := range held {
+		if c.childHolds(oc.session, id) {
+			continue // its own session works on: the claim is kept, and the next turn's reconcile renews it
+		}
 		c.releaseClaim(oc.session, id, oc.name, "the turn that held this task ended")
 	}
 }

@@ -13,15 +13,15 @@ import (
 // sources they name no approval writer, but they may also write their own tables. They write only
 // coder_mission_* (and, once a child's turn has ended, lower coder_sessions.budget_usd), and they only
 // read tasks, task_sessions and the sessions' questions. A change that needs more has to change this list
-// on purpose. The files take no import from the repository but internal/tasks (its status names).
+// on purpose. The files take no import from the repository but internal/tasks (its status names), and children_task.go internal/ai.
 
 var missionChildFiles = []string{"missionchild*.go", "children_task.go"}
 
-var missionWritable = map[string]bool{"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true}
+var missionWritable = map[string]bool{"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true, "coder_mission_generation": true}
 
 var missionReadable = map[string]bool{
-	"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true,
-	"coder_sessions": true, "coder_session_questions": true, "tasks": true, "task_sessions": true,
+	"coder_mission_policy": true, "coder_mission_children": true, "coder_mission_events": true, "coder_mission_generation": true,
+	"coder_sessions": true, "coder_session_questions": true, "coder_session_commands": true, "ai_chat_turns": true, "tasks": true, "task_sessions": true,
 }
 
 var (
@@ -87,8 +87,9 @@ func TestMissionChildSourcesNameNoApprovalWriterAndTouchOnlyTheirTables(t *testi
 		inChain := map[*ast.BinaryExpr]bool{}
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
-			if strings.Contains(p, "mono-agent/") && p != "github.com/monoes/mono-agent/internal/tasks" {
-				t.Errorf("%s imports %s: these files use no repository package but internal/tasks", file, p)
+			allowed := p == "github.com/monoes/mono-agent/internal/tasks" || (file == "children_task.go" && p == "github.com/monoes/mono-agent/internal/ai") // to delete a conversation it created
+			if strings.Contains(p, "mono-agent/") && !allowed {
+				t.Errorf("%s imports %s: these files use no repository package but internal/tasks (children_task.go also internal/ai)", file, p)
 			}
 		}
 		report := func(text string) {
@@ -160,7 +161,7 @@ func TestMissionSQLCheckerFlagsWhatItGuards(t *testing.T) {
 func TestMissionChildTablesAreProtectedFromTheAutonomyPaths(t *testing.T) {
 	st := newStoreT(t)
 	got := protectedState(t, st.db)
-	for _, tbl := range []string{"coder_mission_policy", "coder_mission_children", "coder_mission_events"} {
+	for _, tbl := range []string{"coder_mission_policy", "coder_mission_children", "coder_mission_events", "coder_mission_generation"} {
 		if _, ok := got[tbl]; !ok {
 			t.Errorf("%s is not in the protected dump", tbl)
 		}

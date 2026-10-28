@@ -270,20 +270,44 @@ func (s *Store) takeSpawnSlot(profileID, parent string) error {
 // rate, budget) are also enforced by the statement that applies them, and a spawn
 // that fails after the conversation exists removes it again.
 func (s *Store) Spawn(c Caller, req SpawnRequest) (Spawned, error) {
+	return s.spawnWith(c, req, spawnHooks{})
+}
+
+// mayHaveChildren says whether the caller may create child sessions at all: it is a running master (a lead
+// that is itself a child, or a solo session, is not) and the tree has a level left. It returns the master's
+// settings.
+func (s *Store) mayHaveChildren(c Caller) (Settings, error) {
 	parent, ok, err := s.GetSession(c.ProfileID, c.ConversationID)
 	if err != nil {
-		return Spawned{}, err
+		return Settings{}, err
 	}
 	if !ok || parent.Role != "master" || parent.State == StateStopped {
-		return Spawned{}, fmt.Errorf("%w: only a running master session can create child sessions", ErrNotYours)
+		return Settings{}, fmt.Errorf("%w: only a running master session can create child sessions", ErrNotYours)
 	}
 	ps, err := s.GetSettings(c.ProfileID, c.ConversationID)
 	if err != nil {
-		return Spawned{}, err
+		return Settings{}, err
 	}
 	lvl, ok := s.level(c.ProfileID, c.ConversationID)
 	if !ok || lvl+1 > ps.MaxDepth || lvl+1 > MaxSessionDepth {
-		return Spawned{}, fmt.Errorf("%w: depth %d would pass max_depth %d", ErrLimit, lvl+1, min(ps.MaxDepth, MaxSessionDepth))
+		return Settings{}, fmt.Errorf("%w: depth %d would pass max_depth %d", ErrLimit, lvl+1, min(ps.MaxDepth, MaxSessionDepth))
+	}
+	return ps, nil
+}
+
+// spawnHooks let a caller that reserved something for the spawn (a mission task) follow its steps. Each
+// returns an error to make the spawn fail and remove the conversation.
+type spawnHooks struct {
+	onCreated     func(conversationID string) error // the conversation exists and is linked to the master as its child
+	beforeMessage func(conversationID string) error // the carve and the settings are in place; the first message is next
+	carveRefused  func()                            // the carve was refused after the conversation existed; runs before the conversation is deleted
+}
+
+// spawnWith is Spawn with hooks; every limit of Spawn applies to every caller.
+func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, error) {
+	ps, err := s.mayHaveChildren(c)
+	if err != nil {
+		return Spawned{}, err
 	}
 	var kids int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND state != 'stopped'`,
@@ -334,7 +358,16 @@ func (s *Store) Spawn(c Caller, req SpawnRequest) (Spawned, error) {
 		undo()
 		return Spawned{}, fmt.Errorf("%w: %v", ErrLimit, err)
 	}
+	if hk.onCreated != nil {
+		if err := hk.onCreated(conv.ID); err != nil {
+			undo()
+			return Spawned{}, err
+		}
+	}
 	if err := s.carveBudget(c.ProfileID, c.ConversationID, conv.ID, req.BudgetUSD); err != nil {
+		if hk.carveRefused != nil {
+			hk.carveRefused()
+		}
 		undo()
 		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left", ErrLimit)
 	}
@@ -347,6 +380,12 @@ func (s *Store) Spawn(c Caller, req SpawnRequest) (Spawned, error) {
 	_, _ = s.db.Exec(`UPDATE coder_session_spawns SET child = ? WHERE id = (SELECT MAX(id) FROM coder_session_spawns WHERE profile_id = ? AND parent = ? AND child = '')`,
 		conv.ID, c.ProfileID, c.ConversationID)
 	out := Spawned{ConversationID: conv.ID, Access: access, Cwd: cwd, BudgetUSD: req.BudgetUSD}
+	if hk.beforeMessage != nil {
+		if err := hk.beforeMessage(conv.ID); err != nil {
+			undo()
+			return Spawned{}, err
+		}
+	}
 	if req.Message != "" {
 		cmd, err := s.Enqueue(Command{ProfileID: c.ProfileID, ConversationID: conv.ID, Kind: KindSend, TurnID: newMasterTurnID(), Message: req.Message, Issuer: c.ConversationID})
 		if err != nil {

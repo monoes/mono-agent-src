@@ -108,7 +108,7 @@ Only task ids and numbers are stored, never task text. The columns of `tasks` an
 
 Room check (all must hold, evaluated by `SpawnForTask` and mirrored in `cannotStart`): live mission children < `min(policy.max_children, settings.MaxChildren)`, running turns < `max_concurrent`, a spawn-rate slot is free, and `carved + new <= share_pct% of (lead budget - lead spent)`.
 
-A lead with no cap (`budget_usd=0`): the child may be uncapped, which is the same exposure as an in-turn worker today; `share_pct` does not apply; the count ceiling and `attempts` still do; the pane marks the child "no cap".
+A lead with no cap (`budget_usd=0`): the child may be uncapped (an in-turn worker's spend is charged to the mission, a child's is not, so this is more exposure than a worker; a mission with its own budget refuses such a child); `share_pct` does not apply; the count ceiling and `attempts` still do; the pane marks the child "no cap".
 
 Default per-child carve is `max(0.50, remaining x share_pct / max_children / 100)`, or the task's `budget_usd`, whichever the lead set (the same room check applies).
 

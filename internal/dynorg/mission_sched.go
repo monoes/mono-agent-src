@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -69,6 +70,9 @@ type MissionRun struct {
 	// MaxSpawnsPerTask is how many workers one task may get in a Conductor's turn
 	// (default 6), whatever the failure counter says.
 	MaxSpawnsPerTask int
+	// Children starts a task in a coder session of its own when the mission's policy says so
+	// (mission_child.go). Nil: every task runs in a worker of this turn, as before.
+	Children ChildSpawner
 }
 
 func (m *MissionRun) poll() time.Duration { return orDur(m.Poll, 2*time.Second) }
@@ -157,6 +161,8 @@ type missionState struct {
 	leadRenewed map[int64]time.Time
 	warned      map[int64]bool // sessions the 90 percent notice went out for
 	halted      map[int64]bool // sessions the 100 percent halt went out for
+	childNoted  map[int64]bool // sessions the "no child sessions for this lead" notice went out for
+	settling    map[int64]bool // tasks whose ended child session is being taken back
 }
 
 func (m *missionState) init() {
@@ -164,6 +170,7 @@ func (m *missionState) init() {
 		m.sessions, m.owned, m.pending = map[int64]bool{}, map[int64]ownedClaim{}, map[int64]bool{}
 		m.failures, m.warned, m.halted = map[int64]int{}, map[int64]bool{}, map[int64]bool{}
 		m.starts, m.leadRenewed = map[int64]int{}, map[int64]time.Time{}
+		m.childNoted, m.settling = map[int64]bool{}, map[int64]bool{}
 	}
 }
 
@@ -336,7 +343,7 @@ func (c *Conductor) missionStep(ctx context.Context, sid int64, start bool) (Ste
 			continue
 		}
 		exec, access := c.chooseExecutor(ctx, t)
-		why := c.cannotStart(mc, t, exec, access, writers)
+		why := c.cannotStart(ctx, mc, t, exec, access, writers)
 		if why == "" && !start {
 			why = "ready to start"
 		}
@@ -346,7 +353,11 @@ func (c *Conductor) missionStep(ctx context.Context, sid int64, start bool) (Ste
 		}
 		st, err := c.startTask(ctx, sid, t, exec, SpawnRequest{Access: accessFor(exec, access)})
 		if err != nil {
-			res.Waiting = append(res.Waiting, WaitingTask{TaskID: t.ID, Title: t.Title, Reason: "could not start: " + err.Error()})
+			reason := "could not start: " + err.Error()
+			if errors.Is(err, ErrChildrenFull) {
+				reason = err.Error() // the queue, not a failure
+			}
+			res.Waiting = append(res.Waiting, WaitingTask{TaskID: t.ID, Title: t.Title, Reason: reason})
 			continue
 		}
 		res.Started = append(res.Started, st)
@@ -429,9 +440,16 @@ func (c *Conductor) activeWriters(ctx context.Context, mc *MissionRun, sid int64
 
 // cannotStart is why a ready task may not start now ("" = it may): the agent cap, the
 // concurrency cap, a task that keeps failing, or a writer on the same files.
-func (c *Conductor) cannotStart(mc *MissionRun, t tasks.Task, exec, access string, writers []writerClaim) string {
+func (c *Conductor) cannotStart(ctx context.Context, mc *MissionRun, t tasks.Task, exec, access string, writers []writerClaim) string {
 	if why := c.failureCap(mc, t); why != "" {
 		return why
+	}
+	if d := c.childDecide(ctx, mc, t.SessionID, t, exec); d.wanted {
+		// a task for a session of its own is held by the ceiling and the room, not by this turn's workers
+		if d.wait != "" {
+			return d.wait
+		}
+		return writerOverlap(t, exec, access, writers)
 	}
 	if exec != ExecLead {
 		c.mu.Lock()

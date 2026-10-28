@@ -3,6 +3,7 @@ package coderhost
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -18,11 +19,37 @@ type missionFact struct {
 	Total    int    `json:"total"`
 	Verified int    `json:"verified"`
 	Blocked  int    `json:"blocked"`
+	// Child sessions of the mission's tasks (numbers only), from the host's own rows; omitted when zero so a
+	// digest taken before they existed still compares equal.
+	ChildRun    int `json:"childRun,omitempty"`
+	ChildQueued int `json:"childQueued,omitempty"`
+	ChildFailed int `json:"childFailed,omitempty"`
 	// Open is the work a lead can move: tasks not started or in progress, plus tasks handed back to review
 	// that nobody has passed and that are not blocked. It is computed from disjoint statuses (a task keeps
 	// verified=1 after the operator closes it, so Done and Verified overlap and must not be summed). It is
 	// not part of the digest or of the change signal.
 	Open int `json:"-"`
+}
+
+var (
+	childrenReadyMu sync.Mutex
+	childrenReady   func() bool
+)
+
+// SetMissionChildrenReady installs the launcher's answer to "can a child session start": until it says yes,
+// marks are stored but neither counted nor announced, since nothing acts on them.
+func SetMissionChildrenReady(f func() bool) {
+	childrenReadyMu.Lock()
+	childrenReady = f
+	childrenReadyMu.Unlock()
+}
+
+// MissionChildrenReady says whether a marked task can get a session of its own now (false until set).
+func MissionChildrenReady() bool {
+	childrenReadyMu.Lock()
+	f := childrenReady
+	childrenReadyMu.Unlock()
+	return f != nil && f()
 }
 
 // missionOf is the open (draft, running or paused) task session bound to the conversation, or nil. ok is
@@ -75,6 +102,14 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 	if rows.Err() != nil {
 		return nil, false
 	}
+	cc, err := h.Store.ChildCounts(profileID, id)
+	if err != nil {
+		return nil, false
+	}
+	f.ChildRun, f.ChildQueued, f.ChildFailed = cc.Live, cc.Queued, cc.Failed
+	if !MissionChildrenReady() {
+		f.ChildQueued = 0 // nothing starts while the launcher cannot bind a child: a mark is not a queued session
+	}
 	return f, true
 }
 
@@ -83,8 +118,12 @@ func missionLine(m *missionFact) string {
 	if m == nil {
 		return ""
 	}
-	return fmt.Sprintf("Mission (your task session): %s; %d of %d task(s) done, %d in review, %d verified, %d blocked. Closing tasks and approving a plan stay the operator's.\n",
-		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked)
+	kids := ""
+	if m.ChildRun+m.ChildQueued+m.ChildFailed > 0 {
+		kids = fmt.Sprintf(" Task child sessions: %d running, %d queued, %d failed.", m.ChildRun, m.ChildQueued, m.ChildFailed)
+	}
+	return fmt.Sprintf("Mission (your task session): %s; %d of %d task(s) done, %d in review, %d verified, %d blocked.%s Closing tasks and approving a plan stay the operator's.\n",
+		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked, kids)
 }
 
 // open says whether a running mission still has work the lead can move (see missionFact.Open). A blocked task
