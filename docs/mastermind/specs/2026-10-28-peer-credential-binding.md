@@ -263,11 +263,15 @@ Pidfds exist only in the running host's memory. A host restart loses every regis
 existing `peercred` credential **denies until its worker is relaunched and re-bound by the new
 host**, and nothing re-adopts a worker by number and stamp (that would reintroduce the unpinned
 identity). The service rebuilds nothing from the database for authorization. This conflicts with
-the current "a turn must not die with the host" property (`Launcher.Adopt`); the first release
-accepts the interruption for peer-credential tokens and the host reports it plainly (the turn's
-next message relaunches it). Keeping workers alive across a host restart by handing the pidfds to
-a surviving supervisor (or the service manager's fd store) is a later option and is not part of
-this design.
+the current "a turn must not die with the host" property (`Launcher.Adopt`), and that is
+acceptable only because the whole mechanism is **off by default behind an operator-only flag**:
+
+- Enabling it means a host restart **interrupts running workers**: they must be relaunched and
+  re-bound by the new host, and the host reports it plainly (the turn's next message relaunches
+  it). The flag's help text, the settings wording and SECURITY.md say so in the same words.
+- With the flag off, `Launcher.Adopt` and the current restart behaviour are unchanged.
+- Keeping workers alive across a host restart by handing the pidfds to a surviving supervisor (or
+  the service manager's fd store) is a later option and is not part of this design.
 
 ## 6. Issuance, fallback and failing closed
 
@@ -369,8 +373,10 @@ The binding MAC covers the binding row; the token row and its lifecycle are prot
   tokens are legacy, correctly labelled. An old host can never produce a v2 row or a v2-prefixed
   token. Downgrading with the flag on strands v2 tokens (an old binary cannot resolve them) until
   the runs end; turning the flag off first is the documented rollback.
-- Flag: `MONOAGENT_PEERCRED_BINDING` / `security.peercred_binding`, **off by default**; Linux
-  only; macOS and Windows reject the setting.
+- Flag: `MONOAGENT_PEERCRED_BINDING` / `security.peercred_binding`, **off by default** and
+  **operator-only** (set through the operator-gated config path, not by an agent); Linux only;
+  macOS and Windows reject the setting. Its description states that a host restart interrupts
+  running workers (section 5, Restart).
 
 ## 8. Socket location, permissions and lifecycle
 
