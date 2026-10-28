@@ -722,12 +722,16 @@ func (s *Store) Mark(sc CallerScope, profileID string, sessionID, taskID int64, 
 		VALUES (?, ?, ?, ?, 'lead', ?, ?, 'marked', ?, ?)
 		ON CONFLICT(profile_id, session_id, task_id) DO UPDATE SET size = excluded.size, budget_usd = excluded.budget_usd, state = 'marked',
 			end_reason = '', ended_at = '', child_conversation_id = '', pending_conversation_id = '', reserved_usd = 0, lead_conversation_id = excluded.lead_conversation_id, updated_at = excluded.updated_at
-		WHERE coder_mission_children.state IN ('marked', 'ended', 'failed', 'gone', 'released')`,
-		profileID, sessionID, taskID, m.lead, opt.Size, opt.BudgetUSD, now, now)
+		WHERE coder_mission_children.state IN ('marked', 'ended', 'failed', 'gone', 'released')
+		AND NOT (`+notCharged+`)`,
+		profileID, sessionID, taskID, m.lead, opt.Size, opt.BudgetUSD, now, now, s.chargeCutoff())
 	if err != nil {
 		return ChildRow{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		if r, ok, _ := s.Child(profileID, sessionID, taskID); ok && (r.State == ChildEnded || r.State == ChildFailed || r.State == ChildGone) {
+			return ChildRow{}, fmt.Errorf("%w: the earlier child session of that task is still being settled (its spend is not on the mission's meter yet); try again shortly", ErrInvalid)
+		}
 		return ChildRow{}, fmt.Errorf("%w: that task already runs in its own session", ErrInvalid)
 	}
 	if err := addMarkEvent(tx, profileID, sessionID, taskID, who, fmt.Sprintf("size=%s budget=%.2f", opt.Size, opt.BudgetUSD), now); err != nil {

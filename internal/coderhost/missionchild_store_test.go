@@ -528,6 +528,9 @@ func TestReserveStopsAfterTheAttemptLimit(t *testing.T) {
 		if ok, err := f.st.End("p", child, EndNoFinish); err != nil || !ok {
 			t.Fatalf("end %d: %v %v", i, ok, err)
 		}
+		if _, err := f.st.ChargeChild("p", child); err != nil { // the host settles an ended child before the task can be marked again
+			t.Fatal(err)
+		}
 		f.mark(t, 0) // the lead queues another try; attempts are kept
 	}
 	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[0]); !errors.Is(err, ErrLimit) {

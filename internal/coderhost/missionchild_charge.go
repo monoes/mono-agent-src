@@ -30,8 +30,9 @@ const chargeKind = "charge"
 // chargeLookback is how far back the sweep looks for ended rows that were never charged (a host that was down).
 const chargeLookback = 7 * 24 * time.Hour
 
-// notCharged is the sweep's query: ended rows, newly ended, with no charge row for their conversation.
-const notCharged = `state IN ('ended', 'failed', 'gone') AND child_conversation_id <> '' AND ended_at >= ?
+// notCharged is the sweep's query: ended rows, newly ended, with no charge row for their conversation. Mark
+// refuses to reuse such a row (it would forget the conversation the sweep finds the child through).
+const notCharged = `coder_mission_children.state IN ('ended', 'failed', 'gone') AND coder_mission_children.child_conversation_id <> '' AND coder_mission_children.ended_at >= ?
 	AND NOT EXISTS (SELECT 1 FROM coder_mission_events e WHERE e.profile_id = coder_mission_children.profile_id
 		AND e.session_id = coder_mission_children.session_id AND e.kind = 'charge'
 		AND substr(e.note, 1, length(coder_mission_children.child_conversation_id) + 1) = coder_mission_children.child_conversation_id || ' ')`
@@ -45,7 +46,11 @@ func (s *Store) ChargeChild(profileID, childConversationID string) (float64, err
 		return 0, err
 	}
 	r := rows[0]
-	if s.charged(profileID, r.SessionID, childConversationID) {
+	done, err := s.charged(profileID, r.SessionID, childConversationID)
+	if err != nil {
+		return 0, err // not knowing is not "not charged": the next pass asks again
+	}
+	if done {
 		return 0, nil
 	}
 	spent, err := s.Spent(profileID, childConversationID) // a deleted conversation has no events left: 0
@@ -81,12 +86,12 @@ func (s *Store) ChargeChild(profileID, childConversationID string) (float64, err
 	}
 }
 
-// charged says whether a charge row exists for the child conversation.
-func (s *Store) charged(profileID string, sessionID int64, conv string) bool {
+// charged says whether a charge row exists for the child conversation. A query that fails is an error, never "no".
+func (s *Store) charged(profileID string, sessionID int64, conv string) (bool, error) {
 	var n int
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind = 'charge'
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind = 'charge'
 		AND substr(note, 1, ?) = ?`, profileID, sessionID, len(conv)+1, conv+" ").Scan(&n)
-	return n > 0
+	return n > 0, err
 }
 
 // settleChild is what happens once a child's row has ended: its task tokens are revoked (the run is over), and its
@@ -105,10 +110,14 @@ func (h *Host) settleChild(profileID, conv string) {
 	}
 }
 
+// chargeCutoff is the oldest ended_at the sweep (and Mark's refusal) still looks at.
+func (s *Store) chargeCutoff() string {
+	return s.now().Add(-chargeLookback).UTC().Format(timeLayout)
+}
+
 // settleEnded settles the rows that ended without being settled: a host that was down or a failed write.
 func (h *Host) settleEnded() {
-	cutoff := h.Store.now().Add(-chargeLookback).UTC().Format(timeLayout)
-	rows, err := h.Store.childrenWhere(strings.TrimSpace(notCharged), cutoff)
+	rows, err := h.Store.childrenWhere(strings.TrimSpace(notCharged), h.Store.chargeCutoff())
 	if err != nil {
 		h.logf("coder host: ended mission children: %v", err)
 		return
