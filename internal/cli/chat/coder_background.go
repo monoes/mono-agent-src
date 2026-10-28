@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -364,12 +365,15 @@ type pinnedLauncher struct {
 	pid   int
 	start string
 	h     pinnedProcess
+	once  sync.Once // the pin is closed once, however often close is called
 }
 
 // pinLauncher pins the launcher. nil when it cannot be pinned or its start time cannot be read: no
 // marker is then learned and the turn's processes are not stopped.
 func pinLauncher(pid int) *pinnedLauncher {
-	if pid <= 1 {
+	// monomind.Exec starts the launcher as this process's child and reports it before it can be reaped,
+	// so a pid that is not this process's child is not the process that was reported.
+	if pid <= 1 || parentOf(pid) != os.Getpid() {
 		return nil
 	}
 	h, err := pinProcess(pid)
@@ -393,7 +397,7 @@ func (l *pinnedLauncher) current() bool {
 
 func (l *pinnedLauncher) close() {
 	if l != nil {
-		l.h.close()
+		l.once.Do(l.h.close)
 	}
 }
 
@@ -418,13 +422,16 @@ func learnTurnMarker(ctx context.Context, runner int, launcher *pinnedLauncher) 
 	for {
 		seen := map[string]bool{}
 		for _, kid := range childrenOf(runner) {
-			if id := processIdentity(kid); strings.HasPrefix(id, "tree:") {
+			id := processIdentity(kid)
+			// The child is read, then checked to still be the runner's child: a pid that was reused by a
+			// process elsewhere in between is not counted.
+			if strings.HasPrefix(id, "tree:") && parentOf(kid) == runner {
 				seen[id] = true
 			}
 		}
 		// The launcher was the same process throughout the reads above (they come first, the liveness
-		// check after): what was read belongs to its tree.
-		if !launcher.current() {
+		// check after) and the runner is still in its tree: what was read belongs to the turn's tree.
+		if !launcher.current() || (runner != launcher.pid && !descendantOf(runner, launcher.pid)) {
 			return ""
 		}
 		if len(seen) > 1 {
