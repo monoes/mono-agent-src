@@ -458,6 +458,7 @@ describe('a confined application-apply chat', () => {
 
   it('stays confined after a restart, from the stored task kind', async () => {
     await open(coding, task)
+    await waitFor(() => expect(localStorage.getItem('monoagent:coderBubbles:v1')).toBeTruthy())
     const saved = localStorage.getItem('monoagent:coderBubbles:v1')
     cleanup()
     localStorage.setItem('monoagent:coderBubbles:v1', saved)
