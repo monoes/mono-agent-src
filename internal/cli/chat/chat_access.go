@@ -3,7 +3,6 @@ package chat
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -106,11 +105,10 @@ type loweredEffects struct {
 // nobody holds. All of it runs before the next turn is admitted.
 func lowerAccessEffects(cfg *Deps, store *ai.AIStore, profileID, conversationID string) (loweredEffects, error) {
 	eff := loweredEffects{Stopped: []int{}, Survivors: []survivor{}}
-	refs, _, err := conversationBackgroundRefs(store, profileID, conversationID)
+	stop, _, err := stopConversationBackground(store, profileID, conversationID, true)
 	if err != nil {
 		return eff, err
 	}
-	stop := stopBackground(refs, 3*time.Second)
 	eff.Stopped = append(eff.Stopped, stop.Stopped...)
 	eff.Survivors = append(eff.Survivors, stop.Survivors...)
 	if err := store.ForgetOrgWorkers(profileID, conversationID); err != nil {

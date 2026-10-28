@@ -28,29 +28,37 @@ const execTreeEnv = "MONOMIND_EXEC_TREE"
 // turn's MONOMIND_EXEC_TREE token on Linux, else its start time. "" when
 // the process is gone or can't be identified.
 func processIdentity(pid int) string {
+	id, _ := processIdentityChecked(pid)
+	return id
+}
+
+// processIdentityChecked is processIdentity and whether the process could be
+// examined: false means its identity is unknown (not readable, or not
+// available on this platform), not that it has none.
+func processIdentityChecked(pid int) (string, bool) {
 	if pid <= 0 {
-		return ""
+		return "", false
 	}
 	if runtime.GOOS == "linux" {
 		env, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
 		if err != nil {
-			return ""
+			return "", false
 		}
 		for _, kv := range bytes.Split(env, []byte{0}) {
 			if v, ok := strings.CutPrefix(string(kv), execTreeEnv+"="); ok && v != "" {
-				return "tree:" + v
+				return "tree:" + v, true
 			}
 		}
-		return ""
+		return "", true
 	}
 	if runtime.GOOS == "windows" {
-		return ""
+		return "", false
 	}
 	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
 	if s := strings.TrimSpace(string(out)); err == nil && s != "" {
-		return "started:" + s
+		return "started:" + s, true
 	}
-	return ""
+	return "", false
 }
 
 // shortCommand is pid's command line (clicore.ProcessCommand), shortened for a
@@ -108,9 +116,13 @@ func stopBackground(refs []chatevents.ProcessRef, grace time.Duration) backgroun
 	res := backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
 	var signalled []int
 	for _, r := range refs {
-		now := processIdentity(r.Pid)
+		now, examined := processIdentityChecked(r.Pid)
 		switch {
 		case now == "" && !processAlive(r.Pid):
+			res.Gone = append(res.Gone, r.Pid)
+		case r.Identity != "" && examined && now != r.Identity:
+			// The pid now belongs to another process: the one the turn started is gone, this record
+			// is stale, and nothing is signalled.
 			res.Gone = append(res.Gone, r.Pid)
 		case r.Identity == "" || now != r.Identity:
 			res.Refused = append(res.Refused, r.Pid)
@@ -145,6 +157,43 @@ func stopBackground(refs []chatevents.ProcessRef, grace time.Duration) backgroun
 	return res
 }
 
+// stopConversationBackground stops the processes the conversation's turns left running. The record
+// is collected again after each round, so one a turn recorded meanwhile is stopped too (three
+// rounds at most). With stopIfActive false it stops nothing while a turn is active (active is
+// true): the caller's delete is refused then anyway.
+func stopConversationBackground(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (res backgroundStop, active bool, err error) {
+	res = backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
+	seen := map[chatevents.ProcessRef]bool{}
+	for round := 0; round < 3; round++ {
+		refs, act, err := conversationBackgroundRefs(store, profileID, conversationID)
+		if err != nil {
+			return res, false, err
+		}
+		active = act
+		if active && !stopIfActive {
+			return res, true, nil
+		}
+		var fresh []chatevents.ProcessRef
+		for _, r := range refs {
+			r.Command = ""
+			if !seen[r] {
+				seen[r] = true
+				fresh = append(fresh, r)
+			}
+		}
+		if len(fresh) == 0 {
+			return res, active, nil
+		}
+		stop := stopBackground(fresh, 3*time.Second)
+		res.Stopped = append(res.Stopped, stop.Stopped...)
+		res.Gone = append(res.Gone, stop.Gone...)
+		res.Refused = append(res.Refused, stop.Refused...)
+		res.Survivors = append(res.Survivors, stop.Survivors...)
+		afterBackgroundRound()
+	}
+	return res, active, nil
+}
+
 // turnBackgroundRefs is every process the turn's coder.background notices
 // recorded as left running.
 func turnBackgroundRefs(store *ai.AIStore, profileID, conversationID, turnID string) ([]chatevents.ProcessRef, error) {
@@ -166,6 +215,10 @@ func turnBackgroundRefs(store *ai.AIStore, profileID, conversationID, turnID str
 		after = page[len(page)-1].Seq
 	}
 }
+
+// afterBackgroundRound is a seam for tests: it runs after each round of stopping a conversation's
+// background processes, before the record is collected again.
+var afterBackgroundRound = func() {}
 
 // conversationBackgroundRefs is every process any turn of the conversation
 // recorded as left running, and whether one of its turns is still active.

@@ -3,7 +3,6 @@ package chat
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -293,30 +292,31 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			// The processes the conversation's turns left running are recorded
 			// only in the events deleted with it: stop them first, and keep
 			// the record while one cannot be stopped.
-			refs, active, err := conversationBackgroundRefs(store, profileID, args[0])
+			stop, _, err := stopConversationBackground(store, profileID, args[0], false)
 			if err != nil {
 				return err
 			}
-			if !active {
-				if stop := stopBackground(refs, 3*time.Second); len(stop.Survivors) > 0 {
-					if cfg.JSONOutput() {
-						if err := clicore.PrintJSON(map[string]any{"id": args[0], "deleted": false, "survivors": stop.Survivors}); err != nil {
-							return err
-						}
-					} else {
-						for _, sv := range stop.Survivors {
-							fmt.Fprintf(cmd.OutOrStdout(), "  still running: %d %s: %s\n", sv.Pid, sv.Command, sv.Reason)
-						}
+			if len(stop.Survivors) > 0 {
+				if cfg.JSONOutput() {
+					if err := clicore.PrintJSON(map[string]any{"id": args[0], "deleted": false, "stopped": stop.Stopped, "survivors": stop.Survivors}); err != nil {
+						return err
 					}
-					return &coderError{code: "survivors_remain", err: &clicore.Error{Code: exitSurvivors, Msg: fmt.Sprintf(
-						"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors); stop them yourself, then delete it again", len(stop.Survivors))}}
+				} else {
+					for _, sv := range stop.Survivors {
+						fmt.Fprintf(cmd.OutOrStdout(), "  still running: %d %s: %s\n", sv.Pid, sv.Command, sv.Reason)
+					}
 				}
+				return &coderError{code: "survivors_remain", err: &clicore.Error{Code: exitSurvivors, Msg: fmt.Sprintf(
+					"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors); stop them yourself, then delete it again", len(stop.Survivors))}}
 			}
 			if err := store.DeleteConversation(args[0], profileID); err != nil {
 				return chatStoreErr(err)
 			}
 			if cfg.JSONOutput() {
-				return clicore.PrintJSON(map[string]any{"id": args[0], "deleted": true})
+				return clicore.PrintJSON(map[string]any{"id": args[0], "deleted": true, "stopped": stop.Stopped})
+			}
+			if len(stop.Stopped) > 0 {
+				fmt.Printf("stopped %d background process(es): %v\n", len(stop.Stopped), stop.Stopped)
 			}
 			fmt.Printf("deleted conversation %s\n", args[0])
 			return nil
