@@ -259,7 +259,10 @@ type CoderModelUsage struct {
 type ProcessRef struct {
 	Pid      int    `json:"pid"`
 	Identity string `json:"identity,omitempty"`
-	Command  string `json:"command,omitempty"`
+	// Start is the process's start time as the kernel keeps it (Linux): it tells a process from a later
+	// one that was given the same pid. Empty on records made without it and on other platforms.
+	Start   string `json:"start,omitempty"`
+	Command string `json:"command,omitempty"`
 }
 
 // TurnStatus is turn.finished's terminal classification — see the

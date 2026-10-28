@@ -3,6 +3,7 @@ package chat
 import (
 	"errors"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -88,34 +89,77 @@ func TestRefusedDeleteStopsNoProcess(t *testing.T) {
 	}
 }
 
-// A record whose pid now belongs to another process (the turn's process is gone and the
-// pid was reused) is stale: it is dropped with the conversation, the unrelated process is
-// never signalled, and it does not make the conversation undeletable.
+// A record whose pid now belongs to another process (the turn's process is gone and the pid was
+// reused: its start time is not the recorded one) is stale: it is dropped with the conversation,
+// the unrelated process is never signalled, and it does not make the conversation undeletable.
 func TestDeleteDropsAStaleRecordAndNeverSignalsTheNewOwnerOfThePid(t *testing.T) {
 	r := newAccessRig(t, true)
 	c := r.conv(t, ai.AccessFull)
-	other := exec.Command("sleep", "60") // not the turn's process: carries no exec-tree token
-	if err := other.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { other.Process.Kill(); other.Wait() })
-	if _, _, err := r.store.CreateTurn(c.ID, "default", "left-1", "i", "go"); err != nil {
-		t.Fatal(err)
-	}
-	stale := chatevents.NoticePayload{Code: noticeCoderBackground, Severity: chatevents.SeverityWarning,
-		Processes: []chatevents.ProcessRef{{Pid: other.Process.Pid, Identity: "tree:the-turn-that-is-gone"}}}
-	if _, err := r.store.AppendEvent("default", c.ID, "left-1", chatevents.EventNotice, stale); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := r.store.FinalizeTurn("default", c.ID, "left-1", chatevents.StatusCompleted, "", nil, false); err != nil {
-		t.Fatal(err)
-	}
+	other := startStranger(t)
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: other.Process.Pid, Identity: "tree:the-turn-that-is-gone", Start: "boot-of-the-turn:1"})
 
 	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
 		t.Fatalf("a stale record blocked the delete: %v\n%s", err, out)
 	}
 	if !processAlive(other.Process.Pid) {
 		t.Error("the process that now owns the pid was signalled")
+	}
+}
+
+// An identity that no longer matches is not proof of a reused pid: a left-running process can
+// change its own environment (exec under a clean one). With the recorded start time unchanged it is
+// still the same process, so it stays a survivor and the conversation is kept.
+func TestDeleteKeepsAProcessWhoseEnvironmentChanged(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	same := startStranger(t)
+	start := processStart(same.Process.Pid)
+	if start == "" {
+		t.Skip("no start time on this platform")
+	}
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: same.Process.Pid, Identity: "tree:what-it-had-before", Start: start})
+
+	out, err := r.history(t, nil, "delete", c.ID)
+	if exitCodeFor(err) != exitSurvivors {
+		t.Fatalf("exit %d, want %d: %v\n%s", exitCodeFor(err), exitSurvivors, err, out)
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation was deleted with its process still running: %v", err)
+	}
+	if !processAlive(same.Process.Pid) {
+		t.Error("a process that could not be shown to be someone else's was signalled")
+	}
+}
+
+// startStranger starts a process that carries no exec-tree token and is reaped when it dies, so a
+// signal sent to it shows as the end of the process.
+func startStranger(t *testing.T) *exec.Cmd {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("a process's start time comes from /proc")
+	}
+	c := exec.Command("sleep", "60")
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	reaped := make(chan struct{})
+	go func() { c.Wait(); close(reaped) }()
+	t.Cleanup(func() { c.Process.Kill(); <-reaped })
+	return c
+}
+
+// recordRef records a turn that ended with ref still running.
+func (r *accessRig) recordRef(t *testing.T, convID string, ref chatevents.ProcessRef) {
+	t.Helper()
+	if _, _, err := r.store.CreateTurn(convID, "default", "left-1", "i", "go"); err != nil {
+		t.Fatal(err)
+	}
+	n := chatevents.NoticePayload{Code: noticeCoderBackground, Severity: chatevents.SeverityWarning, Processes: []chatevents.ProcessRef{ref}}
+	if _, err := r.store.AppendEvent("default", convID, "left-1", chatevents.EventNotice, n); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.store.FinalizeTurn("default", convID, "left-1", chatevents.StatusCompleted, "", nil, false); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -28,37 +28,58 @@ const execTreeEnv = "MONOMIND_EXEC_TREE"
 // turn's MONOMIND_EXEC_TREE token on Linux, else its start time. "" when
 // the process is gone or can't be identified.
 func processIdentity(pid int) string {
-	id, _ := processIdentityChecked(pid)
-	return id
-}
-
-// processIdentityChecked is processIdentity and whether the process could be
-// examined: false means its identity is unknown (not readable, or not
-// available on this platform), not that it has none.
-func processIdentityChecked(pid int) (string, bool) {
 	if pid <= 0 {
-		return "", false
+		return ""
 	}
 	if runtime.GOOS == "linux" {
 		env, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
 		if err != nil {
-			return "", false
+			return ""
 		}
 		for _, kv := range bytes.Split(env, []byte{0}) {
 			if v, ok := strings.CutPrefix(string(kv), execTreeEnv+"="); ok && v != "" {
-				return "tree:" + v, true
+				return "tree:" + v
 			}
 		}
-		return "", true
+		return ""
 	}
 	if runtime.GOOS == "windows" {
-		return "", false
+		return ""
 	}
 	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
 	if s := strings.TrimSpace(string(out)); err == nil && s != "" {
-		return "started:" + s, true
+		return "started:" + s
 	}
-	return "", false
+	return ""
+}
+
+// processStart is the machine's boot id and the process's start time in clock ticks since boot
+// (Linux): the same for one process for its whole life, whatever it does to its own environment
+// or memory, and different for any other process that later gets the pid. "" where it cannot be
+// read or the platform has no such value.
+func processStart(pid int) string {
+	if runtime.GOOS != "linux" || pid <= 0 {
+		return ""
+	}
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return ""
+	}
+	// pid (comm) state ppid ...: comm may hold spaces and parentheses, so count from the last ')'.
+	rest := string(stat)
+	k := strings.LastIndexByte(rest, ')')
+	if k < 0 {
+		return ""
+	}
+	fields := strings.Fields(rest[k+1:])
+	if len(fields) < 20 { // state is field 3, starttime field 22
+		return ""
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(boot)) + ":" + fields[19]
 }
 
 // shortCommand is pid's command line (clicore.ProcessCommand), shortened for a
@@ -116,13 +137,15 @@ func stopBackground(refs []chatevents.ProcessRef, grace time.Duration) backgroun
 	res := backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
 	var signalled []int
 	for _, r := range refs {
-		now, examined := processIdentityChecked(r.Pid)
+		now := processIdentity(r.Pid)
 		switch {
 		case now == "" && !processAlive(r.Pid):
 			res.Gone = append(res.Gone, r.Pid)
-		case r.Identity != "" && examined && now != r.Identity:
-			// The pid now belongs to another process: the one the turn started is gone, this record
-			// is stale, and nothing is signalled.
+		case r.Start != "" && processStart(r.Pid) != "" && processStart(r.Pid) != r.Start:
+			// The pid now belongs to another process (its start time is not the recorded one, and a process
+			// cannot change that): the one the turn started is gone, this record is stale and nothing is
+			// signalled. Without a recorded start time, or when it cannot be read, an identity that does not
+			// match stays a survivor: the process can change its own environment.
 			res.Gone = append(res.Gone, r.Pid)
 		case r.Identity == "" || now != r.Identity:
 			res.Refused = append(res.Refused, r.Pid)
@@ -190,6 +213,18 @@ func stopConversationBackground(store *ai.AIStore, profileID, conversationID str
 		res.Refused = append(res.Refused, stop.Refused...)
 		res.Survivors = append(res.Survivors, stop.Survivors...)
 		afterBackgroundRound()
+	}
+	// A record made during the last round was not stopped: it keeps the caller from going on.
+	refs, _, err := conversationBackgroundRefs(store, profileID, conversationID)
+	if err != nil {
+		return res, active, err
+	}
+	for _, r := range refs {
+		c := r
+		c.Command = ""
+		if !seen[c] {
+			res.Survivors = append(res.Survivors, survivor{Pid: r.Pid, Command: r.Command, Reason: "it was recorded while the conversation's other processes were being stopped"})
+		}
 	}
 	return res, active, nil
 }

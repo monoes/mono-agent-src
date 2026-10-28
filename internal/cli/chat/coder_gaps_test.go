@@ -107,8 +107,7 @@ func TestCoderStopBackgroundStopsOnlyTheSameProcess(t *testing.T) {
 	out, code := runCoderCLI(t, dbPath, "stop-background", "--conversation", conv.ID, "--turn", "turn-2")
 	var res backgroundStop
 	decodeChatJSON(t, out, &res)
-	// The recorded process is gone and its pid belongs to another one: the record is stale (gone), nothing is signalled.
-	if code != 0 || len(res.Gone) != 1 || res.Gone[0] != sp || len(res.Refused) != 0 || len(res.Survivors) != 0 || !processAlive(sp) {
+	if code != 0 || len(res.Refused) != 1 || res.Refused[0] != sp || !processAlive(sp) {
 		t.Fatalf("reused pid: exit %d %+v alive=%v", code, res, processAlive(sp))
 	}
 	out, _ = runCoderCLI(t, dbPath, "stop-background", "--conversation", conv.ID, "--turn", "turn-1")

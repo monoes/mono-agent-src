@@ -246,7 +246,7 @@ func backgroundMessage(refs []chatevents.ProcessRef) string {
 func backgroundNotice(pids []int) chatevents.NoticePayload {
 	refs := make([]chatevents.ProcessRef, len(pids))
 	for i, pid := range pids {
-		refs[i] = chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Command: shortCommand(pid)}
+		refs[i] = chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Start: processStart(pid), Command: shortCommand(pid)}
 	}
 	return chatevents.NoticePayload{
 		Code: noticeCoderBackground, Message: backgroundMessage(refs), Severity: chatevents.SeverityWarning,
