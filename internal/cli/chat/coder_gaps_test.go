@@ -67,42 +67,26 @@ func TestCoderStopBackgroundStopsOnlyTheSameProcess(t *testing.T) {
 		t.Skip("identity via /proc is Linux-only")
 	}
 	dbPath := newChatCLITestDB(t)
-	// The runner carries no marker; its direct child (the runtime's process) does, and so does what
-	// that child leaves running. The host reads the turn's marker from that child.
-	runner := exec.Command("sh", "-c", execTreeEnv+"=tok-123 sleep 60 & wait")
 	stranger := exec.Command("sleep", "60")
-	for _, c := range []*exec.Cmd{runner, stranger} {
-		if err := c.Start(); err != nil {
-			t.Fatal(err)
-		}
-		// One goroutine reaps it (so a stopped process doesn't linger as a
-		// zombie); cleanup kills and waits for that, never calling Wait
-		// itself.
-		reaped := make(chan struct{})
-		go func(c *exec.Cmd) { c.Wait(); close(reaped) }(c)
-		t.Cleanup(func() { c.Process.Kill(); <-reaped })
+	if err := stranger.Start(); err != nil {
+		t.Fatal(err)
 	}
-	var kids []int
-	for i := 0; i < 100 && len(kids) == 0; i++ {
-		time.Sleep(50 * time.Millisecond)
-		kids = childrenOf(runner.Process.Pid)
-	}
-	if len(kids) != 1 {
-		t.Fatalf("the runner's children = %v", kids)
-	}
-	t.Cleanup(func() {
-		if p, err := os.FindProcess(kids[0]); err == nil {
-			p.Kill()
-		}
-	})
-	mp, sp := kids[0], stranger.Process.Pid
-	if got := processIdentity(mp); got != "tree:tok-123" {
-		t.Fatalf("identity = %q", got)
-	}
+	// One goroutine reaps it (so a stopped process doesn't linger as a zombie); cleanup kills and
+	// waits for that, never calling Wait itself.
+	reaped := make(chan struct{})
+	go func() { stranger.Wait(); close(reaped) }()
+	t.Cleanup(func() { stranger.Process.Kill(); <-reaped })
+	sp := stranger.Process.Pid
 
-	bin, _ := writeCoderMonomind(t, `  echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":`+strconv.Itoa(runner.Process.Pid)+`,"access":"full"}'
+	// The fake monomind is the runner: the launcher's own child, reporting its own pid in `start`.
+	// It carries no marker; the runtime process it starts (here a sleep) does, and the sleep outlives
+	// the turn. The host reads the turn's marker from that child while the turn starts.
+	bin, _ := writeCoderMonomind(t, `  `+execTreeEnv+`=tok-123 sleep 60 >/dev/null 2>&1 &
+  kid=$!
+  echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":'"$$"',"access":"full"}'
+  sleep 0.5
   echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok"}'
-  echo '{"v":1,"type":"done","exit_code":0,"background_pids":[`+strconv.Itoa(mp)+`]}'`)
+  echo '{"v":1,"type":"done","exit_code":0,"background_pids":['"$kid"']}'`)
 	withCoderCaps(t, monomind.CoderCapabilities...)
 	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
 	store := openTestChatStore(t, dbPath)
@@ -110,6 +94,20 @@ func TestCoderStopBackgroundStopsOnlyTheSameProcess(t *testing.T) {
 	if out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", "turn-1", "--", "go"); err != nil {
 		t.Fatalf("turn: %v\n%s", err, out)
 	}
+	refs, err := turnBackgroundRefs(store, "default", conv.ID, "turn-1")
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("the turn's background record = %+v, %v", refs, err)
+	}
+	mp := refs[0].Pid
+	t.Cleanup(func() {
+		if p, err := os.FindProcess(mp); err == nil {
+			p.Kill()
+		}
+	})
+	if got := processIdentity(mp); got != "tree:tok-123" || refs[0].Root != "tree:tok-123" {
+		t.Fatalf("identity = %q, recorded root = %q", got, refs[0].Root)
+	}
+
 	// A second turn's notice points at the stranger with an identity it
 	// doesn't have: a reused pid.
 	store.CreateTurn(conv.ID, "default", "turn-2", "i", "x")
@@ -205,5 +203,60 @@ func TestStreamedReplyStaysOnePart(t *testing.T) {
 	}
 	if len(order) != 2 || texts[order[0]] != "Created `notes.txt` with" || texts[order[1]] != "Done." {
 		t.Errorf("parts = %v %q", order, texts)
+	}
+}
+
+// The marker is learned from the runner THIS turn's launcher started. A start event that names
+// another process as the runner (here a second runner of the same host, with its own marker child)
+// gives the turn no marker: what the turn left running is reported, never signalled.
+func TestAStartEventNamingAnotherRunnerGivesTheTurnNoMarker(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc")
+	}
+	dbPath := newChatCLITestDB(t)
+	// Another turn's runner under the same host, with a marker child of its own.
+	other := exec.Command("sh", "-c", execTreeEnv+"=tok-other sleep 60 >/dev/null 2>&1 & wait")
+	if err := other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	reaped := make(chan struct{})
+	go func() { other.Wait(); close(reaped) }()
+	t.Cleanup(func() { other.Process.Kill(); <-reaped })
+	for i := 0; i < 100 && len(childrenOf(other.Process.Pid)) == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// The turn's own runtime process carries the marker tok-mine, and it is the one left running; the
+	// event names the OTHER runner.
+	bin, _ := writeCoderMonomind(t, `  `+execTreeEnv+`=tok-mine sleep 60 >/dev/null 2>&1 &
+  kid=$!
+  echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":`+strconv.Itoa(other.Process.Pid)+`,"access":"full"}'
+  sleep 0.5
+  echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok"}'
+  echo '{"v":1,"type":"done","exit_code":0,"background_pids":['"$kid"']}'`)
+	withCoderCaps(t, monomind.CoderCapabilities...)
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	store := openTestChatStore(t, dbPath)
+	conv, _ := store.CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	if out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", "turn-1", "--", "go"); err != nil {
+		t.Fatalf("turn: %v\n%s", err, out)
+	}
+	refs, err := turnBackgroundRefs(store, "default", conv.ID, "turn-1")
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("the turn's background record = %+v, %v", refs, err)
+	}
+	t.Cleanup(func() {
+		if p, err := os.FindProcess(refs[0].Pid); err == nil {
+			p.Kill()
+		}
+	})
+	if refs[0].Root != "" {
+		t.Fatalf("the turn got the marker %q from a runner it did not start", refs[0].Root)
+	}
+	out, code := runCoderCLI(t, dbPath, "stop-background", "--conversation", conv.ID, "--turn", "turn-1")
+	var res backgroundStop
+	decodeChatJSON(t, out, &res)
+	if code != 0 || len(res.Stopped) != 0 || len(res.Refused) != 1 || !processAlive(refs[0].Pid) {
+		t.Errorf("stop: exit %d %+v alive=%v; the turn's process must be reported and left alone", code, res, processAlive(refs[0].Pid))
 	}
 }

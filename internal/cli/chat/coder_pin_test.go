@@ -60,24 +60,24 @@ func TestLearnTurnMarker(t *testing.T) {
 	t.Cleanup(func() { markerPoll = old })
 
 	one := runnerWithChildren(t, execTreeEnv+"=tok-one sleep 30 & wait")
-	if got := learnTurnMarker(context.Background(), one); got != "tree:tok-one" {
+	if got := learnTurnMarker(context.Background(), one, one); got != "tree:tok-one" {
 		t.Errorf("one marked child: %q", got)
 	}
 	two := runnerWithChildren(t, execTreeEnv+"=tok-a sleep 30 & "+execTreeEnv+"=tok-b sleep 30 & wait")
 	for i := 0; i < 100 && len(childrenOf(two)) < 2; i++ {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if got := learnTurnMarker(context.Background(), two); got != "" {
+	if got := learnTurnMarker(context.Background(), two, two); got != "" {
 		t.Errorf("children with different markers must not be guessed between: %q", got)
 	}
 	none := runnerWithChildren(t, "sleep 30 & wait")
 	markerPoll = 300 * time.Millisecond
-	if got := learnTurnMarker(context.Background(), none); got != "" {
+	if got := learnTurnMarker(context.Background(), none, none); got != "" {
 		t.Errorf("a child with no marker: %q", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if got := learnTurnMarker(ctx, none); got != "" {
+	if got := learnTurnMarker(ctx, none, none); got != "" {
 		t.Errorf("a cancelled lookup: %q", got)
 	}
 }
@@ -91,10 +91,10 @@ func TestLearnTurnMarkerIgnoresARunnerThatIsNotOurs(t *testing.T) {
 	old := markerPoll
 	markerPoll = 300 * time.Millisecond
 	t.Cleanup(func() { markerPoll = old })
-	if got := learnTurnMarker(context.Background(), 1); got != "" {
+	if got := learnTurnMarker(context.Background(), 1, os.Getpid()); got != "" {
 		t.Errorf("init as the runner: %q", got)
 	}
-	if got := learnTurnMarker(context.Background(), 0); got != "" {
+	if got := learnTurnMarker(context.Background(), 0, os.Getpid()); got != "" {
 		t.Errorf("pid 0: %q", got)
 	}
 }
@@ -138,5 +138,26 @@ func TestDescendantOf(t *testing.T) {
 	}
 	if descendantOf(1, os.Getpid()) || descendantOf(inner, 1<<30) {
 		t.Error("a process that is not below the ancestor is recognised")
+	}
+}
+
+// The runner must be the launcher's process or below it: a runner of the same host that the launcher
+// did not start is not read, and neither is a launcher of 0.
+func TestLearnTurnMarkerNeedsTheRunnerBelowTheLauncher(t *testing.T) {
+	old := markerPoll
+	markerPoll = 300 * time.Millisecond
+	t.Cleanup(func() { markerPoll = old })
+	a := runnerWithChildren(t, execTreeEnv+"=tok-a sleep 30 & wait")
+	b := runnerWithChildren(t, execTreeEnv+"=tok-b sleep 30 & wait")
+	time.Sleep(200 * time.Millisecond)
+	if got := learnTurnMarker(context.Background(), a, b); got != "" {
+		t.Errorf("a runner that is not below the launcher: %q", got)
+	}
+	if got := learnTurnMarker(context.Background(), a, 0); got != "" {
+		t.Errorf("no launcher: %q", got)
+	}
+	markerPoll = 3 * time.Second
+	if got := learnTurnMarker(context.Background(), a, a); got != "tree:tok-a" {
+		t.Errorf("the launcher's own process: %q", got)
 	}
 }

@@ -103,6 +103,7 @@ type turnJournal struct {
 	// runtime's process at the start of the turn (see learnTurnMarker); "" when it could not be read.
 	markerMu   sync.Mutex
 	marker     string
+	launcher   int // the pid monomind.Exec reported for the process it started (OnStart)
 	stopMarker context.CancelFunc
 	markerDone chan struct{}
 }
@@ -232,17 +233,20 @@ func (j *turnJournal) handle(ev monomind.Event) {
 
 	switch ev.Type {
 	case monomind.EventStart:
-		if ev.Pid > 0 && j.stopMarker == nil {
+		j.markerMu.Lock()
+		launcher := j.launcher
+		j.markerMu.Unlock()
+		if ev.Pid > 0 && launcher > 1 && j.stopMarker == nil {
 			ctx, cancel := context.WithCancel(context.Background())
 			j.stopMarker = cancel
 			j.markerDone = make(chan struct{})
-			go func(runner int, done chan struct{}) {
+			go func(runner, launcher int, done chan struct{}) {
 				defer close(done)
-				m := learnTurnMarker(ctx, runner)
+				m := learnTurnMarker(ctx, runner, launcher)
 				j.markerMu.Lock()
 				j.marker = m
 				j.markerMu.Unlock()
-			}(ev.Pid, j.markerDone)
+			}(ev.Pid, launcher, j.markerDone)
 		}
 		// The badge the app shows on the turn; message is the status key.
 		if ev.SandboxStatus != "" {
@@ -396,4 +400,12 @@ func sandboxDetail(ev monomind.Event) string {
 		return ev.SandboxApplied
 	}
 	return ev.SandboxNote
+}
+
+// setLauncher records the pid of the process this turn's launcher started: the anchor the turn's
+// marker is learned from. It is monomind.Exec's own report, not the runner's.
+func (j *turnJournal) setLauncher(pid int) {
+	j.markerMu.Lock()
+	j.launcher = pid
+	j.markerMu.Unlock()
 }

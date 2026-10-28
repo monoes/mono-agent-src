@@ -365,10 +365,11 @@ var markerPoll = 10 * time.Second
 // turn starts. It is the host's own reading, never the model's or the runtime's report. "" when the
 // child or its marker cannot be read, or the children disagree: the turn's processes are then not
 // stopped.
-func learnTurnMarker(ctx context.Context, runner int) string {
-	// The runner is the one this process started (directly or through a launcher): a pid that is not
-	// below this process is not read.
-	if !descendantOf(runner, os.Getpid()) {
+func learnTurnMarker(ctx context.Context, runner, launcher int) string {
+	// The runner is the process this turn's own launcher started, or below it (a wrapper may sit
+	// between): the launcher's pid is what monomind.Exec reports when it starts the process, never
+	// something the process says. Any other pid is not read.
+	if launcher <= 1 || (runner != launcher && !descendantOf(runner, launcher)) {
 		return ""
 	}
 	deadline := time.Now().Add(markerPoll)
