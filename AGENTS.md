@@ -1944,7 +1944,7 @@ command with no issuer) ran for it since its last turn began (a stop counts unti
 never ends a child spawned after it; it is dated by when it completed), and a mission that was stopped, done, failed,
 archived, deleted or handed to a different, non-empty lead conversation ends its old lead's children too; a mission
 whose link is empty or unset is unknown and ends nothing. It pauses the children of a paused mission (a turn that is
-running finishes under its cap, which is weaker than halting in-turn workers) and, when the mission runs again, queues one host-made resume (no issuer) for a child whose newest pause or resume is its own cascade pause (a person's pause stays); it
+running finishes under its cap, which is weaker than halting in-turn workers) and, when the mission runs again, queues one host-made resume (no issuer) for a child whose newest pause or resume is its own cascade pause (a person's pause stays: the host refuses to apply any resume with an issuer or the cascade's turn id while a person's pause, a no-issuer command that is not the cascade's, stands in the command history, and the cascade's resume is queued by one statement that checks the same, so `session_resume` cannot lift an operator's pause; only a person's resume does); it
 gives back reservations whose spawn died and stops what they left; and it logs once, and changes nothing, for each
 child that holds a carve but belongs to no mission row (`FindOrphanCarves`; informational, and forgotten once the
 session is gone): a lead may legitimately have such children, so nothing is stopped on age and policy alone. It

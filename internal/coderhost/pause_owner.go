@@ -57,18 +57,3 @@ func (s *Store) liftPause(c Command, next State) (bool, error) {
 	}
 	return !ok || x.State != StatePaused, nil // already lifted by someone else counts as lifted
 }
-
-// enqueueCascadeResume queues the pass's own resume unless a person's pause stands, decided by the INSERT itself
-// so a person's pause queued after the pass looked is not followed by a resume queued behind its back.
-func (s *Store) enqueueCascadeResume(profileID, conv string) (bool, error) {
-	now := s.stamp()
-	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
-		SELECT ?, ?, 'resume', ?, '', '[]', 'pending', 0, ?, ?, '' WHERE NOT `+personPauseLive,
-		profileID, conv, cascadeTurn, now, now, profileID, conv, cascadeTurn, int64(math.MaxInt64), cascadeTurn, int64(math.MaxInt64))
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
-}
-
