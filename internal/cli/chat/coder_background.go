@@ -2,13 +2,18 @@ package chat
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -53,6 +58,20 @@ func processIdentity(pid int) string {
 	return ""
 }
 
+// statStartTime is the starttime (field 22) of a /proc/<pid>/stat line; "" when it is not there.
+// comm may hold spaces and parentheses, so the fields are counted from the last ')'.
+func statStartTime(stat string) string {
+	k := strings.LastIndexByte(stat, ')')
+	if k < 0 {
+		return ""
+	}
+	fields := strings.Fields(stat[k+1:])
+	if len(fields) < 20 { // state is field 3, starttime field 22
+		return ""
+	}
+	return fields[19]
+}
+
 // processStart is the machine's boot id and the process's start time in clock ticks since boot
 // (Linux): the same for one process for its whole life, whatever it does to its own environment
 // or memory, and different for any other process that later gets the pid. "" where it cannot be
@@ -65,21 +84,16 @@ func processStart(pid int) string {
 	if err != nil {
 		return ""
 	}
-	// pid (comm) state ppid ...: comm may hold spaces and parentheses, so count from the last ')'.
-	rest := string(stat)
-	k := strings.LastIndexByte(rest, ')')
-	if k < 0 {
-		return ""
-	}
-	fields := strings.Fields(rest[k+1:])
-	if len(fields) < 20 { // state is field 3, starttime field 22
+	ticks := statStartTime(string(stat))
+	if ticks == "" {
 		return ""
 	}
 	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(boot)) + ":" + fields[19]
+	sum := sha256.Sum256([]byte(strings.TrimSpace(string(boot))))
+	return hex.EncodeToString(sum[:6]) + ":" + ticks
 }
 
 // shortCommand is pid's command line (clicore.ProcessCommand), shortened for a
@@ -131,70 +145,209 @@ type survivor struct {
 	Reason  string `json:"reason"`
 }
 
-// stopBackground stops each recorded process that is still the same
-// process: SIGTERM, then SIGKILL if it outlives grace.
+// stopBackground stops each recorded process that is still the turn's own: SIGTERM, then SIGKILL if
+// it outlives grace. A process is pinned first (a pidfd on Linux), what identifies it is read from the
+// pinned process, and every signal goes through the pin, so a pid that is reused meanwhile is never
+// signalled. A process is the turn's own only if the marker it carries is the one the host read from
+// the turn's runtime at the start of the turn (Root), is the marker recorded for it, and still is. Where
+// a process cannot be pinned, or the turn's marker was not read, it is not stopped.
 func stopBackground(refs []chatevents.ProcessRef, grace time.Duration) backgroundStop {
 	res := backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
-	var signalled []int
+	type target struct {
+		ref chatevents.ProcessRef
+		h   pinnedProcess
+	}
+	var signalled []target
+	defer func() {
+		for _, t := range signalled {
+			t.h.close()
+		}
+	}()
+	refuse := func(r chatevents.ProcessRef, reason string) {
+		res.Refused = append(res.Refused, r.Pid)
+		res.Survivors = append(res.Survivors, survivor{Pid: r.Pid, Command: shortCommand(r.Pid), Reason: reason})
+	}
 	for _, r := range refs {
-		now := processIdentity(r.Pid)
-		switch {
-		case now == "" && !processAlive(r.Pid):
+		h, err := pinProcess(r.Pid)
+		if errors.Is(err, errNoProcess) {
 			res.Gone = append(res.Gone, r.Pid)
-		case r.Start != "" && processStart(r.Pid) != "" && processStart(r.Pid) != r.Start:
-			// The pid now belongs to another process (its start time is not the recorded one, and a process
-			// cannot change that): the one the turn started is gone, this record is stale and nothing is
-			// signalled. Without a recorded start time, or when it cannot be read, an identity that does not
-			// match stays a survivor: the process can change its own environment.
+			continue
+		}
+		if err != nil {
+			refuse(r, "it cannot be stopped safely here: "+err.Error())
+			continue
+		}
+		verdict, reason := judgeRef(r, h)
+		switch verdict {
+		case refGone:
 			res.Gone = append(res.Gone, r.Pid)
-		case r.Identity == "" || now != r.Identity:
-			res.Refused = append(res.Refused, r.Pid)
-			reason := "its identity was not recorded, so it cannot be told from another process that reused the pid"
-			if r.Identity != "" {
-				reason = "its pid now belongs to a process that cannot be shown to be the one the turn started"
-			}
-			res.Survivors = append(res.Survivors, survivor{Pid: r.Pid, Command: shortCommand(r.Pid), Reason: reason})
+			h.close()
+		case refRefused:
+			refuse(r, reason)
+			h.close()
 		default:
-			if err := terminateProcess(r.Pid); err != nil {
-				res.Refused = append(res.Refused, r.Pid)
-				res.Survivors = append(res.Survivors, survivor{Pid: r.Pid, Command: shortCommand(r.Pid), Reason: "it could not be signalled: " + err.Error()})
+			if err := h.signal(syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+				refuse(r, "it could not be signalled: "+err.Error())
+				h.close()
 				continue
 			}
-			signalled = append(signalled, r.Pid)
+			signalled = append(signalled, target{r, h})
 		}
 	}
 	deadline := time.Now().Add(grace)
-	for _, pid := range signalled {
-		for processAlive(pid) && time.Now().Before(deadline) {
+	for _, t := range signalled {
+		for t.h.alive() && time.Now().Before(deadline) {
 			time.Sleep(50 * time.Millisecond)
 		}
-		if processAlive(pid) {
-			_ = killProcess(pid)
+		if t.h.alive() {
+			// A handle that does not pin the pid has to be checked again right before the signal.
+			if !t.h.pinsPid() {
+				if v, _ := judgeRef(t.ref, t.h); v != refStop {
+					if v == refRefused {
+						refuse(t.ref, "it could not be shown to be the turn's own again before SIGKILL")
+					} else {
+						res.Gone = append(res.Gone, t.ref.Pid)
+					}
+					continue
+				}
+			}
+			_ = t.h.signal(syscall.SIGKILL)
+			for end := time.Now().Add(time.Second); t.h.alive() && time.Now().Before(end); {
+				time.Sleep(50 * time.Millisecond)
+			}
 		}
-		if processAlive(pid) {
-			res.Survivors = append(res.Survivors, survivor{Pid: pid, Command: shortCommand(pid), Reason: "it outlived SIGKILL"})
+		if t.h.alive() {
+			res.Survivors = append(res.Survivors, survivor{Pid: t.ref.Pid, Command: shortCommand(t.ref.Pid), Reason: "it outlived SIGKILL"})
 			continue
 		}
-		res.Stopped = append(res.Stopped, pid)
+		res.Stopped = append(res.Stopped, t.ref.Pid)
 	}
 	return res
+}
+
+type refVerdict int
+
+const (
+	refStop    refVerdict = iota // the turn's own process: stop it
+	refGone                      // not running any more, or the pid belongs to another process now
+	refRefused                   // cannot be shown to be the turn's own: not signalled, reported
+)
+
+// judgeRef reads what identifies the pinned process and compares it with the record. The reads come
+// first and the liveness check after, so the reads provably belong to the pinned process.
+func judgeRef(r chatevents.ProcessRef, h pinnedProcess) (refVerdict, string) {
+	now := processIdentity(r.Pid)
+	start := processStart(r.Pid)
+	if !h.alive() {
+		return refGone, ""
+	}
+	if r.Start != "" && start != "" && start != r.Start {
+		// Another process holds the pid (its start time is not the recorded one, and a process cannot
+		// change that): the one the turn started is gone and this record is stale. Nothing is signalled.
+		return refGone, ""
+	}
+	switch {
+	case r.Root == "":
+		return refRefused, "the turn's own process-tree marker was not read when it ran, so this process cannot be shown to be the turn's"
+	case r.Identity == "":
+		return refRefused, "its identity was not recorded, so it cannot be told from another process that reused the pid"
+	case r.Identity != r.Root:
+		return refRefused, "it carries a marker other than the turn's own"
+	case now != r.Identity:
+		return refRefused, "its pid now belongs to a process that cannot be shown to be the one the turn started"
+	}
+	return refStop, ""
+}
+
+// childrenOf is the pids whose parent is pid (Linux; nil elsewhere).
+func childrenOf(pid int) []int {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var kids []int
+	for _, e := range entries {
+		n, err := strconv.Atoi(e.Name())
+		if err != nil || n <= 0 {
+			continue
+		}
+		stat, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		k := bytes.LastIndexByte(stat, ')')
+		if k < 0 {
+			continue
+		}
+		if f := strings.Fields(string(stat[k+1:])); len(f) > 1 && f[1] == strconv.Itoa(pid) {
+			kids = append(kids, n)
+		}
+	}
+	return kids
+}
+
+// markerPoll is how long the host looks for the turn's marker after the runner starts.
+var markerPoll = 10 * time.Second
+
+// learnTurnMarker reads the exec-tree marker of a turn's own process tree from the runner's direct
+// child (the runtime's process, which monomind starts with the marker in its environment) while the
+// turn starts. It is the host's own reading, never the model's or the runtime's report. "" when the
+// child or its marker cannot be read, or the children disagree: the turn's processes are then not
+// stopped.
+func learnTurnMarker(ctx context.Context, runner int) string {
+	deadline := time.Now().Add(markerPoll)
+	for {
+		seen := map[string]bool{}
+		for _, kid := range childrenOf(runner) {
+			if id := processIdentity(kid); strings.HasPrefix(id, "tree:") {
+				seen[id] = true
+			}
+		}
+		switch len(seen) {
+		case 1:
+			for id := range seen {
+				return id
+			}
+		case 0:
+		default:
+			return ""
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			return ""
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 // stopConversationBackground stops the processes the conversation's turns left running. The record
 // is collected again after each round, so one a turn recorded meanwhile is stopped too (three
 // rounds at most). With stopIfActive false it stops nothing while a turn is active (active is
 // true): the caller's delete is refused then anyway.
-func stopConversationBackground(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (res backgroundStop, active bool, err error) {
+func stopConversationBackground(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (backgroundStop, bool, error) {
+	res, active, _, err := stopConversationBackgroundSeen(store, profileID, conversationID, stopIfActive)
+	return res, active, err
+}
+
+// stopConversationBackgroundSeen is stopConversationBackground and the records it handled (with the
+// command text cleared), for a caller that checks no other was recorded since.
+func stopConversationBackgroundSeen(store *ai.AIStore, profileID, conversationID string, stopIfActive bool) (res backgroundStop, active bool, seen map[chatevents.ProcessRef]bool, err error) {
 	res = backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
-	seen := map[chatevents.ProcessRef]bool{}
+	seen = map[chatevents.ProcessRef]bool{}
 	for round := 0; round < 3; round++ {
 		refs, act, err := conversationBackgroundRefs(store, profileID, conversationID)
 		if err != nil {
-			return res, false, err
+			return res, false, seen, err
 		}
 		active = act
 		if active && !stopIfActive {
-			return res, true, nil
+			return res, true, seen, nil
 		}
 		var fresh []chatevents.ProcessRef
 		for _, r := range refs {
@@ -205,7 +358,7 @@ func stopConversationBackground(store *ai.AIStore, profileID, conversationID str
 			}
 		}
 		if len(fresh) == 0 {
-			return res, active, nil
+			return res, active, seen, nil
 		}
 		stop := stopBackground(fresh, 3*time.Second)
 		res.Stopped = append(res.Stopped, stop.Stopped...)
@@ -217,7 +370,7 @@ func stopConversationBackground(store *ai.AIStore, profileID, conversationID str
 	// A record made during the last round was not stopped: it keeps the caller from going on.
 	refs, _, err := conversationBackgroundRefs(store, profileID, conversationID)
 	if err != nil {
-		return res, active, err
+		return res, active, seen, err
 	}
 	for _, r := range refs {
 		c := r
@@ -226,7 +379,7 @@ func stopConversationBackground(store *ai.AIStore, profileID, conversationID str
 			res.Survivors = append(res.Survivors, survivor{Pid: r.Pid, Command: r.Command, Reason: "it was recorded while the conversation's other processes were being stopped"})
 		}
 	}
-	return res, active, nil
+	return res, active, seen, nil
 }
 
 // turnBackgroundRefs is every process the turn's coder.background notices

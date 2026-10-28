@@ -241,6 +241,16 @@ func (s *AIStore) BindConversationSession(id, profileID, runtimeID, sessionID st
 // TestChatEvents_DeleteConversationRaceAgainstConcurrentCreateTurn, which
 // exercises both layers together.
 func (s *AIStore) DeleteConversation(id, profileID string) error {
+	return s.DeleteConversationGuarded(id, profileID, nil)
+}
+
+// DeleteConversationGuarded is DeleteConversation with a last check made inside the write transaction,
+// after the conversation is known to exist and to have no active turn and before anything is deleted:
+// while it runs no turn can be admitted or recorded. A guard error rolls the delete back and is
+// returned as it is. It is how a caller that has to undo something outside the database first (stop
+// the processes the conversation's turns left running) learns that the record it acted on is still
+// the whole record.
+func (s *AIStore) DeleteConversationGuarded(id, profileID string, guard func(ctx context.Context, conn *sql.Conn) error) error {
 	if profileID == "" {
 		return ErrProfileRequired
 	}
@@ -282,6 +292,11 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 	}
 	if activeCount > 0 {
 		return ErrTurnActive
+	}
+	if guard != nil {
+		if err := guard(ctx, conn); err != nil {
+			return err
+		}
 	}
 
 	if _, err := conn.ExecContext(ctx, `DELETE FROM ai_chat_events WHERE conversation_id = ? AND profile_id = ?`, id, profileID); err != nil {

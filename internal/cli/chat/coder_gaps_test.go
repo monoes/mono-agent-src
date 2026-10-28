@@ -67,10 +67,11 @@ func TestCoderStopBackgroundStopsOnlyTheSameProcess(t *testing.T) {
 		t.Skip("identity via /proc is Linux-only")
 	}
 	dbPath := newChatCLITestDB(t)
-	marked := exec.Command("sleep", "60")
-	marked.Env = append(os.Environ(), execTreeEnv+"=tok-123")
+	// The runner carries no marker; its direct child (the runtime's process) does, and so does what
+	// that child leaves running. The host reads the turn's marker from that child.
+	runner := exec.Command("sh", "-c", execTreeEnv+"=tok-123 sleep 60 & wait")
 	stranger := exec.Command("sleep", "60")
-	for _, c := range []*exec.Cmd{marked, stranger} {
+	for _, c := range []*exec.Cmd{runner, stranger} {
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -81,13 +82,25 @@ func TestCoderStopBackgroundStopsOnlyTheSameProcess(t *testing.T) {
 		go func(c *exec.Cmd) { c.Wait(); close(reaped) }(c)
 		t.Cleanup(func() { c.Process.Kill(); <-reaped })
 	}
-	time.Sleep(100 * time.Millisecond)
-	mp, sp := marked.Process.Pid, stranger.Process.Pid
+	var kids []int
+	for i := 0; i < 100 && len(kids) == 0; i++ {
+		time.Sleep(50 * time.Millisecond)
+		kids = childrenOf(runner.Process.Pid)
+	}
+	if len(kids) != 1 {
+		t.Fatalf("the runner's children = %v", kids)
+	}
+	t.Cleanup(func() {
+		if p, err := os.FindProcess(kids[0]); err == nil {
+			p.Kill()
+		}
+	})
+	mp, sp := kids[0], stranger.Process.Pid
 	if got := processIdentity(mp); got != "tree:tok-123" {
 		t.Fatalf("identity = %q", got)
 	}
 
-	bin, _ := writeCoderMonomind(t, `  echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":1,"access":"full"}'
+	bin, _ := writeCoderMonomind(t, `  echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":`+strconv.Itoa(runner.Process.Pid)+`,"access":"full"}'
   echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok"}'
   echo '{"v":1,"type":"done","exit_code":0,"background_pids":[`+strconv.Itoa(mp)+`]}'`)
 	withCoderCaps(t, monomind.CoderCapabilities...)

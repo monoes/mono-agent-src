@@ -225,3 +225,119 @@ func TestDeleteListsWhatItStopped(t *testing.T) {
 		t.Errorf("result %s does not list the stopped process %d", out, pid)
 	}
 }
+
+// A process that carries ANOTHER turn's marker is never signalled and is reported: the
+// record is the turn's only if the marker is the one the host read from the turn's own runtime.
+func TestDeleteNeverSignalsAProcessWithAnotherTurnsMarker(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t) // carries "tree:tok-<test>", which is not the turn's
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Start: processStart(pid), Root: "tree:the-turns-own-marker"})
+
+	out, err := r.history(t, nil, "delete", c.ID)
+	if exitCodeFor(err) != exitSurvivors {
+		t.Fatalf("exit %d, want %d: %v\n%s", exitCodeFor(err), exitSurvivors, err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("a process with another turn's marker was signalled")
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation was deleted: %v", err)
+	}
+}
+
+// A turn whose own marker the host could not read has no process it can show to be its own.
+func TestDeleteSignalsNothingWhenTheTurnsMarkerWasNotRead(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Start: processStart(pid)}) // no Root
+
+	if out, err := r.history(t, nil, "delete", c.ID); exitCodeFor(err) != exitSurvivors {
+		t.Fatalf("exit %d, want %d: %v\n%s", exitCodeFor(err), exitSurvivors, err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("a process was signalled without the turn's marker")
+	}
+}
+
+// The right marker with another start time is a process that got the pid later: not signalled,
+// and it does not block the delete.
+func TestDeleteNeverSignalsARightMarkerWithAnotherStartTime(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	id := processIdentity(pid)
+	r.recordRef(t, c.ID, chatevents.ProcessRef{Pid: pid, Identity: id, Start: "elsewhere:1", Root: id})
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("a process that is not the recorded one was signalled")
+	}
+}
+
+// A process that cannot be pinned (no pidfd) is not stopped: it is reported.
+func TestDeleteSignalsNothingThatCannotBePinned(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	old := pinProcess
+	pinProcess = func(int) (pinnedProcess, error) { return nil, errCannotPin }
+	t.Cleanup(func() { pinProcess = old })
+
+	if out, err := r.history(t, nil, "delete", c.ID); exitCodeFor(err) != exitSurvivors {
+		t.Fatalf("exit %d, want %d: %v\n%s", exitCodeFor(err), exitSurvivors, err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("a process that could not be pinned was signalled")
+	}
+}
+
+// A turn that records a process after the delete has stopped the others but before it commits is not
+// lost: the delete re-reads the record inside its write transaction, gives way, and stops it too.
+func TestDeleteStopsAProcessRecordedBeforeTheDeleteCommits(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	first := background(t)
+	r.leaveBehind(t, c.ID, first)
+	late := make(chan int, 1)
+	calls := 0
+	beforeGuardedDelete = func() {
+		calls++
+		if calls != 1 {
+			return
+		}
+		pid := background(t)
+		late <- pid
+		if _, _, err := r.store.CreateTurn(c.ID, "default", "late-1", "i", "go"); err != nil {
+			t.Error(err)
+		}
+		if _, err := r.store.AppendEvent("default", c.ID, "late-1", chatevents.EventNotice, backgroundNotice([]int{pid})); err != nil {
+			t.Error(err)
+		}
+		if _, _, err := r.store.FinalizeTurn("default", c.ID, "late-1", chatevents.StatusCompleted, "", nil, false); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	out, err := r.history(t, nil, "delete", c.ID)
+	if err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	var lateOne int
+	select {
+	case lateOne = <-late:
+	default:
+		t.Fatal("the seam never ran")
+	}
+	if !gone(first) || !gone(lateOne) {
+		t.Error("a process survived the deletion")
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err == nil {
+		t.Error("the conversation is still there")
+	}
+}

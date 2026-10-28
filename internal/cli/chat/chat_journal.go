@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,6 +99,11 @@ type turnJournal struct {
 	// backgroundPids are what the done event said the turn left running;
 	// the notice is written at finish, for those still alive then (#294).
 	backgroundPids []int
+	// marker is the exec-tree marker of this turn's own process tree, learned by the host from the
+	// runtime's process at the start of the turn (see learnTurnMarker); "" when it could not be read.
+	markerMu   sync.Mutex
+	marker     string
+	stopMarker context.CancelFunc
 }
 
 // lockedEmitter journals through a turnJournal whose mu the caller holds.
@@ -225,6 +231,16 @@ func (j *turnJournal) handle(ev monomind.Event) {
 
 	switch ev.Type {
 	case monomind.EventStart:
+		if ev.Pid > 0 && j.stopMarker == nil {
+			ctx, cancel := context.WithCancel(context.Background())
+			j.stopMarker = cancel
+			go func(runner int) {
+				m := learnTurnMarker(ctx, runner)
+				j.markerMu.Lock()
+				j.marker = m
+				j.markerMu.Unlock()
+			}(ev.Pid)
+		}
 		// The badge the app shows on the turn; message is the status key.
 		if ev.SandboxStatus != "" {
 			_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandbox, Message: ev.SandboxStatus, Severity: chatevents.SeverityInfo})
@@ -315,11 +331,17 @@ func (j *turnJournal) finishCode(stopRequested bool, res *monomind.TurnResult, c
 	j.forceFlushLocked()
 	j.closeOpenNativeCallsLocked()
 	j.finished = true
+	if j.stopMarker != nil {
+		j.stopMarker()
+	}
 	// The runtime's own helpers (e.g. the MCP servers opencode starts) are
 	// still alive when it reports done and exit with it; only processes
 	// that outlive the runtime are worth a warning.
 	if pids := stillRunning(j.backgroundPids, backgroundSettle); len(pids) > 0 {
-		_ = j.appendLocked(chatevents.EventNotice, backgroundNotice(pids))
+		j.markerMu.Lock()
+		root := j.marker
+		j.markerMu.Unlock()
+		_ = j.appendLocked(chatevents.EventNotice, backgroundNoticeFor(root, pids))
 	}
 
 	status, reason := chatevents.ComputeTurnStatus(stopRequested, res)

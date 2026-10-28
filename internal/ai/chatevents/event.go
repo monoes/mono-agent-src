@@ -261,7 +261,11 @@ type ProcessRef struct {
 	Identity string `json:"identity,omitempty"`
 	// Start is the process's start time as the kernel keeps it (Linux): it tells a process from a later
 	// one that was given the same pid. Empty on records made without it and on other platforms.
-	Start   string `json:"start,omitempty"`
+	Start string `json:"start,omitempty"`
+	// Root is the marker of the turn's own process tree, as the host read it from the runtime's
+	// process at the start of the turn (never from the model or the runtime's report). Only a
+	// process whose marker is this one may be stopped as the turn's.
+	Root    string `json:"root,omitempty"`
 	Command string `json:"command,omitempty"`
 }
 
