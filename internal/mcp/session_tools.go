@@ -17,7 +17,7 @@ import (
 // stale one, or one that names another profile than the token's) is refused.
 
 const coderSessionIntro = "Coder-session tools: a master coder session creates child sessions and controls its descendants (never a peer, an ancestor or itself, except session_status). " +
-	"The caller is the session this process runs for; there is no argument to choose it. Refusals: not_yours (the target is not your descendant), operator_only, limit, access, invalid_input, no_session (this is not a coder session's turn). "
+	"The caller is the session this process runs for; there is no argument to choose it. Refusals: not_yours (the target is not your descendant), operator_only, limit, access, invalid_input, advice (session_spawn: doable in your own session), no_session (this is not a coder session's turn). "
 
 // sessionCaller opens the store and identifies the caller from the token.
 func (s *Server) sessionCaller(ctx context.Context) (*coderhost.Store, coderhost.Caller, error) {
@@ -45,6 +45,8 @@ func sessionToolErr(err error) error {
 		code = "not_yours"
 	case errors.Is(err, coderhost.ErrOperatorOnly):
 		code = "operator_only"
+	case errors.Is(err, coderhost.ErrSpawnAdvice):
+		code = "advice"
 	case errors.Is(err, coderhost.ErrLimit), errors.Is(err, coderhost.ErrQueueFull), errors.Is(err, coderhost.ErrTooManyOpen), errors.Is(err, coderhost.ErrWaitsForPerson):
 		code = "limit"
 	case errors.Is(err, coderhost.ErrAccess):
@@ -77,13 +79,24 @@ func sessionTools() []tool {
 		{
 			name: "session_spawn", mutating: true, annotations: write, handler: toolSessionSpawn,
 			description: coderSessionIntro + "Creates a child session of this master: same runtime, model and folder (or a folder inside it), access at most yours and never full, " +
-				"a budget carved out of your remaining one. Limited by max_children, max_depth and a spawn rate. Returns {conversationId, access, cwd, budgetUsd, commandId, turnId}. " +
-				"The child's first message (optional) starts its work once the coder host picks it up.",
+				"a budget carved out of your remaining one. Limited by max_children, max_depth (the working depth, default 3; a session at it cannot spawn: run the work here with workers of your turn), " +
+				"a spawn rate and the live sessions of the whole tree (12). Returns {conversationId, access, cwd, budgetUsd, commandId, turnId}. " +
+				"The child's first message (optional) starts its work once the coder host picks it up. " +
+				"If you lead a mission or a direction (a running task session of your own) the child is also a named task session below yours, and title, kind (direction, research or task) and reason are required: " +
+				"reason is parallel, long_running, isolation, different_access_or_model or context_overflow. A small piece of work (at most 3 open tasks of size s or smaller, one writer, no parallel branch) is refused once " +
+				"with \"doable in this session\"; run it here, or repeat the call with a reason that applies. task_ids names the tasks of your session the new session takes, which is how the size of the work is read. " +
+				"Every spawn and refusal is written to your decisions ledger. Returns also {taskSessionId, kind, title, depth}.",
 			schema: objSchema(map[string]interface{}{
-				"message":    strParam("The child's first message"),
+				"message":    strParam("The child's first message (a lead: the goal)"),
 				"access":     strParam("coding or workspace, at most your own (default: yours, capped at workspace)"),
 				"cwd":        strParam("A folder inside yours (default: yours)"),
 				"budget_usd": map[string]interface{}{"type": "number", "description": "Spend cap for the child, carved out of your remaining budget (required when you have a budget)"},
+				"title":      strParam("A lead: the new session's name"),
+				"kind":       strParam("A lead: direction, research or task"),
+				"reason":     strParam("A lead: parallel, long_running, isolation, different_access_or_model or context_overflow"),
+				"task_ids":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "A lead: the tasks of your session the new session takes"},
+				"runtime":    strParam("A lead: another runtime than yours"),
+				"model":      strParam("A lead: another model than yours"),
 			}),
 		},
 		{
@@ -131,6 +144,12 @@ func toolSessionSpawn(ctx context.Context, s *Server, args json.RawMessage) (int
 		Access    string  `json:"access"`
 		Cwd       string  `json:"cwd"`
 		BudgetUSD float64 `json:"budget_usd"`
+		Title     string  `json:"title"`
+		Kind      string  `json:"kind"`
+		Reason    string  `json:"reason"`
+		TaskIDs   []int64 `json:"task_ids"`
+		Runtime   string  `json:"runtime"`
+		Model     string  `json:"model"`
 	}
 	if err := decodeTaskArgs(args, &a); err != nil {
 		return nil, err
@@ -139,7 +158,29 @@ func toolSessionSpawn(ctx context.Context, s *Server, args json.RawMessage) (int
 	if err != nil {
 		return nil, err
 	}
-	out, err := store.Spawn(c, coderhost.SpawnRequest{Message: a.Message, Access: a.Access, Cwd: a.Cwd, BudgetUSD: a.BudgetUSD})
+	leads, err := store.LeadsOpenSession(c.ProfileID, c.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	if leads {
+		if a.Cwd != "" {
+			return nil, codedErr{text: "invalid_input: a lead's session works in the lead's folder; cwd is not taken", err: coderhost.ErrInvalid}
+		}
+		_, scope, profile, err := s.leadScope(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := store.SpawnSession(ctx, scope, profile, coderhost.SessionSpawnRequest{Title: a.Title, Goal: a.Message, Kind: a.Kind, Reason: a.Reason, TaskIDs: a.TaskIDs,
+			BudgetUSD: a.BudgetUSD, Access: a.Access, Runtime: a.Runtime, Model: a.Model})
+		if err != nil {
+			return nil, sessionToolErr(err)
+		}
+		return out, nil
+	}
+	if a.Title != "" || a.Kind != "" || a.Reason != "" || len(a.TaskIDs) > 0 || a.Runtime != "" || a.Model != "" {
+		return nil, codedErr{text: "invalid_input: title, kind, reason, task_ids, runtime and model are for the lead of a task session", err: coderhost.ErrInvalid}
+	}
+	out, err := store.SpawnPlain(c, coderhost.SpawnRequest{Message: a.Message, Access: a.Access, Cwd: a.Cwd, BudgetUSD: a.BudgetUSD})
 	if err != nil {
 		return nil, sessionToolErr(err)
 	}
