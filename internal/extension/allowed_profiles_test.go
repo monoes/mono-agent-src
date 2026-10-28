@@ -509,26 +509,78 @@ func TestSetBindingAcknowledgedAfterNarrowingIsNotMirrored(t *testing.T) {
 	}
 }
 
-// A write made under the state lock is bounded: a browser that stops reading is
-// disconnected rather than stalling every pairing and policy change.
-func TestAStalledWriteUnderTheStateLockIsBounded(t *testing.T) {
+// A browser that stops reading stalls only its own writer: the state lock is not held across
+// the network write, so a pairing or policy change from the CLI is not held up, and the
+// stalled socket is closed after deliveryWriteTimeout, which also releases the writer.
+func TestAStalledBrowserDoesNotHoldTheStateLock(t *testing.T) {
 	srv, _, wsURL, _ := startStatusTestServer(t)
-	dialBrowserSet(t, wsURL, instA, "p-a")
+	tok, id := mintRestricted(t, instA, "p-a")
+	dialToken(t, wsURL, tok, instA, "p-a") // never read from again
 	waitBrowsers(t, srv, 1)
-	c := srv.connList()[0]
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Profile: "p-a"}, &Command{Type: CmdCreateTab, Params: map[string]interface{}{"blob": strings.Repeat("x", 64<<20)}}, 30*time.Second)
+		errc <- err
+	}()
+	time.Sleep(400 * time.Millisecond) // the writer is now blocked on a full socket
+
 	start := time.Now()
-	_ = c.writeBounded(func() error {
-		time.Sleep(deliveryWriteTimeout + 500*time.Millisecond)
-		return c.write([]byte("{}"))
-	})
-	if time.Since(start) < deliveryWriteTimeout {
-		t.Fatal("the stand-in write finished early")
+	done := make(chan error, 1)
+	go func() {
+		_, err := SetAllowedProfiles(id, []string{"p-a", "p-b"}, true)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a policy change waited behind a stalled network write")
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	if _, err := ListPairedBrowsers(); err != nil {
+		t.Fatal(err)
+	}
+	_ = start
+
+	select {
+	case err := <-errc:
+		if err == nil {
+			t.Fatal("the stalled command reported success")
+		}
+	case <-time.After(deliveryWriteTimeout + 3*time.Second):
+		t.Fatal("closing the stalled socket did not release the writer")
+	}
+	deadline := time.Now().Add(time.Second)
 	for len(srv.Browsers()) != 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("the stalled browser stayed connected")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The decision is checked again after the write: a command whose policy was narrowed while
+// it was being written is reported as refused and its browser is dropped.
+func TestNarrowingDuringTheWriteDropsTheBrowser(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, id := mintRestricted(t, instA, "p-a")
+	conn := dialToken(t, wsURL, tok, instA, "p-a")
+	waitBrowsers(t, srv, 1)
+	afterWrite = func() {
+		if _, err := SetAllowedProfiles(id, nil, true); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterWrite = nil })
+	_, err := srv.SendCommandTo(Target{Profile: "p-a"}, &Command{Type: CmdCreateTab}, time.Second)
+	if !errors.Is(err, ErrProfileNotAllowed) {
+		t.Fatalf("a policy narrowed during the write went unnoticed: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	_, _, _ = conn.ReadMessage() // the command that was already written
+	if !closedUnauthorized(conn, time.Second) {
+		t.Fatal("the browser stayed connected")
 	}
 }

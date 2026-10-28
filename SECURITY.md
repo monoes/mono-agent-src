@@ -984,13 +984,16 @@ against an agent running as you:
   this for an ordinary command; only the binding operations that manage the set
   itself (`set_binding`) may name a browser by instance alone, and their profiles
   are checked against the set. The allowed set is read where a claim is applied
-  or a command is written to the socket, under the state lock, so a change by
-  the owner takes effect for the next claim or command. A command already
-  written when the owner narrows the set is in flight and may complete; a
-  `set_binding` acknowledged after the narrowing is not mirrored and the
-  browser, which now holds a binding it may not, is disconnected. That write
-  holds the state lock for at most two seconds (a browser that stops reading is
-  disconnected). A connected browser that runs a profile no longer allowed is
+  or a command is written to the socket: it is checked before the write and
+  again right after it, and the state lock is not held across the network
+  write, so a browser that stops reading cannot stall pairing or policy changes
+  for anyone (its socket is closed after two seconds, which releases the
+  writer). A change by the owner therefore takes effect for the next claim or
+  command. A command already on the wire when the owner narrows the set is in
+  flight and may complete; it is noticed by the second check and the browser is
+  dropped. A `set_binding` acknowledged after the narrowing is not mirrored and
+  the browser, which now holds a binding it may not, is disconnected. A
+  connected browser that runs a profile no longer allowed is
   disconnected within a few seconds.
   Records paired before the limit existed, and the shared `extension.token`,
   are not limited (a compatibility path: set a limit with `browsers allow`;

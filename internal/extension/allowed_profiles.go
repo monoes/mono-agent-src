@@ -251,59 +251,73 @@ func errNotAllowed(out []string) error {
 	return fmt.Errorf("profile %q is %w: change what it may run with `monoagentcli extension browsers allow`", first, ErrProfileNotAllowed)
 }
 
-// whileServing runs fn only if c's token may serve profile at this moment
-// (profile "" is a command that names none), with the state lock held so the
-// owner's change cannot land between the check and fn. It reports whether fn
-// ran. A socket on the shared token serves anything.
-func (c *extConn) whileServing(profile string, fn func()) bool {
+// IsAnyKeyword reports whether a profiles field (or one id) reads as the keyword
+// that lets a browser run every profile: "any" in any case or "*", ignoring
+// surrounding space. The pairing card uses this one check both to leave such an id
+// out of the prefill and to parse the field, so the two cannot disagree.
+func IsAnyKeyword(s string) bool {
+	t := strings.TrimSpace(s)
+	return strings.EqualFold(t, "any") || t == "*"
+}
+
+// servesNow reports whether c's token may serve profile at this moment ("" is a
+// command that names none). The state lock is held only while the record is read.
+// A socket on the shared token serves anything; a missing or unreadable record serves nothing.
+func (c *extConn) servesNow(profile string) bool {
 	if c.tokenID == "" {
-		fn()
 		return true
 	}
-	unlock, err := lockState()
-	if err != nil {
+	b, ok := pairedBrowserByID(c.tokenID)
+	if !ok {
 		return false
 	}
-	defer unlock()
-	list, err := readBrowsersLocked()
-	if err != nil {
-		return false
-	}
-	for _, e := range list {
-		if e.ID == c.tokenID {
-			if e.Restricted && (profile == "" || !containsString(e.AllowedProfiles, profile)) {
-				return false
-			}
-			fn()
-			return true
-		}
-	}
-	return false
+	return !b.Restricted || (profile != "" && containsString(b.AllowedProfiles, profile))
 }
 
-// writeBounded runs write, closing the socket if it has not finished after
-// deliveryWriteTimeout: it is called with the state lock held, and a browser
-// that stops reading must not stall every pairing and policy change.
-func (c *extConn) writeBounded(write func() error) error {
+// allowedNow reports whether every profile in want is allowed for c's token right now.
+func (c *extConn) allowedNow(want []string) bool {
+	return len(c.outsideAllowed(want)) == 0
+}
+
+// checkedWrite writes to c's socket without holding the state lock, which a browser
+// that stops reading would otherwise hold for everyone: the decision (ok) is taken
+// before the write and taken again after it. A policy narrowed meanwhile is caught
+// by the second check: the browser is dropped and the caller told, though the one
+// command already on the wire may complete (documented as in flight). The write
+// itself is bounded: a socket that does not take it within deliveryWriteTimeout is
+// closed, which also releases anything waiting on the writer.
+func (c *extConn) checkedWrite(ok func() bool, write func() error) (sent bool, err error) {
+	if !ok() {
+		return false, nil
+	}
 	stuck := time.AfterFunc(deliveryWriteTimeout, func() { _ = c.ws.Close() })
-	defer stuck.Stop()
-	return write()
+	err = write()
+	stuck.Stop()
+	if afterWrite != nil {
+		afterWrite()
+	}
+	if err == nil && !ok() {
+		c.closeUnauthorized("this browser is no longer allowed to run that profile")
+		return false, nil
+	}
+	return true, err
 }
 
-// deliveryWriteTimeout bounds a command write made under the state lock.
+// deliveryWriteTimeout bounds a command write to a browser's socket.
 const deliveryWriteTimeout = 2 * time.Second
 
-// beforeDeliver, set by tests only, runs between choosing a browser and delivering to it.
-var beforeDeliver func()
+// beforeDeliver and afterWrite, set by tests only, run between choosing a browser
+// and writing to it, and between the write and the second check.
+var beforeDeliver, afterWrite func()
 
-// deliver writes cmd to c if c's token may serve profile right now.
+// deliver writes cmd to c if c's token may serve profile, before and after the write.
 func (s *Server) deliver(c *extConn, profile string, cmd *Command) error {
 	if beforeDeliver != nil {
 		beforeDeliver()
 	}
-	var werr error
-	if !c.whileServing(profile, func() { werr = c.writeBounded(func() error { return s.writeCommandTo(c, cmd) }) }) {
+	sent, err := c.checkedWrite(func() bool { return c.servesNow(profile) }, func() error { return s.writeCommandTo(c, cmd) })
+	if !sent && err == nil {
 		return errNotAllowed([]string{profile})
 	}
-	return werr
+	return err
 }

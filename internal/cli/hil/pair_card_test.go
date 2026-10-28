@@ -294,9 +294,14 @@ func TestPairCardProfilesFieldChoices(t *testing.T) {
 // the given name (plus other profiles), approves it as the card shows it and
 // returns the decided claim.
 func pairCardInQueue(t *testing.T, queueName string, others ...[2]string) extension.PendingClaim {
+	return pairCardInQueueID(t, "q1", queueName, others...)
+}
+
+// pairCardInQueueID is pairCardInQueue for a queue profile with the given id.
+func pairCardInQueueID(t *testing.T, queueID, queueName string, others ...[2]string) extension.PendingClaim {
 	t.Helper()
 	cfg, sdb, _, _, _ := pairCardFixture(t)
-	for _, o := range append([][2]string{{"q1", queueName}}, others...) {
+	for _, o := range append([][2]string{{queueID, queueName}}, others...) {
 		if _, err := sdb.DB.Exec(`INSERT INTO profiles (id, name) VALUES (?, ?)`, o[0], o[1]); err != nil {
 			t.Fatal(err)
 		}
@@ -305,7 +310,7 @@ func pairCardInQueue(t *testing.T, queueName string, others ...[2]string) extens
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := extension.OpenPairCard(context.Background(), sdb.DB, "q1", claim); err != nil {
+	if err := extension.OpenPairCard(context.Background(), sdb.DB, queueID, claim); err != nil {
 		t.Fatal(err)
 	}
 	var card, editable string
@@ -316,7 +321,7 @@ func pairCardInQueue(t *testing.T, queueName string, others ...[2]string) extens
 	_ = json.Unmarshal([]byte(editable), &f)
 	f["code"] = extension.PairCode(claim.ID, secret)
 	data, _ := json.Marshal(f)
-	cfg.ProfileID = "q1"
+	cfg.ProfileID = queueID
 	if err := approveCard(t, cfg, card, string(data)); err != nil {
 		t.Fatal(err)
 	}
@@ -380,5 +385,19 @@ func TestPairCardTypedProfilesAreNotGuessed(t *testing.T) {
 	}
 	if c := approvedClaim(t, claimID); strings.Join(c.AllowedProfiles, ",") != "q1,default" {
 		t.Fatalf("allowed = %v", c.AllowedProfiles)
+	}
+}
+
+// A queue profile whose ID reads as the "any" keyword in any spelling the parser
+// accepts is not prefilled: approving as shown leaves the browser serving nothing,
+// never every profile.
+func TestPairCardNeverPrefillsAnIDThatReadsAsAny(t *testing.T) {
+	for _, id := range []string{"Any", "ANY", " any ", "*", " * "} {
+		t.Run(id, func(t *testing.T) {
+			c := pairCardInQueueID(t, id, "Queue")
+			if c.Unrestricted || !c.Restricted || len(c.AllowedProfiles) != 0 {
+				t.Fatalf("id %q approved as shown = restricted %v unrestricted %v allowed %v, want none", id, c.Restricted, c.Unrestricted, c.AllowedProfiles)
+			}
+		})
 	}
 }

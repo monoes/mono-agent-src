@@ -565,7 +565,7 @@ func OpenPairCard(ctx context.Context, db *sql.DB, profileID string, c PendingCl
 	// would then mean something else when the field is read back. An id that
 	// could be misread the same way is left out (the browser then serves nothing yet).
 	pre := profileID
-	if pre == "any" || pre == "*" || strings.Contains(pre, ",") || len(pre) > MaxProfileIDLen {
+	if IsAnyKeyword(pre) || strings.Contains(pre, ",") || len(pre) > MaxProfileIDLen {
 		pre = ""
 	}
 	editable, _ := json.Marshal(map[string]string{"code": "", "profiles": pre})

@@ -55,11 +55,8 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	var werr error
 	sent := true
 	if cmd.Type == CmdSetBinding {
-		sent = c.whileAllowed(setBindingNames(cmd.Params), func() {
-			// The state lock is held for this write: a socket that will not
-			// take it is closed rather than left to stall every state change.
-			werr = c.writeBounded(func() error { return s.writeCommandTo(c, cmd) })
-		})
+		names := setBindingNames(cmd.Params)
+		sent, werr = c.checkedWrite(func() bool { return c.allowedNow(names) }, func() error { return s.writeCommandTo(c, cmd) })
 	} else {
 		werr = s.deliver(c, t.Profile, cmd)
 	}

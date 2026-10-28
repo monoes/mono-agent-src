@@ -127,7 +127,7 @@ func pairCardProfiles(ctx context.Context, db *sql.DB, field *string) (ids []str
 	if field == nil {
 		return nil, false, nil
 	}
-	if whole := strings.TrimSpace(*field); strings.EqualFold(whole, "any") || whole == "*" {
+	if extension.IsAnyKeyword(*field) {
 		return nil, true, nil
 	}
 	for _, p := range strings.Split(*field, ",") {
@@ -135,7 +135,7 @@ func pairCardProfiles(ctx context.Context, db *sql.DB, field *string) (ids []str
 		if p == "" {
 			continue
 		}
-		if strings.EqualFold(p, "any") || p == "*" {
+		if extension.IsAnyKeyword(p) {
 			return nil, false, errors.New(`"any" must be the whole field, not one entry of a list`)
 		}
 		id, err := profiledir.Resolve(ctx, db, p)
