@@ -17,12 +17,13 @@ import (
 
 func imageDeps(cfg *globalConfig) imagecli.Deps {
 	return imagecli.Deps{
-		JSONOutput:   func() bool { return cfg.JSONOutput },
-		ProfileID:    func() string { return cfg.ProfileID },
-		OpenDB:       func() (*storage.Database, error) { return initDB(cfg) },
-		NotFound:     errNotFound,
-		InvalidInput: errInvalidInput,
-		WriteJSON:    writeJSONTo,
+		JSONOutput:      func() bool { return cfg.JSONOutput },
+		ProfileID:       func() string { return cfg.ProfileID },
+		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
+		RequireOperator: requireOperator,
+		NotFound:        errNotFound,
+		InvalidInput:    errInvalidInput,
+		WriteJSON:       writeJSONTo,
 		NewTable: func(w io.Writer, headers []string) *tablewriter.Table {
 			return newPlainTable(w, headers, nil)
 		},

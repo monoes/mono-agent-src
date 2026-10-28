@@ -50,6 +50,30 @@ func noVerifier(actor Actor, what string) error {
 	return bindingRefused("this agent is bound to verify task #%d: it cannot %s", actor.Task, what)
 }
 
+// noUnboundInManaged refuses an agent that no mission token binds (an ordinary agent: no
+// session, no task) the verbs that change work in a session a conversation manages (what is
+// claimed, finished, released, split, added or attached there): the conductor hands those out,
+// and an agent holds them only through the token it was given. Such an agent may still read
+// and comment, and the operator and a bound agent (the conversation's lead is bound to its
+// session) are not affected, nor is a session no conversation manages.
+func (s *Store) noUnboundInManaged(ctx context.Context, x dbx, profileID string, session int64, actor Actor, what string) error {
+	if actor.Kind != Agent || actor.Session != 0 || session == 0 {
+		return nil
+	}
+	var conv sql.NullString
+	err := x.QueryRowContext(ctx, `SELECT conversation_id FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, session).Scan(&conv)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // the caller's own checks say the session is not found
+	}
+	if err != nil {
+		return fmt.Errorf("tasks: reading the session's conversation: %w", err)
+	}
+	if conv.String == "" {
+		return nil
+	}
+	return bindingRefused("session #%d is managed by a conversation: an agent without a task token cannot %s there (it may read); its conductor hands out the work", session, what)
+}
+
 // sessionIDOf is the session a task belongs to (0 for a task of the personal
 // board) and whether the task exists in the profile.
 func sessionIDOf(ctx context.Context, x dbx, profileID string, id int64) (int64, bool, error) {

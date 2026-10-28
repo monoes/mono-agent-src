@@ -859,9 +859,9 @@ private address is not caught; the consent step is the control there.
 
 ### Saving to the vault from the extension (`vault.save`)
 
-The side panel's confirm card saves an image or document you clicked Save on
-into the image/file vault of the profile the panel is set to, the vault
-`image list` and the MCP tools `vault_item_list` and `vault_item_get_path`
+The side panel's confirm card saves an image, audio or video file or document you clicked Save on
+into the media/file vault of the profile the panel is set to, the vault
+`media list` (once `image list`) and the MCP tools `vault_item_list` and `vault_item_get_path`
 read. It is one bridge request method, `vault.save`
 (`internal/extension/vault_save.go`):
 
@@ -881,9 +881,13 @@ read. It is one bridge request method, `vault.save`
   `mime`, `size_bytes`); it never carries the file, its path or anything else
   from the vault, and the bridge has no other `vault.*` method.
 - **Checked before anything is written:** at most 20 MiB once decoded (a
-  request is one WebSocket frame, read up to 32 MiB); only PNG, JPEG, GIF,
-  WebP, PDF, plain text, Markdown and CSV, and the bytes must sniff as the
-  type they claim (no SVG, HTML or executables); the name is a label of at
+  request is one WebSocket frame, read up to 32 MiB, so a longer video is not
+  taken); only PNG, JPEG, GIF, WebP, MP3, WAV, Ogg, M4A, MP4, WebM, PDF,
+  plain text, Markdown and CSV, and the bytes must sniff as the type they
+  claim (no SVG, HTML or executables; an audio or video file is never
+  played or decoded by MonoAgent in the bridge, only stored; an M4A and an MP4
+  are the same container, so either label is accepted for either: the label
+  is the sender's claim and changes only the extension the file is stored under); the name is a label of at
   most 255 bytes with no path separator, control or bidi character and not
   `.` or `..` (the file itself is stored as `img-NNN` plus the type's
   extension, 0600, never under the sent name); the profile id is a valid
@@ -891,14 +895,14 @@ read. It is one bridge request method, `vault.save`
   since the panel listed it gets no folder back; the source address is kept
   only as http(s) scheme, host and path (no user-info, query, fragment or a
   segment's `;parameters` such as `;jsessionid=`, so a presigned URL's
-  signature never shows in `image list` or the app). A token that is itself
+  signature never shows in `media list` or the app). A token that is itself
   a path segment is kept: nothing tells it from a file name.
 - **Limits per profile.** Files saved this way (vault items with a client id)
   may total at most **2 GiB** and **5,000 items** per profile; the count and
   the sum are read inside the save's own `BEGIN IMMEDIATE` transaction, so
   saves at once cannot pass them together. Past either, the save is refused
   with `quota_exceeded`, naming the limit (final: delete saved files in the
-  Image Vault). At most **20 saves a minute per profile** and **60 a minute in
+  Media Vault). At most **20 saves a minute per profile** and **60 a minute in
   all**, counted in memory in the bridge process; past either, `rate_limited`
   with `retry_after` in seconds. A save is counted only once its profile is
   known to exist, from a list of live profiles read at most once a second, so
@@ -916,7 +920,7 @@ read. It is one bridge request method, `vault.save`
   next free number, at most 5 times, then is refused with `storage_conflict`
   (final: the message says to check the profile's vault folder).
 - **Documents stay out of the knowledge base.** A PDF, text, Markdown or CSV
-  file goes into the image/file vault too, not the documents vault
+  file goes into the media/file vault too, not the documents vault
   (`profile documents`): documents there are indexed into the knowledge base
   that agents read, and content from a web page must not land in it without
   the person adding it there themselves. For the same reason a save is not
@@ -1481,7 +1485,7 @@ layers, from strongest:
    automation role's run gets the sending role's workdir the same way. The
    engine confines every file-touching node of such a run
    (`internal/fsconfine`): spreadsheet read/write, write file, image nodes
-   and their output folders, image vault save, email and Outlook
+   and their output folders, media vault save, email and Outlook
    attachments, Slack and Telegram uploads, FTP local paths, YouTube and
    Drive uploads, browser upload steps, and Gemini reference images. A
    path is resolved relative to the workdir, `..` and symlinks are
@@ -1658,15 +1662,13 @@ that works a task acts on them. The defences:
   by the conductor is bound, a free agent is not. An agent verifies only while the
   session runs; the operator may act while it is paused. A task that fails
   verification more often than
-  `max_retries` is blocked for the operator. A process bound to a session
-  (`MONOAGENT_TASK_SESSION`, the carrier of the worker token to come) may act in
-  that session only: not on the personal board and not in another session, in
+  `max_retries` is blocked for the operator. A process bound by a mission token (below) may act in
+  that session, on its one task, only: not on the personal board and not in another session, in
   the CLI, the store and over MCP. That includes the operator-enabled delegation
   (`task agents allow --approve --view`): a bound worker cannot approve or view the
   personal board through it, the `task digest` hook shows it nothing of that board,
   and a delegated approval never opens a session's task (only `session approve`
-  does). That variable is a label, not a credential: an agent that sets or unsets
-  its own environment can change it. **An agent that scrubs its own environment (no
+  does). **An agent that scrubs its own environment (no
   agent marker, no `--as`) is treated as the operator by the CLI** and can run
   `session approve`, `session resume` and `session budget`: it can open its own plan,
   resume a pause and raise its own budget. That weakness predates sessions and has
@@ -1676,26 +1678,155 @@ that works a task acts on them. The defences:
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
   deleted with its profile. A session that has spent its budget hands out no tasks.
   **A mission's verifier** is started by the lead (`mission_verify`) as another agent
-  than the executor, read only, with `MONOAGENT_TASK_ROLE=verifier` next to the task
-  binding: in the store that actor may verify, comment on (once the task is in Review)
+  than the executor, read only, with a verifier-role mission token for the task:
+  in the store that actor may verify, comment on (once the task is in Review)
   and attach evidence to its one task, and is refused claiming, finishing, releasing,
   splitting, adding or writing session events; a verifier without a task is refused. The
   conductor never records a verdict for the lead, but that is the conductor's rule and
-  not the store's: the store lets any named agent of the session verify a task it did
-  not hand back (a peer checker), so the lead holds no verifier binding and no more. Like the binding, the role
-  is an environment label, not a credential: a process with a shell can unset it. The store
-  therefore refuses verdicts by task-bound non-verifiers and by the executing identity, and
-  the conductor distrusts any verdict not recorded by the verifier it assigned or by the
-  operator (`verdict_by_unexpected_actor`); a mission does not close on such a task. **The evidence rule:** a task of kind
+  not the store's alone: in a session a chat conversation manages the store refuses a
+  verdict from any agent that holds no verifier binding (only the verifier the conductor started
+  for the task, or the operator, records one), so the lead holds none and no more; only a session
+  nobody manages (the operator's own) still lets another named agent verify a task it did not hand
+  back (a peer checker). The store also refuses verdicts by task-bound non-verifiers and by the
+  executing identity, and the conductor distrusts any verdict not recorded by the verifier it assigned or by the
+  operator (`verdict_by_unexpected_actor`); a mission does not close on such a task.
+  **Mission tokens.** What binds a worker's or verifier's process to its session, task, role and
+  name is a token the conductor mints for that run (`internal/agenttokens`, the same table and
+  hashing as the HTTP API's agent tokens, with its own binding columns), passed in the
+  process's environment (`MONOAGENT_TASK_BINDING`; its name has no key, secret or token in it so that an agent runtime's default environment filter, which drops variables by such words, does not strip it. Each runtime's own policy is outside this repository, so that every runtime passes it to its shells and tool servers is **unverified live**: a runtime that drops it leaves its worker unbound, which fails closed). The CLI and the MCP tools take the binding
+  only from a token the database verifies for the call's profile; the `MONOAGENT_TASK_*` labels
+  that stay in the environment (the brief's text, an agent marker) scope nothing. The token is
+  short-lived (a little over the run's timeout), revoked when the run ends or expires (a conductor that
+  starts or resumes a conversation also revokes the tokens an earlier run of it left, taking only those of a run whose chat turn is no longer active (it assumes a crashed turn is reconciled, which ends it; until then those tokens end at their expiry, and a second conductor of a running conversation never revokes the first one's), and a conductor that resumes the same turn id under a new process leaves its predecessor's tokens to expire, since the sweep cannot tell a resumed conductor from a concurrent one of the same turn (a follow-up: a per-conductor instance with a liveness signal), and
+  expired ones are purged), bound to one task, and not accepted by the HTTP API; a token that is unknown, expired, revoked, another profile's or
+  another kind refuses every act, and no token is an ordinary agent that cannot record a verdict,
+  and cannot claim, take the next task, finish, release, split, add a task or a dependency or attach evidence, in a session a
+  chat conversation manages (it may still read; sessions the operator created keep their rules). A worker's token never records a verdict and a
+  verifier's never claims or finishes. *Honest limits:* a process that can read the token (a
+  process of the same user, its own environment, the process table, the database file) can use it
+  where the token is not bound to its worker's process (below), and so can a process that can read
+  the database or the vault write its own; `verdict_by_unexpected_actor` (above) is the backstop
+  for verdicts, not the token alone. **Process binding.** On Linux, for a runtime whose shells and
+  tool servers all run inside the process tree monomind starts (only `claude` is listed; the
+  others are unverified live and stay unbound), the conductor records the pid and start stamp of
+  that process after it starts (`ExecOptions.OnStart`), signed under a key derived from the
+  profile's vault data key, and a token is then refused (like any token that does not verify) from
+  a caller whose parent chain does not include that process, so a sibling worker that read the
+  token from the process table or an inherited environment is refused. The worker's own shells and
+  tool servers are its descendants and keep working. Once a process is recorded the check fails closed: a caller
+  whose parent chain cannot be read (its own /proc, a race) is refused like one outside the tree,
+  and so is a tool that was detached or reparented out of the worker's tree (a daemonised helper,
+  another pid namespace); the refusal says so in words (CLI stderr, the MCP tool error) and is
+  logged, rather than reading as a bad token. It is not enforced, and the token behaves as
+  described above, for a token with no recorded process (minted before this existed, an unlisted
+  runtime, a bind that failed (journalled as a notice and logged, never silent) or the moment
+  between the start and the record: the token is in the worker's environment from the start of
+  the process until the record is written, and a sibling polling the process table can win that
+  window; passing the token to monomind over a pipe is a follow-up), and where ancestry is not
+  read (not Linux). The binding is a courtesy layer, not a sandbox: it reads the caller's parent chain from `/proc`, which a process of the same user that runs in its own user and mount namespace can present differently, so such a process can still defeat it; a kernel-side fact (the parent process id of the first hop, or the peer credentials of a socket to the conductor) is the follow-up, together with the pipe hand-off. A tree deeper than the 64 ancestors read is refused like one outside the tree. A writer of the database can still clear the record or add a token of its own. The sweep, revocation and expiry are unchanged. The
+  token is
+  scoped and per run, so what it reaches is that one task until the run ends, and it is not a
+  sandbox: a worker's own sub-processes inherit it. An agent that scrubs its own environment
+  and is not recognised as an agent is still treated as the operator by the CLI (above). **The evidence rule:** a task of kind
   `task` that declares files cannot be finished to Review with a result unless it holds a
   commit, diff, test, file or log artifact (a report does not count); the check runs in the
-  store, inside the hand-back transaction, for every caller. It is self-asserted: an
-  artifact reference is a string the agent wrote and is not validated, and the files a
-  task declares come from notes the planner wrote, so the rule makes skipping evidence
-  a visible refusal and is not proof that the work exists. When a mission's tasks are all
+  store for every caller (the git work before the write transaction opens, a scope check inside it). The CLI, the MCP server and
+  the mission conductor install a git-backed checker (the store has no git access and
+  stays pure; a store without one, as in personal callers and tests, behaves as before).
+  In a git work tree the checker requires a `commit` artifact, named by its full object id
+  (40 hex digits, 64 in a sha256 repository: never an abbreviation, option, ref name or path;
+  the stored reference is the normalised id), that exists, is reachable from the work tree's
+  HEAD or a `monoagent/<id>/<id>` branch, is not a merge commit, is not part of the history the
+  task started from, and changes at least one declared file or a path under a declared folder
+  (at least one, not all), by its own diff or, for a branch commit, by the branch's net change against the later of its merge base with HEAD and the task's start (a change made and reverted shows nothing). The work tree
+  is the folder of the session's conversation, read by the store from its database; the
+  process's working directory, which an agent can change, is never consulted for a mission
+  session. Git, not a file-name walk, decides whether that folder is a work tree. Only an
+  existing folder that git says is no repository, with no start point recorded for the task,
+  keeps the old rule (any artifact of an evidence kind). For a mission session every other
+  case is a refusal that the operator can resolve by closing the task: a conversation that is
+  gone or whose folder is empty or relative, a folder that no longer exists, a work tree git
+  cannot read (only git's own "not a git repository" answer, with no `.git` entry, counts as no repository), a repository that disappeared or was replaced after the task started (a recorded start point that the repository does not hold), a shallow repository or one with a grafts file (both rewrite what git reports as a commit's ancestry), and a repository for
+  which no start point was recorded. A session with no conversation (the operator's own)
+  is checked in the process's working directory. When a task first starts, the operator's
+  process records the folder's HEAD as a `base` artifact (an agent cannot write one; the first
+  stands; a repository with no commit and no ref at all records a stand-in, an unreadable HEAD that is not proven unborn, or a folder git cannot read at all, records a refusing `unreadable` marker; the record is retried at each
+  start of the task); a commit that is part of it is refused. The cheap refusals (who the
+  caller is, the session state, the claim) are made before git is run for a caller.
+  A declared glob is read as the folder before its first wildcard segment, and a glob that
+  starts with a wildcard names no folder. The git checks run before the write
+  transaction opens, under one 5 second deadline over the newest five commits, and the
+  transaction confirms the task and its evidence are unchanged, else refuses with a retryable
+  error. The same check runs again before an agent can verify a task; the operator is never
+  held to it (it verifies, or closes with a move, without it). Git runs as an argument list
+  without a shell, with repository-redirecting and object-replacement variables dropped. A work
+  folder is written by the agent, and repository-local configuration, hooks and some environment
+  variables can make git run a program (a file system monitor, a hook, a signature verifier, a
+  pager, an editor, an external diff, ssh), so every git call of the checker and of the
+  scheduler's worktree handling pins those settings to inert values and drops those
+  variables (`internal/gitsafe`), and the checker reads history with plumbing that does not
+  verify signatures. Every git call also runs with lazy object fetching off and no transport allowed (an empty environment allowlist the repository's configuration cannot widen). With lazy fetching off, a partial (blobless) clone with missing objects fails closed on the operator's checkout. Commit-graph files are ignored. Not covered: content filters and merge drivers, which git cannot switch off;
+  the scheduler's checkpoint (`add`) and merge of an isolated writer's worktree still honour them.
+  A task started before a start point could be recorded cannot be told from older work. Still
+  forgeable: a rebased copy of old work is a new commit; a commit made for another task after this
+  task's start point is new to it; commit dates and authors are not read. Still self-asserted: test, file, log and diff artifacts (not accepted alone in a git work
+  tree, but not checked), the declared files themselves (planner-written notes), whether a
+  commit that touches a declared file is the work that was asked for, and who made it
+  (commit dates and authors are not read, and a worker can commit a trivial change to a
+  declared file after the start). A session an agent links to another chat of its profile is
+  checked in that chat's folder. A process that installs no checker (the desktop app) does
+  not run the check. When a mission's tasks are all
   done or verified, `mission_finish` only proposes the close (it attaches the final report and
   emits `mission.report`); the session stays running and only the operator closes it
   (`session close`, which refuses an agent). No code path of the conductor closes a session.
+  **The conductor's git work in agent-writable folders** (the isolated writers' worktrees,
+  the verifiers' checkouts and the merge into the chat folder's repository) runs as the
+  operator. Repository-local git configuration or hook scripts can make git run a program
+  during staging, checkout and merge, and an agent that can write in those folders can
+  write them. Two controls apply. First, every git command the conductor runs carries
+  command-line settings and environment that override the repository's own file: the
+  hooks path is pointed at the null device, so the repository's hooks do not run for the
+  conductor's own checkpoint and merge commits, checkouts and ref updates, and so does an
+  operator-level `core.hooksPath` (git-lfs hooks included), which the pin overrides for
+  the conductor's git calls; that is a behaviour change, and the project's checks are run
+  by the lead after a merge. On Windows, which has no null device, the hooks path is an
+  empty folder under the operator's state folder. Its mode bits do not protect it on
+  NTFS: the protection is the user profile's inherited permissions plus a check that the
+  folder is empty on every use. A stray file in it makes the conductor's git calls fail
+  closed (nothing runs); the operator recovers by removing that file. The file system
+  monitor is off, submodule recursion is off, signature verification on a merge is off
+  and signing is off (the conductor's merge commits are unsigned by design). Git is told
+  not to fetch a missing object from a configured remote (a lazy fetch of that kind can
+  run a program the repository's configuration names), and its "user" protocol policy
+  is closed in the environment. The environment also carries an empty transport
+  allowlist, which repository configuration cannot widen (a per-transport allow setting
+  in the repository beats a generic one, but not this list); the conductor never
+  fetches or clones, so no transport and no helper program can be started, on any git
+  version. Second, before a staging, checkout or merge step, and
+  before a finished worker's worktree is inspected or removed, the conductor reads the
+  repository-local configuration (includes resolved, the per-worktree file too unless
+  its switch is plainly false) and refuses, naming the section and variable but never
+  the subsection, a URL or a value, when it defines a program or a setting that leads
+  to one: content filters, merge drivers, external diff and text conversion, signing
+  programs, the ssh key command, the askpass and alternate-refs programs, trailer
+  commands, submodule update commands, remote program and helper settings, remote
+  addresses that select a helper scheme, any protocol policy other than an explicit
+  never, partial-clone and promisor settings, credential helpers, URL rewrites that
+  select a remote helper, stored merge options, and a file system monitor or hooks
+  path other than an explicit off or empty value. The last of these is deliberate: the
+  pins would override a repository-local hooks path or monitor anyway, and refusing is
+  the fail-safe choice, so the operator removes the entry. A repository that sets its
+  hooks path locally (husky-style tooling) needs it set globally instead, or removed,
+  for mission repositories. On a git that predates the lazy-fetch switch,
+  the transport allowlist and the refusal are the controls. A refusal is journaled as its own notice and fails closed: no
+  worktree is made, a worktree that already exists is kept as it is and reported as not
+  inspected, and the operator removes the entry. Nothing is cached between steps.
+  Filters and merge drivers have no command-line switch, so that check is best effort:
+  an agent rewriting the configuration in the instant between the check and the git
+  command is not stopped. The operator's own global and system configuration is
+  trusted and not inspected, and a filter or driver defined there (git-lfs, for
+  example) still runs on content an agent chose, through attributes files the agent
+  controls.
   **A mission's confirmation** (the person's "run this send as a mission") is a record,
   not a flag: the coder host's chat children inherit the host's environment and are
   reparented, so they look like the operator to environment and ancestry checks, and
@@ -1800,6 +1931,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   caller (the same guard as the task board, with the same limit: a process that scrubs its own environment is
   treated as the operator). `sessions list`, `settings get` and `command` need a session token (they then show
   the caller's own tree only) or the operator.
+- **Process binding is a courtesy layer, not a boundary.** The check that a call comes from the turn's process or a descendant reads the caller's parent chain from `/proc` in the caller's own mount namespace. It stops ordinary cross-use (a sibling worker, a lead, a reused process id, a tool that was detached from the tree), but a process of the same user that runs in its own user and mount namespace can present a different process table and so defeat it, and the same holds for any other `/proc`-based ancestry check. The boundary against a same-user sibling is the OS user or a sandbox, not these tokens. A check that cannot be forged needs a kernel-supplied peer credential (a socket to a process in the host's own namespaces, whose own process table decides); that verification service is a planned follow-up, not part of this feature.
 - **Session tokens.** The host mints a token for each turn (`MONOAGENT_SESSION_TOKEN`). It names profile,
   conversation and turn, is valid only while that turn is the session's current one (24 hours at most), is stored
   as a hash and signed under a key derived from the profile's vault key, and counts only from the turn's process or
@@ -1834,15 +1966,35 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   answered by the model and never take a default. A model-made decision is written to the decisions ledger as the
   model's. The producer tools (`session_park`, `session_record`, `sessions park|record`) take the caller from the
   verified session token (no session argument), validate the class, refuse a hard class as reversible or as a
-  recorded model decision, and consult the policy: a park the policy leaves to the model and a record the policy
-  leaves to a master or the user are refused. They start no turn and carry no approval. The `reversible` flag is the
-  model's claim and is shown as such in the ledger. A model's ledger rows rotate only among its own and `record` is limited to 20 an hour per session. A master answers
+  recorded model decision. A park the policy leaves to the model is refused, and so is a park by a session with
+  no master (solo, master, orphaned child) for any gap but a hard one; a hard gap of such a session waits for the
+  person with no timeout and no autonomy path can answer it (the person sees it in `sessions questions`, in the
+  session's `waiting_user` state and in the per-kind count (`coder_items`, derived from the current answerer) of the `summary` "needs you" line, which the app also raises as a
+  desktop notification; no workflow Human-in-Loop row is made, so no approval surface is involved). `record` takes any
+  non-hard class whatever the preset; the ledger and its revert are the control. They start no turn and carry no
+  approval. The `reversible` flag is the model's claim, is trusted, and is shown as such in the ledger. A model's ledger rows rotate only among its own and `record` is limited to 20 an hour per session. A master answers
   its direct child's question under its own token (`session_answer`); every question that is not its direct child's
   (including one of a deeper descendant) is refused with one text. Reading questions and decisions needs the operator
   or a session token, is limited to the caller's subtree, and returns model-written text cleaned.
 - **Mesh text is data.** What other agents send to a session over monomind's mesh is sealed as untrusted peer
   content in front of its next turn; it starts no turn and carries no authority. The mesh name is not a trust
   anchor and `mesh_accept` (`none`, `subtree` or `project`; default `subtree`) limits who is heard.
+- **Mission child sessions: policy and marks (data model only).** The tables `coder_mission_policy`,
+  `coder_mission_children` and `coder_mission_events` (migration 139) hold, per task session, a policy (mode `off`,
+  `marked` or `all`; `max_children`; `share_pct`), the tasks its lead marked, and an audit row for every change with
+  who made it. This surface starts no session and no turn: nothing in the host reads these tables to spawn yet, so a
+  mark has no effect on a running mission. What the store enforces for the spawn path to come: only the lead of that
+  task session (its conversation equals `task_sessions.conversation_id`, taken from a verified session token) marks,
+  reserves or links; a process that also holds a task-bound mission binding (a worker or verifier) is refused, but only if the tool layer passes the verified binding result to `NewLeadScope` (a scope built without that check is refused; whether the tool layer does it is for the next phase to build and verify); a task
+  of another session or profile, a session that does not exist and a caller that is not the lead are refused with one
+  text. A mark in a draft session is stored and reserves nothing until the person has approved the plan. The lead
+  raises `max_children` only up to the session's own operator-only `max_children` setting and `share_pct` only up
+  to 80 (1 to 80 for everyone); it can switch the mode between `off` and `marked` (unless the person turned it off: an operator `off` stays off until the operator turns the mode on) and lower it from `all`, and mode `all` (every worker task becomes a child) is the
+  operator's alone to turn on. A `max_children` or `share_pct` the operator writes is a cap the lead cannot raise past (the operator clears it to give the lead its freedom back); the lead may always lower, and every such change is an audit row naming who. None of it writes a setting, access level or the lead's budget. The one write outside these
+  tables lowers a finished child's own cap to what it spent (never up, never to 0 which means uncapped) so the unspent
+  carve returns to the lead. The share is held only for children that exist or are reserved (a marked task holds nothing), and the statement that reserves checks it. A lead's own audit rows are bounded per kind (a flood of one kind, say marks or raises, can push out only earlier rows of that kind, never a raise by a flood of marks or lowers); identical repeated marks of one task collapse and a change of size or budget is a row of its own; changes of the default budget are recorded; the operator's and the host's rows are not rotated. A child's state change, its audit row and the lowering of its cap are one transaction, so a failure leaves the row live to be ended again. Known gap, not new: an agent can link a task session to any conversation of its profile, so a worker that holds no binding could become the lead of a session of its own; the binding check does not close that, and a mission lead that is itself a child (or a worker) must be refused by the spawn path (depth rule, next phase). The files read `tasks` and `task_sessions` and write neither; a static test lists the
+  tables they may name. Not yet built or checked: the spawn, the child's token, the cascade on stop and the host
+  reconciler (later phases of the plan).
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

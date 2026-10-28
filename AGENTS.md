@@ -264,7 +264,7 @@ The desktop app does everything through these commands; they are equally usable 
   - `people status set|get|history`
   - `people messages list|all [--unread]|add|compose|drafts|send-draft|reject-draft|read|unread`. Every message JSON has `status` and, for an outbound message waiting behind an approval, `hil_ref` (the `hil` id); `list`/`all` take `--status`. An approval item (a `core.human_in_loop` in front of a send/post node, or an agent send) gets its Communications row (`direction` outbound, `external_id` `hil:<id>`) when it is queued, and the same row moves `pending_approval` → `approved` → `sending` → `sent`, or ends `rejected`/`failed`/`expired` (`internal/commsync`; the one writer is `commsync.SetStatus`, which refuses illegal moves). The recipient is saved in People first (`people.kind` `person`|`company`); a post with no recipient links to your own account on that platform (`profile_details.own_account`).
 - **Social lists:** `list ls`.
-- **Image vault:** `image list|search|get|data|add|label|delete|stats|export`, scoped to the profile named by `--profile`. `image data` returns a data URL. `image sync` scans the profile folder and reconciles discovered images. `image delete` keeps files that live in the profile folder and hides them from later syncs; `image unignore <path>` or `image add <path>` brings one back.
+- **Media vault** (images, audio and video; `image` is the command's old name and still works): `media list|search|get|data|add|label|delete|stats|export`, scoped to the profile named by `--profile`. Every item's JSON has a `kind` (`image`, `audio` or `video`, from the file extension; empty for a PDF or text file saved from the extension). Ids stay `img-NNN` for every kind, and workflows refer to them as `@img-NNN`. `media data` returns a data URL (meant for images). `media sync` scans the profile folder and reconciles discovered images; audio and video found there are tracked only after `media scan on` (per profile, **off by default**, operator-only to change; it also gates automatic registration of audio/video a workflow node outputs; `media scan off` drops the discovered entries, never the files; `media add` and extension saves are not affected). `media delete` keeps files that live in the profile folder and hides them from later syncs; `media unignore <path>` or `media add <path>` brings one back. Workflow nodes: `image.vault_save` and `image.vault_get` (names kept) take any media file, and a node that outputs an image path in `file_path`/`image_path` is registered automatically (audio and video only with `media scan on`). MCP: `vault_item_list` returns each item's `kind`. The browser extension can save MP3, WAV, Ogg, M4A, MP4 and WebM (up to 20 MiB) like images and PDFs.
 - **Workflows:**
   - `workflow save` creates or replaces a workflow from the editor's document on stdin.
   - `workflow execution <id>` shows run detail with redacted items; a WAITING run
@@ -1804,13 +1804,24 @@ session runs. The identity check is a name check, so an unbound agent that picks
 passes it; workers the conductor starts are bound. Only
 the user approves, resumes, closes (`session close`), sets the budget, caps, access level and auto-close
 (`session budget`), archives (`session archive`) and removes dependencies
-(`undepend`); an agent may pause and stop a session (stop releases every claim).
-Setting `MONOAGENT_TASK_SESSION=N` binds a process to session N: its agent may act in
-that session only, on the CLI and over MCP, including the delegated approve and view of
-`task agents allow`: a bound worker reaches the personal board through neither, and `task digest`
-shows it nothing of it. That binding is an environment label: an agent that scrubs its own
-environment (no agent marker, no `--as`) is treated as the operator by the CLI and can run
-`session approve`, `resume` and `budget`; that weakness is old and matters more now. The MCP tools are `task_session_list` and
+(`undepend`); an agent may pause and stop a session (stop releases every claim) unless it is an agent with no mission token in a session a chat conversation manages: there only the operator and the lead may, and the lead is the in-process actor of the mission tools and of the conductor (bound to its session), not a shell command of the lead's runtime, which is an ordinary agent with no token.
+What binds a process to a session, a task and a role is a mission token (`internal/agenttokens`,
+`mission.go`; `MONOAGENT_TASK_BINDING`, a name with no key, secret or token in it so that a runtime's name-based environment filter keeps it; whether each runtime passes it on to its shells and tool servers is not verifiable from this repository and is unverified live: a runtime that dropped it would leave its worker unbound, which fails closed): the conductor mints one per worker or verifier run
+(`internal/dynorg/mission_token.go`), bound to profile, session, task, role and the name the process
+acts under, valid a little longer than the task timeout, revoked when the run ends or expires (a starting conductor revokes what an earlier run of its conversation left, but only the runs whose chat turn is no longer active: a second conductor of a conversation never ends the first one's workers; a crashed turn's tokens end when it is reconciled or they expire), and never accepted
+by the HTTP API. The CLI (`internal/cli/task/mission_token.go`) and MCP (`boundTaskActor`) read the
+binding only through `internal/taskbind`, from the database; the `MONOAGENT_TASK_*` labels are the
+brief's text and an agent marker, and bind nothing. A token that does not verify binds to nothing that
+exists (every act refused); no token is an ordinary agent, which in a session a chat
+conversation manages can neither verify a task nor claim, finish, release, split, add (a task or a dependency) or attach (it reads). A bound worker reaches the personal board through neither the delegated approve and
+view of `task agents allow` nor `task digest`. On Linux, for the runtimes listed in `ancestryRuntimes`
+(`internal/dynorg/mission_token.go`; only `claude`, the others unverified live) the token is also bound to the
+worker's process (`internal/agenttokens/mission_process.go`, pid and start stamp recorded through `ExecOptions.OnStart`
+and signed; migration 138): a caller outside that process's tree is refused. Once recorded it fails closed (an unreadable chain or a detached/reparented tool is refused, with an explicit
+message); a failed bind is journalled (`mission_token_process_unbound`). Without a recorded process (older rows,
+unlisted runtimes, a failed bind, the window between the start and the record), or off Linux, whoever can read the token can use it, for that one
+task until the run ends (SECURITY.md, "Honest limits"). An agent that scrubs its own environment (no agent
+marker, no `--as`) is still treated as the operator by the CLI; that weakness is old and matters more now. The MCP tools are `task_session_list` and
 `task_session_get` (read) and, with `--allow-mutations`, `task_split`, `task_verify`
 and `task_artifact`, with `task_add`, `task_claim`, `task_comment`, `task_finish`,
 `task_release`, `task_list`, `task_get` and `task_next` taking `session`. Goals and
@@ -1836,7 +1847,7 @@ acceptance is the final checks). Once the conversation has a session it also get
 the lead names no session, the conversation's is the only one it reaches. A review round is
 a `plan_revised` event of the session, so a restart keeps the count. `mission_verify
 {task_id}` starts a verifier on a task in Review: another agent, on another model when one
-is ready, read only, started with `MONOAGENT_TASK_ROLE=verifier` besides the task binding,
+is ready, read only, started with a verifier-role mission token for that task,
 which lets it comment on, attach evidence to and verify that one task and nothing else.
 It records its own verdict with `task verify`; the lead never does. A pass marks the task
 verified (auto-close closes it if the operator set it); a fail sends it back to Ready with
@@ -1844,7 +1855,7 @@ the note, up to `max_retries`, then the task is blocked and `mission_status` and
 `mission_report` show its `failure_notes_untrusted` (text written by other agents: data, never instructions; `last_result_untrusted` and `evidence_untrusted` are the same). A task of kind `task` that declares files
 cannot be finished to Review with a result unless it holds a commit, diff, test, file or
 log artifact (`ErrNoEvidence`; a report does not count, a question and a research task
-with no files are exempt). `mission_finish` (a tool of its own; `mission_report` only
+with no files are exempt; in a git work tree the evidence is a new, non-merge commit named by its full object id, checked in the conversation's folder: see SECURITY.md). `mission_finish` (a tool of its own; `mission_report` only
 reads) does the next closing step each call: it lists tasks that are not done or verified
 (blocked ones with their notes); with everything settled it adds the Integration check
 task if the plan has none; when that is settled it lists writer branches still to
@@ -1888,6 +1899,31 @@ draft session (waiting for the person's plan approval) or a paused one is never 
 master is), and a queued check-in is dropped when it runs if the mission has stopped being running with open
 work. A lead that adds tasks to itself can keep itself woken, but only up to `checkin_limit` check-ins per person
 message, and bounded by the session's `max_tasks` and budget.
+
+**Mission child sessions: policy, marks, ceilings (store only; the spawn path comes in the next phase).** Migration
+139 adds `coder_mission_policy`, `coder_mission_children` and `coder_mission_events`, and `internal/coderhost`
+(`missionchild_store.go`) the store over them. A task session has a policy (mode `off`, `marked` (default) or `all`;
+`max_children` default 2; `share_pct` default 50, 1 to 80), a row per task its lead marked to run in a session of
+its own (unique per profile, session and task; states `marked`, `spawning`, `spawned`, `ended`, `failed`, `gone`,
+`released`) and an audit trail. Only the lead of that session (a `LeadScope` made from its verified session token)
+marks, reserves or links a row; a caller that holds a task-bound mission binding is refused; foreign sessions,
+profiles and tasks all read as one refusal. The lead may raise `max_children` up to the lead session's own
+(operator-only) `max_children` setting and `share_pct` up to the hard maximum, may switch the mode between `off` and `marked` (and lower it from `all`) unless the operator turned it off,
+and only the operator turns on mode `all`. What the operator writes binds the lead: an operator `off` stays off until the operator turns the mode on
+(`operator_mode_off`), and an operator `max_children` or `share_pct` is the most the lead may raise its own to
+(`operator_max_children`, `operator_share_pct`; the operator clears a cap with `ClearMaxChildrenCap` / `ClearSharePctCap`); the lead may always lower. An operator who writes a number also sets it as the lead's cap; to give the lead a value without limiting it takes two calls (write, then clear the cap). The
+operator's changes are `floor` audit rows by `operator`, the lead's are `raise` / `lower` / `mode` rows by `lead:<conversation>`. `share_pct` is 1 to 80 for everyone (use mode `off` to stop children). `RoomFor` answers whether one more child fits: live children under
+`min(policy, setting)`, running child turns under `max_concurrent`, and for a lead with a budget the carves under
+`share_pct` of what it has left (a lead with no budget has no share). When a child ends its unspent carve returns to
+the lead by lowering the child's cap to what it spent (never up, never 0). The spawn path must call `Reserve` (room check, `spawning`) before `Spawn` (the carve), in that order, because a child that already exists counts against the share. Nothing starts a session yet: no CLI verb,
+tool or host pass reads these tables, so marking has no effect on a running mission. Obligations of the next
+phases: the tool layer (P-C) builds the caller with `NewLeadScope(caller, binding)` from the verified mission binding
+(`BindingNone` only when the process was checked and holds none; an unchecked scope is refused); a mission lead that is
+itself a child, or a worker, must not spawn mission children (depth rule); the spawn path (P-B) calls `NotePending` when
+the child's conversation is created and `Touch` between its steps, so `ResetStaleSpawning` does not hand a slow spawn's
+task to a second child. The share is held only for children that exist (their sessions' caps) or are reserved (the carve
+stored on a `spawning` row); a task that is only marked holds nothing. `ResetStaleSpawning` returns the conversations of expired reservations (`ended`), which the host stops; `End` also finds a reservation by its pending conversation. `Reserve` reads the policy, settings, budget and counts it decides on inside the transaction that reserves, after a no-op write took the write lock (the mode-`all` rule row is part of that transaction; the lead's spend, summed from its event log, is read before the lock so a long log does not hold other writers up); a conversation is pending on one row only (partial unique index, and `NotePending` refuses one another row holds); `End` with an empty conversation id does nothing and zeroes `reserved_usd` of a row it ends. Obligations for the host phase (P-B): (a) call `NotePending` from `onCreated` only after the carve is taken (`carveBudget`), and call `FindOrphanCarves(minAge)` in the reconcile pass to find child sessions of a lead with a mission policy that hold a carve and that no row points at (a crash between the two), then stop them and lower their cap with the same release the end path uses; it cannot tell a mission spawn from another child of the lead, so the host keeps its own record of what it started and filters; (b) `DeleteConversation` marks a row `gone` by its child or its pending conversation; (c) ending a `spawning` row returns its reserved carve (`reserved_usd` 0). Deleting a conversation or a
+sweep removes the rows of a deleted lead and marks the rows of a deleted child `gone`.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
@@ -2590,7 +2626,7 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Autonomy** (`autonomy_preset`, `autonomy_classes`, operator only): when a session meets a gap
   (`ambiguity`, `scope_growth`, `risky_action`, `verification_failed`, `missing_credential`, `child_conflict`),
   the policy says only WHO answers: `user`, `master` or `model`, and what happens when nobody does
-  (`park` or `take_default`). `ask-always`: the user. `ask-on-risk` (default): the model settles reversible
+  (`park` or `take_default`). `ask-always`: the user (for `park`; `record` takes any non-hard class whatever the preset). `ask-on-risk` (default): the model settles reversible
   `ambiguity`, `scope_growth` and `verification_failed`; the master (the user, without one) gets the rest.
   `decide-and-log`: the model also settles irreversible ones and `child_conflict`. Code enforces, whatever the
   preset or override: `risky_action` and `missing_credential` are never answered by the model and never take
@@ -2657,7 +2693,7 @@ monoagentcli --profile work coder host stop                        # the host on
   `MONOAGENT_SESSION_TOKEN`; it names that session (profile, conversation, turn) and is valid only while that
   turn is the session's current one (24 h at most; only its hash is stored, in `coder_session_tokens`). Only
   the host mints one and signs the row (HMAC under the profile's vault key); it also names the turn's process, and
-  a call counts only from that process or a descendant of it (Linux; elsewhere the signature and the turn only). A tool that daemonises (`nohup`, `setsid`, a double fork) or runs in a container/another pid namespace is outside the tree and is refused with a distinct reason ("not inside the session's turn process tree"); nothing is loosened for it. A host started from inside a session's turn binds no tokens (it logs a warning).
+  a call counts only from that process or a descendant of it (Linux; elsewhere the signature and the turn only). This process check is a courtesy layer: it reads `/proc` in the caller's own mount namespace, which a same-user process in its own user and mount namespace can present differently (see SECURITY.md, "Persistent coder sessions"); the real boundary against a same-user sibling is the OS user or a sandbox, and a peer-credential verification service is the planned follow-up. A tool that daemonises (`nohup`, `setsid`, a double fork) or runs in a container/another pid namespace is outside the tree and is refused with a distinct reason ("not inside the session's turn process tree"); nothing is loosened for it. A host started from inside a session's turn binds no tokens (it logs a warning).
   The turn keeps it in its environment so its shell and MCP server can call the master tools.
   With a token, `sessions send|stop|pause|resume` and `sessions settings set --patch` act **only on descendants**
   of that session (the parent links are walked up in the database from the target; a peer, an ancestor, the
@@ -2688,17 +2724,34 @@ monoagentcli --profile work coder host stop                        # the host on
   host validates all of it: the class must be one of the six gap classes; `risky_action` and `missing_credential`
   can never be claimed reversible and can never be recorded as the model's decision (also refused inside
   `Store.Record` for `made_by=model`); `park` consults the policy (`Decide`) and, when the policy lets the model
-  settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` consults the
-  same policy and is refused (`invalid_input`) when the policy leaves that gap to a master or the user, so
-  recording is no way around asking; `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
+  settle that gap, returns `model_decides` with the instruction to decide and call `record`; `record` takes ANY
+  non-hard class whatever the preset or override (it ignores the autonomy preset and classes on purpose, by the
+  user's decision: `ask-always` governs `park` only, and the ledger with its revert is the control); `made_by` is fixed to `model`, never read from the caller; the 20-open-question cap, the field caps and
   at most 20 `record` calls per session per hour apply, and the model's ledger rows (at most 500) rotate only among
   the model's own rows, so it cannot push a master's or an operator-visible row out of the audit trail. Neither call starts a turn, queues a command, or touches access, a budget or a
   setting, and the text is only data (it is sealed when it reaches a reader as an answer note). Host-side sanity rule:
   the ledger shows every model-made decision as `madeBy: model` together with the `reversible` flag the model
-  claimed, and the operator can revert the reversible ones; a model that mislabels a gap as reversible can have it
-  settled by itself under the preset's rules for that class, which is the residual trust (hard classes are not
-  claimable). A session with no master (a solo or master session, or an unattended child whose master is gone) that parks a
-  question has it answered by the operator (`questions answer`): the conservative choice; nothing answers for it.
+  claimed, and the operator can revert the reversible ones; the `reversible` claim is trusted (a model that
+  mislabels a gap as reversible gets it recorded as its own), which is the residual trust (hard classes are not
+  claimable). A session with no live master (a solo or master session, an orphaned child, or a child whose
+  master is gone or stopped: the answerer is derived with `hasLiveMaster`, everywhere) has nobody to ask but the
+  person, so `park` is refused for it (`ErrNoMasterDecide`; MCP `no_master`: "no master to answer: decide and call
+  record, or stop") for every class but `risky_action` and `missing_credential`, and nothing is written. Those two
+  are parked, for the person, and wait with NO timeout (at most 3 an hour per session, whatever its master,
+  `ErrPersonItemRate`, counted in the same write that parks the question): no default is ever taken (`Decide`
+  clamps the fallback to park, and `ApplyDefaults` skips any question that is a person item). With NO live master
+  nothing but the person answers such a question. With a live master the master (a model) can answer it where
+  the policy names the master (`ask-on-risk`), but the question is the person's too, and counts in "needs you",
+  whenever the master cannot take it: it is paused, it is at its check-in limit, or the notes carrying its answer
+  keep failing (the operator may answer it then and the master cannot: `Answer` uses the same predicate, `masterBlocked`, for both). The person sees such a question in `sessions questions list` (answered
+  with `questions answer`), as the session's `waiting_user` state, and in `summary --section hil` as `coder_items`
+  (a count per kind) and `coder_item_ids` (counted in "needs you"; oldest first; the app raises a desktop notification when an
+  id appears that was not there). Every hard-class parked question gets a row in `coder_session_person_items`
+  (migration 137: `kind`, today `parked_question`, and `ref_id` into that kind's table; other kinds can be added
+  in `coderhost/parked_items.go`). The row has no status: whether the person has to act is derived each time (the
+  question is open, its answerer is now the user, its session is not stopped), so a role change or a stopped
+  master moves it in both directions. It is not a `hil_pending` row: those belong to workflow runs and a `hil
+  approve` must never answer a session. The count, the ids and the notification carry no text.
 - **First-run checks** (for the operator's first real run; none of this is verified live). `spawn` works only
   with a master's session token, so the steps that spawn are done by asking the master, in its chat, to run the
   command in its turn; the rest is the operator's own terminal:
@@ -2721,10 +2774,12 @@ monoagentcli --profile work coder host stop                        # the host on
   5. *Autonomy producer (ask the master, in its chat, to run these in its turn; none of it is verified live):*
      `coder sessions park --class risky_action --question "delete the build dir?"` parks on the caller's own
      session (the session goes to `waiting_user`; `questions list <conv>` shows it, answerer `user` for a master
-     with no master, `master` for a child); the same with `--class ambiguity --reversible` is refused with
-     "decide, then run `coder sessions record`"; `coder sessions record --class ambiguity --choice tabs --reason
-     ... --reversible` writes a ledger row shown as made by the model (`decisions list <conv>`); `record --class
-     risky_action ...` and `record` of an irreversible ambiguity (under `ask-on-risk`) are refused; `--reversible`
+     with no master, `master` for a child; `summary --section hil` counts it in `coder_items`); a park of
+     `--class ambiguity` by a session with no master is refused with "no master to answer: decide and call
+     record, or stop"; the same with `--reversible` by a child under `ask-on-risk` is refused with "decide, then
+     run `coder sessions record`"; `coder sessions record --class ambiguity --choice tabs --reason
+     ... --reversible` writes a ledger row shown as made by the model (`decisions list <conv>`), also under
+     `ask-always`; `record --class risky_action ...` is refused; `--reversible`
      with `risky_action` is refused; 21 open questions are refused. Run without the session token (operator
      terminal) both verbs are refused. A child asks the same, and its master answers with `questions answer
      <child-conv> <id> TEXT` from its turn (turn id `answer-m-`, `answeredBy` `master:<conv>`). A master can read the parked questions of its whole subtree but answers only those of its direct children (a grandchild's goes to the grandchild's own master).

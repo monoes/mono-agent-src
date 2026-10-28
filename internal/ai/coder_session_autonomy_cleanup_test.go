@@ -14,6 +14,9 @@ func TestChatEvents_DeleteConversationClearsItsDecisionsAndQuestions(t *testing.
 		if _, err := db.Exec(`INSERT INTO coder_session_questions (profile_id, conversation_id, class, created_at) VALUES ('p1', ?, 'risky_action', 'now')`, id); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := db.Exec(`INSERT INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES ('p1', ?, 'parked_question', (SELECT COALESCE(MAX(ref_id), 0) + 1 FROM coder_session_person_items), 'now')`, id); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := s.DeleteConversation(gone.ID, "p1"); err != nil {
 		t.Fatal(err)
@@ -24,7 +27,7 @@ func TestChatEvents_DeleteConversationClearsItsDecisionsAndQuestions(t *testing.
 		}
 		return n
 	}
-	for _, table := range []string{"coder_session_decisions", "coder_session_questions"} {
+	for _, table := range []string{"coder_session_decisions", "coder_session_questions", "coder_session_person_items"} {
 		if n := count(table, gone.ID); n != 0 {
 			t.Errorf("%s: %d row(s) of the deleted conversation survived", table, n)
 		}

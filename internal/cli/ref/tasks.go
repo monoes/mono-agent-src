@@ -119,16 +119,23 @@ WHO MAY DO WHAT
   back to Ready with the note, up to the session's max retries, then it is blocked and
   waits in Review for the operator. A task is verified by the operator or an agent that did not do it: one bound to
   the task as its worker never verifies it, nor the same agent identity as the last hand-back (agent:<client>
-  without its #suffix); an agent verifies only while the session runs. A process bound to a session with MONOAGENT_TASK_SESSION acts in it only.
-  MONOAGENT_TASK_ID narrows that to one task (a mission worker's process): it claims, comments on,
-  finishes, releases and attaches evidence to that task only, and adds and takes no other.
-  MONOAGENT_TASK_ROLE=verifier (with MONOAGENT_TASK_ID) makes it a verifier's binding: it verifies,
-  comments on (the task in Review) and attaches evidence to that one task, and claims, finishes,
-  releases, splits or adds nothing. A task of kind task that declares files in its notes cannot be
+  without its #suffix); an agent verifies only while the session runs. What binds a process to a session, a task and a role is the
+  mission token the conductor mints for each worker or verifier run (MONOAGENT_TASK_BINDING, checked against
+  the database, short-lived, revoked when the run ends or expires, and refused by the HTTP API); the MONOAGENT_TASK_*
+  labels in the same environment bind nothing. A worker's token lets its process claim, comment on, finish,
+  release and attach evidence to its one task, and add and take no other; a verifier's lets it verify, comment on
+  (the task in Review) and attach evidence to that one task, and claim, finish, release, split or add nothing.
+  The token also fixes the name the process acts under. A token that does not verify (unknown, expired, revoked,
+  of another profile) binds to nothing that exists: every act is refused. A process with no token is an ordinary
+  agent: in a session a chat conversation manages it never records a verdict (only a task's verifier or the operator does) and cannot claim, take next, finish, release, split, add or attach evidence (it reads; sessions you created keep their rules). A task of kind task that declares files in its notes cannot be
   finished with a result unless it holds a commit, diff, test, file or log artifact (a report does
   not count; refused with invalid_input "a code task needs evidence"): attach one with artifact first.
   After a failed verification the evidence from before does not count: a retry attaches a new one.
-  The evidence rule is self-asserted: artifact references are not validated and the declared files come from the planner's notes.
+  In a git work tree the evidence must be a commit artifact (hex sha) that exists, is reachable from
+  HEAD or a mission branch and changes at least one declared file or a path under a declared folder;
+  it is checked when attached and again before finish and verify. Test, file, log and diff artifacts
+  are not checked and do not carry a code task alone there; outside git the old rule applies, but a mission whose folder is gone, unreadable or has no recorded start point is refused (ask the operator to close the task). The
+  declared files themselves come from the planner's notes and are self-asserted.
   MISSIONS. A coder chat's lead runs a session with the mission tools (a send confirmed with
   coder sessions send --mission, operator only; an open session of the conversation implies it): mission_plan, mission_add_tasks,
   mission_split, mission_status, mission_replan, and once a session exists mission_next, mission_assign,

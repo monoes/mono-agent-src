@@ -248,6 +248,9 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 		return nil, fmt.Errorf("start monomind: %w", err)
 	}
 	defer release()
+	if opts.OnStart != nil {
+		opts.OnStart(cmd.Process.Pid)
+	}
 
 	res := &TurnResult{SandboxStatus: sandboxEffective}
 	events := make(chan Event, 64)

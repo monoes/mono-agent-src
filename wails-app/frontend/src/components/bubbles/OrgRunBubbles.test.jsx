@@ -127,8 +127,9 @@ describe('org run bubbles: persistence', () => {
     expect(bubbles[0]).toMatchObject({ key: 'org:acme', kind: 'org', orgName: 'acme', runId: '', finished: false })
   })
 
-  it('round-trips run ids and the finished flag, and tolerates junk', () => {
+  it('round-trips run ids and the finished flag, and tolerates junk', async () => {
     const { result } = renderHook(() => useCoderBubbles())
+    await act(async () => {})
     act(() => { result.current.openOrg('acme', { runId: 'r2' }) })
     act(() => { result.current.openOrg('acme', { runId: 'r1', finished: true }) })
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))

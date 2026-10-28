@@ -27,7 +27,7 @@ func (r *missionRig) verifierSees(file string) *seen {
 		s.mu.Lock()
 		s.cwd, s.file = o.Cwd, string(b)
 		s.mu.Unlock()
-		actor := verifierActorOf(r.t, o.Env)
+		actor := verifierActorOf(r.t, r.db, o.Env)
 		if _, err := r.store.VerifySessionTask(tbg, "default", actor.Session, id, true, "ok", actor); err != nil {
 			return nil, err
 		}

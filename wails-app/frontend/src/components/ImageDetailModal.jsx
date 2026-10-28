@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { X, Copy, Trash2, Edit3, Check, AlertTriangle, Wand2, Download, FileText } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import ImageEditorFullscreen from './ImageEditorFullscreen'
-import { isVaultImage, vaultFileKind } from '../lib/vaultItems.js'
+import { isVaultImage, vaultFileKind, vaultKind } from '../lib/vaultItems.js'
 
 export default function ImageDetailModal({ image, onClose, onDelete, onRename, onSaved }) {
   const overlayRef = useRef(null)
@@ -26,7 +26,8 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
     setImgError(false)
     setConfirmDelete(false)
     setRenaming(false)
-    // A file the extension saved (a PDF, a text file) has no preview to fetch.
+    // Only an image has a preview to fetch: audio and video play from the
+    // app's asset route, and a PDF or text file has nothing to show.
     if (!isVaultImage(image)) return
     try {
       const p = WailsApp.GetVaultImageData(image.id)
@@ -38,6 +39,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
 
   if (!image) return null
   const isImage = isVaultImage(image)
+  const kind = vaultKind(image)
 
   const handleDelete = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return }
@@ -130,13 +132,31 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
           </button>
         </div>
 
-        {/* Image preview */}
+        {/* Preview: image, audio or video player, or a file card */}
         <div style={{
           background: '#060b11', borderRadius: 8, overflow: 'hidden',
           border: '1px solid #1e3a4f', minHeight: 120, maxHeight: 280,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          {!isImage ? (
+          {kind === 'video' ? (
+            <video
+              key={image.id}
+              src={image.url || `/vault-image/${image.id}`}
+              controls
+              preload="metadata"
+              aria-label={`video ${image.label || image.filename}`}
+              style={{ maxWidth: '100%', maxHeight: 280, display: 'block' }}
+            />
+          ) : kind === 'audio' ? (
+            <audio
+              key={image.id}
+              src={image.url || `/vault-image/${image.id}`}
+              controls
+              preload="metadata"
+              aria-label={`audio ${image.label || image.filename}`}
+              style={{ width: '100%', margin: 20 }}
+            />
+          ) : !isImage ? (
             <div
               role="img"
               aria-label={`file ${image.label || image.filename}`}

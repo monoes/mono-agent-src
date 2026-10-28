@@ -210,7 +210,7 @@ use the "agent.ask" node (local AI agent via monomind; see "monoagentcli ref nod
 For images without a key, see "monoagentcli ref node gemini.generate_image".`,
 		Config:  `{ "credential_id": "huggingface", "operation": "generate_image", "prompt": "{{ $json.prompt }}", "model": "black-forest-labs/FLUX.1-schnell" }`,
 		Inputs:  "item(s) whose fields the prompt template reads",
-		Outputs: "input item + file_path (the saved PNG), url (the model endpoint) and vault_id (its Image Vault entry)",
+		Outputs: "input item + file_path (the saved PNG), url (the model endpoint) and vault_id (its Media Vault entry)",
 	},
 	{
 		Type:     "service.openrouter",

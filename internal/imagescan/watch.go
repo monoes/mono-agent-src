@@ -1,4 +1,4 @@
-// Package imagescan provides background polling and change detection for images.
+// Package imagescan provides background polling and change detection for media files.
 package imagescan
 
 import (
@@ -18,12 +18,20 @@ type fileState struct {
 // current matching-file snapshot whenever that snapshot differs from the
 // previous tick (add/modify/remove of any tracked file).
 //
+// It watches images, and audio and video too while IncludeAV (set before
+// Start) says so -- the profile's `media scan` setting. With it unset or off
+// no audio or video file is even walked into the snapshot.
+//
 // The first scan emits unconditionally, so pre-existing images on disk
 // are discovered immediately upon starting the watcher.
 type Watcher struct {
 	root     string
 	interval time.Duration
 	onChange func([]FileInfo)
+
+	// IncludeAV is asked on every walk whether audio and video count; nil
+	// means no. Set it before Start.
+	IncludeAV func() bool
 
 	mu      sync.Mutex
 	files   map[string]fileState // keyed by path
@@ -76,7 +84,11 @@ func (w *Watcher) Stop() {
 // scan walks root once, diffs against the last known snapshot, and invokes
 // onChange with the full current snapshot if it differs.
 func (w *Watcher) scan(emit bool) {
-	found, err := Scan(w.root)
+	scan := Scan
+	if w.IncludeAV != nil && w.IncludeAV() {
+		scan = ScanMedia
+	}
+	found, err := scan(w.root)
 	if err != nil {
 		return // transient read error -- try again next tick
 	}

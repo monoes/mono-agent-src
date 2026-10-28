@@ -47,10 +47,10 @@ func TestSweepOrphansRemovesLedgerAndQuestionsOfDeletedConversations(t *testing.
 	if _, err := st.SweepOrphans(); err != nil {
 		t.Fatal(err)
 	}
-	if countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE conversation_id = 'ghost'`)+countRows(t, st, `SELECT COUNT(*) FROM coder_session_questions WHERE conversation_id = 'ghost'`) != 0 {
+	if countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE conversation_id = 'ghost'`)+countRows(t, st, `SELECT COUNT(*) FROM coder_session_questions WHERE conversation_id = 'ghost'`)+countRows(t, st, `SELECT COUNT(*) FROM coder_session_person_items WHERE conversation_id = 'ghost'`) != 0 {
 		t.Fatal("rows of the deleted conversation survived the sweep")
 	}
-	if countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE conversation_id = 'live'`)+countRows(t, st, `SELECT COUNT(*) FROM coder_session_questions WHERE conversation_id = 'live'`) != 2 {
+	if countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE conversation_id = 'live'`)+countRows(t, st, `SELECT COUNT(*) FROM coder_session_questions WHERE conversation_id = 'live'`)+countRows(t, st, `SELECT COUNT(*) FROM coder_session_person_items WHERE conversation_id = 'live'`) != 3 {
 		t.Fatal("the live conversation's rows were swept")
 	}
 }

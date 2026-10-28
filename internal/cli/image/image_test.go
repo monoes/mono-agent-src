@@ -376,3 +376,39 @@ func TestImageUnignore(t *testing.T) {
 		t.Errorf("unignore of a path that is not ignored: exit %d, want 2", exitCode(err))
 	}
 }
+
+// `media data` reads a whole file into memory, so audio, video and other files
+// over the cap are pointed at `media export`; an image is not limited by it.
+func TestMediaDataCapsNonImages(t *testing.T) {
+	cfg, dir := newImageCLITestDB(t)
+	big := filepath.Join(dir, "big.mp4")
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxDataBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	small := filepath.Join(dir, "small.mp3")
+	if err := os.WriteFile(small, []byte("ID3"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := storage.NewDatabase(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO vault_images (id, seq, path, filename, size_bytes, source, profile_id)
+		VALUES ('img-010', 10, ?, 'big.mp4', ?, 'upload', 'default'), ('img-011', 11, ?, 'small.mp3', 3, 'upload', 'default')`,
+		big, maxDataBytes+1, small); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	_, err = runImage(t, cfg, "data", "img-010")
+	if exitCode(err) != 3 || err == nil || !strings.Contains(err.Error(), "media export img-010") {
+		t.Fatalf("data of an over-cap video: exit %d (%v), want 3 pointing at export", exitCode(err), err)
+	}
+	if out, err := runImage(t, cfg, "data", "img-011"); err != nil || !strings.Contains(out, "data:audio/mpeg;base64,") {
+		t.Fatalf("data of a small audio file: %q, %v", out, err)
+	}
+}

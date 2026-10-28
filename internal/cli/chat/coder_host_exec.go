@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -484,7 +485,7 @@ func isHostInstance(owner string) bool { return strings.HasPrefix(owner, "host-"
 
 // turnEnv is the environment a turn starts with: the host's without any session token or mission-handoff marker.
 func turnEnv(env []string) []string {
-	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionFDEnv)
+	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionFDEnv, agenttokens.EnvMissionToken)
 }
 
 // withoutEnv returns env without the named variables.

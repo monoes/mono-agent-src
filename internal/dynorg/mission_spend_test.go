@@ -18,8 +18,11 @@ func spendNear(a, b float64) bool { d := a - b; return d > -0.0001 && d < 0.0001
 
 // A worker that streams its cost is charged to the session while it runs: the 90 percent
 // warning and the 100 percent halt fire before it finishes.
+//
+// The session is one a conversation manages: the halt pauses it as the conductor, which an agent
+// with no binding may not do there.
 func TestMissionSpendIsRecordedWhileTheWorkerRuns(t *testing.T) {
-	r := newRig(t, rigOpts{budget: 10})
+	r := newRig(t, rigOpts{budget: 10, conv: "conv-1"})
 	a := r.add(spec{title: "a", files: "a.go"})
 	r.approve()
 	step := make(chan struct{})

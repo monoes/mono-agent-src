@@ -8,14 +8,17 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/imagescan"
 )
 
 // ErrImageNotFound is returned when no vault_images row has the given id
 // in the given profile.
 var ErrImageNotFound = errors.New("vault image not found")
 
-// ImageEntry is one row from vault_images, in the JSON shape the desktop
-// app's image vault has always used (URL is the app's asset route for the
+// ImageEntry is one row from vault_images (the media vault: images, audio and
+// video, plus files the extension saved), in the JSON shape the desktop
+// app's vault has always used (URL is the app's asset route for the
 // file, /vault-image/<id>: file names are not unique once images are
 // tracked in place across the profile folder).
 type ImageEntry struct {
@@ -30,9 +33,12 @@ type ImageEntry struct {
 	Label       string `json:"label"`
 	CreatedAt   string `json:"created_at"`
 	URL         string `json:"url"`
+	// Kind is "image", "audio" or "video" from the stored file's extension,
+	// "" for any other file (a PDF or text file the extension saved).
+	Kind string `json:"kind"`
 }
 
-// ImageStats is the count and total size of a profile's vault images.
+// ImageStats is the count and total size of a profile's vault items.
 type ImageStats struct {
 	Count      int   `json:"count"`
 	TotalBytes int64 `json:"total_bytes"`
@@ -50,6 +56,10 @@ func scanImage(scan func(dest ...any) error) (ImageEntry, error) {
 		return im, err
 	}
 	im.URL = "/vault-image/" + im.ID
+	im.Kind = imagescan.MediaKind(im.Filename)
+	if im.Kind == "" {
+		im.Kind = imagescan.MediaKind(im.Path)
+	}
 	return im, nil
 }
 

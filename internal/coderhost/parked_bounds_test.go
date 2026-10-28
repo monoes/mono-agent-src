@@ -72,7 +72,7 @@ func TestNoDefaultIsTakenWhenTheBudgetIsUsedUp(t *testing.T) {
 }
 
 func TestAMastersAnswerThatKeepsFailingIsRefused(t *testing.T) {
-	st, _ := parkStore(t)
+	st, clk := parkStore(t)
 	childOf(t, st)
 	q, _ := st.Park("p", "k1", "risky_action", "go?", nil, "", false)
 	for i := 0; i < MaxAnswerReopens; i++ {
@@ -80,6 +80,11 @@ func TestAMastersAnswerThatKeepsFailingIsRefused(t *testing.T) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 		failAnswerNotes(t, st)
+		// a failed note makes a risky question the person's for ParkTimeout; the master tries again after it
+		if _, _, err := st.Answer("p", q.ID, "yes", masterScope{conv: "m"}); !errors.Is(err, ErrNotAnswerer) && i == 0 {
+			t.Fatalf("right after a failure = %v", err)
+		}
+		clk.t = clk.t.Add(ParkTimeout + time.Second)
 	}
 	if _, _, err := st.Answer("p", q.ID, "yes", masterScope{conv: "m"}); !errors.Is(err, ErrAnswerKeepsFailing) {
 		t.Fatalf("third attempt = %v", err)

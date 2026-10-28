@@ -18,7 +18,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Vault (files/images) — id/metadata only; get_vault_item_path resolves an
+// Vault (media: images, audio, video, and other files) — id/metadata only; get_vault_item_path resolves an
 // id to a filesystem path but never a credential value (that's the
 // credentials vault below, which is reference-only by design).
 // ---------------------------------------------------------------------------
@@ -26,6 +26,7 @@ import (
 type vaultItemSummary struct {
 	ID        string `json:"id"`
 	Filename  string `json:"filename"`
+	Kind      string `json:"kind"`
 	SizeBytes int64  `json:"size_bytes"`
 	Source    string `json:"source"`
 	Label     string `json:"label,omitempty"`
@@ -61,6 +62,7 @@ func (mt *MonoagentTools) listVaultItems(args string) (string, error) {
 		if err := rows.Scan(&v.ID, &v.Filename, &v.SizeBytes, &v.Source, &v.Label, &v.CreatedAt); err != nil {
 			return "", fmt.Errorf("scan vault item: %w", err)
 		}
+		v.Kind = imagescan.MediaKind(v.Filename)
 		out = append(out, v)
 	}
 	return marshalJSON(map[string]interface{}{"vault_items": out})

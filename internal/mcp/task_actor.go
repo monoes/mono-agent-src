@@ -1,11 +1,16 @@
 package mcp
 
 import (
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/taskbind"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -83,5 +88,24 @@ func (s *Server) taskActor() tasks.Actor {
 	if s.actorName == "" {
 		s.actorName = "agent:" + clientLabel(s.clientName) + "#" + s.actorSuffix
 	}
-	return tasks.Actor{Kind: tasks.Agent, Name: s.actorName, Session: boundSession(), Task: boundTask(), Verifier: boundVerifier()}
+	return tasks.Actor{Kind: tasks.Agent, Name: s.actorName}
+}
+
+// boundTaskActor is taskActor as the call's process may act. A process a conductor started for a
+// mission task carries a mission token: the session, task, role and name it acts under come from
+// that token as the database verifies it (taskbind), and from no label in the environment. No
+// token: an ordinary agent, bound to nothing. A token that does not verify binds to nothing that
+// exists, which refuses every act.
+func (s *Server) boundTaskActor(ctx context.Context, db *sql.DB, profileID string) tasks.Actor {
+	return taskbind.Resolve(ctx, db, profileID, os.Getenv(agenttokens.EnvMissionToken)).Apply(s.taskActor())
+}
+
+// outsideWorkerTree is the error a task tool returns when its token is genuine but this server
+// is not inside the worker's process tree (a detached or reparented server, another namespace):
+// the refusal says why, instead of reading like a bad token.
+func outsideWorkerTree(ctx context.Context, db *sql.DB, profileID string) error {
+	if b := taskbind.Resolve(ctx, db, profileID, os.Getenv(agenttokens.EnvMissionToken)); b.Outside {
+		return b.Err
+	}
+	return nil
 }

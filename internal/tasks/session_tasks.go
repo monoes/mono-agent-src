@@ -265,6 +265,9 @@ func (s *Store) AddSessionTask(ctx context.Context, profileID string, sessionID 
 		if err != nil {
 			return err
 		}
+		if err := s.noUnboundInManaged(ctx, x, profileID, sessionID, actor, "add a task"); err != nil {
+			return err
+		}
 		if se.Counts.Stored() >= se.MaxTasks {
 			return limit("session #%d already has %d tasks: the operator raises its max tasks", sessionID, se.MaxTasks)
 		}
@@ -372,6 +375,9 @@ func (s *Store) AddDependencies(ctx context.Context, profileID string, sessionID
 			return err
 		}
 		if _, err := s.openSession(ctx, x, profileID, sessionID); err != nil {
+			return err
+		}
+		if err := s.noUnboundInManaged(ctx, x, profileID, sessionID, actor, "add dependencies"); err != nil {
 			return err
 		}
 		if err := s.inSession(ctx, x, sessionID, append([]int64{id}, on...)); err != nil {

@@ -10,6 +10,10 @@ import (
 // stays in Review, the flag is set, and the note goes in its history and the session's. It is
 // the operator's or an unbound agent's (the scheduler's) to do; an agent bound to a task is
 // refused. A task that is not in Review, is blocked already or is verified is left alone.
+//
+// It does not call noUnboundInManaged: it is reached only from the conductor (internal/dynorg),
+// never from the CLI, MCP or HTTP, so no agent without a binding gets here. Do not expose it
+// to those without adding that check.
 func (s *Store) BlockSessionTask(ctx context.Context, profileID string, sessionID, id int64, note string, actor Actor) (Task, error) {
 	if err := actorIn(actor, sessionID); err != nil {
 		return Task{}, err

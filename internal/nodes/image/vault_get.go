@@ -10,7 +10,7 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// ImageVaultGetNode resolves an image vault id (e.g. "img-001", with or
+// ImageVaultGetNode resolves a media vault id (image, audio or video) (e.g. "img-001", with or
 // without the "@" ref prefix vault.Resolve expects) back into the absolute
 // file path on disk, so downstream image.* nodes can operate on it.
 type ImageVaultGetNode struct{}

@@ -13,7 +13,7 @@ import (
 )
 
 // The vault's half of the extension bridge (#451): a vault.save from the side
-// panel's confirm card becomes an item in the image/file vault of the profile
+// panel's confirm card becomes an item in the media/file vault of the profile
 // it names. newExtensionServer installs it on every bridge this binary builds.
 // The extension package has already checked the request (size, type, name,
 // client id); this checks that the profile is live and writes, once per client
@@ -114,10 +114,10 @@ func vaultSaveErr(err error) error {
 		return err
 	case errors.As(err, &quota) && quota.Limit == "items":
 		return &extension.RequestError{Code: extension.CodeQuotaExceeded, Data: map[string]any{"limit": "items", "max": quota.Max},
-			Err: fmt.Errorf("this profile already holds %d files saved from the browser, the most it takes: delete some in the Image Vault to save more", quota.Max)}
+			Err: fmt.Errorf("this profile already holds %d files saved from the browser, the most it takes: delete some in the Media Vault to save more", quota.Max)}
 	case errors.As(err, &quota):
 		return &extension.RequestError{Code: extension.CodeQuotaExceeded, Data: map[string]any{"limit": "bytes", "max": quota.Max},
-			Err: fmt.Errorf("files saved from the browser would pass this profile's %s limit: delete some in the Image Vault to save more", sizeText(quota.Max))}
+			Err: fmt.Errorf("files saved from the browser would pass this profile's %s limit: delete some in the Media Vault to save more", sizeText(quota.Max))}
 	case errors.Is(err, vault.ErrStorageConflict):
 		return &extension.RequestError{Code: extension.CodeStorageConflict,
 			Err: errors.New("MonoAgent could not save the file: files it did not make sit where its next vault items go; check the profile's vault folder (.monoagent/vault in the profile's folder)")}

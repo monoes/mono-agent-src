@@ -178,7 +178,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		}},
 		Remember: journal.rememberWorker,
 		Mission:  mission,
-		Missions: missionRun(mission),
+		Missions: missionRun(mission, db.DB, journal.turnID),
 	})
 	cond.AddVeterans(journal.veterans())
 	opts.Tools = dynorg.ToolSpecs(settings.appAccess())

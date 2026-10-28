@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// The watcher walks the folder itself and runs `image sync` for the
+// The watcher walks the folder itself and runs `media sync` for the
 // watcher's profile only when the folder differs from its last walk (and
 // once at start). images:changed follows only a sync that reports a change.
 func TestImageWatcherSyncsThroughTheCLIOnlyOnChange(t *testing.T) {
@@ -65,7 +65,7 @@ func TestImageWatcherSyncsThroughTheCLIOnlyOnChange(t *testing.T) {
 	waitEvents(t, rec, 2)
 
 	for _, got := range callsSoFar(log) {
-		if got != "--profile work --json image sync" {
+		if got != "--profile work --json media sync" {
 			t.Fatalf("CLI call = %q", got)
 		}
 	}
@@ -87,7 +87,7 @@ func TestImageWatcherLogsAFailedSync(t *testing.T) {
 			msg = a.logs[n-1].Message
 		}
 		a.logsMu.Unlock()
-		if strings.Contains(msg, "image discovery") && strings.Contains(msg, "database is locked") {
+		if strings.Contains(msg, "media discovery") && strings.Contains(msg, "database is locked") {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -101,7 +101,7 @@ func TestImageWatcherLogsAFailedSync(t *testing.T) {
 }
 
 // restartImageWatcher, end to end with the real CLI: an image already in
-// the active profile's folder is registered by the start-up `image sync`,
+// the active profile's folder is registered by the start-up `media sync`,
 // in the CLI's database — the app itself writes no vault_images rows.
 func TestRestartImageWatcher_DiscoversProjectImages(t *testing.T) {
 	cliBin := buildTestCLI(t) // before HOME moves, so the build cache stays put
@@ -146,5 +146,31 @@ func TestRestartImageWatcher_DiscoversProjectImages(t *testing.T) {
 	var appRows int
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM vault_images`).Scan(&appRows); err != nil || appRows != 0 {
 		t.Fatalf("the app wrote vault_images itself: %d rows, %v", appRows, err)
+	}
+}
+
+// The watcher learns whether audio and video count from the CLI (`media scan`
+// for its profile), remembers the answer for a while instead of starting a
+// process every walk, and treats a CLI that cannot answer as off.
+func TestScanAVReaderAsksTheCLIAndCaches(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "args.log")
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo "$*" >> '`+log+`'
+echo '{"scan_audio_video":true}'
+`))
+	a := newTestApp(t)
+	read := a.scanAVReader("work")
+	if !read() || !read() || !read() {
+		t.Fatal("audio/video should read as on while the CLI says so")
+	}
+	calls := callsSoFar(log)
+	if len(calls) != 1 || !strings.Contains(calls[0], "--profile work") || !strings.HasSuffix(calls[0], "media scan") {
+		t.Fatalf("CLI calls = %v, want one `media scan` for profile work", calls)
+	}
+
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo 'boom' >&2; exit 1
+`))
+	if a.scanAVReader("work")() {
+		t.Fatal("a CLI that cannot answer must read as off: audio and video are opt-in")
 	}
 }

@@ -114,6 +114,21 @@ func (s *Store) hasMaster(profileID, conversationID string) (parent string, ok b
 	return x.Parent, true
 }
 
+// hasLiveMaster says whether the session has a master that can be asked now: its parent exists, is
+// a master and is not stopped. A child of a stopped or deleted master has none (the link stays), so
+// the person is who answers; every place that derives the answerer uses this, not hasMaster.
+func (s *Store) hasLiveMaster(profileID, conversationID string) (parent string, ok bool) {
+	parent, linked := s.hasMaster(profileID, conversationID)
+	if !linked {
+		return "", false
+	}
+	m, found, err := s.GetSession(profileID, parent)
+	if err != nil || !found || m.Role != "master" || m.State == StateStopped {
+		return "", false
+	}
+	return parent, true
+}
+
 // answererNow is who may answer a parked question under the settings as they are
 // now. A question already parked never goes to the model by way of an answer:
 // when the policy now says model, a master answers it (or the user, without one).
@@ -122,7 +137,7 @@ func (s *Store) answererNow(q Question) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, has := s.hasMaster(q.ProfileID, q.ConversationID)
+	_, has := s.hasLiveMaster(q.ProfileID, q.ConversationID)
 	who := Decide(settings, q.Class, q.Reversible, has).Answerer
 	if who == WhoModel {
 		who = WhoMaster
@@ -144,6 +159,12 @@ func (s *Store) answererNow(q Question) (string, error) {
 // caller goes through ParkOwn (producer.go), which validates the class and never lets a hard
 // class be reversible.
 func (s *Store) Park(profileID, conversationID, class, question string, options []string, def string, reversible bool) (Question, error) {
+	return s.park(profileID, conversationID, class, question, options, def, reversible, false)
+}
+
+// park is Park; own is set by ParkOwn (a session's model parking about itself), which adds the rules
+// for a session with no live master. The master is looked at once, here, and every rule uses that answer.
+func (s *Store) park(profileID, conversationID, class, question string, options []string, def string, reversible, own bool) (Question, error) {
 	if profileID == "" || conversationID == "" || len(conversationID) > maxConversationLen {
 		return Question{}, errors.New("coder host: a question needs a profile and a conversation")
 	}
@@ -163,7 +184,10 @@ func (s *Store) Park(profileID, conversationID, class, question string, options 
 	if err != nil {
 		return Question{}, err
 	}
-	_, has := s.hasMaster(profileID, conversationID)
+	_, has := s.hasLiveMaster(profileID, conversationID)
+	if own && !has && !HardClass(class) {
+		return Question{}, ErrNoMasterDecide
+	}
 	if Decide(settings, class, reversible, has).Answerer == WhoModel {
 		return Question{}, ErrModelDecides
 	}
@@ -186,12 +210,39 @@ func (s *Store) Park(profileID, conversationID, class, question string, options 
 		rev = 1
 	}
 	now := s.stamp()
-	res, err := s.db.Exec(`INSERT INTO coder_session_questions (profile_id, conversation_id, class, question, options, default_answer, reversible, status, created_at)
+	// The question and its person item are one write: no hard question without its item, and the
+	// hourly limit is counted under the write lock the question's insert takes, so concurrent
+	// parks cannot all pass it.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Question{}, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`INSERT INTO coder_session_questions (profile_id, conversation_id, class, question, options, default_answer, reversible, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`, profileID, conversationID, class, trimTo(question, maxQuestionText), string(raw), trimTo(def, maxQuestionText), rev, now)
 	if err != nil {
 		return Question{}, err
 	}
 	id, _ := res.LastInsertId()
+	if HardClass(class) { // the person may have to answer it (now or after a role change): they are told, and nothing times it out
+		if own { // any hard park of a session's own model: what "needs you" shows cannot be inflated
+			since := s.now().Add(-recordWindow).UTC().Format(timeLayout)
+			var n int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND created_at >= ?`,
+				profileID, conversationID, since).Scan(&n); err != nil {
+				return Question{}, err
+			}
+			if n >= MaxPersonItemsPerHour {
+				return Question{}, ErrPersonItemRate
+			}
+		}
+		if err := addPersonItem(tx, profileID, conversationID, ItemParkedQuestion, class, id, s.stamp()); err != nil {
+			return Question{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Question{}, err
+	}
 	// Only an idle session moves: a running turn settles into waiting_user itself, and
 	// pause and stop keep their meaning.
 	if _, err := s.db.Exec(`UPDATE coder_sessions SET state = 'waiting_user', updated_at = ? WHERE profile_id = ? AND conversation_id = ? AND state = 'idle'`, now, profileID, conversationID); err != nil {
@@ -285,10 +336,14 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 		return q, Command{}, err
 	}
 	if scope.Role() != who {
-		return q, Command{}, fmt.Errorf("%w (the policy names the %s)", ErrNotAnswerer, who)
+		// A risky question the master cannot take (paused, at its limit, its notes failing) is the person's.
+		if scope.Role() != WhoUser || who != WhoMaster || !HardClass(q.Class) || !s.masterBlocked(q) {
+			return q, Command{}, fmt.Errorf("%w (the policy names the %s)", ErrNotAnswerer, who)
+		}
+		who = WhoUser
 	}
 	if who == WhoMaster {
-		if parent, ok := s.hasMaster(q.ProfileID, q.ConversationID); !ok || scope.ConversationID() != parent {
+		if parent, ok := s.hasLiveMaster(q.ProfileID, q.ConversationID); !ok || scope.ConversationID() != parent {
 			return q, Command{}, ErrNotAnswerer
 		}
 	}
@@ -324,6 +379,11 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 			return q, Command{}, err
 		} else if !ok || m.State == StateStopped {
 			return q, Command{}, ErrMasterStopped
+		}
+		// A risky question the person is told about (personOwns) is never answered by the master: the
+		// same predicate decides both, so a paused master's held note or a recent failure cannot slip through.
+		if HardClass(q.Class) && s.masterBlocked(q) {
+			return q, Command{}, fmt.Errorf("%w (the question is the person's now: the master cannot take it)", ErrNotAnswerer)
 		}
 	}
 	by := scope.Role()

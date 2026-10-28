@@ -25,6 +25,10 @@ var sessionMarkerEnvVars = []string{
 var sessionMarkerEnvPrefixes = []string{
 	"CLAUDE_CODE_",
 	"MONOMIND_",
+	// A mission token and its labels belong to the one process the conductor minted them for,
+	// which gets them through opts.Env; a process that merely inherits them (a conductor
+	// started inside a worker's shell) must not hand them on to workers of its own.
+	"MONOAGENT_TASK_",
 }
 
 // operatorEnvVars are MONOMIND_* settings the operator sets on purpose

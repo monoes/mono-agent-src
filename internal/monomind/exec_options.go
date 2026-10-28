@@ -93,4 +93,8 @@ type ExecOptions struct {
 	TempDir string
 	// Stderr receives monomind's diagnostics; nil means os.Stderr.
 	Stderr io.Writer
+	// OnStart, when set, is called once with the pid of the monomind process right after it has
+	// started (before any event is read). The agent runtime and every shell and tool server it
+	// starts are its descendants, so a caller can bind a credential to that process tree.
+	OnStart func(pid int)
 }

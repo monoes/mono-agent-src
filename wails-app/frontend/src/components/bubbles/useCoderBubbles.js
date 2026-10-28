@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, onChatEvent, onOrgEvent } from '../../services/api.js'
 import {
   newDraftKey, emptySummary, applyChatEvent, summaryFromTurns, moveBubble, loadState, saveState, orgBubble, orgBubbleKey, isOrgBubble,
@@ -42,9 +42,12 @@ function rootRoleOf(design) {
 // place), and a run that is over opens as a read-only { finished: true }
 // bubble. An org has at most one live bubble.
 export function useCoderBubbles() {
-  const initial = useMemo(() => loadState(), [])
-  const [bubbles, setBubbles] = useState(initial.bubbles)
-  const [side, setSideState] = useState(initial.side)
+  // The bubbles belong to the active profile, which is only known once the
+  // app has asked for it; until then the list is empty and nothing is saved.
+  const [initial, setInitial] = useState(null)
+  const profileRef = useRef('')
+  const [bubbles, setBubbles] = useState([])
+  const [side, setSideState] = useState('right')
   const [expandedKey, setExpandedKey] = useState('')
   const [summaries, setSummaries] = useState({})
   const [orgSummaries, setOrgSummaries] = useState({})
@@ -69,12 +72,29 @@ export function useCoderBubbles() {
   byOrg.current = Object.fromEntries(bubbles.filter(isLiveOrg).map(b => [b.orgName, b.key]))
   const orgKey = bubbles.filter(isLiveOrg).map(b => b.orgName).join('\u0000')
 
-  useEffect(() => { saveState({ bubbles, side }) }, [bubbles, side])
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve().then(() => api.getActiveProfile())
+      .catch(() => null)
+      .then(p => {
+        if (cancelled) return
+        profileRef.current = p?.id || ''
+        const st = loadState(undefined, profileRef.current)
+        // Bubbles opened before the profile answered are kept.
+        setBubbles(list => [...st.bubbles.filter(b => !list.some(x => x.key === b.key)), ...list])
+        setSideState(st.side)
+        setInitial(st)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => { if (initial) saveState({ bubbles, side }, undefined, profileRef.current) }, [initial, bubbles, side])
 
   // Restored bubbles: whether each one's latest turn is still running. A
   // conversation deleted since (the CLI reports it not found) loses its
   // bubble.
   useEffect(() => {
+    if (!initial) return
     for (const b of initial.bubbles) {
       if (isOrgBubble(b)) continue
       Promise.resolve().then(() => api.getChatTurns(b.conversationId, '', 1))
@@ -120,6 +140,7 @@ export function useCoderBubbles() {
   }, [])
 
   useEffect(() => {
+    if (!initial) return
     for (const b of initial.bubbles) if (isOrgBubble(b)) seedOrg(b.orgName, b.key, b.finished ? b.runId : '')
   }, [initial, seedOrg])
 
@@ -157,10 +178,11 @@ export function useCoderBubbles() {
 
   // openConversation shows an existing coder conversation as a bubble,
   // reusing its bubble when it already has one.
-  const openConversation = useCallback((conv) => {
+  // expand: false adds it collapsed.
+  const openConversation = useCallback((conv, { expand: open = true } = {}) => {
     if (!conv?.id) return ''
     const existing = byConversation.current[conv.id]
-    if (existing) { expand(existing); return existing }
+    if (existing) { if (open) expand(existing); return existing }
     const key = conv.id
     setBubbles(list => [...list, {
       key, conversationId: conv.id, cwd: conv.cwd || '', model: conv.model || '', runtime: conv.runtimeId || conv.runtime || '',
@@ -173,7 +195,7 @@ export function useCoderBubbles() {
     Promise.resolve().then(() => api.getChatTurns(conv.id, '', 1))
       .then(res => setSummaries(s => ({ ...s, [key]: summaryFromTurns(Array.isArray(res?.items) ? res.items : []) })))
       .catch(() => {})
-    expand(key)
+    if (open) expand(key)
     return key
   }, [expand])
 
@@ -182,11 +204,12 @@ export function useCoderBubbles() {
   // with the prompt as its draft; a conversationId opens that conversation
   // like openConversation does (the task's chat, already created) and task
   // ({ taskId, goal, status, origin }) puts the task header on it. Called
-  // with nothing, or with a click event, it is a blank new chat.
+  // with nothing, or with a click event, it is a blank new chat. collapsed: true
+  // docks a conversation's bubble without opening it.
   const openDraft = useCallback((seed) => {
     const opts = seed && typeof seed === 'object' && !seed.nativeEvent && !('target' in seed) ? seed : null
     const key = opts?.conversationId
-      ? openConversation({ id: opts.conversationId })
+      ? openConversation({ id: opts.conversationId }, { expand: !opts.collapsed })
       : (() => {
         const k = newDraftKey()
         setBubbles(list => [...list, { key: k, conversationId: '', cwd: '', model: '', runtime: '', access: '', title: '', effort: '', orgMode: '', taskId: '', taskKind: '' }])

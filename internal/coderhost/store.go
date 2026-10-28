@@ -109,6 +109,16 @@ type Session struct {
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// afterPolicyRead lets a test act between SetPolicy's read and its write.
+	afterPolicyRead func()
+	// beforeReserveTx lets a test act between Reserve's checks and the transaction that reserves.
+	beforeReserveTx func()
+	// afterReserveReads runs inside Reserve's transaction, after its reads and before the reserving statement.
+	afterReserveReads func()
+	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
+	afterStaleSelect func()
+	// onSpent sees the handle every Spent read goes through.
+	onSpent func(q querier)
 }
 
 // NewStore wraps an open, migrated database.
@@ -365,10 +375,15 @@ func (s *Store) SweepOrphans() (int, error) {
 		`DELETE FROM coder_sessions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_sessions.conversation_id AND c.profile_id = coder_sessions.profile_id)`,
 		`DELETE FROM coder_session_decisions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_decisions.conversation_id AND c.profile_id = coder_session_decisions.profile_id)`,
 		`DELETE FROM coder_session_questions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_questions.conversation_id AND c.profile_id = coder_session_questions.profile_id)`,
+		`DELETE FROM coder_session_person_items WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_person_items.conversation_id AND c.profile_id = coder_session_person_items.profile_id)`,
 		`DELETE FROM coder_session_turn_caps WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_turn_caps.conversation_id AND c.profile_id = coder_session_turn_caps.profile_id)`,
 		`DELETE FROM coder_session_host_turns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_host_turns.conversation_id AND c.profile_id = coder_session_host_turns.profile_id)`,
 		`DELETE FROM coder_session_tokens WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_tokens.conversation_id AND c.profile_id = coder_session_tokens.profile_id)`,
 		`DELETE FROM coder_session_spawns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_spawns.parent AND c.profile_id = coder_session_spawns.profile_id)`,
+		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state IN ('spawning', 'spawned') AND child_conversation_id <> '' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.child_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
+		`DELETE FROM coder_mission_events WHERE session_id IN (SELECT p.session_id FROM coder_mission_policy p WHERE p.profile_id = coder_mission_events.profile_id AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = p.lead_conversation_id AND c.profile_id = p.profile_id))`,
+		`DELETE FROM coder_mission_children WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.lead_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
+		`DELETE FROM coder_mission_policy WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_policy.lead_conversation_id AND c.profile_id = coder_mission_policy.profile_id)`,
 	} {
 		res, err := s.db.Exec(q)
 		if err != nil {

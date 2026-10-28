@@ -153,9 +153,15 @@ export function isOrgBubble(b) {
 // accessors can throw (private windows, blocked storage), and the app must
 // work without them.
 
-export function loadState(storage = globalThis.localStorage) {
+// Bubbles are kept per profile: conversations and orgs belong to one, and a
+// shared list would be pruned as "not found" while another profile is active.
+export function storageKeyFor(profileId) {
+  return profileId ? `${STORAGE_KEY}:${profileId}` : STORAGE_KEY
+}
+
+export function loadState(storage = globalThis.localStorage, profileId = '') {
   try {
-    const raw = storage?.getItem(STORAGE_KEY)
+    const raw = storage?.getItem(storageKeyFor(profileId))
     const parsed = raw ? JSON.parse(raw) : null
     const liveOrgs = new Set()
     const bubbles = Array.isArray(parsed?.bubbles)
@@ -188,7 +194,7 @@ export function loadState(storage = globalThis.localStorage) {
   }
 }
 
-export function saveState(state, storage = globalThis.localStorage) {
+export function saveState(state, storage = globalThis.localStorage, profileId = '') {
   try {
     const bubbles = state.bubbles.filter(b => b.conversationId || (b.kind === 'org' && b.orgName))
       .map(b => (b.kind === 'org'
@@ -198,7 +204,7 @@ export function saveState(state, storage = globalThis.localStorage) {
           // Additive fields: an older build reads the first four and ignores the rest.
           access: b.access || '', title: b.title || '', effort: b.effort || '', orgMode: b.orgMode || '', taskId: b.taskId || '', taskKind: b.taskKind || '',
         }))
-    storage?.setItem(STORAGE_KEY, JSON.stringify({ bubbles, side: state.side === 'left' ? 'left' : 'right' }))
+    storage?.setItem(storageKeyFor(profileId), JSON.stringify({ bubbles, side: state.side === 'left' ? 'left' : 'right' }))
   } catch {
     // Storage unavailable: bubbles just won't come back after a restart.
   }
