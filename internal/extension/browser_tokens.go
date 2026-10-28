@@ -263,6 +263,10 @@ func addPairedBrowserLocked(b PairedBrowser, o mintOpts) (token string, _ Paired
 			if !owns && !o.ReplaceInstance {
 				return "", PairedBrowser{}, ErrInstancePaired
 			}
+			if owns && !o.ReplaceInstance {
+				// A browser rotating its own token keeps the limit the owner set.
+				b.Restricted, b.AllowedProfiles = e.Restricted, e.AllowedProfiles
+			}
 		}
 		list = kept
 	}

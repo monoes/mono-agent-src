@@ -268,3 +268,21 @@ func TestApprovalRecordsTheAllowedSetOnThePairedRecord(t *testing.T) {
 		t.Fatalf("poll = %+v, %v", out, err)
 	}
 }
+
+// Re-pairing with the browser's own token (rotation) must not lift the limit:
+// only the owner's approval or `browsers allow` changes it.
+func TestTokenRotationKeepsTheAllowedSet(t *testing.T) {
+	setHome(t, t.TempDir())
+	tok, _ := mintRestricted(t, instA, "p-a")
+	_, entry, err := addPairedBrowser(PairedBrowser{Label: "b", Instance: instA}, mintOpts{RotateToken: tok})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !entry.Restricted || strings.Join(entry.AllowedProfiles, ",") != "p-a" {
+		t.Fatalf("rotated record lost its limit: %+v", entry)
+	}
+	list, _ := ListPairedBrowsers()
+	if len(list) != 1 || !list[0].Restricted {
+		t.Fatalf("stored = %+v", list)
+	}
+}

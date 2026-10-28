@@ -245,7 +245,7 @@ func newExtensionDecideCmd(cfg *Deps, approve bool) *cobra.Command {
 		},
 	}
 	if approve {
-		cmd.Flags().StringSliceVar(&profiles, "profiles", nil, "limit the browser to these profiles (ids or names); empty (--profiles=) lets it run no profile of its own. Without the flag it is not limited. Change later with: extension browsers allow")
+		cmd.Flags().StringSliceVar(&profiles, "profiles", nil, "limit the browser to these profiles (ids or names); empty (--profiles=) lets it run no profile of its own. Without the flag it is not limited, even when it replaces a limited browser. Change later with: extension browsers allow")
 		cmd.Flags().StringVar(&code, "code", "", "the confirmation code shown in the browser's side panel (asked for in a terminal)")
 	} else {
 		cmd.Flags().BoolVar(&all, "all", false, "deny every waiting request")
