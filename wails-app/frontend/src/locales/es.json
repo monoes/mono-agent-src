@@ -1811,7 +1811,20 @@
       "listError": "No se pudieron leer las sesiones",
       "retry": "Reintentar",
       "planError": "No se pudo leer el plan",
-      "planEmpty": "Este plan aún no tiene tareas"
+      "planEmpty": "Este plan aún no tiene tareas",
+      "new": "Nueva sesión",
+      "create": "Crear sesión",
+      "rename": "Renombrar",
+      "renameLabel": "Título de la sesión",
+      "titleLabel": "Título",
+      "goalLabel": "Objetivo (opcional)",
+      "parentLabel": "Sesión superior",
+      "noParent": "Sin sesión superior",
+      "by": "por {{who}}",
+      "titleProblem": {
+        "empty": "Pon un título a la sesión.",
+        "tooLong": "El título supera los {{max}} caracteres. Acórtalo; no se recorta nada por ti."
+      }
     }
   },
   "publication": {

@@ -1853,7 +1853,20 @@
       "listError": "Could not read sessions",
       "retry": "Retry",
       "planError": "Could not read the plan",
-      "planEmpty": "No tasks in this plan yet"
+      "planEmpty": "No tasks in this plan yet",
+      "new": "New session",
+      "create": "Create session",
+      "rename": "Rename",
+      "renameLabel": "Session title",
+      "titleLabel": "Title",
+      "goalLabel": "Goal (optional)",
+      "parentLabel": "Parent session",
+      "noParent": "No parent",
+      "by": "by {{who}}",
+      "titleProblem": {
+        "empty": "Give the session a title.",
+        "tooLong": "The title is longer than {{max}} characters. Shorten it; nothing is cut for you."
+      }
     }
   },
   "publication": {

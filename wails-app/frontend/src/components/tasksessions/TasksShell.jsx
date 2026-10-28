@@ -32,7 +32,7 @@ export default function TasksShell({ isActive = true, Board, sessionHint = null,
   // A hint for another session than the one on show opens nothing here.
   const openTask = found && found.sessionId === selectedId ? found.taskId : null
 
-  const switcher = <SessionSwitcher sessions={s.sessions} selectedId={selectedId} onSelect={choose} error={s.listError} onRetry={s.reload} />
+  const switcher = <SessionSwitcher sessions={s.sessions} selectedId={selectedId} onSelect={choose} error={s.listError} onRetry={s.reload} onCreate={s.create} onRename={s.rename} />
   // A hinted session is the selection from the first paint: while the list loads the page says so, never Personal.
   if (selectedId && !session && !s.loaded) {
     return <div className="page" style={{ padding: 16 }} data-testid="ts-loading">{t('tasks.loading')}</div>

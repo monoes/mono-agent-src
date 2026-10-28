@@ -804,11 +804,15 @@ export function TaskSessionBudget(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionClose(arg1:number,arg2:string):Promise<string>;
 
+export function TaskSessionCreate(arg1:string,arg2:string,arg3:number,arg4:string):Promise<string>;
+
 export function TaskSessionPause(arg1:number):Promise<string>;
 
 export function TaskSessionPlan(arg1:number):Promise<string>;
 
 export function TaskSessionPulse(arg1:number):Promise<Record<string, any>>;
+
+export function TaskSessionRename(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionResume(arg1:number):Promise<string>;
 
