@@ -298,6 +298,15 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			// delete itself re-reads the record inside its write transaction, where no turn can be
 			// recorded, and gives way if one appeared since: then the new ones are stopped too.
 			var stopped []int
+			missions := 0
+			// Whatever ends the delete after something was stopped says so: the conversation is kept,
+			// but the processes and missions stopped before are not coming back.
+			partial := func(err error) error {
+				if err == nil || (len(stopped) == 0 && missions == 0) {
+					return err
+				}
+				return fmt.Errorf("%w (the conversation was not deleted; %d process(es) and %d mission(s) were stopped before this)", err, len(stopped), missions)
+			}
 			for attempt := 0; ; attempt++ {
 				// A conversation that leads a mission that is still open is the operator's to delete: the
 				// mission is stopped with it (an agent, which may not end the others' work, is refused
@@ -305,21 +314,21 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				// gated and stopped too.
 				led, err := openSessionsLedBy(cmd.Context(), cfg, profileID, args[0])
 				if err != nil {
-					return err
+					return partial(err)
 				}
 				if len(led) > 0 {
 					if err := clicore.RequireOperator(cfg.RequireOperator, "delete a conversation that leads a mission"); err != nil {
-						return err
+						return partial(err)
 					}
 				}
 				afterSessionList()
 				stop, active, seen, err := stopConversationBackgroundSeen(store, profileID, args[0], false, func() error {
 					return clicore.RequireOperator(cfg.RequireOperator, "delete a conversation whose turns left processes running (deleting it stops them)")
 				})
-				if err != nil {
-					return err
-				}
 				stopped = append(stopped, stop.Stopped...)
+				if err != nil {
+					return partial(err)
+				}
 				if len(stop.Survivors) > 0 {
 					if cfg.JSONOutput() {
 						if err := clicore.PrintJSON(map[string]any{"id": args[0], "deleted": false, "stopped": stopped, "survivors": stop.Survivors}); err != nil {
@@ -331,11 +340,13 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						}
 					}
 					return &coderError{code: "survivors_remain", err: &clicore.Error{Code: exitSurvivors, Msg: fmt.Sprintf(
-						"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors); stop them yourself, then delete it again", len(stop.Survivors))}}
+						"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors; %d were stopped, %d mission(s) stopped before this); stop them yourself, then delete it again", len(stop.Survivors), len(stopped), missions)}}
 				}
 				if !active {
-					if err := stopSessions(cmd.Context(), cfg, profileID, led); err != nil {
-						return err
+					n, err := stopSessions(cmd.Context(), cfg, profileID, led)
+					missions += n
+					if err != nil {
+						return partial(err)
 					}
 				}
 				beforeGuardedDelete()
@@ -344,10 +355,10 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 					continue
 				}
 				if errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened) {
-					return clicore.InvalidInput("the conversation keeps recording processes its turns leave running, so it was not deleted (%d process(es) were stopped so far): try again once it is quiet", len(stopped))
+					return clicore.InvalidInput("the conversation keeps recording processes its turns leave running, so it was not deleted (%d process(es) and %d mission(s) were stopped so far): try again once it is quiet", len(stopped), missions)
 				}
 				if err != nil {
-					return chatStoreErr(err)
+					return partial(chatStoreErr(err))
 				}
 				break
 			}
@@ -567,23 +578,25 @@ func openSessionsLedBy(ctx context.Context, cfg *Deps, profileID, conversationID
 
 // stopSessions stops the mission sessions, as the operator who is deleting their lead (the caller has
 // asked for the operator): their claims go back to ready. One that ended meanwhile is left as it is.
-func stopSessions(ctx context.Context, cfg *Deps, profileID string, ids []int64) error {
+func stopSessions(ctx context.Context, cfg *Deps, profileID string, ids []int64) (int, error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	db, err := cfg.OpenDB()
 	if err != nil {
-		return fmt.Errorf("initializing database: %w", err)
+		return 0, fmt.Errorf("initializing database: %w", err)
 	}
 	defer db.Close()
 	ts := tasks.NewStore(db.DB)
+	n := 0
 	for _, id := range ids {
 		if _, err := ts.StopSession(ctx, profileID, id, tasks.Actor{Kind: tasks.Human}); err != nil {
 			if se, gerr := ts.GetSession(ctx, profileID, id, tasks.Actor{Kind: tasks.Human}); gerr == nil && se.State != tasks.SessionDraft && se.State != tasks.SessionRunning && se.State != tasks.SessionPaused {
 				continue
 			}
-			return err
+			return n, err
 		}
+		n++
 	}
-	return nil
+	return n, nil
 }

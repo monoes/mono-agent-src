@@ -662,3 +662,30 @@ func TestAgentDeleteStopsNothingWhenAMissionOpensBeforeTheStop(t *testing.T) {
 		t.Error("the mission opened meanwhile was touched")
 	}
 }
+
+// Whatever ends a delete after something was stopped says what was stopped: here the conversation is
+// removed by someone else between the stop and the delete (not found), and the error still carries the
+// exit code of the failure and the count of what is gone for good.
+func TestDeleteSaysWhatItStoppedWhenItEndsInAnotherError(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	beforeGuardedDelete = func() {
+		if err := r.store.DeleteConversation(c.ID, "default"); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	_, err := r.history(t, nil, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 2 {
+		t.Fatalf("exit %d (%v), want 2 (not found)", exitCodeFor(err), err)
+	}
+	if !strings.Contains(err.Error(), "1 process(es) and 0 mission(s) were stopped before this") {
+		t.Errorf("the error does not say what was stopped: %v", err)
+	}
+	if !gone(pid) {
+		t.Error("the process the delete stopped is still running")
+	}
+}
