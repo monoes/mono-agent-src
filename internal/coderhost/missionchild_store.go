@@ -783,6 +783,11 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if _, err := tx.Exec(`UPDATE coder_mission_children SET id = id WHERE 0`); err != nil {
 		return ChildRow{}, err
 	}
+	if on, err := childrenEnabledIn(tx); err != nil {
+		return ChildRow{}, err
+	} else if !on {
+		return ChildRow{}, ErrChildrenOff
+	}
 	pol, err := s.policyIn(tx, profileID, sessionID)
 	if err != nil {
 		return ChildRow{}, err

@@ -1982,6 +1982,17 @@ setting, turn on mode `all` or lift an operator's `off` or cap. The operator's c
 token or a mission binding. An operator who writes a number also sets it as the lead's cap; giving the lead a value
 without limiting takes two calls.
 
+**Mission child sessions: the operator's switch (off by default).** `coder sessions mission-children enable|disable`
+is the one switch for the whole feature. It is OFF on a fresh install and after an upgrade, whatever a master's
+`max_children` says (that number was set long ago for ordinary children), so a model-written mark never starts spawning
+budgeted child sessions nobody opted into: the operator runs `enable` once. It is stored as the reserved configs row
+`coder.mission_children_enabled` (`coderhost.MissionChildrenConfig`, absent = off; `config set` refuses it, no
+MCP tool writes it) and read inside `Store.Reserve`'s transaction, the one place every spawn passes (conductor, marked
+spawn, `SpawnForTask`). Marks are still stored while it is off; `mission_child_status` shows `switch: children: off
+(operator setting)`, the digest says so, and the conductor runs the task in-turn. `disable` stops NEW spawns only: a
+running child keeps running, and the host pass still settles, charges and revokes it. `list` shows
+`missionChildrenEnabled`. Both verbs refuse any process holding a coder session token or a mission binding.
+
 **Mission child sessions: the launcher (P-B2; built, not verified in a live run).** The coder host's launcher
 (`execLauncher.start`, `cli/chat/coder_host_exec.go`, with `coder_host_childtoken.go`) is the only process that starts a
 child's turn and the only place the child's task token is minted. The lead's chat process asks for the child through the

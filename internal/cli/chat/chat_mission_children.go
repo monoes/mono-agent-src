@@ -118,6 +118,12 @@ func (m *missionChildren) Facts(ctx context.Context, sid, tid int64) (dynorg.Chi
 		f.Row, f.EndReason, f.Child = row.State, row.EndReason, row.ChildConversationID
 		f.Exhausted = row.Attempts >= coderhost.MaxChildAttempts
 	}
+	if on, err := store.MissionChildrenEnabled(); err != nil {
+		return f, err
+	} else if !on {
+		f.Blocked = "child sessions are off (operator setting)" // the mark and its row stay as they are
+		return f, nil
+	}
 	if why != "" {
 		f.Blocked = why
 		return f, nil

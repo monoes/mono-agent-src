@@ -39,8 +39,19 @@ func taskIDs(t *testing.T, st *Store, sid int64) []int64 {
 	return out
 }
 
-// newMC makes a lead master with a task session of two tasks (running when approve).
+// newMC makes a lead master with a task session of two tasks (running when approve), with the operator's
+// child-session switch on (it is off by default: see newMCDefault).
 func newMC(t *testing.T, approve bool) *mcFix {
+	t.Helper()
+	f := newMCDefault(t, approve)
+	if err := f.st.SetMissionChildrenEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// newMCDefault is newMC with the configuration an install has until the operator enables child sessions.
+func newMCDefault(t *testing.T, approve bool) *mcFix {
 	t.Helper()
 	st := newStoreT(t)
 	lead, _ := master(t, st, "workspace")

@@ -91,6 +91,7 @@ func (s *Store) LeadFacts(sc CallerScope, profileID string, sessionID, taskID in
 // the newest audit rows of the lead's own mission.
 type LeadStatus struct {
 	SessionID int64          `json:"sessionId"`
+	Switch    string         `json:"switch"` // "children: on" or "children: off (operator setting)": the person's switch, not the lead's
 	Policy    Policy         `json:"policy"`
 	Room      Room           `json:"room"`
 	Counts    ChildCounts    `json:"counts"`
@@ -108,6 +109,9 @@ func (s *Store) LeadStatusOf(sc CallerScope, profileID string) (LeadStatus, erro
 		return LeadStatus{}, err
 	}
 	out := LeadStatus{SessionID: sid}
+	if out.Switch, err = s.childrenSwitchText(); err != nil {
+		return out, err
+	}
 	if out.Policy, err = s.GetPolicy(profileID, sid); err != nil {
 		return out, err
 	}
@@ -130,13 +134,18 @@ func (s *Store) LeadStatusOf(sc CallerScope, profileID string) (LeadStatus, erro
 // every row of its mission children (numbers and states, never task text). It takes no caller: it is the
 // operator CLI's read.
 type OperatorOverview struct {
+	Enabled  bool       `json:"missionChildrenEnabled"` // the operator's switch; off = no new child session starts
 	Policies []Policy   `json:"policies"`
 	Children []ChildRow `json:"children"`
 }
 
 // OverviewOf reads the profile's stored policies and child rows.
 func (s *Store) OverviewOf(profileID string) (OperatorOverview, error) {
-	out := OperatorOverview{Policies: []Policy{}, Children: []ChildRow{}}
+	on, err := s.MissionChildrenEnabled()
+	if err != nil {
+		return OperatorOverview{}, err
+	}
+	out := OperatorOverview{Enabled: on, Policies: []Policy{}, Children: []ChildRow{}}
 	rows, err := s.db.Query(`SELECT session_id FROM coder_mission_policy WHERE profile_id = ? ORDER BY session_id`, profileID)
 	if err != nil {
 		return out, err

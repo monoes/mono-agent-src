@@ -122,6 +122,9 @@ func missionReady(t *testing.T, m masterTurn) *missionChildren {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	if err := coderhost.NewStore(db.DB).SetMissionChildrenEnabled(true); err != nil { // the operator's switch (off by default)
+		t.Fatal(err)
+	}
 	mc := newMissionChildren(db.DB, "default", m.master)
 	mc.ready = func() bool { return true }
 	return mc

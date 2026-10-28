@@ -167,8 +167,20 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:     "coder sessions mission-children",
 		Short:    "The person's control of a mission's child sessions: set the policy, list it (a session token or a mission binding is refused)",
-		Usage:    "monoagentcli [--profile P] coder sessions mission-children set|list",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children enable|disable|set|list",
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children list --json"},
+	},
+	{
+		Name:     "coder sessions mission-children enable",
+		Short:    "Allow mission child sessions to start. They are off on a fresh install and after an upgrade until you run this (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children enable",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children enable"},
+	},
+	{
+		Name:     "coder sessions mission-children disable",
+		Short:    "Stop new mission child sessions from starting. Running ones are not stopped: they finish and are settled and charged as usual (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children disable",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children disable"},
 	},
 	{
 		Name:  "coder sessions mission-children set",

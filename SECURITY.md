@@ -2051,6 +2051,13 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   the caps are written only by `coder sessions mission-children set`, which refuses any process holding a session
   token or a mission binding. A worker-added follow-up in mode `all` becomes a child only within the ceiling, the
   spawn rate, the carve, three attempts per task and the existing limits on workers per task.
+- **Mission child sessions: the operator's switch.** Child sessions are OFF on a fresh install and after an upgrade
+  until the person runs `coder sessions mission-children enable`: a master whose `max_children` was set long ago
+  for ordinary children must not start spawning budgeted sessions because a model wrote a mark (a lead may mark its own
+  task). The switch is the reserved configs row `coder.mission_children_enabled` (absent = off), so `config set` and the
+  agents' write paths refuse it; `enable` and `disable` refuse any process holding a coder session token or a mission
+  binding, and no MCP tool exposes it. It is checked inside `Store.Reserve`'s transaction, so no entry point
+  bypasses it. `disable` stops new spawns only; running children finish and are settled, charged and revoked as usual.
 - **Mission child sessions: the launcher's task token and the charge of a child's spend (built, not verified in a live
   run).** The coder host's launcher is the only place a child's task token is minted, from the host's own rows (never a
   message, flag or environment value): role `worker`, the row's session and task, the actor the lead claimed the task as,

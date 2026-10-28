@@ -25,9 +25,10 @@ func newCoderSessionsMissionChildrenCmd(cfg *Deps) *cobra.Command {
 			"share of the lead's remaining budget they may carve. An operator who writes a number also sets it as the lead's " +
 			"cap, so the lead may lower it but not raise it past it; giving the lead a value without limiting takes two calls " +
 			"(set it, then clear the cap with --clear-max-children-cap or --clear-share-pct-cap). An operator off stays off " +
-			"until you turn the mode on.",
+			"until you turn the mode on. None of it starts a session until you run `enable`: child sessions are OFF on a fresh install " +
+			"and after an upgrade. `disable` stops new sessions only; sessions already running finish and are settled and charged as usual.",
 	}
-	cmd.AddCommand(newMissionChildrenSetCmd(cfg), newMissionChildrenListCmd(cfg))
+	cmd.AddCommand(newMissionChildrenSetCmd(cfg), newMissionChildrenListCmd(cfg), newMissionChildrenSwitchCmd(cfg, true), newMissionChildrenSwitchCmd(cfg, false))
 	return cmd
 }
 

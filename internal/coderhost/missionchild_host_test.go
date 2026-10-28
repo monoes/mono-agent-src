@@ -131,6 +131,9 @@ func TestSpawnIdempotentUnderRace(t *testing.T) {
 func TestTaskChildAccessNeverAboveLeadNeverFull(t *testing.T) {
 	for lead, want := range map[string]string{"full": "workspace", "coding": "coding", "workspace": "workspace"} {
 		st := newStoreT(t)
+		if err := st.SetMissionChildrenEnabled(true); err != nil {
+			t.Fatal(err)
+		}
 		c, _ := master(t, st, lead)
 		se, _ := missionFor(t, st, c.ConversationID, true)
 		ids := taskIDs(t, st, se.ID)
