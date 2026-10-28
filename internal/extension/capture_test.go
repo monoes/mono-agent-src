@@ -54,7 +54,7 @@ func startCaptureServer(t *testing.T) (*Server, *fakeExtension, string) {
 // the server before it starts.
 func startCaptureServerWith(t *testing.T, configure func(*Server)) (*Server, *fakeExtension, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	port := freePort(t)

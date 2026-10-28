@@ -47,7 +47,7 @@ func runExtensionInstall(t *testing.T, args ...string) (string, error) {
 
 func TestExtensionInstallReplacesThePreviousCopy(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	dir := filepath.Join(home, ".monoagent", "extension")
 	first := fixtureExtensionZip(t, map[string]string{
 		"chrome-extension/manifest.json": "v1",
@@ -113,7 +113,7 @@ func TestExtensionInstallIsRegistered(t *testing.T) {
 
 func TestExtensionInstallUnpacksTheBundledExtension(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	bundledExtension = fstest.MapFS{
 		"manifest.json": {Data: []byte(`{"version":"9.9.9"}`)},
 		"background.js": {Data: []byte("bg")},
@@ -145,7 +145,7 @@ func TestExtensionInstallUnpacksTheBundledExtension(t *testing.T) {
 
 func TestExtensionInfoReportsMissingStaleAndCurrent(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	setBundledExtension(t, fstest.MapFS{"manifest.json": {Data: []byte(`{"version":"2.0.0"}`)}})
 	info := func() extensionInfo {
 		t.Helper()
