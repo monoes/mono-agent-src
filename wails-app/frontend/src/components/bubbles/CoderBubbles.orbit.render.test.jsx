@@ -23,6 +23,7 @@ const { api, chatAccess, listeners, mockConfirm, sessions } = vi.hoisted(() => (
     pickCoderFolder: vi.fn(),
     openPathWithOS: vi.fn(),
     getProfiles: vi.fn(),
+    getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
   },
 }))
 vi.mock('../../services/api.js', () => ({
