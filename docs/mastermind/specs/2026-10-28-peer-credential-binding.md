@@ -277,11 +277,14 @@ equals `p`; and a process with number `p` that is alive and is `cur`'s parent *i
 parent by definition of the kernel's `PPid`. If instead `pp` refers to a recycled number whose new
 owner is not `cur`'s parent, then `ppid(cur) != p` on the re-read (a live process's parent never
 changes except by reparenting to an ancestor) or `pp` is not alive. Numbers of live processes are
-unique, so no two live holders of `p` exist inside the window. The decision is a snapshot: the
-chain may change after the final liveness check, and the operation that follows (a token use) is
-not frozen. That is a property of any ancestry check and is stated, not hidden.
+unique, so no two live holders of `p` exist inside the window. The decision is a
+point-in-time check, not a frozen chain: after the final liveness check the caller may exit or
+be reparented, and the operation that follows (a token use) can still race that. The remaining
+post-check race is a property of any ancestry check; it is stated, and the operation takes its
+effect inside the host where possible (section 4) so the window is the host's own, not the
+caller's.
 
-Adversarial tests required (section 11): a parent that exits between `ppid` and `pidfd_open`; a
+Adversarial tests required (section 11), with an exit, a reparent and a number recycling injected at **every hop** and between each read and the next: a parent that exits between `ppid` and `pidfd_open`; a
 recycled number substituted at that instant (fake process layer); reparent to a subreaper;
 reparent to init; a start-time inversion; a caller that exits mid-walk; the depth limit; a
 fork-churn stress run that keeps recycling numbers while verifying a known-in-tree and a
@@ -388,20 +391,38 @@ The binding MAC covers the binding row; the token row and its lifecycle are prot
   revoked until that token's expiry, so deleting the revocation row afterwards does not un-revoke
   a live service. A database writer without the vault key can therefore deny but cannot
   authorize or extend an expiry (MAC); the one residual is deleting a revocation row **before**
-  the service has dropped the entry, which the push in the next section closes in the normal case.
+  the service has observed it (a verify or an acknowledged `Drop`), which makes the no-vault-key
+  guarantee **conditional, not absolute**: in that window the live registration still authorizes.
+  The window is short (the service re-reads on every verify and `Drop` follows each commit) and
+  the writer needs write access to the database, which section 1 already treats as the courtesy
+  boundary; it is stated here so the claim is not read as unconditional.
 
 #### Lifecycle inventory (every existing operation maps to a v2 revocation)
 
 The legacy operations act on legacy tables only. Each one is extended in phase 3 to perform its
 v2 counterpart in the same function (no parallel code path to forget), through one primitive,
-`procbind.Revoke(ctx, selector)`, which (1) commits the revocation rows (selector: token id,
-owner, session/conversation, profile, or all), (2) tells the service to drop the matching entries
-and release their pidfds, and (3) returns only after the service acknowledged the drop **or**
-reports the failure. Failure semantics: if (1) fails nothing changed and the error is returned
-(the token remains valid and the caller is told so); if (1) succeeded and (2) was not
-acknowledged, the call returns a distinct "revoked, live drop unconfirmed" error (non-zero exit,
-logged, shown in doctor), the token already denies at the next verify because verify reads the
-committed revocation row, and the host retries the drop on its next poll until acknowledged.
+`procbind.Revoke`, in two parts:
+
+- `procbind.RevokeTx(tx, selector)` writes the revocation rows (selector: token id, owner,
+  session/conversation, profile, or all) **inside the caller's own database transaction**.
+- `procbind.Drop(ctx, selector)` tells the service to drop the matching entries and release their
+  pidfds, and returns once the service acknowledged, or reports the failure.
+
+**Ordering rule for every irreversible legacy state change** (deleting a conversation or
+session, deleting a profile, ending a turn by deleting its token row, a sweep's purge): the
+v2 revocation rows are written by `RevokeTx` **in the same transaction** as the legacy change,
+so both commit or neither does. There is no window in which the legacy state is gone and the v2
+token is still valid: if the revocation rows cannot be written, the transaction rolls back, the
+conversation still exists, the error is returned and a retry finds the same state. Only `Drop`
+runs after the commit. If `Drop` is not acknowledged the call returns a distinct "revoked, live
+drop unconfirmed" error (non-zero exit, logged, shown in doctor); the change is already
+committed and the token already denies at the next verify because verify reads the committed
+revocation row (above); the host retries `Drop` on its next poll until acknowledged. Operations
+that are purely revocations (`Store.Revoke`, `RevokeOwner`, `RevokeProfile`) are a single
+`RevokeTx` in their own transaction followed by `Drop`. An operation that cannot share a
+transaction with its legacy change (a change outside this database) must write the v2 revocation
+durably **before** performing the legacy change, with the legacy change retried idempotently
+after a crash (the revocation row is the recovery marker).
 
 | Existing operation | Legacy effect | v2 counterpart (phase 3) |
 |---|---|---|
@@ -409,10 +430,10 @@ committed revocation row, and the host retries the drop on its next poll until a
 | `Store.RevokeProfile` | all of a profile's tokens | `Revoke(profile)` |
 | `Store.RevokeOwner` (conductor ends a run, sweep) | tokens of one `mission_owner` | `Revoke(owner)` |
 | `Store.SweepMissions` (conductor start/resume) | revokes orphan owners, purges expired | `Revoke(owner)` for each orphan the legacy sweep revokes, plus purge of expired v2 rows and their revocations |
-| `RevokeSessionTokens(profile, conv)` (turn ended) | deletes `coder_session_tokens` | `Revoke(session)`; the turn-end path calls it before the next turn is launched |
+| `RevokeSessionTokens(profile, conv)` (turn ended) | deletes `coder_session_tokens` | `RevokeTx(session)` in the same transaction as the delete, then `Drop(session)`; the turn-end path completes it before the next turn is launched |
 | Turn replacement (`IssueSessionToken` for a new turn) | the verify join on the current `turn_id` | v2 registration is keyed by `(session, turn)`; issuing a new turn revokes the previous turn's entry first |
-| Conversation / session deletion (`AIStore.DeleteConversation`, the delete stack of #1119, #1123, #1124) | revokes legacy rows in the delete transaction | `Revoke(session)` after that transaction commits and before the delete returns success |
-| Profile deletion | cascades legacy rows | `Revoke(profile)` |
+| Conversation / session deletion (`AIStore.DeleteConversation`, the delete stack of #1119, #1123, #1124) | revokes legacy rows in the delete transaction | `RevokeTx(session)` **inside that same transaction**; `Drop(session)` after it commits and before the delete returns success |
+| Profile deletion | cascades legacy rows | `RevokeTx(profile)` in the deleting transaction, then `Drop(profile)` |
 | Host / mission shutdown | tokens left to expire or be swept | clean shutdown: `Revoke(all)` then close; crash: registry is memory-only, so nothing survives |
 | Worker reap (worker exits) | none | the host unregisters the entry and releases the pidfd |
 | Orphan cleanup (`ResetStaleSpawning`, `expireOrphan`) | marks the session failed | `Revoke(session)` |
@@ -434,6 +455,28 @@ API reads only `agent_tokens`, so it never accepts a v2 token; this is stated in
 pinned by a test that presents a v2 mission token to every bearer route.
 
 - Whole-database rollback and a writer who holds the vault key remain out of scope (section 1).
+
+### Migration of existing rows
+
+- Legacy rows stay in the legacy tables and verify under the old MAC; they are **never**
+  re-labelled as v2 rows and a legacy MAC is never accepted for a v2 row. There is no
+  `TEXT DEFAULT 'proc'` column; "legacy" is where the record lives, not a value anyone can edit.
+- Only tokens issued after the flag is on have v2 rows. Nothing needs re-signing; a legacy token
+  is simply a legacy token for its remaining life (tokens are short-lived and per run).
+- Migration number: next free at implementation-PR time (master ends at 141, epic #1106 may take
+  142); not taken now. The actual SQL, constraints (insert-only enforced by triggers that reject
+  `UPDATE` and `DELETE` on the v2 tables) and indexes are written with the version number at
+  implementation time. The migration creates five tables: `process_bindings`, `procbind_host`,
+  `agent_tokens_v2`, `coder_session_tokens_v2` and `token_revocations_v2`; nothing existing is
+  altered.
+- Old binaries' write behaviour: an old host minting a token writes the legacy tables only; those
+  tokens are legacy, correctly labelled. An old host can never produce a v2 row or a v2-prefixed
+  token. Downgrading with the flag on strands v2 tokens (an old binary cannot resolve them) until
+  the runs end; turning the flag off first is the documented rollback.
+- Flag: `MONOAGENT_PEERCRED_BINDING` / `security.peercred_binding`, **off by default** and
+  **operator-only** (set through the operator-gated config path, not by an agent); Linux only;
+  macOS and Windows reject the setting. Its description states that a host restart interrupts
+  running workers (section 5, Restart).
 
 ## 8. Socket location, permissions and lifecycle
 
@@ -553,11 +596,16 @@ scratch `HOME`, never the real database, and the same fake vault-key source the 
 - **Canonical encoding:** moving bytes between adjacent fields (`profile "ab", scope "c"` versus
   `"a", "bc"`), swapping profile and scope, and replaying an answer for another request each change
   the MAC and deny; a fuzz test over field boundaries.
-- **Lifecycle:** one test per row of the section 7 inventory (allowed before, denied after,
+- **Lifecycle:** one test per row of the section 7 inventory, plus a failure-injection test that
+  makes `RevokeTx` fail inside a deletion transaction (the deletion rolls back, the conversation and
+  token remain, a retry succeeds) and one that kills the host between commit and `Drop` (the token
+  denies after restart and on the next verify), (allowed before, denied after,
   including with the service unreachable during the revoke: error reported, token still denies),
   the forgotten-path guard test, the HTTP bearer test, and relaunch after a host restart.
 - **Pipe:** frame bounds, trailing bytes, EOF before frame, deadline, a drained pipe, a host that
-  dies before writing; none leaves a blocked trampoline.
+  dies before writing, and a **partial write** (some bytes written, then the host dies or the
+  write fails): the trampoline fails visibly, the host revokes the entry and reports it, and a
+  retry launches a new child with a new token; none leaves a blocked trampoline.
 - **Fallback matrix** (section 6): each row a test, including "enabled, service down at launch
   refuses/holds" and "enabled, existing `peercred` token, service down denies".
 - **Launch ordering:** a child that polls its own environment and `/proc/<pid>/environ` finds no
