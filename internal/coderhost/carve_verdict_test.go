@@ -55,10 +55,10 @@ func TestSpawnWithAVanishedChildIsNotChildrenFull(t *testing.T) {
 	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 3}); err != nil {
 		t.Fatal(err)
 	}
-	f.st.afterChildCreated = func() {
-		if _, err := f.st.db.Exec(`UPDATE coder_sessions SET parent_conversation_id = '' WHERE parent_conversation_id = ?`, f.lead.ConversationID); err != nil {
-			t.Error(err)
-		}
+	// the moment the pending conversation is noted (just before the carve), the child stops being the master's
+	if _, err := f.st.db.Exec(`CREATE TRIGGER vanish_child AFTER UPDATE OF pending_conversation_id ON coder_mission_children
+		BEGIN UPDATE coder_sessions SET parent_conversation_id = '' WHERE parent_conversation_id = '`+f.lead.ConversationID+`'; END`); err != nil {
+		t.Fatal(err)
 	}
 	_, err := f.st.SpawnForTask(f.scope(), "p", f.se.ID, f.ids[0], "brief")
 	if err == nil || errors.Is(err, ErrChildrenFull) || errors.Is(err, ErrLimit) || errors.Is(err, errCarveRefused) {
