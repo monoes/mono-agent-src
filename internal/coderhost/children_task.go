@@ -28,6 +28,10 @@ import (
 // conductor leaves the task waiting and asks again later.
 var ErrChildrenFull = errors.New("the mission's child sessions are full")
 
+// errCarveRefused marks a spawn whose carve was refused after its conversation existed: not an attempt, so the
+// reservation goes back to marked once the conversation is deleted.
+var errCarveRefused = errors.New("the carve was refused")
+
 // SpawnForTask starts the session for a task the lead marked (or, in mode all, any task of its mission). sc is the
 // lead's LeadScope (see NewLeadScope); brief is the already sealed first message.
 func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID int64, brief string) (Spawned, error) {
@@ -51,6 +55,7 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 		return Spawned{}, err // including ErrChildrenFull: nothing was reserved
 	}
 	created := ""
+	carveWasRefused := false
 	out, err := s.spawnWith(c, SpawnRequest{Message: brief, BudgetUSD: row.ReservedUSD}, spawnHooks{
 		onCreated: func(conv string) error {
 			created = conv
@@ -60,9 +65,7 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 			return s.notePending(sc, profileID, sessionID, taskID, conv, row.Generation)
 		},
 		beforeMessage: func(string) error { return s.touch(sc, profileID, sessionID, taskID, row.Generation) },
-		carveRefused: func() { // a refusal, not an attempt: the row lets go of the conversation before it is deleted, so it is not marked gone
-			_ = s.releaseReservation(profileID, sessionID, taskID, row.Generation, c.ConversationID, false, "the carve was refused: the lead's budget no longer covers it")
-		},
+		carveRefused:  func() { carveWasRefused = true }, // a refusal, not an attempt; the row keeps the conversation until it is deleted (abandonSpawn)
 	})
 	if err == nil {
 		if _, err = s.setSpawned(sc, profileID, sessionID, taskID, out.ConversationID, row.Generation); err != nil {
@@ -70,6 +73,10 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 		}
 	}
 	if err != nil {
+		if carveWasRefused {
+			// the lead's budget no longer covers the share: the task waits, as for any other full limit
+			err = fmt.Errorf("%w: %w: %w", errCarveRefused, ErrChildrenFull, err)
+		}
 		if out.ConversationID != "" {
 			created = out.ConversationID // made, but its message or its link failed
 		}
@@ -93,7 +100,7 @@ func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64
 			return fmt.Errorf("%w (and deleting the conversation %s failed, so the reservation is left for the host to recover: %w)", cause, conv, err)
 		}
 	}
-	refused := conv == "" && (errors.Is(cause, ErrLimit) || errors.Is(cause, ErrAccess) || errors.Is(cause, ErrInvalid) || errors.Is(cause, ErrNotYours))
+	refused := errors.Is(cause, errCarveRefused) || conv == "" && (errors.Is(cause, ErrLimit) || errors.Is(cause, ErrAccess) || errors.Is(cause, ErrInvalid) || errors.Is(cause, ErrNotYours))
 	if refused && errors.Is(cause, ErrLimit) && !errors.Is(cause, ErrChildrenFull) {
 		cause = fmt.Errorf("%w: %w", ErrChildrenFull, cause) // a spawn limit (rate, children, depth) reads as full: the task waits
 	}
@@ -118,8 +125,10 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'no_finish', reserved_usd = 0, pending_conversation_id = '', ended_at = ?, updated_at = ?
 			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND generation = ?`, now, now, profileID, sessionID, taskID, lead, generation)
 	} else {
-		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'marked', reserved_usd = 0, pending_conversation_id = '', attempts = MAX(attempts - 1, 0), updated_at = ?
-			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND generation = ?`, now, profileID, sessionID, taskID, lead, generation)
+		// Also a row the conversation's own deletion just marked gone: a refused carve deletes first, and the
+		// deletion is what ended the row, but the refusal was never an attempt.
+		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'marked', end_reason = '', ended_at = '', reserved_usd = 0, pending_conversation_id = '', attempts = MAX(attempts - 1, 0), updated_at = ?
+			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND (state = 'spawning' OR (state = 'gone' AND end_reason = 'deleted')) AND generation = ?`, now, profileID, sessionID, taskID, lead, generation)
 	}
 	if err != nil {
 		return err
