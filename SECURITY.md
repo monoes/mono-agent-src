@@ -958,7 +958,14 @@ against an agent running as you:
   directly: post a `set_binding` to `/monoagent/relay`, or connect to the
   websocket as a browser and claim a profile in a `binding` frame, so an
   endpoint it runs would receive that profile's browser actions. The gates
-  above don't cover that path.
+  above don't cover that path. This is the same as before profile sets.
+- A paired browser, or anything holding the bridge token, can claim any
+  valid profile id, and with sets it can claim up to 64 at once and receive
+  those profiles' browser commands and session data. That widens what one
+  mis-paired or compromised browser can see, from one profile to many. It is
+  not a new trust boundary: the token already let such a caller claim any
+  one profile. Limiting a browser's token to an allowed set of profiles when
+  it is paired would close this, and is not part of this change.
 - The `pair --open` gate is cosmetic against an agent with a shell, which
   can start a bridge of its own and open the pairing page itself.
 - An agent with a shell can also edit the files these commands manage.

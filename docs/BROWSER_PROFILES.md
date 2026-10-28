@@ -86,6 +86,10 @@ extension from the browser's extensions page (`chrome://extensions` or
 `edge://extensions`) in every browser profile, and restart the daemon or
 `monoagentcli extension serve`.
 
+Upgrade the bridge and the extension together. An older bridge routes only by
+the first profile a browser reports, so the browser's other profiles fall to
+the default browser there.
+
 Everything older keeps working:
 
 - An extension before 1.12.0 (but 1.5.0 or later) runs one profile. Its choice
