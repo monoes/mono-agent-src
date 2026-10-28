@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,12 +23,18 @@ import (
 	"github.com/monoes/mono-agent/internal/operator"
 )
 
+// setHome points both variables os.UserHomeDir reads (HOME on Unix, USERPROFILE on Windows) at dir.
+func setHome(t testing.TB, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 // pairTestHome gives the test its own HOME and bridge port, so it never
 // touches the user's token or the bridge on 9222.
 func pairTestHome(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
+	setHome(t, t.TempDir())
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +61,9 @@ func runPairCmdJSON(t *testing.T, asJSON bool, args ...string) (string, error) {
 }
 
 func TestExtensionPairOpenOpensTheRunningBridgesPairingPage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("BROWSER is a #!/bin/sh script here, which Windows cannot execute")
+	}
 	port := pairTestHome(t)
 	srv := extension.NewServer("127.0.0.1:"+port, zerolog.Nop())
 	srv.StartAsync(context.Background())

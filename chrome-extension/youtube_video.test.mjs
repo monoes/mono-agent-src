@@ -111,6 +111,32 @@ test("pickTrack prefers a human track in the spoken language, then the auto one"
   assert.equal(T.pickTrack([], "en"), null);
 });
 
+// An auto-dubbed video (kqG6XqOAlt4): one auto-generated track per dubbed
+// audio language, listed alphabetically, so the first is Arabic. The original
+// audio is the default audio track, and its default caption is the English one.
+test("spokenLanguage reads an auto-dubbed video's original audio, not its first auto track", () => {
+  const langs = ["ar", "bn", "nl", "en", "fr", "de", "iw", "hi", "id", "it", "ja", "ko", "ml", "pl", "pt", "pa", "ru", "es", "ta", "te", "uk"];
+  const tracks = langs.map((l) => ({ languageCode: l, kind: "asr", baseUrl: l }));
+  const dub = (id) => ({ audioTrackId: id, defaultCaptionTrackIndex: 3, hasDefaultTrack: true });
+  const player = {
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: tracks,
+        audioTracks: [dub("bn.10"), dub("id.10"), dub("ar.10"), dub("en-US.4")],
+        defaultAudioTrackIndex: 3,
+      },
+    },
+  };
+  assert.equal(T.spokenLanguage(player, tracks), "en");
+  assert.equal(T.pickTrack(tracks, T.spokenLanguage(player, tracks)).baseUrl, "en");
+  // No audio-track word at all: the first auto track is still the best guess.
+  assert.equal(T.spokenLanguage({}, tracks), "ar");
+  // One auto track: it is generated from the audio, whatever the audio tracks say.
+  const one = [{ languageCode: "de", baseUrl: "d" }, { languageCode: "fr", kind: "asr", baseUrl: "f" }];
+  const says = { captions: { playerCaptionsTracklistRenderer: { captionTracks: one, audioTracks: [{ defaultCaptionTrackIndex: 0 }], defaultAudioTrackIndex: 0 } } };
+  assert.equal(T.spokenLanguage(says, one), "fr");
+});
+
 test("parseJson3 and parseXml read real caption bodies", () => {
   const segs = T.parseJson3(fixture("zoo.json3"));
   assert.ok(segs.length >= 5);

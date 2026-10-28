@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -50,7 +51,7 @@ var ErrWindows = errors.New("agent-mode has no Windows profile: Windows has no s
 	"(3) Windows Sandbox or a VM, with the API forwarded in. See \"Agent mode\" in SECURITY.md and run \"" + WindowsDoc + "\" for the steps")
 
 // The profiles contain no path or value of the caller, so nothing can be injected.
-// Paths come from $HOME (bwrap), a -D parameter (seatbelt) or ~ (Claude Code) at the
+// Paths come from $HOME (bwrap), the HOME the profile was printed for (seatbelt) or ~ (Claude Code) at the
 // time the sandbox starts. The bwrap and seatbelt text is generated from the lists in
 // profiles.go, so the printed profile has one source.
 
@@ -83,7 +84,11 @@ func Profile(rt Runtime) (string, error) {
 	case Bwrap:
 		return bwrapProfile(), nil
 	case Seatbelt:
-		return seatbeltProfile(), nil
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("seatbelt profile: cannot find HOME: %w", err)
+		}
+		return seatbeltProfile(home)
 	case ClaudeCode:
 		return claudeCodeProfile, nil
 	}
@@ -127,8 +132,8 @@ OUTSIDE the sandbox; the eval hands the token to the agent through its environme
   sh agent-sandbox.sh claude
 
 That is the --compat profile (the default for now): best effort that reduces what a cooperative agent does by
-accident, not a boundary. For a real separation use "agent-mode sandbox --runtime bwrap --strict" and run the
-script from the project directory (see "monoagentcli agent-mode sandbox --help").
+accident, not a boundary. For stronger hardening use "agent-mode sandbox --runtime bwrap --strict" and run the
+script from the project directory (see "monoagentcli agent-mode sandbox --help"). Both profiles are best-effort hardening, not isolation: the agent shares the host network and the host root is mounted read-only.
 
 The agent then calls $MONOAGENT_API_URL/workflows with "Authorization: Bearer $MONOAGENT_API_TOKEN".
 Scopes: read = GET only; write = also validate and other non-send changes; run = also run and
@@ -160,12 +165,13 @@ func newSandboxCmd() *cobra.Command {
 		Long: "Prints, to stdout, a profile for bwrap (Linux), seatbelt (macOS sandbox-exec) or Claude Code's " +
 			"sandbox settings. Nothing is read from or written to your mono-agent data. --runtime windows " +
 			"prints no profile: it fails with the reason and what to use instead.\n\n" +
-			"bwrap has two profiles. --strict is the supported separation: the home directory, /tmp and /run are empty " +
+			"bwrap has two profiles. --strict is the stronger profile: the home directory, /tmp and /run are empty " +
 			"and only the current directory, the agent runtimes' own config and the paths named with --allow-rw/--allow-ro " +
 			"are bound back, so nothing the agent writes elsewhere outlives it and no agent socket is reachable. " +
 			"--compat (the default for now) keeps the whole filesystem writable and hides a list of paths: best effort that " +
 			"reduces what a cooperative agent does by accident, not a boundary, because places that start code later " +
-			"(startup files, autostart, ~/.local/bin, git hooks) cannot all be listed.",
+			"(startup files, autostart, ~/.local/bin, git hooks) cannot all be listed.\n\n" +
+			"Neither profile is isolation: the agent shares the host network (services on loopback and abstract unix sockets stay reachable) and the host root is mounted read-only, so files outside the locations the profile names (backup copies, other mounts) stay readable.",
 		Example: "  monoagentcli agent-mode sandbox --runtime bwrap --strict > agent-sandbox.sh\n" +
 			"  cd ~/projects/x && sh ~/agent-sandbox.sh claude",
 		Args: cobra.NoArgs,

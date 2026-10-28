@@ -14,7 +14,9 @@
 package gitsafe
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -76,3 +78,12 @@ func Env(environ []string) []string {
 
 // Environ is Env of this process's environment.
 func Environ() []string { return Env(os.Environ()) }
+
+// Command is `git <Args> <args...>` with Env as its environment: the hardened form of
+// exec.CommandContext(ctx, "git", args...). The caller sets Dir or passes -C itself when git
+// must run in a particular folder (put -C in args, which then follows Args).
+func Command(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", append(Args(), args...)...)
+	cmd.Env = Environ()
+	return cmd
+}

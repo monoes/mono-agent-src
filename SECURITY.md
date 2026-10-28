@@ -251,7 +251,7 @@ supported way to run a coding agent that you do not fully trust:
 
 1. Print a sandbox profile and start the agent inside it. On Linux there are two bwrap profiles:
    `monoagentcli agent-mode sandbox --runtime bwrap --strict > agent-sandbox.sh`, then run
-   `sh agent-sandbox.sh claude` from the project directory. **Strict is the supported separation.**
+   `sh agent-sandbox.sh claude` from the project directory. **Strict is the stronger of the two profiles, best-effort hardening rather than isolation.**
    The filesystem is read-only; `$HOME`, `/tmp`, `/var/tmp` and `/run` are empty in-memory mounts;
    only the current directory, the agent runtimes' own config (`~/.claude`, `~/.codex`,
    `~/.config/opencode`, `~/.gemini`, `~/.config/github-copilot`, which hold their logins) and paths
@@ -263,6 +263,7 @@ supported way to run a coding agent that you do not fully trust:
    its own pid and IPC namespaces and session, no capabilities, and a cleared environment with
    an allowlist (`PATH`, `HOME`, the `MONOAGENT_API_*` variables and the runtimes' API-key and
    config-directory variables), so `SSH_AUTH_SOCK` and cloud credentials are not passed on.
+   Strict is not isolation either: the agent shares the host network (services on loopback and abstract unix sockets stay reachable) and the host root is mounted read-only, so files outside the locations the profile names (backup copies, other mounts) stay readable. Masking is by path, not by file identity: a hard link to a protected file made elsewhere stays readable.
    What stays writable outlives the sandbox: a git hook or editor task inside the current
    directory, and a hooks or settings change inside a runtime's config directory.
    `--compat` (the default for now, and what `--runtime bwrap` prints without `--strict`) keeps the whole
@@ -273,7 +274,7 @@ supported way to run a coding agent that you do not fully trust:
    (`--runtime seatbelt`, `sandbox-exec`) denies reading and writing `~/.monoagent`,
    `~/Library/Keychains`, `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.git-credentials` and `~/.netrc`, denies
    looking up the keychain Mach services, and denies writing `~/Library/LaunchAgents` and the shell
-   startup files; everything else stays as it is. It has not been run on a Mac by the authors.
+   startup files; everything else stays as it is. The profile names each location by the path you give and by the one it resolves to (macOS matches resolved paths), so print it again if HOME changes. The file rules have a macOS-only test against `sandbox-exec`; the Mach service names have not been run on a Mac by the authors.
    `--runtime claude-code` prints Claude Code's own sandbox settings.
 2. The agent does not run `monoagentcli` as you. It calls the daemon's HTTP API
    (`127.0.0.1:9322`, `/profiles/{profile}/...`) with a token that opens that one
@@ -927,13 +928,13 @@ read. It is one bridge request method, `vault.save`
 
 ### Extension commands that only the user runs
 
-`extension bind`, `extension unbind`, `extension reset`, `extension pair
+`extension bind`, `extension unbind`, `extension assign`, `extension reset`, `extension pair
 --open` and `extension install --zip` refuse an agent, the chat and a
 workflow run: any process carrying one of the operator markers, or whose
 parent process carries one. They exit 3 with code `operator_only`.
 
-- `bind` and `unbind` decide which profile a browser acts as, so an agent
-  could point your browser, with its logged-in accounts, at another
+- `bind`, `unbind` and `assign` decide which profiles a browser acts as, so
+  an agent could point your browser, with its logged-in accounts, at another
   profile, or take its profile away.
 - `reset` revokes the pairing token and cuts every browser off until you
   pair it again.
@@ -958,7 +959,21 @@ against an agent running as you:
   directly: post a `set_binding` to `/monoagent/relay`, or connect to the
   websocket as a browser and claim a profile in a `binding` frame, so an
   endpoint it runs would receive that profile's browser actions. The gates
-  above don't cover that path.
+  above don't cover that path: the relay has no operator/agent distinction
+  (the operator marker is a property of the CLI process and cannot cross the
+  HTTP hop), so the relay token is the credential for `set_binding`, exactly
+  as it is for `click` or `eval`. This is the same as before profile sets;
+  `TestRelaySetBindingNeedsTheRelayToken` pins that the token is required.
+  A per-browser token, however, speaks only for the instance it was paired
+  with: it cannot connect as another instance, and no connection replaces a
+  socket that authenticated with a different per-browser token.
+- A paired browser, or anything holding the bridge token, can claim any
+  valid profile id, and with sets it can claim up to 64 at once and receive
+  those profiles' browser commands and session data. That widens what one
+  mis-paired or compromised browser can see, from one profile to many. It is
+  not a new trust boundary: the token already let such a caller claim any
+  one profile. Limiting a browser's token to an allowed set of profiles when
+  it is paired would close this, and is not part of this change.
 - The `pair --open` gate is cosmetic against an agent with a shell, which
   can start a bridge of its own and open the pairing page itself.
 - An agent with a shell can also edit the files these commands manage.

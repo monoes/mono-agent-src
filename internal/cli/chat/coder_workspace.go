@@ -18,6 +18,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	profilecli "github.com/monoes/mono-agent/internal/cli/profile"
+	"github.com/monoes/mono-agent/internal/gitsafe"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
@@ -76,8 +77,8 @@ func newCoderWorkspace(ctx context.Context, root, initTarget string) (*coderWork
 		}
 	}
 	ws := &coderWorkspace{Path: dir, Created: true}
-	if git, err := exec.LookPath("git"); err == nil {
-		ws.Git = exec.CommandContext(ctx, git, "init", "-q", dir).Run() == nil
+	if _, err := exec.LookPath("git"); err == nil {
+		ws.Git = gitsafe.Command(ctx, "init", "-q", dir).Run() == nil
 	}
 	res, err := initWorkspace(ctx, "", dir, initTarget)
 	if err != nil {
@@ -104,11 +105,11 @@ func rootCoderWorkspace(ctx context.Context, root, initTarget string) (*coderWor
 		return nil, err
 	}
 	ws := &coderWorkspace{Path: dir, Created: created}
-	if git, err := exec.LookPath("git"); err == nil {
-		if exec.CommandContext(ctx, git, "-C", dir, "rev-parse", "--is-inside-work-tree").Run() == nil {
+	if _, err := exec.LookPath("git"); err == nil {
+		if gitsafe.Command(ctx, "-C", dir, "rev-parse", "--is-inside-work-tree").Run() == nil {
 			ws.Git = true
 		} else {
-			ws.Git = exec.CommandContext(ctx, git, "init", "-q", dir).Run() == nil
+			ws.Git = gitsafe.Command(ctx, "init", "-q", dir).Run() == nil
 		}
 	}
 	res, err := initWorkspace(ctx, "", dir, initTarget)

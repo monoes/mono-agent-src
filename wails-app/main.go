@@ -5,7 +5,6 @@ import (
 	"embed"
 	"github.com/monoes/mono-agent/internal/vault"
 	"net/http"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,7 +20,7 @@ import (
 )
 
 // Version is injected at build time via ldflags.
-// Falls back to git describe at runtime when built without ldflags (e.g. wails dev).
+// An unstamped build (e.g. wails dev) reports "dev"; no git is run at start-up.
 var (
 	version   = ""
 	buildDate = ""
@@ -29,11 +28,7 @@ var (
 
 func init() {
 	if version == "" {
-		if out, err := exec.Command("git", "describe", "--tags", "--always").Output(); err == nil {
-			version = strings.TrimSpace(string(out))
-		} else {
-			version = "dev"
-		}
+		version = "dev"
 	}
 	if buildDate == "" {
 		buildDate = time.Now().UTC().Format("2006-01-02T15:04:05Z")

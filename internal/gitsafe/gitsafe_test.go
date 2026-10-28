@@ -1,6 +1,7 @@
 package gitsafe
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,5 +76,46 @@ func TestEnvRefusesATransportTheRepositoryAllows(t *testing.T) {
 func TestArgsIgnoreTheCommitGraph(t *testing.T) {
 	if !strings.Contains(strings.Join(Args(), " "), "core.commitGraph=false") {
 		t.Fatal("core.commitGraph is not pinned off")
+	}
+}
+
+// A repository's own core.fsmonitor is a program git runs while reading the index; Command pins
+// it off, and drops a GIT_DIR that would send git to another repository.
+func TestCommandRunsNoProgramTheRepositoryNames(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	repo := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "ran")
+	hook := filepath.Join(t.TempDir(), "fsmonitor")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\n: > '"+marker+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1"}
+	for _, a := range [][]string{{"init", "-q"}, {"config", "core.fsmonitor", hook}} {
+		cmd := exec.Command("git", append([]string{"-C", repo}, a...)...)
+		cmd.Env = base
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", a, err, out)
+		}
+	}
+	plain := exec.Command("git", "-C", repo, "status", "--porcelain")
+	plain.Env = base
+	_ = plain.Run()
+	if _, err := os.Stat(marker); err != nil {
+		t.Skip("this git does not run the fsmonitor here; nothing to prove")
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	other := t.TempDir()
+	t.Setenv("GIT_DIR", other) // would redirect every git call; Command drops it
+	if out, err := Command(context.Background(), "-C", repo, "status", "--porcelain").CombinedOutput(); err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the repository's fsmonitor ran under gitsafe.Command")
 	}
 }

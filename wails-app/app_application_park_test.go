@@ -112,3 +112,20 @@ func TestStartApplicationQueueRefusesBadInput(t *testing.T) {
 		t.Fatal("the CLI ran for refused input")
 	}
 }
+
+func TestQueueFailuresNamesTheFillThatCouldNotStart(t *testing.T) {
+	if got := queueFailures([]byte(`{"max":3,"outcomes":[{"applicationId":"a","result":"parked","taskId":"t"}]}`)); got != "" {
+		t.Fatalf("clean queue reported %q", got)
+	}
+	got := queueFailures([]byte(`{"max":3,"outcomes":[{"applicationId":"a","result":"failed","error":"no posting URL"}]}`))
+	if !strings.Contains(got, "no posting URL") {
+		t.Fatalf("got %q", got)
+	}
+	got = queueFailures([]byte(`{"outcomes":[{"applicationId":"a","result":"failed","error":"task failed"},{"applicationId":"b","result":"failed","error":"task cancelled"}]}`))
+	if !strings.Contains(got, "stopped for 2 applications") || !strings.Contains(got, "task failed") {
+		t.Fatalf("got %q", got)
+	}
+	if queueFailures([]byte("not json")) != "" {
+		t.Fatal("garbage reported as a failure")
+	}
+}

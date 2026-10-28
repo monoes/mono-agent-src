@@ -3,6 +3,7 @@ package monomind
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/agentbox"
 	"io"
 	"time"
 )
@@ -79,6 +80,10 @@ type ExecOptions struct {
 	// keys its resumable sessions by folder, so moving it would orphan
 	// every existing conversation.
 	WorkspacePurpose string
+	// Box, when set, runs the turn's process tree inside the agent sandbox (bubblewrap,
+	// Linux). A canary checks the box first; one that does not hold starts nothing and
+	// the error wraps ErrSandboxRequired. nil runs the turn exactly as without it.
+	Box *agentbox.Box
 	// TempDir is where the prompt, system-prompt and tools files Exec writes for
 	// monomind are created. Empty means a private folder of the monoagent home
 	// (see execTempDir), not the system temp directory, which a turn in a

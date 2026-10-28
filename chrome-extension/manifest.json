@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MonoAgent Bridge",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "Connects your own browser to the MonoAgent app on your computer, to save pages, highlights and tasks, and run your automations.",
   "permissions": [
     "tabs",

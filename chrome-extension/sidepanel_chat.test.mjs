@@ -179,6 +179,54 @@ test("sharing the page is on for the first message only, and the chip says what 
   assert.equal(t.els["chat-page"].attrs["aria-pressed"], "true", "a new conversation shares its first page");
 });
 
+// A message whose reply failed (a runtime that could not sign in, a dropped
+// bridge) never reached the model, and neither did its page: the retry shares
+// the page again. Only a reply that came turns the chip off.
+test("a failed reply keeps the page shared, so the next message carries it", async () => {
+  const ctx = { url: "https://a.example/p", title: "A page", text: "b", selection: "" };
+  let fail = true;
+  const t = setup({
+    replies: {
+      ...READY,
+      chat_page_context: { ok: true, context: ctx },
+      chat_send: () => (fail ? { ok: false, error: "agent_not_setup", code: "agent_not_setup" } : { ok: true, data: { conversation: "c", text: "r" } }),
+    },
+  });
+  await settle();
+  t.type("first");
+  t.enter();
+  await settle(30);
+  assert.equal(lastOf(t.sent, "chat_send").context.title, "A page");
+  assert.equal(t.els["chat-page"].attrs["aria-pressed"], "true", "the page was never read: still shared");
+  assert.equal(t.els["chat-page"].textContent, "Using this page: A page");
+
+  fail = false;
+  t.type("again");
+  t.enter();
+  await settle(30);
+  assert.equal(lastOf(t.sent, "chat_send").context.title, "A page", "the retry carries the page");
+  assert.equal(t.els["chat-page"].attrs["aria-pressed"], "false", "off once a reply came");
+});
+
+// Reopening the panel: a conversation whose only turn failed has not read its page.
+test("reopened after a failed first reply, the page is shared again; answered, it is not", async () => {
+  const unanswered = { conversation: "c-1", lastSeq: 0, nextId: 3, messages: [{ id: "m1", role: "user", text: "q", page: "A page", shared: true }, { id: "m2", role: "notice", text: "The reply failed.", error: true }] };
+  const t = setup({ replies: { ...READY, chat_events: { ok: true, events: [], turn_active: false } }, stored: { "chatConv:p-work": "c-1", "chatLog:p-work": unanswered } });
+  await settle();
+  assert.equal(t.els["chat-page"].attrs["aria-pressed"], "true", "no answer yet: the page is shared");
+
+  const answered = { conversation: "c-1", lastSeq: 1, nextId: 3, messages: [{ id: "m1", role: "user", text: "q", page: "A page" }, { id: "m2", role: "assistant", text: "an answer", tools: [], open: false }] };
+  const u = setup({ replies: { ...READY, chat_events: { ok: true, events: [], turn_active: false } }, stored: { "chatConv:p-work": "c-1", "chatLog:p-work": answered } });
+  await settle();
+  assert.equal(u.els["chat-page"].attrs["aria-pressed"], "false", "answered: a follow-up shares nothing unless asked");
+
+  // An old-format failed log (a page title, no shared flag) stays off.
+  const legacy = { ...unanswered, messages: [{ id: "m1", role: "user", text: "q", page: "A page" }, unanswered.messages[1]] };
+  const v = setup({ replies: { ...READY, chat_events: { ok: true, events: [], turn_active: false } }, stored: { "chatConv:p-work": "c-1", "chatLog:p-work": legacy } });
+  await settle();
+  assert.equal(v.els["chat-page"].attrs["aria-pressed"], "false", "legacy failure without the shared flag: not shared");
+});
+
 test("a reopened conversation does not share the page until asked", async () => {
   const { MonoChatCore: Core } = loadExtensionScripts(["chat_context.js", "chat_core.js"]);
   const earlier = Core.newState(null);
@@ -681,4 +729,49 @@ test("a plain message carries no images", async () => {
   t.enter();
   await settle(30);
   assert.deepEqual(lastOf(t.sent, "chat_send").images, []);
+});
+
+// A failed attempt is retried with the page only if it carried the page: a
+// person who turned the chip off never has the page read on a retry.
+test("reopening a failed text-only turn keeps the page opt-out", async () => {
+  const ctx = { url: "https://a.example/p", title: "Sensitive page", text: "private content", selection: "" };
+  const first = setup({ replies: { ...READY, chat_send: { ok: false, error: "agent_not_setup" } } });
+  await settle();
+  first.els["chat-page"].fire("click");
+  first.type("a question without this page"); first.enter();
+  await settle(30);
+  assert.equal(lastOf(first.sent, "chat_send").context, null);
+  const reopened = setup({ stored: first.store, replies: { ...READY, chat_page_context: { ok: true, context: ctx }, chat_send: { ok: true, data: { text: "answer" } } } });
+  await settle();
+  assert.equal(reopened.els["chat-page"].attrs["aria-pressed"], "false", "the chip stays off");
+  reopened.type("retry the text question"); reopened.enter();
+  await settle(30);
+  assert.equal(lastOf(reopened.sent, "chat_send").context, null);
+  assert.equal(reopened.sent.some((m) => m.type === "chat_page_context"), false, "the page is not even read");
+});
+
+test("reopening a failed turn that shared an untitled page shares it again", async () => {
+  const failed = { conversation: "", lastSeq: 0, nextId: 3, messages: [{ id: "m1", role: "user", text: "q", shared: true }, { id: "m2", role: "notice", text: "The reply failed.", error: true }] };
+  const t = setup({ stored: { "chatLog:p-work": failed } });
+  await settle();
+  assert.equal(t.els["chat-page"].attrs["aria-pressed"], "true");
+});
+
+test("replaying the answer to a lost reply spends the retry's page sharing", async () => {
+  const failed = { conversation: "c", turn: "t", lastSeq: 0, nextId: 3, messages: [
+    { id: "m1", role: "user", text: "q", page: "A page" },
+    { id: "m2", role: "notice", text: "Connection lost", error: true },
+  ] };
+  const ctx = { url: "https://a.example/p", title: "A page", text: "body", selection: "" };
+  const t = setup({ stored: { "chatConv:p-work": "c", "chatLog:p-work": failed }, replies: {
+    ...READY,
+    chat_events: { ok: true, turn_active: false, events: [{ seq: 1, type: "assistant.delta", payload: { text: "completed answer" } }] },
+    chat_page_context: { ok: true, context: ctx },
+    chat_send: { ok: true, data: { text: "follow-up answer" } },
+  } });
+  await settle(30);
+  assert.match(t.els["chat-log"].textContent, /completed answer/);
+  assert.equal(t.els["chat-page"].attrs["aria-pressed"], "false");
+  t.type("follow-up"); t.enter(); await settle(30);
+  assert.equal(lastOf(t.sent, "chat_send").context, null, "the follow-up shares nothing by default");
 });

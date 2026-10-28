@@ -399,7 +399,7 @@ func TestTaskSinkCutsALongTextRatherThanRefusingIt(t *testing.T) {
 // Every bridge this binary builds answers task.add: the daemon's, `extension
 // serve`'s and a workflow run's all come from newExtensionServer.
 func TestEveryBridgeAnswersTaskAdd(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	srv := newExtensionServer(zerolog.Nop(), "test")
 	for _, m := range srv.RequestMethods() {
 		if m == extension.MethodTaskAdd {

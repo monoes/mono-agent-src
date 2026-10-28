@@ -2,9 +2,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"strconv"
 
@@ -134,7 +135,8 @@ func (a *App) StartApplicationQueue(ids []string, maxParked int) error {
 	suppressConsole(cmd)
 	setChatProcessGroup(cmd)
 	tail := &tailCapture{}
-	cmd.Stdout = io.Discard
+	var out bytes.Buffer // the outcomes line: one short entry per application
+	cmd.Stdout = &out
 	cmd.Stderr = tail
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start fill queue: %w", err)
@@ -148,10 +150,43 @@ func (a *App) StartApplicationQueue(ids []string, maxParked int) error {
 		status, message := "finished", ""
 		if waitErr != nil {
 			status, message = "error", orgRunFailureMessage(tail.String(), waitErr)
+		} else if failed := queueFailures(out.Bytes()); failed != "" {
+			status, message = "error", failed
 		}
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "applications:queueStatus", map[string]any{"status": status, "message": message})
 		}
 	}()
 	return nil
+}
+
+// queueFailures names why applications of a finished queue ended in error
+// (the queue exits 0 with a failed outcome per application, whether the fill
+// never started or ran and then failed); "" when none did.
+func queueFailures(out []byte) string {
+	var res struct {
+		Outcomes []struct {
+			Error string `json:"error"`
+		} `json:"outcomes"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(out), &res) != nil {
+		return ""
+	}
+	n, first := 0, ""
+	for _, o := range res.Outcomes {
+		if o.Error == "" {
+			continue
+		}
+		if n == 0 {
+			first = o.Error
+		}
+		n++
+	}
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return "The fill queue stopped: " + first
+	}
+	return fmt.Sprintf("The fill queue stopped for %d applications; the first: %s", n, first)
 }

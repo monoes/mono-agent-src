@@ -136,13 +136,14 @@ func (s *Server) fileUnderLiveProfile(env *capture.Envelope) {
 	env.Warnings = append(env.Warnings, fmt.Sprintf("profile %.64q no longer exists: saved to the default inbox instead", id))
 }
 
-// dropDeletedBinding treats a browser bound to a profile that no longer
-// exists as unbound: the user deleted the profile, and the browser must not
-// stay matched to it. With no source, or one that cannot answer right now,
-// the binding is kept, as in fileUnderLiveProfile.
+// dropDeletedBinding removes the profiles that no longer exist from a
+// browser's set: the user deleted them, and the browser must not stay
+// matched to them. A browser left with an empty set is a default browser.
+// With no source, or one that cannot answer right now, the set is kept, as
+// in fileUnderLiveProfile.
 func (s *Server) dropDeletedBinding(c *extConn) {
-	id := c.boundProfile()
-	if id == "" {
+	set := c.boundProfiles()
+	if len(set) == 0 {
 		return
 	}
 	s.pendMu.Lock()
@@ -154,11 +155,22 @@ func (s *Server) dropDeletedBinding(c *extConn) {
 	ctx, cancel := context.WithTimeout(context.Background(), profileCheckTimeout)
 	defer cancel()
 	profiles, err := src(ctx)
-	if err != nil || slices.ContainsFunc(profiles, func(p profiledir.Profile) bool { return p.ID == id }) {
+	if err != nil {
 		return
 	}
-	s.logger.Warn().Str("instance", c.id).Str("profile", id).Msg("browser is bound to a profile that no longer exists: treating it as unbound")
+	var gone []string
+	for _, id := range set {
+		if !slices.ContainsFunc(profiles, func(p profiledir.Profile) bool { return p.ID == id }) {
+			gone = append(gone, id)
+			s.logger.Warn().Str("instance", c.id).Str("profile", id).Msg("browser is bound to a profile that no longer exists: dropping it from the browser's profiles")
+		}
+	}
+	if len(gone) == 0 {
+		return
+	}
+	// The set may have changed while the source answered: take the deleted
+	// ids out of what is there now, and touch nothing else.
 	c.mu.Lock()
-	c.profile = ""
+	c.profiles = slices.DeleteFunc(slices.Clone(c.profiles), func(id string) bool { return slices.Contains(gone, id) })
 	c.mu.Unlock()
 }

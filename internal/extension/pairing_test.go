@@ -17,7 +17,7 @@ import (
 // base URL rather than the WS URL.
 func startPairingTestServer(t *testing.T) (*Server, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	port := freePort(t)

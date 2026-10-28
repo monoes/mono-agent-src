@@ -49,7 +49,7 @@ func helper(t *testing.T, mode string, env ...string) *exec.Cmd {
 // Another process (the bridge) holds the state lock: the owner's decision
 // waits for it instead of writing over what that process is about to write.
 func TestDecisionWaitsForAnotherProcessHoldingTheStateLock(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	c, code := newClaimT(t, "wait")
 
@@ -88,7 +88,7 @@ func TestDecisionWaitsForAnotherProcessHoldingTheStateLock(t *testing.T) {
 // Several processes record claims at once: none is lost.
 func TestConcurrentProcessesLoseNoUpdate(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("USERPROFILE", home)
 	const n = 4
 	var cmds []*exec.Cmd
@@ -121,7 +121,7 @@ func noUnsafe(t *testing.T, what, s string) {
 }
 
 func TestHostileTextIsStrippedEverywhereItIsStored(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	noUnsafe(t, "cleanLabel", cleanLabel(hostile))
 	if got := cleanLabel(hostile); !strings.Contains(got, "MonoAgent official") {
 		t.Fatalf("cleanLabel dropped the text: %q", got)

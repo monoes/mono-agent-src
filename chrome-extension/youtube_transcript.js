@@ -35,16 +35,20 @@
 
   /**
    * spokenLanguage guesses the language the video is spoken in. An
-   * auto-generated (asr) track is generated FROM the audio, so its language
-   * is the best evidence there is; the audio track's default caption is next.
+   * auto-generated (asr) track is generated FROM the audio, so a lone one is
+   * the best evidence there is. An auto-dubbed video has one per dubbed
+   * language, listed alphabetically: there the default audio track (the
+   * original) and its default caption say which one is spoken.
    */
   function spokenLanguage(player, tracks) {
-    const asr = tracks.find((t) => t.kind === "asr");
-    if (asr) return asr.languageCode;
+    const asr = tracks.filter((t) => t.kind === "asr");
+    if (asr.length === 1) return asr[0].languageCode;
     const r = player && player.captions && player.captions.playerCaptionsTracklistRenderer;
-    const audio = r && Array.isArray(r.audioTracks) ? r.audioTracks[0] : null;
+    const audios = r && Array.isArray(r.audioTracks) ? r.audioTracks : [];
+    const audio = audios[r && typeof r.defaultAudioTrackIndex === "number" ? r.defaultAudioTrackIndex : 0] || audios[0];
     const idx = audio && typeof audio.defaultCaptionTrackIndex === "number" ? audio.defaultCaptionTrackIndex : -1;
-    return (tracks[idx] && tracks[idx].languageCode) || null;
+    if (tracks[idx] && tracks[idx].languageCode) return tracks[idx].languageCode;
+    return asr.length ? asr[0].languageCode : null;
   }
 
   /**

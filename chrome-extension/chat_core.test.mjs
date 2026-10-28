@@ -117,6 +117,23 @@ test("a failed turn says so in the transcript and closes the reply", () => {
   assert.equal(s.messages.find((m) => m.role === "assistant").open, false);
 });
 
+// Only the explicit shared flag makes a retry share the page: a page title
+// alone (an old-format log, or a record from another shape) never does.
+test("unreadAfterFailure needs the explicit shared flag, not just a page title", () => {
+  const failed = (user) => ({ messages: [user, { role: "notice", text: "x", error: true }] });
+  assert.equal(C.unreadAfterFailure(failed({ role: "user", text: "q", page: "old page title" })), false, "legacy record with only a page");
+  assert.equal(C.unreadAfterFailure(failed({ role: "user", text: "q", page: "t", shared: false })), false);
+  assert.equal(C.unreadAfterFailure(failed({ role: "user", text: "q", shared: true })), true);
+  assert.equal(C.unreadAfterFailure(failed({ role: "user", text: "q", page: "t", shared: true })), true);
+  const s = C.newState(null);
+  C.startTurn(s, "q", "A page", true);
+  C.failTurn(s, "offline");
+  assert.equal(C.unreadAfterFailure(s), true, "a live turn that shared the page");
+  const legacy = C.newState(null);
+  legacy.messages.push({ role: "user", text: "q", page: "old page title" }, { role: "notice", text: "x", error: true });
+  assert.equal(C.unreadAfterFailure(legacy), false);
+});
+
 function fakeStorage(seed = {}) {
   const data = { ...seed };
   return {
@@ -415,4 +432,16 @@ test("a card is bound to the page its turn was sent from, also after the panel r
   assert.deepEqual(back.turnPage, page, "a reply replayed after reopening binds to it too");
   C2.startTurn(back, "and now?", "", false, null);
   assert.equal(back.turnPage, null);
+});
+
+// A stored record is not trusted: only the boolean true survives a reload, so a truthy string, number
+// or object in `shared` never reopens a failed turn with the page chip on.
+test("a stored non-boolean shared value never turns page sharing on", () => {
+  for (const bad of ["true", 1, {}, [], "yes"]) {
+    const s = C.newState({ messages: [{ role: "user", text: "q", page: "t", shared: bad }, { role: "notice", text: "x", error: true }] });
+    assert.equal(s.messages[0].shared, undefined, `shared ${JSON.stringify(bad)} is dropped`);
+    assert.equal(C.unreadAfterFailure(s), false, `shared ${JSON.stringify(bad)}`);
+  }
+  const ok = C.newState({ messages: [{ role: "user", text: "q", shared: true }, { role: "notice", text: "x", error: true }] });
+  assert.equal(C.unreadAfterFailure(ok), true);
 });
