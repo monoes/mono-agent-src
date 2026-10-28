@@ -335,9 +335,12 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						return err
 					}
 				}
-				files, err := collectTurnFiles(cfg, store, profileID, args[0])
-				if err != nil {
-					return err
+				// What the turns left on disk is best effort: not being able to list it does not keep the
+				// conversation from being deleted.
+				files, ferr := collectTurnFiles(cfg, store, profileID, args[0])
+				if ferr != nil {
+					warnOnStderr("could not list the files the conversation's turns left: %v", ferr)
+					files = turnFiles{}
 				}
 				beforeGuardedDelete()
 				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))

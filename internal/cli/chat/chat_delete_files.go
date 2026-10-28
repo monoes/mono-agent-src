@@ -76,39 +76,55 @@ func collectTurnFiles(cfg *Deps, store *ai.AIStore, profileID, conversationID st
 }
 
 // remove deletes the files, best effort: one that is gone already is fine, and one that cannot be
-// removed is reported and does not undo the delete. A copy is removed only if its folder, with links
-// resolved, is still under the attachments folder, and a link is removed as itself, never followed.
+// removed is reported and does not undo the delete. The copies are removed through the attachments
+// folder opened as a root: a path that would leave it through a link is refused by the system, a link
+// is removed as itself, and nothing is followed. When the attachments folder is itself a link (or its
+// parent is one that leads elsewhere than the conversation's folder), no copy is touched.
 func (f turnFiles) remove(warn func(format string, a ...any)) {
 	for _, p := range f.logs {
 		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			warn("could not remove %s: %v", p, err)
 		}
 	}
-	if f.attachRoot == "" {
+	if f.attachRoot == "" || len(f.copies) == 0 {
 		return
 	}
-	root, err := filepath.EvalSymlinks(f.attachRoot)
+	if fi, err := os.Lstat(f.attachRoot); err != nil || fi.Mode()&fs.ModeSymlink != 0 {
+		return
+	}
+	if real, err := filepath.EvalSymlinks(f.attachRoot); err != nil || real != filepath.Join(evalDir(filepath.Dir(filepath.Dir(f.attachRoot))), ".monoagent", "attachments") {
+		return
+	}
+	root, err := os.OpenRoot(f.attachRoot)
 	if err != nil {
 		return
 	}
+	defer root.Close()
 	dirs := map[string]bool{}
 	for _, p := range f.copies {
-		dir, err := filepath.EvalSymlinks(filepath.Dir(p))
-		if err != nil || !(dir == root || strings.HasPrefix(dir, root+string(filepath.Separator))) {
+		rel, err := filepath.Rel(f.attachRoot, p)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 			continue
 		}
-		target := filepath.Join(dir, filepath.Base(p))
-		if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			warn("could not remove %s: %v", target, err)
+		if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			warn("could not remove %s: %v", p, err)
 			continue
 		}
-		if dir != root {
-			dirs[dir] = true
+		if d := filepath.Dir(rel); d != "." {
+			dirs[d] = true
 		}
 	}
 	for d := range dirs {
-		_ = os.Remove(d) // only while empty
+		_ = root.Remove(d) // only while empty
 	}
+}
+
+// evalDir is dir with links resolved, or dir itself when it cannot be.
+func evalDir(dir string) string {
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		return real
+	}
+	return dir
 }
 
 func warnOnStderr(format string, a ...any) { fmt.Fprintf(os.Stderr, "warning: "+format+"\n", a...) }
