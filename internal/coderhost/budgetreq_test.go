@@ -127,6 +127,10 @@ func TestBudgetGrantOnce(t *testing.T) {
 	if f.capOf(t, child) != 5 {
 		t.Fatalf("cap = %v, want 5", f.capOf(t, child))
 	}
+	// the triggers fire on the grant's own budget write and must leave the granted row granted (not void)
+	if got, _ := f.st.GetBudgetRequest("p", b.ID); got.Status != BudgetRequestGranted || got.GrantedUSD != 1 {
+		t.Fatalf("after the grant: %+v", got)
+	}
 }
 
 func TestBudgetGrantRacesGrantOnce(t *testing.T) {
