@@ -2065,7 +2065,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   conversation is revoked first (one live token per child, so a second run for the same attempt cannot reuse one), and an
   ended row, a conversation with no row or a mission that is not running gets none (the turn of a child whose mission is over
   does not start). It travels over the inherited pipe (not the arguments or the host's environment), is bound to the turn's
-  process tree where ancestry is supported (Linux; a failed bind stops the turn), and is checked again against the row's
+  process tree where ancestry is supported (Linux; a bind that fails there stops the turn; where it is not supported nothing is bound and the turn goes on), and is checked again against the row's
   generation after the start. The chat process refuses a turn in a task child's conversation that does not hold the token
   the database verifies for that row's session and task (so a host without this code, the app or a shell cannot run a
   child unbound) and a task token anywhere else. It is revoked when the run ends, on a stop (before the turn winds down),
@@ -2073,7 +2073,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   A compromised child holds only its one task (comment, finish) and cannot verify, claim another task, spawn or mark. The
   token is in the child's process environment, so a process of the same user that can read it is limited only by the
   process binding (a courtesy layer, not a sandbox; unbound off Linux). The host adds an ended child's spend to the
-  mission's `spent_usd` once (idempotent by an audit row; a crash between the two writes could charge again, never skip),
+  mission's `spent_usd` once (idempotent by an audit row; a crash between the two writes could charge again; a failed settle is retried by every host pass, and the task cannot be marked again while the earlier child is unsettled, so the sweep keeps finding it; a child whose conversation was deleted before it ended is charged $0, its events are gone: deleted children are not charged),
   also for a halting or stopped mission, so the budget checks see it; no approval, setting or budget other than the meter is
   written, and no migration. Mode and marks are unchanged: with the default policy (`marked`) nothing spawns unless a task
   is marked, and a lead only exists as a master when the operator made it one.

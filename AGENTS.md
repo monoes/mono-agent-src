@@ -2009,7 +2009,7 @@ process over the inherited pipe that carries a mission confirmation (never in th
 `MONOAGENT_TASK_BINDING` is set by the chat process itself after it reads the pipe, for its shells and tool servers, the way
 a worker's is); a child's turn never carries a confirmation. Right after the turn starts the token is bound to the turn's
 process (`BindMissionProcess`, where ancestry is supported: Linux), the launcher re-checks that the row still names this
-attempt (a generation fence), and it stops the turn and fails when the bind or the check fails. The chat process
+attempt (a generation fence), and it stops the turn and fails when the check fails, or when the bind fails where ancestry is supported (off Linux nothing is bound and the turn goes on: whoever can read the token can use it). The chat process
 itself refuses a turn in a conversation that is a task's live session unless it holds a token the database verifies for exactly
 that row's session and task (`childTaskGate`), whoever started it (the app, a shell, a host built before this), and it
 refuses a task token for any other conversation. The token is revoked when the turn's process ends, when the host settles the
@@ -2018,7 +2018,7 @@ the conductor blanks `MONOAGENT_TASK_BINDING` for every helper it starts, as it 
 child cannot act as the child. Spend: when a child's row ends the host adds the child's cost (`Store.Spent` over its
 turns) to the mission's `spent_usd` with `tasks.Store.AddSessionSpend`, once (an audit row of kind `charge` named by
 the child conversation is the record; a re-settle, a second pass or a restarted host add nothing, and a host that dies
-between the two writes would charge again, which reads high rather than low), also for a mission that is stopped, halting
+between the two writes would charge again, which reads high rather than low; a failed settle (revoke or spend) is retried by every host pass from the row's conversation, which `Mark` therefore refuses to forget: while an ended, failed or gone row has no `charge` row, the task cannot be marked again. A child whose conversation was deleted is charged $0, since its events are gone: deleted children are not charged. A live child that runs no turn has its token revoke retried on every pass), also for a mission that is stopped, halting
 or archived, after the token is revoked; the lead's next budget check (`missionBudget`) reads the new total. No migration was
 needed. Known limits: a process that can read the child's process environment (same user, same machine) can read the
 token, as for an in-turn worker, and only the process binding limits it (a courtesy layer between agents of one user, not

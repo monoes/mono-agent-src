@@ -34,8 +34,9 @@ import (
 //     the argument list or the host's environment; the process reads it once, takes it out of the pipe, and puts it
 //     in its own environment as MONOAGENT_TASK_BINDING, for its shells and tool servers (the way a worker's is).
 //   - Right after the turn starts it is bound to the process (agenttokens.BindMissionProcess), so a process outside
-//     that tree is refused. Where the binding cannot be written the turn is stopped and fails: a child never runs
-//     with a token that anyone holding the value could use.
+//     that tree is refused. Where ancestry is supported (Linux) a binding that cannot be written stops the turn and
+//     fails it. Where it is not supported (MissionProcessSupported is false) nothing is bound and the turn goes on:
+//     there whoever can read the token can use it (a stated limit, as for an in-turn worker).
 //   - It is revoked when the turn's process ends (the launcher's wait), when the host settles the session's turn or
 //     stops it, and when the child's row ends (coderhost.Host.settleChild).
 //
