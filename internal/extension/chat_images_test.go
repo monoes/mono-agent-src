@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -87,11 +88,11 @@ func TestChatSendWritesImagesForTheTurnAndRemovesThem(t *testing.T) {
 		t.Errorf("names must come from the bytes: %v", paths)
 	}
 	for _, m := range modes {
-		if m != 0o600 {
+		if runtime.GOOS != "windows" && m != 0o600 {
 			t.Errorf("image mode %v, want 0600", m)
 		}
 	}
-	if dirMode != 0o700 {
+	if runtime.GOOS != "windows" && dirMode != 0o700 {
 		t.Errorf("folder mode %v, want 0700", dirMode)
 	}
 	if !strings.Contains(message, "2 image") || !strings.Contains(message, "untrusted") {

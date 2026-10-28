@@ -146,6 +146,10 @@ func TestAChildWhoseCapIsUsedUpEndsAsBudget(t *testing.T) {
 
 func TestSpawnNotesThePendingConversationAndTouchesTheReservation(t *testing.T) {
 	f := newHostFix(t)
+	// every read of the clock moves it on, so two writes never share a timestamp however
+	// coarse the OS clock tick is (Windows)
+	tick := time.Now()
+	f.st.now = func() time.Time { tick = tick.Add(time.Second); return tick }
 	if _, err := f.st.db.Exec(`CREATE TABLE touch_log (n INTEGER)`); err != nil {
 		t.Fatal(err)
 	}

@@ -36,7 +36,7 @@ func claimReqBody(body string, mut func(*http.Request)) *http.Request {
 
 func newClaimServer(t *testing.T) *Server {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 	t.Setenv(AutoPairEnv, "")
 	t.Setenv(ExtensionIDsEnv, "")

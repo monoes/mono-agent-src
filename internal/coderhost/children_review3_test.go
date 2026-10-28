@@ -225,16 +225,17 @@ func TestHostInsideTurnIgnoresExpiredRowsAndAStaleStamp(t *testing.T) {
 	st.IssueSessionToken("p", m.ConversationID, "t1")
 	pid := os.Getppid()
 	st.BindSessionToken("p", m.ConversationID, "t1", pid, ProcStamp(pid))
+	if !ancestrySupported {
+		t.Skip("process ancestry cannot be read on this OS, so a host is never noticed below a turn")
+	}
 	if !st.HostInsideTurn() {
 		t.Fatal("a host below a live bound turn was not noticed")
 	}
-	if ancestrySupported {
-		st.db.Exec(`UPDATE coder_session_tokens SET stamp = 'start:1'`)
-		if st.HostInsideTurn() {
-			t.Fatal("a pid that now belongs to another process counts")
-		}
-		st.db.Exec(`UPDATE coder_session_tokens SET stamp = ?`, ProcStamp(pid))
+	st.db.Exec(`UPDATE coder_session_tokens SET stamp = 'start:1'`)
+	if st.HostInsideTurn() {
+		t.Fatal("a pid that now belongs to another process counts")
 	}
+	st.db.Exec(`UPDATE coder_session_tokens SET stamp = ?`, ProcStamp(pid))
 	now = now.Add(SessionTokenTTL + time.Minute)
 	if st.HostInsideTurn() {
 		t.Fatal("an expired token row counts")

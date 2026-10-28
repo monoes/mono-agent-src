@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -82,7 +83,7 @@ func TestRecordingFramesOverWebSocketLandAsEnvelope(t *testing.T) {
 	if entries, _ := capture.List(inbox); len(entries) != 0 {
 		t.Fatalf("recording landed in the capture inbox: %+v", entries)
 	}
-	if fi, err := os.Stat(store); err != nil || fi.Mode().Perm() != 0o700 {
+	if fi, err := os.Stat(store); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700 {
 		t.Fatalf("store dir mode: %v %v", fi, err)
 	}
 	meta, err := capture.ReadMeta(path)
@@ -99,7 +100,7 @@ func TestRecordingFramesOverWebSocketLandAsEnvelope(t *testing.T) {
 }
 
 func TestRecordingIdleReaperRunsWithoutAConnection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	synctest.Test(t, func(t *testing.T) {
@@ -198,7 +199,7 @@ func TestRecordMethodsExecTheCLI(t *testing.T) {
 
 func TestRecordMethodArgsValidation(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	drafts, _ := recording.DraftsDir()
 	draft := filepath.Join(drafts, "rec-1")
 	if err := os.MkdirAll(draft, 0o700); err != nil {
@@ -289,7 +290,7 @@ func TestSelfRunnerRefusesForeignBinary(t *testing.T) {
 // its verify takes no "full" (true, false or anything else), and always
 // stops before the first page action. The side panel never sent "full".
 func TestRecordVerifyOverTheBridgeRunsNoPageAction(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	drafts, _ := recording.DraftsDir()
 	if err := os.MkdirAll(filepath.Join(drafts, "rec-1"), 0o700); err != nil {
 		t.Fatal(err)
@@ -312,7 +313,7 @@ func verifyArgsOnly(req *Request) ([]string, error) {
 }
 
 func TestRecordVerifyInputsValidation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	drafts, _ := recording.DraftsDir()
 	if err := os.MkdirAll(filepath.Join(drafts, "rec-1"), 0o700); err != nil {
 		t.Fatal(err)
@@ -405,7 +406,7 @@ func TestRecordVerifyPassesInputsByPrivateFile(t *testing.T) {
 		if run.path == "" || filepath.Dir(run.path) != filepath.Join(home, ".monoagent", "tmp") {
 			t.Fatalf("inputs file path = %q (argv %q)", run.path, run.args)
 		}
-		if run.args[len(run.args)-1] != "--json" || run.mode != 0o600 || run.dir != 0o700 || run.body["pw"] != "hunter2" || run.body["q"] != "x" {
+		if run.args[len(run.args)-1] != "--json" || (runtime.GOOS != "windows" && (run.mode != 0o600 || run.dir != 0o700)) || run.body["pw"] != "hunter2" || run.body["q"] != "x" {
 			t.Fatalf("fail=%v args %q mode %o dir %o body %v", fail, run.args, run.mode, run.dir, run.body)
 		}
 		path := run.path

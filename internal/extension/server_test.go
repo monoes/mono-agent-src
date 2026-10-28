@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -116,6 +117,9 @@ func freePort(t *testing.T) int {
 // TestTryListen_FallsBackOnBusyPort verifies the EADDRINUSE path: when the
 // primary candidate is held, the next candidate is bound and reported.
 func TestTryListen_FallsBackOnBusyPort(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows lets a second listener share a bound port (no exclusive bind by default), so the port is never busy")
+	}
 	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("hold busy port: %v", err)
@@ -167,7 +171,7 @@ func TestTryListen_AllBusyFails(t *testing.T) {
 func TestStart_EnvOverrideBindsEnvPort(t *testing.T) {
 	// Isolate the home dir so the token write never touches the real
 	// ~/.monoagent state (withTempHome convention from token_test.go).
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	port := freePort(t)
@@ -199,7 +203,7 @@ func TestStart_EnvOverrideBindsEnvPort(t *testing.T) {
 // level — the raw-payload debug log this guards against (MA-03) would leak
 // live session cookies from get_cookies/eval responses into log files.
 func TestReadLoop_NeverLogsRawPayload(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	const sentinel = "sentinel-cookie-value-1a2b3c4d"
@@ -295,7 +299,7 @@ func authenticateTestConnWith(t *testing.T, conn *websocket.Conn, tok string) {
 // its base WS URL, for the auth-handshake tests below.
 func startAuthTestServer(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	port := freePort(t)

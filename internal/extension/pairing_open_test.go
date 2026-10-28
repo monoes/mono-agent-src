@@ -95,7 +95,7 @@ func TestPairNonceIsGatedLikeTheRelay(t *testing.T) {
 }
 
 func TestRequestPairingURLOnAnOlderBridge(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	if _, err := CurrentToken(); err != nil {
 		t.Fatal(err)
 	}

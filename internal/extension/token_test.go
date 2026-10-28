@@ -6,15 +6,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"testing"
 )
 
 // withTempHome points os.UserHomeDir (via $HOME) at a temp dir for the
 // duration of the test, so token.go's file operations never touch the
 // real ~/.monoagent state.
+// setHome points both variables os.UserHomeDir reads (HOME on Unix, USERPROFILE on Windows) at dir.
+func setHome(t testing.TB, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 func withTempHome(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 }
 
 func TestGenerateAndLoadToken(t *testing.T) {
@@ -44,7 +52,7 @@ func TestGenerateAndLoadToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat token file: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Fatalf("token file mode = %o, want 0600", perm)
 	}
 }
