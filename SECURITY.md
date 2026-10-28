@@ -927,13 +927,13 @@ read. It is one bridge request method, `vault.save`
 
 ### Extension commands that only the user runs
 
-`extension bind`, `extension unbind`, `extension reset`, `extension pair
+`extension bind`, `extension unbind`, `extension assign`, `extension reset`, `extension pair
 --open` and `extension install --zip` refuse an agent, the chat and a
 workflow run: any process carrying one of the operator markers, or whose
 parent process carries one. They exit 3 with code `operator_only`.
 
-- `bind` and `unbind` decide which profile a browser acts as, so an agent
-  could point your browser, with its logged-in accounts, at another
+- `bind`, `unbind` and `assign` decide which profiles a browser acts as, so
+  an agent could point your browser, with its logged-in accounts, at another
   profile, or take its profile away.
 - `reset` revokes the pairing token and cuts every browser off until you
   pair it again.

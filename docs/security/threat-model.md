@@ -51,9 +51,12 @@ one endpoint, might try to cross:
    already drive every paired browser; binding adds routing, not a new
    capability. `/monoagent/health` (unauthenticated) reports only a browser
    count; which profile and label each browser has is behind the token at
-   `/monoagent/browsers` and `/monoagent/resolve`. A reported profile id
-   that `profiledir.ValidProfileID` rejects is dropped. A command for a
-   profile is never sent to a browser bound to a different profile.
+   `/monoagent/browsers` and `/monoagent/resolve`. A browser runs a set of profiles (at most 64); a reported profile id
+   that `profiledir.ValidProfileID` rejects, a duplicate, and an id beyond
+   the cap are dropped, and ids of deleted profiles leave the set. A command
+   for a profile is never sent to a browser whose set lacks that profile
+   (except to an unbound default browser); a profile removed from a browser
+   stops routing there before the extension answers.
 2. **Extension ↔ page.** Content-script and cookie/debugger access is scoped
    to explicitly granted origins (MA-05) rather than `<all_urls>` by
    default. `chrome.debugger` is called out separately because Chrome does
