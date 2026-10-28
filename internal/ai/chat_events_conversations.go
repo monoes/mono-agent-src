@@ -241,6 +241,21 @@ func (s *AIStore) BindConversationSession(id, profileID, runtimeID, sessionID st
 // TestChatEvents_DeleteConversationRaceAgainstConcurrentCreateTurn, which
 // exercises both layers together.
 func (s *AIStore) DeleteConversation(id, profileID string) error {
+	return s.deleteConversationInTx(id, profileID, nil)
+}
+
+// ErrConversationGuarded is returned by DeleteConversationIfUnowned when the guard refused: nothing was deleted.
+var ErrConversationGuarded = errors.New("chat: the conversation is not the caller's to delete")
+
+// DeleteConversationIfUnowned is DeleteConversation with a guard that runs on the delete's own connection, inside
+// its BEGIN IMMEDIATE transaction and after the existence check, so what the guard saw cannot change before the
+// delete commits. The guard returns false to refuse (ErrConversationGuarded, nothing deleted); an error aborts.
+func (s *AIStore) DeleteConversationIfUnowned(id, profileID string, mayDelete func(ctx context.Context, conn *sql.Conn) (bool, error)) error {
+	return s.deleteConversationInTx(id, profileID, mayDelete)
+}
+
+// deleteConversationInTx is the body of DeleteConversation; guard, when not nil, runs in the transaction first.
+func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx context.Context, conn *sql.Conn) (bool, error)) error {
 	if profileID == "" {
 		return ErrProfileRequired
 	}
@@ -271,6 +286,15 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 	}
 	if exists == 0 {
 		return ErrConversationNotFound
+	}
+	if guard != nil {
+		ok, err := guard(ctx, conn)
+		if err != nil {
+			return fmt.Errorf("delete conversation: guard: %w", err)
+		}
+		if !ok {
+			return ErrConversationGuarded
+		}
 	}
 
 	var activeCount int
