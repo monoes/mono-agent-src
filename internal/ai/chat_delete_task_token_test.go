@@ -44,6 +44,10 @@ func TestChatEvents_DeleteConversationRevokesItsTaskToken(t *testing.T) {
 	if err := other.SetToken(foreign.ID, foreignToken); err != nil {
 		t.Fatal(err)
 	}
+	// The process that held the token is forgotten with it.
+	if _, err := db.Exec(`UPDATE ai_tasks SET holder_pid = 4242 WHERE id = ?`, ids[gone.ID]); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteConversation(gone.ID, "p1"); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +56,10 @@ func TestChatEvents_DeleteConversationRevokesItsTaskToken(t *testing.T) {
 	}
 	if got, err := ts.Get(ids[gone.ID]); err != nil || got.Status != aitask.StatusCancelled || got.Error != "the conversation was deleted" {
 		t.Errorf("the deleted conversation's task = %+v, %v; want cancelled with its reason", got, err)
+	}
+	var holder int
+	if err := db.QueryRow(`SELECT holder_pid FROM ai_tasks WHERE id = ?`, ids[gone.ID]).Scan(&holder); err != nil || holder != 0 {
+		t.Errorf("holder_pid = %d, %v; want 0", holder, err)
 	}
 	if got, _ := ts.Get(done.ID); got.Status != aitask.StatusComplete {
 		t.Errorf("a finished task became %q", got.Status)

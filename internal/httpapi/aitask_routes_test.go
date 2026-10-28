@@ -328,7 +328,7 @@ func TestAitaskFailCancelAndReads(t *testing.T) {
 	if rw := aitaskReq(t, s, "POST", aitaskPath("at-c", "/cancel"), tc, aitaskTestToken, ``); rw.Code != 200 {
 		t.Fatalf("cancel: %d %s", rw.Code, rw.Body)
 	}
-	if rw := aitaskReq(t, s, "POST", aitaskPath("at-c", "/complete"), tc, aitaskTestToken, `{"summary":"late"}`); rw.Code != 409 {
+	if rw := aitaskReq(t, s, "POST", aitaskPath("at-c", "/complete"), tc, aitaskTestToken, `{"summary":"late"}`); rw.Code != 403 { // cancelling ends the task's token: a stranger, not a closed task
 		t.Fatalf("complete after cancel: %d", rw.Code)
 	}
 	if got := taskNow(t, s, "at-c"); got.Status != aitask.StatusCancelled || len(got.Result) != 0 {
