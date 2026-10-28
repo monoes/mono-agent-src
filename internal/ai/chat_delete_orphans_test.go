@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"errors"
 	"sort"
 	"testing"
 )
@@ -85,5 +86,29 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		if !seen[col] {
 			t.Errorf("%s is listed but no longer exists", col)
 		}
+	}
+}
+
+// An answer for a conversation that is gone is refused: the answer's insert is one statement that
+// holds only while the conversation exists, so a delete that wins leaves no row behind.
+func TestChatEvents_AddAnswerRefusesADeletedConversation(t *testing.T) {
+	s, db := newChatEventStore(t)
+	c, _ := s.CreateConversation("p1", "agent", "general", "claude", "", "")
+	if err := s.AddAnswer("p1", c.ID, "t1", "a", "q", "yes"); err != nil {
+		t.Fatalf("an answer to a live conversation: %v", err)
+	}
+	if err := s.DeleteConversation(c.ID, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddAnswer("p1", c.ID, "t2", "a", "q", "late"); !errors.Is(err, ErrConversationNotFound) {
+		t.Errorf("a late answer: %v, want ErrConversationNotFound", err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ai_chat_answers WHERE conversation_id = ?`, c.ID).Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d answer row(s) for the deleted conversation, %v", n, err)
+	}
+	other, _ := s.CreateConversation("p2", "agent", "general", "claude", "", "")
+	if err := s.AddAnswer("p1", other.ID, "t3", "a", "q", "x"); !errors.Is(err, ErrConversationNotFound) {
+		t.Errorf("an answer under another profile's conversation: %v", err)
 	}
 }
