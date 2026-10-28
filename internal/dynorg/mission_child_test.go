@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -544,7 +545,7 @@ func TestNoConductorAgentHoldsTheLeadsSessionToken(t *testing.T) {
 	r.approve()
 	c := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 5, MaxConcurrent: 3}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
 		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc,
-		Base: monomind.ExecOptions{Env: map[string]string{SessionTokenEnv: "the-leads-secret", "KEEP": "1"}}})
+		Base: monomind.ExecOptions{Env: map[string]string{SessionTokenEnv: "the-leads-secret", agenttokens.EnvMissionToken: "the-childs-task-token", "KEEP": "1"}}})
 	t.Cleanup(c.Close)
 	// a task-less helper (org_spawn with a brief, as a plan reviewer is started)
 	r.call(c, ToolSpawn, `{"brief":"review the plan"}`)
@@ -557,6 +558,13 @@ func TestNoConductorAgentHoldsTheLeadsSessionToken(t *testing.T) {
 	for id, env := range r.ex.envs {
 		if v, ok := env[SessionTokenEnv]; !ok || v != "" {
 			t.Errorf("agent of task %d holds the lead's session token: %q (present %v)", id, v, ok)
+		}
+		if id == 0 { // a helper without a task is not the child: it must not act as the child on its task
+			if v, ok := env[agenttokens.EnvMissionToken]; !ok || v != "" {
+				t.Errorf("a helper holds the child's task token: %q (present %v)", v, ok)
+			}
+		} else if v := env[agenttokens.EnvMissionToken]; v == "the-childs-task-token" {
+			t.Errorf("the worker of task %d has the inherited task token", id)
 		}
 		if env["KEEP"] != "1" {
 			t.Errorf("agent of task %d lost the rest of its environment", id)

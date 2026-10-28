@@ -843,10 +843,10 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 }
 
 // missionBudgetRefusal says why a child may not start under the mission's own budget (task_sessions.budget_usd),
-// or "" when it may. A child's spend never reaches the mission's spent_usd, so the budget binds children through
-// their caps: with a mission budget the carve must be positive, and the caps the lead's children already hold
-// (running sessions and reserved ones) plus this carve must fit what the mission has left. A mission without a
-// budget does not refuse here.
+// or "" when it may. An ended child's spend reaches the mission's spent_usd (missionchild_charge.go); a child that
+// is still alive is bound through its cap: with a mission budget the carve must be positive, and the caps the
+// lead's live children hold (sessions and reserved rows) plus this carve must fit what the mission has left. A
+// mission without a budget does not refuse here.
 func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
 	var budget, spent float64
 	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
@@ -859,9 +859,15 @@ func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead str
 		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
 	}
 	var held float64
-	if err := q.QueryRow(`SELECT (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
+	// A child that ended and whose spend is on the meter (a charge row, missionchild_charge.go) holds nothing: its
+	// cap was lowered to that spend, which spent already contains.
+	if err := q.QueryRow(`SELECT (SELECT COALESCE(SUM(s.budget_usd), 0) FROM coder_sessions s WHERE s.profile_id = ? AND s.parent_conversation_id = ?
+			AND NOT EXISTS (SELECT 1 FROM coder_mission_children c WHERE c.profile_id = s.profile_id AND c.child_conversation_id = s.conversation_id
+				AND c.session_id = ? AND c.state IN ('ended', 'failed')
+				AND EXISTS (SELECT 1 FROM coder_mission_events e WHERE e.profile_id = c.profile_id AND e.session_id = c.session_id AND e.kind = 'charge'
+					AND substr(e.note, 1, length(c.child_conversation_id) + 1) = c.child_conversation_id || ' ')))
 		+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')`,
-		profileID, lead, profileID, lead).Scan(&held); err != nil {
+		profileID, lead, sessionID, profileID, lead).Scan(&held); err != nil {
 		return "", err
 	}
 	if held+carve > budget-spent+1e-9 {

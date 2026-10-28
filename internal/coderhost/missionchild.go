@@ -82,6 +82,7 @@ func (h *Host) missionChildPass() {
 			h.logf("coder host: mission child %s: %v", r.ChildConversationID, err)
 		}
 	}
+	h.settleEnded()
 	h.reportOrphanCarves()
 }
 
@@ -104,7 +105,10 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		if x, ok, err := st.GetSession(r.ProfileID, r.ChildConversationID); err == nil && ok && x.TurnID != "" {
 			return nil // its turn is being stopped: the row ends on a later pass, once the turn has, so the carve is not released under it
 		}
-		_, err := st.End(r.ProfileID, r.ChildConversationID, EndLeadStop)
+		ended, err := st.End(r.ProfileID, r.ChildConversationID, EndLeadStop)
+		if ended {
+			h.settleChild(r.ProfileID, r.ChildConversationID)
+		}
 		return err
 	}
 	// 2. The child itself.
@@ -113,7 +117,10 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		return err
 	}
 	if !exists {
-		_, err := st.MarkGone(r.ProfileID, r.ChildConversationID)
+		ended, err := st.MarkGone(r.ProfileID, r.ChildConversationID)
+		if ended {
+			h.settleChild(r.ProfileID, r.ChildConversationID)
+		}
 		return err
 	}
 	cs, ok, err := st.GetSession(r.ProfileID, r.ChildConversationID)
@@ -156,6 +163,7 @@ func (h *Host) reconcileChild(r ChildRow) error {
 	if err != nil || !ended {
 		return err
 	}
+	h.settleChild(r.ProfileID, r.ChildConversationID)
 	h.retireIdle(r.ProfileID, r.ChildConversationID)
 	return nil
 }

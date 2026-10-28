@@ -159,6 +159,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		EffortFlag: opts.EffortFlag, Env: agentSendEnv(journal, "", ""),
 	}
 	mission := missionConfig(ctx, db.DB, cfg.ProfileID(), journal.conversationID, t)
+	registerChildHostProbe(cfg) // whether the running coder host mints a child's task token
 	limits.MaxAgents = missionMaxAgents(settings, mission)
 	writers := missionWriters(ctx, settings, mission, t.cwd)
 	if writers == dynorg.WritersIsolated {

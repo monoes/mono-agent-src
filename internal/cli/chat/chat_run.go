@@ -120,6 +120,10 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 				journal.fail(retErr)
 			}
 		}()
+		// A mission child's turn runs only with its task token (read from the pipe above); see coder_host_childtoken.go.
+		if missionToken, err = runChildTaskGate(cfg, jprofile, conversationID, missionToken); err != nil {
+			return err
+		}
 		runtime, model, resume, effort = conv.RuntimeID, conv.Model, conv.SessionID, conv.Effort
 		noHistory = true
 		if access := conv.EffectiveAccess(); access != ai.AccessScoped {
