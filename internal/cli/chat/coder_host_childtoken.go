@@ -54,6 +54,9 @@ const childTokenMargin = 5 * time.Minute
 type childTokenMinter struct {
 	store  *coderhost.Store
 	tokens *agenttokens.Store
+	// bindProcess names the turn's process for the token (nil: agenttokens.BindMissionProcess where ancestry is
+	// supported). A hook so a stronger binding (a held pidfd committed before the token is delivered) can replace it.
+	bindProcess func(ctx context.Context, profileID, tokenID string, pid int, stamp string) error
 }
 
 func newChildTokenMinter(db *sql.DB) *childTokenMinter {
@@ -102,8 +105,12 @@ func (m *childTokenMinter) mint(profileID, conversationID, turnID string) (*chil
 func (m *childTokenMinter) bind(profileID, conversationID string, t *childToken, pid int, stamp string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if agenttokens.MissionProcessSupported() {
-		if err := m.tokens.BindMissionProcess(ctx, profileID, t.id, pid, stamp); err != nil {
+	bind := m.bindProcess
+	if bind == nil {
+		bind = m.tokens.BindMissionProcess
+	}
+	if agenttokens.MissionProcessSupported() || m.bindProcess != nil {
+		if err := bind(ctx, profileID, t.id, pid, stamp); err != nil {
 			return fmt.Errorf("could not bind the child's task token to its process: %w", err)
 		}
 	}
