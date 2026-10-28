@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -289,5 +290,110 @@ func recordStarted(t *testing.T, r *accessRig, convID, turnID string, copies ...
 	}
 	if _, _, err := r.store.FinalizeTurn("default", convID, turnID, chatevents.StatusCompleted, "", nil, false); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// quarantine sets the files aside, finish(false) puts them back, finish(true) removes them: the
+// delete can fail after the files were set aside, and then nothing is lost.
+func TestQuarantinedFilesComeBackOrGoForGood(t *testing.T) {
+	dir := t.TempDir()
+	logs := filepath.Join(dir, "turns")
+	touchFile(t, filepath.Join(logs, "t1.log"))
+	cwd := t.TempDir()
+	copyIn := filepath.Join(cwd, ".monoagent", "attachments", "t1", "a.txt")
+	touchFile(t, copyIn)
+	f := turnFiles{logDir: logs, logs: []string{"t1.log"}, cwd: cwd, attachRoot: filepath.Join(cwd, ".monoagent", "attachments"), copies: []string{copyIn}}
+	warn := func(format string, a ...any) { t.Errorf("warning: "+format, a...) }
+
+	q := f.quarantine(warn)
+	if exists(filepath.Join(logs, "t1.log")) || exists(copyIn) {
+		t.Fatal("the files were not set aside")
+	}
+	q.finish(false, warn)
+	if !exists(filepath.Join(logs, "t1.log")) || !exists(copyIn) {
+		t.Fatal("the files were not put back after a delete that did not commit")
+	}
+	q = f.quarantine(warn)
+	q.finish(true, warn)
+	if exists(filepath.Join(logs, "t1.log")) || exists(copyIn) || exists(filepath.Dir(copyIn)) {
+		t.Error("the files, or the empty folder of the turn, survived a delete that committed")
+	}
+	if entries, _ := os.ReadDir(logs); len(entries) != 0 {
+		t.Errorf("the turns folder still holds %d entries (a renamed file was left)", len(entries))
+	}
+}
+
+// While the delete holds its write transaction no turn can be admitted: a turn started from another
+// connection at that moment waits for the delete and then finds the conversation gone.
+func TestNoTurnIsAdmittedWhileTheDeleteSetsFilesAside(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	touchFile(t, filepath.Join(hostDir(cfg), "turns", "t1.log"))
+	recordStarted(t, r, c.ID, "t1")
+
+	admitted := make(chan error, 1)
+	var early bool
+	inDeleteGuard = func() {
+		go func() {
+			_, _, err := r.store.CreateTurn(c.ID, "default", "late-1", "i", "go")
+			admitted <- err
+		}()
+		select {
+		case <-admitted:
+			early = true // the turn was admitted inside the transaction
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+	t.Cleanup(func() { inDeleteGuard = func() {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if early {
+		t.Fatal("a turn was admitted while the delete held its write transaction")
+	}
+	select {
+	case err := <-admitted:
+		if err == nil {
+			t.Error("a turn was admitted for a conversation that was deleted")
+		}
+	case <-time.After(15 * time.Second):
+		t.Error("the waiting turn never got an answer")
+	}
+}
+
+// A folder swapped for ANOTHER REAL folder (not a link) between being inspected and being opened is
+// refused too: only the identity check catches this, since the new folder is a legitimate path.
+func TestDeleteRefusesAFolderSwappedForAnotherRealOne(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	attach := filepath.Join(c.Cwd, ".monoagent", "attachments")
+	copyIn := filepath.Join(attach, "t1", "report.txt")
+	touchFile(t, copyIn)
+	recordStarted(t, r, c.ID, "t1", copyIn)
+
+	swapped := false
+	afterLstat = func(path string) {
+		if path != attach || swapped {
+			return
+		}
+		swapped = true
+		if err := os.Rename(attach, attach+".real"); err != nil {
+			t.Error(err)
+			return
+		}
+		touchFile(t, copyIn) // a different folder at the same path, holding the same name
+	}
+	t.Cleanup(func() { afterLstat = func(string) {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if !swapped {
+		t.Fatal("the seam never ran")
+	}
+	if !exists(copyIn) {
+		t.Error("a file in a folder that was not the one inspected was removed")
 	}
 }

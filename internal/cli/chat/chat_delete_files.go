@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -128,60 +129,110 @@ func openPinnedSub(parent *os.Root, name, full string) (*os.Root, error) {
 	return r, nil
 }
 
-// remove deletes the files, best effort: one that is gone already is fine, and one that cannot be
-// removed is reported. Every folder is opened as a pinned root first (see openPinnedDir) and the
-// removal goes through that handle, so a folder or a link swapped in later cannot redirect it; a
-// link is removed as itself and nothing is followed. The conversation's folder itself is the
-// conversation's own and is opened as it is.
-func (f turnFiles) remove(warn func(format string, a ...any)) {
+// tombstone is one file renamed out of the way: orig is where it was, tomb what it is called now.
+type tombstone struct {
+	root       *os.Root
+	orig, tomb string
+}
+
+// quarantined is what quarantine moved aside, with the pinned folders it did so through.
+type quarantined struct {
+	items []tombstone
+	roots []*os.Root
+}
+
+// quarantine renames every file of the list to a name of its own, inside the pinned folders (see
+// openPinnedDir): a rename is cheap, so it can run inside the delete's write transaction, where no
+// turn can be admitted and no id can be given to a new turn. Nothing is removed yet: finish removes
+// the renamed files once the delete has committed, and puts them back if it did not. A link is
+// renamed as itself and nothing is followed; the conversation's folder itself is the conversation's
+// own and is opened as it is. What cannot be opened or renamed is reported and left where it is.
+func (f turnFiles) quarantine(warn func(format string, a ...any)) *quarantined {
+	q := &quarantined{}
+	suffix := ".deleting-" + uuid.NewString()
 	if f.logDir != "" && len(f.logs) > 0 {
 		if root, err := openPinnedDir(f.logDir); err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
 				warn("could not open %s: %v", f.logDir, err)
 			}
 		} else {
+			q.roots = append(q.roots, root)
 			for _, name := range f.logs {
-				if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-					warn("could not remove %s: %v", filepath.Join(f.logDir, name), err)
-				}
+				q.rename(root, name, name+suffix, filepath.Join(f.logDir, name), warn)
 			}
-			root.Close()
 		}
 	}
 	if f.cwd == "" || len(f.copies) == 0 {
-		return
+		return q
 	}
 	cwd, err := os.OpenRoot(f.cwd)
 	if err != nil {
-		return
+		return q
 	}
 	defer cwd.Close()
 	meta, err := openPinnedSub(cwd, ".monoagent", filepath.Join(f.cwd, ".monoagent"))
 	if err != nil {
-		return
+		return q
 	}
 	defer meta.Close()
 	root, err := openPinnedSub(meta, "attachments", f.attachRoot)
 	if err != nil {
-		return
+		return q
 	}
-	defer root.Close()
-	dirs := map[string]bool{}
+	q.roots = append(q.roots, root)
 	for _, p := range f.copies {
 		rel, err := filepath.Rel(f.attachRoot, p)
 		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 			continue
 		}
-		if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			warn("could not remove %s: %v", p, err)
+		q.rename(root, rel, rel+suffix, p, warn)
+	}
+	return q
+}
+
+func (q *quarantined) rename(root *os.Root, orig, tomb, shown string, warn func(string, ...any)) {
+	if err := root.Rename(orig, tomb); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			warn("could not set aside %s: %v", shown, err)
+		}
+		return
+	}
+	q.items = append(q.items, tombstone{root, orig, tomb})
+}
+
+// finish ends what quarantine began. After a delete that committed the renamed files are removed
+// (and the folder a turn's copies were in, when it is empty); after one that did not they are put
+// back. Best effort: what cannot be removed or restored is reported.
+func (q *quarantined) finish(committed bool, warn func(format string, a ...any)) {
+	if q == nil {
+		return
+	}
+	dirs := map[*os.Root]map[string]bool{}
+	for _, it := range q.items {
+		if committed {
+			if err := it.root.Remove(it.tomb); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				warn("could not remove %s: %v", it.tomb, err)
+				continue
+			}
+			if d := filepath.Dir(it.orig); d != "." {
+				if dirs[it.root] == nil {
+					dirs[it.root] = map[string]bool{}
+				}
+				dirs[it.root][d] = true
+			}
 			continue
 		}
-		if d := filepath.Dir(rel); d != "." {
-			dirs[d] = true
+		if err := it.root.Rename(it.tomb, it.orig); err != nil {
+			warn("could not put %s back: %v", it.orig, err)
 		}
 	}
-	for d := range dirs {
-		_ = root.Remove(d) // only while empty
+	for root, ds := range dirs {
+		for d := range ds {
+			_ = root.Remove(d) // only while empty
+		}
+	}
+	for _, r := range q.roots {
+		r.Close()
 	}
 }
 

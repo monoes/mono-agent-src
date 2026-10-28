@@ -298,6 +298,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			// delete itself re-reads the record inside its write transaction, where no turn can be
 			// recorded, and gives way if one appeared since: then the new ones are stopped too.
 			var stopped []int
+			var pending *quarantined // the files set aside by the last guard run
 			missions := 0
 			// Whatever ends the delete after something was stopped says so: the conversation is kept,
 			// but the processes and missions stopped before are not coming back.
@@ -350,7 +351,9 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 					}
 				}
 				beforeGuardedDelete()
-				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(cfg, store, profileID, args[0], seen))
+				pending = nil
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(cfg, store, profileID, args[0], seen, &pending))
+				pending.finish(err == nil, warnOnStderr) // removed once the delete committed, put back if it did not
 				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
 					continue
 				}
@@ -490,6 +493,9 @@ func setOrgMode(cfg *Deps, id, mode string) (ai.Conversation, error) {
 	return conv, nil
 }
 
+// inDeleteGuard is a seam for tests: it runs at the end of the guard, inside the delete's write transaction.
+var inDeleteGuard = func() {}
+
 // afterSessionList is a seam for tests: it runs after the delete has listed the conversation's open sessions.
 var afterSessionList = func() {}
 
@@ -507,7 +513,7 @@ var errBackgroundRecorded = errors.New("a background-process record appeared whi
 // by the caller; then it revokes the mission tokens the conversation's runs minted (owner
 // dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
 // conductor would have swept them. Both are undone with the delete if it is rolled back.
-func deleteGuard(cfg *Deps, store *ai.AIStore, profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+func deleteGuard(cfg *Deps, store *ai.AIStore, profileID, conversationID string, seen map[chatevents.ProcessRef]bool, pending **quarantined) func(context.Context, *sql.Conn) error {
 	return func(ctx context.Context, conn *sql.Conn) error {
 		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
 			return err
@@ -527,16 +533,17 @@ func deleteGuard(cfg *Deps, store *ai.AIStore, profileID, conversationID string,
 			return fmt.Errorf("revoking the conversation's mission tokens: %w", err)
 		}
 		// Last, and inside the write transaction: no turn can start meanwhile, so the list of what the
-		// turns left on disk is the whole list and no id can be given to a new turn before the files
-		// of the old one are gone. Not being able to list or remove is reported and does not stop the
-		// delete; if a later statement of the delete fails, the files are already gone and the
-		// conversation stays (they are logs and copies, not the conversation).
+		// turns left on disk is the whole list, and no id can be given to a new turn before the old
+		// files are out of the way. The files are only renamed here (cheap); the caller removes them
+		// once the delete has committed and puts them back if it did not. Not being able to list or
+		// rename is reported and does not stop the delete.
 		files, ferr := collectTurnFiles(cfg, store, profileID, conversationID)
 		if ferr != nil {
 			warnOnStderr("could not list the files the conversation's turns left: %v", ferr)
 			return nil
 		}
-		files.remove(warnOnStderr)
+		*pending = files.quarantine(warnOnStderr)
+		inDeleteGuard()
 		return nil
 	}
 }
