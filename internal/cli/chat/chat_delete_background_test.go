@@ -423,8 +423,19 @@ func TestDeleteRevokesTheMissionTokensOfItsRuns(t *testing.T) {
 	others := mint(dynorg.TurnOwner("default", other.ID, "t1"))
 	stranger := mint("run-unrelated")
 
+	// An already revoked token keeps the time it was revoked.
+	if _, err := at.Revoke(ctx, "default", own); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := at.Get(ctx, "default", own)
 	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
 		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err == nil {
+		t.Error("the conversation is still there")
+	}
+	if after, _ := at.Get(ctx, "default", own); before.RevokedAt == nil || after.RevokedAt == nil || !after.RevokedAt.Equal(*before.RevokedAt) {
+		t.Errorf("a token revoked earlier changed its revocation time: %v -> %v", before.RevokedAt, after.RevokedAt)
 	}
 	revoked := func(id string) bool {
 		t.Helper()
