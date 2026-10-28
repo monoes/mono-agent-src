@@ -730,3 +730,26 @@ func TestCanaryEnvironment(t *testing.T) {
 		t.Error("the canary does not use a fixed PATH")
 	}
 }
+
+// An executable found on PATH that resolves into a credential location must not be bound back
+// into the hidden home: the plan is refused instead.
+func TestRuntimeBinaryInsideForbiddenLocationIsRefused(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	secret := filepath.Join(r.home, ".ssh", "id_probe")
+	if err := os.MkdirAll(filepath.Dir(secret), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte("#!/bin/sh\necho fake-private-material\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(filepath.Dir(r.tool), "claude")); err != nil {
+		t.Fatal(err)
+	}
+	b := r.box(Strict)
+	b.Runtime = "claude"
+	if p, err := b.Wrap("/bin/sh", []string{"-c", "true"}, r.env()); !IsCode(err, CodeBadPath) {
+		p.Close()
+		t.Fatalf("wrap: want %s, got %v", CodeBadPath, err)
+	}
+}

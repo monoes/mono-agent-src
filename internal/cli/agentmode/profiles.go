@@ -35,7 +35,7 @@ func bwrapProfile() string {
 # Usage: sh this-script COMMAND [ARGS...]   e.g.  sh this-script claude
 # COMPAT profile: best effort, not a boundary. It keeps the whole filesystem writable and
 # hides or protects the paths listed below; places that start code at a later login cannot
-# all be listed, so use --strict for a real separation. Runs COMMAND with the filesystem
+# all be listed, so use --strict for stronger (still best-effort) hardening. Runs COMMAND with the filesystem
 # writable as usual except:
 #   - mono-agent's state, the Secret Service keyrings, kwalletd, gnupg and the D-Bus
 #     session bus are hidden;

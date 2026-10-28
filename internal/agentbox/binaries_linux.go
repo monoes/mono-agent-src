@@ -45,6 +45,7 @@ var packageManifest = []string{"package.json", "bin", "dist", "lib", "build", "n
 
 // bindBinary returns the read-only binds that make one executable runnable in a strict box.
 // Everything is pinned first and judged on the pinned object:
+//   - the executable must not be, or be under, a credential, state or startup location;
 //   - the executable must be a regular file (bound as the file it really is; a symlink to it
 //     stays a symlink, so a script that finds its package through $0 still can);
 //   - for a script inside a package under a hidden location, the package directory must be a
@@ -65,6 +66,9 @@ func (b Box) bindBinary(bd *binder, home string, forbidden []string, found strin
 		real, idx, err := bd.pin(real0, wantFile)
 		if err != nil {
 			return nil, err
+		}
+		if err := checkAllowed(home, forbidden, real); err != nil {
+			return nil, err // never bind a credential, state or startup file back as "the binary"
 		}
 		if !seen[real] {
 			seen[real] = true

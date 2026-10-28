@@ -127,7 +127,7 @@ OUTSIDE the sandbox; the eval hands the token to the agent through its environme
   sh agent-sandbox.sh claude
 
 That is the --compat profile (the default for now): best effort that reduces what a cooperative agent does by
-accident, not a boundary. For a real separation use "agent-mode sandbox --runtime bwrap --strict" and run the
+accident, not a boundary. For stronger hardening use "agent-mode sandbox --runtime bwrap --strict" and run the
 script from the project directory (see "monoagentcli agent-mode sandbox --help"). Both profiles are best-effort hardening, not isolation: the agent shares the host network and the host root is mounted read-only.
 
 The agent then calls $MONOAGENT_API_URL/workflows with "Authorization: Bearer $MONOAGENT_API_TOKEN".
