@@ -26,6 +26,8 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	// extension's answer.
 	var restore func()
 	if cmd.Type == CmdSetBinding {
+		c.bindMu.Lock()
+		defer c.bindMu.Unlock()
 		restore = c.narrowBindingParams(cmd.Params)
 	}
 
@@ -129,7 +131,7 @@ func parseTabID(resp *Response) (int, error) {
 type bindingFrame struct {
 	Kind     string   `json:"kind"`
 	Profile  string   `json:"profile"`  // first id; all an older extension sends
-	Profiles []string `json:"profiles"` // the whole set, extension >= 1.8.0
+	Profiles []string `json:"profiles"` // the whole set, extension >= 1.12.0, see SupportsProfileSets
 	Label    string   `json:"label"`
 }
 
@@ -141,7 +143,9 @@ func (s *Server) serveBinding(c *extConn, msg []byte) {
 		return
 	}
 	c.setBinding(profilesFromWire(f.Profiles, f.Profile), f.Label)
-	s.dropDeletedBinding(c)
+	// Off the read loop: the profile source may take seconds to answer, and
+	// this browser's frames must not wait for it.
+	go s.dropDeletedBinding(c)
 	s.logger.Info().Str("instance", c.id).Strs("profiles", c.boundProfiles()).Msg("browser binding changed")
 }
 
@@ -159,6 +163,11 @@ func (c *extConn) applyBindingParams(p map[string]interface{}) {
 		profiles = list
 	} else if one, ok := p["profile"].(string); ok {
 		profiles = cleanProfiles([]string{one})
+	}
+	// An extension before sets keeps only the first id it was sent, so that
+	// is all the bridge may believe it runs, whatever the command named.
+	if profiles = cleanProfiles(profiles); len(profiles) > 1 && !SupportsProfileSets(c.version) {
+		profiles = profiles[:1]
 	}
 	c.setBinding(profiles, label)
 }
@@ -183,8 +192,9 @@ func wireStrings(v any) ([]string, bool) {
 
 // narrowBindingParams applies the removals a set_binding will make (the
 // intersection of the current set and the new one) and returns a func that
-// puts the previous set back. Nothing is removed when the command names no
-// set.
+// puts back those ids that are still absent, leaving any change made in the
+// meantime alone. Nothing is removed when the command names no set. The
+// caller holds c.bindMu.
 func (c *extConn) narrowBindingParams(p map[string]interface{}) func() {
 	var next []string
 	if list, ok := wireStrings(p["profiles"]); ok {
@@ -196,19 +206,33 @@ func (c *extConn) narrowBindingParams(p map[string]interface{}) func() {
 	}
 	c.mu.Lock()
 	prev := slices.Clone(c.profiles)
-	var kept []string
+	var kept, removed []string
 	for _, id := range prev {
 		if slices.Contains(next, id) {
 			kept = append(kept, id)
+		} else {
+			removed = append(removed, id)
 		}
 	}
-	if len(kept) != len(prev) {
+	if len(removed) > 0 {
 		c.profiles = kept
 	}
 	c.mu.Unlock()
 	return func() {
 		c.mu.Lock()
-		c.profiles = prev
-		c.mu.Unlock()
+		defer c.mu.Unlock()
+		// Back in their old places, then whatever else arrived since.
+		var merged []string
+		for _, id := range prev {
+			if slices.Contains(c.profiles, id) || slices.Contains(removed, id) {
+				merged = append(merged, id)
+			}
+		}
+		for _, id := range c.profiles {
+			if !slices.Contains(merged, id) {
+				merged = append(merged, id)
+			}
+		}
+		c.profiles = merged
 	}
 }

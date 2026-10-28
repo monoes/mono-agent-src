@@ -100,6 +100,10 @@ type extConn struct {
 	ws      *websocket.Conn
 	writeMu sync.Mutex // gorilla/websocket forbids concurrent writers, per socket
 
+	// bindMu serializes set_binding commands to this browser, from narrowing
+	// the set to confirming or restoring it.
+	bindMu sync.Mutex
+
 	mu       sync.Mutex // guards profiles and label, which change while connected
 	profiles []string
 	label    string

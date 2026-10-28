@@ -158,17 +158,19 @@ func (s *Server) dropDeletedBinding(c *extConn) {
 	if err != nil {
 		return
 	}
-	var keep []string
+	var gone []string
 	for _, id := range set {
-		if slices.ContainsFunc(profiles, func(p profiledir.Profile) bool { return p.ID == id }) {
-			keep = append(keep, id)
-		} else {
+		if !slices.ContainsFunc(profiles, func(p profiledir.Profile) bool { return p.ID == id }) {
+			gone = append(gone, id)
 			s.logger.Warn().Str("instance", c.id).Str("profile", id).Msg("browser is bound to a profile that no longer exists: dropping it from the browser's profiles")
 		}
 	}
-	if len(keep) != len(set) {
-		c.mu.Lock()
-		c.profiles = keep
-		c.mu.Unlock()
+	if len(gone) == 0 {
+		return
 	}
+	// The set may have changed while the source answered: take the deleted
+	// ids out of what is there now, and touch nothing else.
+	c.mu.Lock()
+	c.profiles = slices.DeleteFunc(slices.Clone(c.profiles), func(id string) bool { return slices.Contains(gone, id) })
+	c.mu.Unlock()
 }

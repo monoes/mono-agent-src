@@ -19,14 +19,19 @@ import (
 // MAX_PROFILES in chrome-extension/browser_binding.js.
 const MaxProfilesPerBrowser = 64
 
+// MaxProfileIDLen bounds one profile id. Keep identical to MAX_PROFILE_ID in
+// chrome-extension/browser_binding.js.
+const MaxProfileIDLen = 128
+
 // cleanProfiles drops ids profiledir would refuse (an id becomes a
 // directory name further down), blanks and duplicates, keeping order, and
-// keeps at most MaxProfilesPerBrowser of them.
+// keeps at most MaxProfilesPerBrowser of them. Ids over MaxProfileIDLen
+// bytes are dropped too.
 func cleanProfiles(in []string) []string {
 	var out []string
 	for _, p := range in {
 		p = strings.TrimSpace(p)
-		if p == "" || !profiledir.ValidProfileID(p) || slices.Contains(out, p) {
+		if p == "" || len(p) > MaxProfileIDLen || !profiledir.ValidProfileID(p) || slices.Contains(out, p) {
 			continue
 		}
 		out = append(out, p)

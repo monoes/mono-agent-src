@@ -32,7 +32,7 @@ type authFrame struct {
 	Token    string `json:"token"`
 	Instance string `json:"instance,omitempty"`
 	Profile  string `json:"profile,omitempty"`
-	// Profiles is the whole set (extension >= 1.8.0); Profile is its first.
+	// Profiles is the whole set (extension >= 1.12.0, see SupportsProfileSets); Profile is its first.
 	Profiles []string `json:"profiles,omitempty"`
 	Label    string   `json:"label,omitempty"`
 	Version  string   `json:"version,omitempty"`

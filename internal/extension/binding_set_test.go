@@ -13,6 +13,12 @@ import (
 // set in `profiles` and the first id in `profile`.
 func dialBrowserSet(t *testing.T, wsURL, instance string, profiles ...string) *websocket.Conn {
 	t.Helper()
+	return dialBrowserVersion(t, wsURL, instance, "1.12.0", profiles...)
+}
+
+// dialBrowserVersion is dialBrowserSet for an extension of the given version.
+func dialBrowserVersion(t *testing.T, wsURL, instance, version string, profiles ...string) *websocket.Conn {
+	t.Helper()
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -26,7 +32,7 @@ func dialBrowserSet(t *testing.T, wsURL, instance string, profiles ...string) *w
 	if len(profiles) > 0 {
 		first = profiles[0]
 	}
-	if err := conn.WriteJSON(authFrame{Type: "auth", Token: tok, Instance: instance, Profile: first, Profiles: profiles}); err != nil {
+	if err := conn.WriteJSON(authFrame{Type: "auth", Token: tok, Instance: instance, Version: version, Profile: first, Profiles: profiles}); err != nil {
 		t.Fatalf("write auth frame: %v", err)
 	}
 	return conn
