@@ -2593,6 +2593,7 @@ monoagentcli --profile work coder sessions send <conv> "run the tests and fix wh
 monoagentcli --profile work coder sessions list --json            # sessions, state, access, waiting commands, and whether the host runs
 monoagentcli --profile work coder sessions stop|pause|resume <conv>
 monoagentcli --profile work coder sessions command <id>            # how one queued command ended: pending, done, or failed with the reason
+monoagentcli --profile work coder sessions mission-children list                 # operator: child-session policy per mission lead (set: see Missions)
 monoagentcli --profile work coder host status --json               # running? pid, since when
 monoagentcli --profile work coder host stop                        # the host only; running turns keep going
 ```
