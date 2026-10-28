@@ -357,6 +357,46 @@ func childrenOf(pid int) []int {
 	return kids
 }
 
+// pinnedLauncher is the process monomind.Exec started for this turn, pinned when it was reported
+// (OnStart) and recorded with its start time: its pid is only ever believed while that same process
+// is still alive, so a pid reused after it exits is never taken for it.
+type pinnedLauncher struct {
+	pid   int
+	start string
+	h     pinnedProcess
+}
+
+// pinLauncher pins the launcher. nil when it cannot be pinned or its start time cannot be read: no
+// marker is then learned and the turn's processes are not stopped.
+func pinLauncher(pid int) *pinnedLauncher {
+	if pid <= 1 {
+		return nil
+	}
+	h, err := pinProcess(pid)
+	if err != nil {
+		return nil
+	}
+	start := processStart(pid)
+	if start == "" || !h.alive() {
+		h.close()
+		return nil
+	}
+	return &pinnedLauncher{pid: pid, start: start, h: h}
+}
+
+// current says the launcher is still the process that was pinned: its start time reads as recorded
+// and the pin still names a live process (the reads come first, so they belong to it).
+func (l *pinnedLauncher) current() bool {
+	start := processStart(l.pid)
+	return start == l.start && l.h.alive()
+}
+
+func (l *pinnedLauncher) close() {
+	if l != nil {
+		l.h.close()
+	}
+}
+
 // markerPoll is how long the host looks for the turn's marker after the runner starts.
 var markerPoll = 10 * time.Second
 
@@ -365,11 +405,12 @@ var markerPoll = 10 * time.Second
 // turn starts. It is the host's own reading, never the model's or the runtime's report. "" when the
 // child or its marker cannot be read, or the children disagree: the turn's processes are then not
 // stopped.
-func learnTurnMarker(ctx context.Context, runner, launcher int) string {
+func learnTurnMarker(ctx context.Context, runner int, launcher *pinnedLauncher) string {
 	// The runner is the process this turn's own launcher started, or below it (a wrapper may sit
-	// between): the launcher's pid is what monomind.Exec reports when it starts the process, never
-	// something the process says. Any other pid is not read.
-	if launcher <= 1 || (runner != launcher && !descendantOf(runner, launcher)) {
+	// between): the launcher is what monomind.Exec reported when it started the process, pinned from
+	// that moment, never something the process says. It must still be that same process now. Any
+	// other pid is not read.
+	if launcher == nil || !launcher.current() || (runner != launcher.pid && !descendantOf(runner, launcher.pid)) || !launcher.current() {
 		return ""
 	}
 	deadline := time.Now().Add(markerPoll)
@@ -380,6 +421,11 @@ func learnTurnMarker(ctx context.Context, runner, launcher int) string {
 			if id := processIdentity(kid); strings.HasPrefix(id, "tree:") {
 				seen[id] = true
 			}
+		}
+		// The launcher was the same process throughout the reads above (they come first, the liveness
+		// check after): what was read belongs to its tree.
+		if !launcher.current() {
+			return ""
 		}
 		if len(seen) > 1 {
 			return ""

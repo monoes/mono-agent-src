@@ -103,7 +103,7 @@ type turnJournal struct {
 	// runtime's process at the start of the turn (see learnTurnMarker); "" when it could not be read.
 	markerMu   sync.Mutex
 	marker     string
-	launcher   int // the pid monomind.Exec reported for the process it started (OnStart)
+	launcher   *pinnedLauncher // the process monomind.Exec reported it started (OnStart), pinned
 	stopMarker context.CancelFunc
 	markerDone chan struct{}
 }
@@ -236,11 +236,11 @@ func (j *turnJournal) handle(ev monomind.Event) {
 		j.markerMu.Lock()
 		launcher := j.launcher
 		j.markerMu.Unlock()
-		if ev.Pid > 0 && launcher > 1 && j.stopMarker == nil {
+		if ev.Pid > 0 && launcher != nil && j.stopMarker == nil {
 			ctx, cancel := context.WithCancel(context.Background())
 			j.stopMarker = cancel
 			j.markerDone = make(chan struct{})
-			go func(runner, launcher int, done chan struct{}) {
+			go func(runner int, launcher *pinnedLauncher, done chan struct{}) {
 				defer close(done)
 				m := learnTurnMarker(ctx, runner, launcher)
 				j.markerMu.Lock()
@@ -348,6 +348,9 @@ func (j *turnJournal) finishCode(stopRequested bool, res *monomind.TurnResult, c
 		j.stopMarker()
 		<-j.markerDone
 	}
+	j.markerMu.Lock()
+	j.launcher.close()
+	j.markerMu.Unlock()
 	// The runtime's own helpers (e.g. the MCP servers opencode starts) are
 	// still alive when it reports done and exit with it; only processes
 	// that outlive the runtime are worth a warning.
@@ -405,7 +408,8 @@ func sandboxDetail(ev monomind.Event) string {
 // setLauncher records the pid of the process this turn's launcher started: the anchor the turn's
 // marker is learned from. It is monomind.Exec's own report, not the runner's.
 func (j *turnJournal) setLauncher(pid int) {
+	l := pinLauncher(pid)
 	j.markerMu.Lock()
-	j.launcher = pid
+	j.launcher = l
 	j.markerMu.Unlock()
 }
