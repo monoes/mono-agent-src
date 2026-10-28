@@ -40,8 +40,19 @@ func init() {
 const aitaskTestToken = "task-secret-0123456789"
 
 // seedTask stores a running task of kind api-check holding aitaskTestToken.
+// seedConversation makes the conversation a task runs in (a task and a bound token need one).
+func seedConversation(t *testing.T, s *Server, profile, conv string) {
+	t.Helper()
+	if _, err := s.rt.db.DB.Exec(`INSERT OR IGNORE INTO ai_chat_conversations
+		(id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, access)
+		VALUES (?, ?, 'agent', '', 'claude', '', '', '', 'assistant', '', ?, 'now', 'now', '', 'scoped')`, conv, profile, "hk-"+conv); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func seedTask(t *testing.T, s *Server, profile, id, conv string) {
 	t.Helper()
+	seedConversation(t, s, profile, conv)
 	st := &aitask.Store{DB: s.rt.db.DB, Profile: profile}
 	if _, err := st.Insert(aitask.Task{ID: id, Kind: "api-check", ConversationID: conv, Status: aitask.StatusRunning, Goal: "g"}); err != nil {
 		t.Fatal(err)
@@ -107,7 +118,15 @@ func TestAitaskRoutesAuthMatrix(t *testing.T) {
 	good := boundToken(t, s, "default", "good", agenttokens.ScopeWrite, "at-1", "conv-1")
 	readOnly := boundToken(t, s, "default", "ro", agenttokens.ScopeRead, "at-1", "conv-1")
 	other := boundToken(t, s, "default", "other-task", agenttokens.ScopeWrite, "at-2", "conv-2")
-	wrongConv := boundToken(t, s, "default", "wrong-conv", agenttokens.ScopeWrite, "at-1", "conv-9")
+	// A token whose conversation is not the task's can no longer be issued; one that exists (older data) is refused.
+	wrongConv := boundToken(t, s, "default", "wrong-conv", agenttokens.ScopeWrite, "at-1", "conv-1")
+	if _, err := s.rt.db.DB.Exec(`UPDATE agent_tokens SET bound_conversation = 'conv-9' WHERE name = 'wrong-conv'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.agentTokens().CreateBound(context.Background(), "default", "never", agenttokens.ScopeWrite, time.Hour,
+		agenttokens.Binding{TaskID: "at-1", ConversationID: "conv-9"}); !errors.Is(err, agenttokens.ErrBindingTarget) {
+		t.Errorf("issuing a token for another conversation than the task's: %v", err)
+	}
 	unbound := mint(t, s, "default", "unbound", agenttokens.ScopeWrite)
 	foreign := mint(t, s, "other", "foreign", agenttokens.ScopeWrite)
 	full := testToken(t, s, "default")
@@ -435,6 +454,7 @@ func TestAitaskNeverStoresOrEchoesEitherCredential(t *testing.T) {
 		t.Fatalf("fail: %d %s", rw.Code, rw.Body)
 	}
 	// A refusal that repeats the result (a kind's check does) is scrubbed in the answer.
+	seedConversation(t, s, "default", "conv-3")
 	st := &aitask.Store{DB: s.rt.db.DB, Profile: "default"}
 	if _, err := st.Insert(aitask.Task{ID: "at-3", Kind: "api-echo", ConversationID: "conv-3", Status: aitask.StatusRunning}); err != nil {
 		t.Fatal(err)
@@ -470,6 +490,7 @@ func TestAitaskReadsScrubTheBearerFromTheStoredRow(t *testing.T) {
 func TestAitaskReadsScrubSecretsTheCallerNeverPresented(t *testing.T) {
 	s := newTestServer(t, false)
 	taskTok := aitask.NewToken() // 64 hex characters
+	seedConversation(t, s, "default", "conv-1")
 	st := &aitask.Store{DB: s.rt.db.DB, Profile: "default"}
 	if _, err := st.Insert(aitask.Task{ID: "at-1", Kind: "api-check", ConversationID: "conv-1", Status: aitask.StatusRunning, Goal: "g"}); err != nil {
 		t.Fatal(err)
@@ -509,6 +530,26 @@ func TestAitaskCancelledTaskRefusesItsBoundTokenEvenForReads(t *testing.T) {
 	for _, tail := range []string{"", "/result"} {
 		if rw := aitaskReq(t, s, "GET", aitaskPath("at-c", tail), tc, "", ""); rw.Code != http.StatusForbidden {
 			t.Errorf("GET %q of a cancelled task: %d %s", tail, rw.Code, rw.Body)
+		}
+	}
+}
+
+// A task whose conversation is gone from the profile is refused to its bound token for every
+// route, reads included, whatever state the task row is in.
+func TestAitaskRefusesATaskWhoseConversationIsGone(t *testing.T) {
+	s := newTestServer(t, false)
+	seedTask(t, s, "default", "at-d", "conv-d")
+	td := boundToken(t, s, "default", "td", agenttokens.ScopeWrite, "at-d", "conv-d")
+	if rw := aitaskReq(t, s, "GET", aitaskPath("at-d", "/result"), td, "", ""); rw.Code != 200 {
+		t.Fatalf("a live task: %d %s", rw.Code, rw.Body)
+	}
+	// The conversation is no longer one of the profile's.
+	if _, err := s.rt.db.DB.Exec(`UPDATE ai_chat_conversations SET profile_id = 'elsewhere' WHERE id = 'conv-d'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, tail := range []string{"", "/result"} {
+		if rw := aitaskReq(t, s, "GET", aitaskPath("at-d", tail), td, "", ""); rw.Code != http.StatusForbidden {
+			t.Errorf("GET %q after the conversation was gone: %d %s", tail, rw.Code, rw.Body)
 		}
 	}
 }
