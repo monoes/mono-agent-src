@@ -1992,16 +1992,16 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   operator's alone to turn on. A `max_children` or `share_pct` the operator writes is a cap the lead cannot raise past (the operator clears it to give the lead its freedom back); the lead may always lower, and every such change is an audit row naming who. None of it writes a setting, access level or the lead's budget. The one write outside these
   tables lowers a finished child's own cap to what it spent (never up, never to 0 which means uncapped) so the unspent
   carve returns to the lead. The share is held only for children that exist or are reserved (a marked task holds nothing), and the statement that reserves checks it. A lead's own audit rows are bounded per kind (a flood of one kind, say marks or raises, can push out only earlier rows of that kind, never a raise by a flood of marks or lowers); identical repeated marks of one task collapse and a change of size or budget is a row of its own; changes of the default budget are recorded; the operator's and the host's rows are not rotated. A child's state change, its audit row and the lowering of its cap are one transaction, so a failure leaves the row live to be ended again. Known gap, not new: an agent can link a task session to any conversation of its profile, so a worker that holds no binding could become the lead of a session of its own; the binding check does not close that, and a mission lead that is itself a child (or a worker) must be refused by the spawn path (depth rule, next phase). The files read `tasks` and `task_sessions` and write neither; a static test lists the
-  tables they may name. Not yet built or checked: the spawn, the child's token, the cascade on stop and the host
-  reconciler (later phases of the plan).
-- **Mission child sessions: the host half (nothing calls it yet).** `SpawnForTask` takes the lead's `LeadScope` (see above), reserves the row
+  tables they may name. Built in later commits of the plan: the spawn, the cascade on stop and the host
+  reconciler (see the next entries); not built: the child's task-bound token (P-B2).
+- **Mission child sessions: the host half (called only once the launcher can confine a child).** `SpawnForTask` takes the lead's `LeadScope` (see above), reserves the row
   before it creates anything, and then uses the same spawn as a master's child, so the depth, `max_children`, rate, access
   and budget limits are the same. It never takes an access level, a folder or a budget from its caller or from task text: the
   child's access is the lead's capped at `workspace` (never `full`), the folder the lead's, the carve the one reserved. The
   brief is forwarded unread as a `master-` turn: host-made, so it carries no mission confirmation, no plan approval and no
   close. A lead that is a child (the tree has two levels) is refused before anything is reserved. A failed spawn deletes the
-  conversation it made and releases the reservation. The host pass reads `tasks` and writes no task; it queues only host
-  stops and pauses (no issuer, a fixed turn id) for the descendants of a lead whose mission ended or paused, or whose turn a
+  conversation it made and releases the reservation. A mission with its own budget refuses a child whose carve is not positive or does not fit what the mission has left; a child's spend is not charged to the mission, so the mission budget bounds exposure through the caps, not as an exact meter. The host pass reads `tasks` and writes no task; it queues only host
+  stops, pauses and resumes (no issuer, a fixed turn id) for the descendants of a lead whose mission ended or paused, or whose turn a
   person stopped, ends a row when its turn ended and returns the carve in the same transaction, and logs (it stops and deletes
   nothing) a child that holds a carve and is in no row. A person's stop is a done `stop` command with no issuer; such a row could
   be forged only by something able to queue the operator's own commands.
@@ -2009,8 +2009,8 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   after it. A mission handed to a different, non-empty lead conversation ends the old lead's children, and an empty or unset
   link ends nothing. Known gap, not new: an agent can link a task session to any conversation of its profile, so someone who
   can do that to a victim lead's conversation can make the pass stop the victim's in-flight task children; it gives no spawn,
-  approval or spend. Migration 139 also adds an index on the command queue's (profile, conversation, kind) for the pass's stop
-  lookup. A pause is weaker
+  approval or spend. Migration 140 adds an index on the command queue's (profile, conversation, kind) for the pass's stop
+  lookup. A resume after the mission runs again is the same kind of command, queued only for a child whose newest pause or resume is the pass's own. A pause is weaker
   than halting in-turn workers: a turn that is already running finishes under its cap. The files are covered by the same
   static scan (no approval writer named, only the mission tables written). Not yet built: the launcher's per-child task
   token (P-B2).
