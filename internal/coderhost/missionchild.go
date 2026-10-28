@@ -286,9 +286,22 @@ func (s *Store) hasPendingCascade(profileID, conv string, kind Kind) bool {
 // carried out. A person's pause or resume after it, or one still waiting, means the pause is not the pass's to undo.
 func (s *Store) pausedByCascade(profileID, conv string) bool {
 	var status, issuer, turn string
-	err := s.db.QueryRow(`SELECT kind || ':' || status, issuer, turn_id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind IN ('pause', 'resume') AND status IN ('pending', 'done')
-		ORDER BY id DESC LIMIT 1`, profileID, conv).Scan(&status, &issuer, &turn)
-	return err == nil && status == "pause:done" && issuer == "" && turn == cascadeTurn
+	var id int64
+	err := s.db.QueryRow(`SELECT id, kind || ':' || status, issuer, turn_id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind IN ('pause', 'resume') AND status IN ('pending', 'done')
+		ORDER BY id DESC LIMIT 1`, profileID, conv).Scan(&id, &status, &issuer, &turn)
+	if err != nil || status != "pause:done" || issuer != "" || turn != cascadeTurn {
+		return false
+	}
+	// A person's pause queued before the pass's own (still waiting when the pass saw the child not yet paused)
+	// holds the child too: any other pause since the last resume keeps the pause from being the pass's alone.
+	var other int
+	if s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'pause' AND status IN ('pending', 'done') AND id < ?
+		AND NOT (issuer = '' AND turn_id = ?)
+		AND id > COALESCE((SELECT MAX(id) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'resume' AND status = 'done' AND id < ?), 0)`,
+		profileID, conv, id, cascadeTurn, profileID, conv, id).Scan(&other) != nil || other > 0 {
+		return false
+	}
+	return true
 }
 
 // turnFloor is the time a stop must be newer than to count for the conversation: when its last turn began, or
