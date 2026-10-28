@@ -37,6 +37,7 @@
   const KEYS = [INSTANCE_KEY, PROFILE_KEY, PROFILE_IDS_KEY, LABEL_KEY];
   const MAX_LABEL = 60;
   const MAX_PROFILES = 64; // keep identical to maxProfilesPerBrowser (Go)
+  const MAX_PROFILE_ID = 128; // keep identical to maxProfileIDLen (Go)
   const INSTANCE_RE = /^[A-Za-z0-9-]{8,64}$/;
 
   function isValidProfileId(id) {
@@ -47,11 +48,16 @@
     return true;
   }
 
+  /** bindable is isValidProfileId plus the length cap a binding enforces. */
+  function bindable(id) {
+    return isValidProfileId(id) && id.trim().length <= MAX_PROFILE_ID;
+  }
+
   /** cleanIds trims, drops invalid ids and duplicates, keeps order. */
   function cleanIds(list) {
     const out = [];
     for (const v of Array.isArray(list) ? list : []) {
-      if (!isValidProfileId(v)) continue;
+      if (!bindable(v)) continue;
       const id = v.trim();
       if (!out.includes(id)) out.push(id);
       if (out.length >= MAX_PROFILES) break;
@@ -59,10 +65,21 @@
     return out;
   }
 
-  /** storedIds reads the set: the array if present, else the legacy field. */
+  /**
+   * storedIds reads the set: the array if present, else the legacy field.
+   * This version writes both in lock-step (legacy = the first id). A legacy
+   * field that disagrees with the array's first id was written by a pre-sets
+   * extension after a downgrade, so it is the newer of the two and the stale
+   * array is discarded; otherwise removed profiles would come back.
+   */
   function storedIds(stored) {
-    if (Array.isArray(stored[PROFILE_IDS_KEY])) return cleanIds(stored[PROFILE_IDS_KEY]);
-    return cleanIds([stored[PROFILE_KEY]]);
+    const legacy = stored[PROFILE_KEY];
+    if (Array.isArray(stored[PROFILE_IDS_KEY])) {
+      const ids = cleanIds(stored[PROFILE_IDS_KEY]);
+      const newer = typeof legacy === "string" && legacy.trim() !== (ids[0] || "");
+      if (!newer) return ids;
+    }
+    return cleanIds([legacy]);
   }
 
   function browserName(ua) {
@@ -141,11 +158,11 @@
     if (Array.isArray(p.profiles)) {
       if (p.profiles.length > MAX_PROFILES) throw new Error("too many profiles");
       for (const v of p.profiles) {
-        if (typeof v !== "string" || !isValidProfileId(v)) throw new Error("invalid profile id");
+        if (typeof v !== "string" || !bindable(v)) throw new Error("invalid profile id");
       }
       ids = cleanIds(p.profiles);
     } else if (typeof p.profile === "string") {
-      if (p.profile.trim() && !isValidProfileId(p.profile)) throw new Error("invalid profile id");
+      if (p.profile.trim() && !bindable(p.profile)) throw new Error("invalid profile id");
       ids = cleanIds([p.profile]);
     }
     const update = {};
@@ -186,7 +203,7 @@
   }
 
   root.MonoBrowserBinding = {
-    INSTANCE_KEY, PROFILE_KEY, PROFILE_IDS_KEY, LABEL_KEY, MAX_LABEL, MAX_PROFILES,
+    INSTANCE_KEY, PROFILE_KEY, PROFILE_IDS_KEY, LABEL_KEY, MAX_LABEL, MAX_PROFILES, MAX_PROFILE_ID,
     isValidProfileId, browserName, cleanLabel, defaultLabel,
     cleanIds, load, authFields, setBinding, bindingFrame, isBindingChange, choices,
   };

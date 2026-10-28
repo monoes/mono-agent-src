@@ -70,17 +70,17 @@ test("a legacy single binding reads as a one-element set", async () => {
   assert.equal(state.profile, "p-old");
 });
 
-test("the array wins over a stale legacy field; invalid ids and duplicates are dropped", async () => {
+test("the array is read whole when the legacy field is its first id; invalid ids and duplicates are dropped", async () => {
   const state = await B.load(
-    fakeStorage({ [B.PROFILE_KEY]: "p-old", [B.PROFILE_IDS_KEY]: ["p-a", "../x", "p-b", " p-a "] }),
+    fakeStorage({ [B.PROFILE_KEY]: "p-a", [B.PROFILE_IDS_KEY]: ["p-a", "../x", "p-b", " p-a "] }),
     { userAgent: EDGE_UA },
   );
   assert.deepEqual(state.profiles, ["p-a", "p-b"]);
   assert.equal(state.profile, "p-a");
 });
 
-test("an empty array means unbound even if the legacy field is stale", async () => {
-  const state = await B.load(fakeStorage({ [B.PROFILE_KEY]: "p-old", [B.PROFILE_IDS_KEY]: [] }), { userAgent: EDGE_UA });
+test("an empty array means unbound when the legacy field is empty too", async () => {
+  const state = await B.load(fakeStorage({ [B.PROFILE_KEY]: "", [B.PROFILE_IDS_KEY]: [] }), { userAgent: EDGE_UA });
   assert.deepEqual(state.profiles, []);
   assert.equal(state.profile, "");
 });
@@ -156,4 +156,28 @@ test("the set is capped: reading drops the excess, setBinding refuses it and kee
   const ok = fakeStorage({ boundProfiles: ["p-a"] });
   await assert.rejects(B.setBinding(ok, { profiles: many }), /too many/);
   assert.deepEqual(ok.data.boundProfiles, ["p-a"]);
+});
+
+test("a downgrade that changed the legacy field wins over a stale array", async () => {
+  // 1.12 writes both fields in lock-step (legacy = first id). A pre-1.12
+  // extension writes only the legacy field; after downgrade -> change -> upgrade
+  // the array is stale and must not bring removed profiles back.
+  const changed = fakeStorage({ [B.PROFILE_KEY]: "p-new", [B.PROFILE_IDS_KEY]: ["p-a", "p-b"] });
+  assert.deepEqual((await B.load(changed, {})).profiles, ["p-new"]);
+  const unbound = fakeStorage({ [B.PROFILE_KEY]: "", [B.PROFILE_IDS_KEY]: ["p-a", "p-b"] });
+  assert.deepEqual((await B.load(unbound, {})).profiles, []);
+  // In lock-step, or with no legacy field at all, the array is read whole.
+  const synced = fakeStorage({ [B.PROFILE_KEY]: "p-a", [B.PROFILE_IDS_KEY]: ["p-a", "p-b"] });
+  assert.deepEqual((await B.load(synced, {})).profiles, ["p-a", "p-b"]);
+  const only = fakeStorage({ [B.PROFILE_IDS_KEY]: ["p-a", "p-b"] });
+  assert.deepEqual((await B.load(only, {})).profiles, ["p-a", "p-b"]);
+});
+
+test("profile ids longer than the cap are dropped", async () => {
+  const long = "p".repeat(B.MAX_PROFILE_ID + 1);
+  const ok = "p".repeat(B.MAX_PROFILE_ID);
+  assert.equal(B.cleanIds([long, ok]).length, 1);
+  const st = fakeStorage({ [B.PROFILE_IDS_KEY]: [long, "p-a"] });
+  assert.deepEqual((await B.load(st, {})).profiles, ["p-a"]);
+  await assert.rejects(B.setBinding(fakeStorage(), { profiles: [long] }), /invalid profile id/);
 });
