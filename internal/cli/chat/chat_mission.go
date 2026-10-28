@@ -9,6 +9,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/gitsafe"
 	"github.com/monoes/mono-agent/internal/tasks"
 	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 )
@@ -93,12 +94,12 @@ func cwdIsGitWorkTree(ctx context.Context, cwd string) bool {
 	if cwd == "" {
 		return false
 	}
-	git, err := exec.LookPath("git")
-	if err != nil {
+	if _, err := exec.LookPath("git"); err != nil {
 		return false
 	}
-	if exec.CommandContext(ctx, git, "-C", cwd, "rev-parse", "--is-inside-work-tree").Run() != nil {
+	// the folder is the user's (or an agent's): git runs hardened (gitsafe)
+	if gitsafe.Command(ctx, "-C", cwd, "rev-parse", "--is-inside-work-tree").Run() != nil {
 		return false
 	}
-	return exec.CommandContext(ctx, git, "-C", cwd, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").Run() == nil
+	return gitsafe.Command(ctx, "-C", cwd, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").Run() == nil
 }

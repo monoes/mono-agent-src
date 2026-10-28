@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -35,8 +34,10 @@ var (
 // `--help` — costing up to several seconds on a cold cache. monoagentcli is
 // spawned as a subprocess repeatedly by the Wails app (each chat message,
 // each agent scan, each org observe call), so that fixed per-invocation tax
-// was a real, compounding source of UI latency in dev builds. Release
-// builds never hit this path at all since version is baked in via ldflags.
+// was a real, compounding source of UI latency in dev builds. The lookup is
+// gone entirely: it ran git in the inherited cwd, so a repository there could
+// steer it (its local config) and nothing bounded its time or output. Release
+// builds and `make` bake the version in via ldflags; an unstamped build says "dev".
 var (
 	versionOnce sync.Once
 	buildOnce   sync.Once
@@ -47,11 +48,7 @@ func getVersion() string {
 		if version != "" {
 			return
 		}
-		if out, err := exec.Command("git", "describe", "--tags", "--always").Output(); err == nil {
-			version = strings.TrimSpace(string(out))
-		} else {
-			version = "dev"
-		}
+		version = "dev"
 	})
 	return version
 }
