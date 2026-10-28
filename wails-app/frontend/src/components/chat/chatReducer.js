@@ -182,6 +182,8 @@ function eventPatch(state, ev) {
       // The CLI's verdict on the turn's sandbox: a badge, not a banner.
       if (payload.code === 'agent.sandbox') return { sandbox: payload.message || null }
       // Its words: the mode a restricted turn ran in, or why the fallback setting was ignored.
+      // A coder turn's context size and per-model tokens: a header gauge, not a notice.
+      if (payload.code === 'coder.usage') return { coderUsage: payload.coderUsage || null }
       if (payload.code === 'agent.sandbox.detail') return { sandboxDetail: payload.message || null }
       const notice = { code: payload.code, message: payload.message, severity: payload.severity }
       // A coder turn's leftover background processes: keep the pids and the
