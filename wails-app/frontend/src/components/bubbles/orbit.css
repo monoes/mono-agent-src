@@ -97,6 +97,9 @@
 .orbit-sat[data-state="running"] .orbit-pulse { animation: orbitPulse 2.6s ease-out infinite; }
 .orbit-sat[data-state="waiting"] .orbit-pulse { animation: orbitPulse 1.6s ease-out infinite; }
 .orbit-sat[data-state="paused"] .orbit-face { border-style: dashed; }
+/* An item waits for the person on this agent (a giant plan): a wider amber halo and a quicker pulse than a plain draft. */
+.orbit-sat[data-needs-you="true"] .orbit-face { box-shadow: 0 0 0 3px color-mix(in srgb, var(--orbit-waiting) 38%, transparent), 0 3px 10px rgba(0, 0, 0, 0.35); }
+.orbit-sat[data-needs-you="true"] .orbit-pulse { animation: orbitPulse 1.1s ease-out infinite; }
 
 /* The state icon (bottom right) and the count of the agent's own agents (top right). */
 .orbit-mark, .orbit-count {

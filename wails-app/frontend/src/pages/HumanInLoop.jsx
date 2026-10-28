@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   CheckCircle, XCircle, Clock, RefreshCw, ChevronDown, ChevronRight,
   AlertTriangle, Mail, UserCheck, X, Send, ExternalLink, Users,
@@ -11,6 +11,8 @@ import { CommsLinks } from '../components/CommsLinks.jsx'
 import { emitCommsChanged } from '../lib/commsStatus.js'
 import { BrowserSubmitDetails, isBrowserSubmit } from '../components/hil/BrowserSubmitDetails.jsx'
 import { BrowserSiteDetails, isBrowserSite } from '../components/hil/BrowserSiteDetails.jsx'
+import { PersonItemsInbox } from '../components/bubbles/PersonItemViews.jsx'
+import { usePersonItemsContext } from '../components/bubbles/PersonItemsContext.jsx'
 
 const GetHILItems          = WailsApp.GetHILItems          ?? (async () => [])
 const ApproveHIL           = WailsApp.ApproveHIL           ?? (async () => {})
@@ -851,6 +853,11 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const pageVisibleRef = usePageVisibleRef()
+  // The items that wait for the person (a giant plan): one poll, held by App.
+  const { items: personItems } = usePersonItemsContext()
+  const baseTotal = useRef(0)
+  const personCount = useRef(0)
+  personCount.current = personItems.length
 
   const load = useCallback(async (background = false) => {
     if (!background) setLoading(true)
@@ -915,8 +922,8 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       setLeads(newLeads)
       setOrgItems(newOrgItems)
 
-      const total = newHil.length + newDrafts.length + newLeads.length + newOrgItems.length
-      onPendingCountChange?.(total)
+      baseTotal.current = newHil.length + newDrafts.length + newLeads.length + newOrgItems.length
+      onPendingCountChange?.(baseTotal.current + personCount.current)
     } catch (e) {
       setError(e?.message ?? 'Failed to load')
     } finally {
@@ -925,6 +932,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
   }, [onPendingCountChange])
 
   useVisibleCatchUp(() => load(true))
+  useEffect(() => { onPendingCountChange?.(baseTotal.current + personItems.length) }, [personItems.length, onPendingCountChange])
 
   useEffect(() => {
     if (embedded && !isOpen) return
@@ -1058,7 +1066,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
 
   if (embedded && !isOpen) return null
 
-  const totalCount = items.length + drafts.length + leads.length + orgItems.length
+  const totalCount = items.length + drafts.length + leads.length + orgItems.length + personItems.length
 
   const showLeads = activeFilter === 'all' || activeFilter === 'leads'
   const showWorkflows = activeFilter === 'all' || activeFilter === 'workflows'
@@ -1112,6 +1120,8 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
           </button>
         </div>
       )}
+
+      <PersonItemsInbox />
 
       {/* Filter Tabs / Pills */}
       {totalCount > 0 && (

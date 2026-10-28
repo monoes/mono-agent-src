@@ -20,6 +20,7 @@ import { useChatSetup } from './useChatSetup.js'
 import { isCoderAccess } from '../../lib/chatAccess.js'
 import { MessageBubble } from '../chat/messageBubble.jsx'
 import { AskCard } from './AskCard.jsx'
+import { PersonItemsRegion } from './PersonItemViews.jsx'
 import { useHilAsks } from './useHilAsks.js'
 import { isAgentNotSetup } from '../../lib/agentSetup.js'
 import AgentSetupLink from '../AgentSetupLink.jsx'
@@ -159,6 +160,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
         </div>
       )}
       <div role="status" aria-live="polite" aria-label={t('bubbles.pane.announcements')} style={srOnly}>{announcement}</div>
+      <PersonItemsRegion conversationId={conv.conversationId || ''} />
       {isDraft && empty && <ChatSetup s={setupState} setup={setup} onChange={onSetupChange} onNavigate={onNavigate} />}
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         <div ref={scroll.containerRef} onScroll={e => onScroll?.(e.currentTarget.scrollTop)} data-testid="bubble-transcript"

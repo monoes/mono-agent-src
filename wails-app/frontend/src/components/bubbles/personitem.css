@@ -1,0 +1,79 @@
+/* The answer card of a plan that waits for the person, the dock tray and the inbox section.
+   Colors are the app tokens only; the amber is --yellow. State is never color alone: the card
+   carries the bell icon and its heading. */
+.pi-card {
+  margin: 6px 0; padding: 10px 12px; min-width: 0; border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--yellow) 55%, transparent);
+  background: color-mix(in srgb, var(--yellow) 7%, var(--surface, transparent));
+  font-family: var(--font-mono); color: var(--text);
+}
+.pi-head { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--yellow); letter-spacing: 0.04em; text-transform: uppercase; }
+.pi-head-title { flex: 1; min-width: 0; }
+.pi-title { margin: 6px 0 0; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
+.pi-goal { margin: 3px 0 0; font-size: 11px; line-height: 1.45; color: var(--text-secondary, var(--text)); overflow-wrap: anywhere; max-height: 5.8em; overflow: auto; }
+.pi-why { margin-top: 8px; font-size: 10.5px; }
+.pi-why-head { color: var(--text-muted); font-size: 9.5px; margin-bottom: 2px; }
+.pi-why ul { margin: 0; padding-left: 16px; display: grid; gap: 1px; }
+.pi-why li { overflow-wrap: anywhere; }
+.pi-facts { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 10.5px; }
+.pi-facts > div { display: flex; gap: 6px; min-width: 0; }
+.pi-facts dt { color: var(--text-muted); }
+.pi-facts dd { margin: 0; }
+.pi-field { display: block; margin-top: 8px; font-size: 9.5px; color: var(--text-muted); }
+.pi-field textarea {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 3px; padding: 6px 8px; resize: vertical;
+  font: inherit; font-size: 11.5px; line-height: 1.45; color: var(--text);
+  background: var(--elevated); border: 1px solid var(--border-bright); border-radius: var(--radius);
+}
+.pi-field textarea:focus-visible, .pi-mute:focus-visible, .pi-tray-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.pi-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.pi-actions .btn { gap: 4px; }
+.pi-open { margin-left: auto; }
+.pi-note { margin-top: 6px; font-size: 10px; color: var(--text-muted); }
+.pi-error { margin-top: 6px; font-size: 10px; color: var(--red); overflow-wrap: anywhere; }
+.pi-mute {
+  display: inline-flex; padding: 3px; background: transparent; border: 1px solid transparent; border-radius: var(--radius);
+  color: var(--text-muted); cursor: pointer;
+}
+.pi-mute:hover { color: var(--text); border-color: var(--border); }
+.pi-mute[aria-pressed="true"] { color: var(--yellow); }
+
+/* In a pane: above the transcript, never scrolled away. */
+.pi-region { flex: none; max-height: min(70vh, 560px); overflow: auto; padding: 0 12px; }
+
+/* The dock's tray: a round amber button with the count, above the bubbles; it pulses until opened. */
+.pi-tray { position: relative; display: flex; justify-content: center; }
+.pi-tray-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; padding: 0; cursor: pointer;
+  color: var(--yellow); background: color-mix(in srgb, var(--yellow) 14%, var(--elevated)); border: 2px solid var(--yellow); border-radius: 50%;
+}
+.pi-tray-count {
+  position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 3px; box-sizing: border-box; border-radius: 8px;
+  display: grid; place-items: center; font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; line-height: 1;
+  color: var(--base); background: var(--yellow);
+}
+.pi-tray-btn[data-fresh="true"]::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 2px solid var(--yellow);
+  opacity: 0; animation: piPulse 1.8s ease-out infinite; pointer-events: none;
+}
+.pi-tray-pop {
+  position: fixed; bottom: 56px; width: min(380px, 80vw); max-height: calc(100vh - 110px); overflow: auto; padding: 4px 8px;
+  background: var(--surface); border: 1px solid var(--border-bright); border-radius: var(--radius);
+  box-shadow: 0 8px 28px color-mix(in srgb, black 55%, transparent); z-index: 30;
+}
+/* Beside the dock column (18px + the 50px bubble + a gap), clear of the status bar: independent of where the tray sits in the column. */
+.bubble-dock.left .pi-tray-pop { left: 304px; }
+.bubble-dock.right .pi-tray-pop { right: 84px; }
+
+/* The inbox section. */
+.pi-inbox { margin-bottom: 14px; }
+.pi-inbox-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-family: var(--font-mono); font-size: 10px; color: var(--yellow); letter-spacing: 0.04em; text-transform: uppercase; }
+.pi-inbox-head span { flex: 1; }
+.pi-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--font-mono); font-size: 11px; color: var(--text); }
+.pi-row-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+@keyframes piPulse { 0% { transform: scale(0.9); opacity: 0.7; } 100% { transform: scale(1.35); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .pi-tray-btn[data-fresh="true"]::after { animation: none !important; opacity: 0.6; transform: none; }
+  .pi-card, .pi-mute { transition: none !important; }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, notify } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
@@ -8,6 +8,8 @@ import { OrgBubbleOverlay } from './OrgBubbleOverlay.jsx'
 import { QueuedCoderStack, useQueuedCoderChats } from './QueuedCoderBubble.jsx'
 import { isOrgBubble, profileFolderName } from '../../lib/coderBubbles.js'
 import { orbitOf } from '../../lib/sessionOrbit.js'
+import { withWaiting } from '../../lib/personItems.js'
+import { usePersonItemsContext } from './PersonItemsContext.jsx'
 import { useSessionOrbit } from './useSessionOrbit.js'
 import { folderName } from '../chat/useCoderMode.js'
 
@@ -115,7 +117,10 @@ export default function CoderBubbles({ store, onNavigate, onCloseOrg, onOpenArti
   }, [queue])
 
   // The agents below each coder chat's session, for the orbits around its bubble and its lite pane.
-  const { sessions: orbitSessions, refresh: refreshOrbit } = useSessionOrbit(store.bubbles.some(b => !isOrgBubble(b) && b.conversationId))
+  const { sessions: plainSessions, refresh: refreshOrbit } = useSessionOrbit(store.bubbles.some(b => !isOrgBubble(b) && b.conversationId))
+  // An agent whose plan waits for the person has its circle lit (the open person items).
+  const { items: personItems } = usePersonItemsContext()
+  const orbitSessions = useMemo(() => withWaiting(plainSessions, personItems), [plainSessions, personItems])
   const orbitForBubble = useCallback(b => orbitOf(orbitSessions, { conversationId: b.conversationId }), [orbitSessions])
   // A circle with a chat opens it as a lite pane; one without opens its task board.
   const openAgent = useCallback((parent, circle) => {
