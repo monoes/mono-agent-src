@@ -2235,5 +2235,17 @@
     "deleteFailed": "No se pudieron eliminar {{count}}: {{message}}",
     "dismiss": "Descartar",
     "mission": "Misión: {{state}}"
+  },
+  "missionToggle": {
+    "label": "Misión",
+    "on": "activada",
+    "off": "desactivada",
+    "chip": "Misión",
+    "chipOn": "Este chat se ejecuta como misión",
+    "hint": "Ejecutar este chat como misión: el líder la planifica y trabaja hasta que la cierres",
+    "locked": "Este chat está ejecutando una misión",
+    "needsAccess": "Las misiones necesitan acceso de código o superior",
+    "loadFailed": "No se pudo leer el ajuste de misión",
+    "saveFailed": "No se pudo cambiar el ajuste de misión: {{error}}"
   }
 }

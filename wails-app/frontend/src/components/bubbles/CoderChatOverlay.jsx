@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Minimize2, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { CoderHeader, CoderBadge } from '../chat/CoderHeader.jsx'
+import { MissionChip } from '../chat/MissionToggle.jsx'
+import { useMissionToggle } from '../chat/useMissionToggle.js'
 import { folderName } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { CoderChatView } from './CoderChatView.jsx'
@@ -77,6 +79,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const selectedRef = useRef(null)
   const bodyRef = useRef(null)
   const pressOnBackdrop = useRef(false)
+  const missionRef = useRef(null)
 
   // create makes the conversation for a draft's first message, at the access
   // level, runtime, model and effort picked in its setup (ChatSetup). Above
@@ -99,11 +102,14 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
       access: isAccess(made.access) ? made.access : access, verified: isAccess(made.access), effort: made.effort || setup.effort || '', orgMode: made.orgMode || '',
     }
     store.bindConversation(bubble.key, bound)
+    await missionRef.current?.applyPending(made.id) // the Mission toggle chosen before the chat existed
     return { ...bound, workspace }
   }, [setup, store, bubble.key])
   // A conversation's level counts once the backend has said it; a cached one is a hint only.
   const verify = useVerifiedAccess(bubble, store)
   const access = bubble.conversationId ? (bubble.verified ? bubble.access : '') : (setup.access || '')
+  const mission = useMissionToggle(bubble.conversationId, isCoderAccess(access))
+  missionRef.current = mission
   const confined = isConfinedTask({ kind: bubble.taskKind || view.task?.kind })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsBtn = useRef(null)
@@ -298,6 +304,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
                 {[runtime && runtimeLabel(runtime), model].filter(Boolean).join(' · ')}
               </span>
             )}
+            <MissionChip state={mission.state} />
             {confined ? (
               <span data-testid="chip-confined" title={t('bubbles.pane.confinedWhy')} style={chip}>{t('bubbles.pane.confinedChip')}</span>
             ) : isAccess(access) ? (
@@ -326,7 +333,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           )}
         </div>
         )}
-        {!lite && bubble.cwd && <CoderHeader cwd={bubble.cwd} />}
+        {!lite && (bubble.cwd || mission.state || mission.error) && <CoderHeader cwd={bubble.cwd} mission={mission} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
