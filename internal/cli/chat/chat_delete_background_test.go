@@ -543,3 +543,66 @@ func TestAgentMayDeleteAConversationWhoseMissionEnded(t *testing.T) {
 		t.Fatalf("an agent's delete after the mission ended: %v\n%s", err, out)
 	}
 }
+
+// A mission session opened for the conversation after the delete read the list is not missed: the
+// guarded delete gives way, the next pass finds it, and an agent is refused as the operator's.
+func TestAgentDeleteIsRefusedWhenAMissionOpensMeanwhile(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	var ts *tasks.Store
+	var id int64
+	calls := 0
+	beforeGuardedDelete = func() {
+		calls++
+		if calls == 1 {
+			ts, id = r.leadSession(t, c.ID)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	out, err := r.history(t, errNotOperator, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete with a mission opened meanwhile: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if ts == nil {
+		t.Fatal("the seam never ran")
+	}
+	if got := sessionState(t, ts, id); got != tasks.SessionRunning {
+		t.Errorf("the mission session is %q", got)
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation is gone: %v", err)
+	}
+}
+
+// The operator's delete finds and stops a mission opened meanwhile.
+func TestDeleteStopsAMissionOpenedMeanwhile(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	var ts *tasks.Store
+	var id int64
+	calls := 0
+	beforeGuardedDelete = func() {
+		calls++
+		if calls == 1 {
+			ts, id = r.leadSession(t, c.ID)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if ts == nil || sessionState(t, ts, id) != tasks.SessionStopped {
+		t.Error("the mission opened meanwhile was not stopped")
+	}
+}
+
+// An agent may delete a conversation that never led a mission.
+func TestAgentMayDeleteAConversationThatNeverLedAMission(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	if out, err := r.history(t, errNotOperator, "delete", c.ID); err != nil {
+		t.Fatalf("an agent's delete: %v\n%s", err, out)
+	}
+}
