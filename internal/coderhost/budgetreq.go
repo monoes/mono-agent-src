@@ -86,12 +86,18 @@ func scanBudgetRequest(r interface{ Scan(...any) error }) (BudgetRequest, error)
 // MinBudgetRequestUSD is the smallest amount worth asking for or granting.
 const MinBudgetRequestUSD = 0.01
 
-func validUSD(v float64) bool {
-	return v >= MinBudgetRequestUSD-1e-12 && !math.IsNaN(v) && !math.IsInf(v, 0)
+// amountMicro is an amount in whole millionths of a dollar. Money is checked, then converted, then compared and
+// stored as that integer (as dollars: fromMicro): ok is false for anything outside what can be asked for (a cent
+// to MaxBudgetRequestUSD; NaN and the infinities fail both bounds), tested before the conversion so no value can
+// overflow it.
+func amountMicro(v float64) (m int64, ok bool) {
+	if !(v >= MinBudgetRequestUSD && v <= MaxBudgetRequestUSD) {
+		return 0, false
+	}
+	return int64(math.Round(v * 1e6)), true
 }
 
-// micro is an amount in whole millionths of a dollar: money is compared in integers, without a tolerance.
-func micro(v float64) int64 { return int64(math.Round(v * 1e6)) }
+func fromMicro(m int64) float64 { return float64(m) / 1e6 }
 
 // RequestBudget files the lead's request. target is TargetLead (taskID ignored) or TargetChild (the task of
 // one of its running child sessions). It returns the request; the person sees it as an item.
@@ -103,9 +109,11 @@ func (s *Store) RequestBudget(sc CallerScope, profileID string, sessionID int64,
 	if err := m.openForLead(); err != nil {
 		return BudgetRequest{}, err
 	}
-	if !validUSD(amountUSD) || amountUSD > MaxBudgetRequestUSD {
+	askedMicro, ok := amountMicro(amountUSD)
+	if !ok {
 		return BudgetRequest{}, fmt.Errorf("%w: ask for at least $%.2f and at most $%.0f", ErrInvalid, MinBudgetRequestUSD, MaxBudgetRequestUSD)
 	}
+	amountUSD = fromMicro(askedMicro)
 	if s.sessionStopped(profileID, lead.Caller.ConversationID) {
 		return BudgetRequest{}, fmt.Errorf("%w: the session is stopped", ErrInvalid)
 	}
@@ -201,7 +209,7 @@ func (s *Store) budgetRequestOpen(q querier, b BudgetRequest) bool {
 	var tstate string
 	var tbudget float64
 	if err := q.QueryRow(`SELECT state, budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, b.ProfileID, b.TargetConversationID).Scan(&tstate, &tbudget); err != nil ||
-		State(tstate) == StateStopped || math.Abs(tbudget-b.BudgetUSD) > 1e-9 {
+		State(tstate) == StateStopped || tbudget != b.BudgetUSD {
 		return false
 	}
 	if b.Target == TargetLead && b.TargetConversationID != b.LeadConversationID {
@@ -325,8 +333,13 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	if err := operatorOnly(sc); err != nil {
 		return BudgetRequest{}, err
 	}
-	if usd != 0 && !validUSD(usd) {
-		return BudgetRequest{}, fmt.Errorf("%w: grant at least $%.2f", ErrInvalid, MinBudgetRequestUSD)
+	grantMicro := int64(0) // 0 = what was asked
+	if usd != 0 {
+		var ok bool
+		if grantMicro, ok = amountMicro(usd); !ok {
+			return BudgetRequest{}, fmt.Errorf("%w: grant at least $%.2f and at most $%.0f", ErrInvalid, MinBudgetRequestUSD, MaxBudgetRequestUSD)
+		}
+		usd = fromMicro(grantMicro)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -344,7 +357,7 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	if usd == 0 {
 		usd = b.AmountUSD
 	}
-	if micro(usd) > micro(b.AmountUSD) {
+	if askedMicro, _ := amountMicro(b.AmountUSD); grantMicro > askedMicro {
 		return BudgetRequest{}, fmt.Errorf("%w: that is more than was asked ($%.2f)", ErrInvalid, b.AmountUSD)
 	}
 	now := s.stamp()

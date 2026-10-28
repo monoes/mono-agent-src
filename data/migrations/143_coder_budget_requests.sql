@@ -48,7 +48,7 @@ AFTER UPDATE OF budget_usd, state ON coder_sessions
 BEGIN
     UPDATE coder_budget_requests SET status = 'void', answered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
      WHERE status = 'open' AND profile_id = NEW.profile_id
-       AND ((target_conversation_id = NEW.conversation_id AND (abs(budget_usd - NEW.budget_usd) > 1e-9 OR NEW.state = 'stopped'))
+       AND ((target_conversation_id = NEW.conversation_id AND (budget_usd IS NOT NEW.budget_usd OR NEW.state = 'stopped'))
             OR (lead_conversation_id = NEW.conversation_id AND NEW.state = 'stopped'));
 END;
 CREATE TRIGGER IF NOT EXISTS trg_coder_budget_requests_session_gone
@@ -76,4 +76,10 @@ BEGIN
     UPDATE coder_budget_requests SET status = 'void', answered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
      WHERE status = 'open' AND target = 'child' AND profile_id = NEW.profile_id AND session_id = NEW.session_id AND task_id = NEW.task_id
        AND (NEW.state <> 'spawned' OR target_conversation_id <> NEW.child_conversation_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_coder_budget_requests_child_gone
+AFTER DELETE ON coder_mission_children
+BEGIN
+    UPDATE coder_budget_requests SET status = 'void', answered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE status = 'open' AND target = 'child' AND profile_id = OLD.profile_id AND session_id = OLD.session_id AND task_id = OLD.task_id;
 END;

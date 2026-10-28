@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/monoes/mono-agent/data"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -327,7 +328,11 @@ func (d *Database) applyMigrations() error {
 		// Split on semicolons and execute each statement individually.
 		// This is necessary because modernc.org/sqlite's Exec does not
 		// support multiple statements in a single call reliably.
-		statements := splitStatements(string(content))
+		statements, err := splitStatementsChecked(string(content))
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d (%s): %w", m.version, m.filename, err)
+		}
 		for _, stmt := range statements {
 			stmt = strings.TrimSpace(stmt)
 			if stmt == "" {
@@ -453,10 +458,21 @@ func checkDuplicateVersions(migrations []migration) error {
 }
 
 // splitStatements splits a SQL script by semicolons while respecting quoted
-// strings and comments.
+// strings and comments, and keeps a CREATE TRIGGER whole (see splitStatementsChecked). A script whose trigger
+// never reaches its END comes out with that trigger as its last statement, which SQLite refuses.
 func splitStatements(sql string) []string {
+	statements, _ := splitStatementsChecked(sql)
+	return statements
+}
+
+// splitStatementsChecked is splitStatements that also says when a CREATE TRIGGER is never closed by its END, so
+// the migration runner can refuse the script explicitly. A ';' ends a statement except inside a trigger's
+// BEGIN ... END body; the body ends at the END that is not the end of a CASE expression (words in comments,
+// quoted strings and quoted identifiers do not count). Every other statement splits exactly as it always did.
+func splitStatementsChecked(sql string) ([]string, error) {
 	var statements []string
 	var current strings.Builder
+	var trig triggerScan
 	inSingleQuote := false
 	inLineComment := false
 	runes := []rune(sql)
@@ -466,6 +482,7 @@ func splitStatements(sql string) []string {
 
 		// Handle line comments (-- ...)
 		if !inSingleQuote && ch == '-' && i+1 < len(runes) && runes[i+1] == '-' {
+			trig.flush()
 			inLineComment = true
 			current.WriteRune(ch)
 			continue
@@ -480,48 +497,123 @@ func splitStatements(sql string) []string {
 
 		// Handle single-quoted strings.
 		if ch == '\'' && !inLineComment {
+			trig.flush()
 			inSingleQuote = !inSingleQuote
 			current.WriteRune(ch)
 			continue
 		}
 
 		if ch == ';' && !inSingleQuote {
-			stmt := strings.TrimSpace(current.String())
-			if inTriggerBody(stmt) {
-				current.WriteRune(ch) // a ';' inside CREATE TRIGGER ... BEGIN ... END ends a body statement, not the trigger
+			trig.flush()
+			if trig.open() {
+				current.WriteRune(ch) // a ';' inside a trigger's body ends a body statement, not the trigger
 				continue
 			}
+			stmt := strings.TrimSpace(current.String())
 			if stmt != "" {
 				statements = append(statements, stmt)
 			}
 			current.Reset()
+			trig = triggerScan{}
 			continue
 		}
 
+		if !inSingleQuote {
+			trig.feed(ch)
+		}
 		current.WriteRune(ch)
 	}
+	trig.flush()
 
 	// Capture any trailing statement without a semicolon.
 	if stmt := strings.TrimSpace(current.String()); stmt != "" {
 		statements = append(statements, stmt)
 	}
-
-	return statements
+	if trig.open() {
+		return statements, fmt.Errorf("incomplete CREATE TRIGGER: no closing END before the end of the script")
+	}
+	return statements, nil
 }
 
-// inTriggerBody says whether stmt, the text before a ';', is a CREATE TRIGGER that has not reached its closing END.
-func inTriggerBody(stmt string) bool {
-	var code []string // the statement without its comment lines
-	for _, line := range strings.Split(stmt, "\n") {
-		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "--") {
-			code = append(code, t)
+// triggerScan follows the words of one statement just far enough to tell where a CREATE TRIGGER ends: it reads
+// the statement's first words, then counts CASE ... END pairs so that only the END that closes the trigger's
+// BEGIN counts. Quoted identifiers ("x", `x`, [x]) and block comments hide their words; the caller hides
+// single-quoted strings and line comments.
+type triggerScan struct {
+	word                    []rune
+	words                   []string // the statement's first three words
+	isTrigger               bool
+	sawBegin, ended         bool
+	caseDepth               int
+	inDQ, inBT, inBR, inBlk bool
+	prev                    rune
+}
+
+func (t *triggerScan) open() bool { return t.isTrigger && !t.ended }
+
+func (t *triggerScan) feed(ch rune) {
+	switch {
+	case t.inBlk:
+		if t.prev == '*' && ch == '/' {
+			t.inBlk = false
+			ch = 0
+		}
+	case t.inDQ:
+		t.inDQ = ch != '"'
+	case t.inBT:
+		t.inBT = ch != '`'
+	case t.inBR:
+		t.inBR = ch != ']'
+	case t.prev == '/' && ch == '*':
+		t.flush()
+		t.inBlk = true
+		ch = 0
+	case ch == '"':
+		t.flush()
+		t.inDQ = true
+	case ch == '`':
+		t.flush()
+		t.inBT = true
+	case ch == '[':
+		t.flush()
+		t.inBR = true
+	case unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_':
+		t.word = append(t.word, ch)
+	default:
+		t.flush()
+	}
+	t.prev = ch
+}
+
+func (t *triggerScan) flush() {
+	if len(t.word) == 0 {
+		return
+	}
+	w := strings.ToUpper(string(t.word))
+	t.word = t.word[:0]
+	if len(t.words) < 3 {
+		t.words = append(t.words, w)
+		if n := len(t.words); n >= 2 && t.words[0] == "CREATE" && !t.isTrigger {
+			t.isTrigger = t.words[1] == "TRIGGER" || (n == 3 && (t.words[1] == "TEMP" || t.words[1] == "TEMPORARY") && t.words[2] == "TRIGGER")
 		}
 	}
-	up := strings.ToUpper(strings.Join(code, " "))
-	if !strings.HasPrefix(up, "CREATE TRIGGER") && !strings.HasPrefix(up, "CREATE TEMP TRIGGER") && !strings.HasPrefix(up, "CREATE TEMPORARY TRIGGER") {
-		return false
+	if !t.isTrigger {
+		return
 	}
-	return !(up == "END" || strings.HasSuffix(up, " END"))
+	switch w {
+	case "CASE":
+		t.caseDepth++
+	case "BEGIN":
+		if t.caseDepth == 0 {
+			t.sawBegin = true
+		}
+	case "END":
+		if t.caseDepth > 0 {
+			t.caseDepth--
+		} else if t.sawBegin {
+			t.ended = true
+		}
+	}
 }
 
 // truncate shortens a string to at most n characters, appending "..." if truncated.

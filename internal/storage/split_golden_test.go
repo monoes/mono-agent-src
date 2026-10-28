@@ -12,7 +12,7 @@ import (
 )
 
 // legacySplitStatements is splitStatements as it was before trigger bodies were kept whole (the master version,
-// copied verbatim). The migration runner runs every user's database through splitStatements, so a change to it must
+// with its comments trimmed; the code is the same). The migration runner runs every user's database through splitStatements, so a change to it must
 // leave every migration that has no trigger splitting exactly as before.
 func legacySplitStatements(sql string) []string {
 	var statements []string
@@ -100,8 +100,8 @@ func TestTriggerMigrationSplitsIntoStatementsSQLiteAccepts(t *testing.T) {
 			}
 		}
 	}
-	if triggers != 7 {
-		t.Fatalf("%d triggers, want the 7 of the migration", triggers)
+	if triggers != 8 {
+		t.Fatalf("%d triggers, want the 8 of the migration", triggers)
 	}
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
