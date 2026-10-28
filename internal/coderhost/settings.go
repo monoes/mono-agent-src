@@ -37,6 +37,12 @@ type Settings struct {
 	MaxConcurrent int `json:"max_concurrent"`
 	MaxDepth      int `json:"max_depth"`
 
+	// Approval of child sessions: whether the lead of a parent session may approve the sessions below it
+	// ("off" | "lead"), and the most a session's budget may be for the lead to approve it (0 = no ceiling).
+	// Read from the mission's root session by the tasks store (ApprovalPolicy); operator-only.
+	AgentApproval      string  `json:"agent_approval"`
+	ApprovalCeilingUSD float64 `json:"approval_ceiling_usd"`
+
 	// Mesh: whether other monomind agents see this session and who may message it.
 	MeshVisible bool   `json:"mesh_visible"`
 	MeshAlias   string `json:"mesh_alias"` // "" = a name made from the project and start time
@@ -58,9 +64,10 @@ type AutonomyChoice struct {
 // Allowed values.
 var (
 	AutonomyPresets = []string{"ask-always", "ask-on-risk", "decide-and-log"}
-	GapClasses      = []string{"ambiguity", "scope_growth", "risky_action", "verification_failed", "missing_credential", "child_conflict"}
+	GapClasses      = []string{"ambiguity", "scope_growth", "risky_action", "verification_failed", "missing_credential", "child_conflict", "plan_approval"}
 	CheckinEvents   = []string{"child_finished", "child_blocked", "child_failed", "child_question", "budget_80", "child_silent"}
 	MeshAccepts     = []string{"none", "project", "subtree"}
+	AgentApprovals  = []string{"off", "lead"}
 	whoValues       = []string{"user", "master", "model"}
 	fallbackValues  = []string{"park", "take_default"}
 	activeHours     = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$`)
@@ -69,7 +76,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "mission"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "mission", "agent_approval", "approval_ceiling_usd"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
@@ -84,6 +91,7 @@ func DefaultSettings() Settings {
 		MaxChildren:     4,
 		MaxConcurrent:   2,
 		MaxDepth:        2,
+		AgentApproval:   "off",
 		MeshVisible:     true,
 		MeshAccept:      "subtree", // not "project": that trusts any local process that claims the project
 	}
@@ -155,6 +163,12 @@ func (s Settings) Validate() error {
 	}
 	if err := within("max_depth", s.MaxDepth, 1, 2); err != nil { // 2 is the hard limit of the design
 		return err
+	}
+	if !oneOf(s.AgentApproval, AgentApprovals) {
+		return fmt.Errorf("agent_approval must be one of %s", strings.Join(AgentApprovals, ", "))
+	}
+	if !(s.ApprovalCeilingUSD >= 0 && s.ApprovalCeilingUSD <= 1e6) { // also false for NaN
+		return errors.New("approval_ceiling_usd must be between 0 and 1000000 (0 = no ceiling)")
 	}
 	if s.MeshAlias != "" && !meshAlias.MatchString(s.MeshAlias) {
 		return errors.New("mesh_alias must be letters, digits, '.', '_' and '-', starting with a letter or digit, at most 64 characters")

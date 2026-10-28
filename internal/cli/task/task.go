@@ -13,6 +13,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -103,6 +104,7 @@ func (d Deps) withTasks(cmd *cobra.Command, fn func(ctx context.Context, store *
 	defer db.Close()
 	store := tasks.NewStore(db.DB)
 	store.SetEvidenceChecker(gitevidence.Checker(""))
+	store.SetApprovalSource(coderhost.NewStore(db.DB))
 	p, err := store.Profile(cmd.Context(), d.ProfileID())
 	if err != nil {
 		return d.taskErr(err)

@@ -375,9 +375,12 @@ func (d Deps) newSessionPlanCmd() *cobra.Command {
 }
 
 func (d Deps) newSessionApproveCmd() *cobra.Command {
-	var actor tasks.Actor
-	return d.operatorSession("approve ID", "Approve a draft's plan: its tasks become Ready and the session runs (you only)", "approve a session's plan", &actor,
+	return d.oneSession("approve ID", "Approve a draft's plan: its tasks become Ready and the session runs (you, or the lead of its parent when you allow it)",
 		func(cmd *cobra.Command, store *tasks.Store, p tasks.Profile, id int64) error {
+			actor, err := d.approver(flagAs(cmd))
+			if err != nil {
+				return err
+			}
 			se, err := store.ApproveSession(cmd.Context(), p.ID, id, actor)
 			if err != nil {
 				return d.taskErr(err)
