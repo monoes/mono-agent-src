@@ -223,7 +223,7 @@ func TestSessionChildLimitsAboveTheParentAreRefused(t *testing.T) {
 }
 
 // Guard: the operator renames any session, one an agent started included; an agent does not
-// rename the operator's.
+// rename the operator's, nor a draft it started without a verified chat.
 func TestOperatorRenamesAnySession(t *testing.T) {
 	t.Parallel()
 	db := newTaskTestDB(t)
@@ -237,9 +237,9 @@ func TestOperatorRenamesAnySession(t *testing.T) {
 			t.Fatalf("rename #%d: %+v", s, r.Session)
 		}
 	}
-	// the bot renames its own, not the operator's
-	var own treeNodeDoc
-	mustTaskJSON(t, db, "default", &own, "", "session", "rename", id(bots.Session.ID), "By", "bot", "--as", "bot")
+	// the bot renames neither the operator's nor its own: from the CLI no chat is verified, and a draft
+	// started with no chat has nothing to tell its creator by (a name is a label)
+	failedTaskJSON(t, db, "default", 3, "session", "rename", id(bots.Session.ID), "By", "bot", "--as", "bot")
 	failedTaskJSON(t, db, "default", 3, "session", "rename", id(mine), "Hijack", "--as", "bot")
 	failedTaskJSON(t, db, "default", 2, "session", "rename", "9999", "x")
 	// the title stays within the store's 200 characters, and an empty one is refused

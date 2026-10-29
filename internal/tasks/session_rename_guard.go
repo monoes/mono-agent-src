@@ -21,7 +21,9 @@ func createdNote(actor Actor) string {
 }
 
 // checkRenameOwner holds an agent's rename to the session's creator: it was started under this name,
-// from this chat (when it was started from one), and it is still a draft. The operator is not asked.
+// from a chat the start recorded, the caller proves that same chat, and it is still a draft. A draft
+// started with no chat has nothing to prove the creator by (a name is a label), so the operator renames
+// it. The operator is not asked.
 func (s *Store) checkRenameOwner(ctx context.Context, x dbx, se Session, actor Actor) error {
 	if actor.Kind != Agent {
 		return nil
@@ -34,7 +36,10 @@ func (s *Store) checkRenameOwner(ctx context.Context, x dbx, se Session, actor A
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("tasks: reading the start of session #%d: %w", se.ID, err)
 	}
-	if strings.TrimPrefix(note, createdChatPrefix) != actor.Conversation && (note != "" || actor.Conversation != "") {
+	if note == "" {
+		return operatorOnly(fmt.Sprintf("rename session #%d: it was started with no chat to tell its creator by; only the operator renames it", se.ID))
+	}
+	if strings.TrimPrefix(note, createdChatPrefix) != actor.Conversation {
 		return operatorOnly(fmt.Sprintf("rename session #%d: it was started from another chat than this agent's", se.ID))
 	}
 	if se.State != SessionDraft {

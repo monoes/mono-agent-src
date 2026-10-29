@@ -37,3 +37,30 @@ func TestAgentRenamesOnlyItsOwnDraft(t *testing.T) {
 		t.Fatalf("the operator: %v %+v", err, got)
 	}
 }
+
+// Review 47: the creator's name is a label, not a credential. A draft started with no chat recorded cannot
+// be told from one an agent merely names itself after, so an agent (even one passing the creator's name,
+// bound to nothing and with no chat) never renames it; the operator does.
+func TestAgentCannotRenameAChatlessDraftByItsCreatorsName(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	chatRow(t, s, "c1")
+	creator := Actor{Kind: Agent, Name: "a"}
+	se, err := s.CreateSession(bg, "default", SessionInput{Title: "chatless"}, creator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, who := range map[string]Actor{
+		"the creator's name, no chat": creator,
+		"the creator's name, a chat":  {Kind: Agent, Name: "a", Conversation: "c1"},
+	} {
+		if _, err := s.RenameSession(bg, "default", se.ID, "hijacked", who); !errors.Is(err, ErrOperatorOnly) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if got, err := s.GetSession(bg, "default", se.ID, human); err != nil || got.Title != "chatless" {
+		t.Fatalf("a refused rename changed the title: %v %+v", err, got)
+	}
+	if got, err := s.RenameSession(bg, "default", se.ID, "operator's", human); err != nil || got.Title != "operator's" {
+		t.Fatalf("the operator: %v %+v", err, got)
+	}
+}

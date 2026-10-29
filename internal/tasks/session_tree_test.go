@@ -149,10 +149,14 @@ func TestSessionAgentStartsOnlyBelowTheSessionItWorksIn(t *testing.T) {
 
 func TestRenameSession(t *testing.T) {
 	s, _, _ := newTestStore(t)
+	chatRow(t, s, "c1")
+	chatRow(t, s, "c2")
 	root := mustSession(t, s, "default", "root")
-	lead := Actor{Kind: Agent, Name: "lead", Session: root.ID}
+	// an agent renames only a draft whose creation recorded its (verified) chat
+	lead := Actor{Kind: Agent, Name: "lead", Session: root.ID, Conversation: "c1"}
 	mine, _ := s.CreateSession(bg, "default", SessionInput{Title: "mine", ParentSessionID: root.ID}, lead)
-	free, _ := s.CreateSession(bg, "default", SessionInput{Title: "free"}, bot("free"))
+	freeBot := Actor{Kind: Agent, Name: "free", Conversation: "c2"}
+	free, _ := s.CreateSession(bg, "default", SessionInput{Title: "free"}, freeBot)
 
 	got, err := s.RenameSession(bg, "default", root.ID, "  New\nname ", human)
 	if err != nil || got.Title != "New name" || got.Goal != root.Goal || got.State != root.State || got.Rev <= root.Rev {
@@ -168,7 +172,7 @@ func TestRenameSession(t *testing.T) {
 	if _, err = s.RenameSession(bg, "default", free.ID, "hijack", bot("other")); !errors.Is(err, ErrOperatorOnly) {
 		t.Fatalf("another agent's session: %v", err)
 	}
-	if _, err = s.RenameSession(bg, "default", free.ID, "again", bot("free")); err != nil {
+	if _, err = s.RenameSession(bg, "default", free.ID, "again", freeBot); err != nil {
 		t.Fatalf("the creator renames: %v", err)
 	}
 	if _, err = s.RenameSession(bg, "default", free.ID, "x", lead); !errors.Is(err, ErrNotFound) {
