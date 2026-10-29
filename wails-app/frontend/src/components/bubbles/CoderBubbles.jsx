@@ -7,6 +7,8 @@ import { CoderChatOverlay } from './CoderChatOverlay.jsx'
 import { OrgBubbleOverlay } from './OrgBubbleOverlay.jsx'
 import { QueuedCoderStack, useQueuedCoderChats } from './QueuedCoderBubble.jsx'
 import { isOrgBubble, profileFolderName } from '../../lib/coderBubbles.js'
+import { orbitOf } from '../../lib/sessionOrbit.js'
+import { useSessionOrbit } from './useSessionOrbit.js'
 import { folderName } from '../chat/useCoderMode.js'
 
 // useProfiles lists the profiles, to name a chat that works in a profile's
@@ -56,6 +58,7 @@ export default function CoderBubbles({ store, onNavigate, onCloseOrg, onOpenArti
   const closeChat = useCallback(async (key) => {
     const summary = store.summaryOf(key)
     const bubble = store.bubbles.find(b => b.key === key)
+    if (bubble?.lite) { store.closeLite(key); return }
     if (isOrgBubble(bubble)) { onCloseOrg?.(bubble.orgName, summary.needs || 0); store.close(key); return }
     if (bubble && !bubble.conversationId && String(store.getView(key).draft || '').trim()) {
       const ok = await confirm(t('bubbles.confirmDiscardBody'), {
@@ -80,6 +83,8 @@ export default function CoderBubbles({ store, onNavigate, onCloseOrg, onOpenArti
   // discards it, so trying Coder and changing your mind leaves no bubble.
   const collapse = useCallback(() => {
     const b = store.bubbles.find(x => x.key === store.expandedKey)
+    // An agent's lite pane has no bubble to shrink into: it closes, back to its parent's pane.
+    if (b?.lite) { store.closeLite(b.key); return }
     if (b && !isOrgBubble(b) && !b.conversationId && !String(store.getView(b.key).draft || '').trim()) store.close(b.key)
     else store.collapse()
   }, [store])
@@ -109,6 +114,15 @@ export default function CoderBubbles({ store, onNavigate, onCloseOrg, onOpenArti
     queue.drop(item.id)
   }, [queue])
 
+  // The agents below each coder chat's session, for the orbits around its bubble and its lite pane.
+  const { sessions: orbitSessions, refresh: refreshOrbit } = useSessionOrbit(store.bubbles.some(b => !isOrgBubble(b) && b.conversationId))
+  const orbitForBubble = useCallback(b => orbitOf(orbitSessions, { conversationId: b.conversationId }), [orbitSessions])
+  // A circle with a chat opens it as a lite pane; one without opens its task board.
+  const openAgent = useCallback((parent, circle) => {
+    if (circle.conversationId) store.openChild(parent.key, circle)
+    else onNavigate?.('tasks', { sessionId: circle.id })
+  }, [store, onNavigate])
+
   collapseRef.current = collapse
   const expanded = store.bubbles.find(b => b.key === store.expandedKey)
   const originRect = expanded ? bubbleEls.current[expanded.key]?.getBoundingClientRect() : null
@@ -135,12 +149,15 @@ export default function CoderBubbles({ store, onNavigate, onCloseOrg, onOpenArti
           onCollapse={collapse}
           onCloseChat={() => closeChat(expanded.key)}
           titleOf={titleOf}
+          orbitSessions={orbitSessions}
+          onOpenAgent={openAgent}
+          onChanged={refreshOrbit}
           onOpenArtifact={onOpenArtifact}
           onNavigate={(...args) => { collapse(); onNavigate?.(...args) }}
         />
       )}
       {!expanded && <QueuedCoderStack items={queue.items} side={store.side} onStart={startQueued} onDismiss={dismissQueued} />}
-      <BubbleDock store={store} onOpen={open} onClose={closeChat} registerEl={registerEl} titleOf={titleOf} />
+      <BubbleDock store={store} onOpen={open} onClose={closeChat} registerEl={registerEl} titleOf={titleOf} orbitOf={orbitForBubble} onOpenAgent={openAgent} />
     </>
   )
 }
