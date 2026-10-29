@@ -316,6 +316,10 @@ func (c *extConn) checkedWrite(ok func() bool, data []byte) (sent bool, err erro
 	return true, nil
 }
 
+// The bound relies on net.Conn.Close unblocking a Write that is pending on it (the net.Conn contract:
+// "Any blocked Read or Write operations will be unblocked and return errors"), which a websocket's
+// writer inherits; TestACommandWaitingBehindAStalledWriterIsBounded checks it on a real socket and the
+// *FakeConn tests on a connection that stalls by construction.
 // deliveryWriteTimeout bounds a command write to a browser's socket.
 const deliveryWriteTimeout = 2 * time.Second
 

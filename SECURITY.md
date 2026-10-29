@@ -989,7 +989,10 @@ against an agent running as you:
   and is checked again right after; a command already written may complete, and
   the second check then drops the browser. The state lock is not held across the
   network write, so a browser that stops reading cannot stall pairing or policy
-  changes for anyone. The wait for the browser's writer is bounded too: a command
+  changes for anyone. The bound is a timer that closes the socket; it relies on Go's
+  net.Conn contract that closing a connection unblocks and fails a Write pending on it,
+  which a websocket's writer inherits (checked on a real socket and on a connection that
+  stalls by construction). The wait for the browser's writer is bounded too: a command
   is refused and the socket is closed two seconds after it was sent, even when the
   writer is held by a stuck reply or ping, which releases them (replies and pings
   have a ten-second bound of their own). A change by the owner therefore takes effect for the next claim or
