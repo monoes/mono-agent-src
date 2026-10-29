@@ -16,17 +16,17 @@ import (
 
 // missionIdentity is the mission task an executor worked: its binding in this turn, or the link a veteran
 // carries from an earlier one. A verifier has none, and nor has a worker of no task.
-func (w *worker) missionIdentity() (session, task int64, ok bool) {
+func (w *worker) missionIdentity() (session, task int64, gen int, ok bool) {
 	if w.task != nil {
 		if w.task.verifier {
-			return 0, 0, false
+			return 0, 0, 0, false
 		}
-		return w.task.session, w.task.task.ID, true
+		return w.task.session, w.task.task.ID, w.missionGen, true
 	}
 	if w.missionSession > 0 && w.missionTask > 0 {
-		return w.missionSession, w.missionTask, true
+		return w.missionSession, w.missionTask, w.missionGen, true
 	}
-	return 0, 0, false
+	return 0, 0, 0, false
 }
 
 func retiredError(id string) error {
@@ -43,7 +43,7 @@ func (c *Conductor) retiredRefusal(ctx context.Context, id string) error {
 		c.mu.Unlock()
 		return nil
 	}
-	sid, tid, bound := w.missionIdentity()
+	sid, tid, gen, bound := w.missionIdentity()
 	if !bound {
 		c.mu.Unlock()
 		return nil
@@ -61,7 +61,7 @@ func (c *Conductor) retiredRefusal(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("could not check whether %s was retired: %w", id, err)
 	}
-	retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, sid, tid)
+	retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, sid, tid, gen)
 	if err != nil {
 		return fmt.Errorf("could not check whether %s was retired: %w", id, err)
 	}
@@ -87,8 +87,8 @@ func (c *Conductor) markRetired(w *worker) {
 // noteRetirements is the conductor's look at the idle mission workers of a session.
 func (c *Conductor) noteRetirements(mc *MissionRun, sid int64) {
 	type look struct {
-		w    *worker
-		task int64
+		w         *worker
+		task, gen int64
 	}
 	var idle []look
 	c.mu.Lock()
@@ -97,14 +97,14 @@ func (c *Conductor) noteRetirements(mc *MissionRun, sid int64) {
 		if w == nil || w.retired || running(w.status) {
 			continue
 		}
-		if s, t, ok := w.missionIdentity(); ok && s == sid {
-			idle = append(idle, look{w, t})
+		if s, t, g, ok := w.missionIdentity(); ok && s == sid {
+			idle = append(idle, look{w, t, int64(g)})
 		}
 	}
 	c.mu.Unlock()
 	for _, l := range idle {
 		ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
-		retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, sid, l.task)
+		retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, sid, l.task, int(l.gen))
 		cancel()
 		if err == nil && retired {
 			c.markRetired(l.w)
@@ -114,3 +114,25 @@ func (c *Conductor) noteRetirements(mc *MissionRun, sid int64) {
 
 // afterFollowupCheck, set by tests only, runs between the retirement check of a follow-up and its queueing.
 var afterFollowupCheck func()
+
+// missionClaimNumber is the claim number the executor w started under: how many times its task had been
+// taken when its first run began. It is read once, at the first mint, when its own claim is the latest.
+func (c *Conductor) missionClaimNumber(ctx context.Context, mc *MissionRun, w *worker) (int, error) {
+	c.mu.Lock()
+	gen := w.missionGen
+	c.mu.Unlock()
+	if gen > 0 {
+		return gen, nil
+	}
+	n, err := mc.Store.TaskClaims(ctx, mc.ProfileID, w.task.task.ID)
+	if err != nil {
+		return 0, err
+	}
+	c.mu.Lock()
+	if w.missionGen == 0 {
+		w.missionGen = n
+	}
+	gen = w.missionGen
+	c.mu.Unlock()
+	return gen, nil
+}

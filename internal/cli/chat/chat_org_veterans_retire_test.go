@@ -155,3 +155,52 @@ func TestVeteransKeepTheirMissionLink(t *testing.T) {
 		t.Fatalf("the loaded veteran = %+v, want its mission link", got)
 	}
 }
+
+// A late hand-off of a retired worker is born retired even when a new worker has claimed the task since;
+// the new worker's own hand-off is not.
+func TestALateHandOffAfterANewClaimIsStillRetired(t *testing.T) {
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	aiStore, _ := ai.NewAIStore(db.DB)
+	conv, err := aiStore.CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := tasks.NewStore(db.DB)
+	ctx := context.Background()
+	human := tasks.Actor{Kind: tasks.Human}
+	se, _ := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "m", Goal: "g", ConversationID: conv.ID}, human)
+	tk, _ := ts.AddSessionTask(ctx, "default", se.ID, tasks.SessionTaskInput{Title: "t", Acceptance: "done"}, human)
+	if _, err := ts.ApproveSession(ctx, "default", se.ID, human); err != nil {
+		t.Fatal(err)
+	}
+	w := tasks.Actor{Kind: tasks.Agent, Name: "w", Session: se.ID, Task: tk.ID}
+	if _, err := ts.SessionClaim(ctx, "default", se.ID, tk.ID, w, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.SessionFinish(ctx, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.RetireWorker(ctx, "default", se.ID, tk.ID, "", human); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, 'x', 'next', 'claimed', '')`, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	j := &turnJournal{store: aiStore, profileID: "default", conversationID: conv.ID, turnID: "t1"}
+	j.rememberWorker(dynorg.Veteran{ID: "old", Runtime: "claude", Session: "s1", Report: "r", Outcome: "done", MissionSession: se.ID, MissionTask: tk.ID, MissionClaims: 1})
+	j.rememberWorker(dynorg.Veteran{ID: "new", Runtime: "claude", Session: "s2", Report: "r", Outcome: "done", MissionSession: se.ID, MissionTask: tk.ID, MissionClaims: 2})
+	var ids []string
+	for _, v := range j.veterans() {
+		ids = append(ids, v.ID)
+	}
+	if len(ids) != 1 || ids[0] != "new" {
+		t.Fatalf("veterans = %v, want only the worker that took the task after the retirement", ids)
+	}
+}

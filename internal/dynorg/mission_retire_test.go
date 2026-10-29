@@ -143,14 +143,14 @@ func TestAVeteranOfAMissionTaskIsRetirable(t *testing.T) {
 	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
 		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc, Remember: kept.remember})
 	t.Cleanup(c2.Close)
-	c2.AddVeterans([]Veteran{{ID: "w1", Runtime: opus.Runtime, Model: opus.Model, Session: "sess-1", Report: "the report", Outcome: "done", MissionSession: r.sid, MissionTask: a.ID}})
+	c2.AddVeterans([]Veteran{{ID: "w1", Runtime: opus.Runtime, Model: opus.Model, Session: "sess-1", Report: "the report", Outcome: "done", MissionSession: r.sid, MissionTask: a.ID, MissionClaims: 1}})
 
 	// Saved again, the worker still names its task.
 	c2.mu.Lock()
 	w := c2.workers["w1"]
 	c2.mu.Unlock()
 	c2.keep(w, true)
-	if got := kept.list(); len(got) != 1 || got[0].MissionSession != r.sid || got[0].MissionTask != a.ID {
+	if got := kept.list(); len(got) != 1 || got[0].MissionSession != r.sid || got[0].MissionTask != a.ID || got[0].MissionClaims != 1 {
 		t.Fatalf("a veteran saved again lost its task: %+v", got)
 	}
 
@@ -198,5 +198,53 @@ func TestARetirementBetweenTheFollowUpCheckAndTheRunStopsTheRun(t *testing.T) {
 	}
 	if got := r.ex.runCount(a.ID); got != runs {
 		t.Fatalf("a retired worker ran again: %d runs, was %d", got, runs)
+	}
+}
+
+// A later claim of the task by a new worker does not make an earlier, retired worker resumable, even in a
+// conductor that has not yet looked at the session: each worker carries the claim number it started under.
+func TestALaterClaimDoesNotMakeARetiredWorkerResumable(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	a := idleMissionWorker(t, r)
+	if _, err := r.store.RetireWorker(tbg, "default", r.sid, a.ID, "", operator); err != nil {
+		t.Fatal(err)
+	}
+	// The task is claimed again by a new worker (the event, as the claim writes it).
+	if _, err := r.db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, '2026-10-25T12:00:00Z', 'next', 'claimed', '')`, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc})
+	t.Cleanup(c2.Close)
+	c2.AddVeterans([]Veteran{
+		{ID: "w1", Runtime: opus.Runtime, Model: opus.Model, Session: "sess-1", Report: "old", Outcome: "done", MissionSession: r.sid, MissionTask: a.ID, MissionClaims: 1},
+		{ID: "w2", Runtime: opus.Runtime, Model: opus.Model, Session: "sess-2", Report: "new", Outcome: "done", MissionSession: r.sid, MissionTask: a.ID, MissionClaims: 2},
+	})
+	if err := c2.retiredRefusal(tbg, "w1"); err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("the earlier worker, retired before the new claim, is resumable: %v", err)
+	}
+	if err := c2.retiredRefusal(tbg, "w2"); err != nil {
+		t.Fatalf("the worker that took the task after the retirement was refused: %v", err)
+	}
+}
+
+// A worker of this turn records the claim number it started under when its first run begins, and keeps it
+// for its follow-ups, and it is what the worker is saved with.
+func TestAMissionWorkerRecordsItsClaimNumber(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	kept := &keptWorkers{}
+	c := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc, Remember: kept.remember})
+	t.Cleanup(c.Close)
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	if got := r.startedIDs(r.next(c)); len(got) != 1 || got[0] != a.ID {
+		t.Fatal("task a not started")
+	}
+	r.ex.release(a.ID)
+	r.waitStatus(a.ID, tasks.StatusReview)
+	eventually(t, "the worker to be kept", func() bool { return len(kept.list()) == 1 })
+	if v := kept.list()[0]; v.MissionClaims != 1 {
+		t.Fatalf("kept worker's claim number = %d, want 1 (the task's first claim)", v.MissionClaims)
 	}
 }

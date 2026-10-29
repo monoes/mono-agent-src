@@ -41,6 +41,9 @@ type Veteran struct {
 	// MissionSession and MissionTask are the mission task an executor worked (0: none, and always 0
 	// for a verifier), so the operator can retire its stored row (tasks.RetireWorker).
 	MissionSession, MissionTask int64
+	// MissionClaims is the claim number of the task the worker started under: a retirement made at that
+	// number or a later one retires it, a worker that took the task later has a higher number.
+	MissionClaims int64
 }
 
 // remember hands w to Config.Remember once a run of it ended: only a
@@ -59,7 +62,9 @@ func (c *Conductor) keep(w *worker, force bool) {
 		Access: w.staff.Access, Runtime: w.model.Runtime, Model: w.model.Model, Effort: w.staff.Effort,
 		Session: w.session, Cwd: w.cwd, Report: w.report, Outcome: w.status, AllowSpawn: w.allowSpawn,
 	}
-	v.MissionSession, v.MissionTask, _ = w.missionIdentity()
+	var gen int
+	v.MissionSession, v.MissionTask, gen, _ = w.missionIdentity()
+	v.MissionClaims = int64(gen)
 	for _, s := range w.staff.Skills {
 		v.Skills = append(v.Skills, s.Name)
 	}
@@ -108,7 +113,7 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 			id: v.ID, staff: st, model: st.Model, status: chatevents.AgentIdle, report: v.Report, session: v.Session,
 			changed: map[string]bool{}, started: c.cfg.Now(), parent: parent, allowSpawn: v.AllowSpawn && parent == nil,
 			mustConfine: parent != nil && parent.staff.Access == ProfileResearch, veteran: true, cwd: v.Cwd,
-			notReady: !ready, missionSession: v.MissionSession, missionTask: v.MissionTask,
+			notReady: !ready, missionSession: v.MissionSession, missionTask: v.MissionTask, missionGen: int(v.MissionClaims),
 		}
 		if err := c.veteranBlockedLocked(w); err != nil {
 			w.errText = err.Error()

@@ -23,8 +23,8 @@ the worker left, byte for byte: its comments, artifacts, commit references and r
 report is kept too. The retirement is recorded in the session's history with your note.
 
 It refuses a worker that is still on the task (the task is claimed, or a mission token of it is live) and
-a task no worker took. Workers stored before they were linked to their task cannot be matched: the
-result counts them and the text says so. Saying it twice changes nothing. Only you may; an agent is refused.
+a task no worker took. Stored workers with no link to a task (saved before workers were linked, or not
+mission workers) cannot be matched: the result counts them and the text says so. Saying it twice changes nothing. Only you may; an agent is refused.
 
 This is for the worker of a task run by the mission's conductor. A task running as a child coder session
 (off by default) is stopped with coder sessions stop and is not touched by this verb.`,
@@ -58,13 +58,13 @@ This is for the worker of a task run by the mission's conductor. A task running 
 				if r.AlreadyRetired {
 					fmt.Fprintf(w, "The worker of task #%d (session #%d) was already retired.\n", r.Task, r.Session)
 					if r.UnmatchedStoredWorkers > 0 {
-						fmt.Fprintf(w, "Note: %d stored worker(s) of this session's conversation could not be matched to a task and are not retired.\n", r.UnmatchedStoredWorkers)
+						fmt.Fprintf(w, "Note: %d stored worker(s) of this session's conversation have no link to a task and are not retired.\n", r.UnmatchedStoredWorkers)
 					}
 					return nil
 				}
 				fmt.Fprintf(w, "Retired the worker of task #%d (session #%d). Its report and the task's evidence are kept.\n", r.Task, r.Session)
 				if r.UnmatchedStoredWorkers > 0 {
-					fmt.Fprintf(w, "Note: %d stored worker(s) of this session's conversation were saved before workers were linked to their task, so they could not be matched to it. They are not retired and a later turn may load them.\n", r.UnmatchedStoredWorkers)
+					fmt.Fprintf(w, "Note: %d stored worker(s) of this session's conversation have no link to a task (saved before workers were linked, or not mission workers), so their purpose cannot be determined. They are not retired and a later turn may load them.\n", r.UnmatchedStoredWorkers)
 				}
 				return nil
 			})

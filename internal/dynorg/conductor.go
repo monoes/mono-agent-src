@@ -180,6 +180,9 @@ type worker struct {
 	// has no task binding (it runs as an ordinary agent), but the operator can still retire it, and a
 	// later save writes the same link back.
 	missionSession, missionTask int64
+	// missionGen is the claim number of the task this worker started under (0 until its first run mints a
+	// token), so a later claim by another worker cannot undo its retirement.
+	missionGen int
 }
 
 // MaxFollowups caps org_message runs per worker, so follow-ups can't stand

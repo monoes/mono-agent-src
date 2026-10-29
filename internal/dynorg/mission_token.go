@@ -146,7 +146,11 @@ func (c *Conductor) mintMission(ctx context.Context, w *worker, env map[string]s
 	// first in the database: a retirement that came first is seen here and the run does not start; one that
 	// comes later finds this token and refuses.
 	if !w.task.verifier {
-		retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, w.task.session, w.task.task.ID)
+		gen, err := c.missionClaimNumber(ctx, mc, w)
+		retired := false
+		if err == nil {
+			retired, err = mc.Store.WorkerRetired(ctx, mc.ProfileID, w.task.session, w.task.task.ID, gen)
+		}
 		if err != nil || retired {
 			c.revokeMissionToken(mc, tok.ID)
 			if err != nil {

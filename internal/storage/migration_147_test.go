@@ -11,7 +11,7 @@ import (
 func TestMigration147LinksStoredWorkersToTheirMissionTask(t *testing.T) {
 	check := func(t *testing.T, db *Database, wantOld bool) {
 		t.Helper()
-		for _, col := range []string{"mission_session", "mission_task"} {
+		for _, col := range []string{"mission_session", "mission_task", "mission_claims"} {
 			var typ, dflt string
 			var notnull int
 			err := db.DB.QueryRow(`SELECT type, "notnull", COALESCE(dflt_value, '') FROM pragma_table_info('ai_chat_org_workers') WHERE name = ?`, col).Scan(&typ, &notnull, &dflt)

@@ -209,8 +209,12 @@ func storedWorker(t *testing.T, db *sql.DB, conv, agent string, session, task in
 	if _, err := db.Exec(`INSERT OR IGNORE INTO ai_chat_conversations (id, profile_id, backend, created_at, updated_at) VALUES (?, 'default', 'monomind', 'n', 'n')`, conv); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO ai_chat_org_workers (profile_id, conversation_id, agent_id, turn_id, runtime, session_id, report, outcome, updated_at, mission_session, mission_task)
-		VALUES ('default', ?, ?, 't', 'claude', 'sess-1', 'the report', 'done', 'n', ?, ?)`, conv, agent, session, task); err != nil {
+	claims := 0
+	if task != 0 {
+		claims = 1 // the worker of the task's first claim
+	}
+	if _, err := db.Exec(`INSERT INTO ai_chat_org_workers (profile_id, conversation_id, agent_id, turn_id, runtime, session_id, report, outcome, updated_at, mission_session, mission_task, mission_claims)
+		VALUES ('default', ?, ?, 't', 'claude', 'sess-1', 'the report', 'done', 'n', ?, ?, ?)`, conv, agent, session, task, claims); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -270,26 +274,37 @@ func TestRetireWorkerRefusedLeavesTheStoredWorker(t *testing.T) {
 	}
 }
 
-// A worker that takes the task after the retirement is a new one: the task is not retired any more,
-// even when its claim is stamped in the very second of the retirement.
-func TestAWorkerThatTakesTheTaskAfterTheRetirementIsNotRetired(t *testing.T) {
+// Retirement belongs to the workers that existed when it was made. A worker that takes the task later is a
+// new one and is not retired; a later claim does not erase the retirement of the earlier worker, even before
+// anything has observed the retirement. The worker is told apart by the claim number it started under.
+func TestALaterClaimDoesNotEraseTheRetirementOfAnEarlierWorker(t *testing.T) {
 	s, db, _ := newTestStore(t)
 	se, tk := finishedWorkerTask(t, s)
 	if _, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "", human); err != nil {
 		t.Fatal(err)
 	}
-	if retired, err := s.WorkerRetired(bg, "default", se.ID, tk.ID); err != nil || !retired {
-		t.Fatalf("after the retirement: %v %v", retired, err)
+	retired := func(gen int) bool {
+		t.Helper()
+		r, err := s.WorkerRetired(bg, "default", se.ID, tk.ID, gen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
 	}
-	// a worker takes the task again, in the very second of the retirement (the store's clock does not move)
+	if !retired(1) || retired(2) {
+		t.Fatalf("after the retirement: first worker retired %v, next worker retired %v", retired(1), retired(2))
+	}
+	// A worker takes the task again, in the very second of the retirement (the store's clock does not move).
 	if _, err := db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, '2026-10-05T12:00:00Z', 'w2', 'claimed', '')`, tk.ID); err != nil {
 		t.Fatal(err)
 	}
-	if retired, err := s.WorkerRetired(bg, "default", se.ID, tk.ID); err != nil || retired {
-		t.Fatalf("a new worker took the task, yet it reads as retired: %v %v", retired, err)
+	if !retired(1) {
+		t.Fatal("a later claim made the earlier, retired worker resumable")
 	}
-	// The new worker finishes and is idle again (here: it never held the claim in the store): retiring
-	// it is a new retirement at the new claim count, not "already retired".
+	if retired(2) {
+		t.Fatal("a worker that took the task after the retirement reads as retired")
+	}
+	// Retiring the second worker is a new retirement at the new claim count, not "already retired".
 	r, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "second worker", human)
 	if err != nil || r.AlreadyRetired {
 		t.Fatalf("retiring the second worker: %+v %v", r, err)
@@ -299,8 +314,28 @@ func TestAWorkerThatTakesTheTaskAfterTheRetirementIsNotRetired(t *testing.T) {
 	if len(ev) != 2 || ev[0] != want[0] || ev[1] != want[1] {
 		t.Fatalf("history = %q, want %q", ev, want)
 	}
-	if retired, err := s.WorkerRetired(bg, "default", se.ID, tk.ID); err != nil || !retired {
-		t.Fatalf("after the second retirement: %v %v", retired, err)
+	if !retired(1) || !retired(2) {
+		t.Fatal("after the second retirement both workers must read as retired")
+	}
+}
+
+// The counts say what changed: a repeated retire changes no stored worker and reports none.
+func TestRetireWorkerCountsOnlyWhatItChanged(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	se, tk := finishedWorkerTask(t, s)
+	storedWorker(t, db, "conv", "w1", se.ID, tk.ID)
+	first, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "", human)
+	if err != nil || first.StoredWorkersEnded != 1 {
+		t.Fatalf("first retire = %+v, %v, want one stored worker ended", first, err)
+	}
+	again, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "", human)
+	if err != nil || !again.AlreadyRetired || again.StoredWorkersEnded != 0 {
+		t.Fatalf("second retire = %+v, %v, want already retired with none ended", again, err)
+	}
+	storedWorker(t, db, "conv", "late", se.ID, tk.ID) // saved by a turn that was running meanwhile
+	third, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "", human)
+	if err != nil || third.StoredWorkersEnded != 1 {
+		t.Fatalf("third retire = %+v, %v, want the late worker ended", third, err)
 	}
 }
 
