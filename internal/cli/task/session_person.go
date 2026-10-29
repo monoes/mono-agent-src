@@ -138,15 +138,13 @@ func (d Deps) personView(ctx context.Context, store *tasks.Store, p tasks.Profil
 		return v
 	}
 	v.SessionID = it.RefID
-	se, err := store.GetSession(ctx, p.ID, it.RefID, actor)
+	se, pv, err := store.SessionWithPlan(ctx, p.ID, it.RefID, actor)
 	if err != nil {
 		return v
 	}
 	v.Conversation, v.Title, v.Goal, v.State = se.ConversationID, se.Title, se.Goal, string(se.State)
 	v.MaxTasks, v.Access, v.Depth = se.MaxTasks, se.AccessLevel, se.Depth
-	if pv, err := store.PlanOf(ctx, p.ID, it.RefID, actor); err == nil {
-		v.Rev, v.Digest = pv.Rev, pv.Digest
-	}
+	v.Rev, v.Digest = pv.Rev, pv.Digest
 	if f, err := store.GiantFactsOf(ctx, p.ID, it.RefID, actor); err == nil {
 		v.Reasons, v.TaskCount, v.BudgetUSD, v.BudgetShare = f.Reasons, f.TaskCount, f.BudgetUSD, f.BudgetShare
 	}
