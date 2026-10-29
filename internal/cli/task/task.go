@@ -13,6 +13,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -103,6 +104,7 @@ func (d Deps) withTasks(cmd *cobra.Command, fn func(ctx context.Context, store *
 	defer db.Close()
 	store := tasks.NewStore(db.DB)
 	store.SetEvidenceChecker(gitevidence.Checker(""))
+	store.SetApprovalSource(coderhost.NewStore(db.DB))
 	p, err := store.Profile(cmd.Context(), d.ProfileID())
 	if err != nil {
 		return d.taskErr(err)
@@ -149,6 +151,8 @@ func (d Deps) taskErr(err error) error {
 		return taskCLIError{error: d.NotFound("%v", err), code: "not_found"}
 	case errors.Is(err, tasks.ErrOperatorOnly):
 		return d.operatorOnlyError("%v", err)
+	case errors.Is(err, tasks.ErrPlanChanged):
+		return taskCLIError{error: d.InvalidInput("%v", err), code: "plan_changed"}
 	case errors.Is(err, tasks.ErrNotReady):
 		return taskCLIError{error: d.InvalidInput("%v", err), code: "not_ready"}
 	case errors.Is(err, tasks.ErrNotClaimant):

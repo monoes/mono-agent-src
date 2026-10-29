@@ -13,7 +13,7 @@ var taskSessionCommandDocs = []cmdDoc{
   rename   Change a session's title (the operator: any; an agent: a draft it started from its own chat)
   tree     The sessions nested below their parents, with state, progress and spend
   plan     Its tasks with their dependencies and acceptance criteria
-  approve  Open it: the draft's tasks become Ready (the operator only)
+  approve  Open it: the draft's tasks become Ready (the operator; or the lead of its parent when the operator allows it)
   pause    Stop handing out tasks (the operator or an agent)
   resume   Run a paused session again (the operator only)
   stop     End it and release every claim (the operator or an agent)
@@ -76,9 +76,37 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session approve",
-		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator only; an empty draft is refused, and so is one with no budget under a parent that has one: set it first)",
-		Usage:    "monoagentcli [--profile P] task session approve ID",
-		Examples: []string{"monoagentcli --profile work task session approve 3"},
+		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator; or the lead of its parent when the operator set agent_approval=lead; giant work waits for the person; an empty draft is refused)",
+		Usage:    "monoagentcli [--profile P] task session approve ID [--rev N] [--as NAME]",
+		Flags:    "  --rev int   The session revision you read (`rev` in `task session show --json`): refused with code plan_changed if the plan moved since. Optional so scripts keep working; pass it whenever you approve what you read",
+		Examples: []string{"monoagentcli --profile work task session approve 3", "monoagentcli --profile work task session approve 3 --rev 12"},
+	},
+	{
+		Name:     "task session person inbox",
+		Short:    "The items that wait for you, the person, oldest first; a giant session's plan shows why it is giant work (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person inbox",
+		Examples: []string{"monoagentcli --profile work --json task session person inbox"},
+	},
+	{
+		Name:     "task session person approve",
+		Short:    "Approve the plan of a giant session that waits for you: it runs and the approval is recorded as the person's (the operator only; needs an open item)",
+		Usage:    "monoagentcli [--profile P] task session person approve ID --rev N [--digest HASH]",
+		Flags:    "  --rev int         The plan revision `person inbox` showed (required): refused if the plan changed since\n  --digest string   The plan digest `person inbox` showed (optional): also refused if the content differs",
+		Examples: []string{"monoagentcli --profile work task session person approve 7 --rev 12"},
+	},
+	{
+		Name:     "task session person deny",
+		Short:    "Turn a giant plan down: the session stays a draft, the note is kept in its history and sent to its lead (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person deny ID --note TEXT",
+		Flags:    "  --note string   Why (required)",
+		Examples: []string{`monoagentcli --profile work task session person deny 7 --note "split it in two"`},
+	},
+	{
+		Name:     "task session person ask",
+		Short:    "Send a question about a giant plan to its lead as quoted data; the item stays open (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person ask ID --text TEXT",
+		Flags:    "  --text string   Your question (required)",
+		Examples: []string{`monoagentcli --profile work task session person ask 7 --text "why 30 tasks?"`},
 	},
 	{
 		Name:     "task session pause",
