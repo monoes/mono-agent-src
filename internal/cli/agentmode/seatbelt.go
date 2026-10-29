@@ -189,9 +189,13 @@ func seatbeltProfile(home string) (string, error) {
 ;; that hand out keychain items (which is what /usr/bin/security talks to), and write of
 ;; ~/Library/LaunchAgents and the shell startup files.
 ;; Everything else, loopback networking included, stays as it is. The file rules are run
-;; against a real sandbox-exec by TestSeatbeltRealRun on macOS (skipped elsewhere); the
-;; Mach service names are not exercised: check them on your macOS version with:
-;; log stream --predicate 'sender == "Sandbox"' while the agent runs.
+;; against a real sandbox-exec by TestSeatbeltRealRun and TestSeatbeltCaseAlias on macOS
+;; (skipped elsewhere). The Mach rules are run by TestSeatbeltMachDenial (opt-in, it creates a
+;; throwaway keychain: MONOAGENT_TEST_KEYCHAIN=1); run by hand on macOS 27 they stopped
+;; /usr/bin/security, and worked again with the rule relaxed. On a case-insensitive volume
+;; (the APFS default) the other case spelling of a denied path is denied too (checked for
+;; ~/.ssh). Check the service names on another macOS
+;; version with: log stream --predicate 'sender == "Sandbox"' while the agent runs.
 (version 1)
 (allow default)
 (deny file-read* file-write*
