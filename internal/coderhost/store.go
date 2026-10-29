@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -117,8 +118,12 @@ type Store struct {
 	afterReserveReads func()
 	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
 	afterChildCreated func()
+	// beforeCleanupDelete runs in abandonSpawn right before the conversation's delete (tests only).
+	beforeCleanupDelete func()
 	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
 	afterStaleSelect func()
+	// betweenCascadeCheckAndResume lets a test act between the pass's pausedByCascade check and its resume.
+	betweenCascadeCheckAndResume func()
 	// onSpent sees the handle every Spent read goes through.
 	onSpent func(q querier)
 }
@@ -662,4 +667,24 @@ func (s *Store) hostTurnSet(profileID, conversationID string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// enqueueCascadeResume queues the pass's own resume unless a person's pause stands, decided by the INSERT itself
+// so a person's pause queued after the pass looked is not followed by a resume queued behind its back. The INSERT also
+// holds the dedup (one pending cascade resume) and the control cap Enqueue applies, so concurrent passes or hosts
+// cannot race the pass's own pre-check.
+func (s *Store) enqueueCascadeResume(profileID, conv string) (bool, error) {
+	now := s.stamp()
+	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
+		SELECT ?, ?, 'resume', ?, '', '[]', 'pending', 0, ?, ?, ''
+		WHERE NOT `+personPauseLive+`
+		AND NOT EXISTS (SELECT 1 FROM coder_session_commands d WHERE d.profile_id = ? AND d.conversation_id = ? AND d.kind = 'resume' AND d.status = 'pending' AND d.issuer = '' AND d.turn_id = ?)
+		AND (SELECT COUNT(*) FROM coder_session_commands k WHERE k.profile_id = ? AND k.conversation_id = ? AND k.status = 'pending' AND k.kind != 'send') < ?`,
+		profileID, conv, cascadeTurn, now, now, profileID, conv, cascadeTurn, int64(math.MaxInt64), cascadeTurn, int64(math.MaxInt64),
+		profileID, conv, cascadeTurn, profileID, conv, MaxPendingPerChat)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }

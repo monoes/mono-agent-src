@@ -1332,16 +1332,7 @@
       "openReport": "Abrir en Tareas",
       "closeProposed": "El líder de la misión propuso cerrarla.",
       "closed": "Cerrada",
-      "readyToClose": "Lista para cerrar",
-      "templates": "Plantillas de misión",
-      "templateHint": "Parece una misión: ¿usar una plantilla?",
-      "template": {
-        "feature": "Función",
-        "bugfix": "Corrección de error",
-        "refactor": "Refactorización",
-        "research": "Investigación",
-        "migration": "Migración"
-      }
+      "readyToClose": "Lista para cerrar"
     }
   },
   "agentRow": {
