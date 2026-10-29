@@ -40,6 +40,9 @@ func (s *Store) GiantFactsOf(ctx context.Context, profileID string, id int64, ac
 				return fmt.Errorf("tasks: reading the mission's approval settings: %w", err)
 			}
 		}
+		if root, err = s.withSiblingsCommitted(ctx, x, se, root); err != nil {
+			return err
+		}
 		out.Reasons = giantReasons(se, parent, root, pol)
 		if left := root.BudgetUSD - root.SpentUSD; root.BudgetUSD > 0 && left > 0 {
 			out.BudgetShare = se.BudgetUSD / left

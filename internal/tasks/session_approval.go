@@ -245,6 +245,9 @@ func (s *Store) checkLeadApproval(ctx context.Context, x dbx, profileID string, 
 	if !pol.AgentLead {
 		return nil, operatorOnly(fmt.Sprintf("approve session #%d: the operator has not allowed leads to approve (agentApproval is off)", se.ID))
 	}
+	if root, err = s.withSiblingsCommitted(ctx, x, se, root); err != nil {
+		return nil, err
+	}
 	if reasons := giantReasons(se, parent, root, pol); len(reasons) > 0 {
 		return &GiantError{Session: se.ID, Reasons: reasons}, nil
 	}
@@ -271,6 +274,9 @@ func giantReasons(se, parent, root Session, pol ApprovalPolicy) []string {
 	}
 	if pol.CeilingUSD > 0 && (se.BudgetUSD == 0 || se.BudgetUSD > pol.CeilingUSD) {
 		r = append(r, fmt.Sprintf("budget %s is not within the operator's ceiling of %s", money(se.BudgetUSD), money(pol.CeilingUSD)))
+	}
+	if se.BudgetUSD == 0 && root.BudgetUSD == 0 && pol.CeilingUSD == 0 {
+		r = append(r, "no budget set: the person decides")
 	}
 	if root.BudgetUSD > 0 {
 		left := root.BudgetUSD - root.SpentUSD
