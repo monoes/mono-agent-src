@@ -323,10 +323,18 @@ func (s *Store) applySpend(ctx context.Context, x dbx, id int64, usd float64, no
 	return s.sessionEvent(ctx, x, id, actor, "spend", fmt.Sprintf("$%.4f %s", usd, note))
 }
 
-// overBudget refuses work on a session that has spent its budget (0: none set).
-func overBudget(se Session) error {
-	if se.BudgetUSD > 0 && se.SpentUSD >= se.BudgetUSD {
-		return limit("session #%d has spent its budget ($%.2f of $%.2f): the operator raises it", se.ID, se.SpentUSD, se.BudgetUSD)
+// overBudget refuses work on a session that has used its budget (0: none set): what it spent itself
+// and what its children hold of it, since the budget covers both.
+func overBudget(ctx context.Context, x dbx, se Session) error {
+	if se.BudgetUSD <= 0 {
+		return nil
+	}
+	left, held, err := sessionLeft(ctx, x, se)
+	if err != nil {
+		return err
+	}
+	if left <= 0 {
+		return limit("session #%d has used its budget ($%.2f spent and $%.2f held by its children of $%.2f): the operator raises it", se.ID, se.SpentUSD, held, se.BudgetUSD)
 	}
 	return nil
 }
