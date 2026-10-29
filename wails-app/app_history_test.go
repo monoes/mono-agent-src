@@ -212,3 +212,24 @@ func TestGetChatConversationRecordNotFound(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
+
+func TestRenameChatConversationShellsToTheCLI(t *testing.T) {
+	a, log := aitaskApp(t, `echo '{"id":"c1","title":"meta challenge"}'
+`)
+	got, err := a.RenameChatConversation("c1", "meta challenge")
+	if err != nil || got != "meta challenge" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if _, err := a.RenameChatConversation("c1", "-dash"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.RenameChatConversation("c1", "  "); err != nil {
+		t.Fatal(err)
+	}
+	want := "--profile work --json chat history rename c1 -- meta challenge\n" +
+		"--profile work --json chat history rename c1 -- -dash\n" +
+		"--profile work --json chat history rename c1"
+	if calls := loggedArgs(t, log); strings.Join(calls, "\n") != want {
+		t.Fatalf("calls = %v", calls)
+	}
+}

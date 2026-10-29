@@ -132,6 +132,7 @@ func newChatHistoryCmd(cfg *Deps) *cobra.Command {
 		newChatHistoryReconcileCmd(cfg),
 		newChatHistoryTranscriptCmd(cfg),
 		newChatHistorySetOrgCmd(cfg),
+		newChatHistoryRenameCmd(cfg),
 		newChatHistorySetAccessCmd(cfg),
 	)
 	return cmd
@@ -461,6 +462,43 @@ func newChatHistorySetOrgCmd(cfg *Deps) *cobra.Command {
 				return printConversation(cfg, conv.Record())
 			}
 			fmt.Printf("conversation %s: org %s\n", conv.ID, conv.OrgMode)
+			return nil
+		},
+	}
+}
+
+// newChatHistoryRenameCmd names a conversation; an empty name takes the name back.
+func newChatHistoryRenameCmd(cfg *Deps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <conversation-id> [title]",
+		Short: "Give a chat a name of your own (no title takes it back)",
+		Long: "The name shows at the top of the chat and in the history, and, until the chat has a mesh name of " +
+			"its own, other agents address it by that name with its spaces turned into dashes. One line of at most " +
+			"80 characters; text that looks like a secret is redacted. Without a title the name goes back to the " +
+			"derived one (the task goal, the first message, or the folder).",
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			title := ""
+			if len(args) == 2 {
+				title = args[1]
+			}
+			store, profileID, closeDB, err := openChatHistory(cfg)
+			if err != nil {
+				return err
+			}
+			defer closeDB()
+			stored, err := store.SetConversationTitle(args[0], profileID, redactTitleText(title))
+			if err != nil {
+				return chatStoreErr(err)
+			}
+			if cfg.JSONOutput() {
+				return clicore.PrintJSON(map[string]any{"id": args[0], "title": stored})
+			}
+			if stored == "" {
+				fmt.Printf("conversation %s: name cleared\n", args[0])
+			} else {
+				fmt.Printf("conversation %s: named %q\n", args[0], stored)
+			}
 			return nil
 		},
 	}

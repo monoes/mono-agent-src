@@ -469,6 +469,15 @@ func (s *Store) ConversationInfo(profileID, conversationID string) (cwd, access 
 	return cwd, access, true, nil
 }
 
+// ConversationTitle is the name the person gave the conversation, "" when it has none.
+func (s *Store) ConversationTitle(profileID, conversationID string) string {
+	var t string
+	if err := s.db.QueryRow(`SELECT title FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&t); err != nil {
+		return ""
+	}
+	return t
+}
+
 // SetRole links a session into the master/child structure: "solo" (no links),
 // "master" (may have children) or "child" of a master. It refuses what the design
 // forbids: a child needs a master of the same profile that allows children, a

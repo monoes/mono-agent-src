@@ -46,7 +46,10 @@ type Host struct {
 	Mesh      Mesh
 	MeshEvery time.Duration
 	MeshIdle  time.Duration
-	meshPrev  map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
+	// TitleOf is a chat's name as the app shows it, which a session without a mesh name of its own
+	// takes (AliasFromTitle). Unset, only a name the person typed counts.
+	TitleOf  func(profileID, conversationID string) string
+	meshPrev map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
 
 	// RequireConversations makes the host check that the conversation of a command still exists, and
 	// sweep away sessions and commands of deleted ones. `coder host run` sets it; unit tests that
@@ -527,9 +530,13 @@ func (h *Host) meshSync(ctx context.Context) {
 		if x.Parent != "" {
 			related = append(related, x.Parent)
 		}
+		alias := settings.MeshAlias
+		if alias == "" {
+			alias = AliasFromTitle(h.titleOf(x.ProfileID, x.ConversationID)) // "" = the project-and-time name
+		}
 		ms := MeshSession{
 			ProfileID: x.ProfileID, ConversationID: x.ConversationID, Cwd: cwd, Started: started.Local(),
-			Task: string(x.State), Alias: settings.MeshAlias, // nothing about its work, its folder's path or its access level
+			Task: string(x.State), Alias: alias, // nothing about its work, its folder's path or its access level
 			Accept: settings.MeshAccept, Related: related,
 		}
 		next[key] = ms
@@ -537,6 +544,13 @@ func (h *Host) meshSync(ctx context.Context) {
 	}
 	h.meshPrev = next
 	h.Mesh.Sync(ctx, want)
+}
+
+func (h *Host) titleOf(profileID, conversationID string) string {
+	if h.TitleOf != nil {
+		return h.TitleOf(profileID, conversationID)
+	}
+	return h.Store.ConversationTitle(profileID, conversationID)
 }
 
 // meshSessionFor is the mesh's view of one session as it is right now, for reading
