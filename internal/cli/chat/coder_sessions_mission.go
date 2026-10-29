@@ -28,7 +28,7 @@ func newCoderSessionsMissionChildrenCmd(cfg *Deps) *cobra.Command {
 			"until you turn the mode on. None of it starts a session until you run `enable`: child sessions are OFF on a fresh install " +
 			"and after an upgrade. `disable` stops new sessions only; sessions already running finish and are settled and charged as usual.",
 	}
-	cmd.AddCommand(newMissionChildrenSetCmd(cfg), newMissionChildrenListCmd(cfg), newMissionChildrenSwitchCmd(cfg, true), newMissionChildrenSwitchCmd(cfg, false))
+	cmd.AddCommand(newMissionChildrenSetCmd(cfg), newMissionChildrenListCmd(cfg), newMissionChildrenSwitchCmd(cfg, true), newMissionChildrenSwitchCmd(cfg, false), newMissionChildrenResolveChargeCmd(cfg))
 	return cmd
 }
 
@@ -122,6 +122,48 @@ func newMissionChildrenListCmd(cfg *Deps) *cobra.Command {
 			return printQueueJSON(cmd, ov)
 		},
 	}
+	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
+	return cmd
+}
+
+// newMissionChildrenResolveChargeCmd is `coder sessions mission-children resolve-charge`: the person's end of an
+// unresolved child (a deleted child whose cost nobody recorded; the host holds a part of the mission's budget for it
+// and does not guess). The figure is added to the mission's meter, or the child is skipped with a reason; either
+// writes the child's charge row and releases the hold.
+func newMissionChildrenResolveChargeCmd(cfg *Deps) *cobra.Command {
+	var usd float64
+	var skip bool
+	var reason string
+	cmd := &cobra.Command{
+		Use:   "resolve-charge CHILD_CONVERSATION",
+		Short: "Say what a deleted mission child cost, or skip it, to end its unresolved state (the operator's)",
+		Long: "A mission child whose conversation was deleted without its spend being recorded is unresolved: the host does not guess its cost, " +
+			"keeps part of the mission's budget held for it and will not let its task be marked again. Give its cost with --usd N (added to the " +
+			"mission's meter once) or --skip --reason TEXT (nothing added). `list` shows the unresolved children.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireMissionOperator(cfg, "resolve the charge of a mission child"); err != nil {
+				return err
+			}
+			f := cmd.Flags()
+			if f.Changed("usd") == skip {
+				return clicore.InvalidInput("give exactly one of --usd N or --skip (with --reason)")
+			}
+			db, err := cfg.OpenDB()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			added, err := coderhost.NewStore(db.DB).ResolveCharge(cfg.ProfileID(), args[0], usd, skip, reason)
+			if err != nil {
+				return clicore.InvalidInput("%v", err)
+			}
+			return printQueueJSON(cmd, map[string]any{"conversation": args[0], "addedUsd": added, "skipped": skip})
+		},
+	}
+	cmd.Flags().Float64Var(&usd, "usd", 0, "what the child cost, in dollars (added to the mission's meter)")
+	cmd.Flags().BoolVar(&skip, "skip", false, "charge nothing (needs --reason)")
+	cmd.Flags().StringVar(&reason, "reason", "", "why the child is skipped, or where the figure comes from; kept in the charge row")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
 }
