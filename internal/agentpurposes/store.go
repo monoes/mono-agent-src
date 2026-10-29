@@ -45,15 +45,27 @@ func (s Store) Load(purposeID string) (Loaded, error) {
 	return Loaded{Setting: set, Err: derr}, nil
 }
 
-// LoadAll reads every purpose's setting, by id.
+// LoadAll reads every purpose's setting, by id, from one snapshot (a single
+// statement): a change made while it runs, such as moving a model from one
+// purpose to another, is seen whole or not at all.
 func (s Store) LoadAll() (map[string]Loaded, error) {
+	rows, err := s.DB.ConfigsByPrefix(s.name(""))
+	if err != nil {
+		return nil, err
+	}
+	stored := make(map[string]string, len(rows))
+	for _, r := range rows {
+		stored[r.Name] = r.ConfigData
+	}
 	out := make(map[string]Loaded, len(builtins))
 	for _, p := range builtins {
-		l, err := s.Load(p.ID)
-		if err != nil {
-			return nil, err
+		data, ok := stored[s.name(p.ID)]
+		if !ok {
+			out[p.ID] = Loaded{Setting: Default()}
+			continue
 		}
-		out[p.ID] = l
+		set, derr := Decode(data)
+		out[p.ID] = Loaded{Setting: set, Err: derr}
 	}
 	return out, nil
 }

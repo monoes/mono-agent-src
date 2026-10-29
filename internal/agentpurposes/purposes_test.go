@@ -201,3 +201,62 @@ func TestScopesNameRealPurposesAndTheirOwnDefault(t *testing.T) {
 		t.Errorf("a category that contains a mapped one: %+v %v", sc, ok)
 	}
 }
+
+// LoadAll reads every purpose from one snapshot: while a model is moved from
+// one purpose to another in a single write, a reader sees it in exactly one of
+// them, never in both or neither (a mix that existed at neither end).
+func TestLoadAllReadsOneSnapshot(t *testing.T) {
+	db := testdb.Open(t)
+	st := Store{DB: db, ProfileID: "p1"}
+	pair := func(id string) string {
+		v, err := Encode(Setting{Pairs: []Pair{{"claude", id}}, Rule: RuleAny, Fallback: FallbackNone})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	write := func(coding, debugging string) {
+		tx, err := db.DB.Begin()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for name, v := range map[string]string{st.name("coding"): coding, st.name("debugging"): debugging} {
+			if _, err := tx.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at) VALUES (?,?,datetime('now'),datetime('now'))
+				ON CONFLICT(name) DO UPDATE SET config_data = excluded.config_data`, name, v); err != nil {
+				t.Error(err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			t.Error(err)
+		}
+	}
+	write(pair("opus"), pair("haiku"))
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if i%2 == 0 { // opus moves from coding to debugging, haiku back
+				write(pair("haiku"), pair("opus"))
+			} else {
+				write(pair("opus"), pair("haiku"))
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+	for i := 0; i < 3000; i++ {
+		all, err := st.LoadAll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, d := all["coding"].Setting.Pairs, all["debugging"].Setting.Pairs
+		if len(c) != 1 || len(d) != 1 || c[0].Model == d[0].Model {
+			t.Fatalf("read %d saw a mix that never existed: coding %v, debugging %v", i, c, d)
+		}
+	}
+}
