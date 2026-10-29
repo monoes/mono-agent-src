@@ -100,9 +100,9 @@ func TestSessionChildNeverExceedsParent(t *testing.T) {
 	if n := sessionRows(t, s, "default"); n != 1 {
 		t.Fatalf("refusals left %d rows", n)
 	}
-	// Unset limits are taken from the parent (the lower of default and parent), explicit ones within it pass.
+	// Unset caps are taken from the parent (the lower of default and parent), an unset budget is half of what the parent has left; explicit ones within it pass.
 	c, err := s.CreateSession(bg, "default", SessionInput{Title: "c", ParentSessionID: par.ID}, human)
-	if err != nil || c.BudgetUSD != 10 || c.MaxTasks != 30 || c.MaxDepth != 2 || c.AccessLevel != "scoped" {
+	if err != nil || c.BudgetUSD != 5 || c.MaxTasks != 30 || c.MaxDepth != 2 || c.AccessLevel != "scoped" {
 		t.Fatalf("inherited: %+v %v", c, err)
 	}
 	c, err = s.CreateSession(bg, "default", SessionInput{Title: "c2", ParentSessionID: par.ID, AccessLevel: "coding", BudgetUSD: 4, MaxTasks: 5}, human)

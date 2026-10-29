@@ -148,14 +148,13 @@ func TestSessionCycleIsImpossible(t *testing.T) {
 		t.Fatalf("rename moved the session: %+v", ren.Session)
 	}
 	// a ring written under the CLI (an older build, a hand edit): starting below it is refused
-	// and the tree ends with the same refusal, never a walk round the ring (it also keeps the
-	// whole list from showing: known gap, see the report).
+	// and the tree leaves the ring's rows out, never a walk round the ring and never a failed list.
 	poke(t, db, `UPDATE task_sessions SET parent_session_id = `+id(b)+` WHERE id = `+id(a))
 	doc := failedTaskJSON(t, db, "default", 3, "session", "new", "C", "--parent", id(b))
 	if !strings.Contains(doc["error"].(string), "cycle") {
 		t.Fatalf("want a cycle refusal, got %v", doc)
 	}
-	if _, _, err := runTask(t, db, "default", true, "", "session", "tree"); err == nil || !strings.Contains(err.Error(), "cycle") {
+	if _, _, err := runTask(t, db, "default", true, "", "session", "tree"); err != nil {
 		t.Fatalf("tree of a ring: %v", err)
 	}
 }

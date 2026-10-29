@@ -48,7 +48,7 @@ func (m *MissionConfig) Enabled() bool { return m != nil && m.Store != nil && Mi
 func (m *MissionConfig) Planning() bool { return m.Enabled() && m.Confirmed }
 
 func (m *MissionConfig) actor(session int64) tasks.Actor {
-	return tasks.Actor{Kind: tasks.Agent, Name: m.Actor, Session: session, Conversation: m.ConversationID}
+	return tasks.Actor{Kind: tasks.Agent, Name: m.Actor, Session: session, Conversation: m.ConversationID, MissionPlanner: true}
 }
 
 // round is how many review rounds the draft has had: the plan_revised events of the
@@ -65,15 +65,20 @@ func (m *MissionConfig) addRound(ctx context.Context, session int64, note string
 	return m.Store.AddSessionEvent(ctx, m.ProfileID, session, tasks.EventPlanRevised, note, m.actor(session))
 }
 
-// active is the open session of this conversation (draft, running or paused),
-// or nil: the store holds the link, so a new Conductor finds it again.
+// active is the open mission session of this conversation (draft, running or paused; a session
+// of another kind linked to the chat is not the mission), or nil: the store holds the link, so a new Conductor finds it again.
 func (m *MissionConfig) active(ctx context.Context) (*tasks.Session, error) {
-	list, err := m.Store.ListSessions(ctx, m.ProfileID, tasks.SessionFilter{}, m.actor(0))
+	list, skipped, err := m.Store.ListSessionsChecked(ctx, m.ProfileID, tasks.SessionFilter{}, m.actor(0))
 	if err != nil {
 		return nil, err
 	}
+	for _, sk := range skipped { // a row of this chat that cannot be read may be its mission
+		if sk.ConversationID == m.ConversationID {
+			return nil, fmt.Errorf("session #%d of this chat cannot be read: %s", sk.ID, sk.Reason)
+		}
+	}
 	for _, se := range list { // newest first
-		if se.ConversationID != m.ConversationID {
+		if se.ConversationID != m.ConversationID || !tasks.IsMissionSession(se) {
 			continue
 		}
 		switch se.State {
@@ -122,7 +127,7 @@ func (m *MissionConfig) latest(ctx context.Context) (*tasks.Session, error) {
 		return nil, err
 	}
 	for _, se := range list {
-		if se.ConversationID == m.ConversationID {
+		if se.ConversationID == m.ConversationID && tasks.IsMissionSession(se) {
 			return &se, nil
 		}
 	}
@@ -305,16 +310,18 @@ func estimateBudget(ts []tasks.Task) float64 {
 func (c *Conductor) Mission() *MissionConfig { return c.cfg.Mission }
 
 // OpenSessionID is the id of the conversation's open mission session, or 0.
-// A conversation that started a mission stays confirmed after a restart.
-func (m *MissionConfig) OpenSessionID(ctx context.Context) int64 {
-	if se, err := m.active(ctx); err == nil && se != nil {
-		return se.ID
+// A conversation that started a mission stays confirmed after a restart. An error
+// means the store could not say: the caller must not read that as "none".
+func (m *MissionConfig) OpenSessionID(ctx context.Context) (int64, error) {
+	se, err := m.active(ctx)
+	if err != nil || se == nil {
+		return 0, err
 	}
-	return 0
+	return se.ID, nil
 }
 
 // HasOpenSession says whether the conversation has a mission session that is
-// still open (see OpenSessionID).
+// still open (see OpenSessionID). A store that cannot say reads as no: it confirms nothing.
 func (m *MissionConfig) HasOpenSession(ctx context.Context) bool {
 	se, err := m.active(ctx)
 	return err == nil && se != nil

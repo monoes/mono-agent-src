@@ -163,7 +163,7 @@ func TestHostMissionConfirmedIsSingleUseAndBoundToTheSession(t *testing.T) {
 	tok3 := confirmedToken(t, cs, conv, "t3", 0)
 	db, _ := storage.NewDatabase(dbPath)
 	defer db.Close()
-	if _, err := tasks.NewStore(db.DB).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", ConversationID: conv}, tasks.Actor{Kind: tasks.Human}); err != nil {
+	if _, err := tasks.NewStore(db.DB).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", ConversationID: conv, Kind: tasks.SessionKindMission}, tasks.Actor{Kind: tasks.Human}); err != nil {
 		t.Fatal(err)
 	}
 	if hostMissionConfirmed(cfg, "default", conv, "t3", tok3, "coding") {

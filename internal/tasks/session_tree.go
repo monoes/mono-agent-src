@@ -93,14 +93,10 @@ func withinParent(par Session, asked SessionInput, level string, maxTasks, maxDe
 	} else if maxDepth > par.MaxDepth {
 		return "", 0, 0, 0, limit("max depth %d is above the parent session #%d's %d", maxDepth, par.ID, par.MaxDepth)
 	}
-	if par.BudgetUSD > 0 {
-		switch {
-		case budget == 0:
-			budget = par.BudgetUSD
-		case budget > par.BudgetUSD:
-			return "", 0, 0, 0, limit("budget %s is above the parent session #%d's %s", fmt.Sprintf("$%.2f", budget), par.ID, fmt.Sprintf("$%.2f", par.BudgetUSD))
-		}
+	if par.BudgetUSD > 0 && budget > par.BudgetUSD {
+		return "", 0, 0, 0, limit("budget %s is above the parent session #%d's %s", fmt.Sprintf("$%.2f", budget), par.ID, fmt.Sprintf("$%.2f", par.BudgetUSD))
 	}
+	// An unset budget is settled by carveChild, which knows what the parent has left.
 	return level, maxTasks, maxDepth, budget, nil
 }
 
@@ -131,8 +127,8 @@ func (s *Store) RenameSession(ctx context.Context, profileID string, id int64, t
 		return Session{}, invalid("a session needs a title")
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		if actor.Kind == Agent && se.CreatedBy != actor.Label() {
-			return operatorOnly(fmt.Sprintf("rename session #%d: it was started by %s, not by this agent", id, se.CreatedBy))
+		if err := s.checkRenameOwner(ctx, x, se, actor); err != nil {
+			return err
 		}
 		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET title = ? WHERE id = ?`, title, id); err != nil {
 			return fmt.Errorf("tasks: renaming session #%d: %w", id, err)

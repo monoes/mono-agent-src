@@ -27,7 +27,7 @@ func TestMissionConfigGates(t *testing.T) {
 		t.Errorf("confirmed workspace: %+v", m)
 	}
 	// An open session of the conversation keeps it confirmed on a later turn.
-	if _, err := tasks.NewStore(db).CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1"}, tasks.Actor{Kind: tasks.Human}); err != nil {
+	if _, err := tasks.NewStore(db).CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1", Kind: tasks.SessionKindMission}, tasks.Actor{Kind: tasks.Human}); err != nil {
 		t.Fatal(err)
 	}
 	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}); m == nil || !m.Planning() {
@@ -91,7 +91,7 @@ func TestMissionConfigClosedSessionDoesNotConfirm(t *testing.T) {
 	ctx := context.Background()
 	st := tasks.NewStore(db)
 	op := tasks.Actor{Kind: tasks.Human}
-	se, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1"}, op)
+	se, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1", Kind: tasks.SessionKindMission}, op)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +119,8 @@ func TestSessionConversationValidationAcceptsHostCoderConversations(t *testing.T
 	defer db.Close()
 	st := tasks.NewStore(db.DB)
 	ctx := context.Background()
-	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: conv.ID} // the lead links its own chat
-	opOther := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: "no-such-chat"}
+	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: conv.ID, MissionPlanner: true} // the lead links its own chat
+	opOther := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: "no-such-chat", MissionPlanner: true}
 	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: conv.ID}, op); err != nil {
 		t.Fatalf("a coder conversation was refused: %v", err)
 	}
