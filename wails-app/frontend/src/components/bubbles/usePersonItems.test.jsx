@@ -89,14 +89,25 @@ describe('usePersonItems', () => {
     expect(result.current.items).toHaveLength(1)
   })
 
+  it('a refused approval of a moved plan reads the list again', async () => {
+    api.list.mockResolvedValue(listOf(1))
+    const { result } = await mount()
+    api.list.mockClear()
+    api.approve.mockResolvedValueOnce({ error: 'changed', code: 'plan_changed' })
+    let res
+    await act(async () => { res = await result.current.answer('approve', { ...item(1), rev: 4, digest: 'dd' }) })
+    expect(res.code).toBe('plan_changed')
+    expect(api.list).toHaveBeenCalled()
+  })
+
   it('answer runs the verb for the session and reads the list again', async () => {
     api.list.mockResolvedValue(listOf(1))
     const { result } = await mount()
     api.list.mockClear()
     await act(async () => { await result.current.answer('deny', item(1), 'no') })
     expect(api.deny).toHaveBeenCalledWith(10, 'no')
-    await act(async () => { await result.current.answer('approve', item(1)) })
-    expect(api.approve).toHaveBeenCalledWith(10)
+    await act(async () => { await result.current.answer('approve', { ...item(1), rev: 4, digest: 'dd' }) })
+    expect(api.approve).toHaveBeenCalledWith(10, 4, 'dd')
     expect(api.list).toHaveBeenCalled()
     const bad = await result.current.answer('nope', item(1))
     expect(bad.error).toBeTruthy()

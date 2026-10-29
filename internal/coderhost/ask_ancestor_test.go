@@ -270,7 +270,7 @@ func TestAnUnansweredAskExpiresSoItsSlotIsFreed(t *testing.T) {
 func TestACriticalAskIsAPersonItemAndReachesNoModel(t *testing.T) {
 	f := newAskTree(t)
 	// Every class routed to the model with a default changes nothing for a critical ask.
-	set, _, err := DefaultSettings().Apply([]byte(`{"autonomy_preset":"decide-and-log","autonomy_classes":{"plan_approval":{"who":"model","fallback":"take_default"},"ambiguity":{"who":"model","fallback":"take_default"}}}`))
+	set, _, err := DefaultSettings().Apply([]byte(`{"autonomy_preset":"decide-and-log","autonomy_classes":{"ambiguity":{"who":"model","fallback":"take_default"}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}

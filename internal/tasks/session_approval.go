@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 )
 
 // Who approved a session (task_sessions.approval_basis).
@@ -56,7 +55,8 @@ func (e *GiantError) Error() string {
 	if e.Raised {
 		tail = "a person item waits for the person, with no timeout"
 	}
-	return fmt.Sprintf("session #%d is giant (%s): %s", e.Session, strings.Join(e.Reasons, "; "), tail)
+	// Reasons are for the operator's view (GiantFactsOf): an agent is told that the person decides, not why.
+	return fmt.Sprintf("session #%d: this plan needs the person: %s", e.Session, tail)
 }
 
 func (e *GiantError) Unwrap() error { return ErrOperatorOnly }
@@ -71,6 +71,11 @@ func notYourApproval(id int64) error {
 // and is not giant (see giantReasons); a giant session raises a person item instead. An agent never
 // approves a session it leads or sits in, a root session, or one of another mission.
 func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, actor Actor) (Session, error) {
+	return s.approveSession(ctx, profileID, id, actor, nil)
+}
+
+// approveSession is ApproveSession; a guard (the person's) makes it refuse a plan that moved.
+func (s *Store) approveSession(ctx context.Context, profileID string, id int64, actor Actor, guard *PlanGuard) (Session, error) {
 	var rootConv string
 	var pol ApprovalPolicy
 	switch actor.Kind {
@@ -89,6 +94,11 @@ func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, 
 	}
 	var giant *GiantError
 	out, err := s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		if guard != nil {
+			if err := s.checkPlanGuard(ctx, x, se, *guard); err != nil {
+				return err
+			}
+		}
 		if actor.Kind == Agent {
 			g, err := s.checkLeadApproval(ctx, x, profileID, se, actor, rootConv, pol)
 			if err != nil {
@@ -235,6 +245,9 @@ func (s *Store) checkLeadApproval(ctx context.Context, x dbx, profileID string, 
 	if !pol.AgentLead {
 		return nil, operatorOnly(fmt.Sprintf("approve session #%d: the operator has not allowed leads to approve (agentApproval is off)", se.ID))
 	}
+	if root, err = s.withSiblingsCommitted(ctx, x, se, root); err != nil {
+		return nil, err
+	}
 	if reasons := giantReasons(se, parent, root, pol); len(reasons) > 0 {
 		return &GiantError{Session: se.ID, Reasons: reasons}, nil
 	}
@@ -261,6 +274,9 @@ func giantReasons(se, parent, root Session, pol ApprovalPolicy) []string {
 	}
 	if pol.CeilingUSD > 0 && (se.BudgetUSD == 0 || se.BudgetUSD > pol.CeilingUSD) {
 		r = append(r, fmt.Sprintf("budget %s is not within the operator's ceiling of %s", money(se.BudgetUSD), money(pol.CeilingUSD)))
+	}
+	if se.BudgetUSD == 0 && root.BudgetUSD == 0 && pol.CeilingUSD == 0 {
+		r = append(r, "no budget set: the person decides")
 	}
 	if root.BudgetUSD > 0 {
 		left := root.BudgetUSD - root.SpentUSD

@@ -70,11 +70,11 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
 
   const answer = useCallback(async (verb, item, text = '') => {
     const id = item?.sessionId
-    const res = verb === 'approve' ? await personItemsApi.approve(id)
+    const res = verb === 'approve' ? await personItemsApi.approve(id, item?.rev ?? 0, item?.digest ?? '')
       : verb === 'deny' ? await personItemsApi.deny(id, text)
         : verb === 'ask' ? await personItemsApi.ask(id, text)
           : { error: 'unknown answer' }
-    if (!res?.error) refresh()
+    if (!res?.error || res.code === 'plan_changed') refresh()
     return res
   }, [refresh])
 

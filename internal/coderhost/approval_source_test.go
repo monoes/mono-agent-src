@@ -49,9 +49,9 @@ func TestAMasterNeverSetsApprovalSettingsOnADescendant(t *testing.T) {
 	}
 }
 
-func TestPlanApprovalIsAGapClassWithTheUsualRouting(t *testing.T) {
-	if !oneOf("plan_approval", GapClasses) || HardClass("plan_approval") {
-		t.Fatalf("plan_approval is a class and not a hard one")
+func TestPlanApprovalIsAHardGapClass(t *testing.T) {
+	if !oneOf("plan_approval", GapClasses) || !HardClass("plan_approval") {
+		t.Fatalf("plan_approval is a class and a hard one: only the person approves a giant plan")
 	}
 	s := DefaultSettings()
 	if d := Decide(s, "plan_approval", true, true); d.Answerer != WhoMaster {
@@ -64,9 +64,18 @@ func TestPlanApprovalIsAGapClassWithTheUsualRouting(t *testing.T) {
 	if d := Decide(s, "plan_approval", true, true); d.Answerer != WhoUser {
 		t.Fatalf("ask-always: %+v", d)
 	}
-	patched, _, err := DefaultSettings().Apply([]byte(`{"autonomy_classes":{"plan_approval":{"who":"model","fallback":"take_default"}}}`))
-	if err != nil || Decide(patched, "plan_approval", true, true).Answerer != WhoModel {
-		t.Fatalf("a per-class override is allowed: %v", err)
+	// The matrix cannot route it to the model or a default: it cannot approve anything.
+	if _, _, err := DefaultSettings().Apply([]byte(`{"autonomy_classes":{"plan_approval":{"who":"model","fallback":"park"}}}`)); err == nil {
+		t.Fatal("a write that names the model for plan_approval must fail")
+	}
+	if _, _, err := DefaultSettings().Apply([]byte(`{"autonomy_classes":{"plan_approval":{"who":"master","fallback":"take_default"}}}`)); err == nil {
+		t.Fatal("a write that gives plan_approval a default must fail")
+	}
+	// A setting stored before the rule existed is clamped.
+	legacy := DefaultSettings()
+	legacy.AutonomyClasses = map[string]AutonomyChoice{"plan_approval": {Who: WhoModel, Fallback: FallbackTakeDefault}}
+	if d := Decide(legacy, "plan_approval", true, true); d.Answerer == WhoModel || d.Fallback != FallbackPark {
+		t.Fatalf("a stored model route must be clamped: %+v", d)
 	}
 	if _, ok := AutonomyMatrix(s, true, true)["plan_approval"]; !ok {
 		t.Fatal("the matrix shows the class")
@@ -156,8 +165,7 @@ func TestLeadApprovalNeedsTheOperatorsSettingOnTheRoot(t *testing.T) {
 func TestGiantApprovalIsAPersonItemThatNoTimeoutOrMatrixAnswers(t *testing.T) {
 	ctx := context.Background()
 	st := newStoreT(t)
-	// The matrix names the model with a default for plan_approval: it changes nothing for giant work.
-	c, ts := missionTree(t, st, `{"agent_approval":"lead","max_depth":2,"autonomy_classes":{"plan_approval":{"who":"model","fallback":"take_default"}}}`)
+	c, ts := missionTree(t, st, `{"agent_approval":"lead","max_depth":2}`)
 	if _, err := ts.ApproveSession(ctx, "p", c.ID, approvalLeadActor); err == nil {
 		t.Fatal("giant work was approved by an agent")
 	}

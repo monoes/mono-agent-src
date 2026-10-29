@@ -16,7 +16,7 @@ import (
 // the person lists what waits and answers it here. Every verb is the operator's: an agent can
 // never answer a person item, whatever it holds.
 //
-//	approve ID        the operator's `session approve`, so the approval is recorded as the person's
+//	approve ID --rev N  the operator's `session approve` of the plan as read (the inbox's rev), recorded as the person's
 //	deny ID --note T  the session stays a draft; the note is kept in its history and told to its lead
 //	ask ID --text T   the question is told to the lead; the item stays open
 
@@ -36,6 +36,8 @@ type personItemView struct {
 	State            string   `json:"state,omitempty"`
 	Reasons          []string `json:"reasons,omitempty"`
 	TaskCount        int      `json:"taskCount,omitempty"`
+	Rev              int64    `json:"rev,omitempty"`    // the plan revision the person read: approve passes it back
+	Digest           string   `json:"digest,omitempty"` // a hash of the plan's content, passed back with --digest
 	MaxTasks         int      `json:"maxTasks,omitempty"`
 	BudgetUSD        float64  `json:"budgetUsd,omitempty"`
 	BudgetShare      float64  `json:"budgetShare,omitempty"`
@@ -68,6 +70,9 @@ func (d Deps) newPersonInboxCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			actor, err := d.callerFor(flagAs(cmd)).operator("list the person items")
 			if err != nil {
+				return err
+			}
+			if err := d.refuseTokenHolder("list the person items"); err != nil {
 				return err
 			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
@@ -122,6 +127,9 @@ func (d Deps) personView(ctx context.Context, store *tasks.Store, p tasks.Profil
 	}
 	v.Conversation, v.Title, v.Goal, v.State = se.ConversationID, se.Title, se.Goal, string(se.State)
 	v.MaxTasks, v.Access, v.Depth = se.MaxTasks, se.AccessLevel, se.Depth
+	if pv, err := store.PlanOf(ctx, p.ID, it.RefID, actor); err == nil {
+		v.Rev, v.Digest = pv.Rev, pv.Digest
+	}
 	if f, err := store.GiantFactsOf(ctx, p.ID, it.RefID, actor); err == nil {
 		v.Reasons, v.TaskCount, v.BudgetUSD, v.BudgetShare = f.Reasons, f.TaskCount, f.BudgetUSD, f.BudgetShare
 	}
@@ -139,6 +147,9 @@ func (d Deps) personAnswer(use, short string, wordsFlag, wordsHelp string, run f
 		RunE: func(cmd *cobra.Command, args []string) error {
 			actor, err := d.callerFor(flagAs(cmd)).operator(personWhat)
 			if err != nil {
+				return err
+			}
+			if err := d.refuseTokenHolder(personWhat); err != nil {
 				return err
 			}
 			if len(args) != 1 {
@@ -176,28 +187,32 @@ func (d Deps) personAnswer(use, short string, wordsFlag, wordsHelp string, run f
 }
 
 func (d Deps) newPersonApproveCmd() *cobra.Command {
-	return d.personAnswer("approve ID", "Approve the plan of a giant session: its tasks become Ready and it runs (recorded as the person's approval)", "", "",
+	var rev int64
+	var digest string
+	cmd := d.personAnswer("approve ID --rev N", "Approve the plan of a giant session as you read it (--rev from `person inbox`): its tasks become Ready and it runs (recorded as the person's approval)", "", "",
 		func(cmd *cobra.Command, store *tasks.Store, _ *coderhost.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor, _ string) error {
-			se, err := store.ApproveSession(cmd.Context(), p.ID, it.RefID, actor)
+			if !cmd.Flags().Changed("rev") {
+				return d.InvalidInput("task session person approve needs --rev N, the plan revision `task session person inbox` showed you: " +
+					"without it a lead could change the plan after you read it and your approval would cover the new text")
+			}
+			se, err := store.ApproveSessionAt(cmd.Context(), p.ID, it.RefID, actor, tasks.PlanGuard{Rev: rev, Digest: digest})
 			if err != nil {
 				return d.taskErr(err)
 			}
 			return d.writeSession(cmd, p, se, "Approved")
 		})
+	cmd.Flags().Int64Var(&rev, "rev", 0, "The plan revision you read in `person inbox` (required); the approval is refused if the plan moved")
+	cmd.Flags().StringVar(&digest, "digest", "", "The plan digest `person inbox` showed (optional): also refuses a plan whose content differs")
+	return cmd
 }
 
 func (d Deps) newPersonDenyCmd() *cobra.Command {
 	return d.personAnswer("deny ID --note TEXT", "Turn the plan down: the session stays a draft, the note is kept in its history and sent to its lead",
 		"note", "Why (required): kept in the session's history and sent to its lead",
 		func(cmd *cobra.Command, store *tasks.Store, cs *coderhost.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor, note string) error {
-			if _, err := cs.TellLeadAboutPlan(cmd.Context(), p.ID, it.ConversationID, it.RefID, coderhost.PlanDenied, note); err != nil {
+			// One transaction closes the item and writes the history; the lead is told after it commits.
+			if _, err := cs.DenyPlan(cmd.Context(), it, actor.Label(), note); err != nil {
 				return d.InvalidInput("%v", err)
-			}
-			if err := store.AddSessionEvent(cmd.Context(), p.ID, it.RefID, tasks.EventNote, "the person turned the plan down: "+note, actor); err != nil {
-				return d.taskErr(err)
-			}
-			if err := cs.ClosePlanApprovalItem(p.ID, it.RefID); err != nil {
-				return err
 			}
 			se, err := store.GetSession(cmd.Context(), p.ID, it.RefID, actor)
 			if err != nil {
