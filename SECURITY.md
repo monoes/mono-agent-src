@@ -967,13 +967,47 @@ against an agent running as you:
   A per-browser token, however, speaks only for the instance it was paired
   with: it cannot connect as another instance, and no connection replaces a
   socket that authenticated with a different per-browser token.
-- A paired browser, or anything holding the bridge token, can claim any
-  valid profile id, and with sets it can claim up to 64 at once and receive
-  those profiles' browser commands and session data. That widens what one
-  mis-paired or compromised browser can see, from one profile to many. It is
-  not a new trust boundary: the token already let such a caller claim any
-  one profile. Limiting a browser's token to an allowed set of profiles when
-  it is paired would close this, and is not part of this change.
+- A browser holding the shared bridge token can claim any valid profile id,
+  and with sets up to 64 at once, and receive those profiles' browser
+  commands and session data. A browser with a token of its own is limited to
+  an allowed set of profiles: a browser paired after this limit existed
+  (approved, or paired automatically) starts limited to NO profile, and the
+  owner names what it may run with `extension approve --profiles` or
+  `extension browsers allow <id> <profile>...` (operator-only), or lifts the
+  limit with `--any`. A limited browser serves only profiles in its set, in
+  every way the bridge routes to it: a claim naming another profile is
+  refused (an auth frame is closed with 4401, a binding frame closes the
+  socket at once, a `set_binding`, including one relayed with only the relay
+  token, is refused before anything is sent), the default-browser fallback
+  skips it for any profile outside its set, and a command that names no
+  profile is never sent to it. Naming the browser by instance changes none of
+  this for an ordinary command; only the binding operations that manage the set
+  itself (`set_binding`) may name a browser by instance alone, and their profiles
+  are checked against the set. The allowed set is read where a claim is applied
+  or a command is written to the socket. A command is authorised at the instant
+  it is written: it takes the browser's own write lock, is checked, is written,
+  and is checked again right after; a command already written may complete, and
+  the second check then drops the browser. The state lock is not held across the
+  network write, so a browser that stops reading cannot stall pairing or policy
+  changes for anyone. The bound is a timer that closes the socket; it relies on Go's
+  net.Conn contract that closing a connection unblocks and fails a Write pending on it,
+  which a websocket's writer inherits (checked on a real socket and on a connection that
+  stalls by construction). The wait for the browser's writer is bounded too: a command
+  is refused and the socket is closed two seconds after it was sent, even when the
+  writer is held by a stuck reply or ping, which releases them (replies and pings
+  have a ten-second bound of their own). A change by the owner therefore takes effect for the next claim or
+  command, including commands already queued behind another send. A
+  `set_binding` acknowledged after the narrowing is not mirrored and the
+  browser, which now holds a binding it may not, is disconnected. A connected
+  browser that runs a profile no longer allowed is
+  disconnected within a few seconds.
+  Records paired before the limit existed, and the shared `extension.token`,
+  are not limited (a compatibility path: set a limit with `browsers allow`;
+  a token rotation by the browser keeps its limit). The limit narrows what
+  one mis-paired or compromised browser can reach; it does not stop a
+  process that can edit `~/.monoagent/extension.browsers.json` as your user,
+  and an unrestricted record or the shared token remains able to claim any
+  profile.
 - The `pair --open` gate is cosmetic against an agent with a shell, which
   can start a bridge of its own and open the pairing page itself.
 - An agent with a shell can also edit the files these commands manage.
@@ -2078,6 +2112,24 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   the caps are written only by `coder sessions mission-children set`, which refuses any process holding a session
   token or a mission binding. A worker-added follow-up in mode `all` becomes a child only within the ceiling, the
   spawn rate, the carve, three attempts per task and the existing limits on workers per task.
+- **Budget requests (P-F).** The lead's one tool, `mission_budget_request` (needs `--allow-mutations`), files a
+  request and raises nothing. It is a person item with no timeout, default, master or model answer: only
+  `coder sessions budget grant|decline` answers it. Those refuse a process holding a coder session token or a mission
+  binding, which is a courtesy check on the environment and the CLI's operator check (as for `mission-children set`),
+  not a barrier against a same-user process; `GrantBudget` and `DeclineBudget` take only the person's scope and are
+  named by no other package (a static test). The numbers (the target's budget and spend) are read by the host, the
+  amount is validated and the reason is cleaned, capped text. A grant adds at most the amount asked, compared in whole
+  micro-dollars with no tolerance, to the one session the request names, once (the status leaves `open` in the
+  transaction that raises the budget). For a child it also stays within the limits a carve holds: the mission's budget,
+  the policy's share of the lead's remaining budget, and the lead's remaining budget less its children's caps and its
+  outstanding reservations. The raise of a root lead's own budget is the person's allowance: it does not raise the
+  task-session mission budget, which is not a total cap over the lead's own session. A request is open only while its
+  mission is a draft or running, its lead and its target are not stopped, the target exists and its budget is still the
+  one the request was filed against. Triggers in migration 143 void an open request the moment any of that changes, and
+  a voided or answered row can never be reopened or edited (its identity columns cannot be updated), so numbers that
+  move and come back, or a mission that ends and returns, do not make it answerable again. Filing is limited to one
+  open request per session, three an hour per lead and twelve per mission, so a model cannot flood the person's list.
+  Not covered: the person's judgement of the numbers, and anything a same-user process can do to the database.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

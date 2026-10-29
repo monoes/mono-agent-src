@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -505,7 +506,7 @@ func TestApplyTurnUsesTheRealSnapshotAndATaskWorkFolder(t *testing.T) {
 	if err != nil || len(snap) == 0 {
 		t.Fatalf("no snapshot: %v", err)
 	}
-	if fi, _ := snap[0].Info(); fi.Mode().Perm() != 0o400 {
+	if fi, _ := snap[0].Info(); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o400 {
 		t.Errorf("snapshot file mode = %v, want read-only", fi.Mode().Perm())
 	}
 }

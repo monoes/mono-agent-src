@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Deleting a chat that left processes running.** Deleting a chat stops the processes its turns left running, and keeps the chat (exit 5, `survivors_remain`, the processes listed) when one cannot be stopped. That includes any process recorded before the turn's own marker was recorded: it cannot be shown to be the turn's, so it is reported and never signalled. Stop it yourself and delete again; deleting a chat that leads a mission, or has processes left running, is the operator's.
+
 - **Deleting a conversation revokes the agent tokens bound to it.** A scoped agent token bound to a task of the conversation (`agent-mode token create --task --conversation`) is revoked with the delete, and the API refuses a bound token for a cancelled task everywhere, reads included. The old holder of a cancelled task who tries to complete or fail it gets the bad-token answer (HTTP 403) instead of task-closed (409).
 - **Deleting a conversation revokes its AI task.** The task's token stops working, an open task is cancelled, and a cancelled task refuses its token everywhere, reads included; a late token or holder write cannot bring a closed task back. The old holder of a cancelled task who tries to complete or fail it now gets the bad-token answer (HTTP 403) instead of task-closed (409).
 - **Unknown subcommand is invalid input.** `monoagentcli task nosuch` used to exit 1 with a plain `{"error"}` under `--json`; like an unknown flag it now exits 3 with `"code":"invalid_input"`.

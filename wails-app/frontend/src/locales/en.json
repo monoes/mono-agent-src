@@ -1765,6 +1765,8 @@
       "saveFirst": "Save your edits first"
     },
     "refused": "Refused: {{error}}",
+    "showMore": "Show {{count}} more ({{left}} left)",
+    "showMoreIn": "Show {{count}} more cards in {{column}}",
     "emptyBy": {
       "inbox": "Highlight text in Chrome and choose MonoAgent, Add selection as task, or select text in any app: Services, Add to MonoAgent Tasks",
       "ready": "Approve tasks from Inbox so agents can pick them up"
@@ -1844,7 +1846,8 @@
       "listError": "Could not read sessions",
       "retry": "Retry",
       "planError": "Could not read the plan",
-      "planEmpty": "No tasks in this plan yet"
+      "planEmpty": "No tasks in this plan yet",
+      "planShowMore": "Show {{count}} more rows ({{left}} left)"
     }
   },
   "publication": {
@@ -2222,6 +2225,10 @@
     "deleted_other": "Deleted {{count}} chats.",
     "stillActive_one": "{{count}} chat was kept: it is still running. Stop its turn first.",
     "stillActive_other": "{{count}} chats were kept: they are still running. Stop their turns first.",
+    "keptRunning_one": "Not deleted: {{count}} process the chat left running is still running ({{names}}). Stop it, then delete the chat again.",
+    "keptRunning_other": "Not deleted: {{count}} processes the chat left running are still running ({{names}}). Stop them, then delete the chat again.",
+    "keptOperatorOnly_one": "{{count}} chat was kept: deleting it stops processes or a mission it started, which only the operator may do.",
+    "keptOperatorOnly_other": "{{count}} chats were kept: deleting them stops processes or missions they started, which only the operator may do.",
     "deleteFailed": "Could not delete {{count}}: {{message}}",
     "dismiss": "Dismiss",
     "mission": "Mission: {{state}}"

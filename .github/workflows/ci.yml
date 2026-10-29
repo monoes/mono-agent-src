@@ -300,7 +300,15 @@ jobs:
       fail-fast: false
       matrix:
         tags: [default, nosocial]
-        shard: [rest, '0', '1', '2', '3']
+        # TEMPORARY: for tags=default the single `rest` cell is split into
+        # r0..r3 (see the exclude/include below). Revert to restore it.
+        shard: [rest, r0, r1, r2, r3, '0', '1', '2', '3']
+        exclude:
+          - { tags: default, shard: rest }
+          - { tags: nosocial, shard: r0 }
+          - { tags: nosocial, shard: r1 }
+          - { tags: nosocial, shard: r2 }
+          - { tags: nosocial, shard: r3 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -324,6 +332,12 @@ jobs:
             if [ -n "$pkgs" ]; then go test -timeout 60m $tags $pkgs -race; fi
           elif [ "$SHARD" = rest ]; then
             go test -timeout 60m $tags $(go list $tags ./... | grep -v '/cmd/monoagentcli$') -race
+          elif [ "$SHARD" = r0 ]; then
+            go test -timeout 60m $tags ./internal/cli/chat -race
+          elif [ "${SHARD#r}" != "$SHARD" ]; then
+            i="${SHARD#r}"
+            pkgs="$(go list $tags ./... | grep -v '/cmd/monoagentcli$' | grep -vx 'github.com/monoes/mono-agent/internal/cli/chat' | awk -v s="$i" 'NR % 3 == s - 1')"
+            go test -timeout 60m $tags $pkgs -race
           else
             names="$(go test $tags ./cmd/monoagentcli -list '^(Test|Example)' | grep -E '^(Test|Example)' | awk -v s="$SHARD" 'NR % 4 == s' | paste -sd'|')"
             go test -timeout 35m $tags ./cmd/monoagentcli -race -run "^($names)$"

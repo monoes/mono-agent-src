@@ -295,25 +295,30 @@ type DeleteChatResult struct {
 	Deleted []string          `json:"deleted"`
 	Active  []string          `json:"active"`
 	Failed  map[string]string `json:"failed"`
+	// Kept ids were not deleted because the CLI declined (see DeleteKept): the survivors to name, or the
+	// operator it asks for.
+	Kept map[string]DeleteKept `json:"kept"`
 }
 
 // DeleteChatConversations deletes each conversation with the single delete,
 // so a turn that is running refuses exactly as DeleteChatConversation does.
 func (a *App) DeleteChatConversations(ids []string) (DeleteChatResult, error) {
-	res := DeleteChatResult{Deleted: []string{}, Active: []string{}, Failed: map[string]string{}}
+	res := DeleteChatResult{Deleted: []string{}, Active: []string{}, Failed: map[string]string{}, Kept: map[string]DeleteKept{}}
 	if err := a.signedOut(); err != nil {
 		return res, err
 	}
 	for _, id := range ids {
-		err := a.historyCLI(nil, "delete", id)
+		ans := a.historyDelete(id)
 		var ae *aitaskError
 		switch {
-		case err == nil:
+		case ans.Deleted:
 			res.Deleted = append(res.Deleted, id)
-		case errors.As(err, &ae) && strings.Contains(ae.msg, "active turn"):
+		case ans.Kept != nil:
+			res.Kept[id] = *ans.Kept
+		case errors.As(ans.Err, &ae) && strings.Contains(ae.msg, "active turn"):
 			res.Active = append(res.Active, id)
 		default:
-			res.Failed[id] = err.Error()
+			res.Failed[id] = ans.Err.Error()
 		}
 	}
 	return res, nil

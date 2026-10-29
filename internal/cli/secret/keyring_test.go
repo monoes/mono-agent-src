@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -46,6 +47,7 @@ func keyringTestHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE", "")
 	return home
 }
@@ -109,10 +111,10 @@ func TestSecretKeyring_FileBackendPassphraseLifecycle(t *testing.T) {
 	}
 	path := filepath.Join(home, ".monoagent", "keyring-passphrase")
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) { // Windows has no Unix modes
 		t.Fatalf("passphrase file: %v, %v (want mode 0600)", info, err)
 	}
-	if dir, _ := os.Stat(filepath.Dir(path)); dir.Mode().Perm() != 0o700 {
+	if dir, _ := os.Stat(filepath.Dir(path)); runtime.GOOS != "windows" && dir.Mode().Perm() != 0o700 {
 		t.Fatalf("~/.monoagent mode %o, want 700", dir.Mode().Perm())
 	}
 
