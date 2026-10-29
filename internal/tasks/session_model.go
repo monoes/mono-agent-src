@@ -140,6 +140,7 @@ type SessionUpdate struct {
 type SessionFilter struct {
 	State           SessionState // "" for every state
 	IncludeArchived bool
+	subtreeOf       int64 // when set, only this session and those below it, to HardMaxSessionDepth levels (the tree reads it)
 }
 
 // SessionTaskInput is a task added to a session. Acceptance is required.

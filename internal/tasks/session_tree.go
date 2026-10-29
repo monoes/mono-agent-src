@@ -166,7 +166,7 @@ func (s *Store) SessionTree(ctx context.Context, profileID string, includeArchiv
 	}
 	bound := actor.Session
 	actor.Session = 0
-	all, err := s.ListSessions(ctx, profileID, SessionFilter{IncludeArchived: includeArchived}, actor)
+	all, err := s.ListSessions(ctx, profileID, SessionFilter{IncludeArchived: includeArchived, subtreeOf: bound}, actor)
 	if err != nil {
 		return nil, err
 	}

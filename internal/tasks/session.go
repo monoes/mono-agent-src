@@ -399,6 +399,15 @@ func (s *Store) ListSessionsChecked(ctx context.Context, profileID string, f Ses
 		q += ` AND id = ?`
 		args = append(args, actor.Session)
 	}
+	if f.subtreeOf != 0 {
+		// UNION, not UNION ALL, and a depth cap: a hand-made cycle of parents cannot loop
+		q += ` AND id IN (WITH RECURSIVE sub(id, depth) AS (
+			SELECT id, 1 FROM task_sessions WHERE id = ? AND profile_id = ?
+			UNION
+			SELECT t.id, sub.depth + 1 FROM task_sessions t JOIN sub ON t.parent_session_id = sub.id
+			WHERE t.profile_id = ? AND sub.depth < ?) SELECT id FROM sub)`
+		args = append(args, f.subtreeOf, profileID, profileID, HardMaxSessionDepth)
+	}
 	q += ` ORDER BY id DESC`
 	out := []Session{}
 	var skipped []SessionSkip
