@@ -1141,7 +1141,7 @@ Deleting a conversation removes the host's log and prompt file of each of its tu
 attached files made in its folder. The delete itself touches no file: inside its transaction it lists them
 (from the database, with the device and inode the host recorded for each copy, and the identity of each
 log read just before the transaction) and stores the list as a signed row in `configs`
-(`file-cleanup/<profile>/<conversation>`). The row carries a MAC under a key derived from the profile's
+(`file-cleanup/<profile>/<conversation>/<nonce>`, one row per delete). The row carries a MAC under a key derived from the profile's
 vault key; `file-cleanup/` is a reserved config family that nothing but the delete writes; a row is run only
 if its MAC verifies and its conversation is really gone, and is removed only by its name and the exact data
 that was read. The files go after the commit (`chat history reconcile`, run at app startup, finishes a
@@ -1156,7 +1156,7 @@ Limits: the conversation's own folder is opened as it is (so a folder replaced b
 cannot make anything else go: only a file with a recorded identity does); the host's state folder under
 `~/.monoagent` is trusted; a mount beneath an opened folder is not detected; a process that can write the
 attachments folder and finds the unique name within the instant between the move and the unlink is not
-stopped; if the vault key is not available nothing is cleaned up and the files stay; copies made before their
+stopped; if the vault key is not available when the delete runs (or within ten seconds) nothing is recorded and the files stay, and if it is not available when a recorded cleanup runs the row is kept and tried again later (for a week); copies made before their
 identity was recorded, and every file on Windows, are left in place.
 
 ### Stopping the processes a coder turn left running

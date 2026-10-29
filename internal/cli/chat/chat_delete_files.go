@@ -80,8 +80,15 @@ func (in cleanupIntent) attachRoot() string {
 	return filepath.Join(in.Cwd, ".monoagent", "attachments")
 }
 
-func cleanupName(profileID, conversationID string) string {
-	return cleanupPrefix + profileID + "/" + conversationID
+// cleanupName is the name of one delete's row: every delete has a row of its own (the nonce), so a row
+// never overwrites another's.
+func cleanupName(profileID, conversationID, nonce string) string {
+	return cleanupConvPrefix(profileID, conversationID) + nonce
+}
+
+// cleanupConvPrefix starts the names of all the rows of one conversation.
+func cleanupConvPrefix(profileID, conversationID string) string {
+	return cleanupPrefix + profileID + "/" + conversationID + "/"
 }
 
 // splitCleanupName is the profile and the conversation a row name carries.
@@ -90,8 +97,11 @@ func splitCleanupName(name string) (profileID, conversationID string, ok bool) {
 	if !found {
 		return "", "", false
 	}
-	profileID, conversationID, found = strings.Cut(rest, "/")
-	return profileID, conversationID, found && profileID != "" && conversationID != ""
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 func cleanupMac(key []byte, name string, intent []byte) string {
@@ -205,7 +215,7 @@ func recordCleanup(ctx context.Context, conn *sql.Conn, profileID, conversationI
 	if len(in.Logs) == 0 && len(in.Copies) == 0 {
 		return nil
 	}
-	name := cleanupName(profileID, conversationID)
+	name := cleanupName(profileID, conversationID, in.Nonce)
 	intent, err := json.Marshal(in)
 	if err != nil {
 		return err
@@ -214,7 +224,7 @@ func recordCleanup(ctx context.Context, conn *sql.Conn, profileID, conversationI
 	if err != nil {
 		return err
 	}
-	_, err = conn.ExecContext(ctx, `INSERT OR REPLACE INTO configs (name, config_data, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, name, string(data))
+	_, err = conn.ExecContext(ctx, `INSERT INTO configs (name, config_data, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, name, string(data))
 	if err != nil {
 		return fmt.Errorf("recording the files to clean up: %w", err)
 	}
@@ -237,6 +247,9 @@ func queryStrings(ctx context.Context, conn *sql.Conn, q string, args ...any) ([
 	}
 	return out, rows.Err()
 }
+
+// statIdentity reads a file's device and inode; a seam for tests.
+var statIdentity = fileIdentity
 
 // Seams for tests.
 var (
@@ -296,6 +309,45 @@ func openPinnedSub(parent *os.Root, name, full string) (*os.Root, error) {
 	return r, nil
 }
 
+// tombstonePrefix starts the name a file is moved to before it is checked and unlinked.
+const tombstonePrefix = ".removing-"
+
+// removeLeftovers removes the files a crash left between the move and the unlink: entries named like a
+// tombstone, in the folders of the recorded files, that still are a recorded file (same device and
+// inode). Anything else with such a name is left alone.
+func removeLeftovers(root *os.Root, refs []fileRef, warn func(format string, a ...any)) {
+	type id struct{ dev, ino uint64 }
+	want := map[id]bool{}
+	dirs := map[string]bool{}
+	for _, r := range refs {
+		want[id{r.Dev, r.Ino}] = true
+		dirs[filepath.Dir(r.Rel)] = true
+	}
+	for d := range dirs {
+		f, err := root.Open(d)
+		if err != nil {
+			continue
+		}
+		entries, _ := f.ReadDir(-1)
+		f.Close()
+		for _, e := range entries {
+			if !strings.HasPrefix(e.Name(), tombstonePrefix) {
+				continue
+			}
+			rel := filepath.Join(d, e.Name())
+			fi, err := root.Lstat(rel)
+			if err != nil || !fi.Mode().IsRegular() {
+				continue
+			}
+			if dev, ino, ok := statIdentity(fi); ok && want[id{dev, ino}] {
+				if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					warn("could not remove %s: %v", rel, err)
+				}
+			}
+		}
+	}
+}
+
 // removeRecorded removes the file ref names inside root, if it still is the recorded file. The name is
 // not trusted between looking and unlinking, so the entry is first MOVED to a name nobody else knows,
 // and what was moved is checked there: only a regular file with the recorded device and inode is
@@ -309,7 +361,9 @@ func removeRecorded(root *os.Root, ref fileRef, warn func(format string, a ...an
 	if _, err := rand.Read(rb); err != nil {
 		return err
 	}
-	tomb := ref.Rel + ".removing-" + hex.EncodeToString(rb)
+	// A short name of its own in the same folder, whatever the file is called (a long name plus a suffix
+	// can pass the limit and fail for good).
+	tomb := filepath.Join(filepath.Dir(ref.Rel), tombstonePrefix+hex.EncodeToString(rb))
 	if err := root.Rename(ref.Rel, tomb); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -321,7 +375,7 @@ func removeRecorded(root *os.Root, ref fileRef, warn func(format string, a ...an
 	if err != nil {
 		return fmt.Errorf("could not look at what was moved from %s: %w", ref.Rel, err)
 	}
-	if dev, ino, ok := fileIdentity(fi); fi.Mode().IsRegular() && ok && dev == ref.Dev && ino == ref.Ino {
+	if dev, ino, ok := statIdentity(fi); fi.Mode().IsRegular() && ok && dev == ref.Dev && ino == ref.Ino {
 		if err := root.Remove(tomb); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("could not remove %s: %w", ref.Rel, err)
 		}
@@ -363,6 +417,7 @@ func (in cleanupIntent) run(logDir string, warn func(format string, a ...any)) e
 					fail(err)
 				}
 			}
+			removeLeftovers(root, in.Logs, warn)
 			root.Close()
 		}
 	}
@@ -404,6 +459,7 @@ func (in cleanupIntent) run(logDir string, warn func(format string, a ...any)) e
 			dirs[d] = true
 		}
 	}
+	removeLeftovers(root, in.Copies, warn)
 	for d := range dirs {
 		_ = root.Remove(d) // only while empty
 	}
@@ -416,21 +472,25 @@ func (in cleanupIntent) run(logDir string, warn func(format string, a ...any)) e
 // name AND the exact data that was read, so a row a newer delete wrote in between stays. A row whose
 // files could not all be dealt with is kept for another try for cleanupRetention. Safe to run twice.
 func runCleanups(ctx context.Context, db *sql.DB, logDir, name string, prefix bool, warn func(format string, a ...any)) error {
+	const age = `COALESCE(CAST(strftime('%s', 'now') AS INTEGER) - CAST(strftime('%s', created_at) AS INTEGER), 0)`
 	var rows *sql.Rows
 	var err error
 	if prefix {
-		rows, err = db.QueryContext(ctx, `SELECT name, config_data FROM configs WHERE substr(name, 1, length(?)) = ?`, name, name)
+		rows, err = db.QueryContext(ctx, `SELECT name, config_data, `+age+` FROM configs WHERE substr(name, 1, length(?)) = ?`, name, name)
 	} else {
-		rows, err = db.QueryContext(ctx, `SELECT name, config_data FROM configs WHERE name = ?`, name)
+		rows, err = db.QueryContext(ctx, `SELECT name, config_data, `+age+` FROM configs WHERE name = ?`, name)
 	}
 	if err != nil {
 		return err
 	}
-	type row struct{ name, data string }
+	type row struct {
+		name, data string
+		ageSeconds int64
+	}
 	var todo []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.name, &r.data); err != nil {
+		if err := rows.Scan(&r.name, &r.data, &r.ageSeconds); err != nil {
 			rows.Close()
 			return err
 		}
@@ -444,7 +504,15 @@ func runCleanups(ctx context.Context, db *sql.DB, logDir, name string, prefix bo
 	for _, r := range todo {
 		drop := true
 		if in, err := verifiedIntent(ctx, db, keys, r.name, r.data, warn); err != nil {
-			warn("a cleanup row was dropped: %v", err)
+			var retry errRetry
+			if errors.As(err, &retry) && time.Duration(r.ageSeconds)*time.Second < cleanupRetention {
+				// The machine could not say (the vault's key, the database): the row is kept, tried again
+				// later, and only given up on when it is old.
+				warn("a cleanup row is kept for another try: %v", err)
+				drop = false
+			} else {
+				warn("a cleanup row was dropped: %v", err)
+			}
 		} else if runErr := in.run(logDir, warn); runErr != nil {
 			if at, perr := time.Parse(time.RFC3339Nano, in.DeletedAt); perr == nil && time.Since(at) < cleanupRetention {
 				drop = false // kept: the next reconcile tries again
@@ -460,6 +528,39 @@ func runCleanups(ctx context.Context, db *sql.DB, logDir, name string, prefix bo
 	return nil
 }
 
+// deriveKey is the vault key derivation; a seam for tests.
+var deriveKey = secrets.DeriveKey
+
+// keyTimeout bounds how long getting the vault's key may take (a locked keychain can wait for a prompt).
+var keyTimeout = 10 * time.Second
+
+// deriveKeyWithin is secrets.DeriveKey that gives up after keyTimeout: the answer then is an error, and the
+// caller leaves things as they are.
+func deriveKeyWithin(ctx context.Context, db *sql.DB, profileID string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, keyTimeout)
+	defer cancel()
+	type result struct {
+		key []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		k, err := deriveKey(ctx, db, profileID, cleanupKeyPurpose)
+		done <- result{k, err}
+	}()
+	select {
+	case r := <-done:
+		return r.key, r.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("the vault's key was not had within %s: %w", keyTimeout, ctx.Err())
+	}
+}
+
+// errRetry marks a failure of the machine, not of the row: the row is kept and tried again later.
+type errRetry struct{ error }
+
+func (e errRetry) Unwrap() error { return e.error }
+
 // verifiedIntent is the row's intent if its MAC verifies and its conversation is gone.
 func verifiedIntent(ctx context.Context, db *sql.DB, keys map[string][]byte, name, data string, warn func(string, ...any)) (cleanupIntent, error) {
 	var in cleanupIntent
@@ -469,9 +570,9 @@ func verifiedIntent(ctx context.Context, db *sql.DB, keys map[string][]byte, nam
 	}
 	key, have := keys[profileID]
 	if !have {
-		k, err := secrets.DeriveKey(ctx, db, profileID, cleanupKeyPurpose)
+		k, err := deriveKeyWithin(ctx, db, profileID)
 		if err != nil {
-			return in, fmt.Errorf("its key could not be had: %w", err)
+			return in, errRetry{fmt.Errorf("its key could not be had: %w", err)}
 		}
 		key = k
 		keys[profileID] = k
@@ -485,7 +586,7 @@ func verifiedIntent(ctx context.Context, db *sql.DB, keys map[string][]byte, nam
 	}
 	var n int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&n); err != nil {
-		return in, err
+		return in, errRetry{err}
 	}
 	if n > 0 {
 		return in, errors.New("its conversation still exists")

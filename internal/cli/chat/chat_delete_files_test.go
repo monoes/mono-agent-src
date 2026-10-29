@@ -2,11 +2,13 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -436,7 +438,7 @@ func TestAnAgentsDeleteStillCleansUpFilesUnderTheWriteGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SaveConfig(cleanupName("default", c.ID), "{}"); err == nil {
+	if err := db.SaveConfig(cleanupName("default", c.ID, "x"), "{}"); err == nil {
 		t.Error("the guarded store path wrote a cleanup row for a non-operator")
 	}
 	db.Close()
@@ -467,7 +469,7 @@ func signedRow(t *testing.T, r *accessRig, profile, conv string, in cleanupInten
 	if in.Nonce == "" {
 		in.Nonce = "n-" + conv
 	}
-	name = cleanupName(profile, conv)
+	name = cleanupName(profile, conv, in.Nonce)
 	intent, _ := json.Marshal(in)
 	raw, _ := json.Marshal(envelope{Intent: intent, Mac: cleanupMac(key, name, intent)})
 	return name, string(raw)
@@ -640,7 +642,7 @@ func TestACleanupRunsOnlyItsOwnRow(t *testing.T) {
 	touchFile(t, log)
 	name, data := signedRow(t, r, "default", "c10", cleanupIntent{Logs: []fileRef{fileRefOf(t, log)}})
 	putRow(t, r, name, data)
-	sweep(t, r, cleanupName("default", "c1"), false)
+	sweep(t, r, cleanupConvPrefix("default", "c1"), true)
 	if !exists(log) {
 		t.Error("another conversation's cleanup row was run")
 	}
@@ -656,7 +658,7 @@ func TestASweepDoesNotRemoveANewerRow(t *testing.T) {
 	touchFile(t, log)
 	name, data := signedRow(t, r, "default", "c-new", cleanupIntent{Nonce: "old", Logs: []fileRef{fileRefOf(t, log)}})
 	putRow(t, r, name, data)
-	_, newer := signedRow(t, r, "default", "c-new", cleanupIntent{Nonce: "newer"})
+	_, newer := signedRow(t, r, "default", "c-new", cleanupIntent{Nonce: "old", DeletedAt: "later"}) // the same row name, other data
 	leafHook = func(stage string, _ *os.Root, _ string) {
 		if stage == "before" {
 			putRow(t, r, name, newer)
@@ -734,5 +736,204 @@ func TestANameTakenAfterTheMoveKeepsItsNewFile(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Dir(copyIn)); len(entries) != 1 {
 		t.Errorf("the folder holds %d entries, want just the newcomer", len(entries))
+	}
+}
+
+// F1: a failure to get the vault's key is the machine's, not the row's: the row is kept (and tried again at
+// the next reconcile) instead of being dropped with its files left for good; a bad signature still drops it.
+func TestACleanupRowIsKeptWhenTheKeyCannotBeHad(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	log := filepath.Join(hostDir(cfg), "turns", "t1.log")
+	touchFile(t, log)
+	name, data := signedRow(t, r, "default", "c-key", cleanupIntent{Logs: []fileRef{fileRefOf(t, log)}})
+	putRow(t, r, name, data)
+
+	old := deriveKey
+	deriveKey = func(context.Context, *sql.DB, string, string) ([]byte, error) {
+		return nil, errors.New("the keychain is locked")
+	}
+	sweep(t, r, name, false)
+	deriveKey = old
+	if _, still := rowData(t, r, name); !still {
+		t.Fatal("the row was dropped because the key could not be had")
+	}
+	if !exists(log) {
+		t.Fatal("a log was removed without the row being verified")
+	}
+	// The key is back: the same row runs and goes.
+	sweep(t, r, name, false)
+	if exists(log) {
+		t.Error("the row did not run once the key was back")
+	}
+	if _, still := rowData(t, r, name); still {
+		t.Error("the row was kept after it ran")
+	}
+}
+
+// F2: asking for the key does not hang the delete: it gives up after the timeout, and the files stay.
+func TestAKeyThatNeverComesDoesNotHangTheCleanup(t *testing.T) {
+	old, oldTimeout := deriveKey, keyTimeout
+	block := make(chan struct{})
+	deriveKey = func(ctx context.Context, _ *sql.DB, _ string, _ string) ([]byte, error) { <-block; return nil, nil }
+	keyTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { close(block); deriveKey, keyTimeout = old, oldTimeout })
+	start := time.Now()
+	r := newAccessRig(t, true)
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := deriveKeyWithin(context.Background(), db.DB, "default"); err == nil {
+		t.Fatal("an answer came from a key that never comes")
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("it took %s", d)
+	}
+}
+
+// F3: a crash between the move and the unlink leaves a tombstone: the next run removes it when it still is a
+// recorded file, and leaves one that is not.
+func TestALeftoverTombstoneIsRemovedByTheNextRun(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	dir := filepath.Join(c.Cwd, ".monoagent", "attachments", "t1")
+	copyIn := filepath.Join(dir, "report.txt")
+	touchFile(t, copyIn)
+	ref := fileRefOf(t, copyIn)
+	// The crash: the recorded file was moved to its tombstone name and nothing more happened. Another
+	// file with a tombstone-like name is not the recorded one.
+	left := filepath.Join(dir, tombstonePrefix+"deadbeefdeadbeef")
+	if err := os.Rename(copyIn, left); err != nil {
+		t.Fatal(err)
+	}
+	stranger := filepath.Join(dir, tombstonePrefix+"0123456789abcdef")
+	touchFile(t, stranger)
+	in := cleanupIntent{Cwd: c.Cwd, Copies: []fileRef{{Rel: filepath.Join("t1", "report.txt"), Dev: ref.Dev, Ino: ref.Ino}}}
+	if err := in.run(filepath.Join(hostDir(testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})), "turns"), func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if exists(left) {
+		t.Error("the leftover of the recorded file survived the run")
+	}
+	if !exists(stranger) {
+		t.Error("a file that is not the recorded one was removed for its name")
+	}
+}
+
+// F4: the tombstone name does not depend on the file's name: a name at the limit still works.
+func TestAFileNamedAtTheLimitIsRemoved(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	long := strings.Repeat("a", 250) + ".txt"
+	copyIn := filepath.Join(c.Cwd, ".monoagent", "attachments", "t1", long)
+	if err := os.MkdirAll(filepath.Dir(copyIn), 0o700); err != nil {
+		t.Skip(err)
+	}
+	if err := os.WriteFile(copyIn, []byte("x"), 0o600); err != nil {
+		t.Skip("the file system takes no name this long: " + err.Error())
+	}
+	recordStarted(t, r, c.ID, "t1", copyIn)
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if exists(copyIn) {
+		t.Error("a file with a name at the limit was not removed")
+	}
+}
+
+// F5: every delete has a row of its own: a second delete (an id used again, or a crash and a retry) does not
+// overwrite the first one's unrun row, and a run for the conversation runs all of them.
+func TestTwoDeletesOfOneIDKeepTheirRows(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logDir := filepath.Join(hostDir(cfg), "turns")
+	a, b := filepath.Join(logDir, "a.log"), filepath.Join(logDir, "b.log")
+	touchFile(t, a)
+	touchFile(t, b)
+	n1, d1 := signedRow(t, r, "default", "same-id", cleanupIntent{Nonce: "one", Logs: []fileRef{fileRefOf(t, a)}})
+	n2, d2 := signedRow(t, r, "default", "same-id", cleanupIntent{Nonce: "two", Logs: []fileRef{fileRefOf(t, b)}})
+	if n1 == n2 {
+		t.Fatal("two deletes got the same row name")
+	}
+	putRow(t, r, n1, d1)
+	putRow(t, r, n2, d2)
+	if _, ok := rowData(t, r, n1); !ok {
+		t.Fatal("the first row was overwritten")
+	}
+	sweep(t, r, cleanupConvPrefix("default", "same-id"), true)
+	if exists(a) || exists(b) {
+		t.Errorf("a run for the conversation left a file of one of its deletes: a %v, b %v", exists(a), exists(b))
+	}
+}
+
+// F6: a file whose device is not the recorded one is not removed, even with the right inode (and the other
+// way round): both halves of the identity count.
+func TestBothHalvesOfTheIdentityCount(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logDir := filepath.Join(hostDir(cfg), "turns")
+	warn := func(string, ...any) {}
+	for _, which := range []string{"device", "inode"} {
+		log := filepath.Join(logDir, which+".log")
+		touchFile(t, log)
+		ref := fileRefOf(t, log)
+		ref.Rel = which + ".log"
+		old := statIdentity
+		statIdentity = func(fi os.FileInfo) (uint64, uint64, bool) {
+			dev, ino, ok := old(fi)
+			if which == "device" {
+				dev++ // the same inode on another device
+			} else {
+				ino++ // the same device, another inode
+			}
+			return dev, ino, ok
+		}
+		in := cleanupIntent{DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), Logs: []fileRef{ref}}
+		if err := in.run(logDir, warn); err != nil {
+			t.Fatal(err)
+		}
+		statIdentity = old
+		if !exists(log) {
+			t.Errorf("a file with the recorded %s changed was removed", which)
+		}
+		if entries, _ := os.ReadDir(logDir); len(entries) != 1 {
+			t.Errorf("%s: %d entries in the folder, want just the log (a tombstone was left)", which, len(entries))
+		}
+		os.Remove(log)
+	}
+}
+
+// F7: only a regular file is removed: a link with the recorded identity (its own inode) is not.
+func TestOnlyARegularFileIsRemoved(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logDir := filepath.Join(hostDir(cfg), "turns")
+	target := filepath.Join(t.TempDir(), "target.log")
+	touchFile(t, target)
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(logDir, "t1.log")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("no symlinks: " + err.Error())
+	}
+	ref := fileRefOf(t, link) // the link's own identity
+	in := cleanupIntent{DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), Logs: []fileRef{ref}}
+	if err := in.run(logDir, func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Error("a link with the recorded identity was removed")
+	}
+	if !exists(target) {
+		t.Error("the link's target was removed")
 	}
 }

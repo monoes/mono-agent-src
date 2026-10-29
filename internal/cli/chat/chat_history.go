@@ -14,7 +14,6 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/dynorg"
-	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -303,7 +302,12 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			// The key that signs the cleanup row is had before the transaction (it can need the database).
 			var cleanupKey []byte
 			if db, err := cfg.OpenDB(); err == nil {
-				cleanupKey, _ = secrets.DeriveKey(cmd.Context(), db.DB, profileID, cleanupKeyPurpose)
+				var kerr error
+				cleanupKey, kerr = deriveKeyWithin(cmd.Context(), db.DB, profileID)
+				if kerr != nil {
+					// Not fatal: the delete goes on, and the files it would have cleaned up stay.
+					warnOnStderr("the conversation's files will be left in place: %v", kerr)
+				}
 				db.Close()
 			}
 			missions := 0
@@ -378,7 +382,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				if db, err := cfg.OpenDB(); err != nil {
 					warnOnStderr("could not clean up the conversation's files: %v", err)
 				} else {
-					if err := runCleanups(cmd.Context(), db.DB, filepath.Join(hostDir(cfg), "turns"), cleanupName(profileID, args[0]), false, warnOnStderr); err != nil {
+					if err := runCleanups(cmd.Context(), db.DB, filepath.Join(hostDir(cfg), "turns"), cleanupConvPrefix(profileID, args[0]), true, warnOnStderr); err != nil {
 						warnOnStderr("could not clean up the conversation's files: %v", err)
 					}
 					db.Close()
