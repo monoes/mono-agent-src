@@ -304,8 +304,10 @@ func resolveChatPathInfo(cwd, token string) ChatPathInfo {
 	return ChatPathInfo{Kind: "missing"} // fifo, device, socket: nothing to offer
 }
 
-// chatAfterResolve is a test hook run between resolving a path and opening it.
-var chatAfterResolve func()
+// chatAfterResolve and chatAfterOpen are test hooks: the first runs between
+// resolving a path and opening it, the second between opening it and
+// re-resolving it.
+var chatAfterResolve, chatAfterOpen func()
 
 // readChatMarkdown returns the text of a .md/.markdown/.txt regular file
 // inside cwd, at most maxChatPreviewBytes.
@@ -343,6 +345,9 @@ func readChatMarkdown(cwd, token string) (string, error) {
 	}
 	if !fi.Mode().IsRegular() {
 		return "", errors.New("not a regular file")
+	}
+	if chatAfterOpen != nil {
+		chatAfterOpen()
 	}
 	again, err := chatEvalSymlinks(p)
 	if err != nil || !insideDir(root, again) {
