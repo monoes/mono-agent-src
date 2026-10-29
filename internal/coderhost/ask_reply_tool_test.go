@@ -203,3 +203,31 @@ func TestASecondLeadIsRefusedAsNotTheAddresseeAndTheAskStaysOpen(t *testing.T) {
 		t.Fatalf("the addressee: %v", err)
 	}
 }
+
+// An ask is answered only while the ancestor is still ABOVE the asker's parent. When the asker is moved
+// so that the ancestor became its parent, or out of the ancestor's subtree, the addressed lead is refused,
+// the ask is void and nothing reaches the asker.
+func TestAReplyIsRefusedOnceTheAncestorIsNoLongerAboveTheAskersParent(t *testing.T) {
+	for name, parent := range map[string]func(f *askTree) int64{
+		"the ancestor became the asker's parent": func(f *askTree) int64 { return f.R.ID },
+		"the asker left the ancestor's subtree":  func(f *askTree) int64 { return f.X.ID },
+	} {
+		f := newAskTree(t)
+		got, err := f.st.AskAncestor(f.lead(f.cc), "p", AskRequest{Question: "q"})
+		if err != nil {
+			t.Fatal(name, err)
+		}
+		if _, err := f.st.db.Exec(`UPDATE task_sessions SET parent_session_id = ? WHERE id = ?`, parent(f), f.C.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.st.ReplyAsk(f.lead(f.rc), "p", got.AskID, "late"); !errors.Is(err, ErrNotOpen) {
+			t.Errorf("%s: want a void ask, got %v", name, err)
+		}
+		if st := f.askState(t, got.AskID); st != askVoid {
+			t.Errorf("%s: the ask is %s, want void", name, st)
+		}
+		if n := len(f.commandsTo(f.cc)); n != 0 {
+			t.Errorf("%s: %d notes reached the asker", name, n)
+		}
+	}
+}
