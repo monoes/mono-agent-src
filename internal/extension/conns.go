@@ -144,17 +144,28 @@ func (c *extConn) boundProfiles() []string {
 	return slices.Clone(c.profiles)
 }
 
+// write sends one text frame (a reply, an acknowledgement). The wait for the writer and the write
+// together are bounded by writerStallTimeout: a socket that does not take it is closed, which
+// releases whatever waits on the writer.
 func (c *extConn) write(data []byte) error {
+	stuck := time.AfterFunc(writerStallTimeout, func() { _ = c.ws.Close() })
+	defer stuck.Stop()
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	return c.ws.WriteMessage(websocket.TextMessage, data)
 }
 
 func (c *extConn) ping() error {
+	stuck := time.AfterFunc(writerStallTimeout, func() { _ = c.ws.Close() })
+	defer stuck.Stop()
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	return c.ws.WriteMessage(websocket.PingMessage, nil)
 }
+
+// writerStallTimeout bounds one reply, acknowledgement or ping, waiting for the writer included.
+// A command (deliveryWriteTimeout) is bounded more tightly, from the moment it is sent.
+const writerStallTimeout = 10 * time.Second
 
 func (c *extConn) info() ConnInfo {
 	c.mu.Lock()
@@ -227,7 +238,12 @@ func (s *Server) connList() []*extConn {
 //     is logged into their accounts;
 //   - neither: the newest unbound browser, else the newest browser, which
 //     is what an older client that sends no target always got.
-func (s *Server) resolve(t Target) (*extConn, error) {
+func (s *Server) resolve(t Target) (*extConn, error) { return s.resolveWith(t, false) }
+
+// resolveWith is resolve; admin lets an explicit instance through without the
+// allowed-set check, for the binding operations that manage the set itself
+// (their own profiles are checked where they are sent).
+func (s *Server) resolveWith(t Target, admin bool) (*extConn, error) {
 	conns := s.connList()
 	if len(conns) == 0 {
 		return nil, ErrNoExtension
@@ -235,14 +251,26 @@ func (s *Server) resolve(t Target) (*extConn, error) {
 	if t.Instance != "" {
 		for _, c := range conns {
 			if c.id == t.Instance {
+				if !admin && !pairedPolicies([]*extConn{c}).allows(c, t.Profile) {
+					return nil, fmt.Errorf("%w: browser %s may not serve profile %q", ErrProfileNotAllowed, c.id, t.Profile)
+				}
 				return c, nil
 			}
 		}
 		return nil, fmt.Errorf("%w: %s", ErrBrowserGone, t.Instance)
 	}
+	// A browser whose token is limited to some profiles serves only those:
+	// neither a bound match nor the default-browser fallback may reach a
+	// profile outside its set, and a profile-less command (which any account
+	// of a browser could answer) never goes to a limited browser.
+	policy := pairedPolicies(conns)
+	eligible := func(c *extConn) bool { return policy.allows(c, t.Profile) }
 	var unbound *extConn
 	var boundTo []string
 	for _, c := range conns {
+		if !eligible(c) {
+			continue
+		}
 		set := c.boundProfiles()
 		if t.Profile != "" && slices.Contains(set, t.Profile) {
 			return c, nil
@@ -259,7 +287,12 @@ func (s *Server) resolve(t Target) (*extConn, error) {
 		return unbound, nil
 	}
 	if t.Profile == "" {
-		return conns[0], nil
+		for _, c := range conns {
+			if eligible(c) {
+				return c, nil
+			}
+		}
+		return nil, fmt.Errorf("%w: every connected browser is limited to named profiles; name one", ErrNoExtension)
 	}
 	sort.Strings(boundTo)
 	return nil, &NoBrowserError{Profile: t.Profile, BoundTo: slices.Compact(boundTo)}

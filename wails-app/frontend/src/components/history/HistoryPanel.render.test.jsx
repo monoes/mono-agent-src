@@ -6,7 +6,7 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, cleanup, act, within } from '@testing-library/react'
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key, o) => (o && o.count != null ? `${key}:${o.count}` : o && o.title ? `${key}:${o.title}` : key) }),
+  useTranslation: () => ({ t: (key, o) => (o && o.names != null && key === 'history.keptRunning' ? `${key}:${o.count}:${o.names}` : o && o.count != null ? `${key}:${o.count}` : o && o.title ? `${key}:${o.title}` : key) }),
 }))
 
 const { listHistory, deleteChats, handlers, confirmMock, getOrgStatus } = vi.hoisted(() => ({
@@ -329,6 +329,28 @@ describe('HistoryPanel', () => {
       expect(confirmMock).toHaveBeenCalledWith('history.confirmDeleteBody:2', expect.objectContaining({ danger: true }))
       expect(await screen.findByText(/history.stillActive:1/)).toBeInTheDocument()
       expect(screen.queryByText('Chat c1')).toBeNull()
+      expect(screen.getByText('Chat c2')).toBeInTheDocument()
+    })
+
+    it('names the processes a delete could not stop, and says who may delete a chat that leads a mission', async () => {
+      confirmMock.mockResolvedValue(true)
+      deleteChats.mockResolvedValue({
+        deleted: [], active: [], failed: {},
+        kept: {
+          c1: { code: 'survivors_remain', message: 'not deleted', stopped: [], survivors: [{ pid: 4242, command: 'node server.js', reason: 'it outlived SIGKILL' }, { pid: 4243, command: 'sleep 600', reason: 'x' }] },
+          c2: { code: 'operator_only', message: 'only the operator', stopped: [], survivors: [] },
+        },
+      })
+      mount()
+      await open()
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'history.select:Chat c1' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'history.select:Chat c2' }))
+      fireEvent.click(screen.getByRole('button', { name: 'history.deleteSelected' }))
+      // two processes, named by command and pid; one chat that needs the operator
+      expect(await screen.findByText(/history.keptRunning:2:node server.js \(4242\), sleep 600 \(4243\)/)).toBeInTheDocument()
+      expect(screen.getByText(/history.keptOperatorOnly:1/)).toBeInTheDocument()
+      // nothing was removed from the list: both chats are still there
+      expect(screen.getByText('Chat c1')).toBeInTheDocument()
       expect(screen.getByText('Chat c2')).toBeInTheDocument()
     })
 
