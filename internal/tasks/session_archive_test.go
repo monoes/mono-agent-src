@@ -225,3 +225,16 @@ func TestCascadeDoesNotReturnTheChildsBudgetToTheParent(t *testing.T) {
 	}
 }
 
+
+func TestArchiveRefusalCleansTheTitlesItQuotes(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	root := mustSession(t, s, "default", "root")
+	c := child(t, s, "default", root.ID, "plain")
+	if _, err := s.db.Exec(`UPDATE task_sessions SET title = ? WHERE id = ?`, "bad\x1b[31m red‮ title\x00", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.ArchiveSession(bg, "default", root.ID, human)
+	if err == nil || strings.ContainsAny(err.Error(), "\x1b\x00‮") || strings.Contains(err.Error(), `\x`) || strings.Contains(err.Error(), `\u`) || !strings.Contains(err.Error(), "red") {
+		t.Fatalf("refusal: %q", err)
+	}
+}
