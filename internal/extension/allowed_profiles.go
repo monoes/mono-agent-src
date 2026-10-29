@@ -287,15 +287,19 @@ func (c *extConn) allowedNow(want []string) bool {
 // the moment it was chosen, and a narrowing made while it waited refuses it. A command already
 // written when the owner narrows the set is in flight and may complete; the second decision
 // notices it and drops the browser. The state lock is held only while ok reads the record, never
-// across the network write, and a write that does not finish within deliveryWriteTimeout closes the
-// socket, which releases whatever waits on the writer.
+// across the network write. The wait for the writer and the write together are bounded by
+// deliveryWriteTimeout from the moment the command is sent: a socket that has not taken it by then
+// is closed, which releases whatever waits on the writer, a stuck reply or ping included.
 func (c *extConn) checkedWrite(ok func() bool, data []byte) (sent bool, err error) {
+	// The bound starts before the wait for the writer: another writer stuck on a socket nobody
+	// reads would otherwise hold a command for as long as it likes.
+	stuck := time.AfterFunc(deliveryWriteTimeout, func() { _ = c.ws.Close() })
 	c.writeMu.Lock()
 	if !ok() {
 		c.writeMu.Unlock()
+		stuck.Stop()
 		return false, nil
 	}
-	stuck := time.AfterFunc(deliveryWriteTimeout, func() { _ = c.ws.Close() })
 	err = c.ws.WriteMessage(websocket.TextMessage, data)
 	stuck.Stop()
 	c.writeMu.Unlock()

@@ -989,8 +989,10 @@ against an agent running as you:
   and is checked again right after; a command already written may complete, and
   the second check then drops the browser. The state lock is not held across the
   network write, so a browser that stops reading cannot stall pairing or policy
-  changes for anyone (its socket is closed after two seconds, which releases the
-  writer). A change by the owner therefore takes effect for the next claim or
+  changes for anyone. The wait for the browser's writer is bounded too: a command
+  is refused and the socket is closed two seconds after it was sent, even when the
+  writer is held by a stuck reply or ping, which releases them (replies and pings
+  have a ten-second bound of their own). A change by the owner therefore takes effect for the next claim or
   command, including commands already queued behind another send. A
   `set_binding` acknowledged after the narrowing is not mirrored and the
   browser, which now holds a binding it may not, is disconnected. A connected

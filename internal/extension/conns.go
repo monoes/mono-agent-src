@@ -144,17 +144,28 @@ func (c *extConn) boundProfiles() []string {
 	return slices.Clone(c.profiles)
 }
 
+// write sends one text frame (a reply, an acknowledgement). The wait for the writer and the write
+// together are bounded by writerStallTimeout: a socket that does not take it is closed, which
+// releases whatever waits on the writer.
 func (c *extConn) write(data []byte) error {
+	stuck := time.AfterFunc(writerStallTimeout, func() { _ = c.ws.Close() })
+	defer stuck.Stop()
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	return c.ws.WriteMessage(websocket.TextMessage, data)
 }
 
 func (c *extConn) ping() error {
+	stuck := time.AfterFunc(writerStallTimeout, func() { _ = c.ws.Close() })
+	defer stuck.Stop()
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	return c.ws.WriteMessage(websocket.PingMessage, nil)
 }
+
+// writerStallTimeout bounds one reply, acknowledgement or ping, waiting for the writer included.
+// A command (deliveryWriteTimeout) is bounded more tightly, from the moment it is sent.
+const writerStallTimeout = 10 * time.Second
 
 func (c *extConn) info() ConnInfo {
 	c.mu.Lock()

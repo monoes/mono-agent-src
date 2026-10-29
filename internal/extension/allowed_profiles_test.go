@@ -617,3 +617,48 @@ func TestQueuedCommandsAreAuthorisedWhenTheyAreWritten(t *testing.T) {
 	}
 	expectSilence(t, conn, 300*time.Millisecond) // none was delivered
 }
+
+// The wait for the browser's writer is bounded too: when another writer on the connection (a reply,
+// an acknowledgement, a ping) is stuck on a socket nobody reads, a command waiting behind it is
+// refused within about two seconds and the socket is dropped, which also frees the stuck writer.
+func TestACommandWaitingBehindAStalledWriterIsBounded(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, _ := mintRestricted(t, instA, "p-a")
+	dialToken(t, wsURL, tok, instA, "p-a") // never read from again
+	waitBrowsers(t, srv, 1)
+	c := srv.connList()[0]
+
+	stuck := make(chan error, 1)
+	go func() { stuck <- c.write([]byte(strings.Repeat("x", 64<<20))) }() // a reply the browser does not read
+	time.Sleep(400 * time.Millisecond)                                    // it holds the writer now
+
+	start := time.Now()
+	errc := make(chan error, 1)
+	go func() {
+		_, err := srv.SendCommandTo(Target{Profile: "p-a"}, &Command{Type: CmdCreateTab}, 30*time.Second)
+		errc <- err
+	}()
+	select {
+	case err := <-errc:
+		if err == nil {
+			t.Fatal("a command behind a stalled writer reported success")
+		}
+		if d := time.Since(start); d > deliveryWriteTimeout+2*time.Second {
+			t.Fatalf("the command waited %s behind the stalled writer", d)
+		}
+	case <-time.After(deliveryWriteTimeout + 4*time.Second):
+		t.Fatal("a command waiting for the browser's writer was not bounded")
+	}
+	select {
+	case <-stuck:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stalled writer was not released when the socket was dropped")
+	}
+	deadline := time.Now().Add(time.Second)
+	for len(srv.Browsers()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the stalled browser stayed connected")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
