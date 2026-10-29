@@ -328,6 +328,8 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		return fmt.Errorf("delete mission confirmations: %w", err)
 	}
 	for _, q := range []string{
+		// A scoped agent token bound to a task of this conversation ends with it.
+		`UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE bound_conversation = ?1 AND profile_id = ?2 AND revoked_at IS NULL`,
 		`DELETE FROM coder_session_commands WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_decisions WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_questions WHERE conversation_id = ? AND profile_id = ?`,
@@ -335,6 +337,11 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
+		// Its AI task's token carries the conversation's privileges: it stops working, and a task still open is cancelled.
+		`UPDATE ai_tasks SET token_hash = '', holder_pid = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+			status = CASE WHEN status IN ('queued', 'running', 'needs_user') THEN 'cancelled' ELSE status END,
+			error = CASE WHEN status IN ('queued', 'running', 'needs_user') THEN 'the conversation was deleted' ELSE error END
+			WHERE conversation_id = ?1 AND profile_id = ?2`,
 		// A task a child session was running (or was about to run: its conversation is still pending) goes to "gone" (its lead learns that from the row); what the
 		// conversation led as a mission lead (audit rows, marks, policy) goes with it.
 		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', reserved_usd = 0, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE (child_conversation_id = ?1 OR pending_conversation_id = ?1) AND profile_id = ?2 AND state IN ('spawning', 'spawned')`,
@@ -343,6 +350,8 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		`DELETE FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
+		// The answers its questions were given.
+		`DELETE FROM ai_chat_answers WHERE conversation_id = ? AND profile_id = ?`,
 	} {
 		if _, err := conn.ExecContext(ctx, q, id, profileID); err != nil {
 			return fmt.Errorf("delete coder session: %w", err)

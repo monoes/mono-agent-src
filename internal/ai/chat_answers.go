@@ -20,13 +20,19 @@ func (s *AIStore) AddAnswer(profileID, conversationID, turnID, agentID, question
 	if profileID == "" {
 		return ErrProfileRequired
 	}
-	_, err := s.db.Exec(`INSERT INTO ai_chat_answers (profile_id, conversation_id, turn_id, agent_id, question_id, text, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, profileID, conversationID, turnID, agentID, questionID, text, nowRFC3339())
+	// One statement that holds only while the conversation exists, so an answer racing a delete
+	// either lands before it (and goes with it) or is refused, never left behind.
+	res, err := s.db.Exec(`INSERT INTO ai_chat_answers (profile_id, conversation_id, turn_id, agent_id, question_id, text, created_at)
+		SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ai_chat_conversations WHERE id = ? AND profile_id = ?)`,
+		profileID, conversationID, turnID, agentID, questionID, text, nowRFC3339(), conversationID, profileID)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 		return ErrAlreadyAnswered
 	}
 	if err != nil {
 		return fmt.Errorf("add answer: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrConversationNotFound
 	}
 	return nil
 }
