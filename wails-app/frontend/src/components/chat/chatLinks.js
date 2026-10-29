@@ -15,16 +15,31 @@ export function classifyUrl(href) {
   return { ok: true, url: u.href, host: u.host }
 }
 
+// asciiHost: the punycode form of a host-looking string, '' when it is not one.
+function asciiHost(h) {
+  try { return new URL('http://' + h).hostname.toLowerCase() } catch { return '' }
+}
+
+const DOMAIN_LIKE = /(?:[\p{L}\p{N}][\p{L}\p{N}-]*\.)+\p{L}[\p{L}\p{N}-]+/gu
+
 // disguisedHost: the host a link's visible text claims when that is not the
-// host it opens ('https://bank.com' written over a link to evil.test), else ''.
+// host it opens ('bank.com' written over a link to evil.test), else ''. Any
+// domain-like piece of the text counts, in any script, with other words
+// around it; so does a word that mixes ASCII and other letters (a lookalike
+// such as Cyrillic "а" in "bаnk"). Returned in its ASCII (punycode) form
+// where it is one, for display.
 export function disguisedHost(text, href) {
   const real = classifyUrl(href)
   if (!real.ok || typeof text !== 'string') return ''
-  const m = text.trim().match(/^(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?::\d+)?(?:[/?#]\S*)?$/i)
-  if (!m) return ''
-  const shown = m[1].toLowerCase()
   const actual = new URL(real.url).hostname.toLowerCase()
-  return shown === actual || actual.endsWith('.' + shown) ? '' : shown
+  for (const m of text.matchAll(DOMAIN_LIKE)) {
+    const shown = asciiHost(m[0])
+    if (shown && shown !== actual && !actual.endsWith('.' + shown)) return shown
+  }
+  for (const word of text.split(/[^\p{L}\p{N}]+/u)) {
+    if (/[A-Za-z]/.test(word) && /[^\x00-\x7f]/.test(word) && /\p{L}/u.test(word.replace(/[\x00-\x7f]/g, ''))) return asciiHost(word) || word
+  }
+  return ''
 }
 
 const EXTS = 'md|markdown|txt|go|js|jsx|ts|tsx|mjs|cjs|json|yaml|yml|toml|py|rs|sh|html|css|csv|log|png|jpg|jpeg|gif|svg|webp|pdf|sql|xml|ini|conf|mod|sum|lock|java|rb|c|h|cpp'

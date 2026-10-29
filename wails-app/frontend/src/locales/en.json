@@ -2237,6 +2237,7 @@
     "openInBrowser": "Open in browser",
     "blocked": "Link blocked: only http and https links open",
     "disguised": "The text says {{shown}} but this link opens {{host}}",
+    "opensHost": "Opens {{host}}",
     "previewHint": "Preview (Ctrl/Cmd-click to show in the file manager)",
     "revealHint": "Show in the file manager",
     "reveal": "Show in folder",

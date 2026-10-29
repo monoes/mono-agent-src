@@ -202,3 +202,21 @@ describe('pathological markdown', () => {
     expect(screen.getByText('shown as text')).toBeInTheDocument()
   })
 })
+
+describe('disguised links', () => {
+  it.each([
+    ['[**bank.com**](https://evil.test/x)', /bank\.com but this link opens evil\.test/],
+    ['[bаnk.com](https://evil.test/x)', /xn--.* but this link opens evil\.test/],
+    ['[bank.com login page](https://evil.test/x)', /bank\.com but this link opens evil\.test/],
+  ])('%s warns', (md, re) => {
+    mount(md)
+    expect(screen.getByTitle(re)).toHaveTextContent('(evil.test)')
+  })
+
+  it('shows the destination beside any text that is not the URL, and uses the canonical href', () => {
+    mount('[the report](HTTPS://Example.COM/a%20b)\n\n[https://example.com/ok](https://example.com/ok)')
+    const links = screen.getAllByRole('link')
+    expect(links[1]).toHaveAttribute('href', 'https://example.com/ok')
+    expect(screen.getAllByText(/\(example\.com\)/)).toHaveLength(1)
+  })
+})

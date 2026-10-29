@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState } from 'react'
+import { Children, createContext, isValidElement, useContext, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -26,6 +26,15 @@ function openApproved(url) {
 
 const InPre = createContext(false)
 
+// nodeText: the visible text of React children, nested elements included.
+function nodeText(node) {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(nodeText).join('')
+  if (isValidElement(node)) return nodeText(node.props.children)
+  return Children.toArray(node).map(nodeText).join('')
+}
+
 function MdLink({ href, children }) {
   const { t } = useTranslation()
   const c = classifyUrl(href)
@@ -36,16 +45,22 @@ function MdLink({ href, children }) {
       </span>
     )
   }
-  const text = typeof children === 'string' ? children : Array.isArray(children) && children.every((x) => typeof x === 'string') ? children.join('') : ''
+  const text = nodeText(children).trim()
   const fake = disguisedHost(text, href)
   const go = (e) => { e.preventDefault(); openApproved(href) }
+  // Whatever the text says, the destination host is shown beside it unless
+  // the text is the URL itself.
+  const showHost = text !== href && text !== c.url
   return (
     <>
-      <a href={href} title={`${t('chatLinks.openInBrowser')}: ${c.url}`} onClick={go} onAuxClick={go}
+      <a href={c.url} title={`${t('chatLinks.openInBrowser')}: ${c.url}`} onClick={go} onAuxClick={go}
         style={{ color: '#00b4d8', textDecoration: 'underline' }}>
         {children}
       </a>
-      {fake && <span style={{ color: '#f59e0b', fontSize: '0.9em' }} title={t('chatLinks.disguised', { shown: fake, host: c.host })}> ({c.host})</span>}
+      {showHost && (
+        <span style={{ color: fake ? '#f59e0b' : '#94a3b8', fontSize: '0.9em' }}
+          title={fake ? t('chatLinks.disguised', { shown: fake, host: c.host }) : t('chatLinks.opensHost', { host: c.host })}> ({c.host})</span>
+      )}
     </>
   )
 }

@@ -82,3 +82,20 @@ describe('network and device paths', () => {
     }
   })
 })
+
+describe('disguisedHost bypasses', () => {
+  const evil = 'https://evil.test/x'
+  it('sees a domain inside other words', () => {
+    expect(disguisedHost('log in at bank.com now', evil)).toBe('bank.com')
+    expect(disguisedHost('bank.com login', evil)).toBe('bank.com')
+  })
+  it('sees lookalike letters, shown in punycode', () => {
+    expect(disguisedHost('bаnk.com', evil)).toMatch(/^xn--/)
+    expect(disguisedHost('bаnk', evil)).toBe('bаnk')
+  })
+  it('leaves honest text alone', () => {
+    expect(disguisedHost('the report', evil)).toBe('')
+    expect(disguisedHost('docs on evil.test', evil)).toBe('')
+    expect(disguisedHost('日本語', evil)).toBe('')
+  })
+})
