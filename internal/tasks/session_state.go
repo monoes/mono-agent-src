@@ -232,7 +232,10 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 		maxTasks, maxDepth, maxRetries, budget, level, on, id); err != nil {
 		return fmt.Errorf("tasks: updating session #%d: %w", id, err)
 	}
-	return s.sessionEvent(ctx, x, id, actor, "limits", strings.Join(changed, ", "))
+	if err := s.sessionEvent(ctx, x, id, actor, "limits", strings.Join(changed, ", ")); err != nil {
+		return err
+	}
+	return s.clampChildren(ctx, x, id, actor)
 }
 
 // AddSessionSpend adds usd to what the session has spent. Only the operator's process

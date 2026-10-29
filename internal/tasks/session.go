@@ -312,6 +312,9 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 			if level, maxTasks, maxDepth, budget, err = withinParent(par, explicit, level, maxTasks, maxDepth, budget); err != nil {
 				return err
 			}
+			if budget, err = s.carveChild(ctx, x, par, budget); err != nil {
+				return err
+			}
 			parent = par.ID
 		}
 		stamp := s.stamp()
