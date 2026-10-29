@@ -138,6 +138,10 @@ export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
 
+export function AgentPurposes() {
+  return window['go']['main']['App']['AgentPurposes']();
+}
+
 export function AgentRoster() {
   return window['go']['main']['App']['AgentRoster']();
 }
@@ -1286,6 +1290,14 @@ export function RerecordSelector(arg1, arg2) {
   return window['go']['main']['App']['RerecordSelector'](arg1, arg2);
 }
 
+export function ResetAgentPurpose(arg1) {
+  return window['go']['main']['App']['ResetAgentPurpose'](arg1);
+}
+
+export function ResetAgentPurposes() {
+  return window['go']['main']['App']['ResetAgentPurposes']();
+}
+
 export function ResolveOrgChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ResolveOrgChat'](arg1, arg2, arg3, arg4);
 }
@@ -1408,6 +1420,10 @@ export function SendOrgMessage(arg1, arg2) {
 
 export function SetAITaskBudget(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetAITaskBudget'](arg1, arg2, arg3);
+}
+
+export function SetAgentPurpose(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['SetAgentPurpose'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function SetAgentRosterAutoRevalidate(arg1) {

@@ -72,6 +72,8 @@ export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:s
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function AgentPurposes():Promise<string>;
+
 export function AgentRoster():Promise<string>;
 
 export function AgentRosterAdd(arg1:string,arg2:string):Promise<string>;
@@ -645,6 +647,10 @@ export function RemoveProfileDocument(arg1:string,arg2:boolean):Promise<void>;
 
 export function RerecordSelector(arg1:string,arg2:string):Promise<string>;
 
+export function ResetAgentPurpose(arg1:string):Promise<string>;
+
+export function ResetAgentPurposes():Promise<string>;
+
 export function ResolveOrgChat(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<string>;
 
 export function RestoreAutomation(arg1:string):Promise<string>;
@@ -706,6 +712,8 @@ export function SendOrgChat(arg1:string,arg2:string):Promise<string>;
 export function SendOrgMessage(arg1:string,arg2:string):Promise<string>;
 
 export function SetAITaskBudget(arg1:string,arg2:string,arg3:number):Promise<string>;
+
+export function SetAgentPurpose(arg1:string,arg2:Array<string>,arg3:string,arg4:string,arg5:boolean,arg6:number,arg7:boolean):Promise<string>;
 
 export function SetAgentRosterAutoRevalidate(arg1:boolean):Promise<string>;
 
