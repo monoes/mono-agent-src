@@ -1785,8 +1785,13 @@ that works a task acts on them. The defences:
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
   code, never by a label or a flag) may start a session of kind `mission` or use the name `mission-lead`; sessions an
   agent named `mission-lead` before the refusal existed still read as missions, so check existing databases. A row
-  with a parent cycle or too deep a chain is left out of the list and named, not a failure of the whole list. A
-  session's
+  with a parent cycle or too deep a chain is left out of the list and named, not a failure of the whole list.
+  **The Mission toggle** (`coder sessions settings set --mission on|off`, the `mission`
+  setting) is the operator's: an agent, a master with a session token and `--patch` all get exit 3 (`operator_only`)
+  and nothing is stored. On, every turn of the chat is a confirmed mission (the toggle replaces the card's click, so it
+  is the same trust: the person's word); it needs coding access or more, and it stays on, and cannot be turned
+  off, while the chat has an open (draft, running or paused) mission session (only a session of kind `mission`
+  counts); if the store cannot say whether one is open, off is refused. A session's
   goal and a task's acceptance criteria are text an agent wrote and come back
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
   deleted with its profile. A session that has spent its budget hands out no tasks.
