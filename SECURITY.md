@@ -1718,7 +1718,8 @@ that works a task acts on them. The defences:
   and nothing is stored. On, every turn of the chat is a confirmed mission (the toggle replaces the card's click, so it
   is the same trust: the person's word); it needs coding access or more, and it stays on, and cannot be turned
   off, while the chat has an open (draft, running or paused) mission session; only a session of kind `mission` counts
-  (an agent cannot start one, nor use the planner's name `mission-lead`; old sessions the planner started count), and
+  (an agent cannot start one, nor use the planner's name `mission-lead`; old sessions the planner started count; so does a session an agent created under the name `mission-lead` before that
+  refusal existed, so operators check existing databases: `task session list --json` shows `created_by` for each), and
   if the store cannot say whether one is open, off is refused. A session's
   goal and a task's acceptance criteria are text an agent wrote and come back
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
