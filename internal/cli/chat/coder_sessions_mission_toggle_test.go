@@ -47,7 +47,7 @@ func (f toggleFixture) openMission(t *testing.T) int64 {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	se, err := tasks.NewStore(db.DB).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", Goal: "g", ConversationID: f.conv.ID}, tasks.Actor{Kind: tasks.Human})
+	se, err := tasks.NewStore(db.DB).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", Goal: "g", ConversationID: f.conv.ID, Kind: tasks.SessionKindMission}, tasks.Actor{Kind: tasks.Human})
 	if err != nil {
 		t.Fatal(err)
 	}

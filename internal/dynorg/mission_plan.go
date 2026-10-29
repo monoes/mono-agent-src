@@ -45,7 +45,7 @@ func (m *MissionConfig) Enabled() bool { return m != nil && m.Store != nil && Mi
 func (m *MissionConfig) Planning() bool { return m.Enabled() && m.Confirmed }
 
 func (m *MissionConfig) actor(session int64) tasks.Actor {
-	return tasks.Actor{Kind: tasks.Agent, Name: m.Actor, Session: session, Conversation: m.ConversationID}
+	return tasks.Actor{Kind: tasks.Agent, Name: m.Actor, Session: session, Conversation: m.ConversationID, MissionPlanner: true}
 }
 
 // round is how many review rounds the draft has had: the plan_revised events of the
@@ -62,15 +62,15 @@ func (m *MissionConfig) addRound(ctx context.Context, session int64, note string
 	return m.Store.AddSessionEvent(ctx, m.ProfileID, session, tasks.EventPlanRevised, note, m.actor(session))
 }
 
-// active is the open session of this conversation (draft, running or paused),
-// or nil: the store holds the link, so a new Conductor finds it again.
+// active is the open mission session of this conversation (draft, running or paused; a session
+// of another kind linked to the chat is not the mission), or nil: the store holds the link, so a new Conductor finds it again.
 func (m *MissionConfig) active(ctx context.Context) (*tasks.Session, error) {
 	list, err := m.Store.ListSessions(ctx, m.ProfileID, tasks.SessionFilter{}, m.actor(0))
 	if err != nil {
 		return nil, err
 	}
 	for _, se := range list { // newest first
-		if se.ConversationID != m.ConversationID {
+		if se.ConversationID != m.ConversationID || !tasks.IsMissionSession(se) {
 			continue
 		}
 		switch se.State {
@@ -119,7 +119,7 @@ func (m *MissionConfig) latest(ctx context.Context) (*tasks.Session, error) {
 		return nil, err
 	}
 	for _, se := range list {
-		if se.ConversationID == m.ConversationID {
+		if se.ConversationID == m.ConversationID && tasks.IsMissionSession(se) {
 			return &se, nil
 		}
 	}

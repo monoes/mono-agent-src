@@ -222,6 +222,9 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 	if !slices.Contains(SessionKinds, kind) {
 		return Session{}, invalid("unknown session kind %q (use %s)", echo(kind), strings.Join(SessionKinds, ", "))
 	}
+	if err := checkMissionKind(actor, kind); err != nil {
+		return Session{}, err
+	}
 	if in.ParentSessionID < 0 {
 		return Session{}, invalid("a parent session is an id above 0")
 	}
