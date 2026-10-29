@@ -16,6 +16,8 @@ type Store struct {
 	now func() time.Time
 	// checker validates commit evidence where git is available (SetEvidenceChecker).
 	checker EvidenceChecker
+	// approval reads the operator's approval settings and person items (SetApprovalSource); unset, an agent never approves.
+	approval ApprovalSource
 }
 
 // NewStore returns a Store over a migrated database.
