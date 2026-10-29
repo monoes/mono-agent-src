@@ -17,6 +17,7 @@ import (
 var operatorSites = map[string]string{
 	"mission_close.go: proposeClose":             "attaches the final report to the integration task (report artifacts of a done task are the operator's); the session is never closed here",
 	"mission_base.go: recordBase":                "the store reserves base (start point) artifacts for the operator's process",
+	"mission_exec.go: recordSpend":               "AddSessionSpend: only this process records a worker's cost",
 	"mission_integration.go: requeueIntegration": "an integration check that had begun goes back to Ready when the tree changed under it (Move out of Review or Done is the operator's)",
 	"mission_merges.go: recordBranch":            "the store reserves branch artifacts for the operator's process",
 	"mission_merges.go: recordMerge":             "the store reserves merge artifacts for the operator's process",

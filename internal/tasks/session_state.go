@@ -18,6 +18,15 @@ func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, 
 		if se.State != SessionDraft || se.Archived {
 			return sessionNotReady("session #%d is %s: only a draft is approved", id, se.State)
 		}
+		if se.ParentSessionID != 0 && se.BudgetUSD <= 0 {
+			par, err := s.sessionTx(ctx, x, profileID, se.ParentSessionID)
+			if err != nil {
+				return err
+			}
+			if par.BudgetUSD > 0 {
+				return limit("session #%d has no budget of its own and its parent #%d has $%.2f: set one first (task session budget %d --usd N, at most that)", id, par.ID, par.BudgetUSD, id)
+			}
+		}
 		ids, _, err := s.sessionColumn(ctx, x, id, StatusInbox)
 		if err != nil {
 			return err
@@ -308,8 +317,9 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 }
 
 // withinParentUpdate holds an update of a child to the rule its creation followed: what u raises may
-// not pass the parent's access, task cap or depth cap, and a budget may not go below what the child
-// is committed to, and (0, no cap, refused) must fit in what the parent has left plus what this child holds now.
+// not pass the parent's access, task cap or depth cap, and under a parent with a budget the child's
+// budget is above 0 (0 is no cap) and at most the parent's. Each child is checked by itself: the sum
+// of the children's budgets is not checked against the parent's.
 func (s *Store) withinParentUpdate(ctx context.Context, x dbx, se Session, u SessionUpdate) error {
 	par, err := s.sessionTx(ctx, x, se.ProfileID, se.ParentSessionID)
 	if err != nil {
@@ -324,32 +334,14 @@ func (s *Store) withinParentUpdate(ctx context.Context, x dbx, se Session, u Ses
 	if u.MaxDepth != nil && *u.MaxDepth > par.MaxDepth {
 		return limit("max depth %d is above the parent session #%d's %d", *u.MaxDepth, par.ID, par.MaxDepth)
 	}
-	if u.BudgetUSD == nil {
+	if u.BudgetUSD == nil || par.BudgetUSD <= 0 {
 		return nil
 	}
-	floor, err := commitmentOf(ctx, x, se)
-	if err != nil {
-		return err
+	if *u.BudgetUSD == 0 {
+		return limit("budget $0.00 (no cap) is refused under the parent session #%d's $%.2f: name an amount of at most that", par.ID, par.BudgetUSD)
 	}
-	if *u.BudgetUSD > 0 && *u.BudgetUSD < floor-1e-9 {
-		return limit("budget $%.2f is below what session #%d is committed to ($%.2f: its spend, what its running workers were issued and what its children hold)", *u.BudgetUSD, se.ID, floor)
-	}
-	if (*u.BudgetUSD == 0 || *u.BudgetUSD > se.BudgetUSD) && !isOpen(par.State) {
-		return limit("session #%d is %s: the budget of its child #%d is not raised (its hold on its own parent would grow unchecked)", par.ID, closedWord(par), se.ID)
-	}
-	if par.BudgetUSD <= 0 {
-		return nil
-	}
-	left, _, err := sessionLeft(ctx, x, par)
-	if err != nil {
-		return err
-	}
-	own, err := heldOfSession(ctx, x, se)
-	if err != nil {
-		return err
-	}
-	if room := left + own; *u.BudgetUSD == 0 || *u.BudgetUSD > room+1e-9 {
-		return limit("budget $%.2f is above what the parent session #%d has room for ($%.2f of its $%.2f; 0, no cap, is refused under a budget)", *u.BudgetUSD, par.ID, max(room, 0), par.BudgetUSD)
+	if *u.BudgetUSD > par.BudgetUSD {
+		return limit("budget $%.2f is above the parent session #%d's $%.2f", *u.BudgetUSD, par.ID, par.BudgetUSD)
 	}
 	return nil
 }
@@ -375,18 +367,10 @@ func (s *Store) applySpend(ctx context.Context, x dbx, id int64, usd float64, no
 	return s.sessionEvent(ctx, x, id, actor, "spend", fmt.Sprintf("$%.4f %s", usd, note))
 }
 
-// overBudget refuses work on a session that has used its budget (0: none set): what it spent itself,
-// what its running workers were issued and what its children hold of it, since the budget covers all.
-func overBudget(ctx context.Context, x dbx, se Session) error {
-	if se.BudgetUSD <= 0 {
-		return nil
-	}
-	left, held, err := sessionLeft(ctx, x, se)
-	if err != nil {
-		return err
-	}
-	if left <= 0 {
-		return limit("session #%d has used its budget ($%.2f spent, $%.2f reserved by running workers and $%.2f held by its children of $%.2f): the operator raises it", se.ID, se.SpentUSD, se.ReservedUSD, held, se.BudgetUSD)
+// overBudget refuses work on a session that has spent its budget (0: none set).
+func overBudget(se Session) error {
+	if se.BudgetUSD > 0 && se.SpentUSD >= se.BudgetUSD {
+		return limit("session #%d has spent its budget ($%.2f of $%.2f): the operator raises it", se.ID, se.SpentUSD, se.BudgetUSD)
 	}
 	return nil
 }

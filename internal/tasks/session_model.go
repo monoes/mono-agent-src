@@ -73,7 +73,6 @@ type Session struct {
 	AccessLevel       string        `json:"access_level"`
 	BudgetUSD         float64       `json:"budget_usd"` // 0: no budget set
 	SpentUSD          float64       `json:"spent_usd"`
-	ReservedUSD       float64       `json:"reserved_usd"` // issued to running workers, not yet settled
 	MaxTasks          int           `json:"max_tasks"`
 	MaxDepth          int           `json:"max_depth"`
 	MaxRetries        int           `json:"max_retries"`

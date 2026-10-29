@@ -13,7 +13,7 @@ func TestClientIDDedupeStaysInTheCallersSubtree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, lead := carveParent(t, s, 0)
+	p, lead := treeParent(t, s, 0)
 	in := SessionInput{Title: "kid", ParentSessionID: p.ID, ClientID: "key1", Kind: SessionKindResearch}
 	got, err := s.CreateSession(bg, "default", in, lead)
 	if !errors.Is(err, ErrInvalid) || got.ID == secret.ID || got.Goal != "" {

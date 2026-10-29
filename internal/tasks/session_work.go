@@ -54,11 +54,11 @@ func (s *Store) pickSessionNext(ctx context.Context, x dbx, session int64, now t
 }
 
 // runnable refuses work on a session that does not run, or has spent its budget.
-func runnable(ctx context.Context, x dbx, se Session) error {
+func runnable(se Session) error {
 	if se.State != SessionRunning || se.Archived {
 		return sessionNotReady("session #%d is %s: only a running session hands out tasks", se.ID, closedWord(se))
 	}
-	return overBudget(ctx, x, se)
+	return overBudget(se)
 }
 
 // SessionNext returns the task an agent should work next in a session: a Ready task whose
@@ -104,7 +104,7 @@ func (s *Store) SessionNext(ctx context.Context, profileID string, sessionID int
 		if se.State != SessionRunning || se.Archived {
 			return nil
 		}
-		if err := overBudget(ctx, x, se); err != nil {
+		if err := overBudget(se); err != nil {
 			return err
 		}
 		now := s.now().UTC()
@@ -143,7 +143,7 @@ func (s *Store) SessionClaim(ctx context.Context, profileID string, sessionID, i
 		if err != nil {
 			return err
 		}
-		if err := runnable(ctx, x, se); err != nil {
+		if err := runnable(se); err != nil {
 			return err
 		}
 		var n int

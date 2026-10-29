@@ -213,13 +213,6 @@ func (c *Conductor) missionReconcile(ctx context.Context, sid int64) {
 	if err != nil {
 		return
 	}
-	if len(c.runningTasks(sid)) == 0 {
-		// No worker of this Conductor runs in the session, so no reservation is live: one a crashed or
-		// cancelled worker (or a dead process) never settled is given back.
-		if err := mc.Store.ReleaseReserved(ctx, mc.ProfileID, sid); err != nil {
-			c.notice("mission.spend", fmt.Sprintf("The reservations of session #%d could not be released: %v", sid, err), chatevents.SeverityWarning)
-		}
-	}
 	held, err := mc.Store.SessionTasks(ctx, mc.ProfileID, sid, tasks.Filter{Statuses: []tasks.Status{tasks.StatusInProgress}, Limit: 500}, missionActor())
 	if err != nil {
 		return

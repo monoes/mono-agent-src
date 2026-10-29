@@ -20,7 +20,7 @@ import (
 
 const sessionCols = `id, profile_id, conversation_id, title, goal, state, access_level, budget_usd, spent_usd, max_tasks, max_depth,
 	max_retries, auto_close_verified, created_by, approved_by, approved_at, archived_at, created_at, updated_at, client_id,
-	parent_session_id, kind, approval_basis, reserved_usd`
+	parent_session_id, kind, approval_basis`
 
 func (s *Store) scanSession(row rowScanner) (Session, error) {
 	var se Session
@@ -29,7 +29,7 @@ func (s *Store) scanSession(row rowScanner) (Session, error) {
 	var state, approvedAt, archivedAt, created, updated string
 	var auto int
 	if err := row.Scan(&se.ID, &se.ProfileID, &conv, &se.Title, &se.Goal, &state, &se.AccessLevel, &se.BudgetUSD, &se.SpentUSD,
-		&se.MaxTasks, &se.MaxDepth, &se.MaxRetries, &auto, &se.CreatedBy, &se.ApprovedBy, &approvedAt, &archivedAt, &created, &updated, &cid, &parent, &se.Kind, &se.ApprovalBasis, &se.ReservedUSD); err != nil {
+		&se.MaxTasks, &se.MaxDepth, &se.MaxRetries, &auto, &se.CreatedBy, &se.ApprovedBy, &approvedAt, &archivedAt, &created, &updated, &cid, &parent, &se.Kind, &se.ApprovalBasis); err != nil {
 		return Session{}, err
 	}
 	se.ClientID, se.ParentSessionID = cid.String, parent.Int64
@@ -205,10 +205,14 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 		if err := agentMayStart(actor, in.ParentSessionID); err != nil {
 			return Session{}, err
 		}
-		// Below a parent an agent may ask for a lower task cap and a budget: withinParent refuses anything above the
-		// parent's, so this can only narrow. The access level and the depth cap stay the operator's.
-		if in.AccessLevel != "" || in.MaxDepth != 0 || (in.ParentSessionID == 0 && (in.BudgetUSD != 0 || in.MaxTasks != 0)) {
-			return Session{}, operatorOnly("set a session's access level, budget or caps")
+		// A budget is the operator's to set, at every level of the tree. Below a parent an agent may ask for a
+		// lower task cap: withinParent refuses anything above the parent's, so this can only narrow. The access
+		// level and the depth cap stay the operator's.
+		if in.BudgetUSD != 0 {
+			return Session{}, operatorOnly("set a session's budget: the operator sets it (task session budget ID --usd N)")
+		}
+		if in.AccessLevel != "" || in.MaxDepth != 0 || (in.ParentSessionID == 0 && in.MaxTasks != 0) {
+			return Session{}, operatorOnly("set a session's access level or caps")
 		}
 	default:
 		return Session{}, operatorOnly("start a session")
@@ -314,7 +318,7 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 			if level, maxTasks, maxDepth, budget, err = withinParent(par, explicit, level, maxTasks, maxDepth, budget); err != nil {
 				return err
 			}
-			if budget, err = s.carveChild(ctx, x, par, budget, actor); err != nil {
+			if err := s.checkChildFence(ctx, x, par, actor); err != nil {
 				return err
 			}
 			parent = par.ID

@@ -23,7 +23,7 @@ func (s *Store) SessionReady(ctx context.Context, profileID string, sessionID in
 		if err != nil {
 			return err
 		}
-		if runnable(ctx, x, se) != nil {
+		if runnable(se) != nil {
 			return nil
 		}
 		ids, err := s.idsOf(ctx, x, `SELECT id FROM tasks WHERE `+readyInSession+` ORDER BY position, id`, sessionID, MaxEventsToClaim)

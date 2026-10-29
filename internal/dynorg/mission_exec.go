@@ -271,7 +271,7 @@ func (c *Conductor) missionFinish(w *worker, outcome, report, errText string) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 15*time.Second)
 	defer cancel()
-	c.settleReserve(ctx, mc, w)
+	c.recordSpend(ctx, mc, w)
 	if b.verifier {
 		c.removeVerifierTree(w)
 		c.verifierFinished(ctx, mc, w, outcome, errText)
@@ -394,7 +394,7 @@ func (c *Conductor) chargeSession(w *worker) {
 
 // recordSpend adds what the worker cost since the last time to the session, and says
 // whether it added anything. Only this process records spend: a worker could otherwise hide
-// its cost (the store takes it only through SettleSpend, which this process alone calls).
+// its cost.
 func (c *Conductor) recordSpend(ctx context.Context, mc *MissionRun, w *worker) bool {
 	// Hold only this worker's accounting lock across persistence. Advancing
 	// spent before the write commits would lose a failed charge permanently;
@@ -409,13 +409,11 @@ func (c *Conductor) recordSpend(ctx context.Context, mc *MissionRun, w *worker) 
 		return false
 	}
 	note := fmt.Sprintf("%s on task #%d", w.id, w.task.task.ID)
-	// The cost settles against the reservation first; any part above it is recorded as it happened.
-	if err := mc.Store.SettleSpend(ctx, mc.ProfileID, w.task.session, min(delta, w.task.reserved), delta, note); err != nil {
+	if _, err := mc.Store.AddSessionSpend(ctx, mc.ProfileID, w.task.session, delta, note, operatorActor()); err != nil {
 		w.task.spendMu.Unlock()
 		c.notice("mission.spend", fmt.Sprintf("The cost of %s ($%.4f) could not be added to the session: %v", w.id, delta, err), chatevents.SeverityWarning)
 		return false
 	}
-	w.task.reserved = max(w.task.reserved-delta, 0)
 	w.task.spent = cost
 	w.task.spendMu.Unlock()
 	return true

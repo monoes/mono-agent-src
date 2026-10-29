@@ -96,7 +96,7 @@ func withinParent(par Session, asked SessionInput, level string, maxTasks, maxDe
 	if par.BudgetUSD > 0 && budget > par.BudgetUSD {
 		return "", 0, 0, 0, limit("budget %s is above the parent session #%d's %s", fmt.Sprintf("$%.2f", budget), par.ID, fmt.Sprintf("$%.2f", par.BudgetUSD))
 	}
-	// An unset budget is settled by carveChild, which knows what the parent has left.
+	// An unset budget stays unset: the operator sets it, and approving the child asks for it under a budgeted parent.
 	return level, maxTasks, maxDepth, budget, nil
 }
 

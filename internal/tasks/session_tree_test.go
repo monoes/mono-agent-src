@@ -100,9 +100,9 @@ func TestSessionChildNeverExceedsParent(t *testing.T) {
 	if n := sessionRows(t, s, "default"); n != 1 {
 		t.Fatalf("refusals left %d rows", n)
 	}
-	// Unset caps are taken from the parent (the lower of default and parent), an unset budget is half of what the parent has left; explicit ones within it pass.
+	// Unset caps are taken from the parent (the lower of default and parent), an unset budget stays unset; explicit ones within the parent's pass.
 	c, err := s.CreateSession(bg, "default", SessionInput{Title: "c", ParentSessionID: par.ID}, human)
-	if err != nil || c.BudgetUSD != 5 || c.MaxTasks != 30 || c.MaxDepth != 2 || c.AccessLevel != "scoped" {
+	if err != nil || c.BudgetUSD != 0 || c.MaxTasks != 30 || c.MaxDepth != 2 || c.AccessLevel != "scoped" {
 		t.Fatalf("inherited: %+v %v", c, err)
 	}
 	c, err = s.CreateSession(bg, "default", SessionInput{Title: "c2", ParentSessionID: par.ID, AccessLevel: "coding", BudgetUSD: 4, MaxTasks: 5}, human)
@@ -229,15 +229,15 @@ func TestAnAgentBelowAParentMayNarrowTheCapsButNeverRaiseThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	lead := Actor{Kind: Agent, Name: "lead-a", Session: par.ID}
-	ok, err := s.CreateSession(bg, "default", SessionInput{Title: "c", ParentSessionID: par.ID, MaxTasks: 25, BudgetUSD: 2}, lead)
-	if err != nil || ok.MaxTasks != 25 || ok.BudgetUSD != 2 {
+	ok, err := s.CreateSession(bg, "default", SessionInput{Title: "c", ParentSessionID: par.ID, MaxTasks: 25}, lead)
+	if err != nil || ok.MaxTasks != 25 || ok.BudgetUSD != 0 {
 		t.Fatalf("narrowed = %+v, %v", ok, err)
 	}
 	for name, in := range map[string]SessionInput{
-		"more tasks":  {Title: "c", ParentSessionID: par.ID, MaxTasks: 51},
-		"more budget": {Title: "c", ParentSessionID: par.ID, BudgetUSD: 11},
-		"depth":       {Title: "c", ParentSessionID: par.ID, MaxDepth: 1},
-		"access":      {Title: "c", ParentSessionID: par.ID, AccessLevel: "read"},
+		"more tasks": {Title: "c", ParentSessionID: par.ID, MaxTasks: 51},
+		"a budget":   {Title: "c", ParentSessionID: par.ID, BudgetUSD: 1},
+		"depth":      {Title: "c", ParentSessionID: par.ID, MaxDepth: 1},
+		"access":     {Title: "c", ParentSessionID: par.ID, AccessLevel: "read"},
 	} {
 		if _, err := s.CreateSession(bg, "default", in, lead); err == nil {
 			t.Errorf("%s was accepted", name)
