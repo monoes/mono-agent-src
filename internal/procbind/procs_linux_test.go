@@ -5,6 +5,7 @@ package procbind
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -221,4 +222,69 @@ func TestPidfdHandleCloseIsIdempotentAndFinal(t *testing.T) {
 	if _, err := h.Pid(); err == nil {
 		t.Error("a closed handle still read a number")
 	}
+}
+
+func TestProcfsNamespaceCheck(t *testing.T) {
+	const self = 4242
+	status := func(nspid string) []byte {
+		return []byte("Name:\tx\nPid:\t4242\nPPid:\t1\n" + nspid + "VmPeak:\t1 kB\n")
+	}
+	for name, c := range map[string]struct {
+		status []byte
+		link   string
+		ok     bool
+	}{
+		"own namespace":                         {status("NSpid:\t4242\n"), "4242", true},
+		"procfs from an ancestor namespace":     {status("NSpid:\t4242\t1\n"), "4242", false}, // same number by coincidence
+		"two levels up":                         {status("NSpid:\t77\t4242\t9\n"), "4242", false},
+		"no NSpid line (kernel before 4.1)":     {status(""), "4242", false},
+		"NSpid disagrees with the process":      {status("NSpid:\t999\n"), "4242", false},
+		"self link names another process":       {status("NSpid:\t4242\n"), "999", false},
+		"garbage NSpid":                         {status("NSpid:\tabc\n"), "4242", false},
+		"empty NSpid":                           {status("NSpid:\n"), "4242", false},
+		"NSpid in a longer unrelated line name": {[]byte("XNSpid:\t4242\n"), "4242", false},
+	} {
+		err := checkProcfsNamespace(c.status, c.link, self)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok=%v", name, err, c.ok)
+		}
+	}
+}
+
+// A child in a new pid namespace that still sees the parent's /proc must be refused; one that
+// mounted its own procfs is accepted. Needs unprivileged user namespaces; skipped otherwise.
+func TestNewLinuxProcsInARealNestedNamespace(t *testing.T) {
+	if _, err := exec.LookPath("unshare"); err != nil {
+		t.Skip("unshare not available")
+	}
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command("unshare", append([]string{"--user", "--map-root-user", "--pid", "--fork"}, args...)...)
+		cmd.Env = append(os.Environ(), "PROCBIND_NS_HELPER=1")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	// control: can this machine make the namespace at all?
+	if out, err := run("true"); err != nil {
+		t.Skipf("cannot create a pid namespace here: %v %s", err, out)
+	}
+	helper := []string{os.Args[0], "-test.run=^TestNestedNamespaceHelper$"}
+	out, err := run(helper...)
+	if err != nil || !strings.Contains(out, "RESULT=refused") {
+		t.Errorf("a child that sees the parent's /proc: %v\n%s", err, out)
+	}
+	out, err = run(append([]string{"--mount", "--mount-proc"}, helper...)...)
+	if err != nil || !strings.Contains(out, "RESULT=ok") {
+		t.Errorf("a child with its own procfs: %v\n%s", err, out)
+	}
+}
+
+func TestNestedNamespaceHelper(t *testing.T) {
+	if os.Getenv("PROCBIND_NS_HELPER") != "1" {
+		t.Skip("helper process only")
+	}
+	if _, err := NewLinuxProcs(); err != nil {
+		fmt.Println("RESULT=refused")
+		return
+	}
+	fmt.Println("RESULT=ok")
 }
