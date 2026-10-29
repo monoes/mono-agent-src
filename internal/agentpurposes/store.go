@@ -49,13 +49,15 @@ func (s Store) Load(purposeID string) (Loaded, error) {
 // statement): a change made while it runs, such as moving a model from one
 // purpose to another, is seen whole or not at all.
 func (s Store) LoadAll() (map[string]Loaded, error) {
-	rows, err := s.DB.ConfigsByPrefix(s.name(""))
+	rows, err := s.DB.ListConfigs() // one statement
 	if err != nil {
 		return nil, err
 	}
-	stored := make(map[string]string, len(rows))
+	stored := make(map[string]string, len(builtins))
 	for _, r := range rows {
-		stored[r.Name] = r.ConfigData
+		if strings.HasPrefix(r.Name, s.name("")) {
+			stored[r.Name] = r.ConfigData
+		}
 	}
 	out := make(map[string]Loaded, len(builtins))
 	for _, p := range builtins {

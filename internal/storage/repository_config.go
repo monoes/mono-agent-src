@@ -158,26 +158,6 @@ func (d *Database) ListConfigs() ([]*ConfigEntry, error) {
 	return configs, rows.Err()
 }
 
-// ConfigsByPrefix returns the entries whose name starts with prefix, read by
-// one statement so they come from a single snapshot.
-func (d *Database) ConfigsByPrefix(prefix string) ([]*ConfigEntry, error) {
-	rows, err := d.DB.Query(`SELECT name, config_data, created_at, updated_at FROM configs
-		WHERE substr(name, 1, ?) = ? ORDER BY name ASC`, len(prefix), prefix)
-	if err != nil {
-		return nil, fmt.Errorf("listing configs %s*: %w", prefix, err)
-	}
-	defer rows.Close()
-	var configs []*ConfigEntry
-	for rows.Next() {
-		c := &ConfigEntry{}
-		if err := rows.Scan(&c.Name, &c.ConfigData, &c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scanning config row: %w", err)
-		}
-		configs = append(configs, c)
-	}
-	return configs, rows.Err()
-}
-
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
