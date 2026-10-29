@@ -324,6 +324,8 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		`DELETE FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
+		// The answers its questions were given.
+		`DELETE FROM ai_chat_answers WHERE conversation_id = ? AND profile_id = ?`,
 	} {
 		if _, err := conn.ExecContext(ctx, q, id, profileID); err != nil {
 			return fmt.Errorf("delete coder session: %w", err)
