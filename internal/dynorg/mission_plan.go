@@ -31,6 +31,9 @@ type MissionConfig struct {
 	// Confirmed: the user confirmed a mission with one click (D2). Without it
 	// the lead can only propose.
 	Confirmed bool
+	// MaxDirections is the operator's K for mission_evaluate (the coder setting mission_directions);
+	// 0 is the default of 3.
+	MaxDirections int
 }
 
 // MissionAccess says whether an access level may run missions: coding and up.

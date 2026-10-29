@@ -250,6 +250,8 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 	case ToolMissionFinish:
 		return c.handleMissionFinish(ctx, args)
 	// --- end of mission verification and closing tools ---
+	case ToolMissionEvaluate, ToolMissionReevaluate:
+		return c.handleMissionEvaluate(ctx, name, args)
 	case ToolMerge:
 		var a struct {
 			AgentID string `json:"agent_id"`
