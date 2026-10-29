@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bubbleKeyOf, liveStatus, relativeTime, toFilter, reconcileRefresh, orgRunOpening, orgRunLabel, mergePage, deleteOutcome, chatIdsOnly } from './historyModel.js'
+import { bubbleKeyOf, liveStatus, relativeTime, toFilter, reconcileRefresh, orgRunOpening, orgRunLabel, mergePage, deleteOutcome, survivorNames, chatIdsOnly } from './historyModel.js'
 
 describe('historyModel', () => {
   it('keys chats by id and orgs by name', () => {
@@ -42,8 +42,21 @@ describe('historyModel', () => {
     expect(mergePage([{ id: 'a' }], [{ id: 'a' }, { id: 'b' }]).map(r => r.id)).toEqual(['a', 'b'])
   })
   it('splits a delete result and never lets org runs through', () => {
-    expect(deleteOutcome({ deleted: ['a'], active: ['b'], failed: { c: 'boom' } })).toEqual({ deleted: ['a'], active: ['b'], failed: [{ id: 'c', message: 'boom' }] })
+    expect(deleteOutcome({ deleted: ['a'], active: ['b'], failed: { c: 'boom' } })).toEqual({ deleted: ['a'], active: ['b'], failed: [{ id: 'c', message: 'boom' }], kept: [] })
     expect(chatIdsOnly([{ kind: 'chat', id: 'a' }, { kind: 'org', id: 'o' }])).toEqual(['a'])
+  })
+  it('keeps apart the chats the CLI declined to delete', () => {
+    const out = deleteOutcome({ kept: { a: { code: 'survivors_remain', message: 'm', survivors: [{ pid: 1, command: 'sleep' }] }, b: { code: 'operator_only' } } })
+    expect(out.kept).toEqual([
+      { id: 'a', code: 'survivors_remain', message: 'm', survivors: [{ pid: 1, command: 'sleep' }] },
+      { id: 'b', code: 'operator_only', message: '', survivors: [] },
+    ])
+    expect(out.failed).toEqual([])
+  })
+  it('names survivors by command and pid, as many as fit', () => {
+    expect(survivorNames([{ pid: 1, command: 'a' }, { pid: 2 }])).toBe('a (1), process (2)')
+    expect(survivorNames([1, 2, 3, 4, 5, 6].map(n => ({ pid: n, command: 'c' })))).toBe('c (1), c (2), c (3), c (4), +2')
+    expect(survivorNames(undefined)).toBe('')
   })
   it('reconciles a refreshed first page with the loaded rows', () => {
     const r = (id, n) => ({ id, updatedAt: `2026-10-22T10:0${n}:00Z` })

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -210,5 +211,72 @@ func TestGetChatConversationRecordNotFound(t *testing.T) {
 	got, err := a.GetChatConversationRecord("nope")
 	if err != nil || got.OK || got.Code != "not_found" {
 		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+// A delete the CLI declines is not a failure of the app: exit 5 (survivors_remain) keeps the chat and the
+// survivors it printed come back by name, exit 3 operator_only comes back as a refusal to act on, and
+// both are kept apart from the ids that failed or have an active turn.
+func TestDeleteChatConversationsKeepsWhatTheCLIDeclined(t *testing.T) {
+	a, log := aitaskApp(t, `case "$*" in
+*" delete busy"*) echo '{"error":"chat: conversation has an active turn: stop the turn first","code":""}'; exit 3;;
+*" delete running"*)
+  echo '{"id":"running","deleted":false,"stopped":[7],"survivors":[{"pid":4242,"command":"node server.js","reason":"it outlived SIGKILL"},{"pid":4243,"command":"sleep 600","reason":"cannot be shown to be the turn'"'"'s"}]}'
+  echo '{"error":"the conversation was not deleted: 2 process(es) its turns started could not be stopped","code":"survivors_remain"}'; exit 5;;
+*" delete lead"*) echo '{"error":"delete a conversation that leads a mission: only the operator may","code":"operator_only"}'; exit 3;;
+*" delete broken"*) echo "boom" >&2; exit 1;;
+*) echo '{"deleted":true}';;
+esac
+`)
+	got, err := a.DeleteChatConversations([]string{"a", "running", "busy", "lead", "broken", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.Deleted, ",") != "a,b" || strings.Join(got.Active, ",") != "busy" {
+		t.Fatalf("deleted/active = %+v", got)
+	}
+	run, ok := got.Kept["running"]
+	if !ok || run.Code != "survivors_remain" || len(run.Survivors) != 2 || run.Survivors[0].Pid != 4242 || run.Survivors[0].Command != "node server.js" ||
+		len(run.Stopped) != 1 || run.Stopped[0] != 7 || !strings.Contains(run.Message, "not deleted") {
+		t.Fatalf("running = %+v (kept %+v)", run, got.Kept)
+	}
+	lead, ok := got.Kept["lead"]
+	if !ok || lead.Code != "operator_only" || !strings.Contains(lead.Message, "operator") || lead.Survivors == nil || len(lead.Survivors) != 0 {
+		t.Fatalf("lead = %+v", lead)
+	}
+	if len(got.Kept) != 2 || len(got.Failed) != 1 || got.Failed["broken"] == "" {
+		t.Fatalf("kept %+v failed %+v", got.Kept, got.Failed)
+	}
+	if calls := loggedArgs(t, log); len(calls) != 6 {
+		t.Fatalf("calls = %v", calls)
+	}
+}
+
+// The single delete binding answers a declined delete with the code, the message and the survivors in its
+// error document, not a bare string.
+func TestDeleteChatConversationAnswersADeclinedDeleteWithItsSurvivors(t *testing.T) {
+	a, _ := aitaskApp(t, `case "$*" in
+*" delete running"*)
+  echo '{"id":"running","deleted":false,"stopped":[],"survivors":[{"pid":4242,"command":"node server.js","reason":"it outlived SIGKILL"}]}'
+  echo '{"error":"the conversation was not deleted: 1 process(es) could not be stopped","code":"survivors_remain"}'; exit 5;;
+*" delete lead"*) echo '{"error":"only the operator may","code":"operator_only"}'; exit 3;;
+*) echo '{"deleted":true}';;
+esac
+`)
+	var doc struct {
+		Error     string     `json:"error"`
+		Code      string     `json:"code"`
+		Survivors []Survivor `json:"survivors"`
+	}
+	if err := json.Unmarshal([]byte(a.DeleteChatConversation("running")), &doc); err != nil || doc.Code != "survivors_remain" ||
+		len(doc.Survivors) != 1 || doc.Survivors[0].Pid != 4242 || !strings.Contains(doc.Error, "not deleted") {
+		t.Fatalf("running: %+v %v", doc, err)
+	}
+	doc.Survivors = nil
+	if err := json.Unmarshal([]byte(a.DeleteChatConversation("lead")), &doc); err != nil || doc.Code != "operator_only" {
+		t.Fatalf("lead: %+v %v", doc, err)
+	}
+	if out := a.DeleteChatConversation("ok"); out != `{"ok":true}` {
+		t.Fatalf("ok: %s", out)
 	}
 }
