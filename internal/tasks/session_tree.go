@@ -127,8 +127,8 @@ func (s *Store) RenameSession(ctx context.Context, profileID string, id int64, t
 		return Session{}, invalid("a session needs a title")
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		if actor.Kind == Agent && se.CreatedBy != actor.Label() {
-			return operatorOnly(fmt.Sprintf("rename session #%d: it was started by %s, not by this agent", id, se.CreatedBy))
+		if err := s.checkRenameOwner(ctx, x, se, actor); err != nil {
+			return err
 		}
 		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET title = ? WHERE id = ?`, title, id); err != nil {
 			return fmt.Errorf("tasks: renaming session #%d: %w", id, err)

@@ -333,7 +333,7 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 		if err != nil {
 			return fmt.Errorf("tasks: adding a session: %w", err)
 		}
-		if err := s.sessionEvent(ctx, x, id, actor, "created", ""); err != nil {
+		if err := s.sessionEvent(ctx, x, id, actor, "created", createdNote(actor)); err != nil {
 			return err
 		}
 		if err := s.bumpSession(ctx, x, id); err != nil {
