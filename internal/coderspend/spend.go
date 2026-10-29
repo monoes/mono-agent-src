@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 )
 
 // Querier is the read side of *sql.DB, *sql.Tx and the delete's connection.
@@ -27,7 +28,22 @@ const ChargeKind = "charge"
 
 // Note is the text of that row: "<conversation> $<usd>".
 func Note(conversationID string, usd float64) string {
-	return fmt.Sprintf("%s $%.6f", conversationID, usd)
+	return conversationID + " $" + FormatUSD(usd)
+}
+
+// FormatUSD writes an amount so that it reads back EXACTLY: six decimals when those say the same number (the
+// usual case, and the format older rows have), else the shortest decimal that round-trips, so $0.0000004 is never
+// written as $0.000000 and settled as nothing.
+func FormatUSD(usd float64) string {
+	if f := fmt.Sprintf("%.6f", usd); usd == 0 || mustParse(f) == usd {
+		return f
+	}
+	return strconv.FormatFloat(usd, 'f', -1, 64)
+}
+
+func mustParse(s string) float64 {
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
 }
 
 // RunningCap is the cap of the turn the session is running now (0 when none, or none capped).

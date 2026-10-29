@@ -90,6 +90,17 @@ func (f *hostFix) passes(n int) {
 	(&Host{Store: f.st, L: newFakeLauncher()}).missionChildPass() // a second host over the same store
 }
 
+// reserveSecondTaskIsRefused marks task 1 with the whole mission's budget and shows that Reserve refuses it.
+func (f *hostFix) reserveSecondTaskIsRefused(t *testing.T) {
+	t.Helper()
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[1], MarkOptions{BudgetUSD: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[1]); !errors.Is(err, ErrChildrenFull) {
+		t.Fatalf("Reserve of $10 against a mission with a deleted child's cost unsettled = %v, want ErrChildrenFull", err)
+	}
+}
+
 func (f *hostFix) markable(t *testing.T) error {
 	t.Helper()
 	_, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 2})
@@ -106,6 +117,13 @@ func TestTheStatesAChildsCostCanBeInHoldTheInvariants(t *testing.T) {
 				if r := f.row(t, 0); r.State != ChildMarked || r.PendingConversationID != "" || (c.pendingOnly && r.ChildConversationID != "") {
 					t.Fatalf("row after the release = %+v", r)
 				}
+			}
+			if c.cost != "live" {
+				// the interval between the delete and the host's pass: the cost is still held (review of round 3, P1)
+				if why, err := missionBudgetRefusal(f.st.db, "p", f.se.ID, f.lead.ConversationID, 10); err != nil || why == "" {
+					t.Fatalf("before any pass a carve of the whole $10 mission passed (%q, %v): the deleted child's cost is not held", why, err)
+				}
+				f.reserveSecondTaskIsRefused(t)
 			}
 			f.passes(4)
 			charges := f.eventsOfKind(t, "charge")

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -42,6 +43,19 @@ func (s *Store) snapshotOf(profileID string, sessionID int64, conv string) (usd 
 		return 0, false, fmt.Errorf("the recorded spend of %s is unreadable: %q", conv, note)
 	}
 	return usd, true, nil
+}
+
+// formatUSD is coderspend.FormatUSD (a test holds them together): six decimals when exact, else the shortest exact decimal.
+func formatUSD(usd float64) string {
+	if f := fmt.Sprintf("%.6f", usd); usd == 0 || parseUSD(f) == usd {
+		return f
+	}
+	return strconv.FormatFloat(usd, 'f', -1, 64)
+}
+
+func parseUSD(s string) float64 {
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
 }
 
 // goneConversation says whether the child's conversation no longer has its coder session row (deleted with it).
@@ -90,7 +104,7 @@ func (s *Store) recoveredSpend(profileID string, t chargeTarget, conv string, li
 		return recovered{}, err
 	}
 	spent := math.Max(live, snap)
-	note := fmt.Sprintf("%s $%.6f", conv, spent) // the format of coderspend.Note (a test holds them together)
+	note := conv + " $" + formatUSD(spent) // the format of coderspend.Note (a test holds them together)
 	if found || live > 0 || !t.hasRow {
 		return recovered{usd: spent, note: note}, nil
 	}

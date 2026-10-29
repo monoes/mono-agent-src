@@ -139,50 +139,72 @@ var errAlreadyCharged = errors.New("coder host: the child was charged already")
 
 // writeCharge is the one place a child's spend reaches the meter: the spend and the charge row stand or fall together.
 func (s *Store) writeCharge(profileID string, sid, tid int64, conv string, spent float64, note, who string) (float64, error) {
+	usd, _, err := s.writeChargeOnce(profileID, sid, tid, conv, spent, note, who)
+	return usd, err
+}
+
+// insertChargeOnce writes the child's charge row unless one exists, in ONE statement (so two writers, in this
+// process or another, cannot both find none and both insert). It says whether this call wrote it.
+func insertChargeOnce(x execer, profileID string, sid, tid int64, conv, who, note, at string) (bool, error) {
+	res, err := x.Exec(`INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at)
+		SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind = ? AND substr(note, 1, ?) = ?)`,
+		profileID, sid, tid, chargeKind, who, clipNote(note), at, profileID, sid, chargeKind, len(conv)+1, conv+" ")
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// writeChargeOnce is writeCharge that also says whether the child was charged before (so nothing was written).
+func (s *Store) writeChargeOnce(profileID string, sid, tid int64, conv string, spent float64, note, who string) (float64, bool, error) {
 	_, found, err := s.loadMissionSession(profileID, sid)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	record := func(x execer) error { return addMissionEvent(x, profileID, sid, tid, chargeKind, who, note, s.stamp()) }
-	skip := func(why string) (float64, error) {
+	record := func(x execer) (bool, error) {
+		return insertChargeOnce(x, profileID, sid, tid, conv, who, note, s.stamp())
+	}
+	skip := func(why string) (float64, bool, error) {
 		note += " skipped: " + why
-		if err := addMissionEvent(s.db, profileID, sid, tid, chargeKind, who, note, s.stamp()); err != nil {
-			return 0, fmt.Errorf("the charge of %s was skipped but its record was not written: %w", conv, err)
+		wrote, err := record(s.db)
+		if err != nil {
+			return 0, false, fmt.Errorf("the charge of %s was skipped but its record was not written: %w", conv, err)
 		}
-		return 0, nil
+		return 0, !wrote, nil
 	}
 	switch {
 	case !found:
 		return skip("the mission session is gone")
 	case spent <= 0:
-		if err := record(s.db); err != nil {
-			return 0, fmt.Errorf("the charge row of %s was not written: %w", conv, err)
+		wrote, err := record(s.db)
+		if err != nil {
+			return 0, false, fmt.Errorf("the charge row of %s was not written: %w", conv, err)
 		}
-		return 0, nil
+		return 0, !wrote, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	why := fmt.Sprintf("child session of task #%d", tid)
 	_, err = tasks.NewStore(s.db).AddSessionSpendWith(ctx, profileID, sid, spent, why, tasks.Actor{Kind: tasks.Human}, func(ctx context.Context, x tasks.Tx) error {
-		var n int
-		if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind = ? AND substr(note, 1, ?) = ?`,
-			profileID, sid, chargeKind, len(conv)+1, conv+" ").Scan(&n); err != nil {
+		wrote, err := record(ctxExec{ctx, x})
+		if err != nil {
 			return err
 		}
-		if n > 0 {
-			return errAlreadyCharged
+		if !wrote {
+			return errAlreadyCharged // rolls the meter update back with it
 		}
-		return record(ctxExec{ctx, x})
+		return nil
 	})
 	switch {
 	case errors.Is(err, errAlreadyCharged):
-		return 0, nil
+		return 0, true, nil
 	case errors.Is(err, tasks.ErrNotFound):
 		return skip("the mission session is gone") // vanished since it was read: the charge can never succeed
 	case err != nil:
-		return 0, fmt.Errorf("charging the child %s to mission #%d: %w", conv, sid, err)
+		return 0, false, fmt.Errorf("charging the child %s to mission #%d: %w", conv, sid, err)
 	}
-	return spent, nil
+	return spent, false, nil
 }
 
 // ctxExec lets the charge row be written through the spend's transaction.
@@ -204,7 +226,7 @@ func (s *Store) markUnresolved(profileID string, t chargeTarget, conv, why strin
 	if err != nil {
 		return err
 	}
-	note := fmt.Sprintf("%s $%.6f unresolved: %s; the person resolves it with `coder sessions mission-children resolve-charge`", conv, hold, why)
+	note := fmt.Sprintf("%s $%s unresolved: %s; the person resolves it with `coder sessions mission-children resolve-charge`", conv, formatUSD(hold), why)
 	return addMissionEvent(s.db, profileID, t.session, t.task, unresolvedKind, "host", note, s.stamp())
 }
 

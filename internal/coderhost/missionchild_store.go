@@ -546,14 +546,20 @@ type querier interface {
 // each of mark, raise, lower, mode, budget and the rest, so a loop of one kind cannot push another out (a flood
 // of raises can only push out earlier raises of the lead). The operator's and the host's rows are never rotated out (the operator is a person, and the host's
 // are bounded by tasks times attempts).
-func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
+// clipNote keeps an audit note within 300 bytes, never cutting a multibyte character in two.
+func clipNote(note string) string {
 	if len(note) > 300 {
 		n := 300
-		for n > 0 && !utf8.RuneStart(note[n]) { // never cut a multibyte character in two
+		for n > 0 && !utf8.RuneStart(note[n]) {
 			n--
 		}
 		note = note[:n]
 	}
+	return note
+}
+
+func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
+	note = clipNote(note)
 	if _, err := db.Exec(`INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		profileID, sessionID, taskID, kind, who, note, at); err != nil {
 		return err
@@ -900,8 +906,16 @@ func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead str
 		+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')
 		+ (SELECT COALESCE(SUM(CAST(substr(u.note, instr(u.note, ' $') + 2) AS REAL)), 0) FROM coder_mission_events u WHERE u.profile_id = ? AND u.session_id = ? AND u.kind = '`+unresolvedKind+`'
 			AND NOT EXISTS (SELECT 1 FROM coder_mission_events c WHERE c.profile_id = u.profile_id AND c.session_id = u.session_id AND c.kind = 'charge'
-				AND substr(c.note, 1, instr(u.note, ' ')) = substr(u.note, 1, instr(u.note, ' '))))`,
-		profileID, lead, sessionID, profileID, lead, profileID, sessionID).Scan(&held); err != nil {
+				AND substr(c.note, 1, instr(u.note, ' ')) = substr(u.note, 1, instr(u.note, ' '))))
+		+ (SELECT COALESCE(SUM(CAST(substr(e.note, instr(e.note, ' $') + 2) AS REAL)), 0) FROM coder_mission_events e WHERE e.profile_id = ? AND e.session_id = ? AND e.kind = 'spend'
+			AND NOT EXISTS (SELECT 1 FROM coder_mission_events c WHERE c.profile_id = e.profile_id AND c.session_id = e.session_id AND c.kind = 'charge'
+				AND substr(c.note, 1, instr(e.note, ' ')) = substr(e.note, 1, instr(e.note, ' '))))
+		+ (SELECT COALESCE(SUM(CASE WHEN coder_mission_children.budget_usd > 0 THEN coder_mission_children.budget_usd ELSE ? END), 0) FROM coder_mission_children WHERE coder_mission_children.profile_id = ? AND coder_mission_children.session_id = ?
+			AND coder_mission_children.state IN ('spawned', 'ended', 'failed', 'gone') AND `+rowIdent+` <> '' AND (coder_mission_children.spawned_at <> '' OR coder_mission_children.pending_conversation_id <> '')
+			AND NOT EXISTS (SELECT 1 FROM coder_sessions s WHERE s.profile_id = coder_mission_children.profile_id AND s.conversation_id = `+rowIdent+`)
+			AND NOT EXISTS (SELECT 1 FROM coder_mission_events x WHERE x.profile_id = coder_mission_children.profile_id AND x.session_id = coder_mission_children.session_id AND x.kind IN ('charge', 'spend', '`+unresolvedKind+`')
+				AND substr(x.note, 1, length(`+rowIdent+`) + 1) = `+rowIdent+` || ' '))`,
+		profileID, lead, sessionID, profileID, lead, profileID, sessionID, profileID, sessionID, math.Max(budget-spent, 0), profileID, sessionID).Scan(&held); err != nil {
 		return "", err
 	}
 	if held+carve > budget-spent+1e-9 {

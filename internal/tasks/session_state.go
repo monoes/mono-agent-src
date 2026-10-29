@@ -283,8 +283,24 @@ func (s *Store) AddSessionSpend(ctx context.Context, profileID string, id int64,
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		if err := spendInRange(se, usd); err != nil {
+			return err
+		}
 		return s.applySpend(ctx, x, id, usd, note, actor)
 	})
+}
+
+// MaxSpendUSD bounds one recorded amount and a session's total: a figure beyond it is a typo or an overflow in
+// the making (1e308 + 1e308 is +Inf, which no budget arithmetic or JSON can carry), never a real bill.
+const MaxSpendUSD = 1e9
+
+// spendInRange refuses, before anything is written, an amount or a resulting total outside (0, MaxSpendUSD].
+func spendInRange(se Session, usd float64) error {
+	total := se.SpentUSD + usd
+	if usd > MaxSpendUSD || !finite(total) || total > MaxSpendUSD {
+		return invalid("spend of $%g would take session #%d to $%g, beyond the supported $%g", usd, se.ID, total, MaxSpendUSD)
+	}
+	return nil
 }
 
 // Tx is the transaction AddSessionSpendWith hands its callback: the one the spend is written in.
@@ -304,6 +320,9 @@ func (s *Store) AddSessionSpendWith(ctx context.Context, profileID string, id in
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		if err := spendInRange(se, usd); err != nil {
+			return err
+		}
 		if err := s.applySpend(ctx, x, id, usd, note, actor); err != nil {
 			return err
 		}
