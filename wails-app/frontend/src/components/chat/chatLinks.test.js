@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { isNetworkOrDevicePath, classifyUrl, disguisedHost, findPathTokens, codeLooksLikePath, splitLine } from './chatLinks.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { isNetworkOrDevicePath, classifyUrl, disguisedHost, findPathTokens, codeLooksLikePath, splitLine, isReservedDeviceName } from './chatLinks.js'
 
 describe('classifyUrl', () => {
   it('opens http and https only', () => {
@@ -97,5 +99,22 @@ describe('disguisedHost bypasses', () => {
     expect(disguisedHost('the report', evil)).toBe('')
     expect(disguisedHost('docs on evil.test', evil)).toBe('')
     expect(disguisedHost('日本語', evil)).toBe('')
+  })
+})
+
+// One fixture, shared with the Go test (app_open_test.go): both predicates must agree.
+describe('shared token fixture', () => {
+  const rows = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', '..', 'testdata', 'chat_tokens.json'), 'utf8'))
+  it.each(rows.map((r) => [r.token, r.valid]))('codeLooksLikePath(%j) is %s', (token, valid) => {
+    expect(codeLooksLikePath(token)).toBe(valid)
+  })
+  it('plain text never yields a reserved device name or stream', () => {
+    for (const text of ['see NUL.md now', 'in dir/NUL/x.md', 'a/COM1.txt:3', 'x/file.md:stream y', 'sub/nul.MD']) {
+      expect(findPathTokens(text).map((t) => t.token)).toEqual([])
+    }
+  })
+  it('names devices the way Windows does', () => {
+    for (const n of ['NUL', 'nul.MD', 'Com1.txt.', 'CON .txt', 'LPT9', 'CONIN$', 'COM\u00b2']) expect(isReservedDeviceName(n)).toBe(true)
+    for (const n of ['COM10', 'CONSOLE.md', 'null.md', 'a.nul']) expect(isReservedDeviceName(n)).toBe(false)
   })
 })

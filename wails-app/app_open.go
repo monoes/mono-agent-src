@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	goruntime "runtime"
@@ -28,7 +29,20 @@ const maxChatPreviewBytes = 128 << 10
 
 const maxChatTokenLen = 4096
 
+// The only filesystem calls this file makes on the way to a path go through
+// these two, so a test can prove which entry points touch the disk at all.
+var (
+	chatEvalSymlinks = filepath.EvalSymlinks
+	chatStat         = os.Stat
+)
+
 var chatPreviewExts = map[string]bool{".md": true, ".markdown": true, ".txt": true}
+
+// ChatPathClass is how a path in a chat message is offered, from its
+// spelling alone: "inside", "outside" or "refused" (see classifyChatToken).
+type ChatPathClass struct {
+	Class string `json:"class"`
+}
 
 // ChatPathInfo is what ResolveChatPath knows about a token.
 type ChatPathInfo struct {
@@ -41,10 +55,15 @@ type ChatPathInfo struct {
 var chatLineSuffix = regexp.MustCompile(`^(.+?):(\d+)(?::\d+)?$`)
 
 // parseChatToken strips a trailing :line[:col] and refuses tokens that are
-// empty, oversized, contain control characters, or start with '-' (an option
-// to the opener).
+// empty, oversized, contain control characters, start or end with whitespace, start with '-'
+// (an option to the opener), name a Windows reserved device, or carry an
+// alternate data stream. It is pure string work: no filesystem call. It does
+// not trim (inner spaces stay legal here; the JS side never offers them): the JS predicate (chatLinks.js) does not either, and a shared
+// fixture (testdata/chat_tokens.json) keeps the two in step.
+//
+// 8.3 short names (PROGRA~1) are accepted on purpose: they cannot leave the
+// chat folder, which every file read is confined to after resolution.
 func parseChatToken(token string) (string, int, error) {
-	token = strings.TrimSpace(token)
 	if token == "" || len(token) > maxChatTokenLen {
 		return "", 0, errors.New("not a usable path")
 	}
@@ -55,6 +74,12 @@ func parseChatToken(token string) (string, int, error) {
 		if r < 0x20 || r == 0x7f {
 			return "", 0, errors.New("path contains a control character")
 		}
+	}
+	if first, _ := utf8.DecodeRuneInString(token); unicode.IsSpace(first) {
+		return "", 0, errors.New("path starts or ends with whitespace")
+	}
+	if last, _ := utf8.DecodeLastRuneInString(token); unicode.IsSpace(last) {
+		return "", 0, errors.New("path starts or ends with whitespace")
 	}
 	if err := refuseNetworkOrDevicePath(token); err != nil {
 		return "", 0, err
@@ -67,7 +92,55 @@ func parseChatToken(token string) (string, int, error) {
 			return "", 0, err
 		}
 	}
+	if err := refuseStreamOrReservedName(token); err != nil {
+		return "", 0, err
+	}
 	return token, line, nil
+}
+
+// reservedDeviceNames are the names Windows reads as devices in any
+// directory, with or without an extension.
+var reservedDeviceNames = func() map[string]bool {
+	m := map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL": true, "CONIN$": true, "CONOUT$": true}
+	for i := '1'; i <= '9'; i++ {
+		m["COM"+string(i)] = true
+		m["LPT"+string(i)] = true
+	}
+	for _, sup := range []string{"\u00b9", "\u00b2", "\u00b3"} {
+		m["COM"+sup] = true
+		m["LPT"+sup] = true
+	}
+	return m
+}()
+
+// isReservedDeviceName: Windows ignores case, trailing dots and spaces and
+// anything from the first dot on when it decides a name is a device.
+func isReservedDeviceName(component string) bool {
+	stem := component
+	if i := strings.IndexByte(stem, '.'); i >= 0 {
+		stem = stem[:i]
+	}
+	stem = strings.TrimRight(stem, " .")
+	return reservedDeviceNames[strings.ToUpper(stem)]
+}
+
+// refuseStreamOrReservedName is refused on every OS, before any syscall:
+// a reserved device name in any component, and ':' anywhere except a drive
+// prefix ("C:") (the :line[:col] suffix is already stripped).
+func refuseStreamOrReservedName(p string) error {
+	rest := p
+	if len(rest) >= 2 && rest[1] == ':' {
+		rest = rest[2:]
+	}
+	if strings.Contains(rest, ":") {
+		return errors.New("alternate data streams are not supported")
+	}
+	for _, c := range strings.FieldsFunc(rest, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if isReservedDeviceName(c) {
+			return errors.New("device names are not supported")
+		}
+	}
+	return nil
 }
 
 // refuseNetworkOrDevicePath rejects, on every OS and before any syscall, the
@@ -111,14 +184,49 @@ func resolveChatToken(cwd, token string) (string, int, error) {
 		}
 		p = filepath.Join(cwd, p)
 	}
-	real, err := filepath.EvalSymlinks(filepath.Clean(p))
+	real, err := chatEvalSymlinks(filepath.Clean(p))
 	if err != nil {
 		return "", 0, err
 	}
 	if strings.HasPrefix(real, "-") {
 		return "", 0, errors.New("a path may not start with '-'")
 	}
+	if networkVolume(real) {
+		return "", 0, errors.New("network paths are not supported")
+	}
 	return real, line, nil
+}
+
+// networkVolume: a resolved path on a UNC share (a symlink or junction in the
+// chat folder can lead there). Only Windows paths have a volume name.
+func networkVolume(real string) bool {
+	v := filepath.VolumeName(real)
+	return len(v) >= 2 && (v[0] == '/' || v[0] == '\\') && (v[1] == '/' || v[1] == '\\')
+}
+
+// classifyChatToken says how a token is offered, from its spelling alone: it
+// makes NO filesystem call, so rendering a message never touches the disk
+// (a model-chosen path may run through a link to a network share).
+//
+//	"refused": not a usable path, shown as plain text
+//	"inside":  relative to / below the chat's folder by string prefix; checked
+//	           on hover, focus or click
+//	"outside": any other path; checked only if the user clicks it
+func classifyChatToken(cwd, token string) string {
+	p, _, err := parseChatToken(token)
+	if err != nil {
+		return "refused"
+	}
+	if cwd == "" || !filepath.IsAbs(cwd) || p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		return "outside"
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(cwd, p)
+	}
+	if insideDir(filepath.Clean(cwd), filepath.Clean(p)) {
+		return "inside"
+	}
+	return "outside"
 }
 
 // insideDir reports whether p (already symlink-resolved) is root or below it.
@@ -133,7 +241,7 @@ func confinedChatPath(cwd, token string) (string, int, error) {
 	if cwd == "" {
 		return "", 0, errors.New("this chat has no folder to read from")
 	}
-	root, err := filepath.EvalSymlinks(cwd)
+	root, err := chatEvalSymlinks(cwd)
 	if err != nil {
 		return "", 0, err
 	}
@@ -156,7 +264,7 @@ func resolveChatPathInfo(cwd, token string) ChatPathInfo {
 	if err != nil {
 		return ChatPathInfo{Kind: "missing"}
 	}
-	fi, err := os.Stat(p)
+	fi, err := chatStat(p)
 	if err != nil {
 		return ChatPathInfo{Kind: "missing"}
 	}
@@ -188,7 +296,7 @@ func readChatMarkdown(cwd, token string) (string, error) {
 	if cwd == "" {
 		return "", errors.New("this chat has no folder to read from")
 	}
-	root, err := filepath.EvalSymlinks(cwd)
+	root, err := chatEvalSymlinks(cwd)
 	if err != nil {
 		return "", err
 	}
@@ -219,11 +327,11 @@ func readChatMarkdown(cwd, token string) (string, error) {
 	if !fi.Mode().IsRegular() {
 		return "", errors.New("not a regular file")
 	}
-	again, err := filepath.EvalSymlinks(p)
+	again, err := chatEvalSymlinks(p)
 	if err != nil || !insideDir(root, again) {
 		return "", fmt.Errorf("%s is outside the chat's folder", token)
 	}
-	if now, err := os.Stat(again); err != nil || !os.SameFile(fi, now) {
+	if now, err := chatStat(again); err != nil || !os.SameFile(fi, now) {
 		return "", errors.New("the file changed while it was being opened")
 	}
 	b, err := io.ReadAll(io.LimitReader(f, maxChatPreviewBytes+1))
@@ -284,7 +392,7 @@ func (o chatOpener) reveal(p string, isDir bool) error {
 		return o.start("explorer", "/select,"+p)
 	default:
 		// Re-checked here: only something that still is a folder goes to xdg-open.
-		if fi, err := os.Stat(p); isDir && err == nil && fi.IsDir() {
+		if fi, err := chatStat(p); isDir && err == nil && fi.IsDir() {
 			return o.start("xdg-open", p)
 		}
 		if _, err := o.lookPath("dbus-send"); err == nil {
@@ -307,7 +415,7 @@ func revealChatPath(o chatOpener, cwd, token string) error {
 	if err != nil {
 		return err
 	}
-	fi, err := os.Stat(p)
+	fi, err := chatStat(p)
 	if err != nil {
 		return err
 	}
@@ -341,6 +449,16 @@ func (a *App) ResolveChatPath(conversationID, token string) ChatPathInfo {
 		return ChatPathInfo{Kind: "missing"}
 	}
 	return resolveChatPathInfo(a.chatCwd(conversationID), token)
+}
+
+// ClassifyChatPath is the render-time test for a path a chat message names:
+// "inside", "outside" or "refused" (see classifyChatToken). It never touches
+// the disk; ResolveChatPath does that, on the user's hover, focus or click.
+func (a *App) ClassifyChatPath(conversationID, token string) ChatPathClass {
+	if a.signedOut() != nil {
+		return ChatPathClass{Class: "refused"}
+	}
+	return ChatPathClass{Class: classifyChatToken(a.chatCwd(conversationID), token)}
 }
 
 // RevealChatPath shows an existing file or folder in the file manager.

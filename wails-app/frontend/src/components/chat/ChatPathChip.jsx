@@ -6,11 +6,15 @@ import { WorkspaceImageContext } from './ChatAttachments.jsx'
 import { ChatFilePreview } from './ChatFilePreview.jsx'
 import { splitLine } from './chatLinks.js'
 
-// A path a chat message names. It looks like a link only once the Go side
-// says it exists (ResolveChatPath): the token is a model's guess until then.
-// Click: preview a markdown/text file, otherwise show it in the file manager.
-// Ctrl/Cmd-click (or the folder button) always reveals. Nothing here opens a
-// file with its default handler, so nothing can run.
+// A path a chat message names. At render it is only a neutral "path" chip:
+// ClassifyChatPath judges its spelling and makes no filesystem call, because
+// resolving a model-chosen path can touch a network share (a symlink or
+// junction in the chat folder may lead there). The disk is consulted when
+// the user acts: hover or focus for a path inside the chat's folder, click
+// for any other. Only then does it become a link, once ResolveChatPath says
+// it exists. Click: preview a markdown/text file, otherwise show it in the
+// file manager. Ctrl/Cmd-click (or the folder button) always reveals. Nothing
+// here opens a file with its default handler, so nothing can run.
 
 const MISSING = { kind: 'missing' }
 const cache = new Map() // `${conversation}\0${token}` → { at, info }
@@ -33,26 +37,43 @@ export function chatPathCacheSize() { return cache.size }
 
 const link = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#00b4d8', textDecoration: 'underline', font: 'inherit' }
 const codeStyle = { background: '#020509', padding: '1px 4px', borderRadius: 3 }
+// Not yet checked: looks like code, with a dotted underline as the only hint.
+const unchecked = { ...codeStyle, border: 'none', cursor: 'pointer', color: 'inherit', font: 'inherit', textDecoration: 'underline dotted', textDecorationColor: '#64748b' }
 
 export function ChatPathChip({ token, fromText = false }) {
   const { t } = useTranslation()
   const conversationId = useContext(WorkspaceImageContext)
+  const [cls, setCls] = useState(null) // 'inside' | 'outside' | 'refused' | null while unknown
   const [info, setInfo] = useState(null)
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
     let live = true
-    lookup(conversationId, token).then((i) => { if (live) setInfo(i) })
+    setCls(null); setInfo(null)
+    const ask = typeof api.classifyChatPath === 'function' ? api.classifyChatPath(conversationId, token) : 'refused'
+    Promise.resolve(ask).then((c) => { if (!live) return; const k = typeof c === 'string' ? c : c?.class; setCls(k === 'inside' || k === 'outside' ? k : 'refused') }, () => { if (live) setCls('refused') })
     return () => { live = false }
   }, [conversationId, token])
 
-  const recheck = () => { if (!info || info.kind === 'missing') lookup(conversationId, token, true).then(setInfo) }
   const reveal = () => Promise.resolve(api.revealChatPath(conversationId, token)).catch((e) => notify('reveal', t('chatLinks.revealFailed', { message: e?.message || String(e) })))
+  const check = () => lookup(conversationId, token, !info || info.kind === 'missing').then((i) => { setInfo(i); return i })
+  const peek = () => { if (cls === 'inside' && !info) check() }
+  const clickUnchecked = (e) => {
+    check().then((i) => {
+      if (i.kind === 'missing') return
+      if (i.kind === 'file' && i.previewable && !e.ctrlKey && !e.metaKey) setOpen(true)
+      else reveal()
+    })
+  }
 
+  if (!cls || cls === 'refused') return fromText ? <>{token}</> : <code style={codeStyle}>{token}</code>
   if (!info || info.kind === 'missing') {
-    return fromText
-      ? <span onMouseEnter={recheck}>{token}</span>
-      : <code onMouseEnter={recheck} style={codeStyle}>{token}</code>
+    return (
+      <button type="button" data-chat-path="unchecked" style={unchecked} onMouseEnter={peek} onFocus={peek} onClick={clickUnchecked}
+        title={info ? t('chatLinks.notFound') : t('chatLinks.checkHint')}>
+        {token}
+      </button>
+    )
   }
   const { line } = splitLine(token)
   const where = line ? ` (${t('chatLinks.line', { line })})` : ''

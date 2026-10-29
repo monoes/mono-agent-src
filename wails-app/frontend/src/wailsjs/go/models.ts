@@ -85,6 +85,18 @@ export namespace main {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class ChatPathClass {
+	    class: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatPathClass(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.class = source["class"];
+	    }
+	}
 	export class ChatPathInfo {
 	    kind: string;
 	    previewable: boolean;

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -400,5 +401,78 @@ func TestResolveChatPathHidesLocationOutsideFolder(t *testing.T) {
 	rec := &recorder{}
 	if err := revealChatPath(rec.opener("darwin"), root, filepath.Join(outside, "pw.md")); err != nil || len(rec.starts) != 1 {
 		t.Fatalf("reveal outside: %v", err)
+	}
+}
+
+// chatTokenFixture is shared with chatLinks.test.js: the Go parser and the JS
+// predicate must agree on every row.
+func TestChatTokenFixtureAgreesWithJS(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "chat_tokens.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct {
+		Token string `json:"token"`
+		Valid bool   `json:"valid"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil || len(rows) < 20 {
+		t.Fatalf("fixture: %v (%d rows)", err, len(rows))
+	}
+	for _, r := range rows {
+		if _, _, err := parseChatToken(r.Token); (err == nil) != r.Valid {
+			t.Errorf("parseChatToken(%q): err=%v, want valid=%v", r.Token, err, r.Valid)
+		}
+	}
+}
+
+func TestReservedDeviceNames(t *testing.T) {
+	for _, n := range []string{"NUL", "nul.MD", "Com1.txt.", "CON .txt", "LPT9", "CONIN$", "COM²", "aux", "PRN.tar.gz"} {
+		if !isReservedDeviceName(n) {
+			t.Errorf("%q should be reserved", n)
+		}
+	}
+	for _, n := range []string{"COM10", "CONSOLE.md", "null.md", "a.nul", "", "x"} {
+		if isReservedDeviceName(n) {
+			t.Errorf("%q should not be", n)
+		}
+	}
+}
+
+// Rendering classifies from the spelling alone: not one filesystem call.
+// The resolving entry points, by contrast, do call (proves the counter works).
+func TestClassifyChatTokenMakesNoFilesystemCalls(t *testing.T) {
+	root, outside := chatTree(t)
+	calls := 0
+	oldEval, oldStat := chatEvalSymlinks, chatStat
+	chatEvalSymlinks = func(p string) (string, error) { calls++; return oldEval(p) }
+	chatStat = func(p string) (os.FileInfo, error) { calls++; return oldStat(p) }
+	defer func() { chatEvalSymlinks, chatStat = oldEval, oldStat }()
+
+	want := map[string]string{
+		"docs/plan.md": "inside", "./docs/plan.md": "inside", "link.md": "inside", "escape": "inside", "nope/x.md": "inside",
+		filepath.Join(root, "docs", "plan.md"): "inside",
+		"../x.md":                              "outside", filepath.Join(outside, "pw.md"): "outside", "~/x.md": "outside",
+		"NUL.md": "refused", `\\host\share\x.md`: "refused", "f.md:stream": "refused", "": "refused",
+	}
+	for tok, cls := range want {
+		if g := classifyChatToken(root, tok); g != cls {
+			t.Errorf("classify(%q) = %s, want %s", tok, g, cls)
+		}
+	}
+	if g := classifyChatToken("", "a.md"); g != "outside" {
+		t.Errorf("no folder: %s", g)
+	}
+	if calls != 0 {
+		t.Fatalf("classifyChatToken made %d filesystem calls", calls)
+	}
+	resolveChatPathInfo(root, "docs/plan.md")
+	if calls == 0 {
+		t.Fatal("the counter never fired for a real resolve")
+	}
+}
+
+func TestNetworkVolumeIsAWindowsOnlyNotion(t *testing.T) {
+	if networkVolume("/mnt/share/x") || networkVolume("relative/x") {
+		t.Fatal("a Unix path has no network volume")
 	}
 }

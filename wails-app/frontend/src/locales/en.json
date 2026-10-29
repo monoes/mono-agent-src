@@ -2240,6 +2240,8 @@
     "opensHost": "Opens {{host}}",
     "previewHint": "Preview (Ctrl/Cmd-click to show in the file manager)",
     "revealHint": "Show in the file manager",
+    "checkHint": "Path: click to check it and open it",
+    "notFound": "Not found",
     "reveal": "Show in folder",
     "revealNamed": "Show {{name}} in the file manager",
     "openFolder": "Open folder",

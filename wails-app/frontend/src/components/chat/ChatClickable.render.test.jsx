@@ -6,7 +6,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import '../../i18n.js'
 
 vi.mock('../../services/api.js', () => ({
-  api: { openURL: vi.fn(), resolveChatPath: vi.fn(), revealChatPath: vi.fn(), readChatMarkdown: vi.fn() },
+  api: { openURL: vi.fn(), classifyChatPath: vi.fn(), resolveChatPath: vi.fn(), revealChatPath: vi.fn(), readChatMarkdown: vi.fn() },
   notify: vi.fn(),
 }))
 import { api, notify } from '../../services/api.js'
@@ -23,10 +23,15 @@ const files = {
 
 beforeEach(() => {
   clearChatPathCache()
+  // stand-in for the Go side: spelling only (outside = absolute or ~)
+  api.classifyChatPath.mockImplementation(async (_c, token) => ({ class: /^(\/|~|[A-Za-z]:)/.test(token) ? 'outside' : 'inside' }))
   api.resolveChatPath.mockImplementation(async (_c, token) => files[token] || { kind: 'missing' })
   api.revealChatPath.mockResolvedValue(undefined)
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
+
+// hovering the neutral chip is the user's deliberate act that checks the disk
+const hover = async (name) => { fireEvent.mouseEnter(await screen.findByRole('button', { name })) }
 
 const mount = (content) => render(
   <WorkspaceImageContext.Provider value="conv-1"><ChatMarkdown content={content} /></WorkspaceImageContext.Provider>,
@@ -65,39 +70,73 @@ describe('links in chat messages', () => {
 })
 
 describe('file paths in chat messages', () => {
-  it('styles an inline-code path as a button only once it exists', async () => {
+  it('renders a path as a neutral chip without touching the disk, and links it on hover once it exists', async () => {
     mount('Edit `docs/plan.md` and `docs/ghost.md`.')
-    const b = await screen.findByRole('button', { name: 'docs/plan.md' })
-    expect(b).toHaveAttribute('title', expect.stringContaining('Preview'))
-    expect(screen.getByText('docs/ghost.md').closest('button')).toBeNull()
+    const neutral = await screen.findByRole('button', { name: 'docs/plan.md' })
+    expect(neutral).toHaveAttribute('data-chat-path', 'unchecked')
+    expect(api.classifyChatPath).toHaveBeenCalledWith('conv-1', 'docs/plan.md')
+    await Promise.resolve()
+    expect(api.resolveChatPath).not.toHaveBeenCalled() // render: no lookup at all
+    fireEvent.mouseEnter(neutral)
+    expect(await screen.findByTitle(/^Preview/)).toBeInTheDocument()
     expect(api.resolveChatPath).toHaveBeenCalledWith('conv-1', 'docs/plan.md')
+    await hover('docs/ghost.md')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'docs/ghost.md' })).toHaveAttribute('title', 'Not found'))
+    expect(screen.getByRole('button', { name: 'docs/ghost.md' })).toHaveAttribute('data-chat-path', 'unchecked')
   })
 
-  it('finds a path in plain text, and leaves a missing one as text', async () => {
+  it('focus checks an inside path too', async () => {
+    mount('`src/main.go`')
+    fireEvent.focus(await screen.findByRole('button', { name: 'src/main.go' }))
+    await waitFor(() => expect(api.resolveChatPath).toHaveBeenCalledTimes(1))
+  })
+
+  it('a path outside the folder is not looked up on hover or focus, only on a click (then revealed)', async () => {
+    mount('`~/projects/x` and `/etc/hosts`')
+    const b = await screen.findByRole('button', { name: '~/projects/x' })
+    fireEvent.mouseEnter(b); fireEvent.focus(b)
+    await Promise.resolve()
+    expect(api.resolveChatPath).not.toHaveBeenCalled()
+    fireEvent.click(b)
+    await waitFor(() => expect(api.revealChatPath).toHaveBeenCalledWith('conv-1', '~/projects/x'))
+    expect(api.resolveChatPath).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refused spelling stays plain text with no button', async () => {
+    api.classifyChatPath.mockResolvedValue({ class: 'refused' })
+    mount('see NUL.md and `COM1.txt` here')
+    await Promise.resolve()
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByText('COM1.txt')).toBeInTheDocument()
+    expect(api.resolveChatPath).not.toHaveBeenCalled()
+  })
+
+  it('finds a path in plain text; a missing one stays unlinked', async () => {
     mount('See src/main.go:42 and src/other.go for it.')
-    const b = await screen.findByRole('button', { name: 'src/main.go:42' })
-    expect(b).toHaveAttribute('title', expect.stringContaining('line 42'))
-    expect(screen.queryByRole('button', { name: 'src/other.go' })).toBeNull()
-    expect(screen.getByText(/src\/other\.go/)).toBeInTheDocument()
+    await hover('src/main.go:42')
+    expect(await screen.findByTitle(/line 42/)).toBeInTheDocument()
+    await hover('src/other.go')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'src/other.go' })).toHaveAttribute('title', 'Not found'))
   })
 
   it('a click on a non-markdown file reveals it', async () => {
     mount('`src/main.go`')
     fireEvent.click(await screen.findByRole('button', { name: 'src/main.go' }))
-    expect(api.revealChatPath).toHaveBeenCalledWith('conv-1', 'src/main.go')
+    await waitFor(() => expect(api.revealChatPath).toHaveBeenCalledWith('conv-1', 'src/main.go'))
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('a folder opens in the file manager', async () => {
     mount('`~/projects/x`')
     fireEvent.click(await screen.findByRole('button', { name: '~/projects/x' }))
-    expect(api.revealChatPath).toHaveBeenCalledWith('conv-1', '~/projects/x')
+    await waitFor(() => expect(api.revealChatPath).toHaveBeenCalledWith('conv-1', '~/projects/x'))
   })
 
   it('a click on a markdown file previews it; Ctrl/Cmd-click and the folder button reveal', async () => {
     api.readChatMarkdown.mockResolvedValue('# Plan\n\nstep **one**')
     mount('`docs/plan.md`')
-    const b = await screen.findByRole('button', { name: 'docs/plan.md' })
+    await hover('docs/plan.md')
+    const b = await screen.findByTitle(/^Preview/)
     fireEvent.click(b, { ctrlKey: true })
     expect(api.revealChatPath).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -222,14 +261,14 @@ describe('disguised links', () => {
 })
 
 describe('bounds', () => {
-  it('looks up at most 30 paths per message; the rest stay text', async () => {
-    api.resolveChatPath.mockImplementation(async () => ({ kind: 'file', previewable: false, path: '/w/x.go' }))
+  it('offers at most 30 paths per message; the rest stay text; none is looked up at render', async () => {
     const md = Array.from({ length: 45 }, (_, i) => `\`src/f${i}.go\``).join(' ')
     mount(md)
-    await waitFor(() => expect(api.resolveChatPath).toHaveBeenCalled())
+    await waitFor(() => expect(api.classifyChatPath).toHaveBeenCalled())
     await Promise.resolve()
-    expect(api.resolveChatPath).toHaveBeenCalledTimes(30)
-    expect(screen.getByText('src/f44.go')).toBeInTheDocument()
+    expect(api.classifyChatPath).toHaveBeenCalledTimes(30)
+    expect(api.resolveChatPath).not.toHaveBeenCalled()
+    expect(screen.getByText('src/f44.go').closest('button')).toBeNull()
   })
 
   it('caps the lookup cache at 500 entries', async () => {
@@ -238,6 +277,8 @@ describe('bounds', () => {
     for (let batch = 0; batch < 20; batch++) {
       const md = Array.from({ length: 30 }, (_, i) => `\`src/b${batch}f${i}.go\``).join(' ')
       const { unmount } = mount(md)
+      await waitFor(() => expect(screen.getAllByRole('button')).toHaveLength(30))
+      screen.getAllByRole('button').forEach((b) => fireEvent.mouseEnter(b))
       await waitFor(() => expect(api.resolveChatPath).toHaveBeenCalledTimes((batch + 1) * 30))
       await Promise.resolve()
       unmount()
@@ -248,6 +289,7 @@ describe('bounds', () => {
   it('does not reveal a location for a path outside the folder', async () => {
     api.resolveChatPath.mockResolvedValue({ kind: 'file', previewable: false })
     mount('`/etc/hosts`')
+    fireEvent.click(await screen.findByRole('button', { name: '/etc/hosts' }))
     expect(await screen.findByRole('button', { name: '/etc/hosts' })).toHaveAttribute('title', expect.not.stringContaining('undefined'))
   })
 

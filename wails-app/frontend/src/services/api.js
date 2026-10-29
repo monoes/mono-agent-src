@@ -315,6 +315,7 @@ export const api = {
   openPathWithOS:     (path) => GoApp.OpenPathWithOS(path),
   // Paths a chat message names; the Go side resolves them against the
   // conversation's folder and refuses anything outside what it may show.
+  classifyChatPath:   (conversationID, token) => GoApp.ClassifyChatPath(conversationID || '', token),
   resolveChatPath:    (conversationID, token) => GoApp.ResolveChatPath(conversationID || '', token),
   revealChatPath:     (conversationID, token) => GoApp.RevealChatPath(conversationID || '', token),
   readChatMarkdown:   (conversationID, token) => GoApp.ReadChatMarkdown(conversationID || '', token),

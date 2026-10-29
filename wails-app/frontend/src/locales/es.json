@@ -2198,6 +2198,8 @@
     "opensHost": "Abre {{host}}",
     "previewHint": "Vista previa (Ctrl/Cmd-clic para mostrarlo en el gestor de archivos)",
     "revealHint": "Mostrar en el gestor de archivos",
+    "checkHint": "Ruta: haz clic para comprobarla y abrirla",
+    "notFound": "No encontrada",
     "reveal": "Mostrar en carpeta",
     "revealNamed": "Mostrar {{name}} en el gestor de archivos",
     "openFolder": "Abrir carpeta",

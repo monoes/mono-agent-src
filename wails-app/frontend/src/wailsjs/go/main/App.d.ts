@@ -128,6 +128,8 @@ export function ChooseProfileFolder():Promise<string>;
 
 export function ChooseWorkflowFile():Promise<string>;
 
+export function ClassifyChatPath(arg1:string,arg2:string):Promise<main.ChatPathClass>;
+
 export function ClearAITaskBudget(arg1:string,arg2:string):Promise<string>;
 
 export function ClearLogs():Promise<void>;

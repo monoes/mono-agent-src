@@ -64,13 +64,39 @@ export function isNetworkOrDevicePath(p) {
   return /^[A-Za-z]:(?![\\/])/.test(p)
 }
 
+// Windows reserved device names; mirrors reservedDeviceNames in app_open.go.
+const RESERVED = new Set(['CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$',
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) => ['COM' + n, 'LPT' + n]),
+  ...['\u00b9', '\u00b2', '\u00b3'].flatMap((n) => ['COM' + n, 'LPT' + n])])
+
+// isReservedDeviceName: Windows ignores case, trailing dots and spaces and
+// anything from the first dot on when it decides a name is a device.
+export function isReservedDeviceName(component) {
+  const dot = component.indexOf('.')
+  const stem = (dot >= 0 ? component.slice(0, dot) : component).replace(/[ .]+$/, '')
+  return RESERVED.has(stem.toUpperCase())
+}
+
+// refusedPathSpelling: device names in any component and ':' anywhere but a
+// drive prefix (alternate data streams), on every OS. Mirrors
+// refuseStreamOrReservedName in app_open.go; `p` has no :line[:col] suffix.
+// 8.3 short names (PROGRA~1) are accepted: they stay inside the chat-folder
+// check the Go side applies after resolution.
+function refusedPathSpelling(p) {
+  const rest = /^.:/.test(p) ? p.slice(2) : p
+  if (rest.includes(':')) return true
+  return rest.split(/[\\/]/).some((c) => c !== '' && isReservedDeviceName(c))
+}
+
 // findPathTokens lists the path-looking tokens in plain text.
 export function findPathTokens(text) {
   if (typeof text !== 'string' || text.length > 20000) return []
   const out = []
   for (const m of text.matchAll(PATH_RE)) {
     // a URL's tail ("//host/x.html" after "https:") is not a path
-    if (text[m.index - 1] === ':' || isNetworkOrDevicePath(m[0])) continue
+    // "file.md:stream" is an alternate data stream, not file.md followed by prose
+    if (/^:[^\s]/.test(text.slice(m.index + m[0].length, m.index + m[0].length + 2))) continue
+    if (text[m.index - 1] === ':' || isNetworkOrDevicePath(m[0]) || refusedPathSpelling(splitLine(m[0]).path)) continue
     out.push({ start: m.index, end: m.index + m[0].length, token: m[0] })
   }
   return out
@@ -89,7 +115,7 @@ export function codeLooksLikePath(s) {
   if (typeof s !== 'string' || s.length === 0 || s.length > 300) return false
   if (/[\s<>|*?"'`$;&(){}]/.test(s) || s.startsWith('-')) return false
   const { path } = splitLine(s)
-  if (isNetworkOrDevicePath(s) || isNetworkOrDevicePath(path)) return false
+  if (isNetworkOrDevicePath(s) || isNetworkOrDevicePath(path) || refusedPathSpelling(path)) return false
   if (/^(~|\.{1,2})?\/\S+/.test(path) || /^[A-Za-z]:[\\/]\S+/.test(path)) return path !== '/' && !path.startsWith('//')
   return new RegExp('^(?:' + SEG + '/)*' + SEG + '\\.(?:' + EXTS + ')$').test(path)
 }

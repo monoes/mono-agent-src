@@ -250,6 +250,10 @@ export function ChooseWorkflowFile() {
   return window['go']['main']['App']['ChooseWorkflowFile']();
 }
 
+export function ClassifyChatPath(arg1, arg2) {
+  return window['go']['main']['App']['ClassifyChatPath'](arg1, arg2);
+}
+
 export function ClearAITaskBudget(arg1, arg2) {
   return window['go']['main']['App']['ClearAITaskBudget'](arg1, arg2);
 }
