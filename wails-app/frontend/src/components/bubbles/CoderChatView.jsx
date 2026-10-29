@@ -109,8 +109,8 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
 
   // The composer is disabled while blocked, but a send must not get through any other way either.
   const blockedRef = useRef(false)
-  const send = useCallback(async () => {
-    const text = draft
+  const send = useCallback(async (sentText) => {
+    const text = typeof sentText === 'string' ? sentText : draft
     if (!text.trim() || blockedRef.current) return
     const sent = attachments
     onDraftChange('')
