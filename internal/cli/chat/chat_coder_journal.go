@@ -243,10 +243,10 @@ func backgroundMessage(refs []chatevents.ProcessRef) string {
 
 // backgroundNotice is the coder.background notice for processes a turn left
 // running, with each one's identity recorded for `coder stop-background`.
-func backgroundNotice(pids []int) chatevents.NoticePayload {
+func backgroundNoticeFor(root string, pids []int) chatevents.NoticePayload {
 	refs := make([]chatevents.ProcessRef, len(pids))
 	for i, pid := range pids {
-		refs[i] = chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Command: shortCommand(pid)}
+		refs[i] = chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Start: processStart(pid), Root: root, Command: shortCommand(pid)}
 	}
 	return chatevents.NoticePayload{
 		Code: noticeCoderBackground, Message: backgroundMessage(refs), Severity: chatevents.SeverityWarning,

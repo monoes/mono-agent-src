@@ -1,6 +1,9 @@
 package chat
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -281,7 +284,7 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <conversation-id>",
-		Short: "Delete a conversation with its turns, events and coder session (refused while a turn is active)",
+		Short: "Delete a conversation with its turns, events and coder session, after stopping the processes its turns left running (refused while a turn is active; exit 5, survivors_remain, and nothing deleted if one cannot be stopped)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, profileID, closeDB, err := openChatHistory(cfg)
@@ -289,11 +292,49 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer closeDB()
-			if err := store.DeleteConversation(args[0], profileID); err != nil {
-				return chatStoreErr(err)
+			// The processes the conversation's turns left running are recorded only in the events
+			// deleted with it: stop them first, and keep the record while one cannot be stopped. The
+			// delete itself re-reads the record inside its write transaction, where no turn can be
+			// recorded, and gives way if one appeared since: then the new ones are stopped too.
+			var stopped []int
+			for attempt := 0; ; attempt++ {
+				stop, _, seen, err := stopConversationBackgroundSeen(store, profileID, args[0], false)
+				if err != nil {
+					return err
+				}
+				stopped = append(stopped, stop.Stopped...)
+				if len(stop.Survivors) > 0 {
+					if cfg.JSONOutput() {
+						if err := clicore.PrintJSON(map[string]any{"id": args[0], "deleted": false, "stopped": stopped, "survivors": stop.Survivors}); err != nil {
+							return err
+						}
+					} else {
+						for _, sv := range stop.Survivors {
+							fmt.Fprintf(cmd.OutOrStdout(), "  still running: %d %s: %s\n", sv.Pid, sv.Command, sv.Reason)
+						}
+					}
+					return &coderError{code: "survivors_remain", err: &clicore.Error{Code: exitSurvivors, Msg: fmt.Sprintf(
+						"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors); stop them yourself, then delete it again", len(stop.Survivors))}}
+				}
+				beforeGuardedDelete()
+				err = store.DeleteConversationGuarded(args[0], profileID, noNewBackgroundRecords(profileID, args[0], seen))
+				if errors.Is(err, errBackgroundRecorded) && attempt < 3 {
+					continue
+				}
+				if errors.Is(err, errBackgroundRecorded) {
+					return clicore.InvalidInput("the conversation keeps recording processes its turns leave running: try again once it is quiet")
+				}
+				if err != nil {
+					return chatStoreErr(err)
+				}
+				break
 			}
+			stop := backgroundStop{Stopped: stopped}
 			if cfg.JSONOutput() {
-				return clicore.PrintJSON(map[string]any{"id": args[0], "deleted": true})
+				return clicore.PrintJSON(map[string]any{"id": args[0], "deleted": true, "stopped": stop.Stopped})
+			}
+			if len(stop.Stopped) > 0 {
+				fmt.Printf("stopped %d background process(es): %v\n", len(stop.Stopped), stop.Stopped)
 			}
 			fmt.Printf("deleted conversation %s\n", args[0])
 			return nil
@@ -414,4 +455,41 @@ func setOrgMode(cfg *Deps, id, mode string) (ai.Conversation, error) {
 	}
 	conv.OrgMode = mode
 	return conv, nil
+}
+
+// beforeGuardedDelete is a seam for tests: it runs between stopping a conversation's processes and the delete.
+var beforeGuardedDelete = func() {}
+
+// errBackgroundRecorded is a delete that found a background-process record it had not handled.
+var errBackgroundRecorded = errors.New("a background-process record appeared while the conversation was being deleted")
+
+// noNewBackgroundRecords is the guard of a delete: inside its write transaction it reads the
+// conversation's coder.background records again and refuses if any was not handled (stopped, found
+// gone or reported) by the caller.
+func noNewBackgroundRecords(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+	return func(ctx context.Context, conn *sql.Conn) error {
+		rows, err := conn.QueryContext(ctx, `SELECT payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type = ?`,
+			profileID, conversationID, string(chatevents.EventNotice))
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				return err
+			}
+			var n chatevents.NoticePayload
+			if json.Unmarshal([]byte(raw), &n) != nil || n.Code != noticeCoderBackground {
+				continue
+			}
+			for _, r := range n.Processes {
+				r.Command = ""
+				if !seen[r] {
+					return errBackgroundRecorded
+				}
+			}
+		}
+		return rows.Err()
+	}
 }
