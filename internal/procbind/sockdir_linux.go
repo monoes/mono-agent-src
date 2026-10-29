@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -54,6 +55,9 @@ type SocketOptions struct {
 	Root    string
 	Profile string
 	UID     int // the owner the directories must have; zero means the caller's own uid
+	// CreateRoot makes the last component of Root (mode 0700) when it does not exist; its parent
+	// must. It is for the fallback root under the user's home; a system runtime dir is never created.
+	CreateRoot bool
 }
 
 func (o SocketOptions) uid() int {
@@ -85,6 +89,20 @@ func openRoot(o SocketOptions) (int, error) {
 		return -1, fmt.Errorf("%w: the runtime root %q is not an absolute path", errUnsafeDir, o.Root)
 	}
 	fd, err := unix.Open(o.Root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ENOENT) && o.CreateRoot {
+		// only the last component is made; a symlinked parent (a home reached through /home -> /var/home)
+		// is allowed, the root itself is the trust anchor and is checked below
+		parent, perr := unix.Open(filepath.Dir(o.Root), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+		if perr != nil {
+			return -1, fmt.Errorf("%w: %s: %v", errUnsafeDir, filepath.Dir(o.Root), perr)
+		}
+		mkErr := unix.Mkdirat(parent, filepath.Base(o.Root), 0o700)
+		unix.Close(parent)
+		if mkErr != nil && !errors.Is(mkErr, unix.EEXIST) {
+			return -1, fmt.Errorf("%w: %s: %v", errUnsafeDir, o.Root, mkErr)
+		}
+		fd, err = unix.Open(o.Root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	}
 	if err != nil {
 		return -1, fmt.Errorf("%w: %s: %v", errUnsafeDir, o.Root, err)
 	}
@@ -93,8 +111,8 @@ func openRoot(o SocketOptions) (int, error) {
 		unix.Close(fd)
 		return -1, err
 	}
-	// the root must be ours and closed to others: a group or other writer could swap what is under it
-	if int(st.Uid) != o.uid() || st.Mode&0o022 != 0 {
+	// the root must be ours and closed to others, as ResolveRoot requires of a system runtime dir
+	if int(st.Uid) != o.uid() || st.Mode&0o077 != 0 {
 		unix.Close(fd)
 		return -1, fmt.Errorf("%w: %s is not a private directory of uid %d", errUnsafeDir, o.Root, o.uid())
 	}
@@ -126,7 +144,7 @@ func checkDir(fd int, uid int, what string) error {
 // openChain opens (creating when create is set) the directories below the root and returns the leaf's
 // descriptor; every component is checked.
 func openChain(rootfd int, o SocketOptions, create bool) (int, error) {
-	cur, err := unix.Dup(rootfd)
+	cur, err := unix.FcntlInt(uintptr(rootfd), unix.F_DUPFD_CLOEXEC, 0)
 	if err != nil {
 		return -1, err
 	}
@@ -166,10 +184,17 @@ func procPath(dirfd int, name string) string {
 
 // SecureListener is a unix listener on the service socket, with the directory and the lock held.
 type SecureListener struct {
-	*net.UnixListener
+	l      *net.UnixListener
+	once   sync.Once
 	dirfd  int
 	lockfd int
 }
+
+// AcceptUnix accepts a connection; a SecureListener is what Server.Serve takes.
+func (s *SecureListener) AcceptUnix() (*net.UnixConn, error) { return s.l.AcceptUnix() }
+
+// Addr is the listener's address.
+func (s *SecureListener) Addr() net.Addr { return s.l.Addr() }
 
 // ListenSecure creates the socket directory (private, checked component by component), takes the
 // directory's lock, replaces a stale socket and binds relative to the checked directory. It refuses
@@ -208,6 +233,11 @@ func ListenSecure(o SocketOptions) (*SecureListener, error) {
 		}
 		return fail(err, lockfd, dirfd)
 	}
+	// the name must still be the file that was locked: if it was unlinked and recreated in between,
+	// a second host could hold a lock on the other inode
+	if !stillNamed(dirfd, lockName, lst) {
+		return fail(fmt.Errorf("%w: %s changed while it was being locked", ErrAnotherHost, lockName), lockfd, dirfd)
+	}
 	// holding the lock, what is at the socket name is ours to clear if (and only if) it is a socket of ours
 	var st unix.Stat_t
 	switch err := unix.Fstatat(dirfd, sockName, &st, unix.AT_SYMLINK_NOFOLLOW); {
@@ -226,31 +256,57 @@ func ListenSecure(o SocketOptions) (*SecureListener, error) {
 		return fail(err, lockfd, dirfd)
 	}
 	l.SetUnlinkOnClose(false) // Close removes it relative to the held directory instead
-	if err := unix.Fchmodat(dirfd, sockName, 0o600, 0); err != nil {
+	if err := privateSocket(dirfd, o.uid()); err != nil {
 		_ = l.Close()
 		_ = unix.Unlinkat(dirfd, sockName, 0)
 		return fail(err, lockfd, dirfd)
 	}
-	if err := unix.Fstatat(dirfd, sockName, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil || st.Mode&unix.S_IFMT != unix.S_IFSOCK || int(st.Uid) != o.uid() {
-		_ = l.Close()
-		_ = unix.Unlinkat(dirfd, sockName, 0)
-		return fail(fmt.Errorf("%w: the bound socket is not a socket of uid %d", errUnsafeDir, o.uid()), lockfd, dirfd)
+	return &SecureListener{l: l, dirfd: dirfd, lockfd: lockfd}, nil
+}
+
+// stillNamed says whether name in dirfd is still the file whose stat is want.
+func stillNamed(dirfd int, name string, want unix.Stat_t) bool {
+	var got unix.Stat_t
+	return unix.Fstatat(dirfd, name, &got, unix.AT_SYMLINK_NOFOLLOW) == nil && got.Ino == want.Ino && got.Dev == want.Dev
+}
+
+// privateSocket makes the socket file private. The socket is opened by name without following a
+// symlink (O_PATH), must be a socket of uid, and only then is its mode set, through the descriptor, so
+// a symlink or a file of another kind swapped in under the name after the bind is never touched. (A
+// different socket of the same user swapped in is not told apart: the kernel gives a listening socket's
+// descriptor no inode that matches the file's. It would only leave this host listening on an unlinked
+// socket, which is a deny, and the service is authenticated by its answer.) A socket created by bind has mode 0777&^umask until this runs; the
+// directory is 0700, which keeps everyone else out meanwhile.
+func privateSocket(dirfd, uid int) error {
+	pfd, err := openBelow(dirfd, sockName, unix.O_PATH|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %v", errUnsafeDir, sockName, err)
 	}
-	return &SecureListener{UnixListener: l, dirfd: dirfd, lockfd: lockfd}, nil
+	defer unix.Close(pfd)
+	var byName unix.Stat_t
+	if err := unix.Fstat(pfd, &byName); err != nil {
+		return err
+	}
+	if byName.Mode&unix.S_IFMT != unix.S_IFSOCK || int(byName.Uid) != uid {
+		return fmt.Errorf("%w: %s is not a socket of uid %d", errUnsafeDir, sockName, uid)
+	}
+	return unix.Chmod("/proc/self/fd/"+strconv.Itoa(pfd), 0o600)
 }
 
 // Close stops listening, removes the socket from the checked directory and releases the lock.
 func (l *SecureListener) Close() error {
-	err := l.UnixListener.Close()
-	if l.dirfd >= 0 {
-		_ = unix.Unlinkat(l.dirfd, sockName, 0)
-		unix.Close(l.dirfd)
-		l.dirfd = -1
-	}
-	if l.lockfd >= 0 {
-		unix.Close(l.lockfd) // closing the descriptor drops the flock
-		l.lockfd = -1
-	}
+	err := l.l.Close()
+	l.once.Do(func() {
+		if l.dirfd >= 0 {
+			_ = unix.Unlinkat(l.dirfd, sockName, 0)
+			unix.Close(l.dirfd)
+			l.dirfd = -1
+		}
+		if l.lockfd >= 0 {
+			unix.Close(l.lockfd) // closing the descriptor drops the flock
+			l.lockfd = -1
+		}
+	})
 	return err
 }
 
@@ -287,5 +343,33 @@ func DialSecure(o SocketOptions) (*net.UnixConn, error) {
 	if st.Mode&unix.S_IFMT != unix.S_IFSOCK || int(st.Uid) != o.uid() {
 		return nil, fmt.Errorf("%w: %s is not a socket of uid %d", errUnsafeDir, sockName, o.uid())
 	}
-	return DialPath(procPath(dirfd, sockName))
+	c, err := DialPath(procPath(dirfd, sockName))
+	if err != nil {
+		return nil, err
+	}
+	// the name was checked before the connect; the process that answered must be of the expected uid
+	if err := checkPeerUID(c, o.uid()); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+func checkPeerUID(c *net.UnixConn, uid int) error {
+	rc, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var cred *unix.Ucred
+	var cerr error
+	if err := rc.Control(func(fd uintptr) { cred, cerr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) }); err != nil {
+		return err
+	}
+	if cerr != nil {
+		return cerr
+	}
+	if int(cred.Uid) != uid {
+		return fmt.Errorf("%w: the service socket is served by uid %d, not %d", errUnsafeDir, cred.Uid, uid)
+	}
+	return nil
 }

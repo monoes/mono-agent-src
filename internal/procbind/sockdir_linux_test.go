@@ -56,6 +56,7 @@ func TestSecureListenerCreatesPrivateDirsAndServes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer l.Close() // idempotent; also covers a skip or a failure below
 	for _, p := range []string{"monoagent", "monoagent/p1"} {
 		fi, err := os.Lstat(filepath.Join(root, p))
 		if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o700 {
@@ -71,7 +72,7 @@ func TestSecureListenerCreatesPrivateDirsAndServes(t *testing.T) {
 	s := &Server{Profile: tProfile, Generation: tGen, Key: tKey, Registry: register(t, self), Procs: lp(t), UID: os.Getuid(), Timeout: 3 * time.Second}
 	skipWithoutPeerPidfd(t)
 	done := make(chan struct{})
-	go func() { defer close(done); _ = s.Serve(l.UnixListener) }()
+	go func() { defer close(done); _ = s.Serve(l) }()
 	conn, err := DialSecure(opts(root))
 	if err != nil {
 		t.Fatal(err)
@@ -180,9 +181,9 @@ func TestSecureListenerRefusesUnsafeDirectories(t *testing.T) {
 				_ = l.Close()
 				t.Fatal("the listener started on an unsafe directory")
 			}
-			// nothing the attacker pointed at was written to
-			if _, err := os.Lstat("/etc/passwd.sock"); err == nil {
-				t.Fatal("unexpected file")
+			// refused for the right reason, not because openat2 is unavailable
+			if !errors.Is(err, errUnsafeDir) && name != "empty profile" {
+				t.Errorf("refused for another reason: %v", err)
 			}
 		})
 	}
@@ -207,6 +208,176 @@ func TestCheckDirRefusesAnotherOwnerOrMode(t *testing.T) {
 	}
 }
 
+// The socket is made private without following a symlink swapped in under its name.
+func TestPrivateSocketNeverTouchesWhatIsNotTheBoundSocket(t *testing.T) {
+	root := shortRoot(t)
+	l, err := ListenSecure(opts(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	dir := filepath.Join(root, "monoagent/p1")
+	victim := filepath.Join(root, "victim")
+	if err := os.WriteFile(victim, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(victim) })
+	// swap the name for a symlink to the victim, as an attacker with the directory's uid could
+	_ = os.Remove(filepath.Join(dir, "bind.sock"))
+	if err := os.Symlink(victim, filepath.Join(dir, "bind.sock")); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
+	if err := privateSocket(fd, os.Getuid()); err == nil {
+		t.Error("a symlink under the socket name was accepted")
+	}
+	if fi, err := os.Stat(victim); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Errorf("the symlink's target was changed: %v %v", fi, err)
+	}
+	// a regular file under the name is refused as well, and left as it was
+	_ = os.Remove(filepath.Join(dir, "bind.sock"))
+	if err := os.WriteFile(filepath.Join(dir, "bind.sock"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := privateSocket(fd, os.Getuid()); err == nil {
+		t.Error("a regular file under the socket name was accepted")
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "bind.sock")); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Errorf("the file was changed: %v %v", fi, err)
+	}
+}
+
+func TestSecureListenerCloseIsIdempotentAndReleasesTheLock(t *testing.T) {
+	root := shortRoot(t)
+	l, err := ListenSecure(opts(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 8
+	done := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() { done <- l.Close() }()
+	}
+	for i := 0; i < n; i++ {
+		<-done
+	}
+	again, err := ListenSecure(opts(root))
+	if err != nil {
+		t.Fatalf("after Close: %v", err)
+	}
+	_ = again.Close()
+}
+
+func TestSecureListenerHashedProfileAndFallbackRoot(t *testing.T) {
+	// a profile id that is not a plain component lands in a hashed directory under the root
+	root := shortRoot(t)
+	o := SocketOptions{Root: root, Profile: "../../etc"}
+	l, err := ListenSecure(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(root, "monoagent"))
+	if len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), "~") {
+		t.Errorf("entries: %v", entries)
+	}
+	_ = l.Close()
+	for _, e := range entries {
+		_ = os.Remove(filepath.Join(root, "monoagent", e.Name(), "bind.lock"))
+		_ = os.Remove(filepath.Join(root, "monoagent", e.Name()))
+	}
+	// the fallback root under a home is created 0700, and its parent may be reached through a symlink
+	home := shortRoot(t)
+	real := filepath.Join(home, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	fb := SocketOptions{Root: filepath.Join(link, "run"), Profile: "p1", CreateRoot: true}
+	l2, err := ListenSecure(fb)
+	if err != nil {
+		t.Fatalf("fallback root through a symlinked parent: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(real, "run")); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("fallback root: %v %v", fi, err)
+	}
+	_ = l2.Close()
+	if _, err := ListenSecure(SocketOptions{Root: filepath.Join(link, "run2"), Profile: "p1"}); err == nil {
+		t.Error("a missing root was created without CreateRoot")
+	}
+	for _, p := range []string{"run/monoagent/p1/bind.lock", "run/monoagent/p1", "run/monoagent", "run", ""} {
+		_ = os.Remove(filepath.Join(real, p))
+	}
+	_ = os.Remove(link)
+}
+
+func TestStillNamed(t *testing.T) {
+	root := shortRoot(t)
+	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
+	name := "f"
+	if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(filepath.Join(root, name)) })
+	var st unix.Stat_t
+	if err := unix.Fstatat(fd, name, &st, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !stillNamed(fd, name, st) {
+		t.Error("the same file is not recognised")
+	}
+	// unlinked and recreated: another inode under the same name (hold the old one so its number is not reused)
+	old, _ := os.Open(filepath.Join(root, name))
+	defer old.Close()
+	_ = os.Remove(filepath.Join(root, name))
+	if err := os.WriteFile(filepath.Join(root, name), []byte("y"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if stillNamed(fd, name, st) {
+		t.Error("a recreated file was taken for the locked one")
+	}
+	_ = os.Remove(filepath.Join(root, name))
+	if stillNamed(fd, name, st) {
+		t.Error("a missing file was taken for the locked one")
+	}
+}
+
+func TestCheckPeerUID(t *testing.T) {
+	root := shortRoot(t)
+	l, err := ListenSecure(opts(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		if c, err := l.AcceptUnix(); err == nil {
+			defer c.Close()
+			time.Sleep(300 * time.Millisecond)
+		}
+	}()
+	c, err := DialSecure(opts(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := checkPeerUID(c, os.Getuid()); err != nil {
+		t.Errorf("our own service: %v", err)
+	}
+	if err := checkPeerUID(c, os.Getuid()+1); err == nil {
+		t.Error("a service of another uid was accepted")
+	}
+}
+
 func TestSecureListenerReplacesAStaleSocketAndRefusesASecondHost(t *testing.T) {
 	root := shortRoot(t)
 	first, err := ListenSecure(opts(root))
@@ -222,7 +393,7 @@ func TestSecureListenerReplacesAStaleSocketAndRefusesASecondHost(t *testing.T) {
 	}
 	// the first "crashes": its lock goes away without removing the socket file
 	// the first host "crashes": it stops listening and its lock goes away, but the socket file stays
-	_ = first.UnixListener.Close()
+	_ = first.l.Close()
 	_ = unix.Close(first.lockfd)
 	first.lockfd = -1
 	stale := filepath.Join(root, "monoagent/p1/bind.sock")
@@ -325,7 +496,13 @@ func TestDialSecureRefusesUnsafeDirectoriesAndAbstractNames(t *testing.T) {
 
 func TestSecureListenerLeaksNoDescriptors(t *testing.T) {
 	root := shortRoot(t)
-	before := fdCount(t)
+	// one start and stop first, so the runtime's own descriptors (netpoll) are already open
+	warm, err := ListenSecure(opts(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = warm.Close()
+	before := settledFDs(t)
 	for i := 0; i < 5; i++ {
 		l, err := ListenSecure(opts(root))
 		if err != nil {
@@ -338,14 +515,14 @@ func TestSecureListenerLeaksNoDescriptors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := fdCount(t)
+	base := settledFDs(t)
 	for i := 0; i < 10; i++ {
 		if l, err := ListenSecure(opts(root)); err == nil {
 			_ = l.Close()
 			t.Fatal("two hosts")
 		}
 	}
-	if after := fdCount(t); after > base {
+	if after := settledFDs(t); after > base {
 		t.Errorf("refusing a second host leaked descriptors: %d before, %d after", base, after)
 	}
 	_ = first.Close()
