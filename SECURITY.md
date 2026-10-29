@@ -1951,7 +1951,7 @@ that works a task acts on them. The defences:
   (it shows the Inbox) and `approve` (both unless delegated, see above),
   `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow`,
   `agents deny`, `session approve`, `session resume`, `session close`,
-  `session archive`, `session budget` and `undepend`. A caller is agent-driven when an
+  `session archive` (also with `--cascade`, which stops and archives the open sessions below it and is never an agent's), `session budget` and `undepend`. A caller is agent-driven when an
   agent-context environment variable is set (the markers org signing
   already uses, `CLAUDECODE` among them), or `--as` is given, or
   `MONOAGENT_ACTOR` is set. This stops an agent acting by accident or on

@@ -62,7 +62,7 @@ WHO MAY DO WHAT
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
-  agents deny, session approve, session resume, session close, session archive, session budget,
+  agents deny, session approve, session resume, session close, session archive, session archive --cascade, session budget,
   session person inbox, session person approve, session person deny, session person ask,
   session person answer-ask,
   undepend, os install and os uninstall are the operator's: they answer an agent
@@ -111,7 +111,7 @@ WHO MAY DO WHAT
   the budget, the limits, the access level or auto-close: that is session budget ID --usd N
   --max-tasks N --max-depth N --max-retries N --access LEVEL --auto-close on|off --spend N --note TEXT
   (session new takes --budget-usd), the operator's. session new takes an optional --client-id KEY
-  (idempotency, per profile, up to 64 letters, digits, - or _); session new takes --parent ID and --kind (board, mission, research, direction, task): sessions form a tree of up to 4 levels, a child never has more access, budget or caps than its parent, and an agent starts one only below a session it works in; session rename ID TITLE (the operator: any; an agent: one it started) and session tree [--json] (array of roots with children) are new; archiving a parent does not archive its children; an agent may pass --conversation only for its own chat (verified by its session token). A repeated key returns the existing session
+  (idempotency, per profile, up to 64 letters, digits, - or _); session new takes --parent ID and --kind (board, mission, research, direction, task): sessions form a tree of up to 4 levels, a child never has more access, budget or caps than its parent, and an agent starts one only below a session it works in; session rename ID TITLE (the operator: any; an agent: one it started) and session tree [--json] (array of roots with children) are new; session archive ID is refused while draft, running or paused sessions are below the session (any depth; the error lists their ids and titles); session archive ID --cascade (the operator only, an agent never) stops the running and paused ones among them (their claims are released), then archives the whole subtree in one write, the deepest first, each with an archived event that names the session archived, and prints {"profile","session","archived":[ids]}; finished (done, stopped, failed) sessions below it are archived with it without --cascade; a child's budget is not returned to the parent; a cycle or too deep a tree is refused and nothing is archived; an agent may pass --conversation only for its own chat (verified by its session token). A repeated key returns the existing session
   (exit 0, deduped true) and creates none; a longer or garbled key is invalid_input. A worker or verifier bound to a task may not
   pause or stop the session. finish and artifact by an agent are refused while the session is
   paused or stopped (a comment is not). Progress n/m (counts.done, counts.total) leaves epics out:

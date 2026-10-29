@@ -225,7 +225,6 @@ func TestCascadeDoesNotReturnTheChildsBudgetToTheParent(t *testing.T) {
 	}
 }
 
-
 func TestArchiveRefusalCleansTheTitlesItQuotes(t *testing.T) {
 	s, _, _ := newTestStore(t)
 	root := mustSession(t, s, "default", "root")

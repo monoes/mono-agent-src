@@ -272,26 +272,23 @@ func TestSessionTreeJSONOrderingAndChildren(t *testing.T) {
 	}
 }
 
-// Guard: --all lists archived sessions in the tree; without it an archived parent leaves and its
-// open child stands as a root.
+// Guard: --all lists archived sessions in the tree; without it an archived parent leaves with its
+// children (an open child is archived with it, by --cascade).
 func TestSessionTreeAllShowsArchived(t *testing.T) {
 	t.Parallel()
 	db := newTaskTestDB(t)
 	a := sessionNew(t, db, "A")
 	kid := newChild(t, db, a, "A1")
 	var ar treeNodeDoc
-	mustTaskJSON(t, db, "default", &ar, "", "session", "archive", id(a))
+	mustTaskJSON(t, db, "default", &ar, "", "session", "archive", id(a), "--cascade")
 	if !ar.Session.Archived {
 		t.Fatalf("archive: %+v", ar.Session)
 	}
-	without := treeOf(t, db)
-	for _, n := range without {
-		if n.ID == a {
-			t.Fatalf("an archived session is in the default tree: %+v", without)
-		}
+	if without := treeOf(t, db); len(without) != 0 {
+		t.Fatalf("an archived session or its child is in the default tree: %+v", without)
 	}
 	with := treeOf(t, db, "--all")
-	if len(with) != 1 || with[0].ID != a || !with[0].Archived || len(with[0].Children) != 1 || with[0].Children[0].ID != kid.ID {
+	if len(with) != 1 || with[0].ID != a || !with[0].Archived || len(with[0].Children) != 1 || with[0].Children[0].ID != kid.ID || !with[0].Children[0].Archived {
 		t.Fatalf("--all: %+v", with)
 	}
 	text, _, err := runTask(t, db, "default", false, "", "session", "tree", "--all")
