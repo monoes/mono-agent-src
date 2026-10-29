@@ -138,6 +138,18 @@ export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
 
+export function AgentPurposeReset(arg1) {
+  return window['go']['main']['App']['AgentPurposeReset'](arg1);
+}
+
+export function AgentPurposeSet(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['AgentPurposeSet'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
+export function AgentPurposesList() {
+  return window['go']['main']['App']['AgentPurposesList']();
+}
+
 export function AgentRoster() {
   return window['go']['main']['App']['AgentRoster']();
 }
