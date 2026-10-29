@@ -164,6 +164,7 @@ type Staff struct {
 	Effort    string
 	Access    string                           // an access profile
 	Purpose   string                           // the purpose whose model set limited the choice ("" = none)
+	also      []string                         // purposes besides the category's whose sets hold a built-in role too
 	sides     []string                         // every purpose whose set limits the worker (Purpose first)
 	loaded    map[string]agentpurposes.Setting // the sets read for this decision
 	Fallbacks []Model                          // next models to try if Model can't run

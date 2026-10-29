@@ -31,7 +31,8 @@ const verifierPurpose = "review"
 
 // VerifierFor picks the model that verifies a task: a ready model other than the
 // executor's when the roster has one (a second opinion), else the executor's own, which
-// the result says. An unknown executor (a worker of an earlier turn) counts as the lead's.
+// the result says, unless the operator's review set leaves that out too (an
+// error, never a model the set forbids). An unknown executor (a worker of an earlier turn) counts as the lead's.
 func VerifierFor(s *Staffer, executor Model) (m Model, same bool, err error) {
 	if s == nil {
 		return Model{}, true, nil
@@ -50,6 +51,9 @@ func VerifierFor(s *Staffer, executor Model) (m Model, same bool, err error) {
 		if c.FullAccess || c.Read || c.ReadOnlySandbox {
 			return c, false, nil
 		}
+	}
+	if !s.permits(all, verifierPurpose, executor) {
+		return Model{}, true, fmt.Errorf("no model the operator allows for the %s purpose can verify this task (the executor's %s is not one either); the task stays in review: ask the operator to change the set with `agent purposes`", verifierPurpose, executor.Key())
 	}
 	return executor, true, nil
 }

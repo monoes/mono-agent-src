@@ -16,6 +16,7 @@ type purposePolicy struct {
 	label      string // the purposes whose sets limit the choice, for messages
 	set        agentpurposes.Setting
 	rule       string
+	limited    bool   // some set limits the choice: a stale model is never staffed
 	restricted bool   // the candidates are limited to the set's pairs
 	author     string // a model the worker must differ from, "" = none
 	notes      []string
@@ -50,6 +51,11 @@ func (s *Staffer) staffPurpose(req SpawnRequest, st *Staff) error {
 			st.Purpose, st.sides = named, []string{named}
 		}
 		st.sides = append(st.sides, sc.Default)
+		for _, id := range st.also {
+			if !slices.Contains(st.sides, id) {
+				st.sides = append(st.sides, id)
+			}
+		}
 		return nil
 	}
 	if named != "" {
@@ -121,12 +127,15 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 		if len(inter) == 0 {
 			return nil, fmt.Errorf("purpose %s: the models the operator chose for these have none in common, so no model may run this worker; ask the operator to change the sets in Settings", pol.label)
 		}
-		pol.set.Pairs = inter
+		pol.set.Pairs, pol.limited = inter, true
 		in := slices.DeleteFunc(slices.Clone(*eligible), func(m Model) bool { return m.Stale || !pol.set.Has(m.Runtime, modelID(m)) })
 		switch {
 		case len(in) > 0:
 			*eligible, pol.restricted = in, true
 		case fallbackAny:
+			if *eligible = slices.DeleteFunc(*eligible, func(m Model) bool { return m.Stale }); len(*eligible) == 0 {
+				return nil, fmt.Errorf("purpose %s: none of the models the operator chose is validated, and no other validated model can run a %s worker; ask the operator to re-validate models", pol.label, st.Access)
+			}
 			pol.notes = append(pol.notes, "purpose "+pol.label+": none of the models the operator chose can run this worker; the operator allowed any validated model")
 		default:
 			return nil, fmt.Errorf("purpose %s: none of the models the operator chose (%s) is validated and able to run a %s worker; ask the operator to re-validate them or change the set in Settings", pol.label, pairKeys(inter), st.Access)
@@ -157,7 +166,7 @@ func (p *purposePolicy) checkNamed(m Model, eligible []Model) error {
 	if p.restricted && !p.set.Has(m.Runtime, modelID(m)) {
 		return fmt.Errorf("%s is not one of the models the operator allows for %s; use one of: %s", m.Key(), p.label, keys(eligible))
 	}
-	if p.restricted && m.Stale {
+	if p.limited && m.Stale {
 		return fmt.Errorf("%s is stale (not validated recently); the operator's set for %s allows: %s", m.Key(), p.label, keys(eligible))
 	}
 	if p.author != "" && m.Key() == p.author {

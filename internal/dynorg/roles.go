@@ -10,6 +10,9 @@ import (
 type builtinRole struct {
 	ID, Title, Category, Profile, Body string
 	keywords                           []string
+	// also names purposes besides the category's own whose sets hold the role
+	// too, when its work spans two (all apply: the most restrictive wins).
+	also []string
 }
 
 var coreRoles = []builtinRole{
@@ -85,7 +88,7 @@ func appRolesNamed(brief string) []builtinRole {
 // setBuiltin staffs a worker with a built-in role.
 func (st *Staff) setBuiltin(r builtinRole, why string) {
 	st.Role, st.AgentType, st.Category, st.AgentBody = r.Title, r.ID, r.Category, r.Body
-	st.Builtin = true
+	st.Builtin, st.also = true, r.also
 	st.Access = r.Profile
 	st.Why = append(st.Why, why)
 }

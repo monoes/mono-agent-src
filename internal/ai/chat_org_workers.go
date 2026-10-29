@@ -34,7 +34,7 @@ type OrgWorker struct {
 	// (comma-separated). A row from an older build has neither.
 	Builtin   bool   `json:"builtin,omitempty"`
 	Purposes  string `json:"purposes,omitempty"`
-	UpdatedAt  string   `json:"updated_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // orgWorkerTime sorts as text: fixed width, to the nanosecond, so the

@@ -438,3 +438,59 @@ func TestARoleFileCannotForgeACategoryToPickItsPurpose(t *testing.T) {
 		t.Errorf("the built-in doc-writer: purpose %q, want writing", st.Purpose)
 	}
 }
+
+// A role whose work spans two purposes is held to BOTH sets: the browser
+// operator drives the browser (browsing) through automation nodes (automation),
+// so a model only the open automation set allows may not drive the browser.
+func TestTheBrowserOperatorIsHeldToTheBrowsingSetToo(t *testing.T) {
+	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus,
+		Purposes: map[string]agentpurposes.Setting{"browsing": set("any", "claude/haiku")}} // automation is open
+	req := SpawnRequest{Brief: "open the page and click", Role: "browser-operator"}
+	if st := staff(t, s, req); st.Model.Key() != "claude/haiku" {
+		t.Errorf("browser-operator ran on %s, outside the browsing set", st.Model.Key())
+	}
+	req.Runtime, req.Model = "codex", "gpt-5.5"
+	if _, err := s.Staff(context.Background(), req); err == nil {
+		t.Error("a model outside the browsing set was named for the browser operator")
+	}
+	// Security review is a review too.
+	s.Purposes = map[string]agentpurposes.Setting{"review": set("any", "claude/haiku")}
+	if _, err := s.Staff(context.Background(), SpawnRequest{Brief: "security review", Role: "security-reviewer", Runtime: "codex", Model: "gpt-5.5"}); err == nil {
+		t.Error("security-reviewer escaped the review set")
+	}
+}
+
+// A stale model is never staffed under a purpose's set: not as the fallback
+// when the set has nothing usable, and not when the lead names it.
+func TestAStaleModelIsNeverStaffedUnderAPurposeSet(t *testing.T) {
+	stale := haiku
+	stale.Stale = true
+	any := set("any", "claude/haiku")
+	any.Fallback = agentpurposes.FallbackAny
+	s := &Staffer{Roster: []Model{stale}, Lead: opus, Purposes: map[string]agentpurposes.Setting{"review": any}}
+	if st, err := s.Staff(context.Background(), SpawnRequest{Brief: reviewBrief}); err == nil {
+		t.Errorf("fallback any staffed the stale %s", st.Model.Key())
+	}
+	s.Roster = []Model{stale, gpt}
+	if st := staff(t, s, SpawnRequest{Brief: reviewBrief}); st.Model.Key() != "codex/gpt-5.5" {
+		t.Errorf("fallback any picked %s", st.Model.Key())
+	}
+	if st, err := s.Staff(context.Background(), SpawnRequest{Brief: reviewBrief, Runtime: "claude", Model: "haiku"}); err == nil {
+		t.Errorf("the lead named a stale model under fallback any: staffed %s", st.Model.Key())
+	}
+}
+
+// The verifier is never a model the review set leaves out, the executor's
+// included: with none allowed it is an error, not the executor.
+func TestNoAllowedVerifierIsAnErrorNotTheExecutor(t *testing.T) {
+	s := &Staffer{Roster: []Model{opus, haiku}, Lead: opus,
+		Purposes: map[string]agentpurposes.Setting{"review": set("any", "codex/gpt-5.5")}}
+	if m, same, err := VerifierFor(s, opus); err == nil || m.Runtime != "" {
+		t.Errorf("verifier = %s same=%v err=%v", m.Key(), same, err)
+	}
+	// The executor itself is fine when the set allows it and it is alone.
+	s.Purposes = map[string]agentpurposes.Setting{"review": set("any", "claude/opus")}
+	if m, same, err := VerifierFor(s, opus); err != nil || m.Key() != "claude/opus" || !same {
+		t.Errorf("an allowed lone executor: %s same=%v err=%v", m.Key(), same, err)
+	}
+}
