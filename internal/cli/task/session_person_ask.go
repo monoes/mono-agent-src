@@ -39,6 +39,9 @@ func (d Deps) newPersonAnswerAskCmd() *cobra.Command {
 			if _, err := d.callerFor(flagAs(cmd)).operator(personWhat); err != nil {
 				return err
 			}
+			if err := d.refuseTokenHolder(personWhat); err != nil {
+				return err
+			}
 			if askID <= 0 {
 				return d.InvalidInput("task session person answer-ask needs the ask id (--ask)")
 			}
