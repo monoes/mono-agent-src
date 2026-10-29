@@ -376,18 +376,26 @@ func (d Deps) newSessionPlanCmd() *cobra.Command {
 }
 
 func (d Deps) newSessionApproveCmd() *cobra.Command {
-	return d.oneSession("approve ID", "Approve a draft's plan: its tasks become Ready and the session runs (you, or the lead of its parent when you allow it)",
+	var rev int64
+	cmd := d.oneSession("approve ID [--rev N]", "Approve a draft's plan: its tasks become Ready and the session runs (you, or the lead of its parent when you allow it); pass --rev N when you approve what you read",
 		func(cmd *cobra.Command, store *tasks.Store, p tasks.Profile, id int64) error {
 			actor, err := d.approver(flagAs(cmd))
 			if err != nil {
 				return err
 			}
-			se, err := store.ApproveSession(cmd.Context(), p.ID, id, actor)
+			var se tasks.Session
+			if cmd.Flags().Changed("rev") {
+				se, err = store.ApproveSessionAt(cmd.Context(), p.ID, id, actor, tasks.PlanGuard{Rev: rev})
+			} else {
+				se, err = store.ApproveSession(cmd.Context(), p.ID, id, actor)
+			}
 			if err != nil {
 				return d.taskErr(err)
 			}
 			return d.writeSession(cmd, p, se, "Approved")
 		})
+	cmd.Flags().Int64Var(&rev, "rev", 0, "The session revision you read (its `rev` in `session show --json`): refused with plan_changed if the plan moved since. Without it the plan as it is now is approved, as scripts expect; pass it whenever you approve what you read")
+	return cmd
 }
 
 // operatorSession is oneSession for a command that is the operator's: it refuses an
