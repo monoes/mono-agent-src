@@ -315,7 +315,11 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 			if err != nil {
 				return err
 			}
-			if level, maxTasks, maxDepth, budget, err = withinParent(par, explicit, level, maxTasks, maxDepth, budget); err != nil {
+			top, err := s.ceilingAt(ctx, x, profileID, par.ID)
+			if err != nil {
+				return err
+			}
+			if level, maxTasks, maxDepth, budget, err = withinParent(top.asParent(par), explicit, level, maxTasks, maxDepth, budget); err != nil {
 				return err
 			}
 			if err := s.checkChildFence(ctx, x, par, actor); err != nil {

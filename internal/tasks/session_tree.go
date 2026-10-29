@@ -83,7 +83,61 @@ func (s *Store) checkParent(ctx context.Context, x dbx, profileID string, parent
 	return par, nil
 }
 
-// withinParent applies the parent's limits to a child's: what the caller left unset is taken from
+// ceiling is the most a session below a given one may have: the minimum of each limit over the whole
+// chain from that session up to the root, closed and archived sessions included.
+type ceiling struct {
+	level    string
+	maxTasks int
+	maxDepth int
+	budget   float64 // the smallest nonzero budget on the chain; 0 when no session on it has one
+}
+
+// ceilingAt reads the ceiling for a session below session id (id itself is part of the chain), at check
+// time, so that a limit stored on a closed session in between is never trusted to have been clamped.
+// The walk is bounded by HardMaxSessionDepth, stays in the profile, visits each session once, and
+// fails closed on a cycle of parents.
+func (s *Store) ceilingAt(ctx context.Context, x dbx, profileID string, id int64) (ceiling, error) {
+	c := ceiling{level: AccessLevels[len(AccessLevels)-1], maxTasks: MaxSessionTasksCeiling, maxDepth: MaxSessionDepthCeiling}
+	var seen []int64
+	for cur := id; cur != 0; {
+		if slices.Contains(seen, cur) {
+			return ceiling{}, invalid("session #%d is in a cycle of parents", id)
+		}
+		if len(seen) >= HardMaxSessionDepth {
+			return ceiling{}, limit("session #%d sits deeper than %d levels", id, HardMaxSessionDepth)
+		}
+		seen = append(seen, cur)
+		var level string
+		var maxTasks, maxDepth int
+		var budget float64
+		var parent sql.NullInt64
+		err := x.QueryRowContext(ctx, `SELECT access_level, max_tasks, max_depth, budget_usd, parent_session_id FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, cur).Scan(&level, &maxTasks, &maxDepth, &budget, &parent)
+		if errors.Is(err, sql.ErrNoRows) {
+			break
+		}
+		if err != nil {
+			return ceiling{}, fmt.Errorf("tasks: reading session #%d: %w", cur, err)
+		}
+		if slices.Index(AccessLevels, level) < slices.Index(AccessLevels, c.level) {
+			c.level = level
+		}
+		c.maxTasks = min(c.maxTasks, maxTasks)
+		c.maxDepth = min(c.maxDepth, maxDepth)
+		if budget > 0 && (c.budget == 0 || budget < c.budget) {
+			c.budget = budget
+		}
+		cur = parent.Int64
+	}
+	return c, nil
+}
+
+// asParent is the ceiling dressed as the session withinParent and the update check hold a child to.
+func (c ceiling) asParent(par Session) Session {
+	par.AccessLevel, par.MaxTasks, par.MaxDepth, par.BudgetUSD = c.level, c.maxTasks, c.maxDepth, c.budget
+	return par
+}
+
+// withinParent applies the limits of the parent, as the whole chain above it lowers them (see ceiling), to a child's: what the caller left unset is taken from
 // the parent (the lower of the default and the parent's), and what it asked for may not exceed the
 // parent's.
 func withinParent(par Session, asked SessionInput, level string, maxTasks, maxDepth int, budget float64) (string, int, int, float64, error) {

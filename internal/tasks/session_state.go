@@ -18,13 +18,16 @@ func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, 
 		if se.State != SessionDraft || se.Archived {
 			return sessionNotReady("session #%d is %s: only a draft is approved", id, se.State)
 		}
-		if se.ParentSessionID != 0 && se.BudgetUSD <= 0 {
-			par, err := s.sessionTx(ctx, x, profileID, se.ParentSessionID)
+		if se.ParentSessionID != 0 {
+			top, err := s.ceilingAt(ctx, x, profileID, se.ParentSessionID)
 			if err != nil {
 				return err
 			}
-			if par.BudgetUSD > 0 {
-				return limit("session #%d has no budget of its own and its parent #%d has $%.2f: set one first (task session budget %d --usd N, at most that)", id, par.ID, par.BudgetUSD, id)
+			if err := withinCeiling(se, top); err != nil {
+				return err
+			}
+			if se.BudgetUSD <= 0 && top.budget > 0 {
+				return limit("session #%d has no budget of its own and a session above it has $%.2f: set one first (task session budget %d --usd N, at most that)", id, top.budget, id)
 			}
 		}
 		ids, _, err := s.sessionColumn(ctx, x, id, StatusInbox)
@@ -316,15 +319,37 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 	})
 }
 
+// withinCeiling is nil when the session's own limits are within the ceiling above it: a session
+// that is not (a store edited by hand) is not started.
+func withinCeiling(se Session, c ceiling) error {
+	switch {
+	case slices.Index(AccessLevels, se.AccessLevel) > slices.Index(AccessLevels, c.level):
+		return limit("session #%d has access %q, above the %q of a session above it: the operator lowers it first", se.ID, se.AccessLevel, c.level)
+	case se.MaxTasks > c.maxTasks:
+		return limit("session #%d has max tasks %d, above the %d of a session above it: the operator lowers it first", se.ID, se.MaxTasks, c.maxTasks)
+	case se.MaxDepth > c.maxDepth:
+		return limit("session #%d has max depth %d, above the %d of a session above it: the operator lowers it first", se.ID, se.MaxDepth, c.maxDepth)
+	case c.budget > 0 && se.BudgetUSD > c.budget:
+		return limit("session #%d has budget $%.2f, above the $%.2f of a session above it: the operator lowers it first", se.ID, se.BudgetUSD, c.budget)
+	}
+	return nil
+}
+
 // withinParentUpdate holds an update of a child to the rule its creation followed: what u raises may
-// not pass the parent's access, task cap or depth cap, and under a parent with a budget the child's
-// budget is above 0 (0 is no cap) and at most the parent's. Each child is checked by itself: the sum
+// not pass the ceiling above it (the lowest access, task cap, depth cap and nonzero budget on the whole
+// chain of ancestors, closed ones included), and under an ancestor with a budget the child's budget is
+// above 0 (0 is no cap) and at most that. Each child is checked by itself: the sum
 // of the children's budgets is not checked against the parent's.
 func (s *Store) withinParentUpdate(ctx context.Context, x dbx, se Session, u SessionUpdate) error {
+	top, err := s.ceilingAt(ctx, x, se.ProfileID, se.ParentSessionID)
+	if err != nil {
+		return err
+	}
 	par, err := s.sessionTx(ctx, x, se.ProfileID, se.ParentSessionID)
 	if err != nil {
 		return err
 	}
+	par = top.asParent(par)
 	if u.AccessLevel != nil && slices.Index(AccessLevels, *u.AccessLevel) > slices.Index(AccessLevels, par.AccessLevel) {
 		return limit("access %q is above the parent session #%d's %q", *u.AccessLevel, par.ID, par.AccessLevel)
 	}
