@@ -200,6 +200,32 @@ var coderCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children list --json"},
 	},
 	{
+		Name:     "coder sessions budget",
+		Short:    "The person's answer to a mission lead's request for more budget: list, grant or decline (a session token or a mission binding is refused)",
+		Usage:    "monoagentcli [--profile P] coder sessions budget list|grant|decline",
+		Examples: []string{"monoagentcli --profile work coder sessions budget list --json"},
+	},
+	{
+		Name:     "coder sessions budget list",
+		Short:    "The budget requests of the profile with the numbers the host read; --open keeps those waiting for you now",
+		Usage:    "monoagentcli [--profile P] coder sessions budget list [--open]",
+		Flags:    `  --open   Only the requests waiting for you now`,
+		Examples: []string{"monoagentcli --profile work coder sessions budget list --open --json"},
+	},
+	{
+		Name:     "coder sessions budget grant",
+		Short:    "Give the one session a request names the budget it asked for (or less with --usd), once; refused when what it is carved from cannot cover it",
+		Usage:    "monoagentcli [--profile P] coder sessions budget grant REQUEST_ID [--usd N]",
+		Flags:    `  --usd float   Grant this much (at most what was asked); default: the amount asked`,
+		Examples: []string{"monoagentcli --profile work coder sessions budget grant 3 --usd 1.5"},
+	},
+	{
+		Name:     "coder sessions budget decline",
+		Short:    "Close a budget request without giving anything",
+		Usage:    "monoagentcli [--profile P] coder sessions budget decline REQUEST_ID",
+		Examples: []string{"monoagentcli --profile work coder sessions budget decline 3"},
+	},
+	{
 		Name:     "coder sessions settings",
 		Short:    "Show or change a coder session's settings: check-ins, autonomy, limits, mesh, unattended, role",
 		Usage:    "monoagentcli [--profile P] coder sessions settings get|set CONVERSATION",

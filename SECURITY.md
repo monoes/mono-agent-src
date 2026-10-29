@@ -2103,6 +2103,25 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   also for a halting or stopped mission, so the budget checks see it; no approval, setting or budget other than the meter is
   written, and no migration. Mode and marks are unchanged: with the default policy (`marked`) nothing spawns unless a task
   is marked, and a lead only exists as a master when the operator made it one.
+
+- **Budget requests (P-F).** The lead's one tool, `mission_budget_request` (needs `--allow-mutations`), files a
+  request and raises nothing. It is a person item with no timeout, default, master or model answer: only
+  `coder sessions budget grant|decline` answers it. Those refuse a process holding a coder session token or a mission
+  binding, which is a courtesy check on the environment and the CLI's operator check (as for `mission-children set`),
+  not a barrier against a same-user process; `GrantBudget` and `DeclineBudget` take only the person's scope and are
+  named by no other package (a static test). The numbers (the target's budget and spend) are read by the host, the
+  amount is validated and the reason is cleaned, capped text. A grant adds at most the amount asked, compared in whole
+  micro-dollars with no tolerance, to the one session the request names, once (the status leaves `open` in the
+  transaction that raises the budget). For a child it also stays within the limits a carve holds: the mission's budget,
+  the policy's share of the lead's remaining budget, and the lead's remaining budget less its children's caps and its
+  outstanding reservations. The raise of a root lead's own budget is the person's allowance: it does not raise the
+  task-session mission budget, which is not a total cap over the lead's own session. A request is open only while its
+  mission is a draft or running, its lead and its target are not stopped, the target exists and its budget is still the
+  one the request was filed against. Triggers in migration 143 void an open request the moment any of that changes, and
+  a voided or answered row can never be reopened or edited (its identity columns cannot be updated), so numbers that
+  move and come back, or a mission that ends and returns, do not make it answerable again. Filing is limited to one
+  open request per session, three an hour per lead and twelve per mission, so a model cannot flood the person's list.
+  Not covered: the person's judgement of the numbers, and anything a same-user process can do to the database.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

@@ -2025,6 +2025,23 @@ token, as for an in-turn worker, and only the process binding limits it (a court
 a sandbox; off Linux the token is not bound to a process); a child turn that runs longer than two hours loses its token and
 its task commands fail closed.
 
+**Budget requests.** When a mission's budget (or a child session's cap) is used up, the lead may ask the person for
+more with the MCP tool `mission_budget_request{amount_usd,reason?,task_id?}` (mutating: needs `--allow-mutations`;
+no `task_id` = its own session budget, a `task_id` = the cap of that running child session; at most $50 a request).
+It raises nothing: the request is a person item (kind `budget_request`, shown with the other items that need you) that
+waits with no timeout, no default and no master. One request may be open per session, a lead may file three an
+hour and twelve per mission. Only the operator answers: `coder sessions budget list [--open]`, `grant <id> [--usd N]`
+(at most what was asked, in whole cents, once, on exactly the session the request names; a child's raise has to fit
+the same limits a carve fits: the mission's budget, the policy's share of the lead's remaining budget and what the lead
+has left, counting its children's caps and what it has reserved for children still starting; otherwise the request stays
+open and a smaller `--usd` may fit) and `decline <id>`. All three refuse a process that holds a coder session token or a
+mission binding (a courtesy check on the environment and the CLI's operator check, not a barrier against a same-user
+process that can edit the database). A request whose mission is archived or finished, whose lead or session is stopped
+or gone, or whose target's budget changed since it was filed, is void for good: it cannot be granted or declined, even
+if the numbers come back. A grant on a root lead's own budget (a lead with no master) is the person's allowance: it
+does not raise the task-session mission budget, and that mission budget is not a total cap over the lead's own
+session. A pending request changes nothing else and starts no turn.
+
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
 operator closes tasks to Done, or the session's `auto_close_verified` does when the
@@ -2675,6 +2692,7 @@ monoagentcli --profile work coder sessions list --json            # sessions, st
 monoagentcli --profile work coder sessions stop|pause|resume <conv>
 monoagentcli --profile work coder sessions command <id>            # how one queued command ended: pending, done, or failed with the reason
 monoagentcli --profile work coder sessions mission-children list                 # operator: child-session policy per mission lead (set: see Missions)
+monoagentcli --profile work coder sessions budget list --open|grant <id> [--usd N]|decline <id>   # operator: a mission lead's requests for more budget (see Missions)
 monoagentcli --profile work coder host status --json               # running? pid, since when
 monoagentcli --profile work coder host stop                        # the host only; running turns keep going
 ```

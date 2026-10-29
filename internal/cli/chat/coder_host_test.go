@@ -443,7 +443,7 @@ func TestThePromptFileIsRemovedOnceTheTurnHoldsIt(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "turns", "t1.prompt")); !os.IsNotExist(err) {
 		t.Fatalf("the prompt file is still on disk while the turn runs: %v", err)
 	}
-	if fi, err := os.Stat(filepath.Join(dir, "turns")); err != nil || fi.Mode().Perm() != 0o700 {
+	if fi, err := os.Stat(filepath.Join(dir, "turns")); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700) {
 		t.Fatalf("log dir = %v, %v", fi, err)
 	}
 	_ = turn.Wait()

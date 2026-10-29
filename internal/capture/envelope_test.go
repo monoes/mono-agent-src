@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -360,14 +361,14 @@ func TestWriteArtifactPermissionsAreOwnerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 { // Windows has no Unix modes
 		t.Fatalf("artifact mode = %o, want 600", perm)
 	}
 	dirInfo, err := os.Stat(res.Path)
 	if err != nil {
 		t.Fatalf("stat dir: %v", err)
 	}
-	if perm := dirInfo.Mode().Perm(); perm != 0o700 {
+	if perm := dirInfo.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o700 {
 		t.Fatalf("directory mode = %o, want 700", perm)
 	}
 }
