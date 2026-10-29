@@ -22,14 +22,15 @@ const openChildStates = `('draft','running','paused')`
 // less what it spent, less what its other open children were given). A child that named no budget
 // gets ChildSharePct of that, so one child cannot take it all; one that named more than is left is
 // refused with the numbers. A parent without a budget hands out any amount. The number of open
-// children of a parent is bounded by MaxOpenChildren, whatever the budget.
-func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float64) (float64, error) {
+// children an agent starts below one parent is bounded by MaxOpenChildren, whatever the budget (the
+// operator is not held to it).
+func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float64, actor Actor) (float64, error) {
 	var kids int
 	var given float64
 	if err := x.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(budget_usd), 0) FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates, par.ID).Scan(&kids, &given); err != nil {
 		return 0, fmt.Errorf("tasks: counting the children of session #%d: %w", par.ID, err)
 	}
-	if kids >= MaxOpenChildren {
+	if actor.Kind == Agent && kids >= MaxOpenChildren {
 		return 0, limit("session #%d already has %d open child sessions (the most is %d)", par.ID, kids, MaxOpenChildren)
 	}
 	if par.BudgetUSD <= 0 {

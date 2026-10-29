@@ -18,7 +18,7 @@ func TestOnlyAMissionSessionCountsAsTheChatsOpenMission(t *testing.T) {
 	if _, err := st.CreateSession(ctx, missionProfile, tasks.SessionInput{Title: "sneaky", ConversationID: "conv"}, agent); err != nil {
 		t.Fatal(err)
 	}
-	if m.HasOpenSession(ctx) || m.OpenSessionID(ctx) != 0 {
+	if id, err := m.OpenSessionID(ctx); m.HasOpenSession(ctx) || id != 0 || err != nil {
 		t.Fatal("an agent's board session linked to the chat counts as the mission")
 	}
 	if _, err := st.CreateSession(ctx, missionProfile, tasks.SessionInput{Title: "op", ConversationID: "conv", Kind: tasks.SessionKindMission}, missionHuman); err != nil {
@@ -44,7 +44,36 @@ func TestAnOldPlannerSessionOfKindBoardStillCountsAsTheMission(t *testing.T) {
 	if _, err := db.Exec(`UPDATE task_sessions SET created_by = 'mission-lead' WHERE id = ?`, se.ID); err != nil {
 		t.Fatal(err)
 	}
-	if !m.HasOpenSession(ctx) || m.OpenSessionID(ctx) != se.ID {
+	if id, _ := m.OpenSessionID(ctx); !m.HasOpenSession(ctx) || id != se.ID {
 		t.Fatal("a session the planner started before the kind column no longer counts")
+	}
+}
+
+// Review finding 5: a store that cannot say whether the chat has an open mission is an error, not "none";
+// a corrupt row of another chat does not stop the answer.
+func TestOpenSessionIDReportsAnUnreadableMissionAndSurvivesAnUnrelatedCorruptRow(t *testing.T) {
+	db := openMissionDB(t)
+	st := tasks.NewStore(db)
+	ctx := context.Background()
+	m := &MissionConfig{Store: st, ProfileID: missionProfile, ConversationID: "conv", Actor: "mission-lead"}
+	mission, err := st.CreateSession(ctx, missionProfile, tasks.SessionInput{Title: "M", ConversationID: "conv", Kind: tasks.SessionKindMission}, missionHuman)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := st.CreateSession(ctx, missionProfile, tasks.SessionInput{Title: "other", ConversationID: "conv-2"}, missionHuman)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE task_sessions SET parent_session_id = id WHERE id = ?`, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := m.OpenSessionID(ctx); err != nil || id != mission.ID {
+		t.Fatalf("an unrelated corrupt row: %d %v", id, err)
+	}
+	if _, err := db.Exec(`UPDATE task_sessions SET parent_session_id = id WHERE id = ?`, mission.ID); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := m.OpenSessionID(ctx); err == nil {
+		t.Fatalf("a corrupt mission session read as %d with no error", id)
 	}
 }

@@ -312,7 +312,7 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 			if level, maxTasks, maxDepth, budget, err = withinParent(par, explicit, level, maxTasks, maxDepth, budget); err != nil {
 				return err
 			}
-			if budget, err = s.carveChild(ctx, x, par, budget); err != nil {
+			if budget, err = s.carveChild(ctx, x, par, budget, actor); err != nil {
 				return err
 			}
 			parent = par.ID
@@ -377,11 +377,12 @@ func (s *Store) GetSession(ctx context.Context, profileID string, id int64, acto
 	return out, nil
 }
 
-// ListSessions lists the profile's sessions, newest first; archived ones only when asked
-// for. An agent bound to a session lists that one only.
-func (s *Store) ListSessions(ctx context.Context, profileID string, f SessionFilter, actor Actor) ([]Session, error) {
+// ListSessionsChecked lists the profile's sessions, newest first; archived ones only when asked
+// for. An agent bound to a session lists that one only. A row that cannot be read whole (a parent
+// cycle, a chain too deep) is left out and named in the second result, not a failure of the list.
+func (s *Store) ListSessionsChecked(ctx context.Context, profileID string, f SessionFilter, actor Actor) ([]Session, []SessionSkip, error) {
 	if err := readerOf(actor, 0); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	q := `SELECT ` + sessionCols + ` FROM task_sessions WHERE profile_id = ?`
 	args := []any{profileID}
@@ -398,6 +399,7 @@ func (s *Store) ListSessions(ctx context.Context, profileID string, f SessionFil
 	}
 	q += ` ORDER BY id DESC`
 	out := []Session{}
+	var skipped []SessionSkip
 	err := s.snapshot(ctx, func(x dbx) error {
 		rows, err := x.QueryContext(ctx, q, args...)
 		if err != nil {
@@ -417,17 +419,22 @@ func (s *Store) ListSessions(ctx context.Context, profileID string, f SessionFil
 			return fmt.Errorf("tasks: reading sessions: %w", err)
 		}
 		for _, se := range list {
-			if se, err = s.fillSession(ctx, x, se); err != nil {
-				return err
+			full, err := s.fillSession(ctx, x, se)
+			if err != nil {
+				if !errors.Is(err, ErrInvalid) && !errors.Is(err, ErrLimit) {
+					return err // the database failed, not the row
+				}
+				skipped = append(skipped, SessionSkip{ID: se.ID, ConversationID: se.ConversationID, Reason: err.Error()})
+				continue
 			}
-			out = append(out, se)
+			out = append(out, full)
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // SessionRev is a session's board revision: 0 until its first write.
