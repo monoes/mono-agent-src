@@ -191,9 +191,10 @@ func seatbeltProfile(home string) (string, error) {
 ;; Everything else, loopback networking included, stays as it is. The file rules are run
 ;; against a real sandbox-exec by TestSeatbeltRealRun and TestSeatbeltCaseAlias on macOS
 ;; (skipped elsewhere). The Mach rules are run by TestSeatbeltMachDenial (opt-in, it creates a
-;; throwaway keychain: MONOAGENT_TEST_KEYCHAIN=1); they were seen to stop /usr/bin/security
-;; on macOS 27. Paths are matched as the volume stores them, so the other case spelling of
-;; HOME on a case-insensitive volume is denied too. Check the service names on another macOS
+;; throwaway keychain: MONOAGENT_TEST_KEYCHAIN=1); run by hand on macOS 27 they stopped
+;; /usr/bin/security, and worked again with the rule relaxed. On a case-insensitive volume
+;; (the APFS default) the other case spelling of a denied path is denied too (checked for
+;; ~/.ssh). Check the service names on another macOS
 ;; version with: log stream --predicate 'sender == "Sandbox"' while the agent runs.
 (version 1)
 (allow default)

@@ -3,11 +3,13 @@
 package agentmode
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Runs /usr/bin/sandbox-exec with the generated profile for a HOME reached through a
@@ -49,6 +51,22 @@ func TestSeatbeltRealRun(t *testing.T) {
 	}
 }
 
+// secRun runs a command with a deadline: a keychain command can wait on a prompt that nobody
+// will answer, and a denied lookup can stall instead of failing.
+func secRun(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+// secStdout is secRun for its standard output alone: `security list-keychains` prints nothing
+// when its stdout and stderr are the same pipe.
+func secStdout(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
 // sandboxRun runs argv under sandbox-exec with the profile text.
 func sandboxRun(t *testing.T, prof string, argv ...string) ([]byte, error) {
 	t.Helper()
@@ -56,7 +74,7 @@ func sandboxRun(t *testing.T, prof string, argv ...string) ([]byte, error) {
 	if err := os.WriteFile(pf, []byte(prof), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return exec.Command("/usr/bin/sandbox-exec", append([]string{"-f", pf}, argv...)...).CombinedOutput()
+	return secRun("/usr/bin/sandbox-exec", append([]string{"-f", pf}, argv...)...)
 }
 
 // APFS is case-insensitive by default: the same file is reached as /x/Me and /x/me. A rule
@@ -110,7 +128,8 @@ func TestSeatbeltCaseAlias(t *testing.T) {
 // without the profile and fails with it. The keychain is a throwaway file outside every path the
 // profile denies, so only the mach-lookup rules can be the cause. `security create-keychain`
 // adds the keychain to the user's search list, so the test is opt-in
-// (MONOAGENT_TEST_KEYCHAIN=1) and restores the list when it ends.
+// (MONOAGENT_TEST_KEYCHAIN=1) and restores the list when it ends; a test binary that is killed
+// before its cleanup runs leaves the list changed (`security list-keychains -d user -s ...`).
 func TestSeatbeltMachDenial(t *testing.T) {
 	if os.Getenv("MONOAGENT_TEST_KEYCHAIN") != "1" {
 		t.Skip("opt-in: set MONOAGENT_TEST_KEYCHAIN=1 (it creates a keychain and touches the keychain search list)")
@@ -119,30 +138,35 @@ func TestSeatbeltMachDenial(t *testing.T) {
 		t.Skip("sandbox-exec not available")
 	}
 	const sec = "/usr/bin/security"
-	before, err := exec.Command(sec, "list-keychains", "-d", "user").Output()
+	before, err := secStdout(sec, "list-keychains", "-d", "user")
 	if err != nil {
-		t.Skipf("security list-keychains: %v", err)
+		t.Skipf("security list-keychains: %v %q", err, before)
 	}
 	kc := filepath.Join(t.TempDir(), "throwaway.keychain-db")
 	t.Cleanup(func() {
-		_ = exec.Command(sec, "delete-keychain", kc).Run()
+		_, _ = secRun(sec, "delete-keychain", kc)
+		// the package's TestMain points HOME at a scratch directory, so the list is normally empty
+		// here; put back whatever was there
+		if strings.TrimSpace(string(before)) == "" {
+			return
+		}
 		args := []string{"list-keychains", "-d", "user", "-s"}
 		for _, l := range strings.Split(strings.TrimSpace(string(before)), "\n") {
 			args = append(args, strings.Trim(strings.TrimSpace(l), `"`))
 		}
-		_ = exec.Command(sec, args...).Run()
+		_, _ = secRun(sec, args...)
 	})
-	if out, err := exec.Command(sec, "create-keychain", "-p", "pw", kc).CombinedOutput(); err != nil {
+	if out, err := secRun(sec, "create-keychain", "-p", "pw", kc); err != nil {
 		t.Skipf("cannot create a throwaway keychain here: %v %s", err, out)
 	}
-	if out, err := exec.Command(sec, "unlock-keychain", "-p", "pw", kc).CombinedOutput(); err != nil {
+	if out, err := secRun(sec, "unlock-keychain", "-p", "pw", kc); err != nil {
 		t.Skipf("cannot unlock it: %v %s", err, out)
 	}
-	if out, err := exec.Command(sec, "add-generic-password", "-a", "acct", "-s", "svc", "-w", "the-secret", kc).CombinedOutput(); err != nil {
+	if out, err := secRun(sec, "add-generic-password", "-a", "acct", "-s", "svc", "-w", "the-secret", kc); err != nil {
 		t.Skipf("cannot add an item: %v %s", err, out)
 	}
 	find := []string{sec, "find-generic-password", "-a", "acct", "-s", "svc", "-w", kc}
-	out, err := exec.Command(find[0], find[1:]...).CombinedOutput()
+	out, err := secRun(find[0], find[1:]...)
 	if err != nil || strings.TrimSpace(string(out)) != "the-secret" {
 		t.Fatalf("control run without the profile: %v %q", err, out)
 	}
@@ -159,7 +183,10 @@ func TestSeatbeltMachDenial(t *testing.T) {
 		t.Fatalf("keychain read under the profile was not denied: %v %q", err, out)
 	}
 	// the denial must come from the Mach rules: the same run with them removed works again
-	weak := strings.Replace(prof, "(deny mach-lookup", "(allow mach-lookup", 1)
+	if strings.Count(prof, "\n(deny mach-lookup") != 1 {
+		t.Fatalf("expected exactly one mach-lookup rule in the profile:\n%s", prof)
+	}
+	weak := strings.Replace(prof, "\n(deny mach-lookup", "\n(allow mach-lookup", 1)
 	if out, err := sandboxRun(t, weak, find...); err != nil || strings.TrimSpace(string(out)) != "the-secret" {
 		t.Fatalf("with the mach-lookup rule relaxed the read should work: %v %q", err, out)
 	}
