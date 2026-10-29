@@ -51,7 +51,7 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 	decided := map[string]string{
 		"coder_session_spawns.parent":                    "deleted with the parent's spawn log",
 		"coder_session_spawns.child":                     "kept on purpose: removing it would hand the master its spawn-rate slot back",
-		"agent_tokens.bound_conversation":                "open: a token bound to the conversation stays valid",
+		"agent_tokens.bound_conversation":                "revoked with the delete; none can be issued for a conversation that is gone",
 		"ai_budget_reservations.conversation_id":         "open: held until the spend is synced",
 		"ai_chat_answers.conversation_id":                "deleted",
 		"ai_chat_events.conversation_id":                 "deleted",
