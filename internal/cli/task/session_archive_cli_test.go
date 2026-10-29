@@ -78,3 +78,34 @@ func TestSessionArchiveCascadeTextOutput(t *testing.T) {
 		t.Fatalf("text: %v %q", err, text)
 	}
 }
+
+// Guard: archive and archive --cascade are the operator's (operatorSession); every kind of agent context
+// is refused with operator_only, and nothing is archived or stopped.
+func TestSessionArchiveRefusesEveryAgentContext(t *testing.T) {
+	t.Parallel()
+	for name, setup := range opsAgentContexts {
+		t.Run(name, func(t *testing.T) {
+			db := newTaskTestDB(t)
+			root, draft, run, grand := archiveTree(t, db)
+			mustTaskJSON(t, db, "default", &sessionDoc{}, "", "session", "stop", id(root))
+			extra := setup(t)
+			for _, c := range [][]string{
+				{"session", "archive", id(root)},
+				{"session", "archive", id(root), "--cascade"},
+			} {
+				doc := failedTaskJSON(t, db, "default", 3, append(c, extra...)...)
+				if errCode(doc) != "operator_only" {
+					t.Errorf("task %s: %v, want code operator_only", strings.Join(c, " "), doc)
+				}
+			}
+			for _, s := range []int64{root, draft, run, grand} {
+				if sessionState(t, db, s).Session.Archived {
+					t.Errorf("session %d archived by a refused agent", s)
+				}
+			}
+			if st := sessionState(t, db, run).Session.State; st != "running" {
+				t.Errorf("a refused cascade changed the running child: %s", st)
+			}
+		})
+	}
+}
