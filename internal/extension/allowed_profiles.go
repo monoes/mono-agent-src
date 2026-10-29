@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -279,28 +280,36 @@ func (c *extConn) allowedNow(want []string) bool {
 	return len(c.outsideAllowed(want)) == 0
 }
 
-// checkedWrite writes to c's socket without holding the state lock, which a browser
-// that stops reading would otherwise hold for everyone: the decision (ok) is taken
-// before the write and taken again after it. A policy narrowed meanwhile is caught
-// by the second check: the browser is dropped and the caller told, though the one
-// command already on the wire may complete (documented as in flight). The write
-// itself is bounded: a socket that does not take it within deliveryWriteTimeout is
-// closed, which also releases anything waiting on the writer.
-func (c *extConn) checkedWrite(ok func() bool, write func() error) (sent bool, err error) {
+// checkedWrite writes data to c's socket, authorising it at the instant it is written. It takes
+// the browser's own write lock first, then takes the decision (ok), then writes, then takes the
+// decision again. The decision is therefore made under the per-browser serialisation of sends: a
+// command that waited behind others is judged by the policy of the moment its turn came, not of
+// the moment it was chosen, and a narrowing made while it waited refuses it. A command already
+// written when the owner narrows the set is in flight and may complete; the second decision
+// notices it and drops the browser. The state lock is held only while ok reads the record, never
+// across the network write, and a write that does not finish within deliveryWriteTimeout closes the
+// socket, which releases whatever waits on the writer.
+func (c *extConn) checkedWrite(ok func() bool, data []byte) (sent bool, err error) {
+	c.writeMu.Lock()
 	if !ok() {
+		c.writeMu.Unlock()
 		return false, nil
 	}
 	stuck := time.AfterFunc(deliveryWriteTimeout, func() { _ = c.ws.Close() })
-	err = write()
+	err = c.ws.WriteMessage(websocket.TextMessage, data)
 	stuck.Stop()
+	c.writeMu.Unlock()
+	if err != nil {
+		return true, fmt.Errorf("write command: %w", err)
+	}
 	if afterWrite != nil {
 		afterWrite()
 	}
-	if err == nil && !ok() {
+	if !ok() {
 		c.closeUnauthorized("this browser is no longer allowed to run that profile")
 		return false, nil
 	}
-	return true, err
+	return true, nil
 }
 
 // deliveryWriteTimeout bounds a command write to a browser's socket.
@@ -315,7 +324,11 @@ func (s *Server) deliver(c *extConn, profile string, cmd *Command) error {
 	if beforeDeliver != nil {
 		beforeDeliver()
 	}
-	sent, err := c.checkedWrite(func() bool { return c.servesNow(profile) }, func() error { return s.writeCommandTo(c, cmd) })
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("marshal command: %w", err)
+	}
+	sent, err := c.checkedWrite(func() bool { return c.servesNow(profile) }, data)
 	if !sent && err == nil {
 		return errNotAllowed([]string{profile})
 	}

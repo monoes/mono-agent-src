@@ -52,11 +52,18 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 
 	// A set_binding is sent only if its profiles are still allowed at this
 	// moment (the owner may have narrowed the set while it waited for bindMu).
+	data, merr := json.Marshal(cmd)
+	if merr != nil {
+		if restore != nil {
+			restore()
+		}
+		return nil, fmt.Errorf("marshal command: %w", merr)
+	}
 	var werr error
 	sent := true
 	if cmd.Type == CmdSetBinding {
 		names := setBindingNames(cmd.Params)
-		sent, werr = c.checkedWrite(func() bool { return c.allowedNow(names) }, func() error { return s.writeCommandTo(c, cmd) })
+		sent, werr = c.checkedWrite(func() bool { return c.allowedNow(names) }, data)
 	} else {
 		werr = s.deliver(c, t.Profile, cmd)
 	}
@@ -107,17 +114,6 @@ func (s *Server) writeCommand(t Target, cmd *Command) error {
 		return err
 	}
 	return s.deliver(c, t.Profile, cmd)
-}
-
-func (s *Server) writeCommandTo(c *extConn, cmd *Command) error {
-	data, err := json.Marshal(cmd)
-	if err != nil {
-		return fmt.Errorf("marshal command: %w", err)
-	}
-	if err := c.write(data); err != nil {
-		return fmt.Errorf("write command: %w", err)
-	}
-	return nil
 }
 
 // CreateTabFor opens a tab at url in the browser t resolves to.

@@ -584,3 +584,36 @@ func TestNarrowingDuringTheWriteDropsTheBrowser(t *testing.T) {
 		t.Fatal("the browser stayed connected")
 	}
 }
+
+// Commands queued behind another send on the browser's write lock are authorised when they are
+// written, not when they were chosen: the owner narrowing the set while they wait refuses every one of
+// them, and none reaches the browser.
+func TestQueuedCommandsAreAuthorisedWhenTheyAreWritten(t *testing.T) {
+	srv, _, wsURL, _ := startStatusTestServer(t)
+	tok, id := mintRestricted(t, instA, "p-a")
+	conn := dialToken(t, wsURL, tok, instA, "p-a")
+	waitBrowsers(t, srv, 1)
+	c := srv.connList()[0]
+
+	c.writeMu.Lock() // a send ahead of them holds the browser's writer
+	const queued = 4
+	errc := make(chan error, queued)
+	for i := 0; i < queued; i++ {
+		go func() {
+			_, err := srv.SendCommandTo(Target{Profile: "p-a"}, &Command{Type: CmdCreateTab}, 5*time.Second)
+			errc <- err
+		}()
+	}
+	time.Sleep(300 * time.Millisecond) // they have chosen the browser and wait for its writer
+	if _, err := SetAllowedProfiles(id, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	c.writeMu.Unlock()
+
+	for i := 0; i < queued; i++ {
+		if err := <-errc; !errors.Is(err, ErrProfileNotAllowed) {
+			t.Fatalf("queued command %d: err = %v, want ErrProfileNotAllowed", i, err)
+		}
+	}
+	expectSilence(t, conn, 300*time.Millisecond) // none was delivered
+}
