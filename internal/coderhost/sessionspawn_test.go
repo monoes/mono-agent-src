@@ -387,7 +387,7 @@ func TestSessionSpawnToLevelFourWhenTheOperatorRaisedTheDepth(t *testing.T) {
 	forceState(t, f.st, f.lead.ConversationID, StateStopped)
 	h.treeCascadePass()
 	// level 4 still has its first message queued, so the host queues its own stop for it instead of marking it
-	if stateOf(t, f.st, last.ConversationID) != StateStopped && !f.st.hasPendingCascade("p", last.ConversationID, KindStop) {
+	if stateOf(t, f.st, last.ConversationID) != StateStopped && !f.st.hasPendingCascade("p", last.ConversationID, KindStop, cascadeTurn) {
 		t.Fatal("level 4 outlived the root")
 	}
 }
