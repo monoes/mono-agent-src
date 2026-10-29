@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -49,5 +50,26 @@ func TestAGrandchildIsNotRaisedAboveALoweredRootInAccessOrCapsThroughAStoppedChi
 				t.Fatalf("err = %v, want a limit", err)
 			}
 		})
+	}
+}
+
+// A parent cycle (a store edited by hand) fails the ceiling walk closed, with the cycle error; it does
+// not loop and does not fall back to a partial answer.
+func TestTheCeilingWalkFailsClosedOnAParentCycle(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	c := chainOf(t, s, []string{"coding", "coding", "coding"}, []float64{10, 8, 8})
+	if _, err := db.Exec(`UPDATE task_sessions SET parent_session_id = ? WHERE id = ?`, c[2].ID, c[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	err := s.snapshot(bg, func(x dbx) error {
+		_, err := s.ceilingAt(bg, x, "default", c[2].ID)
+		return err
+	})
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("err = %v, want the cycle error", err)
+	}
+	b := 5.0
+	if _, err := s.UpdateSession(bg, "default", c[2].ID, SessionUpdate{BudgetUSD: &b}, human); err == nil {
+		t.Fatal("an update below a cycle was accepted")
 	}
 }
