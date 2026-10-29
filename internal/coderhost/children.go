@@ -348,6 +348,10 @@ type spawnHooks struct {
 	onCreated     func(conversationID string) error // the conversation exists and is linked to the master as its child
 	beforeMessage func(conversationID string) error // the carve and the settings are in place; the first message is next
 	carveRefused  func()                            // the carve was refused after the conversation existed; runs before the conversation is deleted
+
+	// The reservation the spawn runs for (a mission task); zero for an ordinary spawn. The spawn's own undo
+	// leaves a conversation that any other row owns (see deleteIfNotOwnedByAnother).
+	sessionID, taskID, generation int64
 }
 
 // spawnWith is Spawn with hooks; every limit of Spawn applies to every caller.
@@ -396,7 +400,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	if err != nil {
 		return Spawned{}, err
 	}
-	undo := func() { _ = store.DeleteConversation(conv.ID, c.ProfileID) }
+	undo := func() { _ = s.deleteIfNotOwnedByAnother(c.ProfileID, hk.sessionID, hk.taskID, hk.generation, conv.ID) }
 	if _, err := s.EnsureSession(c.ProfileID, conv.ID); err != nil {
 		undo()
 		return Spawned{}, err

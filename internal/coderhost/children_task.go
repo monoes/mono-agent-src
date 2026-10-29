@@ -57,6 +57,7 @@ func (s *Store) SpawnForTask(sc CallerScope, profileID string, sessionID, taskID
 	created := ""
 	carveWasRefused := false
 	out, err := s.spawnWith(c, SpawnRequest{Message: brief, BudgetUSD: row.ReservedUSD}, spawnHooks{
+		sessionID: sessionID, taskID: taskID, generation: row.Generation,
 		onCreated: func(conv string) error {
 			created = conv
 			if s.afterChildCreated != nil {

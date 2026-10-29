@@ -982,9 +982,11 @@ func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, p
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET updated_at = ?, pending_conversation_id = CASE WHEN ? <> '' THEN ? ELSE pending_conversation_id END
 		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND (? = 0 OR generation = ?)
 		AND (? = '' OR NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?)
-			AND NOT (o.session_id = ? AND o.task_id = ?)))`,
+			AND NOT (o.session_id = ? AND o.task_id = ?)))
+		AND (? = '' OR EXISTS (SELECT 1 FROM coder_sessions x WHERE x.profile_id = ? AND x.conversation_id = ?))`,
 		s.stamp(), pending, pending, profileID, sessionID, taskID, lead, generation, generation,
-		pending, profileID, pending, pending, sessionID, taskID)
+		pending, profileID, pending, pending, sessionID, taskID,
+		pending, profileID, pending)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("%w: that conversation is pending on a task already", ErrInvalid)
