@@ -125,3 +125,24 @@ func TestSettingsAreStoredPerSessionAndReadingCreatesNothing(t *testing.T) {
 		t.Fatal("unattended not cleared")
 	}
 }
+
+func TestMissionDirectionsIsTheOperatorsAndBoundedTo6(t *testing.T) {
+	if !oneOf("mission_directions", OperatorOnly) || oneOf("mission_directions", AgentAdjustable) {
+		t.Fatal("mission_directions must be operator-only and not agent-adjustable")
+	}
+	d := DefaultSettings()
+	if d.MissionDirections != 0 {
+		t.Fatalf("0 means the default of 3: %d", d.MissionDirections)
+	}
+	for _, k := range []string{"0", "1", "3", "6"} {
+		got, changed, err := d.Apply([]byte(`{"mission_directions":` + k + `}`))
+		if err != nil || len(changed) != 1 || changed[0] != "mission_directions" || TouchesOperatorOnly(changed)[0] != "mission_directions" {
+			t.Errorf("%s: %+v %v %v", k, got, changed, err)
+		}
+	}
+	for _, k := range []string{"7", "-1", "100", `"3"`, "2.5"} {
+		if _, _, err := d.Apply([]byte(`{"mission_directions":` + k + `}`)); err == nil {
+			t.Errorf("mission_directions=%s was accepted", k)
+		}
+	}
+}

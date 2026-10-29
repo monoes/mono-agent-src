@@ -43,6 +43,10 @@ type Settings struct {
 	AgentApproval      string  `json:"agent_approval"`
 	ApprovalCeilingUSD float64 `json:"approval_ceiling_usd"`
 
+	// MissionDirections is K: how many directions a mission lead may start from one evaluation (1 to 6; 0 is the
+	// default of 3). Operator-only; mission_evaluate enforces it.
+	MissionDirections int `json:"mission_directions"`
+
 	// Mesh: whether other monomind agents see this session and who may message it.
 	MeshVisible bool   `json:"mesh_visible"`
 	MeshAlias   string `json:"mesh_alias"` // "" = a name made from the project and start time
@@ -76,7 +80,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "mission", "agent_approval", "approval_ceiling_usd"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "mission", "agent_approval", "approval_ceiling_usd", "mission_directions"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
@@ -162,6 +166,9 @@ func (s Settings) Validate() error {
 		return err
 	}
 	if err := within("max_depth", s.MaxDepth, 1, 2); err != nil { // 2 is the hard limit of the design
+		return err
+	}
+	if err := within("mission_directions", s.MissionDirections, 0, 6); err != nil { // 6 is the hard cap of the design
 		return err
 	}
 	if !oneOf(s.AgentApproval, AgentApprovals) {

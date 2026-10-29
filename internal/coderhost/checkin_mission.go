@@ -29,6 +29,13 @@ type missionFact struct {
 	// verified=1 after the operator closes it, so Done and Verified overlap and must not be summed). It is
 	// not part of the digest or of the change signal.
 	Open int `json:"-"`
+	// Directions of the mission, research reports finished and the share of the budget the tree spent (numbers
+	// from the host's rows; omitted when there are none, so an older digest still compares equal), and the
+	// re-evaluation reasons found at this look (never stored).
+	Dirs         []dirFact `json:"dirs,omitempty"`
+	ResearchDone int       `json:"researchDone,omitempty"`
+	SpentPct     int       `json:"spentPct,omitempty"`
+	Reeval       []string  `json:"-"`
 }
 
 var (
@@ -107,6 +114,9 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 		return nil, false
 	}
 	f.ChildRun, f.ChildQueued, f.ChildFailed = cc.Live, cc.Queued, cc.Failed
+	if f.Dirs, f.ResearchDone, f.SpentPct, err = h.directionFacts(id); err != nil {
+		return nil, false
+	}
 	if !MissionChildrenReady() {
 		f.ChildQueued = 0 // nothing starts while the launcher cannot bind a child: a mark is not a queued session
 	}
@@ -123,7 +133,7 @@ func missionLine(m *missionFact) string {
 		kids = fmt.Sprintf(" Task child sessions: %d running, %d queued, %d failed.", m.ChildRun, m.ChildQueued, m.ChildFailed)
 	}
 	return fmt.Sprintf("Mission (your task session): %s; %d of %d task(s) done, %d in review, %d verified, %d blocked.%s Closing tasks and approving a plan stay the operator's.\n",
-		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked, kids)
+		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked, kids) + reevalLine(m.Reeval)
 }
 
 // open says whether a running mission still has work the lead can move (see missionFact.Open). A blocked task

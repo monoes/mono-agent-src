@@ -45,6 +45,10 @@ const defaultFinalChecks = "rubric: the project builds and all its tests and lin
 const maxFinalReport = 30000
 
 func missionRunToolSpecs() []monomind.ToolSpec {
+	return append(missionRunTools(), missionEvaluateSpecs()...)
+}
+
+func missionRunTools() []monomind.ToolSpec {
 	session := intProp("The task session's number; omit it for the mission of this chat.")
 	return []monomind.ToolSpec{
 		{Name: ToolMissionVerify, Description: "Start the verifier of a task that a worker handed to review: another agent, on another model when one is ready, read only, bound to that one task. It checks the task's acceptance and records its own verdict (pass: the task is verified; fail: it goes back to Ready with the note, up to the retry cap, then it is blocked for the operator). org_wait for it. You never record a verdict yourself.",
