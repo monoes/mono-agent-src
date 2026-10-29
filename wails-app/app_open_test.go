@@ -249,7 +249,10 @@ func TestChatPathHomeExpansion(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	_ = os.WriteFile(filepath.Join(home, "n.md"), []byte("x"), 0o644)
 	realHome, _ := filepath.EvalSymlinks(home)
-	if g := resolveChatPathInfo("", "~/n.md"); g.Kind != "file" || g.Path != filepath.Join(realHome, "n.md") {
+	if p, _, err := resolveChatToken("", "~/n.md"); err != nil || p != filepath.Join(realHome, "n.md") {
+		t.Fatalf("%q %v", p, err)
+	}
+	if g := resolveChatPathInfo("", "~/n.md"); g.Kind != "file" || g.Path != "" { // no chat folder: nothing is inside it
 		t.Fatalf("%+v", g)
 	}
 	if g := resolveChatPathInfo("", "~root/x"); g.Kind != "missing" {
@@ -378,5 +381,24 @@ func TestReadChatMarkdownSwappedAfterResolve(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "n.md"), []byte("hi"), 0o644)
 	if s, err := readChatMarkdown(root, "n.md"); err != nil || s != "hi" {
 		t.Fatalf("normal read: %q %v", s, err)
+	}
+}
+
+func TestResolveChatPathHidesLocationOutsideFolder(t *testing.T) {
+	root, outside := chatTree(t)
+	if g := resolveChatPathInfo(root, "docs/plan.md"); g.Kind != "file" || g.Path == "" || !g.Previewable {
+		t.Fatalf("inside: %+v", g)
+	}
+	for tok, kind := range map[string]string{
+		filepath.Join(outside, "pw.md"): "file", outside: "dir", "link.md": "file", "escape": "dir",
+	} {
+		if g := resolveChatPathInfo(root, tok); g.Kind != kind || g.Path != "" || g.Previewable || g.Line != 0 {
+			t.Errorf("%s: %+v", tok, g)
+		}
+	}
+	// outside paths are still revealable (RevealChatPath resolves on its own)
+	rec := &recorder{}
+	if err := revealChatPath(rec.opener("darwin"), root, filepath.Join(outside, "pw.md")); err != nil || len(rec.starts) != 1 {
+		t.Fatalf("reveal outside: %v", err)
 	}
 }

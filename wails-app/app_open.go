@@ -160,15 +160,21 @@ func resolveChatPathInfo(cwd, token string) ChatPathInfo {
 	if err != nil {
 		return ChatPathInfo{Kind: "missing"}
 	}
+	// A path outside the chat's folder is reported by kind only: its location
+	// (after symlink resolution) is not the chat's business.
+	_, _, cerr := confinedChatPath(cwd, token)
+	inside := cerr == nil
 	switch {
 	case fi.IsDir():
+		if !inside {
+			return ChatPathInfo{Kind: "dir"}
+		}
 		return ChatPathInfo{Kind: "dir", Path: p, Line: line}
 	case fi.Mode().IsRegular():
-		info := ChatPathInfo{Kind: "file", Path: p, Line: line}
-		if _, _, perr := confinedChatPath(cwd, token); perr == nil {
-			info.Previewable = chatPreviewable(p, fi)
+		if !inside {
+			return ChatPathInfo{Kind: "file"}
 		}
-		return info
+		return ChatPathInfo{Kind: "file", Path: p, Line: line, Previewable: chatPreviewable(p, fi)}
 	}
 	return ChatPathInfo{Kind: "missing"} // fifo, device, socket: nothing to offer
 }
