@@ -71,3 +71,80 @@ export function planTree(tasks) {
 
 // selectionAfter keeps the chosen session while it is still listed; else null (Personal).
 export const selectionAfter = (id, sessions) => (id && (sessions || []).some(s => s.id === id) ? id : null)
+
+// MAX_TITLE_RUNES is the longest session title the store takes (tasks.MaxTitleRunes).
+export const MAX_TITLE_RUNES = 200
+
+// titleProblem says why a title is refused before the CLI is asked: 'empty' or
+// 'tooLong' (counted in characters, as the store does); '' when it is fine.
+// The page tells the user; it never cuts a title for them.
+export function titleProblem(title) {
+  const t = String(title ?? '').trim()
+  if (!t) return 'empty'
+  return [...t].length > MAX_TITLE_RUNES ? 'tooLong' : ''
+}
+
+// sessionTree builds [{session, depth, children}] from the flat list by
+// parent_session_id, roots in the list's order. A session whose parent is not in
+// the list (gone, archived) is a root; so is the first of any ring of parents,
+// so the walk always ends. The list is not changed.
+export function sessionTree(sessions) {
+  const list = sessions || []
+  const byId = new Map(list.map(s => [s.id, s]))
+  const cut = new Set() // sessions whose parent link is ignored
+  const parentOf = (s) => {
+    const p = s.parent_session_id
+    return p && p !== s.id && byId.has(p) && !cut.has(s.id) ? p : null
+  }
+  for (const s of list) {
+    const seen = new Set([s.id])
+    for (let p = parentOf(s); p; p = parentOf(byId.get(p))) {
+      if (seen.has(p)) { cut.add(s.id); break }
+      seen.add(p)
+    }
+  }
+  const nodes = new Map(list.map(s => [s.id, { session: s, depth: 1, children: [] }]))
+  const roots = []
+  for (const s of list) {
+    const p = parentOf(s)
+    if (p) nodes.get(p).children.push(nodes.get(s.id))
+    else roots.push(nodes.get(s.id))
+  }
+  const setDepth = (n, d) => { n.depth = d; n.children.forEach(c => setDepth(c, d + 1)) }
+  roots.forEach(r => setDepth(r, 1))
+  return roots
+}
+
+// belowOf lists the sessions below session id (not archived), nearest first. A ring of
+// parents ends the walk, so it always ends.
+export function belowOf(sessions, id) {
+  const list = (sessions || []).filter(s => s && !s.archived)
+  const seen = new Set([id])
+  const out = []
+  for (let frontier = [id]; frontier.length;) {
+    const next = list.filter(s => frontier.includes(s.parent_session_id) && !seen.has(s.id))
+    next.forEach(s => { seen.add(s.id); out.push(s) })
+    frontier = next.map(s => s.id)
+  }
+  return out
+}
+
+// openBelow: the sessions below id that are still draft, running or paused (a plain archive is refused for them).
+export const openBelow = (sessions, id) => belowOf(sessions, id).filter(s => ['draft', 'running', 'paused'].includes(s.state))
+
+// hasSessionTree: some listed session has a listed parent, so the strip needs the tree.
+export const hasSessionTree = (sessions) => sessionTree(sessions).some(r => r.children.length > 0)
+
+// visibleRows flattens the tree into the rows on screen, skipping the children of
+// collapsed sessions: [{session, depth, hasChildren, expanded, parentId}].
+export function visibleRows(roots, collapsed) {
+  const rows = []
+  const walk = (n, parentId) => {
+    const hasChildren = n.children.length > 0
+    const expanded = hasChildren && !collapsed?.has(n.session.id)
+    rows.push({ session: n.session, depth: n.depth, hasChildren, expanded, parentId })
+    if (expanded) n.children.forEach(c => walk(c, n.session.id))
+  }
+  roots.forEach(r => walk(r, null))
+  return rows
+}

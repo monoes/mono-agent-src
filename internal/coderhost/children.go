@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // Master tools: a master session creates child sessions and controls its
@@ -30,6 +31,9 @@ var (
 	ErrOperatorOnly = errors.New("operator only")
 	// ErrLimit: a spawn limit (depth, children, rate, budget) holds.
 	ErrLimit = errors.New("limit reached")
+	// ErrAtWorkingDepth: the session is at the working depth (its max_depth, never above MaxSessionDepth), so it
+	// cannot have child sessions; it runs the work itself with the workers of its turn. It always comes with ErrLimit.
+	ErrAtWorkingDepth = errors.New("at the working depth")
 	// ErrAccess: the access level asked for is not allowed.
 	ErrAccess = errors.New("access not allowed")
 	// ErrInvalid: the request is malformed.
@@ -44,11 +48,16 @@ const MasterTurnPrefix = "master-"
 // Spawn limits that are not settings. A master's own max_children and max_depth
 // (operator-only settings) are checked as well.
 const (
-	// MaxSessionDepth is the deepest tree the design allows: a master (level 1) and its children (level 2).
-	MaxSessionDepth = 2
+	// MaxSessionDepth is the deepest tree the design allows, the same hard limit as the task session tree
+	// (tasks.HardMaxSessionDepth): a mission lead (level 1), a direction lead (2) and two levels of sub-agents. The
+	// working limit is a session's max_depth setting (default 3, raised only by the operator, never above this).
+	MaxSessionDepth = tasks.HardMaxSessionDepth
 	SpawnRateWindow = 10 * time.Minute
 	SpawnRateMax    = 6
 	maxTreeWalk     = 16
+	// MaxLiveSessionsPerTree is the most live (not stopped) sessions one tree may hold below its root, whatever the
+	// depth and the per-session max_children.
+	MaxLiveSessionsPerTree = 12
 )
 
 // AgentAdjustable lists the settings a master may change on a descendant through
@@ -72,6 +81,9 @@ type SpawnRequest struct {
 	Access    string  // coding or workspace, at most the parent's; "" = the parent's, capped at workspace
 	Cwd       string  // a folder inside the parent's (default: the parent's)
 	BudgetUSD float64 // carved out of the parent's remaining budget (0 = no cap of its own, only when the parent has none)
+	Scoped    bool    // the child runs scoped (the sandboxed assistant: no folder, read only); a research session
+	Runtime   string  // another runtime than the parent's ("" = the parent's); the model and provider then are not inherited
+	Model     string  // another model ("" = the parent's, or the runtime's default when Runtime is set)
 }
 
 // Spawned is the new child.
@@ -320,24 +332,45 @@ func (s *Store) Spawn(c Caller, req SpawnRequest) (Spawned, error) {
 	return s.spawnWith(c, req, spawnHooks{})
 }
 
-// mayHaveChildren says whether the caller may create child sessions at all: it is a running master (a lead
-// that is itself a child, or a solo session, is not) and the tree has a level left. It returns the master's
-// settings.
+// ErrLeadSpawnsWithReason is why a plain spawn was refused: the session leads a mission or a direction, so every
+// session it creates is a named task session below its own and goes through SpawnSession (the advisory, the ledger).
+var ErrLeadSpawnsWithReason = fmt.Errorf("%w: this session leads a task session, so a child session needs a title, a kind and a reason (session_spawn)", ErrInvalid)
+
+// SpawnPlain is Spawn for the master verbs (the MCP tool and the CLI verb) when the caller leads no task session. A
+// caller that leads an open one (draft, running or paused) is refused, so leaving out the title and the reason is not
+// a way round the advisory.
+func (s *Store) SpawnPlain(c Caller, req SpawnRequest) (Spawned, error) {
+	open, err := s.openMissionSession(c.ProfileID, c.ConversationID)
+	if err != nil {
+		return Spawned{}, err
+	}
+	if open != 0 {
+		return Spawned{}, ErrLeadSpawnsWithReason
+	}
+	return s.Spawn(c, req)
+}
+
+// mayHaveChildren says whether the caller may create child sessions at all: it is a running master, or a child whose
+// carve gave it room for children (max_children above 0, which only a session below the working depth gets), and the
+// tree has a level left. A solo session, and a child at the working depth, may not. It returns the caller's settings.
 func (s *Store) mayHaveChildren(c Caller) (Settings, error) {
 	parent, ok, err := s.GetSession(c.ProfileID, c.ConversationID)
 	if err != nil {
 		return Settings{}, err
 	}
-	if !ok || parent.Role != "master" || parent.State == StateStopped {
+	if !ok || (parent.Role != "master" && parent.Role != "child") || parent.State == StateStopped {
 		return Settings{}, fmt.Errorf("%w: only a running master session can create child sessions", ErrNotYours)
 	}
 	ps, err := s.GetSettings(c.ProfileID, c.ConversationID)
 	if err != nil {
 		return Settings{}, err
 	}
+	if parent.Role == "child" && ps.MaxChildren == 0 {
+		return Settings{}, fmt.Errorf("%w: only a running master session can create child sessions", ErrNotYours)
+	}
 	lvl, ok := s.level(c.ProfileID, c.ConversationID)
 	if !ok || lvl+1 > ps.MaxDepth || lvl+1 > MaxSessionDepth {
-		return Settings{}, fmt.Errorf("%w: depth %d would pass max_depth %d", ErrLimit, lvl+1, min(ps.MaxDepth, MaxSessionDepth))
+		return Settings{}, fmt.Errorf("%w (%w): depth %d would pass max_depth %d; run this work here with workers of this turn instead of a session of its own", ErrLimit, ErrAtWorkingDepth, lvl+1, min(ps.MaxDepth, MaxSessionDepth))
 	}
 	return ps, nil
 }
@@ -360,6 +393,8 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	if err != nil {
 		return Spawned{}, err
 	}
+	lvl, _ := s.level(c.ProfileID, c.ConversationID) // mayHaveChildren has just read it
+	childLevel := lvl + 1
 	var kids int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND state != 'stopped'`,
 		c.ProfileID, c.ConversationID).Scan(&kids); err != nil {
@@ -385,18 +420,23 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	if err != nil {
 		return Spawned{}, fmt.Errorf("%w: the master's conversation is gone", ErrNotYours)
 	}
-	access, err := childAccess(pconv.EffectiveAccess(), req.Access)
-	if err != nil {
-		return Spawned{}, err
-	}
-	cwd, err := childCwd(pconv.Cwd, req.Cwd)
-	if err != nil {
-		return Spawned{}, err
+	access, cwd := ai.AccessScoped, ""
+	if !req.Scoped {
+		if access, err = childAccess(pconv.EffectiveAccess(), req.Access); err != nil {
+			return Spawned{}, err
+		}
+		if cwd, err = childCwd(pconv.Cwd, req.Cwd); err != nil {
+			return Spawned{}, err
+		}
 	}
 	if err := s.takeSpawnSlot(c.ProfileID, c.ConversationID); err != nil {
 		return Spawned{}, err
 	}
-	conv, err := store.CreateConversationAccess(c.ProfileID, pconv.Backend, pconv.WorkflowContext, pconv.RuntimeID, pconv.ProviderID, pconv.Model, access, cwd, pconv.Effort)
+	runtimeID, providerID, model, err := childRuntime(pconv, req)
+	if err != nil {
+		return Spawned{}, err
+	}
+	conv, err := store.CreateConversationAccess(c.ProfileID, pconv.Backend, pconv.WorkflowContext, runtimeID, providerID, model, access, cwd, pconv.Effort)
 	if err != nil {
 		return Spawned{}, err
 	}
@@ -408,6 +448,13 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	if err := s.SetRole(c.ProfileID, conv.ID, "child", c.ConversationID); err != nil {
 		undo()
 		return Spawned{}, fmt.Errorf("%w: %v", ErrLimit, err)
+	}
+	if n, err := s.liveInTree(c.ProfileID, c.ConversationID); err != nil || n-1 > MaxLiveSessionsPerTree {
+		undo() // checked after the link, so two spawns racing for the last place cannot both keep it
+		if err != nil {
+			return Spawned{}, err
+		}
+		return Spawned{}, fmt.Errorf("%w: the tree already holds %d live sessions below its root (at most %d)", ErrLimit, n-1, MaxLiveSessionsPerTree)
 	}
 	if hk.onCreated != nil {
 		if err := hk.onCreated(conv.ID); err != nil {
@@ -426,8 +473,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		undo()
 		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left", ErrLimit)
 	}
-	cs := DefaultSettings()
-	cs.MaxChildren = 0 // a child does not make children
+	cs := childSettings(ps, childLevel)
 	if err := s.SaveSettings(c.ProfileID, conv.ID, cs); err != nil {
 		undo()
 		return Spawned{}, err

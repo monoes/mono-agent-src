@@ -522,6 +522,10 @@ export function GetChatEvents(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetChatEvents'](arg1, arg2, arg3, arg4);
 }
 
+export function GetChatMissionToggle(arg1) {
+  return window['go']['main']['App']['GetChatMissionToggle'](arg1);
+}
+
 export function GetChatTurns(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetChatTurns'](arg1, arg2, arg3);
 }
@@ -1190,6 +1194,26 @@ export function PauseOrgAutonomy(arg1, arg2) {
   return window['go']['main']['App']['PauseOrgAutonomy'](arg1, arg2);
 }
 
+export function PersonItemAnswerAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAnswerAsk'](arg1, arg2);
+}
+
+export function PersonItemApprove(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PersonItemApprove'](arg1, arg2, arg3);
+}
+
+export function PersonItemAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAsk'](arg1, arg2);
+}
+
+export function PersonItemDeny(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemDeny'](arg1, arg2);
+}
+
+export function PersonItemsList() {
+  return window['go']['main']['App']['PersonItemsList']();
+}
+
 export function PickCoderFolder() {
   return window['go']['main']['App']['PickCoderFolder']();
 }
@@ -1434,6 +1458,10 @@ export function SetChatAccess(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SetChatAccess'](arg1, arg2, arg3, arg4);
 }
 
+export function SetChatMissionToggle(arg1, arg2) {
+  return window['go']['main']['App']['SetChatMissionToggle'](arg1, arg2);
+}
+
 export function SetChatOrgMode(arg1, arg2) {
   return window['go']['main']['App']['SetChatOrgMode'](arg1, arg2);
 }
@@ -1590,8 +1618,16 @@ export function TaskSessionApprove(arg1) {
   return window['go']['main']['App']['TaskSessionApprove'](arg1);
 }
 
+export function TaskSessionApproveAt(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionApproveAt'](arg1, arg2);
+}
+
 export function TaskSessionArchive(arg1) {
   return window['go']['main']['App']['TaskSessionArchive'](arg1);
+}
+
+export function TaskSessionArchiveCascade(arg1) {
+  return window['go']['main']['App']['TaskSessionArchiveCascade'](arg1);
 }
 
 export function TaskSessionBoard(arg1, arg2) {
@@ -1606,6 +1642,10 @@ export function TaskSessionClose(arg1, arg2) {
   return window['go']['main']['App']['TaskSessionClose'](arg1, arg2);
 }
 
+export function TaskSessionCreate(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['TaskSessionCreate'](arg1, arg2, arg3, arg4);
+}
+
 export function TaskSessionPause(arg1) {
   return window['go']['main']['App']['TaskSessionPause'](arg1);
 }
@@ -1616,6 +1656,10 @@ export function TaskSessionPlan(arg1) {
 
 export function TaskSessionPulse(arg1) {
   return window['go']['main']['App']['TaskSessionPulse'](arg1);
+}
+
+export function TaskSessionRename(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionRename'](arg1, arg2);
 }
 
 export function TaskSessionResume(arg1) {

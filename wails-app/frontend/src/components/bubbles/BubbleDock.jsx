@@ -1,15 +1,20 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, X, Code2, Network } from 'lucide-react'
 import { folderName } from '../chat/useCoderMode.js'
-import { layoutBubbles, monogram, totalCost, costEstimated } from '../../lib/coderBubbles.js'
+import { layoutBubbles, fitDock, monogram, totalCost, costEstimated } from '../../lib/coderBubbles.js'
+import { OrbitRing } from './OrbitRing.jsx'
+import { PersonItemTray } from './PersonItemViews.jsx'
 import './bubbles.css'
 
 const statusKey = { idle: 'statusIdle', working: 'statusWorking', done: 'statusDone', error: 'statusError', needs: 'statusNeeds' }
 
-function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, onDropOn, dragging, registerEl, titleOf = folderName }) {
+function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, onDropOn, dragging, registerEl, titleOf = folderName, orbit = null, side = 'right', onOpenAgent }) {
   const { t } = useTranslation()
   const [hover, setHover] = useState(false)
+  // The mouse over a satellite shows that satellite's own card, not the bubble's.
+  const [onOrbit, setOnOrbit] = useState(false)
+  const hasOrbit = !!orbit && (orbit.satellites.length > 0 || orbit.overflow.length > 0)
   const isOrg = bubble.kind === 'org'
   const name = isOrg ? bubble.orgName : bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
   const cost = totalCost(summary)
@@ -18,8 +23,9 @@ function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, o
     : t('bubbles.bubbleLabel', { name, status: t(`bubbles.${statusKey[summary.status] || 'statusIdle'}`) })) +
     (summary.unread ? ` · ${t('bubbles.unread', { count: summary.unread })}` : '')
   return (
-    <div className="bubble-wrap"
+    <div className={`bubble-wrap${hasOrbit ? ' has-orbit' : ''}`}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      onMouseOver={hasOrbit ? e => setOnOrbit(!!e.target.closest?.('.orbit')) : undefined}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
       onDrop={e => { e.preventDefault(); onDropOn(bubble.key) }}>
       <button type="button" ref={el => registerEl(bubble.key, el)}
@@ -37,7 +43,11 @@ function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, o
         aria-label={t('bubbles.closeNamed', { name })} title={isOrg ? t('orgBubble.close') : t('bubbles.closeChat')}>
         <X size={9} />
       </button>
-      {hover && !expanded && (
+      {hasOrbit && (
+        <OrbitRing orbit={orbit} variant="arc" facing={side === 'left' ? 0 : 180} label={t('bubbles.orbit.groupNamed', { name })}
+          onOpen={c => onOpenAgent?.(bubble, c)} />
+      )}
+      {hover && !expanded && !onOrbit && (
         <div className="bubble-card" role="tooltip">
           <div className="bubble-card-title">{name}</div>
           {isOrg && <div>{bubble.finished ? t('orgBubble.status.finished') : t('orgBubble.cardKind')}{bubble.runId ? ` · ${t('orgBubble.runLabel', { id: bubble.runId.slice(0, 8) })}` : ''}</div>}
@@ -54,26 +64,49 @@ function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, o
   )
 }
 
+// useWindowHeight follows the window's height, so the dock refits when it is resized.
+function useWindowHeight() {
+  const [h, setH] = useState(() => (typeof window === 'undefined' ? 900 : window.innerHeight))
+  useEffect(() => {
+    const on = () => setH(window.innerHeight)
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+  }, [])
+  return h
+}
+
 // BubbleDock is the stack of coder chat bubbles (#227) at the bottom of
 // the window: one bubble per open coder chat, a "+" for a new one, and a
 // grip that moves the dock to the other side. Bubbles past the sixth go
 // into a "+N" bubble that fans out.
-export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = true, titleOf }) {
+export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = true, titleOf, orbitOf = null, onOpenAgent }) {
   const { t } = useTranslation()
   const [dragKey, setDragKey] = useState('')
   const [fanOpen, setFanOpen] = useState(false)
   const gripStart = useRef(null)
-  const { bubbles, expandedKey, side } = store
-  const { visible, overflow } = layoutBubbles(bubbles, expandedKey)
+  const { expandedKey, side } = store
+  // An agent opened from an orbit has no bubble of its own: it is reached from its parent's orbit.
+  const bubbles = store.bubbles.filter(b => !b.lite)
+  const laid = layoutBubbles(bubbles, expandedKey)
+  // The window's height decides how many bubbles (and circles) fit: circles go first, then bubbles into "+N".
+  const height = useWindowHeight()
+  const orbits = Object.fromEntries(laid.visible.map(b => {
+    const o = orbitOf && b.conversationId ? orbitOf(b) : null
+    return [b.key, o && (o.satellites.length > 0 || o.overflow.length > 0) ? o : null]
+  }))
+  const fit = fitDock(laid.visible.map(b => ({ key: b.key, orbit: !!orbits[b.key] })), expandedKey, height, laid.overflow.length > 0)
+  const visible = laid.visible.filter(b => fit.visible.includes(b.key))
+  const overflow = [...laid.visible.filter(b => fit.overflow.includes(b.key)), ...laid.overflow]
 
   const onDropOn = (key) => {
     if (dragKey && dragKey !== key) store.reorder(dragKey, key)
     setDragKey('')
   }
-  const bubbleProps = b => ({
+  const bubbleProps = (b, withOrbit = true) => ({
     bubble: b, summary: store.summaryOf(b.key), expanded: b.key === expandedKey,
     onOpen: k => { setFanOpen(false); onOpen(k) }, onClose, onDragStart: setDragKey, onDropOn,
     dragging: dragKey === b.key, registerEl, titleOf,
+    orbit: withOrbit && !fit.plain.has(b.key) ? (orbits[b.key] ?? null) : null, side, onOpenAgent,
   })
   if (bubbles.length === 0 && !canCreate) return null
   const overflowUnread = overflow.reduce((n, b) => n + (store.summaryOf(b.key).unread || 0), 0)
@@ -90,7 +123,7 @@ export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = tru
           </button>
           {fanOpen && (
             <div className="bubble-overflow" data-testid="bubble-overflow">
-              {overflow.map(b => <ChatBubble key={b.slot || b.key} {...bubbleProps(b)} />)}
+              {overflow.map(b => <ChatBubble key={b.slot || b.key} {...bubbleProps(b, false)} />)}
             </div>
           )}
         </div>
@@ -98,6 +131,7 @@ export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = tru
       {canCreate && <button type="button" className="bubble-new" onClick={() => store.openDraft()} title={t('bubbles.newCoderChat')} aria-label={t('bubbles.newCoderChat')}>
         <Plus size={15} />
       </button>}
+      <PersonItemTray />
       {bubbles.length > 0 && (
         <div className="bubble-grip" role="button" tabIndex={0} title={t('bubbles.moveDock')} aria-label={t('bubbles.moveDock')}
           onPointerDown={e => { gripStart.current = e.clientX; e.currentTarget.setPointerCapture?.(e.pointerId) }}

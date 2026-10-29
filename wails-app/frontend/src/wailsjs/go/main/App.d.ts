@@ -264,6 +264,8 @@ export function GetChatConversationRecord(arg1:string):Promise<main.ChatConversa
 
 export function GetChatEvents(arg1:string,arg2:string,arg3:number,arg4:number):Promise<string>;
 
+export function GetChatMissionToggle(arg1:string):Promise<string>;
+
 export function GetChatTurns(arg1:string,arg2:string,arg3:number):Promise<string>;
 
 export function GetCoderSessionSettings(arg1:string):Promise<string>;
@@ -597,6 +599,11 @@ export function InstallExtension():Promise<main.ExtensionInfo>;
 
 export function PauseOrgAutonomy(arg1:string,arg2:string):Promise<string>;
 
+export function PersonItemAnswerAsk(arg1:number,arg2:string):Promise<string>;
+export function PersonItemApprove(arg1:number,arg2:number,arg3:string):Promise<string>;
+export function PersonItemAsk(arg1:number,arg2:string):Promise<string>;
+export function PersonItemDeny(arg1:number,arg2:string):Promise<string>;
+export function PersonItemsList():Promise<string>;
 export function PickCoderFolder():Promise<string>;
 
 export function PlatformNames():Promise<Record<string, string>>;
@@ -719,6 +726,8 @@ export function SetBrowserSiteRule(arg1:string,arg2:string):Promise<string>;
 
 export function SetChatAccess(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<main.AccessChange>;
 
+export function SetChatMissionToggle(arg1:string,arg2:boolean):Promise<string>;
+
 export function SetChatOrgMode(arg1:string,arg2:string):Promise<string>;
 
 export function SetCoderSessionSettings(arg1:string,arg2:string,arg3:string):Promise<string>;
@@ -796,7 +805,11 @@ export function TaskPulse():Promise<Record<string, any>>;
 
 export function TaskSessionApprove(arg1:number):Promise<string>;
 
+export function TaskSessionApproveAt(arg1:number,arg2:number):Promise<string>;
+
 export function TaskSessionArchive(arg1:number):Promise<string>;
+
+export function TaskSessionArchiveCascade(arg1:number):Promise<string>;
 
 export function TaskSessionBoard(arg1:number,arg2:number):Promise<string>;
 
@@ -804,11 +817,15 @@ export function TaskSessionBudget(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionClose(arg1:number,arg2:string):Promise<string>;
 
+export function TaskSessionCreate(arg1:string,arg2:string,arg3:number,arg4:string):Promise<string>;
+
 export function TaskSessionPause(arg1:number):Promise<string>;
 
 export function TaskSessionPlan(arg1:number):Promise<string>;
 
 export function TaskSessionPulse(arg1:number):Promise<Record<string, any>>;
+
+export function TaskSessionRename(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionResume(arg1:number):Promise<string>;
 

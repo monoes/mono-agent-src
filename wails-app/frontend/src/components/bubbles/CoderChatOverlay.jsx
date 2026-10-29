@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Minimize2, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { CoderHeader, CoderBadge } from '../chat/CoderHeader.jsx'
+import { MissionChip } from '../chat/MissionToggle.jsx'
+import { useMissionToggle } from '../chat/useMissionToggle.js'
 import { folderName } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { CoderChatView } from './CoderChatView.jsx'
@@ -16,6 +18,8 @@ import { COMPACT_PROMPT, compactSummary, compactSeed } from '../../lib/chatCompa
 import { TaskHeaderCard } from './TaskHeaderCard.jsx'
 import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
+import { LitePaneHeader } from './LitePaneHeader.jsx'
+import { orbitOf } from '../../lib/sessionOrbit.js'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
@@ -60,8 +64,10 @@ function prefersReducedMotion() {
 // them stop a running turn; the × closes the chat (onCloseChat, which
 // asks first when a turn is running). originRect is the bubble's screen rectangle, so
 // the overlay grows out of it.
-export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onCloseChat, onNavigate, onOpenArtifact, titleOf = folderName }) {
+export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onCloseChat, onNavigate, onOpenArtifact, titleOf = folderName, orbitSessions = [], onOpenAgent, onChanged }) {
   const { t } = useTranslation()
+  // A lite pane is an agent opened from an orbit: its own simple pane, nothing to configure.
+  const lite = !!bubble.lite
   const view = store.getView(bubble.key)
   const [closing, setClosing] = useState(false)
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
@@ -73,6 +79,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const selectedRef = useRef(null)
   const bodyRef = useRef(null)
   const pressOnBackdrop = useRef(false)
+  const missionRef = useRef(null)
 
   // create makes the conversation for a draft's first message, at the access
   // level, runtime, model and effort picked in its setup (ChatSetup). Above
@@ -95,11 +102,14 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
       access: isAccess(made.access) ? made.access : access, verified: isAccess(made.access), effort: made.effort || setup.effort || '', orgMode: made.orgMode || '',
     }
     store.bindConversation(bubble.key, bound)
+    await missionRef.current?.applyPending(made.id) // the Mission toggle chosen before the chat existed
     return { ...bound, workspace }
   }, [setup, store, bubble.key])
   // A conversation's level counts once the backend has said it; a cached one is a hint only.
   const verify = useVerifiedAccess(bubble, store)
   const access = bubble.conversationId ? (bubble.verified ? bubble.access : '') : (setup.access || '')
+  const mission = useMissionToggle(bubble.conversationId, isCoderAccess(access))
+  missionRef.current = mission
   const confined = isConfinedTask({ kind: bubble.taskKind || view.task?.kind })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsBtn = useRef(null)
@@ -182,6 +192,8 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
       // The History drawer handles its own Escape when focus is inside it, so
       // this overlay stays open (and the key keeps travelling to the drawer).
       if (e.target?.closest?.('[data-testid="history-panel"]')) return
+      // The "+N" list of an orbit closes itself first (its own handler stops the key).
+      if (e.target?.closest?.('.orbit-more')) return
       e.stopImmediatePropagation()
       if (settingsOpenRef.current) { closeSettings(); return }
       if (selectedRef.current) { setSelectedAgent(null); return }
@@ -206,7 +218,9 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   useEffect(() => {
     const prev = document.activeElement
     const ta = panelRef.current?.querySelector('textarea:not([disabled])')
-    ta?.focus?.()
+    // No composer yet (a pane still loading): the pane itself takes the focus, so it never stays on the bubble behind it.
+    if (ta) ta.focus?.()
+    else panelRef.current?.focus?.()
     return () => prev?.focus?.()
   }, [])
 
@@ -249,8 +263,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
     }
   }, [liveConvId, liveTurnId, t])
 
-  const title = bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
-  const showStage = access !== 'scoped' && !confined
+  // A lite pane is named by its session, which the person sees on the circle; a chat's own title is a redacted summary.
+  const liteOrbit = lite ? orbitOf(orbitSessions, { sessionId: bubble.sessionId }) : null
+  const title = (lite && liteOrbit.root?.title) || bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
+  const showStage = !lite && access !== 'scoped' && !confined
   const runtime = bubble.conversationId ? bubble.runtime : setup.runtime
   const model = bubble.model || setup.model
 
@@ -270,8 +286,13 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           if (collapseIt) collapse()
         }}
       />
-      <div ref={panelRef} role="dialog" aria-label={t('bubbles.chatLabel', { name: title })} data-testid="bubble-overlay"
+      <div ref={panelRef} role="dialog" tabIndex={-1} aria-label={t('bubbles.chatLabel', { name: title })} data-testid="bubble-overlay"
         className={`bubble-overlay${closing ? ' closing' : ''}${narrow ? ' narrow' : ''}`}>
+        {lite ? (
+          <LitePaneHeader title={title} orbit={liteOrbit} streaming={conv.streaming}
+            onStopTurn={conv.stop} onOpenAgent={c => onOpenAgent?.(bubble, c)} onChanged={onChanged}
+            onBoard={root => { collapse(); onNavigate?.('tasks', { sessionId: root.id }) }} onClose={onCloseChat} />
+        ) : (
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           {/* Title and chips wrap among themselves on a narrow pane; the buttons stay on the right. */}
           <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -283,6 +304,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
                 {[runtime && runtimeLabel(runtime), model].filter(Boolean).join(' · ')}
               </span>
             )}
+            <MissionChip state={mission.state} />
             {confined ? (
               <span data-testid="chip-confined" title={t('bubbles.pane.confinedWhy')} style={chip}>{t('bubbles.pane.confinedChip')}</span>
             ) : isAccess(access) ? (
@@ -310,11 +332,12 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             <PaneSettings bubble={bubble} access={access} store={store} confined={confined} onNavigate={page => { collapse(); onNavigate?.(page) }} onClose={closeSettings} />
           )}
         </div>
-        {bubble.cwd && <CoderHeader cwd={bubble.cwd} />}
-        {view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
-        <ChatResetBar onClear={startFresh} onCompact={compact}
+        )}
+        {!lite && (bubble.cwd || mission.state || mission.error) && <CoderHeader cwd={bubble.cwd} mission={mission} />}
+        {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
+        {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
-          compactDisabled={conv.streaming || !conv.conversationId} />
+          compactDisabled={conv.streaming || !conv.conversationId} />}
         <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
           {showStage && !stageCollapsed && (
             <>
@@ -344,6 +367,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             onNavigate={onNavigate}
             onOpenArtifact={onOpenArtifact}
             runtime={runtime}
+            variant={lite ? 'lite' : 'full'}
             agentFilter={agentFilter}
             agentFilterTurnId={shownTurnId}
             agentFilterName={filterName}

@@ -1708,12 +1708,19 @@ that works a task acts on them. The defences:
   (`task agents allow --approve --view`): a bound worker cannot approve or view the
   personal board through it, the `task digest` hook shows it nothing of that board,
   and a delegated approval never opens a session's task (only `session approve`
-  does). **An agent that scrubs its own environment (no
+  does, by the operator or, under `agent_approval`, the parent's lead: see below). **An agent that scrubs its own environment (no
   agent marker, no `--as`) is treated as the operator by the CLI** and can run
   `session approve`, `session resume` and `session budget`: it can open its own plan,
   resume a pause and raise its own budget. That weakness predates sessions and has
   higher stakes with them; the guard stops accidents and injected text, not an agent
-  that works around it on purpose. A session's
+  that works around it on purpose. **The Mission toggle** (`coder sessions settings set --mission on|off`, the `mission`
+  setting) is the operator's: an agent, a master with a session token and `--patch` all get exit 3 (`operator_only`)
+  and nothing is stored. On, every turn of the chat is a confirmed mission (the toggle replaces the card's click, so it
+  is the same trust: the person's word); it needs coding access or more, and it stays on, and cannot be turned
+  off, while the chat has an open (draft, running or paused) mission session; only a session of kind `mission` counts
+  (an agent cannot start one, nor use the planner's name `mission-lead`; old sessions the planner started count; so does a session an agent created under the name `mission-lead` before that
+  refusal existed, so operators check existing databases: `task session list --json` shows `created_by` for each), and
+  if the store cannot say whether one is open, off is refused. A session's
   goal and a task's acceptance criteria are text an agent wrote and come back
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
   deleted with its profile. A session that has spent its budget hands out no tasks.
@@ -1819,6 +1826,14 @@ that works a task acts on them. The defences:
   done or verified, `mission_finish` only proposes the close (it attaches the final report and
   emits `mission.report`); the session stays running and only the operator closes it
   (`session close`, which refuses an agent). No code path of the conductor closes a session.
+  **Research and directions.** The lead's `mission_evaluate` and `mission_reevaluate` rank candidate directions in
+  code and write the inputs and picks to the mission's history; they grant nothing (no spawn, approval, stop, access or
+  budget), a drop is a proposal, and a worker or helper does not have them. Research sessions are told to read only;
+  their report text is data written by a model that read the web, and a reviewer's brief carries it inside a fence. The
+  host's check-in line "Consider mission_reevaluate" is numbers from its own rows only. The operator's `mission_directions`
+  (1 to 6) caps the picks and, in `session_spawn`, the direction sessions open below the lead's session
+  (checked after the insert, so racing spawns cannot pass it; the setting follows the lead down the tree). That the brief asks for
+  a reviewer on another model is prompt-only: nothing in code checks which model the lead picks.
   **The conductor's git work in agent-writable folders** (the isolated writers' worktrees,
   the verifiers' checkouts and the merge into the chat folder's repository) runs as the
   operator. Repository-local git configuration or hook scripts can make git run a program
@@ -1894,6 +1909,28 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **Approval of a child session by the lead of its parent (`agentApproval`).**
+  The operator always approves (`session approve`, basis `operator`). An agent
+  approves a session only when the store finds all of: the operator's coder
+  setting `agent_approval` is `lead` on the mission's root chat (default `off`,
+  operator-only, never in `AgentAdjustable`; `approval_ceiling_usd` is the
+  same); the session has a parent; the caller is bound to no task and to no
+  session but that parent, and its verified chat (a coder-session token the host
+  minted for a running turn, resolved by one function, `approver`; never an
+  environment label) is the chat the parent is linked to and not the session's
+  own. Peers, descendants, ancestors above the parent, other missions and other
+  profiles are refused, as is the root session. Basis `lead` is recorded. Giant
+  work is never approved by an agent: more than 25 tasks (or a `max_tasks` over
+  25), a budget over 40 percent of the root's remaining budget or over the
+  operator's USD ceiling, access above the parent's, or a level below the
+  operator's working `max_depth`. It raises a person item (kind `plan_approval`)
+  that waits with no timeout, no default and no master or model answer (it has no
+  question row); the operator's `session approve` of it records basis `person`.
+  The person verbs (`task session person inbox|approve|deny|ask`) are the operator's: an agent marker, `--as`, `MONOAGENT_ACTOR` or any agent token in the environment (`MONOAGENT_SESSION_TOKEN`, `MONOAGENT_TASK_BINDING`, `MONOAGENT_TASK_SESSION`, `MONOAGENT_TASK_ID`) refuses them with `operator_only`. This is a deterrent, not a boundary: a process that clears its environment or reparents itself (a daemonised helper) is treated as the operator, exactly as for every other operator-only verb, so a hostile process running as the same user can still run them. What the person approves is bound to the plan revision they read (`--rev`).
+  The budget guards only measure what the operator gave them: they need a root budget or an `approval_ceiling_usd`. With neither, a child that brings no budget is giant (`no budget set: the person decides`) and the person approves it; with a root budget, the 40 percent share is taken of what is left after the parent's approved (running, paused or finished) siblings, so siblings cannot together exceed the root. A child's own spend does not reduce the root's recorded remaining budget, and a child that brings a budget under an unbudgeted mission without a ceiling is not stopped by these rules.
+  Approval changes no access, budget or cap. A process a lead's turn started
+  without a task token still carries the lead's session token and so acts as the
+  lead; that is the existing meaning of the token, not widened.
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and
@@ -1917,7 +1954,7 @@ that works a task acts on them. The defences:
   (it shows the Inbox) and `approve` (both unless delegated, see above),
   `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow`,
   `agents deny`, `session approve`, `session resume`, `session close`,
-  `session archive`, `session budget` and `undepend`. A caller is agent-driven when an
+  `session archive` (also with `--cascade`, which stops and archives the open sessions below it and is never an agent's), `session budget` and `undepend`. A caller is agent-driven when an
   agent-context environment variable is set (the markers org signing
   already uses, `CLAUDECODE` among them), or `--as` is given, or
   `MONOAGENT_ACTOR` is set. This stops an agent acting by accident or on
@@ -1999,9 +2036,18 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   per master, 5 pending slots per child shared by everything a master queues except a stop (sends, pause,
   resume) and 2 master stops apart, queued sends that expire (6 hours; a master's sends, not its pause or resume,
   after 15 minutes), 50 waiting sends and 50 waiting control commands per conversation. `max_concurrent` (default 2) caps the children of one master that run a turn at once (only turns this host started are counted); further sends wait (in order within a chat; across chats the freed slot goes to the master's oldest waiting send), and a held send can expire like any other (15 minutes for a master's, 6 hours for others including `answer-d-` notes) and then fails with the expiry reason.
-- **Check-ins and the streak.** After `checkin_limit` (default 48) host-made turns (`checkin-`, `answer-`,
+- **Check-ins and the streak.** After `checkin_limit` (default 48) host-made turns (`checkin-`, `answer-`, `ask-`,
   `master-`) in a row with no message from a person, a session waits for one. A new path that starts turns
   without a person must use its own prefix and be counted, or it would reset the limit.
+- **The upward ask channel is sealed, authority-free and ancestor-only.** `session_ask_ancestor` takes the caller
+  from the verified session token and the mission-child lead scope (a bound helper is refused) and reaches only a
+  proper ancestor above the caller's parent, read from the `parent_session_id` chain in the caller's profile;
+  approval stays with the parent. The question and the reply are cleaned quoted data in a fixed fence, queued as
+  host-made `ask-` turns that cannot carry a mission confirmation or a person's authority, and counted in the
+  check-in streak. The reply is `session_reply_ask` only (`session_send` is always a command and is never read as
+  a reply, so a leaf cannot turn its root's orders into quoted data); every error path of it refuses. Rate limits (3 open, 1 a minute, 4 KiB, 8 KiB open) are enforced in the INSERT. A critical ask
+  is a person item (`ancestor_question`): no model reads it, no timeout or autonomy class answers it, and the
+  answer path is the operator's `AnswerAncestorQuestion`, which no tool exposes.
 - **Autonomy decides who answers a gap, nothing more.** `risky_action` and `missing_credential` are never
   answered by the model and never take a default. A model-made decision is written to the decisions ledger as the
   model's. The producer tools (`session_park`, `session_record`, `sessions park|record`) take the caller from the
@@ -2055,6 +2101,20 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   than halting in-turn workers: a turn that is already running finishes under its cap. The files are covered by the same
   static scan (no approval writer named, only the mission tables written). Not yet built: the launcher's per-child task
   token (P-B2).
+- **A tree of sessions and `session_spawn` for a lead.** The depth of a tree is bounded by code: `coderhost.MaxSessionDepth`
+  is `tasks.HardMaxSessionDepth` (4), `max_depth` is operator-only and validated against it, and a child takes its
+  parent's value; a child has room for children only below that depth and never more than its parent (`childSettings`),
+  its access is never above its parent's and never `full`, its budget is carved from the parent's, and one tree holds
+  at most 12 live sessions (counted again after the link, so two racing spawns cannot both take the last place). A
+  lead's `session_spawn` / `mission_session_spawn` is the lead scope (a verified session token and no task binding; the
+  conductor blanks the token for every helper it starts, and the tool is not in `childToolSpecs`), needs the lead's task
+  session to be **running** (a draft plan spawns nothing), reads the size of the work from the lead's own tasks (an id of
+  another session reads as not yours), and creates the task session as an agent below its own, so the store's tree rules
+  (same profile, depth, a child never above its parent's access and caps) apply and the new session is a draft the
+  operator approves. A plain spawn by a session that leads an open task session is refused, so leaving out the reason
+  is not a way round the advisory. The advisory is guidance against needless spawning, not an authorisation: it
+  refuses a small scope once, remembers it in `coder_spawn_advice`, and records every decision in the ledger. A stopped
+  or paused session cascades to its descendants at any depth (`treecascade.go`).
 - **Mission child sessions: the conductor and the lead's tools (not enabled end to end until P-B2).** The conductor
   (`dynorg/mission_child.go`) decides where a worker task runs: a session of its own only for a marked task or mode
   `all`, with mode not `off`, room, and `ChildSpawner.Ready()`; everything else is the unchanged in-turn path.

@@ -8,6 +8,7 @@ import { openArtifact as revalidateAndOpenArtifact } from '../chat/chatArtifacts
 import { useResolvedArtifacts } from '../chat/useResolvedArtifacts.js'
 import { useStreamsIncrementally } from './useChatPaneData.js'
 import { ChatTimeline } from '../chat/ChatTimeline.jsx'
+import { LiteTurn } from './LiteTurn.jsx'
 import { TurnStatus } from '../chat/TurnStatus.jsx'
 import { ChatComposer } from '../chat/ChatComposer.jsx'
 import { MessageAttachments, WorkspaceImageContext } from '../chat/ChatAttachments.jsx'
@@ -19,6 +20,7 @@ import { useChatSetup } from './useChatSetup.js'
 import { isCoderAccess } from '../../lib/chatAccess.js'
 import { MessageBubble } from '../chat/messageBubble.jsx'
 import { AskCard } from './AskCard.jsx'
+import { PersonItemsRegion } from './PersonItemViews.jsx'
 import { useHilAsks } from './useHilAsks.js'
 import { isAgentNotSetup } from '../../lib/agentSetup.js'
 import AgentSetupLink from '../AgentSetupLink.jsx'
@@ -31,10 +33,13 @@ const mono = 'var(--font-mono)'
 const srOnly = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }
 
 // CoderChatView is the chat half of an expanded coder bubble: the
-// transcript, the live turn and the composer. conv is useCoderConversation's
+// transcript, the live turn and the composer. variant 'lite' is an agent
+// opened from an orbit: text and one-line tool chips, no mission cards or
+// templates, no attachments. conv is useCoderConversation's
 // result; draft/onDraftChange keep the unsent text across collapses.
-export function CoderChatView({ conv, isDraft, access, accessState = 'ready', onRetryAccess, setup, onSetupChange, draft, onDraftChange, initialScrollTop, onScroll, onNavigate, onOpenArtifact, runtime = '', agentFilter = null, agentFilterTurnId = '', agentFilterName = '', onClearAgentFilter }) {
+export function CoderChatView({ conv, isDraft, access, accessState = 'ready', onRetryAccess, setup, onSetupChange, draft, onDraftChange, initialScrollTop, onScroll, onNavigate, onOpenArtifact, runtime = '', variant = 'full', agentFilter = null, agentFilterTurnId = '', agentFilterName = '', onClearAgentFilter }) {
   const { t } = useTranslation()
+  const lite = variant === 'lite'
   const setupState = useChatSetup(isDraft, setup, onSetupChange)
   // The level this chat runs at: the draft's resolved pick, then the bubble's.
   const level = isDraft ? setupState.access : access
@@ -65,7 +70,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   const allMission = turnList.flatMap(tn => missionByTurn[tn.key] || [])
   const reported = allMission.some(i => i.type === 'report')
   const closeProposed = allMission.filter(i => i.type === 'report' && i.payload?.closeProposed === true).map(i => i.payload.sessionId)
-  const proposals = allMission.filter(i => i.type === 'propose').length
+  const proposals = lite ? 0 : allMission.filter(i => i.type === 'propose').length
   const [confirmed, setConfirmed] = useState(() => new Set())
   // The conversation's sessions, read only while it has a proposal, to tell a
   // proposal that was started (a session opened after it) from one still open.
@@ -155,6 +160,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
         </div>
       )}
       <div role="status" aria-live="polite" aria-label={t('bubbles.pane.announcements')} style={srOnly}>{announcement}</div>
+      <PersonItemsRegion conversationId={conv.conversationId || ''} />
       {isDraft && empty && <ChatSetup s={setupState} setup={setup} onChange={onSetupChange} onNavigate={onNavigate} />}
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         <div ref={scroll.containerRef} onScroll={e => onScroll?.(e.currentTarget.scrollTop)} data-testid="bubble-transcript"
@@ -173,9 +179,11 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
               msg.role === 'coder-init' ? <CoderInitNote key={i} workspace={msg.workspace} />
                 : msg.role === 'turn' ? (
                   <div key={i} className="chat-assistant-turn">
-                    <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
-                    {artifactCards(msg.turnId, msg.state)}
-                    {missionCards(msg.turnId)}
+                    {lite ? <LiteTurn state={msg.state} turnId={msg.turnId} /> : <>
+                      <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
+                      {artifactCards(msg.turnId, msg.state)}
+                      {missionCards(msg.turnId)}
+                    </>}
                     <TurnStatus state={msg.state} stopRequested={false} ownedByThisInstance={msg.ownedByThisInstance} />
                     {isAgentNotSetup(msg.state.terminal?.code) && <AgentSetupLink onNavigate={onNavigate} />}
                   </div>
@@ -188,9 +196,11 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
             ))}
             {conv.streaming && (
               <div className="chat-assistant-turn">
-                <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
-                {artifactCards(conv.activeTurnId, conv.liveTurn)}
-                {missionCards(conv.activeTurnId)}
+                {lite ? <LiteTurn state={conv.liveTurn} turnId={conv.activeTurnId} isLive /> : <>
+                  <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
+                  {artifactCards(conv.activeTurnId, conv.liveTurn)}
+                  {missionCards(conv.activeTurnId)}
+                </>}
                 <TurnStatus state={conv.liveTurn} stopRequested={conv.stopRequested} streamsIncrementally={streamsIncrementally} />
               </div>
             )}
@@ -210,13 +220,13 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
           </button>
         )}
       </div>
-      {isCoderAccess(level) && !!conv.conversationId && (
+      {!lite && isCoderAccess(level) && !!conv.conversationId && (
         <MissionStrip conversationId={conv.conversationId} bump={allMission.length} reported={reported} closeProposed={closeProposed} />
       )}
       <ChatComposer value={draft} onChange={onDraftChange} onSend={send} onStop={conv.stop}
         streaming={conv.streaming} disabled={blocked || conv.loading}
         disabledReason={reason}
-        attachments={attachments} onAttach={isCoderAccess(level) ? attach : undefined} onRemoveAttachment={removeAttachment} />
+        attachments={attachments} onAttach={!lite && isCoderAccess(level) ? attach : undefined} onRemoveAttachment={removeAttachment} />
     </div>
   )
 }

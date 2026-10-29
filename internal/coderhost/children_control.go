@@ -25,6 +25,7 @@ func (s *Store) authorize(c Caller, target string) error {
 // person's send: the turn id starts with MasterTurnPrefix, so the command cannot
 // ask for a mission and the host cannot find a confirmation for it.
 func (s *Store) SendToChild(c Caller, target, message string) (Command, error) {
+	// session_send is always a command: an ask is answered with session_reply_ask (ask_reply_tool.go), never here.
 	if err := s.authorize(c, target); err != nil {
 		return Command{}, err
 	}

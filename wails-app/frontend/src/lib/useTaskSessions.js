@@ -53,11 +53,12 @@ export function useTaskSessions(active, selectedId) {
   // act runs a header action (approve, pause, resume, stop, archive) and
   // reports a refusal in `notice`; the list is read again either way.
   const act = useCallback(async (verb, id) => {
-    const res = await sessionsApi[verb](id)
+    // An approval names the revision this list shows, so a plan a lead changed since is not approved unseen.
+    const res = verb === 'approve' ? await sessionsApi.approve(id, sessions.find(s => s.id === id)?.rev) : await sessionsApi[verb](id)
     setNotice(res?.error ? { error: res.error, code: res.code } : null)
     await reload()
     return res
-  }, [reload])
+  }, [reload, sessions])
 
   const setBudget = useCallback(async (id, usd) => {
     const res = await sessionsApi.budget(id, usd)
@@ -66,5 +67,19 @@ export function useTaskSessions(active, selectedId) {
     return res
   }, [reload])
 
-  return { sessions, loaded, listError, selected, events, notice, clearNotice: () => setNotice(null), act, setBudget, reload }
+  // create and rename answer the CLI's document (or {error}) to the form that asked,
+  // which shows a refusal beside its fields; the list is read again either way.
+  const create = useCallback(async ({ title, goal, parentId }) => {
+    const res = await sessionsApi.create(title, goal, parentId)
+    await reload()
+    return res
+  }, [reload])
+
+  const rename = useCallback(async (id, title) => {
+    const res = await sessionsApi.rename(id, title)
+    await reload()
+    return res
+  }, [reload])
+
+  return { sessions, loaded, listError, selected, events, notice, clearNotice: () => setNotice(null), act, setBudget, create, rename, reload }
 }

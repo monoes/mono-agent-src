@@ -2057,6 +2057,19 @@ body.tb-dragging, body.tb-dragging * { cursor: grabbing !important; user-select:
 .tb-search { position: relative; display: inline-flex; align-items: center; }
 .tb-search .search-input { padding-right: 26px; }
 .tb-search .tb-kbd { position: absolute; right: 8px; pointer-events: none; color: var(--text-muted); }
+/* Narrow: the header wraps (title row, then search and New task) instead of pushing New task off the edge, and the
+   columns show a sliver of the next one so the sideways scroll is visible. */
+@media (max-width: 640px) {
+  .tb-page .page-header { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 8px; padding: 8px 16px; }
+  .tb-page .page-header-left { min-width: 0; flex-wrap: wrap; }
+  .tb-page .page-header-right { flex: 1 1 100%; min-width: 0; }
+  .tb-page .tb-search { flex: 1 1 140px; min-width: 0; }
+  .tb-page .tb-search .search-input { width: 100%; min-width: 0; }
+  .tb-page .page-header-right .btn { flex: none; }
+  .tb-body { padding: 12px 16px; }
+  .tb-cols { scroll-snap-type: x proximity; }
+  .tb-col { flex-basis: 84%; min-width: 210px; scroll-snap-align: start; }
+}
 .tb-kbd { font-family: var(--font-mono); font-size: 10px; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; opacity: 0.6; }
 .tb-read-first { display: flow-root; margin-bottom: 12px; padding: 8px 10px; border: 1px solid var(--orange); border-radius: var(--radius); font-size: 12px; line-height: 1.5; color: var(--text-secondary); background: rgba(245, 158, 11, 0.08); }
 .tb-drawer-h { margin: 20px 0 8px; font-family: var(--font-display); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
@@ -2130,3 +2143,25 @@ body.tb-dragging, body.tb-dragging * { cursor: grabbing !important; user-select:
 .startup-overlay__fill { height: 100%; width: 40%; border-radius: 2px; background: var(--cyan); animation: startup-slide 1.2s ease-in-out infinite; }
 .startup-overlay__quip { margin-top: 16px; min-height: 1.4em; color: var(--cyan-dim); font-size: 13px; }
 @keyframes startup-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+
+/* Task sessions: the tree strip, New session form and rename (tokens only). */
+.ts-switcher { flex-wrap: wrap; align-items: flex-start; }
+.ts-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-inline-start: auto; }
+.ts-tree { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.ts-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--radius); color: var(--text); font-size: 12.5px; cursor: pointer; min-width: 0; flex-wrap: wrap; }
+.ts-row:hover { border-color: var(--border-bright); }
+.ts-row.is-selected { border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-glow); }
+.ts-row:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.ts-row-twisty { flex: 0 0 14px; width: 14px; padding: 0; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1; cursor: pointer; }
+.ts-row .ts-tab-title { flex: 0 1 auto; min-width: 0; }
+.ts-by { color: var(--text-secondary); }
+.ts-new { flex: 0 0 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.ts-new > * { width: 100%; max-width: 480px; }
+.ts-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.ts-field .form-input, .ts-field .form-textarea, .ts-field .form-select { width: 100%; box-sizing: border-box; }
+.ts-rename { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ts-rename .form-input { width: 220px; max-width: 100%; padding: 4px 8px; }
+.ts-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.ts-form-error { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--red, var(--text)); }
+.ts-rename { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ts-rename .input { min-width: 140px; max-width: 260px; }

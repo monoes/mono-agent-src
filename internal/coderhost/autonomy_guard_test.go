@@ -183,8 +183,14 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 		"children_control.go:ControlChild": 1, // Enqueue: pause/resume/stop by a master
 		"children.go:spawnWith":            1, // Enqueue: a master's first message to a new child
 		"parked_deliver.go:deliver":        1, // Enqueue: an answer note (answer- turn id)
+		"person_deny.go:tellDenied":        1, // Enqueue: the lead told a plan was turned down (answer-p-deny- turn id keyed by item and round, no issuer; it approves nothing)
+		"person_plan.go:TellLeadAboutPlan": 1, // Enqueue: the person's own words about a giant plan (answer-p turn id, no issuer; it approves nothing: only the operator's CLI verbs call it)
+		"ask_ancestor.go:AskAncestor":      1, // Enqueue: a normal ask to an ancestor lead (ask-q- turn id, no issuer, sealed text, no authority)
+		"ask_reply.go:closeAndDeliver":     1, // Enqueue: the sealed reply to the asker (ask-r- from an ancestor lead, ask-p- from the person)
 		"missionchild.go:queueCascadeStop": 1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
 		"missionchild.go:reconcileChild":   1, // Enqueue: a pause of a paused mission's child (no send, no issuer); its resume goes through enqueueCascadeResume (store.go), which a person's pause stops
+		"sessionspawn.go:SpawnSession":     1, // Enqueue: a lead's first message to the session it spawned (master- turn id, issuer)
+		"treecascade.go:queueCascade":      1, // Enqueue: the host's own pause or resume of a descendant of a paused session (no send, no issuer)
 	}
 	// Only the parked-question code may deliver an answer, apply a default or write the ledger.
 	ownedByParked := map[string]bool{"deliver": true, "applyDefault": true, "Record": true, "redeliver": true}
@@ -202,7 +208,7 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 					if sel.Sel.Name == "Enqueue" {
 						got[file+":"+fd.Name.Name]++
 					}
-					if ownedByParked[sel.Sel.Name] && !strings.HasPrefix(file, "parked") && !strings.HasPrefix(file, "ledger") && file+":"+fd.Name.Name != "producer.go:RecordOwn" {
+					if ownedByParked[sel.Sel.Name] && !strings.HasPrefix(file, "parked") && !strings.HasPrefix(file, "ledger") && file+":"+fd.Name.Name != "producer.go:RecordOwn" && file+":"+fd.Name.Name != "ask_ancestor.go:recordAsk" {
 						t.Errorf("%s:%s uses %s, which only the parked-question code may", file, fd.Name.Name, sel.Sel.Name)
 					}
 				}

@@ -150,6 +150,7 @@ func (h *Host) Tick() error {
 		return err
 	}
 	h.missionChildPassIfDue() // observes mission child sessions; takes no part in the command pass below
+	h.treeCascadePass()       // a stopped or paused session takes its descendants with it, at any depth
 	cmds, err := h.pendingOrdered()
 	if err != nil {
 		return err

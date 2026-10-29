@@ -11,7 +11,7 @@ func TestDefaultSettingsAreValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := DefaultSettings()
-	if d.CheckinMinutes != 15 || !d.SkipIfUnchanged || d.AutonomyPreset != "ask-on-risk" || d.MaxDepth != 2 {
+	if d.CheckinMinutes != 15 || !d.SkipIfUnchanged || d.AutonomyPreset != "ask-on-risk" || d.MaxDepth != 3 {
 		t.Fatalf("defaults = %+v", d)
 	}
 }
@@ -32,7 +32,7 @@ func TestApplyRefusesWhatIsNotASetting(t *testing.T) {
 		"class without who":    `{"autonomy_classes": {"ambiguity": {"fallback": "park"}}}`,
 		"bad trigger":          `{"checkin_triggers": ["child_died"]}`,
 		"duplicate trigger":    `{"checkin_triggers": ["budget_80", "budget_80"]}`,
-		"depth over the limit": `{"max_depth": 3}`,
+		"depth over the limit": `{"max_depth": 5}`,
 		"no concurrency":       `{"max_concurrent": 0}`,
 		"alias with a slash":   `{"mesh_alias": "a/b"}`,
 		"alias with a space":   `{"mesh_alias": "a b"}`,
@@ -123,5 +123,26 @@ func TestSettingsAreStoredPerSessionAndReadingCreatesNothing(t *testing.T) {
 	}
 	if x, _, _ := st.GetSession("p", "c1"); x.Unattended {
 		t.Fatal("unattended not cleared")
+	}
+}
+
+func TestMissionDirectionsIsTheOperatorsAndBoundedTo6(t *testing.T) {
+	if !oneOf("mission_directions", OperatorOnly) || oneOf("mission_directions", AgentAdjustable) {
+		t.Fatal("mission_directions must be operator-only and not agent-adjustable")
+	}
+	d := DefaultSettings()
+	if d.MissionDirections != 0 {
+		t.Fatalf("0 means the default of 3: %d", d.MissionDirections)
+	}
+	for _, k := range []string{"0", "1", "3", "6"} {
+		got, changed, err := d.Apply([]byte(`{"mission_directions":` + k + `}`))
+		if err != nil || len(changed) != 1 || changed[0] != "mission_directions" || TouchesOperatorOnly(changed)[0] != "mission_directions" {
+			t.Errorf("%s: %+v %v %v", k, got, changed, err)
+		}
+	}
+	for _, k := range []string{"7", "-1", "100", `"3"`, "2.5"} {
+		if _, _, err := d.Apply([]byte(`{"mission_directions":` + k + `}`)); err == nil {
+			t.Errorf("mission_directions=%s was accepted", k)
+		}
 	}
 }

@@ -45,6 +45,10 @@ const defaultFinalChecks = "rubric: the project builds and all its tests and lin
 const maxFinalReport = 30000
 
 func missionRunToolSpecs() []monomind.ToolSpec {
+	return append(missionRunTools(), missionEvaluateSpecs()...)
+}
+
+func missionRunTools() []monomind.ToolSpec {
 	session := intProp("The task session's number; omit it for the mission of this chat.")
 	return []monomind.ToolSpec{
 		{Name: ToolMissionVerify, Description: "Start the verifier of a task that a worker handed to review: another agent, on another model when one is ready, read only, bound to that one task. It checks the task's acceptance and records its own verdict (pass: the task is verified; fail: it goes back to Ready with the note, up to the retry cap, then it is blocked for the operator). org_wait for it. You never record a verdict yourself.",
@@ -55,7 +59,7 @@ func missionRunToolSpecs() []monomind.ToolSpec {
 }
 
 // MissionRunToolSpecs are the lead's execution tools of a mission: mission_next,
-// mission_assign, mission_report, mission_verify and mission_finish. They are offered only
+// mission_assign, mission_report, mission_verify, mission_finish and mission_session_spawn. They are offered only
 // to a lead whose mission the user confirmed and whose conversation already has a session
 // (the plan is written, so there is something to run).
 func MissionRunToolSpecs(ctx context.Context, m *MissionConfig) []monomind.ToolSpec {
@@ -65,7 +69,7 @@ func MissionRunToolSpecs(ctx context.Context, m *MissionConfig) []monomind.ToolS
 	if se, err := m.latest(ctx); err != nil || se == nil {
 		return nil
 	}
-	return append(missionExecToolSpecs(), missionRunToolSpecs()...)
+	return append(append(missionExecToolSpecs(), missionRunToolSpecs()...), missionSessionSpawnSpec())
 }
 
 // Unfinished is a task that stops the mission from closing.

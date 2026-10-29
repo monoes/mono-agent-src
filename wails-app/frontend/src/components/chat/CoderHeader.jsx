@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { FolderOpen, Copy, Check, FolderRoot } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { copyToClipboard } from './toolCardUtils.js'
+import { MissionToggle } from './MissionToggle.jsx'
 
 // Coder conversation header (#203): the CODER badge, the folder the agent
-// works in (full path), and Open folder / Copy path.
+// works in (full path), and Open folder / Copy path. With a `mission` (useMissionToggle)
+// it also carries the Mission switch; before the chat has a folder that is all it shows.
 
 const mono = 'var(--font-mono)'
 
@@ -63,13 +65,13 @@ export function CoderUsageBar({ states, model }) {
   return (
     <div data-testid="coder-usage" style={{
       padding: '5px 12px', borderBottom: '1px solid rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', gap: 12,
-      flexShrink: 0, fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)',
+      flexShrink: 0, fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)', flexWrap: 'wrap', rowGap: 3,
     }}>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+      <div style={{ flex: '1 1 240px', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
         title={`Latest context sent in one call: ${context.toLocaleString()} of ~${window.toLocaleString()} tokens`}>
         <span>Context</span>
         <div role="progressbar" aria-label="Context window used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
-          style={{ flex: 1, maxWidth: 220, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          style={{ flex: 1, minWidth: 60, maxWidth: 220, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
           <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width .3s' }} />
         </div>
         <span data-testid="coder-usage-context" style={{ color: '#e2e8f0' }}>{fmtTokens(context)} / {fmtTokens(window)} · {pct}%</span>
@@ -82,9 +84,9 @@ export function CoderUsageBar({ states, model }) {
   )
 }
 
-export function CoderHeader({ cwd }) {
+export function CoderHeader({ cwd, mission }) {
   const [copied, setCopied] = useState(false)
-  if (!cwd) return null
+  if (!cwd && !(mission && (mission.state || mission.error))) return null
   const openFolder = () => {
     Promise.resolve(api.openPathWithOS(cwd)).catch(e => notify('coder', `Could not open ${cwd}: ${e}`))
   }
@@ -96,11 +98,12 @@ export function CoderHeader({ cwd }) {
   return (
     <div data-testid="coder-header" style={{
       padding: '6px 12px', borderBottom: '1px solid rgba(245,158,11,0.15)', background: 'rgba(245,158,11,0.03)',
-      display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+      display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap',
     }}>
-      <CoderBadge />
-      <span title={cwd} data-testid="coder-cwd" style={{
-        flex: 1, minWidth: 0, fontFamily: mono, fontSize: 10, color: '#e2e8f0',
+      {cwd && <CoderBadge />}
+      {mission && <MissionToggle toggle={mission} />}
+      {cwd && <><span title={cwd} data-testid="coder-cwd" style={{
+        flex: '1 1 160px', minWidth: 0, fontFamily: mono, fontSize: 10, color: '#e2e8f0',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'rtl', textAlign: 'left',
       }}>
         {/* rtl keeps the folder name visible when the path is cut; the
@@ -112,7 +115,7 @@ export function CoderHeader({ cwd }) {
       </button>
       <button type="button" onClick={copy} title="Copy path" aria-label="Copy path" style={iconButton}>
         {copied ? <Check size={10} /> : <Copy size={10} />}
-      </button>
+      </button></>}
     </div>
   )
 }

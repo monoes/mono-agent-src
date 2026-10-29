@@ -52,7 +52,7 @@ func answerTurnID(origin string) string {
 
 // answerGated says whether a turn id is an answer note from a master or a default.
 func answerGated(turnID string) bool {
-	return strings.HasPrefix(turnID, AnswerPrefix+answerFromMaster+"-") || strings.HasPrefix(turnID, AnswerPrefix+answerFromDefault+"-")
+	return strings.HasPrefix(turnID, AnswerPrefix+answerFromMaster+"-") || strings.HasPrefix(turnID, AnswerPrefix+answerFromDefault+"-") || askGated(turnID)
 }
 
 // quote cleans somebody else's text for the fence and says whether it was cut.
