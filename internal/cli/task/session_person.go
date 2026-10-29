@@ -19,6 +19,7 @@ import (
 //	approve ID        the operator's `session approve`, so the approval is recorded as the person's
 //	deny ID --note T  the session stays a draft; the note is kept in its history and told to its lead
 //	ask ID --text T   the question is told to the lead; the item stays open
+//	answer-ask --ask ID --text T   the answer to a critical ask of a lead (session_person_ask.go)
 
 const personWhat = "answer a person item"
 
@@ -42,6 +43,13 @@ type personItemView struct {
 	Access           string   `json:"access,omitempty"`
 	Depth            int      `json:"depth,omitempty"`
 	RefID            int64    `json:"refId,omitempty"`
+	// An ancestor_question item (session_person_ask.go): the ask. Question is text an agent wrote.
+	AskID         int64  `json:"askId,omitempty"`
+	Question      string `json:"question,omitempty"`
+	AskerTitle    string `json:"askerTitle,omitempty"`
+	AncestorTitle string `json:"ancestorTitle,omitempty"`
+	Importance    string `json:"importance,omitempty"`
+	Level         string `json:"level,omitempty"`
 }
 
 func (d Deps) newSessionPersonCmd() *cobra.Command {
@@ -53,7 +61,7 @@ func (d Deps) newSessionPersonCmd() *cobra.Command {
 			"`inbox` lists what waits and why; `approve` approves the plan (recorded as the person's approval); `deny --note` leaves the " +
 			"session a draft and sends the note to its lead; `ask --text` sends a question to the lead and leaves the item open.",
 	}
-	cmd.AddCommand(d.newPersonInboxCmd(), d.newPersonApproveCmd(), d.newPersonDenyCmd(), d.newPersonAskCmd())
+	cmd.AddCommand(d.newPersonInboxCmd(), d.newPersonApproveCmd(), d.newPersonDenyCmd(), d.newPersonAskCmd(), d.newPersonAnswerAskCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -76,13 +84,18 @@ func (d Deps) newPersonInboxCmd() *cobra.Command {
 					return err
 				}
 				defer db.Close()
-				items, err := coderhost.NewStore(db.DB).OpenPersonItems(p.ID)
+				cs := coderhost.NewStore(db.DB)
+				items, err := cs.OpenPersonItems(p.ID)
 				if err != nil {
 					return err
 				}
 				views := make([]personItemView, 0, len(items))
 				for _, it := range items {
-					views = append(views, d.personView(ctx, store, p, it, actor))
+					v := d.personView(ctx, store, p, it, actor)
+					if it.Kind == coderhost.ItemAncestorQuestion {
+						fillAskView(&v, cs, p.ID, it)
+					}
+					views = append(views, v)
 				}
 				if d.JSONOutput() {
 					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "items": views})
@@ -92,6 +105,10 @@ func (d Deps) newPersonInboxCmd() *cobra.Command {
 					fmt.Fprintln(w, "Nothing waits for you.")
 				}
 				for _, v := range views {
+					if v.Kind == coderhost.ItemAncestorQuestion {
+						fmt.Fprintf(w, "%s  ask %d  %q asks %q  (%s): %s\n", v.Kind, v.AskID, taskCut(v.AskerTitle, 40), taskCut(v.AncestorTitle, 40), v.Importance, taskCut(v.Question, 160))
+						continue
+					}
 					if v.SessionID == 0 {
 						fmt.Fprintf(w, "%s  item %d  (answer it where it was raised)\n", v.Kind, v.ID)
 						continue
