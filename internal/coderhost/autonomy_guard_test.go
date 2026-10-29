@@ -183,6 +183,8 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 		"children_control.go:ControlChild": 1, // Enqueue: pause/resume/stop by a master
 		"children.go:spawnWith":            1, // Enqueue: a master's first message to a new child
 		"parked_deliver.go:deliver":        1, // Enqueue: an answer note (answer- turn id)
+		"person_deny.go:tellDenied":        1, // Enqueue: the lead told a plan was turned down (answer-p-deny- turn id keyed by item and round, no issuer; it approves nothing)
+		"person_plan.go:TellLeadAboutPlan": 1, // Enqueue: the person's own words about a giant plan (answer-p turn id, no issuer; it approves nothing: only the operator's CLI verbs call it)
 		"missionchild.go:queueCascadeStop": 1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
 		"sessionspawn.go:SpawnSession":     1, // Enqueue: a lead's first message to the session it spawned (master- turn id, issuer)
 		"treecascade.go:queueCascade":      1, // Enqueue: the host's own pause or resume of a descendant of a paused session (no send, no issuer)
