@@ -20,7 +20,7 @@ import (
 
 const sessionCols = `id, profile_id, conversation_id, title, goal, state, access_level, budget_usd, spent_usd, max_tasks, max_depth,
 	max_retries, auto_close_verified, created_by, approved_by, approved_at, archived_at, created_at, updated_at, client_id,
-	parent_session_id, kind, approval_basis`
+	parent_session_id, kind, approval_basis, reserved_usd`
 
 func (s *Store) scanSession(row rowScanner) (Session, error) {
 	var se Session
@@ -29,7 +29,7 @@ func (s *Store) scanSession(row rowScanner) (Session, error) {
 	var state, approvedAt, archivedAt, created, updated string
 	var auto int
 	if err := row.Scan(&se.ID, &se.ProfileID, &conv, &se.Title, &se.Goal, &state, &se.AccessLevel, &se.BudgetUSD, &se.SpentUSD,
-		&se.MaxTasks, &se.MaxDepth, &se.MaxRetries, &auto, &se.CreatedBy, &se.ApprovedBy, &approvedAt, &archivedAt, &created, &updated, &cid, &parent, &se.Kind, &se.ApprovalBasis); err != nil {
+		&se.MaxTasks, &se.MaxDepth, &se.MaxRetries, &auto, &se.CreatedBy, &se.ApprovedBy, &approvedAt, &archivedAt, &created, &updated, &cid, &parent, &se.Kind, &se.ApprovalBasis, &se.ReservedUSD); err != nil {
 		return Session{}, err
 	}
 	se.ClientID, se.ParentSessionID = cid.String, parent.Int64

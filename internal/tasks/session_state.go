@@ -308,8 +308,8 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 }
 
 // withinParentUpdate holds an update of a child to the rule its creation followed: what u raises may
-// not pass the parent's access, task cap or depth cap, and a budget (0, no cap, included) must fit in
-// what the parent has left plus what this child holds now. Lowering is always allowed.
+// not pass the parent's access, task cap or depth cap, and a budget may not go below what the child
+// is committed to, and (0, no cap, refused) must fit in what the parent has left plus what this child holds now.
 func (s *Store) withinParentUpdate(ctx context.Context, x dbx, se Session, u SessionUpdate) error {
 	par, err := s.sessionTx(ctx, x, se.ProfileID, se.ParentSessionID)
 	if err != nil {
@@ -324,7 +324,20 @@ func (s *Store) withinParentUpdate(ctx context.Context, x dbx, se Session, u Ses
 	if u.MaxDepth != nil && *u.MaxDepth > par.MaxDepth {
 		return limit("max depth %d is above the parent session #%d's %d", *u.MaxDepth, par.ID, par.MaxDepth)
 	}
-	if u.BudgetUSD == nil || par.BudgetUSD <= 0 {
+	if u.BudgetUSD == nil {
+		return nil
+	}
+	floor, err := commitmentOf(ctx, x, se)
+	if err != nil {
+		return err
+	}
+	if *u.BudgetUSD > 0 && *u.BudgetUSD < floor-1e-9 {
+		return limit("budget $%.2f is below what session #%d is committed to ($%.2f: its spend, what its running workers were issued and what its children hold)", *u.BudgetUSD, se.ID, floor)
+	}
+	if (*u.BudgetUSD == 0 || *u.BudgetUSD > se.BudgetUSD) && !isOpen(par.State) {
+		return limit("session #%d is %s: the budget of its child #%d is not raised (its hold on its own parent would grow unchecked)", par.ID, closedWord(par), se.ID)
+	}
+	if par.BudgetUSD <= 0 {
 		return nil
 	}
 	left, _, err := sessionLeft(ctx, x, par)
@@ -362,8 +375,8 @@ func (s *Store) applySpend(ctx context.Context, x dbx, id int64, usd float64, no
 	return s.sessionEvent(ctx, x, id, actor, "spend", fmt.Sprintf("$%.4f %s", usd, note))
 }
 
-// overBudget refuses work on a session that has used its budget (0: none set): what it spent itself
-// and what its children hold of it, since the budget covers both.
+// overBudget refuses work on a session that has used its budget (0: none set): what it spent itself,
+// what its running workers were issued and what its children hold of it, since the budget covers all.
 func overBudget(ctx context.Context, x dbx, se Session) error {
 	if se.BudgetUSD <= 0 {
 		return nil
@@ -373,7 +386,7 @@ func overBudget(ctx context.Context, x dbx, se Session) error {
 		return err
 	}
 	if left <= 0 {
-		return limit("session #%d has used its budget ($%.2f spent and $%.2f held by its children of $%.2f): the operator raises it", se.ID, se.SpentUSD, held, se.BudgetUSD)
+		return limit("session #%d has used its budget ($%.2f spent, $%.2f reserved by running workers and $%.2f held by its children of $%.2f): the operator raises it", se.ID, se.SpentUSD, se.ReservedUSD, held, se.BudgetUSD)
 	}
 	return nil
 }

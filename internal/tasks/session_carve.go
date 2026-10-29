@@ -17,10 +17,15 @@ const MaxOpenChildren = 12
 // the coder host's default mission share_pct.
 const ChildSharePct = 50
 
+// isOpen is whether a session can still spend: draft, running or paused.
+func isOpen(st SessionState) bool {
+	return st == SessionDraft || st == SessionRunning || st == SessionPaused
+}
+
 const openChildStates = `('draft','running','paused')`
 
 // carveChild gives a new child its budget out of the parent's: what the parent has left (its budget,
-// less what it spent, less what its children hold: the budget of an open one, what a closed one spent). A child that named no budget
+// less what it spent, less what its running workers were issued, less what its children hold: see kidHold). A child that named no budget
 // gets ChildSharePct of that, so one child cannot take it all; one that named more than is left is
 // refused with the numbers. A parent without a budget hands out any amount. The number of open
 // children an agent starts below one parent is bounded by MaxOpenChildren, whatever the budget (the
@@ -29,6 +34,10 @@ func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float
 	var kids int
 	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates, par.ID).Scan(&kids); err != nil {
 		return 0, fmt.Errorf("tasks: counting the children of session #%d: %w", par.ID, err)
+	}
+	if !isOpen(par.State) {
+		// a closed session holds what it is committed to at its own parent: a new child would grow that unchecked
+		return 0, limit("session #%d is %s: it takes no new child session", par.ID, closedWord(par))
 	}
 	if actor.Kind == Agent && kids >= MaxOpenChildren {
 		return 0, limit("session #%d already has %d open child sessions (the most is %d)", par.ID, kids, MaxOpenChildren)
@@ -40,7 +49,7 @@ func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float
 	if err != nil {
 		return 0, err
 	}
-	detail := fmt.Sprintf("$%.2f left of $%.2f: $%.2f spent, $%.2f held by its children (open ones their budget, closed ones what they spent)", max(left, 0), par.BudgetUSD, par.SpentUSD, given)
+	detail := fmt.Sprintf("$%.2f left of $%.2f: $%.2f spent, $%.2f reserved by running workers, $%.2f held by its children", max(left, 0), par.BudgetUSD, par.SpentUSD, par.ReservedUSD, given)
 	switch {
 	case left < 0.01:
 		return 0, limit("session #%d has no budget left to give a child (%s)", par.ID, detail)
@@ -64,18 +73,18 @@ func (l lowered) any() bool { return l.level || l.maxTasks || l.maxDepth || l.bu
 
 // clampChildren brings the open children of session id (and theirs) within the limits low names, after
 // the operator lowered them: down only, never up, each change an event of the child. The children
-// share what the parent has left, in id order; a child's budget is never cut below what it spent.
+// share what the parent has left, in id order; a child's budget is never cut below what it spent or was issued (its own children are clamped in turn).
 func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor, low lowered) error {
 	if !low.any() {
 		return nil
 	}
 	var level string
 	var maxTasks, maxDepth int
-	var budget, spent float64
-	if err := x.QueryRowContext(ctx, `SELECT access_level, max_tasks, max_depth, budget_usd, spent_usd FROM task_sessions WHERE id = ?`, id).Scan(&level, &maxTasks, &maxDepth, &budget, &spent); err != nil {
+	var budget, spent, reserved float64
+	if err := x.QueryRowContext(ctx, `SELECT access_level, max_tasks, max_depth, budget_usd, spent_usd, reserved_usd FROM task_sessions WHERE id = ?`, id).Scan(&level, &maxTasks, &maxDepth, &budget, &spent, &reserved); err != nil {
 		return fmt.Errorf("tasks: reading session #%d: %w", id, err)
 	}
-	rows, err := x.QueryContext(ctx, `SELECT id, access_level, max_tasks, max_depth, budget_usd, spent_usd FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates+` ORDER BY id`, id)
+	rows, err := x.QueryContext(ctx, `SELECT id, access_level, max_tasks, max_depth, budget_usd, spent_usd + reserved_usd FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates+` ORDER BY id`, id)
 	if err != nil {
 		return fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 	}
@@ -83,12 +92,12 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 		id                int64
 		level             string
 		maxTasks, maxDeep int
-		budget, spent     float64
+		budget, own       float64 // own: its spend and reservations
 	}
 	var kids []kid
 	for rows.Next() {
 		var k kid
-		if err := rows.Scan(&k.id, &k.level, &k.maxTasks, &k.maxDeep, &k.budget, &k.spent); err != nil {
+		if err := rows.Scan(&k.id, &k.level, &k.maxTasks, &k.maxDeep, &k.budget, &k.own); err != nil {
 			rows.Close()
 			return fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 		}
@@ -98,11 +107,16 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 	}
-	closed, err := heldByChildren(ctx, x, id, true)
+	holds, err := childHolds(ctx, x, id, 1, map[int64]bool{id: true})
 	if err != nil {
 		return err
 	}
-	left := budget - spent - closed
+	left := budget - spent - reserved
+	for _, h := range holds {
+		if !slices.ContainsFunc(kids, func(k kid) bool { return k.id == h.id }) {
+			left -= h.hold() // closed, archived: kept as they are
+		}
+	}
 	for _, k := range kids {
 		var changed []string
 		var cut lowered
@@ -119,11 +133,11 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 			changed = append(changed, fmt.Sprintf("max_depth %d", maxDepth))
 		}
 		if low.budget && budget > 0 {
-			if cap := max(math.Floor(max(left, 0.01)*100)/100, k.spent); k.budget <= 0 || k.budget > cap {
+			if cap := max(math.Floor(max(left, 0.01)*100)/100, k.own); k.budget <= 0 || k.budget > cap {
 				k.budget, cut.budget = cap, true
 				changed = append(changed, fmt.Sprintf("budget_usd %.2f", cap))
 			}
-			left -= k.budget
+			left -= max(k.budget, k.own)
 		}
 		if len(changed) == 0 {
 			continue
@@ -141,82 +155,101 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 	return nil
 }
 
-// heldByChildren is what the children of parent hold of its budget. A child that can still spend
-// (draft, running, paused) holds its whole budget, which covers its own subtree because the same rule
-// limits its work and its children. A closed one holds what it spent plus what its own children hold,
-// so a stopped intermediate keeps the spend of its subtree and the commitments of any open
-// descendant. A child's spend never reaches its parent's spent_usd, so counting only the open
-// children would return a closed child's budget to the pool though it was spent. closedOnly leaves
-// the open direct children out. The walk is profile-scoped, visits a session once and stops at
-// HardMaxSessionDepth levels.
-func heldByChildren(ctx context.Context, x dbx, parent int64, closedOnly bool) (float64, error) {
-	return heldBelow(ctx, x, parent, closedOnly, 1, map[int64]bool{parent: true})
+// kidHold is one child's standing against its parent's budget.
+type kidHold struct {
+	id     int64
+	open   bool
+	budget float64
+	// commit is the child's real commitment: its own spend, what its running workers were issued
+	// and what its own children hold.
+	commit float64
 }
 
-func heldBelow(ctx context.Context, x dbx, parent int64, closedOnly bool, level int, seen map[int64]bool) (float64, error) {
-	type kid struct {
-		id            int64
-		open          bool
-		budget, spent float64
+// hold is what the child holds of its parent's budget: an open child (it can still spend) its budget,
+// or its commitment when that is larger; a closed one its commitment, so the spend of a stopped
+// subtree never returns to the pool.
+func (k kidHold) hold() float64 {
+	if k.open {
+		return max(k.budget, k.commit)
 	}
-	rows, err := x.QueryContext(ctx, `SELECT id, state IN `+openChildStates+`, budget_usd, spent_usd FROM task_sessions
-		WHERE parent_session_id = ? AND profile_id = (SELECT profile_id FROM task_sessions WHERE id = ?)`, parent, parent)
+	return k.commit
+}
+
+// childHolds lists the children of parent with their holds. The walk is profile-scoped, visits a
+// session once and stops at HardMaxSessionDepth levels. It is the one place the rule is written.
+func childHolds(ctx context.Context, x dbx, parent int64, level int, seen map[int64]bool) ([]kidHold, error) {
+	rows, err := x.QueryContext(ctx, `SELECT id, state IN `+openChildStates+`, budget_usd, spent_usd + reserved_usd FROM task_sessions
+		WHERE parent_session_id = ? AND profile_id = (SELECT profile_id FROM task_sessions WHERE id = ?) ORDER BY id`, parent, parent)
 	if err != nil {
-		return 0, fmt.Errorf("tasks: reading the budgets of session #%d's children: %w", parent, err)
+		return nil, fmt.Errorf("tasks: reading the budgets of session #%d's children: %w", parent, err)
 	}
-	var kids []kid
+	var kids []kidHold
 	for rows.Next() {
-		var k kid
-		if err := rows.Scan(&k.id, &k.open, &k.budget, &k.spent); err != nil {
+		var k kidHold
+		if err := rows.Scan(&k.id, &k.open, &k.budget, &k.commit); err != nil {
 			rows.Close()
-			return 0, fmt.Errorf("tasks: reading the budgets of session #%d's children: %w", parent, err)
+			return nil, fmt.Errorf("tasks: reading the budgets of session #%d's children: %w", parent, err)
 		}
 		kids = append(kids, k)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("tasks: reading the budgets of session #%d's children: %w", parent, err)
+		return nil, fmt.Errorf("tasks: reading the budgets of session #%d's children: %w", parent, err)
 	}
-	var held float64
+	out := kids[:0]
 	for _, k := range kids {
 		if seen[k.id] {
 			continue
 		}
 		seen[k.id] = true
-		switch {
-		case k.open:
-			if !closedOnly {
-				held += k.budget
+		if level < HardMaxSessionDepth {
+			below, err := heldByChildren(ctx, x, k.id, level+1, seen)
+			if err != nil {
+				return nil, err
 			}
-		default:
-			held += k.spent
-			if level < HardMaxSessionDepth {
-				below, err := heldBelow(ctx, x, k.id, false, level+1, seen)
-				if err != nil {
-					return 0, err
-				}
-				held += below
-			}
+			k.commit += below
 		}
+		out = append(out, k)
+	}
+	return out, nil
+}
+
+// heldByChildren is what the children of parent hold of its budget (see kidHold.hold).
+func heldByChildren(ctx context.Context, x dbx, parent int64, level int, seen map[int64]bool) (float64, error) {
+	kids, err := childHolds(ctx, x, parent, level, seen)
+	if err != nil {
+		return 0, err
+	}
+	var held float64
+	for _, k := range kids {
+		held += k.hold()
 	}
 	return held, nil
 }
 
 // sessionLeft is what session se can still use itself or hand to a new child: its budget less its own
-// spend and less what its children hold. Only meaningful for a session with a budget.
+// spend, less what its running workers were issued, and less what its children hold. It is negative
+// after an overspend. Only meaningful for a session with a budget.
 func sessionLeft(ctx context.Context, x dbx, se Session) (left, held float64, err error) {
-	held, err = heldByChildren(ctx, x, se.ID, false)
+	held, err = heldByChildren(ctx, x, se.ID, 1, map[int64]bool{se.ID: true})
 	if err != nil {
 		return 0, 0, err
 	}
-	return se.BudgetUSD - se.SpentUSD - held, held, nil
+	return se.BudgetUSD - se.SpentUSD - se.ReservedUSD - held, held, nil
 }
 
-// heldOfSession is what one session holds of its parent's budget, by the rule of heldByChildren.
+// commitmentOf is what session se is really committed to: its spend, its issued reservations and
+// what its children hold. A budget below it would be a lie.
+func commitmentOf(ctx context.Context, x dbx, se Session) (float64, error) {
+	held, err := heldByChildren(ctx, x, se.ID, 1, map[int64]bool{se.ID: true})
+	return se.SpentUSD + se.ReservedUSD + held, err
+}
+
+// heldOfSession is what one session holds of its parent's budget.
 func heldOfSession(ctx context.Context, x dbx, se Session) (float64, error) {
-	if se.State == SessionDraft || se.State == SessionRunning || se.State == SessionPaused {
-		return se.BudgetUSD, nil
+	c, err := commitmentOf(ctx, x, se)
+	if err != nil {
+		return 0, err
 	}
-	below, err := heldByChildren(ctx, x, se.ID, false)
-	return se.SpentUSD + below, err
+	return kidHold{open: isOpen(se.State), budget: se.BudgetUSD, commit: c}.hold(), nil
 }

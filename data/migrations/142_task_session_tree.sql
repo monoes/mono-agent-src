@@ -8,4 +8,7 @@
 ALTER TABLE task_sessions ADD COLUMN parent_session_id INTEGER REFERENCES task_sessions(id) ON DELETE SET NULL;
 ALTER TABLE task_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'board';
 ALTER TABLE task_sessions ADD COLUMN approval_basis TEXT NOT NULL DEFAULT '';
+-- reserved_usd is what the session's running workers were issued (the caps of in-flight executions): it counts against
+-- the session's budget until the worker settles, so a child cannot be carved out of money a running worker may spend.
+ALTER TABLE task_sessions ADD COLUMN reserved_usd REAL NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_task_sessions_parent ON task_sessions(parent_session_id) WHERE parent_session_id IS NOT NULL;
