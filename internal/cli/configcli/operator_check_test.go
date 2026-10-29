@@ -95,7 +95,8 @@ func TestConfigRowsUnderAReservedPrefixAreTheOperatorsAlone(t *testing.T) {
 		t.Fatalf("the operator's write: %v", err)
 	}
 	agent := build(false, true, nil)
-	for _, name := range []string{row, "Coder-Mission-Confirm/default/c1/t1/8", " CODER-MISSION-CONFIRM/x", "coder-mission-confirm/"} {
+	for _, name := range []string{row, "Coder-Mission-Confirm/default/c1/t1/8", " CODER-MISSION-CONFIRM/x", "coder-mission-confirm/",
+		"file-cleanup/default/c1", " File-Cleanup/x", "FILE-CLEANUP/"} {
 		for _, args := range [][]string{{"set", name, "forged"}, {"delete", name}, {"get", name}} {
 			if _, err := run(agent, args...); clicore.ExitCodeFor(err) != 3 {
 				t.Errorf("config %v by a non-operator: %v", args, err)
