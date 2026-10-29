@@ -46,7 +46,12 @@ func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float
 	case left < 0.01:
 		return 0, limit("session #%d has no budget left to give a child (%s)", par.ID, detail)
 	case budget == 0:
-		return math.Floor(left*ChildSharePct) / 100, nil
+		share := math.Floor(left*ChildSharePct) / 100
+		if share < 0.01 {
+			// A child budget of 0 is no cap: a share that rounds down to nothing is refused instead.
+			return 0, limit("session #%d has too little left to give a child a share of it (%s); name a budget of at least $0.01", par.ID, detail)
+		}
+		return share, nil
 	case budget > left+1e-9:
 		return 0, limit("budget $%.2f is above what the parent session #%d has left (%s)", budget, par.ID, detail)
 	}
