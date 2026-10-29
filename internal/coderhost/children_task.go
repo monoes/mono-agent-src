@@ -108,6 +108,9 @@ func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64
 				s.beforeCleanupDelete()
 			}
 			err = s.deleteIfNotOwnedByAnother(profileID, sessionID, taskID, generation, conv)
+			if s.afterCleanupDelete != nil {
+				s.afterCleanupDelete()
+			}
 		}
 		if err != nil && !errors.Is(err, ai.ErrConversationNotFound) && !errors.Is(err, ai.ErrConversationGuarded) {
 			return fmt.Errorf("%w (and deleting the conversation %s failed, so the reservation is left for the host to recover: %w)", cause, conv, err)
@@ -140,7 +143,7 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 	} else {
 		// Also a row the conversation's own deletion just marked gone: a refused carve deletes first, and the
 		// deletion is what ended the row, but the refusal was never an attempt.
-		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'marked', end_reason = '', ended_at = '', reserved_usd = 0, pending_conversation_id = '', attempts = MAX(attempts - 1, 0), updated_at = ?
+		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'marked', end_reason = '', ended_at = '', reserved_usd = 0, pending_conversation_id = '', child_conversation_id = CASE WHEN spawned_at = '' THEN '' ELSE child_conversation_id END, attempts = MAX(attempts - 1, 0), updated_at = ?
 			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND (state = 'spawning' OR (state = 'gone' AND end_reason = 'deleted')) AND generation = ?`, now, profileID, sessionID, taskID, lead, generation)
 	}
 	if err != nil {

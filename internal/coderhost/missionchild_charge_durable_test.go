@@ -1,8 +1,6 @@
 package coderhost
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
@@ -13,25 +11,22 @@ import (
 // Review of the launcher: a deleted child's spend is not lost (P1-1), and an uncharged row is not forgotten with
 // age (P1-2).
 
-// deleteChild deletes the child's conversation the way `chat delete` does: the spend is recorded in the delete's
-// own transaction (guarded true), or not (a delete that bypasses the guard).
-func (f *hostFix) deleteChild(t *testing.T, conv string, guarded bool) {
+// deleteChild deletes the child's conversation through the plain store call, which records the spend itself
+// (withSnapshot true), or simulates a delete that bypassed it (a raw delete, an older binary) by erasing the
+// snapshot row afterwards (withSnapshot false).
+func (f *hostFix) deleteChild(t *testing.T, conv string, withSnapshot bool) {
 	t.Helper()
 	store, err := ai.NewAIStore(f.st.db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guarded {
-		if err := store.DeleteConversation(conv, "p"); err != nil {
+	if err := store.DeleteConversation(conv, "p"); err != nil {
+		t.Fatal(err)
+	}
+	if !withSnapshot {
+		if _, err := f.st.db.Exec(`DELETE FROM coder_mission_events WHERE kind = 'spend' AND substr(note, 1, ?) = ?`, len(conv)+1, conv+" "); err != nil {
 			t.Fatal(err)
 		}
-		return
-	}
-	err = store.DeleteConversationGuarded(conv, "p", func(ctx context.Context, c *sql.Conn) error {
-		return SnapshotChildSpendTx(ctx, c, "p", conv)
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 
