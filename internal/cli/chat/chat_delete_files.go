@@ -578,7 +578,10 @@ var keyTimeout = 10 * time.Second
 // deriveKeyWithin is secrets.DeriveKey that gives up after keyTimeout: the answer then is an error, and the
 // caller leaves things as they are.
 func deriveKeyWithin(ctx context.Context, db *sql.DB, profileID string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, keyTimeout)
+	// The function and the timeout are read here, once: the goroutine below can outlive this call (when the
+	// timeout wins it is left to finish on its own), so it must not read anything shared afterwards.
+	derive, timeout := deriveKey, keyTimeout
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	type result struct {
 		key []byte
@@ -586,14 +589,14 @@ func deriveKeyWithin(ctx context.Context, db *sql.DB, profileID string) ([]byte,
 	}
 	done := make(chan result, 1)
 	go func() {
-		k, err := deriveKey(ctx, db, profileID, cleanupKeyPurpose)
+		k, err := derive(ctx, db, profileID, cleanupKeyPurpose)
 		done <- result{k, err}
 	}()
 	select {
 	case r := <-done:
 		return r.key, r.err
 	case <-ctx.Done():
-		return nil, fmt.Errorf("the vault's key was not had within %s: %w", keyTimeout, ctx.Err())
+		return nil, fmt.Errorf("the vault's key was not had within %s: %w", timeout, ctx.Err())
 	}
 }
 

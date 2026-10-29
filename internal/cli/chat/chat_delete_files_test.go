@@ -776,10 +776,16 @@ func TestACleanupRowIsKeptWhenTheKeyCannotBeHad(t *testing.T) {
 // F2: asking for the key does not hang the delete: it gives up after the timeout, and the files stay.
 func TestAKeyThatNeverComesDoesNotHangTheCleanup(t *testing.T) {
 	old, oldTimeout := deriveKey, keyTimeout
-	block := make(chan struct{})
-	deriveKey = func(ctx context.Context, _ *sql.DB, _ string, _ string) ([]byte, error) { <-block; return nil, nil }
+	block, finished := make(chan struct{}), make(chan struct{})
+	deriveKey = func(ctx context.Context, _ *sql.DB, _ string, _ string) ([]byte, error) {
+		defer close(finished)
+		<-block
+		return nil, nil
+	}
 	keyTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { close(block); deriveKey, keyTimeout = old, oldTimeout })
+	// The fetch that timed out is still running: let it go and wait for it to end before the shared
+	// settings are put back, so nothing it does can meet the restore.
+	t.Cleanup(func() { close(block); <-finished; deriveKey, keyTimeout = old, oldTimeout })
 	start := time.Now()
 	r := newAccessRig(t, true)
 	db, err := storage.NewDatabase(r.dbPath)
