@@ -141,15 +141,17 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	if q, err := agentroster.LoadQuality(ctx, db.DB, time.Now()); err == nil {
 		staffer.Quality = q
 	}
-	// The operator's model set per purpose limits every worker's model. A
-	// store that can't be read fails closed: no org this turn.
-	purposes, err := agentpurposes.Store{DB: db, ProfileID: cfg.ProfileID()}.Usable()
-	if err != nil {
+	// The operator's model set per purpose limits every worker's model. It is
+	// read afresh at every spawn decision (the db handle stays open until the
+	// returned close func runs, after the turn), and a store that can't be
+	// read fails closed: no org this turn, no spawn later.
+	purposeStore := agentpurposes.Store{DB: db, ProfileID: cfg.ProfileID()}
+	if _, err := purposeStore.Usable(); err != nil {
 		db.Close()
 		journal.notice(noticeOrgUnavailable, "the agent works alone this turn: the model sets per purpose can't be read: "+err.Error(), chatevents.SeverityWarning)
 		return nil, nil
 	}
-	staffer.Purposes = purposes
+	staffer.PurposesFn = purposeStore.Usable
 	if client, err := jevconf.NewClient(ctx, db.DB, cfg.ProfileID(), "", "", jevconf.DynamicOrg); err == nil {
 		staffer.Chooser = dynorg.JevChooser{Client: client}
 	}

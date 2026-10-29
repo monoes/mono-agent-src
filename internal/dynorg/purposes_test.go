@@ -2,6 +2,8 @@ package dynorg
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -272,7 +274,7 @@ func TestDifferentFromAuthor(t *testing.T) {
 func TestTheVerifierDrawsFromTheReviewSet(t *testing.T) {
 	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus,
 		Purposes: map[string]agentpurposes.Setting{"review": set("any", "codex/gpt-5.5")}}
-	if m, same := VerifierFor(s, opus); m.Key() != "codex/gpt-5.5" || same {
+	if m, same, _ := VerifierFor(s, opus); m.Key() != "codex/gpt-5.5" || same {
 		t.Errorf("verifier = %s same=%v", m.Key(), same)
 	}
 	// Its own staffing still passes the set.
@@ -336,5 +338,59 @@ func TestSpawnToolOffersThePurpose(t *testing.T) {
 		if _, ok := props["author_model"]; ok {
 			t.Errorf("lead=%v: org_spawn lets the lead name the author model", lead)
 		}
+	}
+}
+
+// loader is a settings store the operator edits between spawns.
+type loader struct {
+	sets map[string]agentpurposes.Setting
+	err  error
+}
+
+func (l *loader) load() (map[string]agentpurposes.Setting, error) {
+	if l.err != nil {
+		return nil, l.err
+	}
+	return maps.Clone(l.sets), nil
+}
+
+func TestASetNarrowedBetweenTwoSpawnsAppliesToTheSecond(t *testing.T) {
+	l := &loader{sets: map[string]agentpurposes.Setting{"coding": set("any", "claude/haiku", "codex/gpt-5.5")}}
+	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus, PurposesFn: l.load}
+	req := SpawnRequest{Brief: codeBrief, Role: "coder", Runtime: "codex", Model: "gpt-5.5"}
+	if st := staff(t, s, req); st.Model.Key() != "codex/gpt-5.5" {
+		t.Fatalf("first spawn: %s", st.Model.Key())
+	}
+	l.sets["coding"] = set("any", "claude/haiku") // the operator removes gpt mid-turn
+	if _, err := s.Staff(context.Background(), req); err == nil || !strings.Contains(err.Error(), "not one of the models the operator allows") {
+		t.Errorf("a model removed mid-turn stayed usable: %v", err)
+	}
+	// Restored: it works again, and the verifier sees the same fresh sets.
+	l.sets["coding"] = set("any", "claude/haiku", "codex/gpt-5.5")
+	if st := staff(t, s, req); st.Model.Key() != "codex/gpt-5.5" {
+		t.Errorf("a restored set: %s", st.Model.Key())
+	}
+	l.sets["review"] = set("any", "codex/gpt-5.5")
+	if m, _, err := VerifierFor(s, opus); err != nil || m.Key() != "codex/gpt-5.5" {
+		t.Errorf("verifier = %s %v", m.Key(), err)
+	}
+	l.sets["review"] = set("any", "claude/haiku")
+	if m, _, err := VerifierFor(s, opus); err != nil || m.Key() != "claude/haiku" {
+		t.Errorf("verifier after the change = %s %v", m.Key(), err)
+	}
+}
+
+func TestARowCorruptedAfterTheFirstSpawnFailsClosed(t *testing.T) {
+	l := &loader{sets: map[string]agentpurposes.Setting{}}
+	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus, PurposesFn: l.load}
+	req := SpawnRequest{Brief: codeBrief, Role: "coder"}
+	staff(t, s, req)
+	l.err = errors.New("the model set for coding is unreadable: reset it with `agent purposes reset PURPOSE`")
+	_, err := s.Staff(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "agent purposes reset PURPOSE") {
+		t.Errorf("an unreadable set spawned: %v", err)
+	}
+	if _, _, err := VerifierFor(s, opus); err == nil {
+		t.Error("the verifier chose a model while the sets were unreadable")
 	}
 }

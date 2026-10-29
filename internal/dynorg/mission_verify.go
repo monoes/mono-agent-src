@@ -32,11 +32,14 @@ const verifierPurpose = "review"
 // VerifierFor picks the model that verifies a task: a ready model other than the
 // executor's when the roster has one (a second opinion), else the executor's own, which
 // the result says. An unknown executor (a worker of an earlier turn) counts as the lead's.
-func VerifierFor(s *Staffer, executor Model) (m Model, same bool) {
+func VerifierFor(s *Staffer, executor Model) (m Model, same bool, err error) {
 	if s == nil {
-		return Model{}, true
+		return Model{}, true, nil
 	}
-	all, _ := s.settings()
+	all, err := s.settings()
+	if err != nil {
+		return Model{}, true, err
+	}
 	if executor.Runtime == "" {
 		executor = s.Lead
 	}
@@ -45,10 +48,10 @@ func VerifierFor(s *Staffer, executor Model) (m Model, same bool) {
 			continue
 		}
 		if c.FullAccess || c.Read || c.ReadOnlySandbox {
-			return c, false
+			return c, false, nil
 		}
 	}
-	return executor, true
+	return executor, true, nil
 }
 
 // executorOf is who handed the task to review and the model it ran on, when this
@@ -275,7 +278,10 @@ func (c *Conductor) missionVerify(ctx context.Context, mc *MissionRun, sid, task
 		return VerifyView{}, fmt.Errorf("%s", note)
 	}
 	executor, exModel, _ := c.executorOf(d)
-	pick, same := VerifierFor(c.cfg.Staffer, exModel)
+	pick, same, err := VerifierFor(c.cfg.Staffer, exModel)
+	if err != nil {
+		return VerifyView{}, err
+	}
 	// The start is recorded before the run, durably: a verifier whose whole process dies
 	// leaves this and nothing else, and the scheduler then counts it as an attempt.
 	actor := tasks.Actor{Kind: tasks.Agent, Name: missionVerifierName(sid, taskID), Session: sid, Task: taskID, Verifier: true}

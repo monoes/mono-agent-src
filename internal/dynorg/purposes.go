@@ -63,7 +63,14 @@ func (s *Staffer) staffPurpose(req SpawnRequest, st *Staff) error {
 // time so a change made mid-turn applies to the next spawn. Any error fails
 // the spawn: an unknown restriction is never read as none.
 func (s *Staffer) settings() (map[string]agentpurposes.Setting, error) {
-	return s.Purposes, nil
+	if s.PurposesFn == nil {
+		return s.Purposes, nil
+	}
+	all, err := s.PurposesFn()
+	if err != nil {
+		return nil, fmt.Errorf("no worker starts: the operator's model sets can't be read: %w", err)
+	}
+	return all, nil
 }
 
 // limitToPurpose applies the operator's sets for the worker's purposes to the

@@ -57,6 +57,11 @@ type Staffer struct {
 	// Purposes is the operator's model set per purpose id (internal/agentpurposes);
 	// a purpose absent or with no pair chosen uses every ready model.
 	Purposes map[string]agentpurposes.Setting
+	// PurposesFn, when set, replaces Purposes: it reads the operator's sets
+	// afresh at every spawn decision (and the verifier's model choice), so a
+	// change made mid-turn applies to the next one, and an error fails the
+	// decision closed. The chat wires it to the database.
+	PurposesFn func() (map[string]agentpurposes.Setting, error)
 }
 
 // appAccess reports coder.appAccess for this turn (a nil Staffer: on).
