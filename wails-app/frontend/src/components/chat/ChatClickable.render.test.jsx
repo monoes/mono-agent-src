@@ -30,8 +30,8 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
-// hovering the neutral chip is the user's deliberate act that checks the disk
-const hover = async (name) => { fireEvent.mouseEnter(await screen.findByRole('button', { name })) }
+// a click on the neutral chip is the user's deliberate act that checks the disk
+const click = async (name, init) => { fireEvent.click(await screen.findByRole('button', { name }), init) }
 
 const mount = (content) => render(
   <WorkspaceImageContext.Provider value="conv-1"><ChatMarkdown content={content} /></WorkspaceImageContext.Provider>,
@@ -70,28 +70,45 @@ describe('links in chat messages', () => {
 })
 
 describe('file paths in chat messages', () => {
-  it('renders a path as a neutral chip without touching the disk, and links it on hover once it exists', async () => {
+  it('renders a path as a neutral chip and looks nothing up until it is clicked; one click previews', async () => {
+    api.readChatMarkdown.mockResolvedValue('# Plan')
     mount('Edit `docs/plan.md` and `docs/ghost.md`.')
     const neutral = await screen.findByRole('button', { name: 'docs/plan.md' })
     expect(neutral).toHaveAttribute('data-chat-path', 'unchecked')
     expect(api.classifyChatPath).toHaveBeenCalledWith('conv-1', 'docs/plan.md')
     await Promise.resolve()
     expect(api.resolveChatPath).not.toHaveBeenCalled() // render: no lookup at all
-    fireEvent.mouseEnter(neutral)
-    expect(await screen.findByTitle(/^Preview/)).toBeInTheDocument()
+    fireEvent.click(neutral)
+    expect(await screen.findByRole('dialog')).toBeInTheDocument() // resolved and previewed by the one click
+    expect(api.resolveChatPath).toHaveBeenCalledTimes(1)
     expect(api.resolveChatPath).toHaveBeenCalledWith('conv-1', 'docs/plan.md')
-    await hover('docs/ghost.md')
+    fireEvent.click(screen.getByRole('button', { name: 'docs/ghost.md' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'docs/ghost.md' })).toHaveAttribute('title', 'Not found'))
     expect(screen.getByRole('button', { name: 'docs/ghost.md' })).toHaveAttribute('data-chat-path', 'unchecked')
+    expect(api.revealChatPath).not.toHaveBeenCalled()
   })
 
-  it('focus checks an inside path too', async () => {
+  it.each([['inside', 'src/main.go'], ['outside', '/etc/hosts']])('hover, focus and key presses on an %s path never look it up', async (_c, token) => {
+    mount('`' + token + '`')
+    const b = await screen.findByRole('button', { name: token })
+    fireEvent.mouseEnter(b); fireEvent.mouseOver(b); fireEvent.focus(b); fireEvent.keyDown(b, { key: 'Tab' })
+    await Promise.resolve(); await Promise.resolve()
+    expect(api.resolveChatPath).not.toHaveBeenCalled()
+    expect(api.revealChatPath).not.toHaveBeenCalled()
+    expect(b).toHaveAttribute('data-chat-path', 'unchecked')
+    expect(b).not.toHaveAttribute('title', 'Not found')
+  })
+
+  it('a click resolves once and a following click on the link does not resolve again', async () => {
     mount('`src/main.go`')
-    fireEvent.focus(await screen.findByRole('button', { name: 'src/main.go' }))
-    await waitFor(() => expect(api.resolveChatPath).toHaveBeenCalledTimes(1))
+    fireEvent.click(await screen.findByRole('button', { name: 'src/main.go' }))
+    await waitFor(() => expect(api.revealChatPath).toHaveBeenCalledTimes(1))
+    fireEvent.click(await screen.findByTitle(/Show in the file manager/))
+    await waitFor(() => expect(api.revealChatPath).toHaveBeenCalledTimes(2))
+    expect(api.resolveChatPath).toHaveBeenCalledTimes(1)
   })
 
-  it('a path outside the folder is not looked up on hover or focus, only on a click (then revealed)', async () => {
+  it('a path outside the folder is looked up only on a click (then revealed)', async () => {
     mount('`~/projects/x` and `/etc/hosts`')
     const b = await screen.findByRole('button', { name: '~/projects/x' })
     fireEvent.mouseEnter(b); fireEvent.focus(b)
@@ -113,9 +130,9 @@ describe('file paths in chat messages', () => {
 
   it('finds a path in plain text; a missing one stays unlinked', async () => {
     mount('See src/main.go:42 and src/other.go for it.')
-    await hover('src/main.go:42')
+    await click('src/main.go:42')
     expect(await screen.findByTitle(/line 42/)).toBeInTheDocument()
-    await hover('src/other.go')
+    await click('src/other.go')
     await waitFor(() => expect(screen.getByRole('button', { name: 'src/other.go' })).toHaveAttribute('title', 'Not found'))
   })
 
@@ -135,10 +152,9 @@ describe('file paths in chat messages', () => {
   it('a click on a markdown file previews it; Ctrl/Cmd-click and the folder button reveal', async () => {
     api.readChatMarkdown.mockResolvedValue('# Plan\n\nstep **one**')
     mount('`docs/plan.md`')
-    await hover('docs/plan.md')
+    await click('docs/plan.md', { ctrlKey: true }) // resolves, then reveals instead of previewing
     const b = await screen.findByTitle(/^Preview/)
-    fireEvent.click(b, { ctrlKey: true })
-    expect(api.revealChatPath).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(api.revealChatPath).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole('dialog')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /Show plan\.md in the file manager/ }))
     expect(api.revealChatPath).toHaveBeenCalledTimes(2)
@@ -278,7 +294,7 @@ describe('bounds', () => {
       const md = Array.from({ length: 30 }, (_, i) => `\`src/b${batch}f${i}.go\``).join(' ')
       const { unmount } = mount(md)
       await waitFor(() => expect(screen.getAllByRole('button')).toHaveLength(30))
-      screen.getAllByRole('button').forEach((b) => fireEvent.mouseEnter(b))
+      screen.getAllByRole('button').forEach((b) => fireEvent.click(b))
       await waitFor(() => expect(api.resolveChatPath).toHaveBeenCalledTimes((batch + 1) * 30))
       await Promise.resolve()
       unmount()

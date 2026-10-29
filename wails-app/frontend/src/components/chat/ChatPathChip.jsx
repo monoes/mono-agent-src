@@ -10,10 +10,12 @@ import { splitLine } from './chatLinks.js'
 // ClassifyChatPath judges its spelling and makes no filesystem call, because
 // resolving a model-chosen path can touch a network share (a symlink or
 // junction in the chat folder may lead there). The disk is consulted when
-// the user acts: hover or focus for a path inside the chat's folder, click
-// for any other. Only then does it become a link, once ResolveChatPath says
-// it exists. Click: preview a markdown/text file, otherwise show it in the
-// file manager. Ctrl/Cmd-click (or the folder button) always reveals. Nothing
+// the user clicks (or presses Enter/Space on) it, never on hover or focus:
+// even a path spelled inside the chat folder may run through a link to a
+// network share, and a lookup cannot be undone by refusing its result. The
+// first activation resolves and then previews (a markdown/text file) or shows
+// it in the file manager in one go; a path that does not exist reads 'Not
+// found' afterwards. Hover and focus only show a title. Ctrl/Cmd-click (or the folder button) always reveals. Nothing
 // here opens a file with its default handler, so nothing can run.
 
 const MISSING = { kind: 'missing' }
@@ -56,8 +58,7 @@ export function ChatPathChip({ token, fromText = false }) {
   }, [conversationId, token])
 
   const reveal = () => Promise.resolve(api.revealChatPath(conversationId, token)).catch((e) => notify('reveal', t('chatLinks.revealFailed', { message: e?.message || String(e) })))
-  const check = () => lookup(conversationId, token, !info || info.kind === 'missing').then((i) => { setInfo(i); return i })
-  const peek = () => { if (cls === 'inside' && !info) check() }
+  const check = () => lookup(conversationId, token, !!info).then((i) => { setInfo(i); return i })
   const clickUnchecked = (e) => {
     check().then((i) => {
       if (i.kind === 'missing') return
@@ -69,7 +70,7 @@ export function ChatPathChip({ token, fromText = false }) {
   if (!cls || cls === 'refused') return fromText ? <>{token}</> : <code style={codeStyle}>{token}</code>
   if (!info || info.kind === 'missing') {
     return (
-      <button type="button" data-chat-path="unchecked" style={unchecked} onMouseEnter={peek} onFocus={peek} onClick={clickUnchecked}
+      <button type="button" data-chat-path="unchecked" style={unchecked} onClick={clickUnchecked}
         title={info ? t('chatLinks.notFound') : t('chatLinks.checkHint')}>
         {token}
       </button>

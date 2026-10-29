@@ -209,9 +209,9 @@ func networkVolume(real string) bool {
 // (a model-chosen path may run through a link to a network share).
 //
 //	"refused": not a usable path, shown as plain text
-//	"inside":  relative to / below the chat's folder by string prefix; checked
-//	           on hover, focus or click
-//	"outside": any other path; checked only if the user clicks it
+//	"inside":  relative to / below the chat's folder by string prefix; looked
+//	           up only when the user clicks
+//	"outside": any other path; looked up only when the user clicks it
 func classifyChatToken(cwd, token string) string {
 	p, _, err := parseChatToken(token)
 	if err != nil {
@@ -453,7 +453,7 @@ func (a *App) ResolveChatPath(conversationID, token string) ChatPathInfo {
 
 // ClassifyChatPath is the render-time test for a path a chat message names:
 // "inside", "outside" or "refused" (see classifyChatToken). It never touches
-// the disk; ResolveChatPath does that, on the user's hover, focus or click.
+// the disk; ResolveChatPath does that, only on the user's click.
 func (a *App) ClassifyChatPath(conversationID, token string) ChatPathClass {
 	if a.signedOut() != nil {
 		return ChatPathClass{Class: "refused"}
