@@ -1,6 +1,7 @@
 package dynorg
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -147,7 +148,11 @@ func (c *Conductor) handleMissionEvaluate(ctx context.Context, name string, args
 	if a.Reviewer != nil {
 		view.Reviewed = a.Reviewer.Verdict
 	}
-	if err := mc.Store.AddSessionEvent(ctx, mc.ProfileID, sid, tasks.EventNote, evaluationRecord(name, a, view), missionActor()); err != nil {
+	note, err := evaluationRecord(name, a, view)
+	if err != nil {
+		return "", fmt.Errorf("the evaluation was not recorded, so it does not stand: %w", err)
+	}
+	if err := mc.Store.AddSessionEvent(ctx, mc.ProfileID, sid, tasks.EventNote, note, missionActor()); err != nil {
 		return "", fmt.Errorf("the evaluation was not recorded, so it does not stand: %w", err)
 	}
 	view.Recorded = true
@@ -167,8 +172,33 @@ func evaluateNext(re bool, v EvaluateView) string {
 }
 
 // evaluationRecord is the note written to the mission's history: titles are shortened, theses and evidence stay out, so
-// that twenty candidates fit one event.
-func evaluationRecord(tool string, a evaluateArgs, v EvaluateView) string {
+// that twenty candidates fit one event. It must fit the event whole (the store cuts what is over the limit, which would
+// leave invalid JSON): when the full form does not, the record is shrunk in the fixed order of recordShrinks and says so
+// in its "shrunk" field; when nothing fits, it is an error and the evaluation is not recorded.
+func evaluationRecord(tool string, a evaluateArgs, v EvaluateView) (string, error) {
+	return evaluationRecordWithin(tasks.MaxCommentBytes, tool, a, v)
+}
+
+// recordShrinks is the order of the cuts: shorter titles first, then the optional text, then the shortest titles.
+var recordShrinks = []struct {
+	titleChars int
+	optional   bool // keep the reviewer's runtime, model and note, the reason and the decisions' titles
+}{{recordTitleChars, true}, {24, true}, {12, true}, {12, false}, {6, false}}
+
+func evaluationRecordWithin(limit int, tool string, a evaluateArgs, v EvaluateView) (string, error) {
+	for i, sh := range recordShrinks {
+		note, err := buildEvaluationRecord(tool, a, v, sh.titleChars, sh.optional, i)
+		if err != nil {
+			return "", err
+		}
+		if len(note) <= limit {
+			return note, nil
+		}
+	}
+	return "", fmt.Errorf("the record of this evaluation is over %d bytes even when shrunk", limit)
+}
+
+func buildEvaluationRecord(tool string, a evaluateArgs, v EvaluateView, titleChars int, optional bool, shrunk int) (string, error) {
 	type row struct {
 		T string    `json:"t"`
 		S []float64 `json:"s"` // success, cost, risk, effort
@@ -177,8 +207,8 @@ func evaluationRecord(tool string, a evaluateArgs, v EvaluateView) string {
 	}
 	short := func(s string) string {
 		r := []rune(oneLine(s))
-		if len(r) > recordTitleChars {
-			r = r[:recordTitleChars]
+		if len(r) > titleChars {
+			r = r[:titleChars]
 		}
 		return string(r)
 	}
@@ -191,18 +221,34 @@ func evaluationRecord(tool string, a evaluateArgs, v EvaluateView) string {
 		rows[i] = row{T: short(r.Title), S: scores[titleKey(r.Title)], R: r.Rank, P: r.Picked}
 	}
 	rec := map[string]any{"tool": tool, "k": v.K, "weights": v.Weights, "candidates": rows}
+	if shrunk > 0 {
+		rec["shrunk"] = shrunk
+	}
 	if len(v.Decisions) > 0 {
 		ds := make([]string, len(v.Decisions))
 		for i, d := range v.Decisions {
 			ds[i] = d.Action + ":" + short(d.Title)
 		}
-		rec["reason"], rec["decisions"] = short(a.Reason), ds
+		if optional {
+			rec["reason"], rec["decisions"] = short(a.Reason), ds
+		} else {
+			rec["decisions"] = len(ds)
+		}
 	}
 	if a.Reviewer != nil {
-		rec["reviewer"] = map[string]string{"runtime": short(a.Reviewer.Runtime), "model": short(a.Reviewer.Model), "verdict": a.Reviewer.Verdict, "note": short(a.Reviewer.Note)}
+		rv := map[string]string{"verdict": a.Reviewer.Verdict}
+		if optional {
+			rv["runtime"], rv["model"], rv["note"] = short(a.Reviewer.Runtime), short(a.Reviewer.Model), short(a.Reviewer.Note)
+		}
+		rec["reviewer"] = rv
 	}
-	b, _ := json.Marshal(rec)
-	return evaluationNote + string(b)
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false) // < > & stay one byte each: the escapes are six
+	if err := enc.Encode(rec); err != nil {
+		return "", err
+	}
+	return evaluationNote + strings.TrimSuffix(b.String(), "\n"), nil
 }
 
 // BuildEvaluationBrief is the brief for the reviewer of the scoring: the ranking by code, and every candidate's thesis
