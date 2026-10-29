@@ -52,6 +52,9 @@ func TestMissionEvaluationRecordIsWholeForEscapableTitles(t *testing.T) {
 	if len(rec["candidates"].([]any)) != MaxCandidates {
 		t.Fatal("the recorded ranking lost candidates")
 	}
+	if rec["shrunk"] != nil {
+		t.Fatal("the escapes were not avoided: the record had to be shrunk")
+	}
 	if _, ok := rec["reviewer"]; !ok {
 		t.Fatal("the recorded note lost the reviewer's verdict")
 	}
