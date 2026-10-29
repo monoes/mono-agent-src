@@ -284,16 +284,47 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 }
 
 func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
-	return &cobra.Command{
+	var abandon bool
+	var confirm string
+	cmd := &cobra.Command{
 		Use:   "delete <conversation-id>",
 		Short: "Delete a conversation with its turns, events and coder session, after stopping the processes its turns left running (refused while a turn is active; exit 5, survivors_remain, and nothing deleted if one cannot be stopped)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Deletes the conversation after stopping the processes its turns left running. One that cannot be stopped " +
+			"keeps the conversation (exit 5, survivors_remain, the survivors listed). --abandon-processes deletes it anyway and " +
+			"leaves those processes running: nothing is signalled, and what is left running is listed. It is the operator's " +
+			"alone (exit 3, operator_only for an agent, the chat or a workflow) and needs --confirm \"" + abandonConfirmPhrase + "\"; " +
+			"without it nothing is deleted and the processes that would be left are listed. Whether a process is still running is read from the " +
+			"system; where that is unreliable the list may be incomplete or hold one that has ended. Nothing is ever signalled.",
+		// Leaving processes running is the operator's: that is asked first of all, before the arguments are
+		// looked at and before the database is opened (opening can migrate it).
+		Args: func(cmd *cobra.Command, args []string) error {
+			if abandon {
+				if err := requireOperatorToAbandon(cfg); err != nil {
+					return err
+				}
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if abandon {
+				if err := requireOperatorToAbandon(cfg); err != nil {
+					return err
+				}
+			}
 			store, profileID, closeDB, err := openChatHistory(cfg)
 			if err != nil {
 				return err
 			}
 			defer closeDB()
+			var abandoned []survivor
+			if abandon {
+				// Asked for in words, and never signals anything.
+				if confirm != abandonConfirmPhrase {
+					return previewAbandon(cmd, cfg, store, profileID, args[0])
+				}
+			} else if confirm != "" {
+				return clicore.InvalidInput("--confirm goes with --abandon-processes")
+			}
 			// The processes the conversation's turns left running are recorded only in the events
 			// deleted with it: stop them first, and keep the record while one cannot be stopped. The
 			// delete itself re-reads the record inside its write transaction, where no turn can be
@@ -334,9 +365,19 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 					}
 				}
 				afterSessionList()
-				stop, active, seen, err := stopConversationBackgroundSeen(store, profileID, args[0], false, func() error {
-					return clicore.RequireOperator(cfg.RequireOperator, "delete a conversation whose turns left processes running (deleting it stops them)")
-				})
+				var (
+					stop   backgroundStop
+					active bool
+					seen   map[chatevents.ProcessRef]bool
+				)
+				if abandon {
+					// Nothing is signalled: what is recorded is listed and left running.
+					stop, active, seen, abandoned, err = abandonBackground(store, profileID, args[0])
+				} else {
+					stop, active, seen, err = stopConversationBackgroundSeen(store, profileID, args[0], false, func() error {
+						return clicore.RequireOperator(cfg.RequireOperator, "delete a conversation whose turns left processes running (deleting it stops them)")
+					})
+				}
 				stopped = append(stopped, stop.Stopped...)
 				if err != nil {
 					return partial(err)
@@ -390,15 +431,25 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			}
 			stop := backgroundStop{Stopped: stopped}
 			if cfg.JSONOutput() {
-				return clicore.PrintJSON(map[string]any{"id": args[0], "deleted": true, "stopped": stop.Stopped})
+				out := map[string]any{"id": args[0], "deleted": true, "stopped": stop.Stopped}
+				if abandon {
+					out["abandoned"] = nonNilSurvivors(abandoned)
+				}
+				return clicore.PrintJSON(out)
 			}
 			if len(stop.Stopped) > 0 {
 				fmt.Printf("stopped %d background process(es): %v\n", len(stop.Stopped), stop.Stopped)
+			}
+			for _, sv := range abandoned {
+				fmt.Printf("left running: %d %s\n", sv.Pid, sv.Command)
 			}
 			fmt.Printf("deleted conversation %s\n", args[0])
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&abandon, "abandon-processes", false, "Delete the conversation and leave the processes its turns left running, signalling nothing (the operator's; needs --confirm)")
+	cmd.Flags().StringVar(&confirm, "confirm", "", "With --abandon-processes: the words \""+abandonConfirmPhrase+"\", to go ahead")
+	return cmd
 }
 
 func newChatHistoryTranscriptCmd(cfg *Deps) *cobra.Command {
@@ -627,4 +678,68 @@ func stopSessions(ctx context.Context, cfg *Deps, profileID string, ids []int64)
 		n++
 	}
 	return n, nil
+}
+
+// requireOperatorToAbandon is the operator check of --abandon-processes.
+func requireOperatorToAbandon(cfg *Deps) error {
+	return clicore.RequireOperator(cfg.RequireOperator, "delete a conversation and leave the processes its turns started running")
+}
+
+// abandonConfirmPhrase is what --confirm must say for --abandon-processes to go ahead.
+const abandonConfirmPhrase = "leave them running"
+
+// abandonBackground is stopConversationBackgroundSeen for a delete that leaves the processes running: it
+// reads the conversation's records, signals nothing, treats every one as handled (so the delete's last
+// check passes) and lists those still running.
+func abandonBackground(store *ai.AIStore, profileID, conversationID string) (backgroundStop, bool, map[chatevents.ProcessRef]bool, []survivor, error) {
+	res := backgroundStop{Stopped: []int{}, Gone: []int{}, Refused: []int{}}
+	refs, active, err := conversationBackgroundRefs(store, profileID, conversationID)
+	if err != nil {
+		return res, false, nil, nil, err
+	}
+	seen := map[chatevents.ProcessRef]bool{}
+	var left []survivor
+	for _, r := range refs {
+		c := r
+		c.Command = ""
+		seen[c] = true
+		if processAlive(r.Pid) {
+			cmdline := r.Command
+			if cmdline == "" {
+				cmdline = shortCommand(r.Pid)
+			}
+			left = append(left, survivor{Pid: r.Pid, Command: cmdline, Reason: "left running by the operator's choice"})
+		}
+	}
+	return res, active, seen, left, nil
+}
+
+func nonNilSurvivors(s []survivor) []survivor {
+	if s == nil {
+		return []survivor{}
+	}
+	return s
+}
+
+// previewAbandon is --abandon-processes without the words: nothing is deleted or signalled; it lists what
+// would be left running and says what to add to go ahead.
+func previewAbandon(cmd *cobra.Command, cfg *Deps, store *ai.AIStore, profileID, conversationID string) error {
+	_, active, _, left, err := abandonBackground(store, profileID, conversationID)
+	if err != nil {
+		return err
+	}
+	if active {
+		// The delete would be refused whatever the words: say that, not "add --confirm".
+		return chatStoreErr(ai.ErrTurnActive)
+	}
+	if cfg.JSONOutput() {
+		if err := clicore.PrintJSON(map[string]any{"id": conversationID, "deleted": false, "would_abandon": nonNilSurvivors(left)}); err != nil {
+			return err
+		}
+	} else {
+		for _, sv := range left {
+			fmt.Fprintf(cmd.OutOrStdout(), "  would be left running: %d %s\n", sv.Pid, sv.Command)
+		}
+	}
+	return clicore.InvalidInput("--abandon-processes leaves %d process(es) running and deletes the conversation: nothing was deleted; to go ahead add --confirm %q", len(left), abandonConfirmPhrase)
 }

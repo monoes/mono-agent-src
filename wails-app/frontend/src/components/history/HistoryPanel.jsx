@@ -9,7 +9,7 @@ import { onHistoryRequest } from './historyBus.js'
 import HistoryRow from './HistoryRow.jsx'
 import { useMissionBadges } from './useMissionBadges.js'
 import {
-  KIND_FILTERS, STATUS_FILTERS, bubbleKeyOf, liveStatus, deleteOutcome, chatIdsOnly, toFilter, orgRunOpening,
+  KIND_FILTERS, STATUS_FILTERS, bubbleKeyOf, liveStatus, deleteOutcome, survivorNames, chatIdsOnly, toFilter, orgRunOpening,
 } from '../../lib/historyModel.js'
 import './history.css'
 
@@ -124,8 +124,17 @@ export default function HistoryPanel({ store, onNavigate }) {
       const parts = []
       if (out.deleted.length) parts.push(t('history.deleted', { count: out.deleted.length }))
       if (out.active.length) parts.push(t('history.stillActive', { count: out.active.length }))
+      const running = out.kept.filter(k => k.code === 'survivors_remain')
+      if (running.length) {
+        const all = running.flatMap(k => k.survivors)
+        parts.push(t('history.keptRunning', { count: all.length, names: survivorNames(all) }))
+      }
+      const operatorOnly = out.kept.filter(k => k.code === 'operator_only')
+      if (operatorOnly.length) parts.push(t('history.keptOperatorOnly', { count: operatorOnly.length }))
+      const otherKept = out.kept.filter(k => k.code !== 'survivors_remain' && k.code !== 'operator_only')
+      if (otherKept.length) parts.push(t('history.deleteFailed', { count: otherKept.length, message: otherKept[0].message }))
       if (out.failed.length) parts.push(t('history.deleteFailed', { count: out.failed.length, message: out.failed[0].message }))
-      setNotice({ tone: out.active.length || out.failed.length ? 'warn' : 'ok', text: parts.join(' ') })
+      setNotice({ tone: out.active.length || out.failed.length || out.kept.length ? 'warn' : 'ok', text: parts.join(' ') })
       if (out.deleted.length) h.reload({ silent: true })
     } catch (e) {
       setNotice({ tone: 'warn', text: t('history.deleteFailed', { count: ids.length, message: String(e?.message || e) }) })

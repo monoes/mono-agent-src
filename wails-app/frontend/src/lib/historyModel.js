@@ -68,13 +68,25 @@ export function mergePage(existing, page) {
 }
 
 // deleteOutcome splits DeleteChatConversations' answer: ids gone, ids kept
-// because a turn is running, and ids that failed with the CLI's message.
+// because a turn is running, ids the CLI declined to delete (kept), and ids
+// that failed with the CLI's message.
 export function deleteOutcome(res) {
   return {
     deleted: res?.deleted || [],
     active: res?.active || [],
     failed: Object.entries(res?.failed || {}).map(([id, message]) => ({ id, message })),
+    // Kept ids were not deleted because the CLI declined: processes the chat left running could not be
+    // stopped (survivors), or deleting it is the operator's (operator_only).
+    kept: Object.entries(res?.kept || {}).map(([id, k]) => ({
+      id, code: k?.code || '', message: k?.message || '', survivors: k?.survivors || [],
+    })),
   }
+}
+
+// survivorNames lists the processes a delete could not stop, by command and pid, as many as fit in a notice.
+export function survivorNames(survivors, max = 4) {
+  const names = (survivors || []).map(s => `${s.command || 'process'} (${s.pid})`)
+  return names.length > max ? `${names.slice(0, max).join(', ')}, +${names.length - max}` : names.join(', ')
 }
 
 // chatIdsOnly guards every delete path: org runs are never deleted from here.
