@@ -233,3 +233,26 @@ func TestWarnedTurnThatErroredStillGetsTheWarning(t *testing.T) {
 		t.Errorf("notices %q argv %q", notices, h.argv())
 	}
 }
+
+func TestCoderTurnJournalsUsageNotice(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	bin, _ := writeCoderMonomind(t, resultFieldsTranscript)
+	withCoderCaps(t, monomind.CoderCapabilities...)
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	conv, _ := openTestChatStore(t, dbPath).CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", "turn-1", "--", "go")
+	if err != nil {
+		t.Fatalf("turn: %v\n%s", err, out)
+	}
+	var usage *chatevents.CoderUsage
+	for _, n := range parseJournaledTurn(t, out).byType(chatevents.EventNotice) {
+		var p chatevents.NoticePayload
+		json.Unmarshal(n.Payload, &p)
+		if p.Code == noticeCoderUsage {
+			usage = p.CoderUsage
+		}
+	}
+	if usage == nil || usage.PeakContextTokens != 250000 || usage.Models["claude-opus-4-1"].CacheCreation != 4 {
+		t.Errorf("coder.usage = %+v", usage)
+	}
+}

@@ -791,3 +791,24 @@ func TestRegularLocalBinExecutableRunsInStrictBox(t *testing.T) {
 		t.Fatalf("sibling in ~/.local/bin reachable: %v %s", err, out)
 	}
 }
+
+// The ~/.local/bin exception covers files directly in that directory only; an executable
+// nested below it stays a forbidden target.
+func TestLocalBinDescendantExecutableIsRefused(t *testing.T) {
+	needBwrap(t)
+	r := newRig(t)
+	cli := filepath.Join(r.home, ".local", "bin", "private", "runner")
+	if err := os.MkdirAll(filepath.Dir(cli), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\necho nested\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	b := r.box(Strict)
+	b.Binaries = append(b.Binaries, cli)
+	plan, err := b.Wrap(cli, nil, r.env())
+	if !IsCode(err, CodeBadPath) {
+		plan.Close()
+		t.Fatalf("a nested ~/.local/bin executable was accepted: %v", err)
+	}
+}

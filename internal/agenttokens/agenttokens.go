@@ -94,6 +94,9 @@ var (
 	ErrInvalid = errors.New("invalid agent token")
 	// ErrNameTaken means an unrevoked token of the profile has the name.
 	ErrNameTaken = errors.New("an active agent token with that name already exists in this profile")
+	// ErrBindingTarget means a binding that names a task or a conversation that is not there: the
+	// conversation must exist in the profile and the task must be one of its own.
+	ErrBindingTarget = errors.New("a bound token needs a conversation of this profile and one of its tasks")
 	// ErrBinding means a binding that names only one of the task and the conversation, or a scope
 	// a bound token cannot have.
 	ErrBinding = errors.New("a bound token needs both a task and a conversation, and a scope of read or write")
@@ -225,9 +228,27 @@ func (s *Store) CreateBound(ctx context.Context, profileID, name string, scope S
 	if ttl > 0 {
 		exp = now.Add(ttl).Format(timeFmt)
 	}
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agent_tokens (id, profile_id, name, scope, prefix, token_hash, created_at, expires_at, bound_conversation, bound_task) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		id, profileID, name, string(scope), secret[:prefixLen], Hash(secret), now.Format(timeFmt), exp, b.ConversationID, b.TaskID)
+	if b.TaskID == "" {
+		_, err = s.db.ExecContext(ctx,
+			`INSERT INTO agent_tokens (id, profile_id, name, scope, prefix, token_hash, created_at, expires_at, bound_conversation, bound_task) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			id, profileID, name, string(scope), secret[:prefixLen], Hash(secret), now.Format(timeFmt), exp, b.ConversationID, b.TaskID)
+	} else {
+		// One statement that holds only while the conversation exists in the profile and the task is
+		// one of its own, so a token cannot be issued for a conversation that a delete has just removed.
+		var res sql.Result
+		res, err = s.db.ExecContext(ctx,
+			`INSERT INTO agent_tokens (id, profile_id, name, scope, prefix, token_hash, created_at, expires_at, bound_conversation, bound_task)
+			 SELECT ?,?,?,?,?,?,?,?,?,?
+			 WHERE EXISTS (SELECT 1 FROM ai_chat_conversations WHERE id = ? AND profile_id = ?)
+			   AND EXISTS (SELECT 1 FROM ai_tasks WHERE id = ? AND profile_id = ? AND conversation_id = ?)`,
+			id, profileID, name, string(scope), secret[:prefixLen], Hash(secret), now.Format(timeFmt), exp, b.ConversationID, b.TaskID,
+			b.ConversationID, profileID, b.TaskID, profileID, b.ConversationID)
+		if err == nil {
+			if n, _ := res.RowsAffected(); n == 0 {
+				return Token{}, "", ErrBindingTarget
+			}
+		}
+	}
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: agent_tokens.profile_id, agent_tokens.name") {
 		return Token{}, "", ErrNameTaken
 	}

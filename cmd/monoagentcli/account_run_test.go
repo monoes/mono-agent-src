@@ -510,7 +510,8 @@ func TestRunKeepsCobrasOwnBehaviour(t *testing.T) {
 	if code := run(nil, &out, &errb); code != 0 || !strings.Contains(out.String(), "Available Commands:") {
 		t.Errorf("nil args: exit %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
-	if code, stdout, stderr := runMain(t, "nosuch"); code != 1 || stdout != "" || !strings.Contains(stderr, `unknown command "nosuch"`) {
+	// An unknown command is input the parser refuses, so it exits 3 like an unknown flag (it was 1).
+	if code, stdout, stderr := runMain(t, "nosuch"); code != 3 || stdout != "" || !strings.Contains(stderr, `unknown command "nosuch"`) {
 		t.Errorf("unknown command: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }

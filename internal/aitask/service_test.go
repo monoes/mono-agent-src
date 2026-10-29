@@ -224,7 +224,8 @@ func TestCancelledTaskCannotBeCompleted(t *testing.T) {
 	if _, err := s.Cancel(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Complete(task.ID, l.tokens[0], []byte(`{"summary":"x"}`)); code(err) != CodeTaskClosed {
+	// Cancelling ends the token with the task: its old holder is refused as a stranger.
+	if _, err := s.Complete(task.ID, l.tokens[0], []byte(`{"summary":"x"}`)); code(err) != CodeBadToken {
 		t.Fatalf("err = %v", err)
 	}
 	if _, err := s.Cancel(task.ID); code(err) != CodeTaskClosed {
@@ -409,7 +410,7 @@ func TestTerminalStatesAreFinalAndOneCompleteWins(t *testing.T) {
 	if _, err := s.Cancel(c.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Complete(c.ID, l.tokens[1], body); code(err) != CodeTaskClosed {
+	if _, err := s.Complete(c.ID, l.tokens[1], body); code(err) != CodeBadToken { // cancelling ends the token
 		t.Errorf("complete after cancel: %v", err)
 	}
 	if got, err := s.Start(context.Background(), c.ID); err != nil || got.Status != StatusCancelled {

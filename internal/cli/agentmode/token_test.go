@@ -307,6 +307,12 @@ func TestCreateBindsATokenToAnExistingTaskOfTheConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The task runs in a conversation of the profile.
+	if _, err := db.DB.Exec(`INSERT INTO ai_chat_conversations
+		(id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, access)
+		VALUES ('conv-1', 'default', 'agent', '', 'claude', '', '', '', 'assistant', '', 'hk', 'now', 'now', '', 'scoped')`); err != nil {
+		t.Fatal(err)
+	}
 	tasks := &aitask.Store{DB: db.DB, Profile: "default"}
 	if _, err := tasks.Insert(aitask.Task{ID: "at-1", Kind: "generic", ConversationID: "conv-1", Status: aitask.StatusRunning}); err != nil {
 		t.Fatal(err)

@@ -13,7 +13,7 @@ import { ChatComposer } from '../chat/ChatComposer.jsx'
 import { MessageAttachments, WorkspaceImageContext } from '../chat/ChatAttachments.jsx'
 import { takeFiles, MAX_ATTACHMENTS } from '../chat/chatAttachments.js'
 import { useChatScroll } from '../chat/useChatScroll.js'
-import { CoderInitNote } from '../chat/CoderHeader.jsx'
+import { CoderInitNote, CoderUsageBar } from '../chat/CoderHeader.jsx'
 import { ChatSetup, BlockedReason } from './ChatSetup.jsx'
 import { useChatSetup } from './useChatSetup.js'
 import { isCoderAccess } from '../../lib/chatAccess.js'
@@ -24,7 +24,6 @@ import { isAgentNotSetup } from '../../lib/agentSetup.js'
 import AgentSetupLink from '../AgentSetupLink.jsx'
 import MissionCards from './mission/MissionCards.jsx'
 import MissionStrip from './mission/MissionStrip.jsx'
-import MissionTemplates from './mission/MissionTemplates.jsx'
 import { missionItems, startedProposals } from '../../lib/missionModel.js'
 import '../chat/chat.css'
 
@@ -147,6 +146,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+      <CoderUsageBar states={turnList.map(tn => tn.state)} model={conv.model || ''} />
       {agentFilter && (
         <div className="stage-filter" data-testid="chat-agent-filter">
           <span>{t('stage.filterShowing', { name: agentFilterName })}</span>
@@ -212,9 +212,6 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
       </div>
       {isCoderAccess(level) && !!conv.conversationId && (
         <MissionStrip conversationId={conv.conversationId} bump={allMission.length} reported={reported} closeProposed={closeProposed} />
-      )}
-      {isCoderAccess(level) && !conv.streaming && (
-        <MissionTemplates draft={draft} onDraftChange={onDraftChange} hintable={empty} />
       )}
       <ChatComposer value={draft} onChange={onDraftChange} onSend={send} onStop={conv.stop}
         streaming={conv.streaming} disabled={blocked || conv.loading}
