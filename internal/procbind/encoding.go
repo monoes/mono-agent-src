@@ -18,7 +18,9 @@ import (
 // Encode is the canonical encoding of a MAC input: the domain tag, the version and then each
 // field, every one as an 8-byte big-endian length followed by its bytes. The arity is part of
 // the message (a field is never optional: an absent one is the empty string), so no two distinct
-// inputs encode to the same bytes. There is no concatenation of bare fields anywhere else.
+// (domain, version, fields) tuples encode to the same bytes. Fields are opaque byte strings: a
+// caller that passes binary data (a nonce) as a string must pass the same bytes on both sides, not
+// a hex or base64 form on one of them. There is no concatenation of bare fields anywhere else.
 func Encode(domain string, version uint8, fields ...string) []byte {
 	n := 8 + len(domain) + 8 + 1
 	for _, f := range fields {
@@ -89,6 +91,8 @@ func (a Answer) check() error {
 		return fmt.Errorf("procbind: unknown verdict %q", a.Verdict)
 	case a.TokenID == "" || a.Profile == "" || a.Generation == "":
 		return errors.New("procbind: an answer names a token, a profile and a host generation")
+	case len(a.TokenID) > maxField || len(a.Profile) > maxField || len(a.Generation) > maxField || len(a.Scope) > maxField:
+		return fmt.Errorf("procbind: an answer field is longer than %d bytes", maxField)
 	}
 	return nil
 }
@@ -97,7 +101,11 @@ func (a Answer) encode() []byte {
 	return Encode(answerDomain, answerVersion, string(a.NV), string(a.NS), a.Generation, a.TokenID, a.Profile, a.Scope, string(a.Verdict))
 }
 
-// MAC is the hex HMAC-SHA-256 of the answer under key.
+// maxField bounds every string field of an answer; ids, profiles and scopes are short.
+const maxField = 4096
+
+// MAC is the lowercase-hex HMAC-SHA-256 of the answer under key. The key is the service's answer
+// key (K_ans of the design, derived per profile and host generation); never pass the raw vault key.
 func (a Answer) MAC(key []byte) (string, error) {
 	if len(key) < MinKeyLen {
 		return "", fmt.Errorf("procbind: key shorter than %d bytes", MinKeyLen)
@@ -111,7 +119,12 @@ func (a Answer) MAC(key []byte) (string, error) {
 }
 
 // Verify recomputes the MAC over the verifier's own view of the answer and compares it in
-// constant time. Any mismatch, malformed or truncated MAC, or bad input is ErrAnswer.
+// constant time. The caller builds the Answer from what it holds itself: the nonce it generated
+// for this request (NV), the host generation it read from the database, and the request it sent;
+// only NS and the verdict come from the service's reply. The MAC must be lowercase hex exactly as
+// MAC returns it (an uppercase or padded form is rejected). The deny class of a reply is not part
+// of the MAC and is advisory text only: it never decides anything. Any mismatch, malformed or
+// truncated MAC, or bad input is ErrAnswer.
 func (a Answer) Verify(key []byte, mac string) error {
 	want, err := a.MAC(key)
 	if err != nil || !hmac.Equal([]byte(want), []byte(mac)) {

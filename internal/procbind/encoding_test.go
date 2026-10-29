@@ -46,8 +46,15 @@ func FuzzEncodeInjective(f *testing.F) {
 	f.Fuzz(func(t *testing.T, a1, a2, a3, b1, b2, b3 string) {
 		x, y := []string{a1, a2, a3}, []string{b1, b2, b3}
 		same := x[0] == y[0] && x[1] == y[1] && x[2] == y[2]
-		if bytes.Equal(Encode("d", 1, x...), Encode("d", 1, y...)) != same {
-			t.Fatalf("injectivity broken for %q vs %q", x, y)
+		// the domain and the version are part of the message too, so vary them in step with the fields
+		for _, dv := range []struct {
+			d1, d2 string
+			v1, v2 uint8
+		}{{"d", "d", 1, 1}, {"d", "e", 1, 1}, {"d", "d", 1, 2}} {
+			eq := bytes.Equal(Encode(dv.d1, dv.v1, x...), Encode(dv.d2, dv.v2, y...))
+			if want := same && dv.d1 == dv.d2 && dv.v1 == dv.v2; eq != want {
+				t.Fatalf("injectivity broken for %q vs %q (%v)", x, y, dv)
+			}
 		}
 	})
 }
@@ -154,6 +161,37 @@ func TestNewNonce(t *testing.T) {
 	b, _ := NewNonce()
 	if bytes.Equal(a, b) {
 		t.Fatal("two nonces were equal")
+	}
+}
+
+// The expected value was computed by an independent HMAC-SHA-256 over the documented layout
+// (8-byte big-endian length before every field), not by this package.
+func TestAnswerMACKnownVector(t *testing.T) {
+	const want = "2f184d3d0fa8ab973a5b33e4a1d1674f8397cd475733fdf97d6dbcdaf4d8700a"
+	got, err := goodAnswer().MAC(testKey)
+	if err != nil || got != want {
+		t.Fatalf("MAC = %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestVerifyIsCaseAndFormStrict(t *testing.T) {
+	a := goodAnswer()
+	mac, _ := a.MAC(testKey)
+	if strings.ToLower(mac) != mac || strings.ToUpper(mac) == mac {
+		t.Fatal("test needs a MAC with letters")
+	}
+	if err := a.Verify(testKey, strings.ToUpper(mac)); err == nil {
+		t.Error("an uppercase form of a valid MAC verified")
+	}
+	bad := a
+	bad.NV = a.NV[:5]
+	if err := bad.Verify(testKey, mac); err == nil {
+		t.Error("Verify accepted an invalid answer")
+	}
+	long := a
+	long.Scope = strings.Repeat("s", maxField+1)
+	if _, err := long.MAC(testKey); err == nil {
+		t.Error("an oversized field was accepted")
 	}
 }
 
