@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, X, Code2, Network } from 'lucide-react'
 import { folderName } from '../chat/useCoderMode.js'
-import { layoutBubbles, monogram, totalCost, costEstimated } from '../../lib/coderBubbles.js'
+import { layoutBubbles, fitDock, monogram, totalCost, costEstimated } from '../../lib/coderBubbles.js'
 import { OrbitRing } from './OrbitRing.jsx'
 import { PersonItemTray } from './PersonItemViews.jsx'
 import './bubbles.css'
@@ -64,6 +64,17 @@ function ChatBubble({ bubble, summary, expanded, onOpen, onClose, onDragStart, o
   )
 }
 
+// useWindowHeight follows the window's height, so the dock refits when it is resized.
+function useWindowHeight() {
+  const [h, setH] = useState(() => (typeof window === 'undefined' ? 900 : window.innerHeight))
+  useEffect(() => {
+    const on = () => setH(window.innerHeight)
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+  }, [])
+  return h
+}
+
 // BubbleDock is the stack of coder chat bubbles (#227) at the bottom of
 // the window: one bubble per open coder chat, a "+" for a new one, and a
 // grip that moves the dock to the other side. Bubbles past the sixth go
@@ -76,17 +87,26 @@ export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = tru
   const { expandedKey, side } = store
   // An agent opened from an orbit has no bubble of its own: it is reached from its parent's orbit.
   const bubbles = store.bubbles.filter(b => !b.lite)
-  const { visible, overflow } = layoutBubbles(bubbles, expandedKey)
+  const laid = layoutBubbles(bubbles, expandedKey)
+  // The window's height decides how many bubbles (and circles) fit: circles go first, then bubbles into "+N".
+  const height = useWindowHeight()
+  const orbits = Object.fromEntries(laid.visible.map(b => {
+    const o = orbitOf && b.conversationId ? orbitOf(b) : null
+    return [b.key, o && (o.satellites.length > 0 || o.overflow.length > 0) ? o : null]
+  }))
+  const fit = fitDock(laid.visible.map(b => ({ key: b.key, orbit: !!orbits[b.key] })), expandedKey, height, laid.overflow.length > 0)
+  const visible = laid.visible.filter(b => fit.visible.includes(b.key))
+  const overflow = [...laid.visible.filter(b => fit.overflow.includes(b.key)), ...laid.overflow]
 
   const onDropOn = (key) => {
     if (dragKey && dragKey !== key) store.reorder(dragKey, key)
     setDragKey('')
   }
-  const bubbleProps = b => ({
+  const bubbleProps = (b, withOrbit = true) => ({
     bubble: b, summary: store.summaryOf(b.key), expanded: b.key === expandedKey,
     onOpen: k => { setFanOpen(false); onOpen(k) }, onClose, onDragStart: setDragKey, onDropOn,
     dragging: dragKey === b.key, registerEl, titleOf,
-    orbit: orbitOf && b.conversationId ? orbitOf(b) : null, side, onOpenAgent,
+    orbit: withOrbit && !fit.plain.has(b.key) ? (orbits[b.key] ?? null) : null, side, onOpenAgent,
   })
   if (bubbles.length === 0 && !canCreate) return null
   const overflowUnread = overflow.reduce((n, b) => n + (store.summaryOf(b.key).unread || 0), 0)
@@ -103,7 +123,7 @@ export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = tru
           </button>
           {fanOpen && (
             <div className="bubble-overflow" data-testid="bubble-overflow">
-              {overflow.map(b => <ChatBubble key={b.slot || b.key} {...bubbleProps(b)} />)}
+              {overflow.map(b => <ChatBubble key={b.slot || b.key} {...bubbleProps(b, false)} />)}
             </div>
           )}
         </div>

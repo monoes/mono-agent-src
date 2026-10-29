@@ -10,16 +10,39 @@ import './personitem.css'
 // A card item: a giant plan waiting for approval, or a critical ask of a lead (it names its ask).
 const isPlan = it => (it?.kind === 'plan_approval' && it.sessionId > 0) || (it?.kind === 'ancestor_question' && it.askId > 0)
 
+// useKeepFocus: an answered card leaves the page and takes the focus held in it along (to the body). Wrapping
+// answer arms it; once the list changes and the focus is nowhere, fallback() names where it goes (a composer, the
+// tray button); a refused answer keeps the card, so nothing is armed.
+function useKeepFocus(count, fallback) {
+  const armed = useRef(false)
+  const fb = useRef(fallback)
+  fb.current = fallback
+  useEffect(() => {
+    if (!armed.current) return
+    armed.current = false
+    const a = document.activeElement
+    if (!a || a === document.body) fb.current()?.focus?.()
+  }, [count])
+  return answer => async (verb, ...rest) => {
+    armed.current = verb !== 'ask'
+    const res = await answer(verb, ...rest)
+    if (res?.error) armed.current = false
+    return res
+  }
+}
+const composer = () => document.querySelector('[data-testid="bubble-overlay"] textarea:not([disabled])') || document.querySelector('[data-testid="bubble-overlay"]')
+
 // PersonItemsRegion is the answer cards in one agent's pane (root or lite): the plan items of the
 // session this chat is the agent of, above the transcript so they are seen at once.
 export function PersonItemsRegion({ conversationId }) {
   const { t } = useTranslation()
   const { items, answer } = usePersonItemsContext()
   const mine = itemsForConversation(items, conversationId).filter(isPlan)
+  const keep = useKeepFocus(mine.length, composer)
   if (mine.length === 0) return null
   return (
     <div className="pi-region" data-testid="person-items-pane" role="region" aria-label={t('personItem.regionLabel')} aria-live="polite">
-      {mine.map(it => <PersonCard key={it.id} item={it} onAnswer={answer} />)}
+      {mine.map(it => <PersonCard key={it.id} item={it} onAnswer={keep(answer)} />)}
     </div>
   )
 }
@@ -34,6 +57,7 @@ export function PersonItemTray() {
   const [seenCount, setSeenCount] = useState(0)
   const root = useRef(null)
   const btn = useRef(null)
+  const keep = useKeepFocus(list.length, () => btn.current || composer())
   useEffect(() => {
     if (!open) return undefined
     const onDoc = e => { if (root.current && !root.current.contains(e.target)) setOpen(false) }
@@ -54,7 +78,7 @@ export function PersonItemTray() {
       </button>
       {open && (
         <div className="pi-tray-pop" role="region" aria-label={t('personItem.regionLabel')}>
-          {list.map(it => <PersonCard key={it.id} item={it} onAnswer={answer} onOpenAgent={openAgent} />)}
+          {list.map(it => <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onOpenAgent={openAgent} />)}
         </div>
       )}
     </div>
@@ -66,16 +90,17 @@ export function PersonItemTray() {
 export function PersonItemsInbox() {
   const { t } = useTranslation()
   const { items, answer, openAgent } = usePersonItemsContext()
+  const keep = useKeepFocus(items.length, () => document.querySelector('[data-testid="person-inbox"]'))
   if (items.length === 0) return null
   return (
-    <section className="pi-inbox" data-testid="person-inbox" aria-label={t('personItem.inboxLabel')}>
+    <section className="pi-inbox" tabIndex={-1} data-testid="person-inbox" aria-label={t('personItem.inboxLabel')}>
       <div className="pi-inbox-head">
         <BellRing size={12} aria-hidden="true" />
         <span>{t('personItem.inboxTitle', { count: items.length })}</span>
         <MuteToggle />
       </div>
       {items.map(it => isPlan(it)
-        ? <PersonCard key={it.id} item={it} onAnswer={answer} onOpenAgent={openAgent} showMute={false} />
+        ? <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onOpenAgent={openAgent} showMute={false} />
         : (
           <div className="pi-row" key={it.id} data-kind={it.kind}>
             <span className="pi-row-text">{t('personItem.otherKind', { kind: it.kind })}</span>

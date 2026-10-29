@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, X, Hourglass, Pause, Minus, Activity, BellRing } from 'lucide-react'
+import { Check, X, Hourglass, Pause, Minus, Activity, BellRing, Square } from 'lucide-react'
 import { monogram } from '../../lib/coderBubbles.js'
 import { ringPositions, linkPath, cycleIndex } from '../../lib/sessionOrbit.js'
 import './orbit.css'
 
-const STATE_ICON = { running: Activity, waiting: Hourglass, done: Check, failed: X, paused: Pause, idle: Minus }
+const STATE_ICON = { running: Activity, waiting: Hourglass, done: Check, failed: X, paused: Pause, stopped: Square, idle: Minus }
 
 // Sizes (px) per size step and the geometry of each variant. "arc" orbits a dock
 // bubble on the side that faces the window; "ring" orbits the disc in a pane header.
@@ -28,7 +28,8 @@ function Satellite({ c, pos, size, tabIndex, onOpen, btnRef, onKeyDown, index })
   const Icon = c.waiting > 0 ? BellRing : STATE_ICON[c.state] || Minus
   const label = t('bubbles.orbit.satelliteLabel', { title: c.title, state: t(`bubbles.orbit.state.${c.state}`) }) +
     (c.waiting > 0 ? `, ${t('bubbles.orbit.needsYou', { count: c.waiting })}` : '') +
-    (c.childCount > 0 ? `, ${t('bubbles.orbit.ownAgents', { count: c.childCount })}` : '')
+    (c.childCount > 0 ? `, ${t('bubbles.orbit.ownAgents', { count: c.childCount })}` : '') +
+    (c.canOpen ? '' : `, ${t('bubbles.orbit.opensBoard')}`)
   return (
     <div className="orbit-slot" style={{ '--x': pos.x, '--y': pos.y, '--d': `${index * 40}ms` }}>
       <button type="button" ref={btnRef} className={`orbit-sat s${c.size}`} data-state={c.state} data-level={c.level} data-needs-you={c.waiting > 0 ? 'true' : undefined}
@@ -42,6 +43,7 @@ function Satellite({ c, pos, size, tabIndex, onOpen, btnRef, onKeyDown, index })
         <span className={`orbit-tip${pos.y < -10 ? ' below' : ''}`} aria-hidden="true">
           <span className="orbit-tip-title">{c.title}</span>
           <span>{statusLine(t, c)}</span>
+          {!c.canOpen && <span className="orbit-tip-note">{t('bubbles.orbit.opensBoard')}</span>}
         </span>
       </button>
     </div>

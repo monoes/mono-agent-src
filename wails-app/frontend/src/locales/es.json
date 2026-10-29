@@ -1128,8 +1128,10 @@
         "done": "Hecho",
         "failed": "Fallido",
         "paused": "En pausa",
+        "stopped": "Detenido",
         "idle": "Inactivo"
       },
+      "opensBoard": "Aún sin conversación: abre su tablero de tareas",
       "needsYou_one": "{{count}} elemento te necesita",
       "needsYou_other": "{{count}} elementos te necesitan"
     },
@@ -2253,8 +2255,8 @@
   "personItem": {
     "planChanged": "El plan cambió después de abrirlo, así que no se aprobó nada. La tarjeta se recargó: revísala de nuevo.",
     "notifyTitle": "Te necesita",
-    "notifyBody_one": "{{count}} plan espera tu aprobación",
-    "notifyBody_other": "{{count}} planes esperan tu aprobación",
+    "notifyBody_one": "{{count}} elemento te espera",
+    "notifyBody_other": "{{count}} elementos te esperan",
     "heading": "Un plan necesita tu aprobación",
     "cardLabel": "Plan que espera tu aprobación: {{title}}",
     "regionLabel": "Esperando por ti",
@@ -2277,8 +2279,8 @@
     "openAgent": "Abrir este agente",
     "mute": "Silenciar el aviso sonoro",
     "unmute": "Activar el aviso sonoro",
-    "trayLabel_one": "{{count}} plan te necesita",
-    "trayLabel_other": "{{count}} planes te necesitan",
+    "trayLabel_one": "{{count}} elemento te necesita",
+    "trayLabel_other": "{{count}} elementos te necesitan",
     "inboxLabel": "Esperando por ti",
     "inboxTitle_one": "Te necesita ({{count}})",
     "inboxTitle_other": "Te necesita ({{count}})",
@@ -2291,7 +2293,7 @@
     "answerSend": "Responder",
     "settings": {
       "title": "Notificaciones",
-      "sound": "Sonar un aviso cuando algo me necesita (un plan que espera aprobación)",
+      "sound": "Sonar un aviso cuando algo me necesita (un plan que espera aprobación o una pregunta de un líder)",
       "hint": "El aviso suena como máximo una vez cada cinco segundos y nunca dos veces por el mismo elemento. La notificación y la marca ámbar se muestran sin importar este ajuste."
     }
   }

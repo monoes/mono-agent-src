@@ -110,6 +110,18 @@ describe('the mission orbit in the dock', () => {
   })
 })
 
+describe('focus when an agent opens', () => {
+  it('moves into the new pane instead of staying on the dock bubble behind it', async () => {
+    render(<Harness />)
+    const sat = await screen.findByRole('button', { name: /^Direction A/ })
+    sat.focus()
+    fireEvent.click(sat)
+    const pane = await screen.findByTestId('bubble-overlay')
+    await waitFor(() => expect(pane.contains(document.activeElement)).toBe(true))
+    expect(document.activeElement?.closest('[data-bubble]')).toBeNull()
+  })
+})
+
 describe('the simple pane', () => {
   const openA = async () => {
     render(<Harness />)

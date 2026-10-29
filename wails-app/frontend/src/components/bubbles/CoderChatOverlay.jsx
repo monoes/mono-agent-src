@@ -220,7 +220,9 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   useEffect(() => {
     const prev = document.activeElement
     const ta = panelRef.current?.querySelector('textarea:not([disabled])')
-    ta?.focus?.()
+    // No composer yet (a pane still loading): the pane itself takes the focus, so it never stays on the bubble behind it.
+    if (ta) ta.focus?.()
+    else panelRef.current?.focus?.()
     return () => prev?.focus?.()
   }, [])
 
@@ -286,7 +288,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           if (collapseIt) collapse()
         }}
       />
-      <div ref={panelRef} role="dialog" aria-label={t('bubbles.chatLabel', { name: title })} data-testid="bubble-overlay"
+      <div ref={panelRef} role="dialog" tabIndex={-1} aria-label={t('bubbles.chatLabel', { name: title })} data-testid="bubble-overlay"
         className={`bubble-overlay${closing ? ' closing' : ''}${narrow ? ' narrow' : ''}`}>
         {lite ? (
           <LitePaneHeader title={title} orbit={liteOrbit} streaming={conv.streaming}

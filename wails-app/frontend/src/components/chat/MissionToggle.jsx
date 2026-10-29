@@ -33,7 +33,7 @@ export function MissionToggle({ toggle }) {
     <>
       <button type="button" role="switch" aria-checked={on} aria-describedby="mission-toggle-why" disabled={disabled}
         data-testid="mission-toggle" title={why} onClick={() => set(!on)} className="btn btn-ghost btn-sm"
-        style={{ fontFamily: mono, fontSize: 9, gap: 4, flexShrink: 0, color: on ? 'var(--green)' : 'var(--text-muted)', borderColor: on ? 'var(--green)' : undefined }}>
+        style={{ fontFamily: mono, fontSize: 9, gap: 4, flexShrink: 0, opacity: locked ? 0.9 : undefined, color: on ? 'var(--green)' : 'var(--text-muted)', borderColor: on ? 'var(--green)' : undefined }}>
         <Rocket size={10} aria-hidden="true" /> {t('missionToggle.label')}: {on ? t('missionToggle.on') : t('missionToggle.off')}
       </button>
       <span id="mission-toggle-why" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>{why}</span>

@@ -13,11 +13,11 @@ export const MAX_LEVEL = 4
 
 // The ring states, most urgent first. A person waiting or a failure is never hidden
 // in the "+N" chip; sort() keeps the list order inside one state.
-export const ORBIT_STATES = ['waiting', 'failed', 'running', 'paused', 'idle', 'done']
+export const ORBIT_STATES = ['waiting', 'failed', 'running', 'paused', 'stopped', 'idle', 'done']
 const URGENCY = Object.fromEntries(ORBIT_STATES.map((s, i) => [s, i]))
 
 // orbitState reads a session as one of ORBIT_STATES. A draft is waiting for the
-// person's approval; a stopped session ended without finishing, which reads as failed.
+// person's approval; a stopped session was ended on purpose before it finished: its own neutral state, not a failure.
 export function orbitState(session) {
   if (Number(session?.waiting) > 0) return 'waiting'
   switch (session?.state) {
@@ -25,8 +25,8 @@ export function orbitState(session) {
     case 'running': return 'running'
     case 'paused': return 'paused'
     case 'done': return 'done'
-    case 'failed':
-    case 'stopped': return 'failed'
+    case 'failed': return 'failed'
+    case 'stopped': return 'stopped'
     default: return 'idle'
   }
 }

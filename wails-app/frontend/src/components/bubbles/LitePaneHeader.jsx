@@ -8,7 +8,7 @@ import { monogram } from '../../lib/coderBubbles.js'
 import { OrbitRing, statusLine } from './OrbitRing.jsx'
 import './orbit.css'
 
-const STATE_ICON = { running: Activity, waiting: Hourglass, done: Check, failed: X, paused: Pause, idle: Minus }
+const STATE_ICON = { running: Activity, waiting: Hourglass, done: Check, failed: X, paused: Pause, stopped: Square, idle: Minus }
 
 // LitePaneHeader is the head of an opened agent's simple pane: its title and state,
 // the circles of its own agents (one orbit deeper than the pane's parent had), the link
