@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/monoes/mono-agent/internal/account/accounttest"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -42,6 +43,19 @@ func dialToken(t *testing.T, wsURL, token, instance string, profiles ...string) 
 		t.Fatalf("write auth frame: %v", err)
 	}
 	return conn
+}
+
+// stallable makes the connection stall on a client that does not read: both ends get a tiny socket
+// buffer, so a large write blocks whatever the machine's default buffer sizes are (a CI runner's
+// loopback absorbs tens of megabytes otherwise).
+func stallable(t *testing.T, c *extConn, client *websocket.Conn) {
+	t.Helper()
+	if tc, ok := client.UnderlyingConn().(*net.TCPConn); ok {
+		_ = tc.SetReadBuffer(1024)
+	}
+	if tc, ok := c.ws.UnderlyingConn().(*net.TCPConn); ok {
+		_ = tc.SetWriteBuffer(1024)
+	}
 }
 
 // closedUnauthorized reports whether the next read on conn is the 4401 close.
@@ -515,8 +529,9 @@ func TestSetBindingAcknowledgedAfterNarrowingIsNotMirrored(t *testing.T) {
 func TestAStalledBrowserDoesNotHoldTheStateLock(t *testing.T) {
 	srv, _, wsURL, _ := startStatusTestServer(t)
 	tok, id := mintRestricted(t, instA, "p-a")
-	dialToken(t, wsURL, tok, instA, "p-a") // never read from again
+	client := dialToken(t, wsURL, tok, instA, "p-a") // never read from again
 	waitBrowsers(t, srv, 1)
+	stallable(t, srv.connList()[0], client)
 
 	errc := make(chan error, 1)
 	go func() {
@@ -624,9 +639,10 @@ func TestQueuedCommandsAreAuthorisedWhenTheyAreWritten(t *testing.T) {
 func TestACommandWaitingBehindAStalledWriterIsBounded(t *testing.T) {
 	srv, _, wsURL, _ := startStatusTestServer(t)
 	tok, _ := mintRestricted(t, instA, "p-a")
-	dialToken(t, wsURL, tok, instA, "p-a") // never read from again
+	client := dialToken(t, wsURL, tok, instA, "p-a") // never read from again
 	waitBrowsers(t, srv, 1)
 	c := srv.connList()[0]
+	stallable(t, c, client)
 
 	stuck := make(chan error, 1)
 	go func() { stuck <- c.write([]byte(strings.Repeat("x", 64<<20))) }() // a reply the browser does not read
