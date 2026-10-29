@@ -46,7 +46,9 @@ describe('a long board renders a bounded number of cards', () => {
     for (let i = 0; i < 18; i++) fireEvent.click(within(inbox).getByRole('button', { name: /Show .* more/ }))
     expect(cardsIn(inbox).length).toBe(1000)
     expect(within(inbox).queryByRole('button', { name: /Show .* more/ })).not.toBeInTheDocument()
-  })
+    // 19 clicks, each re-rendering up to 1000 cards in jsdom: about 13 s on an idle machine, so the global 30 s
+    // is too tight when other work shares the CPU. The test asserts the same things; only its budget is larger.
+  }, 120_000)
 
   it('searches the whole column, not only the cards on screen', async () => {
     render(<Tasks />)
