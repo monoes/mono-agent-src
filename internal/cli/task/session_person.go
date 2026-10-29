@@ -218,8 +218,8 @@ func (d Deps) newPersonApproveCmd() *cobra.Command {
 			}
 			return d.writeSession(cmd, p, se, "Approved")
 		})
-	cmd.Flags().Int64Var(&rev, "rev", 0, "The plan revision you read in `person inbox` (required); the approval is refused if the plan moved")
-	cmd.Flags().StringVar(&digest, "digest", "", "The plan digest `person inbox` showed (optional): also refuses a plan whose content differs")
+	cmd.Flags().Int64Var(&rev, "rev", 0, "The plan revision you read in person inbox (required); the approval is refused if the plan moved")
+	cmd.Flags().StringVar(&digest, "digest", "", "The plan digest person inbox showed (optional): also refuses a plan whose content differs")
 	return cmd
 }
 
