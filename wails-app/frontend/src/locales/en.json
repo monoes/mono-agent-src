@@ -1251,6 +1251,40 @@
     "chooseHint": "Any folder you trust"
   },
   "bubbles": {
+    "orbit": {
+      "groupLabel": "Agents",
+      "groupNamed": "Agents of {{name}}",
+      "satelliteLabel": "{{title}}, {{state}}",
+      "ownAgents_one": "{{count}} agent of its own",
+      "ownAgents_other": "{{count}} agents of its own",
+      "more_one": "{{count}} more agent",
+      "more_other": "{{count}} more agents",
+      "moreTitle": "More agents",
+      "tasks": "{{done}}/{{total}} tasks",
+      "state": {
+        "running": "Running",
+        "waiting": "Waiting for you",
+        "done": "Done",
+        "failed": "Failed",
+        "paused": "Paused",
+        "stopped": "Stopped",
+        "idle": "Idle"
+      },
+      "opensBoard": "No conversation yet: opens its task board",
+      "needsYou_one": "{{count}} item needs you",
+      "needsYou_other": "{{count}} items need you"
+    },
+    "lite": {
+      "board": "Task board",
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop",
+      "stopTurn": "Stop reply",
+      "stopTitle": "Stop this agent?",
+      "stopBody": "Its session ends and its running work is released. Agents below it stop too.",
+      "close": "Close this agent and go back",
+      "call": { "running": "Running", "done": "Done", "failed": "Failed", "interrupted": "Interrupted" }
+    },
     "dockLabel": "Chats",
     "newChat": "New chat",
     "newCoderChat": "New chat",
