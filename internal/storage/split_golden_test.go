@@ -74,6 +74,9 @@ func TestSplitterLeavesEveryExistingMigrationUnchanged(t *testing.T) {
 			withTriggers = append(withTriggers, f)
 			continue
 		}
+		if _, err := splitStatementsChecked(src); err != nil { // the runner refuses what this refuses
+			t.Errorf("%s: the runner would refuse this migration: %v", f, err)
+		}
 		if got, want := splitStatements(src), legacySplitStatements(src); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: the splitter changed how this migration splits (%d statements, was %d)", f, len(got), len(want))
 		}

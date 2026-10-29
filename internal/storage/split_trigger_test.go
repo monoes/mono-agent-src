@@ -123,3 +123,32 @@ func TestBudgetRequestTriggersSurviveEveryMigration(t *testing.T) {
 		t.Fatalf("triggers after all migrations = %v, want %v: a migration that rebuilds a table has to recreate its triggers", got, want)
 	}
 }
+
+// A script that ends inside a string, a quoted identifier or a block comment is an error, not a quiet last
+// statement; a line comment at the very end is fine.
+func TestScriptEndingInsideAQuoteOrCommentIsAnError(t *testing.T) {
+	for name, script := range map[string]string{
+		"block comment":       "CREATE TABLE a (x INTEGER); /* never closed",
+		"block comment w/ ;":  "CREATE TABLE a (x INTEGER); /* never; closed",
+		"string":              "CREATE TABLE a (x INTEGER); INSERT INTO a VALUES ('never closed);",
+		"double quoted ident": `CREATE TABLE a (x INTEGER); SELECT "never closed;`,
+		"backtick ident":      "CREATE TABLE a (x INTEGER); SELECT `never closed;",
+		"bracket ident":       "CREATE TABLE a (x INTEGER); SELECT [never closed;",
+		"inside a trigger":    "CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE a SET x = 'open; END;",
+	} {
+		if _, err := splitStatementsChecked(script); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+	for name, script := range map[string]string{
+		"line comment at the end":    "CREATE TABLE a (x INTEGER); -- the end",
+		"closed block comment":       "CREATE TABLE a (x INTEGER); /* closed */",
+		"escaped quotes at the end":  "INSERT INTO a VALUES ('it''s'); SELECT \"a\"\"b\"",
+		"slash star in a string":     "INSERT INTO a VALUES ('/* not a comment');",
+		"dashes after a closed note": "CREATE TABLE a (x INTEGER); /* a */ -- b",
+	} {
+		if _, err := splitStatementsChecked(script); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

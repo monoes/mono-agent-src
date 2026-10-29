@@ -477,8 +477,10 @@ const (
 	lexBlock    // /* comment */
 )
 
-// splitStatementsChecked is splitStatements that also says when a CREATE TRIGGER is never closed by its END, so
-// the migration runner can refuse the script explicitly. One lexer reads the script: a ';' ends a statement only
+// splitStatementsChecked is splitStatements that also says when the script ends inside a string, a quoted
+// identifier or a block comment, or a CREATE TRIGGER is never closed by its END, so the migration runner refuses
+// the script explicitly before running any of it (SQLite would take an unterminated comment or string to the end
+// of the input; a migration should fail loudly instead). One lexer reads the script: a ';' ends a statement only
 // in normal text, and only outside a trigger's BEGIN ... END body; the body ends at the END that is not the end of
 // a CASE expression. The words CASE, BEGIN and END are counted only in normal text, never inside strings, quoted
 // identifiers or comments.
@@ -569,11 +571,17 @@ func splitStatementsChecked(sql string) ([]string, error) {
 	if stmt := strings.TrimSpace(current.String()); stmt != "" {
 		statements = append(statements, stmt)
 	}
+	switch state {
+	case lexSingle, lexDouble, lexBacktick, lexBracket, lexBlock:
+		return statements, fmt.Errorf("unterminated %s at the end of the script", lexNames[state])
+	}
 	if trig.open() {
 		return statements, fmt.Errorf("incomplete CREATE TRIGGER: no closing END before the end of the script")
 	}
 	return statements, nil
 }
+
+var lexNames = map[int]string{lexSingle: "string", lexDouble: "quoted identifier", lexBacktick: "quoted identifier", lexBracket: "quoted identifier", lexBlock: "block comment"}
 
 // triggerScan follows the words of one statement just far enough to tell where a CREATE TRIGGER ends: it reads
 // the statement's first words, then counts CASE ... END pairs so that only the END that closes the trigger's
