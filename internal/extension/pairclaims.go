@@ -90,6 +90,13 @@ type PendingClaim struct {
 	DecidedAt *time.Time `json:"decidedAt,omitempty"`
 	CreatedAt time.Time  `json:"createdAt"`
 	ExpiresAt time.Time  `json:"expiresAt"`
+	// Restricted and AllowedProfiles are what the owner limited the browser to
+	// when approving (allowed_profiles.go); they become its paired record.
+	Restricted      bool     `json:"restricted,omitempty"`
+	AllowedProfiles []string `json:"allowedProfiles,omitempty"`
+	// Unrestricted is the owner's explicit choice (`approve --any`). Without
+	// it an approved claim mints a limited record, whatever else the file says.
+	Unrestricted bool `json:"unrestricted,omitempty"`
 }
 
 // codeAlphabet has no 0/O/1/I/L: the code is read off a screen and typed.
@@ -202,6 +209,7 @@ func createPendingClaim(c PendingClaim) (_ PendingClaim, secret string, replaced
 	c.ID, c.SecretHash, c.Status = hex.EncodeToString(idb), hashToken(secret), ClaimPending
 	c.CodeHash = codeDigest(c.ID, PairCode(c.ID, secret))
 	c.DecidedAt = nil
+	c.Restricted, c.AllowedProfiles, c.Unrestricted = false, nil, false // only the owner's approval decides
 	c.Label, c.Origin, c.Agent = clip(c.Label), clip(c.Origin), clip(c.Agent)
 	c.CreatedAt, c.ExpiresAt = now, now.Add(PendingClaimTTL)
 
@@ -345,6 +353,21 @@ func FindPendingClaim(idOrPrefix string) (PendingClaim, error) {
 // shows. It is the only way a claim becomes approved, and runs only from the
 // owner's channels.
 func DecidePendingClaim(idOrPrefix string, approve bool, code string) (PendingClaim, error) {
+	return DecidePendingClaimWith(idOrPrefix, approve, code, nil, false)
+}
+
+// DecidePendingClaimWith is DecidePendingClaim that also says what the
+// approved browser may run: the profiles in allowed (none when empty), or
+// anything when unrestricted. Invalid ids are an error. A browser approved
+// without either starts limited to no profile of its own.
+func DecidePendingClaimWith(idOrPrefix string, approve bool, code string, allowed []string, unrestricted bool) (PendingClaim, error) {
+	if unrestricted && len(allowed) > 0 {
+		return PendingClaim{}, errors.New("a browser cannot be both unrestricted and limited to profiles")
+	}
+	clean := cleanProfiles(allowed)
+	if len(clean) != len(dedupe(allowed)) {
+		return PendingClaim{}, fmt.Errorf("not a valid profile id in %q", allowed)
+	}
 	unlock, err := lockState()
 	if err != nil {
 		return PendingClaim{}, err
@@ -374,6 +397,8 @@ func DecidePendingClaim(idOrPrefix string, approve bool, code string) (PendingCl
 	list[hit].Status = ClaimDenied
 	if approve {
 		list[hit].Status = ClaimApproved
+		list[hit].Unrestricted = unrestricted
+		list[hit].Restricted, list[hit].AllowedProfiles = !unrestricted, clean
 	}
 	at := now.UTC()
 	list[hit].DecidedAt = &at
@@ -460,6 +485,7 @@ func pollClaim(id, secret, origin string) (PollOutcome, error) {
 	}
 	token, entry, err := addPairedBrowserLocked(PairedBrowser{
 		Label: c.Label, Origin: c.Origin, Agent: c.Agent, Instance: c.Instance,
+		Restricted: !c.Unrestricted, AllowedProfiles: c.AllowedProfiles,
 	}, mintOpts{ID: c.ID, ReplaceInstance: true})
 	if err != nil {
 		if errors.Is(err, ErrBrowserLimit) {
@@ -526,17 +552,33 @@ func IsPairCard(nodeConfig string) (claimID string, ok bool) {
 // approving, so a request they did not start cannot be approved by mistake.
 func OpenPairCard(ctx context.Context, db *sql.DB, profileID string, c PendingClaim) error {
 	label, origin, instance := clip(c.Label), clip(c.Origin), clip(c.Instance)
-	ro, _ := json.Marshal(map[string]string{
+	roDoc := map[string]string{
 		"claim": c.ID, "browser": label, "origin": origin, "instance": instance,
 		"expiresAt": c.ExpiresAt.Format(time.RFC3339),
-		"summary": fmt.Sprintf("The browser %q (%q) %s. Compare the code shown in the browser panel and type it in the code field to approve; if no browser panel shows a code, deny it.",
+		"summary": fmt.Sprintf("The browser %q (%q) %s. Compare the code shown in the browser panel and type it in the code field to approve; if no browser panel shows a code, deny it. "+
+			"The profiles field lists the profiles this browser may run (profile ids, comma separated; it starts with the id of the profile of this queue). Type any as the whole field to let it run every profile. "+
+			"Left empty, this browser can't serve any profile yet: you would have to choose some later with `monoagentcli extension browsers allow`.",
 			label, origin, PairClaimWording),
-	})
+	}
+	// The profile of the queue the owner is deciding in is the one preselected,
+	// by ID: a name can be "any", hold a comma or equal another profile's id, and
+	// would then mean something else when the field is read back. An id that
+	// could be misread the same way is left out (the browser then serves nothing yet).
+	pre := profileID
+	if IsAnyKeyword(pre) || strings.Contains(pre, ",") || len(pre) > MaxProfileIDLen {
+		pre = ""
+	}
+	editable, _ := json.Marshal(map[string]string{"code": "", "profiles": pre})
+	var queueName string
+	if db.QueryRowContext(ctx, `SELECT name FROM profiles WHERE id = ?`, profileID).Scan(&queueName) == nil {
+		roDoc["queueProfile"] = clip(queueName) + " (" + clip(profileID) + ")"
+	}
+	ro, _ := json.Marshal(roDoc)
 	nc, _ := json.Marshal(map[string]string{"kind": PairCardKind, "claim": c.ID})
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, readonly_data, editable_data, node_config, profile_id)
-		 VALUES (?, ?, ?, ?, ?, 'pending', ?, '{"code":""}', ?, ?)`,
-		uuid.NewString(), "extpair:"+c.ID, PairCardKind, PairCardKind, "Pair browser: "+label, string(ro), string(nc), profileID)
+		 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+		uuid.NewString(), "extpair:"+c.ID, PairCardKind, PairCardKind, "Pair browser: "+label, string(ro), string(editable), string(nc), profileID)
 	return err
 }
 

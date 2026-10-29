@@ -64,7 +64,7 @@ func newExtensionBrowsersCmd(cfg *Deps) *cobra.Command {
 			return runExtensionBrowsers(cmd.Context(), cfg, cmd.OutOrStdout())
 		},
 	}
-	cmd.AddCommand(newExtensionBrowsersListCmd(cfg), newExtensionBrowsersRevokeCmd(cfg))
+	cmd.AddCommand(newExtensionBrowsersListCmd(cfg), newExtensionBrowsersAllowCmd(cfg), newExtensionBrowsersRevokeCmd(cfg))
 	return cmd
 }
 
