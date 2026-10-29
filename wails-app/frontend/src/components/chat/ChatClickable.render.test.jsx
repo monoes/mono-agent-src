@@ -169,3 +169,36 @@ describe('code blocks', () => {
     expect(api.resolveChatPath).not.toHaveBeenCalled()
   })
 })
+
+describe('pathological markdown', () => {
+  it('renders deeply nested quotes as plain text, fast', () => {
+    const evil = '> '.repeat(50000)
+    const t0 = Date.now()
+    mount(evil)
+    expect(Date.now() - t0).toBeLessThan(1000)
+    expect(screen.getByTestId('chat-markdown-plain').textContent).toBe(evil)
+  })
+
+  it('leaves normal markdown rendered', () => {
+    mount('# Title\n\n> quote\n\n- a\n  - b\n')
+    expect(screen.queryByTestId('chat-markdown-plain')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument()
+  })
+
+  it('the preview applies the same guard', async () => {
+    api.resolveChatPath.mockResolvedValue({ kind: 'file', previewable: true, path: '/w/n.md' })
+    api.readChatMarkdown.mockResolvedValue('- '.repeat(5000))
+    mount('`n.md`')
+    fireEvent.click(await screen.findByRole('button', { name: 'n.md' }))
+    expect(await screen.findByTestId('chat-markdown-plain')).toBeInTheDocument()
+  })
+
+  it('a render fault falls back to the text instead of blanking the app', async () => {
+    const { default: ErrorBoundary } = await import('../ErrorBoundary.jsx')
+    const Boom = () => { throw new RangeError('Maximum call stack size exceeded') }
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<ErrorBoundary fallback={() => <pre>shown as text</pre>}><Boom /></ErrorBoundary>)
+    spy.mockRestore()
+    expect(screen.getByText('shown as text')).toBeInTheDocument()
+  })
+})

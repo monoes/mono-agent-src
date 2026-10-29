@@ -7,6 +7,8 @@ import { api } from '../../services/api.js'
 import { classifyUrl, disguisedHost, codeLooksLikePath, remarkChatPaths } from './chatLinks.js'
 import { copyToClipboard } from './toolCardUtils.js'
 import { ChatPathChip } from './ChatPathChip.jsx'
+import ErrorBoundary from '../ErrorBoundary.jsx'
+import { markdownTooDeep } from './markdownGuard.js'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -123,11 +125,21 @@ const withoutPaths = makeComponents(true)
 const plugins = [remarkGfm, remarkChatPaths]
 const pluginsNoPaths = [remarkGfm]
 
+const plainStyle = { fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
+
+// Text that is shown as it is: too deeply nested to parse, or a render fault.
+function PlainText({ content }) {
+  return <pre data-testid="chat-markdown-plain" style={plainStyle}>{content}</pre>
+}
+
 export function ChatMarkdown({ content, noPaths = false }) {
   if (!content) return null
+  if (markdownTooDeep(content)) return <PlainText content={content} />
   return (
-    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
-      <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths}>{content}</ReactMarkdown>
-    </div>
+    <ErrorBoundary key={content.length} fallback={() => <PlainText content={content} />}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
+        <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths}>{content}</ReactMarkdown>
+      </div>
+    </ErrorBoundary>
   )
 }
