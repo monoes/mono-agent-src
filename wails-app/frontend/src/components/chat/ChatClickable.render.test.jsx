@@ -220,3 +220,55 @@ describe('disguised links', () => {
     expect(screen.getAllByText(/\(example\.com\)/)).toHaveLength(1)
   })
 })
+
+describe('bounds', () => {
+  it('looks up at most 30 paths per message; the rest stay text', async () => {
+    api.resolveChatPath.mockImplementation(async () => ({ kind: 'file', previewable: false, path: '/w/x.go' }))
+    const md = Array.from({ length: 45 }, (_, i) => `\`src/f${i}.go\``).join(' ')
+    mount(md)
+    await waitFor(() => expect(api.resolveChatPath).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(api.resolveChatPath).toHaveBeenCalledTimes(30)
+    expect(screen.getByText('src/f44.go')).toBeInTheDocument()
+  })
+
+  it('caps the lookup cache at 500 entries', async () => {
+    const { chatPathCacheSize } = await import('./ChatPathChip.jsx')
+    api.resolveChatPath.mockImplementation(async () => ({ kind: 'file', previewable: false, path: '/w/x.go' }))
+    for (let batch = 0; batch < 20; batch++) {
+      const md = Array.from({ length: 30 }, (_, i) => `\`src/b${batch}f${i}.go\``).join(' ')
+      const { unmount } = mount(md)
+      await waitFor(() => expect(api.resolveChatPath).toHaveBeenCalledTimes((batch + 1) * 30))
+      await Promise.resolve()
+      unmount()
+    }
+    expect(chatPathCacheSize()).toBeLessThanOrEqual(500)
+  })
+
+  it('does not reveal a location for a path outside the folder', async () => {
+    api.resolveChatPath.mockResolvedValue({ kind: 'file', previewable: false })
+    mount('`/etc/hosts`')
+    expect(await screen.findByRole('button', { name: '/etc/hosts' })).toHaveAttribute('title', expect.not.stringContaining('undefined'))
+  })
+
+  it('keeps Tab inside the preview dialog', async () => {
+    api.resolveChatPath.mockResolvedValue({ kind: 'file', previewable: true, path: '/w/n.md' })
+    api.readChatMarkdown.mockResolvedValue('hello')
+    mount('`n.md`')
+    fireEvent.click(await screen.findByRole('button', { name: 'n.md' }))
+    const dialog = await screen.findByRole('dialog')
+    const buttons = dialog.querySelectorAll('button')
+    const last = buttons[buttons.length - 1]
+    last.focus()
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(tab)
+    expect(tab.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(buttons[0])
+    const back = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
+    document.dispatchEvent(back)
+    expect(document.activeElement).toBe(last)
+    document.body.focus()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  })
+})

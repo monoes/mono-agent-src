@@ -26,6 +26,11 @@ function openApproved(url) {
 
 const InPre = createContext(false)
 
+// At most this many path lookups per message; later path-looking pieces stay
+// plain text. The budget is per ChatMarkdown, handed out once per chip.
+const MAX_LOOKUPS_PER_MESSAGE = 30
+const LookupBudget = createContext(null)
+
 // nodeText: the visible text of React children, nested elements included.
 function nodeText(node) {
   if (node == null || typeof node === 'boolean') return ''
@@ -122,9 +127,13 @@ function makeComponents(noPaths) {
 function MdCode(noPaths) {
   return function Code({ node, children, ...rest }) {
     const inPre = useContext(InPre)
+    const budget = useContext(LookupBudget)
+    const slot = useRef(null)
     const text = typeof children === 'string' ? children : ''
     const fromText = rest['data-chat-path-text'] === 'true'
-    if (!inPre && !noPaths && text && (fromText || codeLooksLikePath(text))) return <ChatPathChip token={text} fromText={fromText} />
+    const wanted = !inPre && !noPaths && !!text && (fromText || codeLooksLikePath(text))
+    if (wanted && slot.current === null) slot.current = !budget || budget.left-- > 0
+    if (wanted && slot.current) return <ChatPathChip token={text} fromText={fromText} />
     if (fromText) return <>{text}</>
     return <code style={codeStyle} {...rest}>{children}</code>
   }
@@ -148,13 +157,16 @@ function PlainText({ content }) {
 }
 
 export function ChatMarkdown({ content, noPaths = false }) {
+  const budget = useRef({ left: MAX_LOOKUPS_PER_MESSAGE })
   if (!content) return null
   if (markdownTooDeep(content)) return <PlainText content={content} />
   return (
     <ErrorBoundary key={content.length} fallback={() => <PlainText content={content} />}>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
-        <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths}>{content}</ReactMarkdown>
-      </div>
+      <LookupBudget.Provider value={budget.current}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
+          <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths}>{content}</ReactMarkdown>
+        </div>
+      </LookupBudget.Provider>
     </ErrorBoundary>
   )
 }

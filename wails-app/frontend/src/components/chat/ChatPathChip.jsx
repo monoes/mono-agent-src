@@ -15,6 +15,7 @@ import { splitLine } from './chatLinks.js'
 const MISSING = { kind: 'missing' }
 const cache = new Map() // `${conversation}\0${token}` → { at, info }
 const MISSING_TTL = 3000
+const MAX_CACHE = 500
 
 function lookup(conversationId, token, force) {
   const key = `${conversationId}\0${token}`
@@ -22,12 +23,13 @@ function lookup(conversationId, token, force) {
   if (!force && hit && (hit.info.kind !== 'missing' || Date.now() - hit.at < MISSING_TTL)) return Promise.resolve(hit.info)
   if (typeof api.resolveChatPath !== 'function') return Promise.resolve(MISSING)
   return Promise.resolve(api.resolveChatPath(conversationId, token)).then(
-    (info) => { const v = info && info.kind ? info : MISSING; cache.set(key, { at: Date.now(), info: v }); return v },
+    (info) => { const v = info && info.kind ? info : MISSING; cache.delete(key); cache.set(key, { at: Date.now(), info: v }); if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value); return v },
     () => MISSING,
   )
 }
 
 export function clearChatPathCache() { cache.clear() }
+export function chatPathCacheSize() { return cache.size }
 
 const link = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#00b4d8', textDecoration: 'underline', font: 'inherit' }
 const codeStyle = { background: '#020509', padding: '1px 4px', borderRadius: 3 }
@@ -55,13 +57,13 @@ export function ChatPathChip({ token, fromText = false }) {
   const { line } = splitLine(token)
   const where = line ? ` (${t('chatLinks.line', { line })})` : ''
   if (info.kind === 'dir') {
-    return <button type="button" style={link} onClick={reveal} title={`${t('chatLinks.openFolder')}: ${info.path}`}>{token}</button>
+    return <button type="button" style={link} onClick={reveal} title={`${t('chatLinks.openFolder')}: ${info.path || token}`}>{token}</button>
   }
   const previewable = !!info.previewable
   const label = token.split(/[\\/]/).pop()
   return (
     <span style={{ whiteSpace: 'nowrap' }}>
-      <button type="button" style={link} title={`${previewable ? t('chatLinks.previewHint') : t('chatLinks.revealHint')}: ${info.path}${where}`}
+      <button type="button" style={link} title={`${previewable ? t('chatLinks.previewHint') : t('chatLinks.revealHint')}: ${info.path || token}${where}`}
         onClick={(e) => { if (!previewable || e.ctrlKey || e.metaKey) reveal(); else setOpen(true) }}>
         {token}
       </button>
@@ -71,7 +73,7 @@ export function ChatPathChip({ token, fromText = false }) {
           <FolderOpen size={10} />
         </button>
       )}
-      {open && <ChatFilePreview conversationId={conversationId} token={token} label={info.path} onReveal={reveal} onClose={() => setOpen(false)} />}
+      {open && <ChatFilePreview conversationId={conversationId} token={token} label={info.path || token} onReveal={reveal} onClose={() => setOpen(false)} />}
     </span>
   )
 }
