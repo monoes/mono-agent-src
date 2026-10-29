@@ -1,12 +1,14 @@
 package chat
 
 import (
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/storage"
 )
 
 // --abandon-processes deletes the conversation and leaves the processes its turns left running: nothing
@@ -223,5 +225,33 @@ func TestAbandonProcessesListsAProcessRecordedWhileDeleting(t *testing.T) {
 	}
 	if !processAlive(first) || !processAlive(late) {
 		t.Error("a process was signalled")
+	}
+}
+
+// The operator's gate for --abandon-processes comes before anything else: before the database is opened (it can
+// migrate) and before the arguments are looked at. An agent gets operator_only even when the database cannot
+// be opened or the id is missing, and the database is never touched.
+func TestAbandonProcessesIsRefusedBeforeTheDatabaseOrTheArguments(t *testing.T) {
+	r := newAccessRig(t, true)
+	for name, args := range map[string][]string{
+		"database that cannot be opened": {"delete", "some-id", "--abandon-processes", "--confirm", abandonConfirmPhrase},
+		"no id":                          {"delete", "--abandon-processes"},
+		"too many ids":                   {"delete", "a", "b", "--abandon-processes"},
+	} {
+		opened := 0
+		cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default", JSONOutput: true})
+		cfg.RequireOperator = func(string) error { return errNotOperator }
+		cfg.OpenDB = func() (*storage.Database, error) { opened++; return nil, errors.New("the database cannot be opened") }
+		cmd := newChatCmd(cfg)
+		cmd.SetArgs(append([]string{"history"}, args...))
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		var err error
+		captureStdout(t, func() { err = cmd.Execute() })
+		if exitCodeFor(err) != 3 || err == nil || !strings.Contains(err.Error(), "an agent is running this") {
+			t.Errorf("%s: exit %d (%v), want the operator-only refusal", name, exitCodeFor(err), err)
+		}
+		if opened != 0 {
+			t.Errorf("%s: the database was opened %d time(s) before the refusal", name, opened)
+		}
 	}
 }

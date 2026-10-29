@@ -294,8 +294,22 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			"alone (exit 3, operator_only for an agent, the chat or a workflow) and needs --confirm \"" + abandonConfirmPhrase + "\"; " +
 			"without it nothing is deleted and the processes that would be left are listed. Whether a process is still running is read from the " +
 			"system; where that is unreliable the list may be incomplete or hold one that has ended. Nothing is ever signalled.",
-		Args: cobra.ExactArgs(1),
+		// Leaving processes running is the operator's: that is asked first of all, before the arguments are
+		// looked at and before the database is opened (opening can migrate it).
+		Args: func(cmd *cobra.Command, args []string) error {
+			if abandon {
+				if err := requireOperatorToAbandon(cfg); err != nil {
+					return err
+				}
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if abandon {
+				if err := requireOperatorToAbandon(cfg); err != nil {
+					return err
+				}
+			}
 			store, profileID, closeDB, err := openChatHistory(cfg)
 			if err != nil {
 				return err
@@ -303,10 +317,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			defer closeDB()
 			var abandoned []survivor
 			if abandon {
-				// Leaving processes running is the operator's, asked for in words, and never signals anything.
-				if err := clicore.RequireOperator(cfg.RequireOperator, "delete a conversation and leave the processes its turns started running"); err != nil {
-					return err
-				}
+				// Asked for in words, and never signals anything.
 				if confirm != abandonConfirmPhrase {
 					return previewAbandon(cmd, cfg, store, profileID, args[0])
 				}
@@ -639,6 +650,11 @@ func stopSessions(ctx context.Context, cfg *Deps, profileID string, ids []int64)
 		n++
 	}
 	return n, nil
+}
+
+// requireOperatorToAbandon is the operator check of --abandon-processes.
+func requireOperatorToAbandon(cfg *Deps) error {
+	return clicore.RequireOperator(cfg.RequireOperator, "delete a conversation and leave the processes its turns started running")
 }
 
 // abandonConfirmPhrase is what --confirm must say for --abandon-processes to go ahead.
