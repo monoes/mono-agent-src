@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -935,5 +936,111 @@ func TestOnlyARegularFileIsRemoved(t *testing.T) {
 	}
 	if !exists(target) {
 		t.Error("the link's target was removed")
+	}
+}
+
+// A leftover tombstone that cannot be removed this time (its folder is not writable) is not forgotten: the
+// run reports it, and the row is kept for the next try instead of being dropped as done.
+func TestAFailedTombstoneCleanupKeepsTheRow(t *testing.T) {
+	needIdentity(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root writes any folder")
+	}
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	dir := filepath.Join(c.Cwd, ".monoagent", "attachments", "t1")
+	copyIn := filepath.Join(dir, "report.txt")
+	touchFile(t, copyIn)
+	ref := fileRefOf(t, copyIn)
+	left := filepath.Join(dir, tombstonePrefix+"deadbeefdeadbeef")
+	if err := os.Rename(copyIn, left); err != nil { // the crash: moved, not unlinked
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Skip(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	in := cleanupIntent{DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), Cwd: c.Cwd, Copies: []fileRef{{Rel: filepath.Join("t1", "report.txt"), Dev: ref.Dev, Ino: ref.Ino}}}
+	name, data := signedRow(t, r, "default", "c-left", in)
+	putRow(t, r, name, data)
+
+	sweep(t, r, name, false)
+	if _, still := rowData(t, r, name); !still {
+		t.Error("the row was dropped although the leftover could not be removed")
+	}
+	if !exists(left) {
+		t.Fatal("the leftover is gone")
+	}
+	// The folder is writable again: the next run removes it and the row goes.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sweep(t, r, name, false)
+	if exists(left) {
+		t.Error("the leftover survived the next run")
+	}
+	if _, still := rowData(t, r, name); still {
+		t.Error("the row was kept after it was done")
+	}
+}
+
+// A turn that starts and finishes after the log files were looked at, but before the delete commits, has its
+// log removed too: the transaction sees a turn the scan did not, the pass is repeated, and the scan with it.
+func TestALogOfATurnRecordedAfterTheScanIsRemoved(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logs := filepath.Join(hostDir(cfg), "turns")
+	early, late := filepath.Join(logs, "t1.log"), filepath.Join(logs, "t2.log")
+	touchFile(t, early)
+	recordStarted(t, r, c.ID, "t1")
+	calls := 0
+	beforeGuardedDelete = func() { // after the scan, before the transaction
+		calls++
+		if calls == 1 {
+			touchFile(t, late)
+			recordStarted(t, r, c.ID, "t2")
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if exists(early) || exists(late) {
+		t.Errorf("a log survived: t1 %v, t2 %v", exists(early), exists(late))
+	}
+	if n := cleanupRows(t, r); n != 0 {
+		t.Errorf("%d cleanup row(s) left", n)
+	}
+}
+
+// A key that cannot be had is asked for once per profile in a sweep, not once per row: N rows of a locked
+// profile do not wait N times; the rows are kept.
+func TestAFailedKeyIsAskedForOncePerSweep(t *testing.T) {
+	r := newAccessRig(t, true)
+	var names []string
+	for i := 0; i < 4; i++ {
+		name, data := signedRow(t, r, "default", fmt.Sprintf("c-%d", i), cleanupIntent{Nonce: fmt.Sprintf("n%d", i)})
+		putRow(t, r, name, data)
+		names = append(names, name)
+	}
+	old := deriveKey
+	calls := 0
+	deriveKey = func(context.Context, *sql.DB, string, string) ([]byte, error) {
+		calls++
+		return nil, errors.New("locked")
+	}
+	t.Cleanup(func() { deriveKey = old })
+
+	sweep(t, r, cleanupPrefix, true)
+	if calls != 1 {
+		t.Errorf("the key was asked for %d times for rows of one profile, want 1", calls)
+	}
+	for _, n := range names {
+		if _, still := rowData(t, r, n); !still {
+			t.Errorf("row %s was dropped", n)
+		}
 	}
 }

@@ -112,16 +112,25 @@ func cleanupMac(key []byte, name string, intent []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
+// logScan is what statLogs saw: the log files' identities and the turns they were looked for.
+type logScan struct {
+	Logs  []fileRef
+	Turns map[string]bool
+	OK    bool // false when the turns could not be listed: nothing can be compared with
+}
+
 // statLogs reads, outside any transaction, the identity of the host's log and prompt files of the
 // conversation's turns. It opens the host's turns folder as a pinned root.
-func statLogs(cfg *Deps, store *ai.AIStore, profileID, conversationID string) []fileRef {
+func statLogs(cfg *Deps, store *ai.AIStore, profileID, conversationID string) logScan {
 	var names []string
+	scan := logScan{Turns: map[string]bool{}}
 	for cursor := ""; ; {
 		turns, next, err := store.ListTurns(conversationID, profileID, cursor, 200)
 		if err != nil {
-			return nil
+			return logScan{}
 		}
 		for _, t := range turns {
+			scan.Turns[t.ID] = true
 			if hostID.MatchString(t.ID) {
 				names = append(names, t.ID+".log", t.ID+".prompt")
 			}
@@ -131,12 +140,13 @@ func statLogs(cfg *Deps, store *ai.AIStore, profileID, conversationID string) []
 		}
 		cursor = next
 	}
+	scan.OK = true
 	if len(names) == 0 {
-		return nil
+		return scan
 	}
 	root, err := openPinnedDir(filepath.Join(hostDir(cfg), "turns"))
 	if err != nil {
-		return nil
+		return scan
 	}
 	defer root.Close()
 	var out []fileRef
@@ -149,14 +159,18 @@ func statLogs(cfg *Deps, store *ai.AIStore, profileID, conversationID string) []
 			out = append(out, fileRef{Rel: n, Dev: dev, Ino: ino})
 		}
 	}
-	return out
+	scan.Logs = out
+	return scan
 }
+
+// errTurnsChanged is a delete that found a turn the log scan did not see.
+var errTurnsChanged = errors.New("a turn began while the conversation was being deleted")
 
 // recordCleanup lists the conversation's files from the database, on the delete's own connection, and
 // stores the signed list in configs. logs are the log files whose identity was read before the
 // transaction; only those of turns that are still the conversation's are kept. It touches no file. With
 // no key (the vault's key could not be had) nothing is recorded and the files stay.
-func recordCleanup(ctx context.Context, conn *sql.Conn, profileID, conversationID string, key []byte, logs []fileRef) error {
+func recordCleanup(ctx context.Context, conn *sql.Conn, profileID, conversationID string, key []byte, scan logScan) error {
 	if len(key) == 0 {
 		warnOnStderr("the conversation's files are left in place: the key that signs their cleanup is not available")
 		return nil
@@ -184,8 +198,13 @@ func recordCleanup(ctx context.Context, conn *sql.Conn, profileID, conversationI
 	mine := map[string]bool{}
 	for _, id := range ids {
 		mine[id] = true
+		if scan.OK && !scan.Turns[id] {
+			// A turn began after the log files were looked at: its log has no identity here. The pass is repeated,
+			// scan included.
+			return errTurnsChanged
+		}
 	}
-	for _, l := range logs {
+	for _, l := range scan.Logs {
 		if logFileName.MatchString(l.Rel) && mine[strings.TrimSuffix(strings.TrimSuffix(l.Rel, ".log"), ".prompt")] {
 			in.Logs = append(in.Logs, l)
 		}
@@ -315,7 +334,7 @@ const tombstonePrefix = ".removing-"
 // removeLeftovers removes the files a crash left between the move and the unlink: entries named like a
 // tombstone, in the folders of the recorded files, that still are a recorded file (same device and
 // inode). Anything else with such a name is left alone.
-func removeLeftovers(root *os.Root, refs []fileRef, warn func(format string, a ...any)) {
+func removeLeftovers(root *os.Root, refs []fileRef, warn func(format string, a ...any)) error {
 	type id struct{ dev, ino uint64 }
 	want := map[id]bool{}
 	dirs := map[string]bool{}
@@ -323,29 +342,47 @@ func removeLeftovers(root *os.Root, refs []fileRef, warn func(format string, a .
 		want[id{r.Dev, r.Ino}] = true
 		dirs[filepath.Dir(r.Rel)] = true
 	}
+	var failed []error
+	fail := func(err error) {
+		warn("%v", err)
+		failed = append(failed, err)
+	}
 	for d := range dirs {
 		f, err := root.Open(d)
 		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				fail(fmt.Errorf("could not look for leftovers in %s: %w", d, err))
+			}
 			continue
 		}
-		entries, _ := f.ReadDir(-1)
+		entries, err := f.ReadDir(-1)
 		f.Close()
+		if err != nil {
+			fail(fmt.Errorf("could not list %s: %w", d, err))
+		}
 		for _, e := range entries {
 			if !strings.HasPrefix(e.Name(), tombstonePrefix) {
 				continue
 			}
 			rel := filepath.Join(d, e.Name())
 			fi, err := root.Lstat(rel)
-			if err != nil || !fi.Mode().IsRegular() {
+			if err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					fail(fmt.Errorf("could not look at %s: %w", rel, err))
+				}
+				continue
+			}
+			if !fi.Mode().IsRegular() {
 				continue
 			}
 			if dev, ino, ok := statIdentity(fi); ok && want[id{dev, ino}] {
 				if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
-					warn("could not remove %s: %v", rel, err)
+					fail(fmt.Errorf("could not remove %s: %w", rel, err))
 				}
 			}
 		}
 	}
+	return errors.Join(failed...)
 }
 
 // removeRecorded removes the file ref names inside root, if it still is the recorded file. The name is
@@ -417,7 +454,9 @@ func (in cleanupIntent) run(logDir string, warn func(format string, a ...any)) e
 					fail(err)
 				}
 			}
-			removeLeftovers(root, in.Logs, warn)
+			if err := removeLeftovers(root, in.Logs, warn); err != nil {
+				failed = append(failed, err)
+			}
 			root.Close()
 		}
 	}
@@ -459,7 +498,9 @@ func (in cleanupIntent) run(logDir string, warn func(format string, a ...any)) e
 			dirs[d] = true
 		}
 	}
-	removeLeftovers(root, in.Copies, warn)
+	if err := removeLeftovers(root, in.Copies, warn); err != nil {
+		failed = append(failed, err)
+	}
 	for d := range dirs {
 		_ = root.Remove(d) // only while empty
 	}
@@ -500,7 +541,7 @@ func runCleanups(ctx context.Context, db *sql.DB, logDir, name string, prefix bo
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	keys := map[string][]byte{}
+	keys := &keyCache{keys: map[string][]byte{}, errs: map[string]error{}}
 	for _, r := range todo {
 		drop := true
 		if in, err := verifiedIntent(ctx, db, keys, r.name, r.data, warn); err != nil {
@@ -561,21 +602,39 @@ type errRetry struct{ error }
 
 func (e errRetry) Unwrap() error { return e.error }
 
+// keyCache holds, for one sweep, the key of each profile or the reason it could not be had: a locked
+// profile is asked once, not once per row.
+type keyCache struct {
+	keys map[string][]byte
+	errs map[string]error
+}
+
+func (c *keyCache) get(ctx context.Context, db *sql.DB, profileID string) ([]byte, error) {
+	if k, ok := c.keys[profileID]; ok {
+		return k, nil
+	}
+	if err, ok := c.errs[profileID]; ok {
+		return nil, err
+	}
+	k, err := deriveKeyWithin(ctx, db, profileID)
+	if err != nil {
+		c.errs[profileID] = err
+		return nil, err
+	}
+	c.keys[profileID] = k
+	return k, nil
+}
+
 // verifiedIntent is the row's intent if its MAC verifies and its conversation is gone.
-func verifiedIntent(ctx context.Context, db *sql.DB, keys map[string][]byte, name, data string, warn func(string, ...any)) (cleanupIntent, error) {
+func verifiedIntent(ctx context.Context, db *sql.DB, keys *keyCache, name, data string, warn func(string, ...any)) (cleanupIntent, error) {
 	var in cleanupIntent
 	profileID, conversationID, ok := splitCleanupName(name)
 	if !ok {
 		return in, errors.New("its name is not a cleanup row's")
 	}
-	key, have := keys[profileID]
-	if !have {
-		k, err := deriveKeyWithin(ctx, db, profileID)
-		if err != nil {
-			return in, errRetry{fmt.Errorf("its key could not be had: %w", err)}
-		}
-		key = k
-		keys[profileID] = k
+	key, err := keys.get(ctx, db, profileID)
+	if err != nil {
+		return in, errRetry{fmt.Errorf("its key could not be had: %w", err)}
 	}
 	var env envelope
 	if json.Unmarshal([]byte(data), &env) != nil || !hmac.Equal([]byte(cleanupMac(key, name, env.Intent)), []byte(env.Mac)) {
