@@ -333,24 +333,28 @@ downgrade: step 3 of the launch ordering refuses to issue while the service is n
 - A new table `process_bindings` holds v2 bindings, one **insert-only** row per token id (in
   addition to the v2 token tables below):
   `{token_id, profile, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at,
-  mac}`. The row is never updated (revocation stays in the token table). `mode` and `version`
+  expires_at, mac}`, with `expires_at` equal to the token row's expiry and **inside the MAC**
+  (the retention rule below reads it, so it must be authenticated; a verifier also requires it
+  to equal the token row's MAC-covered expiry). The row is never updated (revocation stays in the token table). `mode` and `version`
   are inside the MAC input, and the MAC is domain separated:
   `HMAC(K_bind, "mono/procbind/v2" || version || mode || fields)`, so a v1 MAC (field list of
   `mission_process.go`) can never validate as a v2 MAC and a v2 row cannot be reinterpreted as a
   v1 row by editing a column. A verifier never selects the field list from a mutable column: it
   selects it from where the record is (v2 table) and from the token's own marker (below).
 - A new table `procbind_host` is an **append-only log** of host starts: one row per start,
-  `{profile, seq, generation, started_at, prev_mac_hash, mac}`, where `seq` is a per-profile
-  strictly increasing integer, `generation` the random 128-bit value of that start, and
-  `prev_mac_hash` the hash of the previous row's MAC (a chain). The **current row** is the one
-  with the highest `seq` for the profile; a verifier reads only that row and requires the
-  service's hello generation to equal it. Its MAC key is the vault-derived key, so it is
-  courtesy-grade under the section 1 threat model, and the profile, `seq`, generation and
-  `prev_mac_hash` inside the MAC stop a verifier mixing records, registry entries or sockets
-  between profiles or host restarts, and stop a row being replaced or the chain being re-cut
-  without the key. The latest row cannot be deleted (the retention rule below only deletes a row
-  that a newer row supersedes), so an older generation cannot be resurrected by deleting the
-  newest.
+  `{profile, seq, generation, started_at, mac}`, where `seq` is a per-profile strictly
+  increasing integer and `generation` the random 128-bit value of that start. The **current row**
+  is the one with the highest `seq` for the profile; a verifier reads only that row and requires
+  the service's hello generation to equal it. Its MAC key is the vault-derived key, so it is
+  courtesy-grade under the section 1 threat model, and the profile, `seq` and generation inside
+  the MAC stop a verifier mixing records, registry entries or sockets between profiles or host
+  restarts, and stop the current row being edited or replaced without the key. **What the log
+  does and does not protect:** it protects the **latest row, i.e. the current generation**. It
+  does not prove continuity of history: retention deletes old rows, so the verifier cannot
+  detect the removal of an intermediate row, and the design makes no such claim (there is no
+  hash chain and no checkpoint). Nothing authorizes from an old row, so losing history costs only
+  audit. The latest row cannot be deleted (the retention rule below only deletes a row that a
+  newer row supersedes), so an older generation cannot be made current by deleting the newest.
 
 **Immutability and retention (one rule for all five tables).** Every v2 table rejects `UPDATE`
 outright (a trigger raises). `DELETE` is rejected **unless the row is past retention**, and
@@ -358,7 +362,8 @@ nothing else is exempt: no named table or operation bypasses the triggers, and t
 separate archive step.
 
 - `agent_tokens_v2`, `coder_session_tokens_v2`, `process_bindings`: a row may be deleted only when
-  its MAC-covered `expires_at` is older than the retention window (default 7 days). A live or
+  its MAC-covered `expires_at` (every one of the three carries it inside its MAC) is older than
+  the retention window (default 7 days). A live or
   recently expired token's row cannot be removed by anyone.
 - `token_revocations_v2`: a row may be deleted only when the token it revokes has an `expires_at`
   older than the same window (the trigger looks the token up; a revocation whose token row is
@@ -648,8 +653,9 @@ scratch `HOME`, never the real database, and the same fake vault-key source the 
   a recently expired row, a revocation of a recently expired token and the newest host row is
   rejected; `DELETE` of a row past the window succeeds (and a revocation past the window does not
   un-revoke a token whose expiry denies it); `SweepMissions` removes exactly the rows past the
-  window; storage after N issue/expire cycles stays bounded; the host log chain detects a replaced
-  or re-cut row and an older generation cannot be made current.
+  window; storage after N issue/expire cycles stays bounded; the newest host row cannot be deleted so an older
+  generation cannot be made current, an edited current row fails its MAC, and the tests do not
+  assert any continuity of older history.
 - **Migration:** a legacy row verifies unchanged; deleting the v2 binding row of a v2-prefixed
   token denies; a v1 MAC cannot validate a v2 row.
 - **Socket creation:** a symlinked leaf, a wrong-mode directory, a foreign-owned directory, an
