@@ -102,6 +102,11 @@ func TestBudgetRequestTableAndBudgetRaiseAreWrittenOnlyByTheStoreFile(t *testing
 		src := string(raw)
 		if rel != "internal/coderhost/budgetreq.go" {
 			for _, w := range []string{"INTO coder_budget_requests", "UPDATE coder_budget_requests", "DELETE FROM coder_budget_requests"} {
+				// Deleting a conversation removes its lead's requests and closes the ones that named it as a target
+				// (never grants or reopens): the one other writer, with its own test.
+				if rel == "internal/ai/chat_events_conversations.go" && w != "INTO coder_budget_requests" {
+					continue
+				}
 				if strings.Contains(src, w) {
 					t.Errorf("%s writes the budget requests (%q): only budgetreq.go does", rel, w)
 				}
