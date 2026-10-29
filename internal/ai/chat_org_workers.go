@@ -146,3 +146,25 @@ func orEmptyList(s []string) []string {
 	}
 	return s
 }
+
+// OrgWorkerIDs are the ids of every worker stored for the conversation, however many a turn loads: the ids a new worker
+// of the next turn must not take.
+func (s *AIStore) OrgWorkerIDs(profileID, conversationID string) ([]string, error) {
+	if profileID == "" {
+		return nil, ErrProfileRequired
+	}
+	rows, err := s.db.Query(`SELECT agent_id FROM ai_chat_org_workers WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("list org worker ids: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read org worker id: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

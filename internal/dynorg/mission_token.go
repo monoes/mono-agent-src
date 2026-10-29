@@ -146,11 +146,12 @@ func (c *Conductor) mintMission(ctx context.Context, w *worker, env map[string]s
 	// first in the database: a retirement that came first is seen here and the run does not start; one that
 	// comes later finds this token and refuses.
 	if !w.task.verifier {
-		gen, err := c.missionClaimNumber(ctx, mc, w)
-		retired := false
-		if err == nil {
-			retired, err = mc.Store.WorkerRetired(ctx, mc.ProfileID, w.task.session, w.task.task.ID, gen)
-		}
+		// The worker's number comes from its own claim (spawn); a worker without one is judged as retired when its
+		// task was ever retired, never against the task's latest claim.
+		c.mu.Lock()
+		gen := w.missionGen
+		c.mu.Unlock()
+		retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, w.task.session, w.task.task.ID, gen)
 		if err != nil || retired {
 			c.revokeMissionToken(mc, tok.ID)
 			if err != nil {

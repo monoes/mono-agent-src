@@ -181,6 +181,9 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		Missions: missionRun(mission, db.DB, journal.turnID),
 	})
 	cond.AddVeterans(journal.veterans())
+	if ids, err := journal.store.OrgWorkerIDs(journal.profileID, journal.conversationID); err == nil {
+		cond.ReserveWorkerIDs(ids) // every stored id, not only the latest ones a turn loads
+	}
 	opts.Tools = dynorg.ToolSpecs(settings.appAccess())
 	opts.OnToolCall = cond.Handle
 	opts.ToolTimeout = dynorg.ToolTimeout

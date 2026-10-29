@@ -186,3 +186,26 @@ func (c *Conductor) veteranBlockedLocked(w *worker) error {
 	}
 	return nil
 }
+
+// NextWorkerSeq is the highest worker number among ids ("w7" is 7), 0 when none: the counter a conductor starts from so that
+// its next worker (w8) takes none of them.
+func NextWorkerSeq(ids []string) int {
+	seq := 0
+	for _, id := range ids {
+		if n, err := strconv.Atoi(strings.TrimPrefix(id, "w")); err == nil && n > seq {
+			seq = n
+		}
+	}
+	return seq
+}
+
+// ReserveWorkerIDs keeps the next worker's id clear of every stored worker of the conversation. AddVeterans does it for the
+// ones it is given, which are only the latest; this covers all of them.
+func (c *Conductor) ReserveWorkerIDs(ids []string) {
+	n := NextWorkerSeq(ids)
+	c.mu.Lock()
+	if n > c.seq {
+		c.seq = n
+	}
+	c.mu.Unlock()
+}

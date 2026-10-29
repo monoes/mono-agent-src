@@ -115,37 +115,5 @@ func (c *Conductor) noteRetirements(mc *MissionRun, sid int64) {
 // afterFollowupCheck, set by tests only, runs between the retirement check of a follow-up and its queueing.
 var afterFollowupCheck func()
 
-// missionClaimNumber is the claim number the executor w started under: how many times its task had been
-// taken when its first run began. It is read once, at the first mint, when its own claim is the latest.
-func (c *Conductor) missionClaimNumber(ctx context.Context, mc *MissionRun, w *worker) (int, error) {
-	c.mu.Lock()
-	gen := w.missionGen
-	c.mu.Unlock()
-	if gen > 0 {
-		return gen, nil
-	}
-	n, err := mc.Store.TaskClaims(ctx, mc.ProfileID, w.task.task.ID)
-	if err != nil {
-		return 0, err
-	}
-	c.mu.Lock()
-	if w.missionGen == 0 {
-		w.missionGen = n
-	}
-	gen = w.missionGen
-	c.mu.Unlock()
-	return gen, nil
-}
-
-// claimNumberOf is how many times the task of b has been taken, read right after its own claim.
-func (c *Conductor) claimNumberOf(ctx context.Context, b *missionBind) (int, error) {
-	mc, err := c.missions()
-	if err != nil {
-		return 0, err
-	}
-	n, err := mc.Store.TaskClaims(ctx, mc.ProfileID, b.task.ID)
-	if err != nil {
-		return 0, fmt.Errorf("task #%d: its claim number could not be read: %w", b.task.ID, err)
-	}
-	return n, nil
-}
+// afterMissionClaim, set by tests only, runs right after a worker's claim was written.
+var afterMissionClaim func()

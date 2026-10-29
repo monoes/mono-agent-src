@@ -140,6 +140,12 @@ func (c *Conductor) missionPrepare(ctx context.Context, req SpawnRequest, parent
 
 // missionClaim takes the task for the bind's name; the claim is a lease the watcher renews.
 func (c *Conductor) missionClaim(ctx context.Context, b *missionBind) error {
+	_, err := c.missionClaimN(ctx, b)
+	return err
+}
+
+// missionClaimN is missionClaim that also returns the claim's own number, taken in the transaction that wrote the claim.
+func (c *Conductor) missionClaimN(ctx context.Context, b *missionBind) (int, error) {
 	mc, _ := c.missions()
 	lease := mc.lease()
 	if b.name == missionLeadName {
@@ -149,18 +155,22 @@ func (c *Conductor) missionClaim(ctx context.Context, b *missionBind) error {
 	c.msched.init()
 	c.msched.pending[b.task.ID] = true
 	c.msched.mu.Unlock()
-	if _, err := mc.Store.SessionClaim(ctx, mc.ProfileID, b.session, b.task.ID, b.actor, lease); err != nil {
+	_, number, err := mc.Store.SessionClaimNumbered(ctx, mc.ProfileID, b.session, b.task.ID, b.actor, lease)
+	if err != nil {
 		c.msched.mu.Lock()
 		delete(c.msched.pending, b.task.ID)
 		c.msched.mu.Unlock()
-		return err
+		return 0, err
+	}
+	if afterMissionClaim != nil {
+		afterMissionClaim()
 	}
 	b.renewedAt = c.cfg.Now()
 	c.msched.mu.Lock()
 	c.msched.owned[b.task.ID] = ownedClaim{name: b.name, session: b.session}
 	c.msched.mu.Unlock()
 	c.missionWatch(b.session)
-	return nil
+	return number, nil
 }
 
 // missionUnclaim gives the claim back when the worker could not be registered.

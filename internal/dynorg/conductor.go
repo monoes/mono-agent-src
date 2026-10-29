@@ -340,14 +340,10 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 	}
 	claimNo := 0
 	if task != nil && !task.verifier { // a verifier holds no claim: it only checks
-		if err := c.missionClaim(ctx, task); err != nil {
-			return WorkerInfo{}, err
-		}
-		// The worker's claim number is taken with its claim, before it waits for a slot or runs: its own claim
-		// is the task's latest, and the number is what a later claim by another worker cannot undo.
+		// The claim returns its own number, taken in the transaction that wrote it: nothing that happens to the task
+		// afterwards (given back, retired, claimed by another worker) can change it.
 		var err error
-		if claimNo, err = c.claimNumberOf(ctx, task); err != nil {
-			c.missionUnclaim(task, "its claim number could not be read")
+		if claimNo, err = c.missionClaimN(ctx, task); err != nil {
 			return WorkerInfo{}, err
 		}
 	}

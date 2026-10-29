@@ -93,21 +93,6 @@ func (s *Store) RetireWorker(ctx context.Context, profileID string, sessionID, i
 	return out, nil
 }
 
-// TaskClaims is how many times a worker has taken the task. A worker records it when it starts: it is the
-// worker's claim number.
-func (s *Store) TaskClaims(ctx context.Context, profileID string, id int64) (int, error) {
-	n := 0
-	err := s.snapshot(ctx, func(x dbx) error {
-		if _, err := s.profileOf(ctx, x, profileID); err != nil {
-			return err
-		}
-		var err error
-		n, err = s.claimCount(ctx, x, id)
-		return err
-	})
-	return n, err
-}
-
 // WorkerRetired says whether the operator retired the worker of the task that started under claim number
 // gen. A gen that is not known (0) is judged conservatively: the worker counts as retired when the task was
 // ever retired, never measured against the task's latest claim. A retirement made when the task had been taken N times retires the
@@ -158,12 +143,12 @@ func (s *Store) endStoredWorkers(ctx context.Context, x dbx, profileID string, s
 // number of claims the task had then (" (claims: N)") and the operator's note.
 func retirementNote(id int64) string { return fmt.Sprintf("task #%d", id) }
 
-// claimCount is how many times a worker took the task. Events are never deleted, so it only grows: a
+// claimCount is how many claim events the task has (a claim, a renewal of one, a takeover of an expired lease). Events are never deleted, so it only grows: a
 // retirement made at N claims stands until a worker takes the task again. It needs no clock, which the
 // store stamps to the second.
 func (s *Store) claimCount(ctx context.Context, x dbx, id int64) (int, error) {
 	var n int
-	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_events WHERE task_id = ? AND kind = 'claimed'`, id).Scan(&n); err != nil {
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_events WHERE task_id = ? AND kind IN ('claimed', 'reclaimed')`, id).Scan(&n); err != nil {
 		return 0, fmt.Errorf("tasks: counting the claims of task #%d: %w", id, err)
 	}
 	return n, nil

@@ -330,3 +330,82 @@ func TestARetiredWorkersIdIsNotReused(t *testing.T) {
 		t.Fatalf("the id sequence is %d after retired w1 and w4, want 4 (the next worker is w5)", seq)
 	}
 }
+
+// The claim number belongs to the claim that wrote it: whatever happens to the task between that claim and the
+// moment the conductor files its worker (the claim given back, the worker retired, another worker claiming)
+// cannot give the first worker the second one's number.
+func TestAWorkersClaimNumberIsTheNumberOfItsOwnClaim(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	fired := false
+	afterMissionClaim = func() {
+		if fired {
+			return
+		}
+		fired = true
+		// the first worker's claim is given back, the operator retires it, and another worker takes the task
+		if _, err := r.store.SessionRelease(tbg, "default", r.sid, a.ID, "given back", tasks.Actor{Kind: tasks.Agent, Name: missionWorkerName(r.sid, a.ID), Session: r.sid, Task: a.ID}); err != nil {
+			t.Error(err)
+		}
+		if _, err := r.store.RetireWorker(tbg, "default", r.sid, a.ID, "raced", operator); err != nil {
+			t.Error(err)
+		}
+		if _, err := r.db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, '2026-10-25T12:00:00Z', 'next', 'claimed', '')`, a.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterMissionClaim = nil })
+	if _, err := r.c.Handle(tbg, ToolSpawn, json.RawMessage(`{"task_id":`+strconv.FormatInt(a.ID, 10)+`}`)); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	r.c.mu.Lock()
+	w := r.c.workers["w1"]
+	gen := 0
+	if w != nil {
+		gen = w.missionGen
+	}
+	r.c.mu.Unlock()
+	if gen != 1 {
+		t.Fatalf("the first worker's claim number = %d, want 1 (its own claim, not the second worker's)", gen)
+	}
+	// The worker was spawned after its claim had been given back and retired; its run mints its token first and
+	// asks the store afterwards, so it ends as retired without having run.
+	eventually(t, "the retired worker's run to end", func() bool {
+		r.c.mu.Lock()
+		defer r.c.mu.Unlock()
+		return !running(r.c.workers["w1"].status) && r.c.workers["w1"].errText != ""
+	})
+	r.c.mu.Lock()
+	errText := r.c.workers["w1"].errText
+	r.c.mu.Unlock()
+	if !strings.Contains(errText, "retired") {
+		t.Fatalf("the first worker's error = %q, want it to say it was retired", errText)
+	}
+	if got := r.ex.runCount(a.ID); got != 0 {
+		t.Fatalf("a retired worker ran: %d runs", got)
+	}
+	if err := r.c.retiredRefusal(tbg, "w1"); err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("the first worker, once idle, is not refused a follow-up: %v", err)
+	}
+}
+
+// The id sequence is seeded from every stored worker, not only the few a turn loads: with w1 loaded and a
+// retired w13 left out of the load, the next worker is w14, never w13.
+func TestTheIdSequenceClearsEveryStoredWorker(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc})
+	t.Cleanup(c2.Close)
+	c2.AddVeterans([]Veteran{{ID: "w1", Runtime: opus.Runtime, Model: opus.Model, Session: "s", Report: "r", Outcome: "done"}})
+	c2.ReserveWorkerIDs([]string{"w1", "w13", "w2", "f7"})
+	c2.mu.Lock()
+	seq := c2.seq
+	c2.mu.Unlock()
+	if seq != 13 {
+		t.Fatalf("the id sequence = %d, want 13 (the next worker is w14)", seq)
+	}
+	if got := NextWorkerSeq([]string{"x", "w", "w0", "w5"}); got != 5 {
+		t.Fatalf("NextWorkerSeq = %d, want 5", got)
+	}
+}
