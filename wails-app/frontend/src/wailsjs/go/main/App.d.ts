@@ -601,6 +601,8 @@ export function InstallExtension():Promise<main.ExtensionInfo>;
 
 export function PauseOrgAutonomy(arg1:string,arg2:string):Promise<string>;
 
+export function PersonItemAnswerAsk(arg1:number,arg2:string):Promise<string>;
+
 export function PersonItemApprove(arg1:number,arg2:number,arg3:string):Promise<string>;
 
 export function PersonItemAsk(arg1:number,arg2:string):Promise<string>;

@@ -3,11 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { BellRing, ExternalLink } from 'lucide-react'
 import { itemsForConversation } from '../../lib/personItems.js'
 import { usePersonItemsContext } from './PersonItemsContext.jsx'
-import { MuteToggle, PersonItemCard as PersonCard } from './PersonItemCard.jsx'
+import { MuteToggle } from './PersonItemCard.jsx'
+import { PersonCard } from './AskItemCard.jsx'
 import './personitem.css'
 
-// A card item: a giant plan waiting for approval.
-const isPlan = it => it?.kind === 'plan_approval' && it.sessionId > 0
+// A card item: a giant plan waiting for approval, or a critical ask of a lead (it names its ask).
+const isPlan = it => (it?.kind === 'plan_approval' && it.sessionId > 0) || (it?.kind === 'ancestor_question' && it.askId > 0)
 
 // useKeepFocus: an answered card leaves the page and takes the focus held in it along (to the body). Wrapping
 // answer arms it; once the list changes and the focus is nowhere, fallback() names where it goes (a composer, the

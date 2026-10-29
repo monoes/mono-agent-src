@@ -8,7 +8,7 @@ import es from './es.json'
 
 const flat = (o, p = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? flat(v, `${p}${k}.`) : [`${p}${k}`]))
 const has = (keys, k) => keys.includes(k) || (keys.includes(`${k}_one`) && keys.includes(`${k}_other`))
-const files = ['components/bubbles/PersonItemCard.jsx', 'components/bubbles/PersonItemViews.jsx', 'components/bubbles/PersonItemsContext.jsx', 'components/settings/NotificationsSection.jsx']
+const files = ['components/bubbles/PersonItemCard.jsx', 'components/bubbles/AskItemCard.jsx', 'components/bubbles/PersonItemViews.jsx', 'components/bubbles/PersonItemsContext.jsx', 'components/settings/NotificationsSection.jsx']
 const root = join(__dirname, '..')
 const used = [...new Set(files.flatMap(f => [...readFileSync(join(root, f), 'utf8').matchAll(/['"`]((?:personItem)\.[a-zA-Z0-9_.]+)['"`]/g)].map(m => m[1])))]
 

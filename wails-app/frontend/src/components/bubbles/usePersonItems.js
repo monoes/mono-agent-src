@@ -131,7 +131,8 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
     const res = verb === 'approve' ? await personItemsApi.approve(id, shown?.rev ?? 0, shown?.digest ?? '')
       : verb === 'deny' ? await personItemsApi.deny(id, text)
         : verb === 'ask' ? await personItemsApi.ask(id, text)
-          : { error: 'unknown answer' }
+          : verb === 'answerAsk' ? await personItemsApi.answerAsk(item?.askId, text)
+            : { error: 'unknown answer' }
     if (!res?.error || res.code === 'plan_changed') refresh()
     return res
   }, [refresh])
