@@ -313,6 +313,11 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
+		// Its AI task's token carries the conversation's privileges: it stops working, and a task still open is cancelled.
+		`UPDATE ai_tasks SET token_hash = '', holder_pid = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+			status = CASE WHEN status IN ('queued', 'running', 'needs_user') THEN 'cancelled' ELSE status END,
+			error = CASE WHEN status IN ('queued', 'running', 'needs_user') THEN 'the conversation was deleted' ELSE error END
+			WHERE conversation_id = ?1 AND profile_id = ?2`,
 		// A task a child session was running (or was about to run: its conversation is still pending) goes to "gone" (its lead learns that from the row); what the
 		// conversation led as a mission lead (audit rows, marks, policy) goes with it.
 		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', reserved_usd = 0, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE (child_conversation_id = ?1 OR pending_conversation_id = ?1) AND profile_id = ?2 AND state IN ('spawning', 'spawned')`,
