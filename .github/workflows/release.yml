@@ -31,9 +31,12 @@ jobs:
   # The root module's vet and tests are skipped when CI already passed for the
   # same code: a CI run on this SHA, or -- for a PR merge commit -- the PR's CI
   # run on its head (the second parent) that started after the first parent
-  # landed on master and was a FULL run (.github/scripts/ci-run-is-full.sh: no
-  # job skipped by the path rules). That run tested the PR merged into exactly that parent,
-  # which is this commit. Anything else runs them as before.
+  # landed on master and was a FULL run (ci-run-is-full.sh, with the job list in
+  # ci-expected-shards.txt, both read from that first parent: the default-tag test
+  # shards and the default aggregator all ran and passed; jobs the path rules
+  # trimmed elsewhere do not matter). That run tested the PR merged into exactly
+  # that parent, which is this commit. The push-event proof on this very SHA is
+  # event=push only, so a fast-forward landing cannot accept a PR's trimmed run. Anything else runs them as before.
   test:
     runs-on: ubuntu-latest
     permissions:
@@ -55,18 +58,27 @@ jobs:
         run: |
           passed=false
           runs() { gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$1&$2&per_page=50" --jq "$3" || true; }
-          if [ -n "$(runs "$SHA" status=success '.workflow_runs[].id')" ]; then
+          if [ -n "$(runs "$SHA" 'event=push&status=success' '.workflow_runs[].id')" ]; then
             echo "CI passed on $SHA"; passed=true
           elif p1=$(git rev-parse -q --verify "$SHA^1") && p2=$(git rev-parse -q --verify "$SHA^2"); then
             pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq ".[] | select(.merge_commit_sha == \"$SHA\" and .base.ref == \"$BRANCH\" and .head.sha == \"$p2\") | .number" || true)
             landed=$(runs "$p1" event=push '[.workflow_runs[].created_at] | min // empty')
             full=""
+            # The proof rules (which job names make a run FULL, and the check
+            # itself) come from the commit the PR was merged INTO ($p1), never
+            # from the PR's own tree: a PR that dropped matrix cells would
+            # otherwise also have dropped them from the list. If $p1 has no
+            # copy (the first merge that introduces them) nothing is proof.
+            exp="$RUNNER_TEMP/ci-expected-shards.txt" chk="$RUNNER_TEMP/ci-run-is-full.sh"
+            if ! { git show "$p1:.github/scripts/ci-expected-shards.txt" >"$exp" && git show "$p1:.github/scripts/ci-run-is-full.sh" >"$chk"; } 2>/dev/null; then
+              echo "no PR-run proof rules on $p1: the tests run here"; pr=""
+            fi
             if [ -n "$pr" ] && [ -n "$landed" ]; then
               # A PR run counts as proof only if it was a FULL run: path trimming can
               # skip jobs, and a trimmed green run proves nothing about this commit.
               # A trimmed or unreadable run falls through to running the tests here.
               for id in $(runs "$p2" 'event=pull_request&status=success' ".workflow_runs[] | select(.created_at > \"$landed\") | .id"); do
-                if bash .github/scripts/ci-run-is-full.sh "$REPO" "$id"; then full=$id; break; fi
+                if bash "$chk" "$REPO" "$id" "$exp"; then full=$id; break; fi
                 echo "PR run $id was trimmed or unreadable: not proof"
               done
             fi
