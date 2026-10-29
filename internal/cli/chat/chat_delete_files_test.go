@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -529,5 +530,42 @@ func TestACleanupRunsOnlyItsOwnRow(t *testing.T) {
 	}
 	if !exists(filepath.Join(logDir, "t1.log")) {
 		t.Error("another conversation's cleanup row was run")
+	}
+}
+
+// An agent's delete of a conversation (one with no mission and nothing left running) still lists and
+// removes its files while the storage write guard refuses every non-operator write of a reserved row:
+// the delete writes its row on its own transaction's connection, not through the guarded store path,
+// and nothing else can write that row (file-cleanup/ is a reserved config prefix).
+func TestAnAgentsDeleteStillCleansUpFilesUnderTheWriteGuard(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	log := filepath.Join(hostDir(cfg), "turns", "t1.log")
+	touchFile(t, log)
+	recordStarted(t, r, c.ID, "t1")
+
+	old := storage.ConfigWriteGuard
+	storage.ConfigWriteGuard = func(name string) error { return errors.New("a non-operator may not write " + name) }
+	t.Cleanup(func() { storage.ConfigWriteGuard = old })
+
+	// The guarded store path refuses the reserved row...
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveConfig(cleanupName("default", c.ID), "{}"); err == nil {
+		t.Error("the guarded store path wrote a cleanup row for a non-operator")
+	}
+	db.Close()
+	// ...and the delete does its work all the same.
+	if out, err := r.history(t, errNotOperator, "delete", c.ID); err != nil {
+		t.Fatalf("an agent's delete: %v\n%s", err, out)
+	}
+	if exists(log) {
+		t.Error("the log of the deleted conversation survived")
+	}
+	if n := cleanupRows(t, r); n != 0 {
+		t.Errorf("%d cleanup row(s) left", n)
 	}
 }

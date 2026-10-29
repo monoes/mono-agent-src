@@ -40,7 +40,10 @@ import "strings"
 //     that the person asked for a mission; a write by anything else would be
 //     a forged confirmation. Their values are also hidden from `config get`,
 //     `config list` and whatever else shows rows to a non-operator
-//     (HiddenConfig).
+//     (HiddenConfig). file-cleanup/ holds the lists of files a deleted
+//     conversation's turns left, which `chat history delete` writes in its own
+//     transaction and runs after the commit (and `chat history reconcile` after a
+//     crash); a row written by anything else would name files to remove.
 //
 // Not reserved: the social actions' selector configs. Their names are
 // free-form (<platform>_<action>[_context]), the engine writes them itself
@@ -64,6 +67,7 @@ var reservedConfigs = []string{
 // starts with one (in any case, with spaces before it) is reserved.
 var ReservedConfigPrefixes = []string{
 	"coder-mission-confirm/",
+	"file-cleanup/",
 }
 
 // ReservedConfig reports whether name is a reserved config row, in any case
