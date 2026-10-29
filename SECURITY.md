@@ -2149,8 +2149,10 @@ prompt: a lead that names a model outside the set, a stale pair or an unknown pu
 has no tool that edits the set, and it cannot choose the author model that the different-model rule
 compares against (the code that knows it supplies it). Which set applies follows the worker's role
 (its category), not what the lead says: a purpose the lead names can only narrow, to one the role's
-category allows, and the sets then intersect; a role the table does not map is held to every set the
-user chose. The sets are read again at each spawn and at the verifier's model choice, and a set that
+category allows, and the sets then intersect; only the built-in roles map to a purpose (a
+role file in the chat folder, which a worker can write, is held to every set the user chose whatever
+category it claims), and a veteran worker from an earlier turn is rechecked against the current sets on
+every follow-up. The sets are read again at each spawn and at the verifier's model choice, and a set that
 cannot be read refuses the spawn. What it does not stop: a same-user process can still edit the
 database directly, as for every setting here.
 

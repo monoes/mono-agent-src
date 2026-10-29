@@ -2970,7 +2970,16 @@ login (and its bill) is what the turn uses.
   category allows (else refused, with the list) and the model must then be in
   both sets. A role whose category maps to nothing (a custom or library role)
   is limited by every purpose that has a set chosen, the intersection of them;
-  with nothing in common the spawn fails. The sets are read again at each spawn
+  with nothing in common the spawn fails. Only the built-in roles map to a
+  purpose: a role from the library, monomind or a file in the chat folder (a
+  worker can write one) is held to every chosen set whatever category it
+  claims, and a purpose named for it is ignored; the app roles whose work spans
+  two purposes (browser operator, security reviewer, task manager) are held to
+  both. A veteran (a worker kept from an earlier turn) is rechecked against the
+  current sets on every follow-up, and refused when its model is no longer
+  allowed (a veteran kept by an older build counts as unmapped). A stale model
+  is never staffed under a chosen set, even with `--fallback any`, and a
+  verifier is never a model the review set leaves out. The sets are read again at each spawn
   and at the verifier's model choice, so a change made during a turn applies to
   the next spawn, and a set that can't be read refuses the spawn. A model the
   lead names outside the set, a stale pair, or an unknown purpose id is refused; an empty
