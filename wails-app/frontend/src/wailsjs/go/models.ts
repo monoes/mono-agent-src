@@ -85,6 +85,24 @@ export namespace main {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class ChatPathInfo {
+	    kind: string;
+	    previewable: boolean;
+	    path: string;
+	    line: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatPathInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.previewable = source["previewable"];
+	        this.path = source["path"];
+	        this.line = source["line"];
+	    }
+	}
 	export class ParkedTab {
 	    applicationId: string;
 	    taskId: string;

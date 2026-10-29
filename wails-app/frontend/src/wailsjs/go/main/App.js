@@ -1226,6 +1226,10 @@ export function ReadJSONFile(arg1) {
   return window['go']['main']['App']['ReadJSONFile'](arg1);
 }
 
+export function ReadChatMarkdown(arg1, arg2) {
+  return window['go']['main']['App']['ReadChatMarkdown'](arg1, arg2);
+}
+
 export function ReadWorkspaceImage(arg1, arg2) {
   return window['go']['main']['App']['ReadWorkspaceImage'](arg1, arg2);
 }
@@ -1286,6 +1290,10 @@ export function RerecordSelector(arg1, arg2) {
   return window['go']['main']['App']['RerecordSelector'](arg1, arg2);
 }
 
+export function ResolveChatPath(arg1, arg2) {
+  return window['go']['main']['App']['ResolveChatPath'](arg1, arg2);
+}
+
 export function ResolveOrgChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ResolveOrgChat'](arg1, arg2, arg3, arg4);
 }
@@ -1304,6 +1312,10 @@ export function ResumeOrgAutonomy(arg1) {
 
 export function ResumeApplicationFill(arg1) {
   return window['go']['main']['App']['ResumeApplicationFill'](arg1);
+}
+
+export function RevealChatPath(arg1, arg2) {
+  return window['go']['main']['App']['RevealChatPath'](arg1, arg2);
 }
 
 export function RevealProfileFolder(arg1) {

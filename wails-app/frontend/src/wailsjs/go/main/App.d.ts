@@ -615,6 +615,8 @@ export function ReadHILScreenshot(arg1:string):Promise<string>;
 
 export function ReadJSONFile(arg1:string):Promise<Record<string, any>>;
 
+export function ReadChatMarkdown(arg1:string,arg2:string):Promise<string>;
+
 export function ReadWorkspaceImage(arg1:string,arg2:string):Promise<string>;
 
 export function RejectDraftPersonMessage(arg1:string):Promise<void>;
@@ -645,6 +647,8 @@ export function RemoveProfileDocument(arg1:string,arg2:boolean):Promise<void>;
 
 export function RerecordSelector(arg1:string,arg2:string):Promise<string>;
 
+export function ResolveChatPath(arg1:string,arg2:string):Promise<main.ChatPathInfo>;
+
 export function ResolveOrgChat(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<string>;
 
 export function RestoreAutomation(arg1:string):Promise<string>;
@@ -654,6 +658,8 @@ export function RestoreExcludedDocument(arg1:string):Promise<void>;
 export function ResumeOrgAutonomy(arg1:string):Promise<string>;
 
 export function ResumeApplicationFill(arg1:string):Promise<main.AITask>;
+
+export function RevealChatPath(arg1:string,arg2:string):Promise<void>;
 
 export function RevealProfileFolder(arg1:string):Promise<void>;
 
