@@ -1135,6 +1135,32 @@ those surfaces, and they are not equally strong.
   edited message). Long hex and base64 are left alone on purpose: they
   would also hide commit hashes and ordinary data.
 
+### Stopping the processes a coder turn left running
+
+Lowering a conversation's access, `coder stop-background` and deleting a conversation stop the
+processes a coder turn left running, by pid. A pid can be reused, and what a process says about itself
+(its environment) it can change, so a process is signalled only when all of this holds:
+
+- It is pinned first (a pidfd on Linux; where there is none, or on Windows, it is not stopped at all),
+  and every signal goes through the pin, so a pid reused meanwhile is never signalled.
+- It carries the exec-tree marker of this turn's own process tree. The host reads that marker itself,
+  from the runtime's process, when the turn starts; the model and the runtime's report only name pids.
+  The runtime's process is looked for below the process this turn's own launcher started (the pid
+  `monomind.Exec` reports when it starts it, not the pid a `start` event names), at most a few levels
+  down. When the host could not read the marker (the runner is not below the launcher, re-parented
+  itself, lives in another pid namespace, or the platform has no `/proc`), nothing of the turn is
+  stopped, it is reported, and a delete keeps the conversation (exit 5).
+- The marker is the one recorded for it when the turn ended and still is, and when a start time was
+  recorded (Linux) it still is the same. A start time that differs means the pid belongs to another
+  process now: the record is stale and is dropped.
+
+What cannot be stopped is reported, and a delete keeps the conversation (exit 5, `survivors_remain`).
+Only `chat history delete` and the access lowering do this. Other callers of the store's delete (the
+coder host's cleanup of a spawn that could not start) remove the rows and stop nothing.
+Residual: a process of the same user that carries a copy of this turn's marker is treated as the turn's.
+Anyone who can read the marker can also kill the process directly. A process that clears its own
+environment is not stopped, and is reported.
+
 ## Network use, telemetry and crash reporting
 
 **No analytics, no usage counters, no device identifier.** Mono Agent does not

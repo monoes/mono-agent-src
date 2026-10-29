@@ -1,6 +1,12 @@
 package coderhost
 
-import "fmt"
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	"github.com/monoes/mono-agent/internal/ai"
+)
 
 // Two facts abandonSpawn needs that the reservation row alone does not carry.
 //
@@ -22,11 +28,19 @@ func (s *Store) recordCarveRefused(profileID string, sessionID, taskID int64, le
 	return addMissionEvent(s.db, profileID, sessionID, taskID, "spawn", "lead:"+lead, carveRefusedNote(generation, conv), s.stamp())
 }
 
-// ownedByAnother says whether a row other than this task's reservation of that generation names the conversation
-// as its child or its pending conversation.
-func (s *Store) ownedByAnother(profileID string, sessionID, taskID, generation int64, conv string) (bool, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND (child_conversation_id = ? OR pending_conversation_id = ?)
-		AND NOT (session_id = ? AND task_id = ? AND generation = ?)`, profileID, conv, conv, sessionID, taskID, generation).Scan(&n)
-	return n > 0, err
+// deleteIfNotOwnedByAnother deletes the conversation unless a row other than this task's reservation of that
+// generation names it as its child or its pending conversation. The check runs inside the delete's own
+// BEGIN IMMEDIATE transaction, so no reservation can take the conversation between the check and the delete;
+// a conversation another row owns is left alone (ai.ErrConversationGuarded).
+func (s *Store) deleteIfNotOwnedByAnother(profileID string, sessionID, taskID, generation int64, conv string) error {
+	store, err := ai.NewAIStore(s.db)
+	if err != nil {
+		return err
+	}
+	return store.DeleteConversationIfUnowned(conv, profileID, func(ctx context.Context, c *sql.Conn) (bool, error) {
+		var n int
+		err := c.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND (child_conversation_id = ? OR pending_conversation_id = ?)
+			AND NOT (session_id = ? AND task_id = ? AND generation = ?)`, profileID, conv, conv, sessionID, taskID, generation).Scan(&n)
+		return n == 0, err
+	})
 }

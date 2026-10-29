@@ -3,6 +3,8 @@ package agenttokens
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/aitask"
 	"strings"
 	"testing"
 	"time"
@@ -234,18 +236,31 @@ func TestAuditPruneIsPerToken(t *testing.T) {
 }
 
 func TestBoundTokenCarriesItsBindingAndNeverRun(t *testing.T) {
-	s := newStore(t)
+	db := testdb.Open(t).DB
+	s := NewStore(db)
 	ctx := context.Background()
-	b := Binding{TaskID: "at-1", ConversationID: "conv-1"}
+	// A bound token names a task of a live conversation of the profile.
+	conv, err := ai.NewAIStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, err := conv.CreateConversation("default", "agent", "general", "claude", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&aitask.Store{DB: db, Profile: "default"}).Insert(aitask.Task{ID: "at-1", Kind: "generic", ConversationID: c1.ID, Status: aitask.StatusRunning, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	b := Binding{TaskID: "at-1", ConversationID: c1.ID}
 	tok, secret, err := s.CreateBound(ctx, "default", "turn", ScopeWrite, time.Hour, b)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Verify(ctx, secret)
-	if err != nil || !got.Bound() || !got.BoundTo("at-1", "conv-1") || got.ID != tok.ID {
+	if err != nil || !got.Bound() || !got.BoundTo("at-1", c1.ID) || got.ID != tok.ID {
 		t.Fatalf("verify: %+v err %v", got, err)
 	}
-	if got.BoundTo("at-2", "conv-1") || got.BoundTo("at-1", "conv-2") || got.BoundTo("", "") {
+	if got.BoundTo("at-2", c1.ID) || got.BoundTo("at-1", "conv-2") || got.BoundTo("", "") {
 		t.Errorf("binding matched something else: %+v", got)
 	}
 	// Half a binding, and a scope a task has no business with, are refused.

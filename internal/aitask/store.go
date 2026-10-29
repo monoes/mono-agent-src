@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -208,22 +209,42 @@ func HashToken(profile, taskID, conversationID, token string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// SetToken stores the hash of the token the task's next turn runs with.
+// liveStatuses are the statuses a task can still be given a token and a holder in.
+const liveStatuses = `('queued','running','needs_user')`
+
+// SetToken stores the hash of the token the task's next turn runs with. A task that is over
+// (cancelled by a deletion, finished, failed) takes none: a write that arrives late must not
+// bring it back.
 func (s *Store) SetToken(id, token string) error {
 	t, err := s.Get(id)
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(`UPDATE ai_tasks SET token_hash = ? WHERE id = ? AND profile_id = ?`,
+	res, err := s.DB.Exec(`UPDATE ai_tasks SET token_hash = ? WHERE id = ? AND profile_id = ? AND status IN `+liveStatuses,
 		HashToken(t.Profile, t.ID, t.ConversationID, token), id, s.Profile)
-	return err
+	return closedUnlessChanged(res, err, id)
 }
 
 // SetHolder records the process that runs the task's turn (the supervisor):
-// only that process and its descendants hold the token afterwards.
+// only that process and its descendants hold the token afterwards. A task that is over takes none.
 func (s *Store) SetHolder(id string, pid int) error {
-	_, err := s.DB.Exec(`UPDATE ai_tasks SET holder_pid = ? WHERE id = ? AND profile_id = ?`, pid, id, s.Profile)
-	return err
+	res, err := s.DB.Exec(`UPDATE ai_tasks SET holder_pid = ? WHERE id = ? AND profile_id = ? AND status IN `+liveStatuses, pid, id, s.Profile)
+	return closedUnlessChanged(res, err, id)
+}
+
+// closedUnlessChanged is the error of a write to a task that is no longer live: it changed no row.
+func closedUnlessChanged(res sql.Result, err error, id string) error {
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("aitask: task %s is not live: nothing was written", id)
+	}
+	return nil
 }
 
 // CheckToken says whether token is the one minted for task id (this profile,
@@ -244,13 +265,13 @@ func (s *Store) CheckTokenRemote(id, token string) bool {
 }
 
 func (s *Store) checkToken(id, token string, local bool) bool {
-	var stored, conv string
+	var stored, conv, status string
 	var pid int
-	if err := s.DB.QueryRow(`SELECT token_hash, conversation_id, holder_pid FROM ai_tasks WHERE id = ? AND profile_id = ?`,
-		id, s.Profile).Scan(&stored, &conv, &pid); err != nil {
+	if err := s.DB.QueryRow(`SELECT token_hash, conversation_id, holder_pid, status FROM ai_tasks WHERE id = ? AND profile_id = ?`,
+		id, s.Profile).Scan(&stored, &conv, &pid, &status); err != nil {
 		return false
 	}
-	if stored == "" || token == "" {
+	if stored == "" || token == "" || status == StatusCancelled {
 		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(stored), []byte(HashToken(s.Profile, id, conv, token))) != 1 {

@@ -358,6 +358,12 @@ func TestClientModeCompleteAgainstTheRealAPI(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	// The task runs in a conversation of the profile (a bound token and the task API both need one).
+	if _, err := db.DB.Exec(`INSERT INTO ai_chat_conversations
+		(id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, access)
+		VALUES ('c1', 'default', 'agent', '', 'claude', '', '', '', 'assistant', '', 'hk-c1', 'now', 'now', '', 'scoped')`); err != nil {
+		t.Fatal(err)
+	}
 	store := &aitask.Store{DB: db.DB, Profile: "default"}
 	if _, err := store.Insert(aitask.Task{ID: "at-1", Kind: "generic", ConversationID: "c1", Status: aitask.StatusRunning, Goal: "g"}); err != nil {
 		t.Fatal(err)

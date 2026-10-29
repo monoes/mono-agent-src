@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -237,7 +238,12 @@ func (s *Store) carveBudget(profileID, parent, child string, usd float64) error 
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(`UPDATE coder_sessions SET budget_usd = ?, updated_at = ?
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.Exec(`UPDATE coder_sessions SET budget_usd = ?, updated_at = ?
 		WHERE profile_id = ? AND conversation_id = ? AND parent_conversation_id = ?
 		AND ( (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?) <= 0
 		   OR ( ? > 0 AND ? <= (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?)
@@ -246,11 +252,42 @@ func (s *Store) carveBudget(profileID, parent, child string, usd float64) error 
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return errCarveNoRoom
+	// Told apart inside the transaction that ran the statement: no room, or the child no longer this parent's.
+	err = carveVerdict(res, func() (bool, error) {
+		var n int
+		err := tx.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND conversation_id = ? AND parent_conversation_id = ?`, profileID, child, parent).Scan(&n)
+		return n > 0, err
+	})
+	if err != nil {
+		return err
 	}
-	return nil
+	return tx.Commit()
 }
+
+// carveVerdict reads what the carve statement did: nil when it carved, errCarveNoRoom when it matched nothing
+// though the child is still the parent's (the share does not fit), errReservationLost when the child is gone or
+// no longer the parent's, and the storage's own error when RowsAffected or the re-read failed.
+func carveVerdict(res sql.Result, stillChild func() (bool, error)) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	ok, err := stillChild()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errReservationLost
+	}
+	return errCarveNoRoom
+}
+
+// errReservationLost is a carve whose child session vanished (deleted, or no longer the parent's) before the
+// carve: not a refusal for lack of budget, so it is neither a full limit nor a wait.
+var errReservationLost = errors.New("the child's session is gone or no longer the master's")
 
 // errCarveNoRoom is the one answer of carveBudget that is a refusal: the conditional statement matched nothing
 // because the share does not fit. Any other error is the storage's and is not a limit.
@@ -311,6 +348,10 @@ type spawnHooks struct {
 	onCreated     func(conversationID string) error // the conversation exists and is linked to the master as its child
 	beforeMessage func(conversationID string) error // the carve and the settings are in place; the first message is next
 	carveRefused  func()                            // the carve was refused after the conversation existed; runs before the conversation is deleted
+
+	// The reservation the spawn runs for (a mission task); zero for an ordinary spawn. The spawn's own undo
+	// leaves a conversation that any other row owns (see deleteIfNotOwnedByAnother).
+	sessionID, taskID, generation int64
 }
 
 // spawnWith is Spawn with hooks; every limit of Spawn applies to every caller.
@@ -359,7 +400,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	if err != nil {
 		return Spawned{}, err
 	}
-	undo := func() { _ = store.DeleteConversation(conv.ID, c.ProfileID) }
+	undo := func() { _ = s.deleteIfNotOwnedByAnother(c.ProfileID, hk.sessionID, hk.taskID, hk.generation, conv.ID) }
 	if _, err := s.EnsureSession(c.ProfileID, conv.ID); err != nil {
 		undo()
 		return Spawned{}, err

@@ -234,6 +234,15 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 	}
 	// Set last, so nothing a dynamic org derives from opts inherits the box.
 	opts.Box = box
+	if journal != nil {
+		prev := opts.OnStart
+		opts.OnStart = func(pid int) {
+			journal.setLauncher(pid)
+			if prev != nil {
+				prev(pid)
+			}
+		}
+	}
 	res, err := monomind.Exec(ctx, opts, onEvent)
 	if closeOrg != nil {
 		// The lead is done: workers still running are stopped and their

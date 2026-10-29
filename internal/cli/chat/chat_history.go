@@ -1,6 +1,9 @@
 package chat
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `chat history …` reads and writes the desktop chat's conversation, turn
@@ -281,7 +285,7 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <conversation-id>",
-		Short: "Delete a conversation with its turns, events and coder session (refused while a turn is active)",
+		Short: "Delete a conversation with its turns, events and coder session, after stopping the processes its turns left running (refused while a turn is active; exit 5, survivors_remain, and nothing deleted if one cannot be stopped)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, profileID, closeDB, err := openChatHistory(cfg)
@@ -289,11 +293,81 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer closeDB()
-			if err := store.DeleteConversation(args[0], profileID); err != nil {
-				return chatStoreErr(err)
+			// The processes the conversation's turns left running are recorded only in the events
+			// deleted with it: stop them first, and keep the record while one cannot be stopped. The
+			// delete itself re-reads the record inside its write transaction, where no turn can be
+			// recorded, and gives way if one appeared since: then the new ones are stopped too.
+			var stopped []int
+			missions := 0
+			// Whatever ends the delete after something was stopped says so: the conversation is kept,
+			// but the processes and missions stopped before are not coming back.
+			partial := func(err error) error {
+				if err == nil || (len(stopped) == 0 && missions == 0) {
+					return err
+				}
+				return fmt.Errorf("%w (the conversation was not deleted; %d process(es) and %d mission(s) were stopped before this)", err, len(stopped), missions)
 			}
+			for attempt := 0; ; attempt++ {
+				// A conversation that leads a mission that is still open is the operator's to delete: the
+				// mission is stopped with it (an agent, which may not end the others' work, is refused
+				// first). The list is read again on every attempt, so a session opened meanwhile is
+				// gated and stopped too.
+				led, err := openSessionsLedBy(cmd.Context(), cfg, profileID, args[0])
+				if err != nil {
+					return partial(err)
+				}
+				if len(led) > 0 {
+					if err := clicore.RequireOperator(cfg.RequireOperator, "delete a conversation that leads a mission"); err != nil {
+						return partial(err)
+					}
+				}
+				afterSessionList()
+				stop, active, seen, err := stopConversationBackgroundSeen(store, profileID, args[0], false, func() error {
+					return clicore.RequireOperator(cfg.RequireOperator, "delete a conversation whose turns left processes running (deleting it stops them)")
+				})
+				stopped = append(stopped, stop.Stopped...)
+				if err != nil {
+					return partial(err)
+				}
+				if len(stop.Survivors) > 0 {
+					if cfg.JSONOutput() {
+						if err := clicore.PrintJSON(map[string]any{"id": args[0], "deleted": false, "stopped": stopped, "survivors": stop.Survivors}); err != nil {
+							return err
+						}
+					} else {
+						for _, sv := range stop.Survivors {
+							fmt.Fprintf(cmd.OutOrStdout(), "  still running: %d %s: %s\n", sv.Pid, sv.Command, sv.Reason)
+						}
+					}
+					return &coderError{code: "survivors_remain", err: &clicore.Error{Code: exitSurvivors, Msg: fmt.Sprintf(
+						"the conversation was not deleted: %d process(es) its turns started could not be stopped (see survivors; %d were stopped, %d mission(s) stopped before this); stop them yourself, then delete it again", len(stop.Survivors), len(stopped), missions)}}
+				}
+				if !active {
+					n, err := stopSessions(cmd.Context(), cfg, profileID, led)
+					missions += n
+					if err != nil {
+						return partial(err)
+					}
+				}
+				beforeGuardedDelete()
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
+				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
+					continue
+				}
+				if errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened) {
+					return clicore.InvalidInput("the conversation keeps recording processes its turns leave running, so it was not deleted (%d process(es) and %d mission(s) were stopped so far): try again once it is quiet", len(stopped), missions)
+				}
+				if err != nil {
+					return partial(chatStoreErr(err))
+				}
+				break
+			}
+			stop := backgroundStop{Stopped: stopped}
 			if cfg.JSONOutput() {
-				return clicore.PrintJSON(map[string]any{"id": args[0], "deleted": true})
+				return clicore.PrintJSON(map[string]any{"id": args[0], "deleted": true, "stopped": stop.Stopped})
+			}
+			if len(stop.Stopped) > 0 {
+				fmt.Printf("stopped %d background process(es): %v\n", len(stop.Stopped), stop.Stopped)
 			}
 			fmt.Printf("deleted conversation %s\n", args[0])
 			return nil
@@ -414,4 +488,115 @@ func setOrgMode(cfg *Deps, id, mode string) (ai.Conversation, error) {
 	}
 	conv.OrgMode = mode
 	return conv, nil
+}
+
+// afterSessionList is a seam for tests: it runs after the delete has listed the conversation's open sessions.
+var afterSessionList = func() {}
+
+// beforeGuardedDelete is a seam for tests: it runs between stopping a conversation's processes and the delete.
+var beforeGuardedDelete = func() {}
+
+// errSessionOpened is a delete that found a mission session of the conversation that is still open.
+var errSessionOpened = errors.New("a mission session of the conversation is still open")
+
+// errBackgroundRecorded is a delete that found a background-process record it had not handled.
+var errBackgroundRecorded = errors.New("a background-process record appeared while the conversation was being deleted")
+
+// deleteGuard is the guard of a delete, run inside its write transaction. It reads the conversation's
+// coder.background records again and refuses if any was not handled (stopped, found gone or reported)
+// by the caller; then it revokes the mission tokens the conversation's runs minted (owner
+// dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
+// conductor would have swept them. Both are undone with the delete if it is rolled back.
+func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+	return func(ctx context.Context, conn *sql.Conn) error {
+		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
+			return err
+		}
+		var open int
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = '' AND state IN ('draft', 'running', 'paused')`,
+			profileID, conversationID).Scan(&open); err != nil {
+			return err
+		}
+		if open > 0 {
+			return errSessionOpened
+		}
+		owner := dynorg.ConversationOwner(profileID, conversationID)
+		_, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+			WHERE profile_id = ?2 AND mission_owner <> '' AND (mission_owner = ?1 OR mission_owner LIKE ?1 || '/%') AND revoked_at IS NULL`, owner, profileID)
+		if err != nil {
+			return fmt.Errorf("revoking the conversation's mission tokens: %w", err)
+		}
+		return nil
+	}
+}
+
+func noNewRecords(ctx context.Context, conn *sql.Conn, profileID, conversationID string, seen map[chatevents.ProcessRef]bool) error {
+	rows, err := conn.QueryContext(ctx, `SELECT payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type = ?`,
+		profileID, conversationID, string(chatevents.EventNotice))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		var n chatevents.NoticePayload
+		if json.Unmarshal([]byte(raw), &n) != nil || n.Code != noticeCoderBackground {
+			continue
+		}
+		for _, r := range n.Processes {
+			r.Command = ""
+			if !seen[r] {
+				return errBackgroundRecorded
+			}
+		}
+	}
+	return rows.Err()
+}
+
+// openSessionsLedBy is the ids of the mission sessions led by the conversation that are not over.
+func openSessionsLedBy(ctx context.Context, cfg *Deps, profileID, conversationID string) ([]int64, error) {
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return nil, fmt.Errorf("initializing database: %w", err)
+	}
+	defer db.Close()
+	all, err := tasks.NewStore(db.DB).ListSessions(ctx, profileID, tasks.SessionFilter{}, tasks.Actor{Kind: tasks.Human})
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for _, se := range all {
+		if se.ConversationID == conversationID && (se.State == tasks.SessionDraft || se.State == tasks.SessionRunning || se.State == tasks.SessionPaused) {
+			ids = append(ids, se.ID)
+		}
+	}
+	return ids, nil
+}
+
+// stopSessions stops the mission sessions, as the operator who is deleting their lead (the caller has
+// asked for the operator): their claims go back to ready. One that ended meanwhile is left as it is.
+func stopSessions(ctx context.Context, cfg *Deps, profileID string, ids []int64) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return 0, fmt.Errorf("initializing database: %w", err)
+	}
+	defer db.Close()
+	ts := tasks.NewStore(db.DB)
+	n := 0
+	for _, id := range ids {
+		if _, err := ts.StopSession(ctx, profileID, id, tasks.Actor{Kind: tasks.Human}); err != nil {
+			if se, gerr := ts.GetSession(ctx, profileID, id, tasks.Actor{Kind: tasks.Human}); gerr == nil && se.State != tasks.SessionDraft && se.State != tasks.SessionRunning && se.State != tasks.SessionPaused {
+				continue
+			}
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }
