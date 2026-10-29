@@ -16,7 +16,7 @@ func giantItem(t *testing.T) (st *Store, ts *tasks.Store, c tasks.Session, it Pe
 	t.Helper()
 	st = newStoreT(t)
 	c, ts = missionTree(t, st, denyTreeSettings)
-	if _, err := ts.ApproveSession(context.Background(), "p", c.ID, leadActor); err == nil {
+	if _, err := ts.ApproveSession(context.Background(), "p", c.ID, approvalLeadActor); err == nil {
 		t.Fatal("level 3 is giant under a working depth of 2")
 	}
 	it, ok, err := st.PlanApprovalItem("p", c.ID)
