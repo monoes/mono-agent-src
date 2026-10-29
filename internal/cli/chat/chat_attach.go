@@ -102,15 +102,11 @@ func copyAttachments(cwd, dir string, srcs []string) ([]chatevents.TurnAttachmen
 	for _, src := range srcs {
 		name := uniqueName(safeFileName(filepath.Base(src)), used)
 		dst := filepath.Join(target, name)
-		size, head, err := copyAttachment(src, dst)
+		size, head, id, err := copyAttachment(src, dst)
 		if err != nil {
 			return nil, fmt.Errorf("attaching %s: %w", src, err)
 		}
-		att := chatevents.TurnAttachment{Name: name, Path: dst, Mime: attachmentMime(name, head), Size: size}
-		if fi, err := os.Lstat(dst); err == nil {
-			att.Dev, att.Ino, _ = fileIdentity(fi)
-		}
-		atts = append(atts, att)
+		atts = append(atts, chatevents.TurnAttachment{Name: name, Path: dst, Mime: attachmentMime(name, head), Size: size, Dev: id[0], Ino: id[1]})
 	}
 	return atts, nil
 }
@@ -118,15 +114,15 @@ func copyAttachments(cwd, dir string, srcs []string) ([]chatevents.TurnAttachmen
 // copyAttachment copies src to the new file dst and returns its size and
 // first bytes (for the media type). A file that grew past the limit since
 // it was checked is refused.
-func copyAttachment(src, dst string) (int64, []byte, error) {
+func copyAttachment(src, dst string) (int64, []byte, [2]uint64, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, [2]uint64{}, err
 	}
 	defer in.Close()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, [2]uint64{}, err
 	}
 	head := make([]byte, 512)
 	n, _ := io.ReadFull(in, head)
@@ -134,14 +130,19 @@ func copyAttachment(src, dst string) (int64, []byte, error) {
 	_, werr := out.Write(head)
 	m, cerr := io.Copy(out, io.LimitReader(in, maxAttachmentBytes+1-int64(n)))
 	size := int64(n) + m
+	// The copy's identity is read from the file that was written, not from its path afterwards.
+	var id [2]uint64
+	if fi, err := out.Stat(); err == nil {
+		id[0], id[1], _ = fileIdentity(fi)
+	}
 	if err := errors.Join(werr, cerr, out.Close()); err != nil || size > maxAttachmentBytes {
 		os.Remove(dst)
 		if err == nil {
 			err = fmt.Errorf("it is over %s", formatSize(maxAttachmentBytes))
 		}
-		return 0, nil, err
+		return 0, nil, [2]uint64{}, err
 	}
-	return size, head, nil
+	return size, head, id, nil
 }
 
 // ignoreAll keeps git out of dir (the folder's .monoagent): attachments are

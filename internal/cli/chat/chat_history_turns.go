@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -231,7 +232,7 @@ func newChatHistoryReconcileCmd(cfg *Deps) *cobra.Command {
 			// Files a deleted conversation's turns left, when the delete that listed them died before
 			// removing them.
 			if db, err := cfg.OpenDB(); err == nil {
-				if err := runCleanups(cmd.Context(), db.DB, cleanupPrefix, warnOnStderr); err != nil {
+				if err := runCleanups(cmd.Context(), db.DB, filepath.Join(hostDir(cfg), "turns"), cleanupPrefix, true, warnOnStderr); err != nil {
 					warnOnStderr("could not clean up the files of deleted conversations: %v", err)
 				}
 				db.Close()

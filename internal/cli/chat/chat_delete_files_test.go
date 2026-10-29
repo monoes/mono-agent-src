@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -123,10 +125,12 @@ func TestDeleteKeepsACopyThatIsNotTheRecordedFile(t *testing.T) {
 	copyIn := filepath.Join(c.Cwd, ".monoagent", "attachments", "t1", "report.txt")
 	touchFile(t, copyIn)
 	recordStarted(t, r, c.ID, "t1", copyIn)
-	if err := os.Remove(copyIn); err != nil {
+	// A new file is made while the old one still exists (so it cannot get the same inode) and takes its name.
+	repl := copyIn + ".new"
+	touchFile(t, repl)
+	if err := os.Rename(repl, copyIn); err != nil {
 		t.Fatal(err)
 	}
-	touchFile(t, copyIn) // a new file with the same name: another inode
 
 	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
 		t.Fatalf("delete: %v\n%s", err, out)
@@ -386,5 +390,144 @@ func TestATurnIDBelongsToOneConversation(t *testing.T) {
 	}
 	if turns, _, _ := r.store.ListTurns(b.ID, "default", "", 10); len(turns) != 0 {
 		t.Errorf("the second conversation has %d turn(s) with that id", len(turns))
+	}
+}
+
+// A swapped-in folder that holds a HARD LINK to the recorded file passes the identity check (it is the
+// recorded inode); only the check that the folder opened is the folder inspected refuses it.
+func TestDeleteRefusesAFolderSwappedForOneHoldingAHardLink(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	attach := filepath.Join(c.Cwd, ".monoagent", "attachments")
+	copyIn := filepath.Join(attach, "t1", "report.txt")
+	touchFile(t, copyIn)
+	recordStarted(t, r, c.ID, "t1", copyIn)
+
+	swapped := false
+	afterLstat = func(path string) {
+		if path != attach || swapped {
+			return
+		}
+		swapped = true
+		if err := os.Rename(attach, attach+".real"); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := os.MkdirAll(filepath.Join(attach, "t1"), 0o700); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := os.Link(filepath.Join(attach+".real", "t1", "report.txt"), copyIn); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterLstat = func(string) {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if !swapped {
+		t.Fatal("the seam never ran")
+	}
+	if !exists(copyIn) {
+		t.Error("a file in a folder that was not the one inspected was removed (it passes the identity check, not the folder check)")
+	}
+}
+
+// The row is not trusted: a log folder, a log name or a time written into it by anyone else removes
+// nothing outside the host's own turns folder, and nothing at all when the time cannot be read.
+func TestACleanupRowIsNotTrusted(t *testing.T) {
+	r := newAccessRig(t, true)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logDir := filepath.Join(hostDir(cfg), "turns")
+	hostLog := filepath.Join(logDir, "t9.log")
+	touchFile(t, hostLog)
+	foreign := filepath.Join(t.TempDir(), "keep.log")
+	touchFile(t, foreign)
+	warn := func(string, ...any) {}
+
+	// Names that are not the host's are not removed, whatever folder the row would name.
+	in := cleanupIntent{DeletedAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano), Logs: []string{"../" + filepath.Base(foreign), "/etc/passwd", "t9.log"}}
+	if err := in.run(logDir, warn); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(foreign) {
+		t.Error("a name leading out of the turns folder was removed")
+	}
+	if exists(hostLog) {
+		t.Error("the host's own log was not removed")
+	}
+
+	// A time that cannot be read removes no log.
+	touchFile(t, hostLog)
+	bad := cleanupIntent{DeletedAt: "not a time", Logs: []string{"t9.log"}}
+	_ = bad.run(logDir, warn)
+	if !exists(hostLog) {
+		t.Error("a log was removed on a row whose time cannot be read")
+	}
+	// A folder that is not absolute is not opened.
+	rel := cleanupIntent{DeletedAt: in.DeletedAt, Cwd: "relative/dir", Copies: []copyRef{{Rel: "a", Dev: 1, Ino: 1}}}
+	if err := rel.run(logDir, warn); err != nil {
+		t.Errorf("a relative folder was opened: %v", err)
+	}
+}
+
+// A row whose files could not all be dealt with is kept for another try; a good one is removed.
+func TestACleanupRowThatFailedIsKept(t *testing.T) {
+	r := newAccessRig(t, true)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logDir := filepath.Join(hostDir(cfg), "turns")
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// A conversation folder that exists but cannot be entered is a failure worth retrying.
+	cwd := t.TempDir()
+	if err := os.Chmod(cwd, 0); err != nil {
+		t.Skip("cannot remove permissions: " + err.Error())
+	}
+	t.Cleanup(func() { os.Chmod(cwd, 0o700) })
+	if os.Geteuid() == 0 {
+		t.Skip("root enters any folder")
+	}
+	in := cleanupIntent{DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), Cwd: cwd, Copies: []copyRef{{Rel: "a", Dev: 1, Ino: 1}}}
+	raw, _ := json.Marshal(in)
+	name := cleanupPrefix + "default/c-kept"
+	if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data) VALUES (?, ?)`, name, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := runCleanups(context.Background(), db.DB, logDir, name, false, func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM configs WHERE name = ?`, name).Scan(&n); err != nil || n != 1 {
+		t.Errorf("the row of a cleanup that failed: %d, %v; want it kept", n, err)
+	}
+}
+
+// Running the cleanup of one conversation does not run another whose id only starts the same.
+func TestACleanupRunsOnlyItsOwnRow(t *testing.T) {
+	needIdentity(t)
+	r := newAccessRig(t, true)
+	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default"})
+	logDir := filepath.Join(hostDir(cfg), "turns")
+	touchFile(t, filepath.Join(logDir, "t1.log"))
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	in := cleanupIntent{DeletedAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano), Logs: []string{"t1.log"}}
+	raw, _ := json.Marshal(in)
+	if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data) VALUES (?, ?)`, cleanupName("default", "c10"), string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := runCleanups(context.Background(), db.DB, logDir, cleanupName("default", "c1"), false, func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(filepath.Join(logDir, "t1.log")) {
+		t.Error("another conversation's cleanup row was run")
 	}
 }

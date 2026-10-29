@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,11 +29,19 @@ import (
 //
 // What is removed is fenced by what was recorded, not by a name: a copy only if it still is the very
 // file that was made (same device and inode), a turn's log only if it was last written before the
-// delete (an id given to a new turn later keeps its log). Nothing is followed through a link and
-// every folder is opened as a handle checked against what was just inspected.
+// delete (an id given to a new turn later keeps its log). Nothing is followed through a link and every
+// folder is opened as a handle checked against what was just inspected. The row itself is not trusted:
+// the folder the logs are in is worked out again from the host's own state folder when the row is run,
+// log names must look like the host's, and a row with a time that cannot be read removes no log.
 
 // cleanupPrefix starts the name of every cleanup row in configs.
 const cleanupPrefix = "file-cleanup/"
+
+// cleanupRetention is how long a row whose files could not all be dealt with is kept for another try.
+const cleanupRetention = 7 * 24 * time.Hour
+
+// logFileName is what the host's per-turn files are called.
+var logFileName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}\.(log|prompt)$`)
 
 // copyRef is one attachment copy the host made: its path relative to the attachments folder and the
 // device and inode it had then.
@@ -44,12 +53,14 @@ type copyRef struct {
 
 // cleanupIntent is what the delete listed.
 type cleanupIntent struct {
-	DeletedAt  string    `json:"deleted_at"`
-	LogDir     string    `json:"log_dir,omitempty"`
-	Logs       []string  `json:"logs,omitempty"`
-	Cwd        string    `json:"cwd,omitempty"`
-	AttachRoot string    `json:"attach_root,omitempty"`
-	Copies     []copyRef `json:"copies,omitempty"`
+	DeletedAt string    `json:"deleted_at"`
+	Logs      []string  `json:"logs,omitempty"`
+	Cwd       string    `json:"cwd,omitempty"`
+	Copies    []copyRef `json:"copies,omitempty"`
+}
+
+func (in cleanupIntent) attachRoot() string {
+	return filepath.Join(in.Cwd, ".monoagent", "attachments")
 }
 
 func cleanupName(profileID, conversationID string) string {
@@ -58,15 +69,18 @@ func cleanupName(profileID, conversationID string) string {
 
 // recordCleanup lists the conversation's files from the database, on the delete's own connection, and
 // stores the list in configs. It touches no file.
-func recordCleanup(ctx context.Context, conn *sql.Conn, cfg *Deps, profileID, conversationID string) error {
-	in := cleanupIntent{DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), LogDir: filepath.Join(hostDir(cfg), "turns")}
-	var cwd string
-	if err := conn.QueryRowContext(ctx, `SELECT cwd FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&cwd); err != nil {
+func recordCleanup(ctx context.Context, conn *sql.Conn, profileID, conversationID string) error {
+	in := cleanupIntent{DeletedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	var cwd sql.NullString
+	err := conn.QueryRowContext(ctx, `SELECT cwd FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&cwd)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // nothing to list for a conversation that is not there
+	}
+	if err != nil {
 		return fmt.Errorf("reading the conversation's folder: %w", err)
 	}
-	if cwd != "" {
-		in.Cwd = filepath.Clean(cwd)
-		in.AttachRoot = filepath.Join(in.Cwd, ".monoagent", "attachments")
+	if cwd.String != "" && filepath.IsAbs(cwd.String) {
+		in.Cwd = filepath.Clean(cwd.String)
 	}
 	ids, err := queryStrings(ctx, conn, `SELECT id FROM ai_chat_turns WHERE conversation_id = ? AND profile_id = ?`, conversationID, profileID)
 	if err != nil {
@@ -77,7 +91,8 @@ func recordCleanup(ctx context.Context, conn *sql.Conn, cfg *Deps, profileID, co
 			in.Logs = append(in.Logs, id+".log", id+".prompt")
 		}
 	}
-	if in.AttachRoot != "" {
+	if in.Cwd != "" {
+		root := in.attachRoot()
 		payloads, err := queryStrings(ctx, conn, `SELECT payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type = ?`,
 			profileID, conversationID, string(chatevents.EventTurnStarted))
 		if err != nil {
@@ -89,11 +104,10 @@ func recordCleanup(ctx context.Context, conn *sql.Conn, cfg *Deps, profileID, co
 				continue
 			}
 			for _, a := range p.Attachments {
-				c := filepath.Clean(a.Path)
 				if a.Dev == 0 && a.Ino == 0 {
 					continue // made before the copy's identity was recorded: not removed
 				}
-				if rel, err := filepath.Rel(in.AttachRoot, c); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+				if rel, err := filepath.Rel(root, filepath.Clean(a.Path)); err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
 					in.Copies = append(in.Copies, copyRef{Rel: rel, Dev: a.Dev, Ino: a.Ino})
 				}
 			}
@@ -184,51 +198,71 @@ func openPinnedSub(parent *os.Root, name, full string) (*os.Root, error) {
 	return r, nil
 }
 
-// run removes what the intent lists, best effort: what is gone already is fine and what cannot be
-// removed is reported. The device and inode of a copy, and the time of a log, decide what is theirs to
-// remove (see the top of this file). The conversation's folder is the conversation's own and is opened
-// as it is; the folders below it are opened through it as pinned handles. A mount beneath an opened
-// folder is not detected, which the identity fence makes harmless: only the recorded file goes.
-func (in cleanupIntent) run(warn func(format string, a ...any)) {
-	deleted, _ := time.Parse(time.RFC3339Nano, in.DeletedAt)
-	if in.LogDir != "" && len(in.Logs) > 0 {
-		root, err := openPinnedDir(in.LogDir)
+// run removes what the intent lists. logDir is the host's own turns folder (never taken from the row).
+// What is gone already is fine; what could not be dealt with is returned, and the caller keeps the
+// row for another try. The device and inode of a copy, and the time of a log, decide what is theirs
+// to remove (see the top of this file). The conversation's folder is the conversation's own and is
+// opened as it is; the folders below it are opened through it as pinned handles. A mount beneath an
+// opened folder is not detected, which the identity fence makes harmless: only the recorded file goes.
+func (in cleanupIntent) run(logDir string, warn func(format string, a ...any)) error {
+	var failed []error
+	fail := func(format string, a ...any) {
+		err := fmt.Errorf(format, a...)
+		warn("%v", err)
+		failed = append(failed, err)
+	}
+	// A time that cannot be read removes no log: the fence cannot be applied.
+	if deleted, err := time.Parse(time.RFC3339Nano, in.DeletedAt); err == nil && len(in.Logs) > 0 {
+		root, err := openPinnedDir(logDir)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 		case err != nil:
-			warn("could not open %s: %v", in.LogDir, err)
+			fail("could not open %s: %v", logDir, err)
 		default:
 			for _, name := range in.Logs {
+				if !logFileName.MatchString(name) {
+					continue
+				}
 				fi, err := root.Lstat(name)
 				if err != nil {
 					continue
 				}
-				if !fi.Mode().IsRegular() || (!deleted.IsZero() && fi.ModTime().After(deleted)) {
+				if !fi.Mode().IsRegular() || fi.ModTime().After(deleted) {
 					continue // not a file the turn wrote, or written after the delete: a new turn's
 				}
 				if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-					warn("could not remove %s: %v", filepath.Join(in.LogDir, name), err)
+					fail("could not remove %s: %v", filepath.Join(logDir, name), err)
 				}
 			}
 			root.Close()
 		}
 	}
-	if in.Cwd == "" || len(in.Copies) == 0 {
-		return
+	if in.Cwd == "" || !filepath.IsAbs(in.Cwd) || len(in.Copies) == 0 {
+		return errors.Join(failed...)
 	}
+	attach := in.attachRoot()
 	cwd, err := os.OpenRoot(in.Cwd)
 	if err != nil {
-		return
+		if !errors.Is(err, fs.ErrNotExist) {
+			fail("could not open %s: %v", in.Cwd, err)
+		}
+		return errors.Join(failed...)
 	}
 	defer cwd.Close()
 	meta, err := openPinnedSub(cwd, ".monoagent", filepath.Join(in.Cwd, ".monoagent"))
 	if err != nil {
-		return
+		if !errors.Is(err, fs.ErrNotExist) {
+			fail("%v", err)
+		}
+		return errors.Join(failed...)
 	}
 	defer meta.Close()
-	root, err := openPinnedSub(meta, "attachments", in.AttachRoot)
+	root, err := openPinnedSub(meta, "attachments", attach)
 	if err != nil {
-		return
+		if !errors.Is(err, fs.ErrNotExist) {
+			fail("%v", err)
+		}
+		return errors.Join(failed...)
 	}
 	defer root.Close()
 	dirs := map[string]bool{}
@@ -241,7 +275,7 @@ func (in cleanupIntent) run(warn func(format string, a ...any)) {
 			continue // not the file that was made
 		}
 		if err := root.Remove(c.Rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			warn("could not remove %s: %v", filepath.Join(in.AttachRoot, c.Rel), err)
+			fail("could not remove %s: %v", filepath.Join(attach, c.Rel), err)
 			continue
 		}
 		if d := filepath.Dir(c.Rel); d != "." {
@@ -251,12 +285,21 @@ func (in cleanupIntent) run(warn func(format string, a ...any)) {
 	for d := range dirs {
 		_ = root.Remove(d) // only while empty
 	}
+	return errors.Join(failed...)
 }
 
-// runCleanups runs every cleanup row whose name starts with prefix and removes the row. A row whose
-// JSON cannot be read is dropped (nothing can be done with it). Safe to run twice.
-func runCleanups(ctx context.Context, db *sql.DB, prefix string, warn func(format string, a ...any)) error {
-	rows, err := db.QueryContext(ctx, `SELECT name, config_data FROM configs WHERE name LIKE ?`, prefix+"%")
+// runCleanups runs the cleanup rows named name (exactly), or, with prefix set, every row whose name
+// starts with name, and removes each row once it is dealt with. A row that could not be dealt with is
+// kept for another try for cleanupRetention; one whose JSON cannot be read is dropped. Safe to run
+// twice: a file that is gone is fine.
+func runCleanups(ctx context.Context, db *sql.DB, logDir, name string, prefix bool, warn func(format string, a ...any)) error {
+	var rows *sql.Rows
+	var err error
+	if prefix {
+		rows, err = db.QueryContext(ctx, `SELECT name, config_data FROM configs WHERE substr(name, 1, length(?)) = ?`, name, name)
+	} else {
+		rows, err = db.QueryContext(ctx, `SELECT name, config_data FROM configs WHERE name = ?`, name)
+	}
 	if err != nil {
 		return err
 	}
@@ -277,7 +320,11 @@ func runCleanups(ctx context.Context, db *sql.DB, prefix string, warn func(forma
 	for _, r := range todo {
 		var in cleanupIntent
 		if json.Unmarshal([]byte(r.data), &in) == nil {
-			in.run(warn)
+			if err := in.run(logDir, warn); err != nil {
+				if at, perr := time.Parse(time.RFC3339Nano, in.DeletedAt); perr == nil && time.Since(at) < cleanupRetention {
+					continue // kept: the next reconcile tries again
+				}
+			}
 		}
 		if _, err := db.ExecContext(ctx, `DELETE FROM configs WHERE name = ?`, r.name); err != nil {
 			return err

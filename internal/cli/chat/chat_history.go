@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -350,7 +351,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 					}
 				}
 				beforeGuardedDelete()
-				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(cfg, profileID, args[0], seen))
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
 				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
 					continue
 				}
@@ -368,7 +369,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 				if db, err := cfg.OpenDB(); err != nil {
 					warnOnStderr("could not clean up the conversation's files: %v", err)
 				} else {
-					if err := runCleanups(cmd.Context(), db.DB, cleanupName(profileID, args[0]), warnOnStderr); err != nil {
+					if err := runCleanups(cmd.Context(), db.DB, filepath.Join(hostDir(cfg), "turns"), cleanupName(profileID, args[0]), false, warnOnStderr); err != nil {
 						warnOnStderr("could not clean up the conversation's files: %v", err)
 					}
 					db.Close()
@@ -519,7 +520,7 @@ var errBackgroundRecorded = errors.New("a background-process record appeared whi
 // by the caller; then it revokes the mission tokens the conversation's runs minted (owner
 // dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
 // conductor would have swept them. Both are undone with the delete if it is rolled back.
-func deleteGuard(cfg *Deps, profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
 	return func(ctx context.Context, conn *sql.Conn) error {
 		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
 			return err
@@ -540,7 +541,7 @@ func deleteGuard(cfg *Deps, profileID, conversationID string, seen map[chatevent
 		}
 		// Last: list the files its turns left on disk, from the database, and keep the list as a row in
 		// the same transaction (no file is touched here). It is run after the commit.
-		return recordCleanup(ctx, conn, cfg, profileID, conversationID)
+		return recordCleanup(ctx, conn, profileID, conversationID)
 	}
 }
 
