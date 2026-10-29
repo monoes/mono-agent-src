@@ -2232,5 +2232,24 @@
     "deleteFailed": "Could not delete {{count}}: {{message}}",
     "dismiss": "Dismiss",
     "mission": "Mission: {{state}}"
+  },
+  "chatLinks": {
+    "openInBrowser": "Open in browser",
+    "blocked": "Link blocked: only http and https links open",
+    "disguised": "The text says {{shown}} but this link opens {{host}}",
+    "previewHint": "Preview (Ctrl/Cmd-click to show in the file manager)",
+    "revealHint": "Show in the file manager",
+    "reveal": "Show in folder",
+    "revealNamed": "Show {{name}} in the file manager",
+    "openFolder": "Open folder",
+    "line": "line {{line}}",
+    "previewTitle": "Preview of {{name}}",
+    "close": "Close preview",
+    "loading": "Loading…",
+    "previewFailed": "Could not preview this file: {{message}}",
+    "revealFailed": "Could not show the file: {{message}}",
+    "copyCode": "Copy code",
+    "copy": "Copy",
+    "copied": "Copied"
   }
 }

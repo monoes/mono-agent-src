@@ -73,10 +73,10 @@ describe('ChatMarkdown', () => {
     expect(api.openURL).not.toHaveBeenCalled()
   })
 
-  it('isAllowedURL accepts only http/https/mailto and rejects everything else', () => {
+  it('isAllowedURL accepts only http/https and rejects everything else', () => {
     expect(isAllowedURL('https://example.com')).toBe(true)
     expect(isAllowedURL('http://example.com')).toBe(true)
-    expect(isAllowedURL('mailto:a@b.com')).toBe(true)
+    expect(isAllowedURL('mailto:a@b.com')).toBe(false)
     expect(isAllowedURL('javascript:alert(1)')).toBe(false)
     expect(isAllowedURL('data:text/html,<script>1</script>')).toBe(false)
     expect(isAllowedURL('file:///etc/passwd')).toBe(false)
