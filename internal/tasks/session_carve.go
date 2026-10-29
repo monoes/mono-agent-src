@@ -20,15 +20,14 @@ const ChildSharePct = 50
 const openChildStates = `('draft','running','paused')`
 
 // carveChild gives a new child its budget out of the parent's: what the parent has left (its budget,
-// less what it spent, less what its other open children were given). A child that named no budget
+// less what it spent, less what its children hold: the budget of an open one, what a closed one spent). A child that named no budget
 // gets ChildSharePct of that, so one child cannot take it all; one that named more than is left is
 // refused with the numbers. A parent without a budget hands out any amount. The number of open
 // children an agent starts below one parent is bounded by MaxOpenChildren, whatever the budget (the
 // operator is not held to it).
 func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float64, actor Actor) (float64, error) {
 	var kids int
-	var given float64
-	if err := x.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(budget_usd), 0) FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates, par.ID).Scan(&kids, &given); err != nil {
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates, par.ID).Scan(&kids); err != nil {
 		return 0, fmt.Errorf("tasks: counting the children of session #%d: %w", par.ID, err)
 	}
 	if actor.Kind == Agent && kids >= MaxOpenChildren {
@@ -37,8 +36,12 @@ func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float
 	if par.BudgetUSD <= 0 {
 		return budget, nil
 	}
+	given, err := heldByChildren(ctx, x, par.ID, 0, `1 = 1`)
+	if err != nil {
+		return 0, err
+	}
 	left := par.BudgetUSD - par.SpentUSD - given
-	detail := fmt.Sprintf("$%.2f left of $%.2f: $%.2f spent, $%.2f given to its other open children", max(left, 0), par.BudgetUSD, par.SpentUSD, given)
+	detail := fmt.Sprintf("$%.2f left of $%.2f: $%.2f spent, $%.2f held by its children (open ones their budget, closed ones what they spent)", max(left, 0), par.BudgetUSD, par.SpentUSD, given)
 	switch {
 	case left < 0.01:
 		return 0, limit("session #%d has no budget left to give a child (%s)", par.ID, detail)
@@ -83,7 +86,11 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor)
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 	}
-	left := budget - spent
+	closed, err := heldByChildren(ctx, x, id, 0, `state NOT IN `+openChildStates)
+	if err != nil {
+		return err
+	}
+	left := budget - spent - closed
 	for _, k := range kids {
 		var changed []string
 		if slices.Index(AccessLevels, k.level) > slices.Index(AccessLevels, level) {
