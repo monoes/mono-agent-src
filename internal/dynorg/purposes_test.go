@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -392,5 +394,47 @@ func TestARowCorruptedAfterTheFirstSpawnFailsClosed(t *testing.T) {
 	}
 	if _, _, err := VerifierFor(s, opus); err == nil {
 		t.Error("the verifier chose a model while the sets were unreadable")
+	}
+}
+
+// A role file in the chat folder is something a worker can write, so the
+// category it claims is not trusted: it is an unmapped role (the most
+// restrictive default) however it is named, and it cannot pick a wider set by
+// naming a purpose. Only a built-in role maps to a purpose.
+func TestARoleFileCannotForgeACategoryToPickItsPurpose(t *testing.T) {
+	dir := t.TempDir()
+	agents := filepath.Join(dir, ".claude", "agents")
+	if err := os.MkdirAll(agents, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, cat := range map[string]string{"forged": "docs", "doc-writer": "docs"} {
+		body := "---\nname: " + name + "\ncategory: " + cat + "\n---\nWrite.\n"
+		if err := os.WriteFile(filepath.Join(agents, name+".md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus, Library: &MonomindLibrary{Bin: "/nonexistent", Cwd: dir},
+		Purposes: map[string]agentpurposes.Setting{
+			"coding":   set("any", "claude/haiku", "codex/gpt-5.5"),
+			"research": set("any", "codex/gpt-5.5", "claude/opus"),
+		}} // writing is open: the forged category would reach it
+	for _, role := range []string{"forged", "doc-writer"} { // a file that shadows a built-in id is not built-in
+		req := SpawnRequest{Brief: "write the notes", Role: role}
+		if st := staff(t, s, req); st.Model.Key() != "codex/gpt-5.5" || st.Purpose != "" {
+			t.Errorf("%s: want the intersection (gpt) and no purpose, got %s purpose %q", role, st.Model.Key(), st.Purpose)
+		}
+		req.Runtime, req.Model = "claude", "opus" // open under writing, outside coding
+		if _, err := s.Staff(context.Background(), req); err == nil {
+			t.Errorf("%s: a forged docs category reached the open writing set", role)
+		}
+		req.Purpose = "translation"
+		if _, err := s.Staff(context.Background(), req); err == nil {
+			t.Errorf("%s: naming a purpose widened a role file's set", role)
+		}
+	}
+	// The built-in doc writer still maps to writing, which is open.
+	s.Library = nil
+	if st := staff(t, s, SpawnRequest{Brief: "write the notes", Role: "doc-writer", Runtime: "claude", Model: "opus"}); st.Purpose != "writing" {
+		t.Errorf("the built-in doc-writer: purpose %q, want writing", st.Purpose)
 	}
 }

@@ -157,6 +157,7 @@ type Staff struct {
 	Role      string  // the title shown on the stage ("Code Reviewer")
 	AgentType string  // monomind agent id, or a built-in role id
 	Category  string  // the agent's category (engineering, testing, …)
+	Builtin   bool    // the role is one of the built-in tables (roles.go, roles_app.go); set only by setBuiltin
 	AgentBody string  // the agent definition's instructions
 	Skills    []Skill // skills given to the worker
 	Model     Model   // the runtime and model it runs on

@@ -23,11 +23,12 @@ type purposePolicy struct {
 
 // staffPurpose settles the purposes whose model sets limit the worker. They
 // come from the ROLE's category (agentpurposes.ScopeFor), never from the lead:
-// a mapped role is limited by its category's default purpose, and a purpose
+// a built-in role is limited by its category's default purpose, and a purpose
 // the lead names can only narrow it (it must be one the category allows, and
-// both sets then apply). A role whose category is unmapped (a custom or
-// library role) is limited by the sets of every purpose the operator
-// restricted, the most restrictive default.
+// both sets then apply). Any other role (library, monomind, a file in the chat
+// folder, which a worker can write) has no trusted category: whatever it
+// claims, it is limited by the sets of every purpose the operator restricted,
+// the most restrictive default, and a purpose named for it is ignored.
 func (s *Staffer) staffPurpose(req SpawnRequest, st *Staff) error {
 	named := strings.TrimSpace(req.Purpose)
 	if named != "" {
@@ -36,6 +37,9 @@ func (s *Staffer) staffPurpose(req SpawnRequest, st *Staff) error {
 		}
 	}
 	sc, mapped := agentpurposes.ScopeFor(st.Category)
+	if !st.Builtin {
+		mapped, named = false, ""
+	}
 	if named != "" && mapped && !sc.Allows(named) {
 		return fmt.Errorf("purpose %q does not fit a %s role: a purpose can only narrow the role's own (%s); use one of: %s, or leave it out", named, st.Category, sc.Default, strings.Join(sc.Allowed, ", "))
 	}

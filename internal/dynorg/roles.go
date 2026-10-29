@@ -85,6 +85,7 @@ func appRolesNamed(brief string) []builtinRole {
 // setBuiltin staffs a worker with a built-in role.
 func (st *Staff) setBuiltin(r builtinRole, why string) {
 	st.Role, st.AgentType, st.Category, st.AgentBody = r.Title, r.ID, r.Category, r.Body
+	st.Builtin = true
 	st.Access = r.Profile
 	st.Why = append(st.Why, why)
 }
