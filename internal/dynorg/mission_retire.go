@@ -136,3 +136,16 @@ func (c *Conductor) missionClaimNumber(ctx context.Context, mc *MissionRun, w *w
 	c.mu.Unlock()
 	return gen, nil
 }
+
+// claimNumberOf is how many times the task of b has been taken, read right after its own claim.
+func (c *Conductor) claimNumberOf(ctx context.Context, b *missionBind) (int, error) {
+	mc, err := c.missions()
+	if err != nil {
+		return 0, err
+	}
+	n, err := mc.Store.TaskClaims(ctx, mc.ProfileID, b.task.ID)
+	if err != nil {
+		return 0, fmt.Errorf("task #%d: its claim number could not be read: %w", b.task.ID, err)
+	}
+	return n, nil
+}

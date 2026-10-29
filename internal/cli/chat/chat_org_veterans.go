@@ -35,7 +35,9 @@ func (j *turnJournal) veterans() []dynorg.Veteran {
 	out := make([]dynorg.Veteran, 0, len(ws))
 	for _, w := range ws {
 		if w.Outcome == ai.OrgWorkerRetired {
-			continue // the operator retired it: the lead does not get it back (tasks.RetireWorker)
+			// The operator retired it (tasks.RetireWorker): the lead does not get it back, but its id stays taken.
+			out = append(out, dynorg.Veteran{ID: w.AgentID, Retired: true})
+			continue
 		}
 		out = append(out, dynorg.Veteran{
 			ID: w.AgentID, ParentID: w.ParentID, Role: w.Role, AgentType: w.AgentType, Category: w.Category,

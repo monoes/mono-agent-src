@@ -409,3 +409,22 @@ func TestRetireWorkerSaysWhatItCouldNotMatch(t *testing.T) {
 		t.Fatalf("an unmatched worker was touched: %q", got)
 	}
 }
+
+// A worker whose claim number is unknown (0) is judged conservatively: retired when the task was ever
+// retired, never measured against the task's latest claim.
+func TestWorkerRetiredWithAnUnknownClaimNumberIsConservative(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	se, tk := finishedWorkerTask(t, s)
+	if r, err := s.WorkerRetired(bg, "default", se.ID, tk.ID, 0); err != nil || r {
+		t.Fatalf("a task never retired: %v %v", r, err)
+	}
+	if _, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "", human); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, '2026-10-05T12:00:00Z', 'w2', 'claimed', '')`, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := s.WorkerRetired(bg, "default", se.ID, tk.ID, 0); err != nil || !r {
+		t.Fatalf("an unknown claim number after a later claim must read as retired: %v %v", r, err)
+	}
+}

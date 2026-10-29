@@ -109,7 +109,8 @@ func (s *Store) TaskClaims(ctx context.Context, profileID string, id int64) (int
 }
 
 // WorkerRetired says whether the operator retired the worker of the task that started under claim number
-// gen (0: the task's latest worker). A retirement made when the task had been taken N times retires the
+// gen. A gen that is not known (0) is judged conservatively: the worker counts as retired when the task was
+// ever retired, never measured against the task's latest claim. A retirement made when the task had been taken N times retires the
 // workers numbered N or less: a worker that takes the task later has a higher number and is not retired,
 // and a later claim does not undo the retirement of an earlier worker. A conductor asks before it resumes
 // an idle worker (dynorg).
@@ -123,12 +124,7 @@ func (s *Store) WorkerRetired(ctx context.Context, profileID string, sessionID, 
 		if err != nil {
 			return err
 		}
-		if gen <= 0 {
-			if gen, err = s.claimCount(ctx, x, id); err != nil {
-				return err
-			}
-		}
-		retired = at > 0 && at >= gen
+		retired = at > 0 && (gen <= 0 || at >= gen)
 		return nil
 	})
 	return retired, err

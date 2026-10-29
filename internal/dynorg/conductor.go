@@ -338,8 +338,16 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 			return WorkerInfo{}, err
 		}
 	}
+	claimNo := 0
 	if task != nil && !task.verifier { // a verifier holds no claim: it only checks
 		if err := c.missionClaim(ctx, task); err != nil {
+			return WorkerInfo{}, err
+		}
+		// The worker's claim number is taken with its claim, before it waits for a slot or runs: its own claim
+		// is the task's latest, and the number is what a later claim by another worker cannot undo.
+		var err error
+		if claimNo, err = c.claimNumberOf(ctx, task); err != nil {
+			c.missionUnclaim(task, "its claim number could not be read")
 			return WorkerInfo{}, err
 		}
 	}
@@ -356,7 +364,7 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 		model: st.Model, status: chatevents.AgentQueued, changed: map[string]bool{}, started: c.cfg.Now(),
 		parent: parent, allowSpawn: req.AllowSpawn && parent == nil, cwd: c.cfg.Cwd,
 		mustConfine: parent != nil && st.Access == ProfileResearch && parent.staff.Access == ProfileResearch,
-		task:        task,
+		task:        task, missionGen: claimNo,
 	}
 	c.workers[w.id] = w
 	c.order = append(c.order, w.id)

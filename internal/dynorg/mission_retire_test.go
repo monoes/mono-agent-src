@@ -1,6 +1,8 @@
 package dynorg
 
 import (
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -246,5 +248,85 @@ func TestAMissionWorkerRecordsItsClaimNumber(t *testing.T) {
 	eventually(t, "the worker to be kept", func() bool { return len(kept.list()) == 1 })
 	if v := kept.list()[0]; v.MissionClaims != 1 {
 		t.Fatalf("kept worker's claim number = %d, want 1 (the task's first claim)", v.MissionClaims)
+	}
+}
+
+// A worker gets its claim number WITH its own claim, so one stopped before its first token (it waits for a
+// concurrency slot) still carries it: the operator retires it, the task is claimed again by another worker,
+// and the old worker is still refused, not judged against the new claim count.
+func TestAWorkerStoppedBeforeItsFirstTokenStaysRetiredAfterALaterClaim(t *testing.T) {
+	r := newRig(t, rigOpts{lim: Limits{MaxAgents: 20, MaxConcurrent: 1}})
+	a := r.add(spec{title: "a", files: "a.go"})
+	b := r.add(spec{title: "b", files: "b.go"})
+	r.approve()
+	if got := r.startedIDs(r.next(r.c)); len(got) < 1 {
+		t.Fatal("no task started")
+	}
+	// The slot is taken by the first worker; the second claims its task and waits for the slot.
+	if _, err := r.c.Handle(tbg, ToolSpawn, json.RawMessage(`{"task_id":`+strconv.FormatInt(b.ID, 10)+`}`)); err != nil {
+		t.Fatalf("spawning the second task: %v", err)
+	}
+	eventually(t, "the second task to be claimed by a queued worker", func() bool {
+		r.c.mu.Lock()
+		defer r.c.mu.Unlock()
+		for _, id := range r.c.order {
+			if w := r.c.workers[id]; w != nil && w.task != nil && w.task.task.ID == b.ID && running(w.status) {
+				return true
+			}
+		}
+		return false
+	})
+	var queued *worker
+	r.c.mu.Lock()
+	for _, id := range r.c.order {
+		if w := r.c.workers[id]; w != nil && w.task != nil && w.task.task.ID == b.ID {
+			queued = w
+		}
+	}
+	gen := queued.missionGen
+	r.c.mu.Unlock()
+	if gen != 1 {
+		t.Fatalf("the queued worker's claim number = %d, want 1 (its own claim, before any token)", gen)
+	}
+	if _, err := r.c.Stop(queued.id); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the stopped worker to be idle with its claim given back", func() bool {
+		r.c.mu.Lock()
+		defer r.c.mu.Unlock()
+		return !running(queued.status)
+	})
+	r.ex.release(a.ID)
+	// The stop gives the claim back: the task is Ready again, and the operator retires the worker.
+	eventually(t, "the stopped worker's claim to be given back", func() bool { return r.task(b.ID).Claim == nil })
+	if _, err := r.store.RetireWorker(tbg, "default", r.sid, b.ID, "stopped before it began", operator); err != nil {
+		t.Fatalf("retiring the stopped worker: %v", err)
+	}
+	// Another worker takes the task before this conductor looks at the session (the claim event, as the claim writes it).
+	if _, err := r.db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, '2026-10-25T12:00:00Z', 'next', 'claimed', '')`, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.c.retiredRefusal(tbg, queued.id); err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("the worker stopped before its first token escaped its retirement: %v", err)
+	}
+}
+
+// A retired worker kept for the conversation still advances the id sequence of the next conductor, so a new
+// worker does not take its id.
+func TestARetiredWorkersIdIsNotReused(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc})
+	t.Cleanup(c2.Close)
+	c2.AddVeterans([]Veteran{{ID: "w1", Retired: true}, {ID: "w4", Retired: true}})
+	c2.mu.Lock()
+	listed := len(c2.order)
+	seq := c2.seq
+	c2.mu.Unlock()
+	if listed != 0 {
+		t.Errorf("a retired worker was listed in the roster: %d", listed)
+	}
+	if seq != 4 {
+		t.Fatalf("the id sequence is %d after retired w1 and w4, want 4 (the next worker is w5)", seq)
 	}
 }

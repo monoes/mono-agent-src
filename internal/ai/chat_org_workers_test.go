@@ -116,3 +116,49 @@ func TestOrgWorkerKeepsItsMissionLinkAndStaysRetired(t *testing.T) {
 		t.Fatalf("a retired worker was revived: %+v", got)
 	}
 }
+
+// A new worker that took a retired worker's id (a higher claim number, or another task) is saved as itself: only a late
+// save of the retired worker (the same task, a claim number no higher) stays retired.
+func TestANewWorkerOverARetiredRowIsNotClamped(t *testing.T) {
+	db := openTestDB(t)
+	s, err := NewAIStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := s.CreateConversationMode("default", "agent", "general", "claude", "", "", ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := OrgWorker{AgentID: "w1", TurnID: "t1", Runtime: "claude", SessionID: "sess-1", Report: "old", Outcome: "done", MissionSession: 7, MissionTask: 42, MissionClaims: 1}
+	if err := s.SaveOrgWorker("default", conv.ID, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE ai_chat_org_workers SET session_id = '', outcome = ? WHERE conversation_id = ?`, OrgWorkerRetired, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	state := func() OrgWorker {
+		t.Helper()
+		ws, err := s.ListOrgWorkers("default", conv.ID, 0)
+		if err != nil || len(ws) != 1 {
+			t.Fatalf("workers: %+v %v", ws, err)
+		}
+		return ws[0]
+	}
+	// A later save of the old worker stays retired.
+	late := old
+	late.TurnID, late.SessionID = "t2", "sess-9"
+	if err := s.SaveOrgWorker("default", conv.ID, late); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got.Outcome != OrgWorkerRetired || got.SessionID != "" {
+		t.Fatalf("a late save of the retired worker revived it: %+v", got)
+	}
+	// A new worker with the same id, a higher claim number, is saved as itself.
+	fresh := OrgWorker{AgentID: "w1", TurnID: "t3", Runtime: "claude", SessionID: "sess-new", Report: "new", Outcome: "done", MissionSession: 7, MissionTask: 42, MissionClaims: 2}
+	if err := s.SaveOrgWorker("default", conv.ID, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got.Outcome != "done" || got.SessionID != "sess-new" || got.MissionClaims != 2 {
+		t.Fatalf("a new worker over a retired row was clamped: %+v", got)
+	}
+}

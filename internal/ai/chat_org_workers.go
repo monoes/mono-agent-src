@@ -66,10 +66,10 @@ func (s *AIStore) SaveOrgWorker(profileID, conversationID string, w OrgWorker) e
 		parent_id = excluded.parent_id, turn_id = excluded.turn_id, role = excluded.role, agent_type = excluded.agent_type,
 		category = excluded.category, access = excluded.access, skills = excluded.skills, runtime = excluded.runtime,
 		model = excluded.model, effort = excluded.effort,
-		session_id = CASE WHEN ai_chat_org_workers.outcome = 'retired' THEN '' WHEN excluded.session_id = '' THEN ai_chat_org_workers.session_id ELSE excluded.session_id END,
+		session_id = CASE WHEN (ai_chat_org_workers.outcome = 'retired' AND excluded.mission_session = ai_chat_org_workers.mission_session AND excluded.mission_task = ai_chat_org_workers.mission_task AND excluded.mission_claims <= ai_chat_org_workers.mission_claims) THEN '' WHEN excluded.session_id = '' THEN ai_chat_org_workers.session_id ELSE excluded.session_id END,
 		cwd = excluded.cwd,
 		report = CASE WHEN excluded.report = '' THEN ai_chat_org_workers.report ELSE excluded.report END,
-		outcome = CASE WHEN ai_chat_org_workers.outcome = 'retired' THEN 'retired' ELSE excluded.outcome END,
+		outcome = CASE WHEN (ai_chat_org_workers.outcome = 'retired' AND excluded.mission_session = ai_chat_org_workers.mission_session AND excluded.mission_task = ai_chat_org_workers.mission_task AND excluded.mission_claims <= ai_chat_org_workers.mission_claims) THEN 'retired' ELSE excluded.outcome END,
 		allow_spawn = excluded.allow_spawn, updated_at = excluded.updated_at,
 		mission_session = excluded.mission_session, mission_task = excluded.mission_task, mission_claims = excluded.mission_claims
 		WHERE profile_id = excluded.profile_id`,

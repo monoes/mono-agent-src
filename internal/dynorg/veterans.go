@@ -44,6 +44,9 @@ type Veteran struct {
 	// MissionClaims is the claim number of the task the worker started under: a retirement made at that
 	// number or a later one retires it, a worker that took the task later has a higher number.
 	MissionClaims int64
+	// Retired: the operator retired this worker. It is not given back to the lead, but it still takes its id
+	// out of the sequence, so a new worker does not reuse it.
+	Retired bool
 }
 
 // remember hands w to Config.Remember once a run of it ended: only a
@@ -96,6 +99,12 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 	var added []*worker
 	for _, v := range vets {
 		if v.ID == "" || c.workers[v.ID] != nil {
+			continue
+		}
+		if v.Retired {
+			if n, err := strconv.Atoi(strings.TrimPrefix(v.ID, "w")); err == nil && n > c.seq {
+				c.seq = n
+			}
 			continue
 		}
 		var parent *worker

@@ -1884,10 +1884,14 @@ not claimed and no mission token of that session and task is live: a running wor
 it is refused with `not_ready`), writes a `worker_retired` event to the session's history (actor, task and note), and
 ends the stored worker rows linked to the task (`ai_chat_org_workers.mission_session` / `mission_task`, migration 147;
 rows from before it have no link and are not reached). The event records how many times a worker has taken the task
-(`task #12 (claims: 3)`), and every worker carries the claim number it started under (stored with it:
-`ai_chat_org_workers.mission_claims`, in a later turn's veteran too). A retirement made at claim N retires the workers
+(`task #12 (claims: 3)`), and every worker carries the claim number it started under, taken with its own claim (before it waits for
+a slot or mints a token; stored with it: `ai_chat_org_workers.mission_claims`, in a later turn's veteran too). A worker whose
+number is unknown counts as retired when its task was ever retired. A retirement made at claim N retires the workers
 numbered N or less, so a worker that takes the task afterwards is not retired and a later claim does not undo an earlier
-worker's retirement; a worker's hand-off stored after the retirement is stored already retired. A second retire changes
+worker's retirement; a worker's hand-off stored after the retirement is stored already retired (a delayed older worker too: a later
+retirement covers it). A retired stored worker is not given back to the lead but still takes its id out of the sequence, so
+a new worker does not reuse it; a row stays retired only against a late save of the same worker (the same task, a claim
+number no higher). A second retire changes
 nothing and says so. A conductor that is
 live learns from the store, not from the CLI process: before it resumes a mission worker it asks, and each look at the
 session (`missionTick`) retires the idle workers the operator retired, dropping what they kept to be resumed from; a
