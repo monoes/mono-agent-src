@@ -124,7 +124,7 @@ describe('plan card', () => {
     expect(card).toHaveTextContent('review round 1')
     const approve = await screen.findByTestId('mission-approve')
     fireEvent.click(approve)
-    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7))
+    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7, 1))
     await waitFor(() => expect(screen.queryByTestId('mission-approve')).toBeNull())
     expect(screen.getByTestId('mission-plan-state')).toHaveTextContent('Running')
     expect(screen.queryByTestId('mission-reject')).toBeNull()

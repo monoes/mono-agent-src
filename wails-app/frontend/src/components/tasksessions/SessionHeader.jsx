@@ -78,7 +78,7 @@ export default function SessionHeader({ session, view, onView, onAct, onBudget, 
           <span className="ts-hint">{t('tasks.session.budgetHint')}</span>
         </form>
       )}
-      {notice && <div role="alert" onClick={onClearNotice}>{t('tasks.refused', { error: notice.error })}</div>}
+      {notice && <div role="alert" onClick={onClearNotice}>{notice.code === 'plan_changed' ? t('personItem.planChanged') : t('tasks.refused', { error: notice.error })}</div>}
     </section>
   )
 }

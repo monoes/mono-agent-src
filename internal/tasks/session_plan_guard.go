@@ -49,6 +49,25 @@ func (s *Store) PlanOf(ctx context.Context, profileID string, id int64, actor Ac
 	return out, err
 }
 
+// SessionWithPlan reads a session and the revision and digest of its plan in one snapshot, so the
+// two always describe the same plan (two reads could straddle a lead's edit). It is the operator's.
+func (s *Store) SessionWithPlan(ctx context.Context, profileID string, id int64, actor Actor) (Session, PlanView, error) {
+	if actor.Kind != Human {
+		return Session{}, PlanView{}, operatorOnly("read a session's plan digest")
+	}
+	var se Session
+	var pv PlanView
+	err := s.snapshot(ctx, func(x dbx) error {
+		var err error
+		if se, err = s.sessionTx(ctx, x, profileID, id); err != nil {
+			return err
+		}
+		pv, err = s.planViewTx(ctx, x, se)
+		return err
+	})
+	return se, pv, err
+}
+
 // planViewTx hashes the goal and caps of the session and, for each task it stores in any column,
 // the words and structure a lead can write: title, notes, acceptance, kind, parent, assignee,
 // suggested executor, the dependencies and how many events (comments) the task holds.

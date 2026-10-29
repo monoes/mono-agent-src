@@ -77,8 +77,9 @@ var taskSessionCommandDocs = []cmdDoc{
 	{
 		Name:     "task session approve",
 		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator; or the lead of its parent when the operator set agent_approval=lead; giant work waits for the person; an empty draft is refused)",
-		Usage:    "monoagentcli [--profile P] task session approve ID [--as NAME]",
-		Examples: []string{"monoagentcli --profile work task session approve 3"},
+		Usage:    "monoagentcli [--profile P] task session approve ID [--rev N] [--as NAME]",
+		Flags:    "  --rev int   The session revision you read (`rev` in `task session show --json`): refused with code plan_changed if the plan moved since. Optional so scripts keep working; pass it whenever you approve what you read",
+		Examples: []string{"monoagentcli --profile work task session approve 3", "monoagentcli --profile work task session approve 3 --rev 12"},
 	},
 	{
 		Name:     "task session person inbox",

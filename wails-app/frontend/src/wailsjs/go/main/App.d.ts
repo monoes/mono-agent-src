@@ -805,6 +805,8 @@ export function TaskPulse():Promise<Record<string, any>>;
 
 export function TaskSessionApprove(arg1:number):Promise<string>;
 
+export function TaskSessionApproveAt(arg1:number,arg2:number):Promise<string>;
+
 export function TaskSessionArchive(arg1:number):Promise<string>;
 
 export function TaskSessionBoard(arg1:number,arg2:number):Promise<string>;

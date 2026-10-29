@@ -235,7 +235,12 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 	if err := s.sessionEvent(ctx, x, id, actor, "limits", strings.Join(changed, ", ")); err != nil {
 		return err
 	}
-	return s.clampChildren(ctx, x, id, actor)
+	return s.clampChildren(ctx, x, id, actor, lowered{
+		level:    slices.Index(AccessLevels, level) < slices.Index(AccessLevels, se.AccessLevel),
+		maxTasks: maxTasks < se.MaxTasks,
+		maxDepth: maxDepth < se.MaxDepth,
+		budget:   budget > 0 && (se.BudgetUSD <= 0 || budget < se.BudgetUSD),
+	})
 }
 
 // AddSessionSpend adds usd to what the session has spent. Only the operator's process

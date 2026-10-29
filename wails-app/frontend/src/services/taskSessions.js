@@ -25,7 +25,8 @@ export const sessionsApi = {
   create:  (title, goal = '', parentId = 0, kind = '') => run(() => GoApp.TaskSessionCreate(title, goal, parentId || 0, kind)),
   // {profile, session}
   rename:  (id, title) => run(() => GoApp.TaskSessionRename(id, title)),
-  approve: (id) => run(() => GoApp.TaskSessionApprove(id)),
+  // rev: the session revision on screen; the CLI refuses with plan_changed when a lead changed the draft since.
+  approve: (id, rev = 0) => run(() => (rev > 0 ? GoApp.TaskSessionApproveAt(id, rev) : GoApp.TaskSessionApprove(id))),
   pause:   (id) => run(() => GoApp.TaskSessionPause(id)),
   resume:  (id) => run(() => GoApp.TaskSessionResume(id)),
   stop:    (id) => run(() => GoApp.TaskSessionStop(id)),

@@ -10,8 +10,8 @@ import (
 // an agent, whatever else its environment says, and an agent never acts as the person.
 var personTokenEnv = []string{coderhost.SessionTokenEnv, agenttokens.EnvMissionToken, boundSessionEnv, boundTaskEnv}
 
-// refuseTokenHolder refuses a person verb when the environment holds an agent token (even an
-// empty one: its presence is the sign). It does not make the verbs proof against an agent that
+// refuseTokenHolder refuses a person verb when the environment holds an agent token. A variable set to
+// the empty string does not count (lookupEnv wants a value). It does not make the verbs proof against an agent that
 // clears its environment; SECURITY.md says so.
 func (d Deps) refuseTokenHolder(what string) error {
 	for _, key := range personTokenEnv {
