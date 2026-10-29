@@ -282,6 +282,11 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 		auto = *u.AutoCloseVerified
 		changed = append(changed, fmt.Sprintf("auto_close_verified %t", auto))
 	}
+	if se.ParentSessionID != 0 {
+		if err := s.withinParentUpdate(ctx, x, se, u); err != nil {
+			return err
+		}
+	}
 	on := 0
 	if auto {
 		on = 1
@@ -300,6 +305,40 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 		maxDepth: maxDepth < se.MaxDepth,
 		budget:   budget > 0 && (se.BudgetUSD <= 0 || budget < se.BudgetUSD),
 	})
+}
+
+// withinParentUpdate holds an update of a child to the rule its creation followed: what u raises may
+// not pass the parent's access, task cap or depth cap, and a budget (0, no cap, included) must fit in
+// what the parent has left plus what this child holds now. Lowering is always allowed.
+func (s *Store) withinParentUpdate(ctx context.Context, x dbx, se Session, u SessionUpdate) error {
+	par, err := s.sessionTx(ctx, x, se.ProfileID, se.ParentSessionID)
+	if err != nil {
+		return err
+	}
+	if u.AccessLevel != nil && slices.Index(AccessLevels, *u.AccessLevel) > slices.Index(AccessLevels, par.AccessLevel) {
+		return limit("access %q is above the parent session #%d's %q", *u.AccessLevel, par.ID, par.AccessLevel)
+	}
+	if u.MaxTasks != nil && *u.MaxTasks > par.MaxTasks {
+		return limit("max tasks %d is above the parent session #%d's %d", *u.MaxTasks, par.ID, par.MaxTasks)
+	}
+	if u.MaxDepth != nil && *u.MaxDepth > par.MaxDepth {
+		return limit("max depth %d is above the parent session #%d's %d", *u.MaxDepth, par.ID, par.MaxDepth)
+	}
+	if u.BudgetUSD == nil || par.BudgetUSD <= 0 {
+		return nil
+	}
+	left, _, err := sessionLeft(ctx, x, par)
+	if err != nil {
+		return err
+	}
+	own, err := heldOfSession(ctx, x, se)
+	if err != nil {
+		return err
+	}
+	if room := left + own; *u.BudgetUSD == 0 || *u.BudgetUSD > room+1e-9 {
+		return limit("budget $%.2f is above what the parent session #%d has room for ($%.2f of its $%.2f; 0, no cap, is refused under a budget)", *u.BudgetUSD, par.ID, max(room, 0), par.BudgetUSD)
+	}
+	return nil
 }
 
 // AddSessionSpend adds usd to what the session has spent. Only the operator's process

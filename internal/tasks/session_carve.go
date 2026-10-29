@@ -211,3 +211,12 @@ func sessionLeft(ctx context.Context, x dbx, se Session) (left, held float64, er
 	}
 	return se.BudgetUSD - se.SpentUSD - held, held, nil
 }
+
+// heldOfSession is what one session holds of its parent's budget, by the rule of heldByChildren.
+func heldOfSession(ctx context.Context, x dbx, se Session) (float64, error) {
+	if se.State == SessionDraft || se.State == SessionRunning || se.State == SessionPaused {
+		return se.BudgetUSD, nil
+	}
+	below, err := heldByChildren(ctx, x, se.ID, false)
+	return se.SpentUSD + below, err
+}
