@@ -8,6 +8,7 @@ import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { CoderChatView } from './CoderChatView.jsx'
 import { PaneSettings, SettingsButton } from './PaneSettings.jsx'
 import { useVerifiedAccess } from './useChatPaneData.js'
+import { ChatTitle } from './ChatTitle.jsx'
 import { chatAccessApi } from '../../lib/chatAccessApi.js'
 import { isAccess, isCoderAccess, isConfinedTask } from '../../lib/chatAccess.js'
 import { useCoderConversation } from './useCoderConversation.js'
@@ -179,6 +180,8 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape' || isModalOpen()) return
+      // The title box handles its own Escape (it puts the old name back); the chat stays open.
+      if (e.target?.closest?.('[data-title-editor]')) return
       // The History drawer handles its own Escape when focus is inside it, so
       // this overlay stays open (and the key keeps travelling to the drawer).
       if (e.target?.closest?.('[data-testid="history-panel"]')) return
@@ -251,6 +254,17 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
     }
   }, [liveConvId, liveTurnId, t])
 
+  // A name typed at the top replaces the derived one; an empty name takes it back (a folder chat then
+  // shows its folder again, any other the backend's derived title, read anew).
+  const renameChat = useCallback(async (next) => {
+    const stored = await chatAccessApi.rename(bubble.conversationId, next)
+    if (stored) store.patchBubble(bubble.key, { title: stored })
+    else {
+      if (bubble.cwd) store.patchBubble(bubble.key, { title: '' })
+      verify.refresh()
+    }
+  }, [bubble.conversationId, bubble.key, bubble.cwd, store, verify])
+
   const title = bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
   const showStage = access !== 'scoped' && !confined
   const runtime = bubble.conversationId ? bubble.runtime : setup.runtime
@@ -279,7 +293,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {/* The folder row below carries the badge once there is a folder. */}
             {!bubble.cwd && isCoderAccess(access) && <CoderBadge />}
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{title}</span>
+            <ChatTitle title={title} canEdit={!!bubble.conversationId} onSave={renameChat} />
             {(runtime || model) && (
               <span style={{ ...chip, color: 'var(--cyan)', borderColor: 'var(--border-bright)', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
                 {[runtime && runtimeLabel(runtime), model].filter(Boolean).join(' · ')}
