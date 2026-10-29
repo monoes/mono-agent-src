@@ -1778,6 +1778,8 @@
         "conversation": "Abrir conversación"
       },
       "confirmClose": "¿Cerrar esta misión? Sus tareas se quedan como están; los agentes dejan de empezar trabajo.",
+      "confirmArchiveCascade_one": "¿Archivar esta sesión y {{count}} sesión por debajo? Las que corren se detienen primero (se liberan sus reclamaciones). Abiertas por debajo: {{titles}}",
+      "confirmArchiveCascade_other": "¿Archivar esta sesión y las {{count}} sesiones por debajo? Las que corren se detienen primero (se liberan sus reclamaciones). Abiertas por debajo: {{titles}}",
       "confirmStop": "¿Detener esta sesión para siempre? Se liberan todas las reclamaciones y sus agentes paran; las tareas se quedan donde están.",
       "budgetLabel": "Presupuesto (USD)",
       "budgetHint": "0 para sin presupuesto",
@@ -1805,7 +1807,20 @@
       "retry": "Reintentar",
       "planError": "No se pudo leer el plan",
       "planEmpty": "Este plan aún no tiene tareas",
-      "planShowMore": "Mostrar {{count}} filas más ({{left}} restantes)"
+      "planShowMore": "Mostrar {{count}} filas más ({{left}} restantes)",
+      "new": "Nueva sesión",
+      "create": "Crear sesión",
+      "rename": "Renombrar",
+      "renameLabel": "Título de la sesión",
+      "titleLabel": "Título",
+      "goalLabel": "Objetivo (opcional)",
+      "parentLabel": "Sesión superior",
+      "noParent": "Sin sesión superior",
+      "by": "por {{who}}",
+      "titleProblem": {
+        "empty": "Pon un título a la sesión.",
+        "tooLong": "El título supera los {{max}} caracteres. Acórtalo; no se recorta nada por ti."
+      }
     }
   },
   "publication": {

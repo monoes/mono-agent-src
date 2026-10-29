@@ -21,6 +21,10 @@ export const sessionsApi = {
   plan:    (id) => run(() => GoApp.TaskSessionPlan(id)),
   // {profile, session, rev, counts, tasks: {inbox: [...], ...}}
   board:   (id) => run(() => GoApp.TaskSessionBoard(id, DONE_LIMIT)),
+  // {profile, session}: a new session; parentId 0 for a root, kind '' for the CLI's default.
+  create:  (title, goal = '', parentId = 0, kind = '') => run(() => GoApp.TaskSessionCreate(title, goal, parentId || 0, kind)),
+  // {profile, session}
+  rename:  (id, title) => run(() => GoApp.TaskSessionRename(id, title)),
   approve: (id) => run(() => GoApp.TaskSessionApprove(id)),
   pause:   (id) => run(() => GoApp.TaskSessionPause(id)),
   resume:  (id) => run(() => GoApp.TaskSessionResume(id)),
@@ -28,6 +32,8 @@ export const sessionsApi = {
   // The operator closes a running or paused mission the lead proposed closing; note is optional.
   close:   (id, note = '') => run(() => GoApp.TaskSessionClose(id, note)),
   archive: (id) => run(() => GoApp.TaskSessionArchive(id)),
+  // {profile, session, archived: [ids]}: the session and every session below it, open ones stopped first.
+  archiveCascade: (id) => run(() => GoApp.TaskSessionArchiveCascade(id)),
   // budget in dollars; 0 for none.
   budget:  (id, usd) => run(() => GoApp.TaskSessionBudget(id, JSON.stringify({ usd }))),
   // {session_id, rev, state}, or {} for a session that is not there.

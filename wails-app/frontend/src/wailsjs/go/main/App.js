@@ -1594,6 +1594,10 @@ export function TaskSessionArchive(arg1) {
   return window['go']['main']['App']['TaskSessionArchive'](arg1);
 }
 
+export function TaskSessionArchiveCascade(arg1) {
+  return window['go']['main']['App']['TaskSessionArchiveCascade'](arg1);
+}
+
 export function TaskSessionBoard(arg1, arg2) {
   return window['go']['main']['App']['TaskSessionBoard'](arg1, arg2);
 }
@@ -1606,6 +1610,10 @@ export function TaskSessionClose(arg1, arg2) {
   return window['go']['main']['App']['TaskSessionClose'](arg1, arg2);
 }
 
+export function TaskSessionCreate(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['TaskSessionCreate'](arg1, arg2, arg3, arg4);
+}
+
 export function TaskSessionPause(arg1) {
   return window['go']['main']['App']['TaskSessionPause'](arg1);
 }
@@ -1616,6 +1624,10 @@ export function TaskSessionPlan(arg1) {
 
 export function TaskSessionPulse(arg1) {
   return window['go']['main']['App']['TaskSessionPulse'](arg1);
+}
+
+export function TaskSessionRename(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionRename'](arg1, arg2);
 }
 
 export function TaskSessionResume(arg1) {

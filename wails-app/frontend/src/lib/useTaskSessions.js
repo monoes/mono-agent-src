@@ -66,5 +66,19 @@ export function useTaskSessions(active, selectedId) {
     return res
   }, [reload])
 
-  return { sessions, loaded, listError, selected, events, notice, clearNotice: () => setNotice(null), act, setBudget, reload }
+  // create and rename answer the CLI's document (or {error}) to the form that asked,
+  // which shows a refusal beside its fields; the list is read again either way.
+  const create = useCallback(async ({ title, goal, parentId }) => {
+    const res = await sessionsApi.create(title, goal, parentId)
+    await reload()
+    return res
+  }, [reload])
+
+  const rename = useCallback(async (id, title) => {
+    const res = await sessionsApi.rename(id, title)
+    await reload()
+    return res
+  }, [reload])
+
+  return { sessions, loaded, listError, selected, events, notice, clearNotice: () => setNotice(null), act, setBudget, create, rename, reload }
 }
