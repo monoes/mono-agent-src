@@ -276,7 +276,7 @@ func (s *Staffer) staffEffort(ctx context.Context, req SpawnRequest, st *Staff) 
 	if len(levels) == 0 {
 		return nil
 	}
-	if e := s.Purposes[st.Purpose].Effort; e != "" && st.Purpose != "" && slices.Contains(levels, e) {
+	if e := st.loaded[st.Purpose].Effort; e != "" && st.Purpose != "" && slices.Contains(levels, e) {
 		st.Effort = e
 		st.Why = append(st.Why, "effort set for "+st.Purpose)
 		return nil

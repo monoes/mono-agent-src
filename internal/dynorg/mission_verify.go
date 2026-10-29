@@ -36,11 +36,12 @@ func VerifierFor(s *Staffer, executor Model) (m Model, same bool) {
 	if s == nil {
 		return Model{}, true
 	}
+	all, _ := s.settings()
 	if executor.Runtime == "" {
 		executor = s.Lead
 	}
 	for _, c := range s.Roster {
-		if c.Stale || (c.Runtime == executor.Runtime && c.Model == executor.Model) || !s.permits(verifierPurpose, c) {
+		if c.Stale || (c.Runtime == executor.Runtime && c.Model == executor.Model) || !s.permits(all, verifierPurpose, c) {
 			continue
 		}
 		if c.FullAccess || c.Read || c.ReadOnlySandbox {

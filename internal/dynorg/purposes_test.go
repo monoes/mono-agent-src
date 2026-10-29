@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,12 +86,94 @@ func TestTheLeadCannotEscapeBySayingNoModelOrAnotherPurpose(t *testing.T) {
 	}
 }
 
-func TestALeadMayNameAPurpose(t *testing.T) {
+// A purpose the lead names only narrows: it never reaches the sets of another
+// kind of work. Coding permits only haiku and research is open, yet a coding
+// worker named "research" with gpt is refused.
+func TestANamedPurposeCannotEscapeTheRolesKind(t *testing.T) {
 	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus,
-		Purposes: map[string]agentpurposes.Setting{"review": set("any", "codex/gpt-5.5")}}
-	st := staff(t, s, SpawnRequest{Brief: codeBrief, Purpose: "review"})
-	if st.Purpose != "review" || st.Model.Key() != "codex/gpt-5.5" {
+		Purposes: map[string]agentpurposes.Setting{"coding": set("any", "claude/haiku")}}
+	_, err := s.Staff(context.Background(), SpawnRequest{Brief: codeBrief, Role: "coder", Purpose: "research", Runtime: "codex", Model: "gpt-5.5"})
+	if err == nil || !strings.Contains(err.Error(), "coding, debugging") {
+		t.Errorf("a coding worker named research: %v", err)
+	}
+	// A purpose of the role's kind that is unrestricted cannot widen either.
+	_, err = s.Staff(context.Background(), SpawnRequest{Brief: codeBrief, Role: "coder", Purpose: "debugging", Runtime: "codex", Model: "gpt-5.5"})
+	if err == nil || !strings.Contains(err.Error(), "not one of the models the operator allows") {
+		t.Errorf("coding narrowed by an open debugging: %v", err)
+	}
+	st := staff(t, s, SpawnRequest{Brief: codeBrief, Role: "coder", Purpose: "debugging"})
+	if st.Model.Key() != "claude/haiku" {
+		t.Errorf("staff = %s", st.Model.Key())
+	}
+}
+
+// A named purpose narrower than the role's: the sets intersect.
+func TestANamedPurposeNarrowsToTheIntersection(t *testing.T) {
+	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus,
+		Purposes: map[string]agentpurposes.Setting{
+			"coding":    set("any", "claude/haiku", "codex/gpt-5.5"),
+			"debugging": set("any", "codex/gpt-5.5", "claude/opus"),
+		}}
+	req := SpawnRequest{Brief: codeBrief, Role: "coder", Purpose: "debugging"}
+	req.Runtime, req.Model = "claude", "haiku" // in coding, not in debugging
+	if _, err := s.Staff(context.Background(), req); err == nil {
+		t.Error("a model outside the named purpose's set was accepted")
+	}
+	req.Runtime, req.Model = "claude", "opus" // in debugging, not in coding
+	if _, err := s.Staff(context.Background(), req); err == nil {
+		t.Error("a model outside the role's own set was accepted")
+	}
+	req.Runtime, req.Model = "", ""
+	if st := staff(t, s, req); st.Model.Key() != "codex/gpt-5.5" || st.Purpose != "debugging" {
 		t.Errorf("staff = %s purpose %q", st.Model.Key(), st.Purpose)
+	}
+	// Two sets with nothing in common leave no model.
+	s.Purposes["debugging"] = set("any", "claude/opus")
+	if _, err := s.Staff(context.Background(), req); err == nil || !strings.Contains(err.Error(), "none in common") {
+		t.Errorf("disjoint sets: %v", err)
+	}
+}
+
+// A named purpose a mapped role's category does not allow is refused with the list.
+func TestANamedPurposeTheCategoryDoesNotAllowIsRefused(t *testing.T) {
+	s := &Staffer{Roster: []Model{opus, gpt}, Lead: opus}
+	_, err := s.Staff(context.Background(), SpawnRequest{Brief: reviewBrief, Role: "reviewer", Purpose: "coding"})
+	if err == nil || !strings.Contains(err.Error(), "review, security-audit") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// A role whose category maps to nothing (a custom or library role) is limited
+// by every purpose the operator restricted, whatever the lead names or omits.
+func TestAnUnmappedCategoryTakesTheMostRestrictiveSets(t *testing.T) {
+	lib := fakeLibrary{agents: map[string][3]string{"custom-agent": {"body", "Custom", "mystery-kind"}}}
+	mk := func(p map[string]agentpurposes.Setting) *Staffer {
+		return &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus, Library: lib, Purposes: p}
+	}
+	req := SpawnRequest{Brief: codeBrief, Role: "custom-agent"}
+	if st := staff(t, mk(nil), req); st.Purpose != "" || st.Model.Key() == "" {
+		t.Errorf("nothing restricted: purpose %q model %s", st.Purpose, st.Model.Key())
+	}
+	s := mk(map[string]agentpurposes.Setting{
+		"coding":   set("any", "claude/haiku", "codex/gpt-5.5"),
+		"research": set("any", "codex/gpt-5.5", "claude/opus"),
+	})
+	if st := staff(t, s, req); st.Model.Key() != "codex/gpt-5.5" {
+		t.Errorf("the intersection of every restricted set is gpt: %s", st.Model.Key())
+	}
+	req.Runtime, req.Model = "claude", "haiku"
+	if _, err := s.Staff(context.Background(), req); err == nil {
+		t.Error("a model outside one restricted set was accepted for an unmapped role")
+	}
+	req.Purpose = "research" // naming one still leaves the others in force
+	req.Runtime, req.Model = "claude", "opus"
+	if _, err := s.Staff(context.Background(), req); err == nil {
+		t.Error("naming research widened an unmapped role")
+	}
+	s.Purposes["review"] = set("any", "claude/haiku")
+	req = SpawnRequest{Brief: codeBrief, Role: "custom-agent"}
+	if _, err := s.Staff(context.Background(), req); err == nil || !strings.Contains(err.Error(), "none in common") {
+		t.Errorf("an empty intersection: %v", err)
 	}
 }
 
@@ -219,21 +302,27 @@ func TestADefaultModelMatchesTheRosterId(t *testing.T) {
 	}
 }
 
-// The purposes ride the categories the built-in roles already carry: this
-// holds the two tables together, so a role added with a new category is seen.
-func TestBuiltinRoleCategoriesMapOntoPurposes(t *testing.T) {
+// Every category of the built-in role tables is mapped to a default purpose
+// (and that default is one the category allows): a role added with a new
+// category fails here until it is mapped, instead of running unrestricted.
+func TestEveryBuiltinRoleCategoryIsMapped(t *testing.T) {
 	want := map[string]string{
 		"reviewer": "review", "researcher": "research", "tester": "testing", "planner": "planning", "coder": "coding",
-		"task-manager": "", "doc-writer": "writing", "people-researcher": "research", "vault-keeper": "security-audit",
+		"task-manager": "automation", "doc-writer": "writing", "people-researcher": "research", "vault-keeper": "security-audit",
 		"workflow-builder": "automation", "automation-operator": "automation", "browser-operator": "automation",
 		"org-designer": "planning", "data-analyst": "data", "security-reviewer": "security-audit",
 	}
-	if len(want) != len(builtinRoles) {
+	if len(want) != len(coreRoles)+len(appRoles) || len(want) != len(builtinRoles) {
 		t.Errorf("%d built-in roles, %d decided: decide the new one's purpose", len(builtinRoles), len(want))
 	}
-	for _, r := range builtinRoles {
-		if got := agentpurposes.ForCategory(r.Category); got != want[r.ID] {
-			t.Errorf("role %s (category %s) = purpose %q, want %q", r.ID, r.Category, got, want[r.ID])
+	for _, r := range append(slices.Clone(coreRoles), appRoles...) {
+		sc, ok := agentpurposes.ScopeFor(r.Category)
+		if !ok {
+			t.Errorf("role %s: category %q maps to no purpose", r.ID, r.Category)
+			continue
+		}
+		if sc.Default != want[r.ID] || !sc.Allows(sc.Default) {
+			t.Errorf("role %s (category %s) = purpose %q, want %q", r.ID, r.Category, sc.Default, want[r.ID])
 		}
 	}
 }

@@ -13,6 +13,7 @@ import (
 // nothing.
 type purposePolicy struct {
 	id         string
+	label      string // the purposes whose sets limit the choice, for messages
 	set        agentpurposes.Setting
 	rule       string
 	restricted bool   // the candidates are limited to the set's pairs
@@ -20,50 +21,107 @@ type purposePolicy struct {
 	notes      []string
 }
 
-// staffPurpose settles the worker's purpose: the lead's, which must be one
-// of the built-in ids, else the one of the role's category ("" = none, the
-// worker's models are not limited).
+// staffPurpose settles the purposes whose model sets limit the worker. They
+// come from the ROLE's category (agentpurposes.ScopeFor), never from the lead:
+// a mapped role is limited by its category's default purpose, and a purpose
+// the lead names can only narrow it (it must be one the category allows, and
+// both sets then apply). A role whose category is unmapped (a custom or
+// library role) is limited by the sets of every purpose the operator
+// restricted, the most restrictive default.
 func (s *Staffer) staffPurpose(req SpawnRequest, st *Staff) error {
-	id := strings.TrimSpace(req.Purpose)
-	if id != "" {
-		if _, ok := agentpurposes.Lookup(id); !ok {
-			return fmt.Errorf("unknown purpose %q; leave purpose empty to derive it from the role, or use one of: %s", id, strings.Join(agentpurposes.IDs(), ", "))
+	named := strings.TrimSpace(req.Purpose)
+	if named != "" {
+		if _, ok := agentpurposes.Lookup(named); !ok {
+			return fmt.Errorf("unknown purpose %q; leave purpose empty to derive it from the role, or use one of: %s", named, strings.Join(agentpurposes.IDs(), ", "))
 		}
-	} else {
-		id = agentpurposes.ForCategory(st.Category)
 	}
-	st.Purpose = id
+	sc, mapped := agentpurposes.ScopeFor(st.Category)
+	if named != "" && mapped && !sc.Allows(named) {
+		return fmt.Errorf("purpose %q does not fit a %s role: a purpose can only narrow the role's own (%s); use one of: %s, or leave it out", named, st.Category, sc.Default, strings.Join(sc.Allowed, ", "))
+	}
+	st.Purpose, st.sides = named, nil
+	if mapped {
+		st.Purpose = sc.Default
+		if named != "" && named != sc.Default {
+			st.Purpose, st.sides = named, []string{named}
+		}
+		st.sides = append(st.sides, sc.Default)
+		return nil
+	}
+	if named != "" {
+		st.sides = []string{named}
+	}
+	for _, id := range agentpurposes.IDs() {
+		if id != named {
+			st.sides = append(st.sides, id)
+		}
+	}
 	return nil
 }
 
-// limitToPurpose applies the operator's setting for st.Purpose to the
-// candidates: only pairs of the set that are validated (not stale) stay, a
-// model that wrote the work is left out when the setting asks for another,
-// and a set with nothing available fails the spawn unless the operator
-// allowed the fallback. The check is in code: nothing the lead says widens it.
+// settings are the operator's sets for this spawn decision, read fresh each
+// time so a change made mid-turn applies to the next spawn. Any error fails
+// the spawn: an unknown restriction is never read as none.
+func (s *Staffer) settings() (map[string]agentpurposes.Setting, error) {
+	return s.Purposes, nil
+}
+
+// limitToPurpose applies the operator's sets for the worker's purposes to the
+// candidates: only pairs of every restricted set (their intersection) that
+// are validated (not stale) stay, a model that wrote the work is left out
+// when a set asks for another, and a set with nothing available fails the
+// spawn unless the operator allowed the fallback. The check is in code:
+// nothing the lead says widens it.
 func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model) (*purposePolicy, error) {
-	pol := &purposePolicy{id: st.Purpose, rule: agentpurposes.RuleAny}
-	if st.Purpose == "" {
-		return pol, nil
+	pol := &purposePolicy{id: st.Purpose, label: st.Purpose, rule: agentpurposes.RuleAny}
+	all, err := s.settings()
+	if err != nil {
+		return nil, err
 	}
-	set, chosen := s.Purposes[st.Purpose]
-	if !chosen {
-		return pol, nil
+	st.loaded = all
+	if p, ok := all[st.Purpose]; ok && st.Purpose != "" {
+		pol.set, pol.rule = p, p.Rule
 	}
-	pol.set = set
-	pol.rule = set.Rule
-	if len(set.Pairs) > 0 {
-		in := slices.DeleteFunc(slices.Clone(*eligible), func(m Model) bool { return m.Stale || !set.Has(m.Runtime, modelID(m)) })
+	var limits []string
+	var inter []agentpurposes.Pair
+	fallbackAny, diff := true, false
+	for _, id := range st.sides {
+		set, ok := all[id]
+		if !ok {
+			continue
+		}
+		diff = diff || set.DifferentFromAuthor
+		if len(set.Pairs) == 0 {
+			continue
+		}
+		if len(limits) == 0 {
+			inter = slices.Clone(set.Pairs)
+		} else {
+			inter = slices.DeleteFunc(inter, func(p agentpurposes.Pair) bool { return !set.Has(p.Runtime, p.Model) })
+		}
+		limits = append(limits, id)
+		fallbackAny = fallbackAny && set.Fallback == agentpurposes.FallbackAny
+	}
+	if len(limits) > 0 {
+		pol.label = strings.Join(limits, " and ")
+		if len(limits) == 1 {
+			pol.label = limits[0]
+		}
+		if len(inter) == 0 {
+			return nil, fmt.Errorf("purpose %s: the models the operator chose for these have none in common, so no model may run this worker; ask the operator to change the sets in Settings", pol.label)
+		}
+		pol.set.Pairs = inter
+		in := slices.DeleteFunc(slices.Clone(*eligible), func(m Model) bool { return m.Stale || !pol.set.Has(m.Runtime, modelID(m)) })
 		switch {
 		case len(in) > 0:
 			*eligible, pol.restricted = in, true
-		case set.Fallback == agentpurposes.FallbackAny:
-			pol.notes = append(pol.notes, "purpose "+st.Purpose+": none of the models the operator chose can run this worker; the operator allowed any validated model")
+		case fallbackAny:
+			pol.notes = append(pol.notes, "purpose "+pol.label+": none of the models the operator chose can run this worker; the operator allowed any validated model")
 		default:
-			return nil, fmt.Errorf("purpose %s: none of the models the operator chose (%s) is validated and able to run a %s worker; ask the operator to re-validate them or change the set in Settings", st.Purpose, pairKeys(set.Pairs), st.Access)
+			return nil, fmt.Errorf("purpose %s: none of the models the operator chose (%s) is validated and able to run a %s worker; ask the operator to re-validate them or change the set in Settings", pol.label, pairKeys(inter), st.Access)
 		}
 	}
-	if set.DifferentFromAuthor {
+	if diff {
 		pol.author = req.AuthorModel
 		if pol.author == "" && s.Lead.Runtime != "" {
 			pol.author = s.Lead.Key()
@@ -72,9 +130,9 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 			others := slices.DeleteFunc(slices.Clone(*eligible), func(m Model) bool { return m.Key() == pol.author })
 			if len(others) > 0 {
 				*eligible = others
-				pol.notes = append(pol.notes, "purpose "+st.Purpose+": a different model than the author "+pol.author)
+				pol.notes = append(pol.notes, "purpose "+pol.label+": a different model than the author "+pol.author)
 			} else {
-				pol.notes = append(pol.notes, "purpose "+st.Purpose+": only one validated model can run this, so it is the author's own "+pol.author+" (different-from-author fell back)")
+				pol.notes = append(pol.notes, "purpose "+pol.label+": only one validated model can run this, so it is the author's own "+pol.author+" (different-from-author fell back)")
 				pol.author = ""
 			}
 		}
@@ -86,13 +144,13 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 // leaves it out.
 func (p *purposePolicy) checkNamed(m Model, eligible []Model) error {
 	if p.restricted && !p.set.Has(m.Runtime, modelID(m)) {
-		return fmt.Errorf("%s is not one of the models the operator allows for %s; use one of: %s", m.Key(), p.id, keys(eligible))
+		return fmt.Errorf("%s is not one of the models the operator allows for %s; use one of: %s", m.Key(), p.label, keys(eligible))
 	}
 	if p.restricted && m.Stale {
-		return fmt.Errorf("%s is stale (not validated recently); the operator's set for %s allows: %s", m.Key(), p.id, keys(eligible))
+		return fmt.Errorf("%s is stale (not validated recently); the operator's set for %s allows: %s", m.Key(), p.label, keys(eligible))
 	}
 	if p.author != "" && m.Key() == p.author {
-		return fmt.Errorf("%s wrote the work this worker checks, and the operator wants %s done by a different model; use one of: %s", m.Key(), p.id, keys(eligible))
+		return fmt.Errorf("%s wrote the work this worker checks, and the operator wants %s done by a different model; use one of: %s", m.Key(), p.label, keys(eligible))
 	}
 	return nil
 }
@@ -129,12 +187,12 @@ func (p *purposePolicy) pick(eligible, bad []Model) (Model, bool) {
 	return Model{}, false
 }
 
-// permits is whether the operator's set for purpose lets m run its work:
-// always when nothing is chosen, else only a validated pair of the set (or
-// any validated model when the set has none available and the operator
-// allowed the fallback).
-func (s *Staffer) permits(purpose string, m Model) bool {
-	set, chosen := s.Purposes[purpose]
+// permits is whether the operator's set for purpose (all: the sets read for
+// this decision) lets m run its work: always when nothing is chosen, else only
+// a validated pair of the set (or any validated model when the set has none
+// available and the operator allowed the fallback).
+func (s *Staffer) permits(all map[string]agentpurposes.Setting, purpose string, m Model) bool {
+	set, chosen := all[purpose]
 	if !chosen || len(set.Pairs) == 0 {
 		return true
 	}

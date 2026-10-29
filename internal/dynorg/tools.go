@@ -88,7 +88,7 @@ func spawnSpec(lead bool, profiles []string) monomind.ToolSpec {
 		"runtime":     str("Runtime to run on (e.g. claude, codex). Must have a ready model; see org_roster."),
 		"model":       str("Model id on that runtime; see org_roster."),
 		"effort":      str("Reasoning effort, one of the model's effort levels."),
-		"purpose":     str("What kind of work this is (" + strings.Join(agentpurposes.IDs(), ", ") + "); the operator may limit the models each purpose can use, and a model outside that set is refused. Leave out to derive it from the role."),
+		"purpose":     str("Optional. The operator limits the models each kind of work may use, and the limit follows the role you pick, not this argument. A purpose can only narrow it: name one the role's kind of work allows (" + strings.Join(agentpurposes.IDs(), ", ") + ") and the models must then be in both sets; naming one never widens. A model outside the limit is refused."),
 		"access":      str(accessDesc(profiles)),
 		"files":       strList("Files the worker should keep to."),
 		"needs_write": map[string]any{"type": "boolean", "description": "The worker will edit files (it then waits its turn for the write lease)."},

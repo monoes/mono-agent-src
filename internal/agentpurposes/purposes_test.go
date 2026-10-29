@@ -177,3 +177,27 @@ func TestAnAgentContextCannotWriteTheRows(t *testing.T) {
 		t.Errorf("the refused write left %+v", got.Setting)
 	}
 }
+
+func TestScopesNameRealPurposesAndTheirOwnDefault(t *testing.T) {
+	for cat, sc := range scopes {
+		if !sc.Allows(sc.Default) {
+			t.Errorf("%s: default %s is not allowed", cat, sc.Default)
+		}
+		for _, id := range sc.Allowed {
+			if _, ok := Lookup(id); !ok {
+				t.Errorf("%s: %s is not a purpose", cat, id)
+			}
+		}
+	}
+	for _, p := range Builtins() {
+		if sc, ok := ScopeFor(p.Category); !ok || sc.Default != p.ID {
+			t.Errorf("purpose %s: its category %q maps to %+v ok=%v", p.ID, p.Category, sc, ok)
+		}
+	}
+	if _, ok := ScopeFor("mystery"); ok {
+		t.Error("an unknown category is mapped")
+	}
+	if sc, ok := ScopeFor("Backend-Engineering "); !ok || sc.Default != "coding" {
+		t.Errorf("a category that contains a mapped one: %+v %v", sc, ok)
+	}
+}

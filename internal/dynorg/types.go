@@ -10,6 +10,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
@@ -119,10 +120,10 @@ type SpawnRequest struct {
 	Files      []string `json:"files,omitempty"`
 	NeedsWrite *bool    `json:"needs_write,omitempty"`
 	Wait       bool     `json:"wait,omitempty"`
-	// Purpose names the kind of work (internal/agentpurposes), so the worker's
-	// model is drawn from the operator's set for it; left out it is derived
-	// from the role's category. A purpose the operator limited can't be
-	// escaped by naming another model: the set is checked in Staffer.staffModel.
+	// Purpose may only narrow the work (internal/agentpurposes): the purpose
+	// whose model set limits the worker comes from the role's category, and a
+	// named one must be a purpose that category allows, with both sets then
+	// applying. It never widens: see Staffer.staffPurpose.
 	Purpose string `json:"purpose,omitempty"`
 	// AuthorModel is the model ("runtime/model") that produced the work this
 	// worker checks, for a purpose set to a different model than the author.
@@ -160,10 +161,12 @@ type Staff struct {
 	Skills    []Skill // skills given to the worker
 	Model     Model   // the runtime and model it runs on
 	Effort    string
-	Access    string   // an access profile
-	Purpose   string   // the purpose whose model set limited the choice ("" = none)
-	Fallbacks []Model  // next models to try if Model can't run
-	Why       []string // who chose what, for agent.spawned.why
+	Access    string                           // an access profile
+	Purpose   string                           // the purpose whose model set limited the choice ("" = none)
+	sides     []string                         // every purpose whose set limits the worker (Purpose first)
+	loaded    map[string]agentpurposes.Setting // the sets read for this decision
+	Fallbacks []Model                          // next models to try if Model can't run
+	Why       []string                         // who chose what, for agent.spawned.why
 	PickConf  *float64
 	JevConf   *float64
 }
