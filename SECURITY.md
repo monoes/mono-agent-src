@@ -1889,6 +1889,7 @@ that works a task acts on them. The defences:
   operator's working `max_depth`. It raises a person item (kind `plan_approval`)
   that waits with no timeout, no default and no master or model answer (it has no
   question row); the operator's `session approve` of it records basis `person`.
+  The person verbs (`task session person inbox|approve|deny|ask`) are the operator's: an agent marker, `--as`, `MONOAGENT_ACTOR` or any agent token in the environment (`MONOAGENT_SESSION_TOKEN`, `MONOAGENT_TASK_BINDING`, `MONOAGENT_TASK_SESSION`, `MONOAGENT_TASK_ID`) refuses them with `operator_only`. This is a deterrent, not a boundary: a process that clears its environment or reparents itself (a daemonised helper) is treated as the operator, exactly as for every other operator-only verb, so a hostile process running as the same user can still run them. What the person approves is bound to the plan revision they read (`--rev`).
   Approval changes no access, budget or cap. A process a lead's turn started
   without a task token still carries the lead's session token and so acts as the
   lead; that is the existing meaning of the token, not widened.

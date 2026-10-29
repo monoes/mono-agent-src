@@ -72,6 +72,9 @@ func (d Deps) newPersonInboxCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := d.refuseTokenHolder("list the person items"); err != nil {
+				return err
+			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
 				db, err := d.OpenDB()
 				if err != nil {
@@ -144,6 +147,9 @@ func (d Deps) personAnswer(use, short string, wordsFlag, wordsHelp string, run f
 		RunE: func(cmd *cobra.Command, args []string) error {
 			actor, err := d.callerFor(flagAs(cmd)).operator(personWhat)
 			if err != nil {
+				return err
+			}
+			if err := d.refuseTokenHolder(personWhat); err != nil {
 				return err
 			}
 			if len(args) != 1 {
