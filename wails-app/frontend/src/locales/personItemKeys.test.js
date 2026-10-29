@@ -22,4 +22,12 @@ describe('personItem i18n', () => {
     const p = keys => keys.filter(k => k.startsWith('personItem.')).sort()
     expect(p(flat(es))).toEqual(p(flat(en)))
   })
+  it('words the notification and the tray for every kind of item, with no plan or question text', () => {
+    for (const loc of [en, es]) {
+      for (const k of ['notifyBody_one', 'notifyBody_other', 'trayLabel_one', 'trayLabel_other']) {
+        expect(loc.personItem[k]).not.toMatch(/\bplan|plane|aprobaci/i)
+        expect(loc.personItem[k].match(/\{\{\w+\}\}/g)).toEqual(['{{count}}'])
+      }
+    }
+  })
 })

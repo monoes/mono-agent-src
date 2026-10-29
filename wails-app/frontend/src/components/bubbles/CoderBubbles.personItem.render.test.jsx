@@ -122,7 +122,7 @@ describe('person items in the bubbles', () => {
   it('puts a tray in the dock that opens the cards', async () => {
     personValue = value([plan(3, 'conv-3')])
     render(<Harness />)
-    fireEvent.click(await screen.findByRole('button', { name: '1 plan needs you' }))
+    fireEvent.click(await screen.findByRole('button', { name: '1 item needs you' }))
     expect(screen.getByTestId('person-item-card')).toBeInTheDocument()
   })
 

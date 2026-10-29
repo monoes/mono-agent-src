@@ -16,6 +16,11 @@ describe('orbit styles', () => {
     expect(frames.length).toBeGreaterThan(2)
     for (const f of frames) expect(f).not.toMatch(/\b(width|height|top|left|right|bottom|margin|padding)\s*:/)
   })
+  it('gives a stopped agent its own neutral ring, dotted, apart from failed and paused', () => {
+    expect(css).toMatch(/\.orbit-sat\[data-state="stopped"\]\s*\{\s*--ring: var\(--orbit-stopped\)/)
+    expect(css).toMatch(/\.orbit-sat\[data-state="stopped"\] \.orbit-face\s*\{\s*border-style: dotted/)
+    expect(css).toMatch(/--orbit-stopped: var\(--text-secondary\)/)
+  })
   it('uses the bubble tokens, no hard-coded hex colours', () => {
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
   })

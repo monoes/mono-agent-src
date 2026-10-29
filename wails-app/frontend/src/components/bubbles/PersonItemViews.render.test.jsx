@@ -41,7 +41,7 @@ describe('the dock tray', () => {
   it('is an amber button with the count that opens the cards, and Escape closes it', () => {
     const v = wrap([plan(1), plan(2)])
     renderIn(v, <PersonItemTray />)
-    const btn = screen.getByRole('button', { name: '2 plans need you' })
+    const btn = screen.getByRole('button', { name: '2 items need you' })
     expect(btn).toHaveAttribute('aria-expanded', 'false')
     expect(btn).toHaveAttribute('data-fresh', 'true')
     fireEvent.click(btn)

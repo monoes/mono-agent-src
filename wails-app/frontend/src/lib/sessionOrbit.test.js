@@ -70,8 +70,12 @@ describe('orbitOf', () => {
 describe('orbitState and sizeStep', () => {
   it('maps the states, an unknown one to idle', () => {
     expect(['running', 'paused', 'done', 'failed', 'stopped', 'draft', 'weird', undefined].map(s => orbitState({ state: s })))
-      .toEqual(['running', 'paused', 'done', 'failed', 'failed', 'waiting', 'idle', 'idle'])
+      .toEqual(['running', 'paused', 'done', 'failed', 'stopped', 'waiting', 'idle', 'idle'])
     expect(orbitState(null)).toBe('idle')
+  })
+  it('a stopped session is its own state, listed after paused and before idle and done, never among the failures', () => {
+    const list = [S(1), S(2, 1, { state: 'done' }), S(3, 1, { state: 'stopped' }), S(4, 1, { state: 'failed' }), S(5, 1, { state: 'paused' })]
+    expect(orbitOf(list, { sessionId: 1 }).satellites.map(c => c.state)).toEqual(['failed', 'paused', 'stopped', 'done'])
   })
   it('a session with a person waiting is waiting whatever its state', () => {
     expect(orbitState({ state: 'running', waiting: 2 })).toBe('waiting')

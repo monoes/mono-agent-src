@@ -13,6 +13,7 @@
   --orbit-waiting: var(--yellow);
   --orbit-done: var(--green);
   --orbit-failed: var(--red);
+  --orbit-stopped: var(--text-secondary);
 }
 
 /* A dock bubble's orbit: anchored on the middle of the bubble's wrapper. */
@@ -40,6 +41,7 @@
 .orbit-link.running { stroke: var(--orbit-running); opacity: 0.55; }
 .orbit-link.waiting { stroke: var(--orbit-waiting); opacity: 0.8; }
 .orbit-link.failed { stroke: var(--orbit-failed); opacity: 0.7; }
+.orbit-link.stopped { stroke: var(--orbit-stopped); opacity: 0.45; stroke-dasharray: 2 3; }
 
 .orbit-slot {
   position: absolute;
@@ -94,6 +96,9 @@
 .orbit-sat[data-state="done"] { --ring: var(--orbit-done); }
 .orbit-sat[data-state="failed"] { --ring: var(--orbit-failed); }
 .orbit-sat[data-state="paused"], .orbit-sat[data-state="idle"] { --ring: var(--orbit-idle); }
+/* Stopped on purpose: a neutral ring that is dotted (a paused one is dashed), so it never reads as a failure. */
+.orbit-sat[data-state="stopped"] { --ring: var(--orbit-stopped); }
+.orbit-sat[data-state="stopped"] .orbit-face { border-style: dotted; }
 .orbit-sat[data-state="running"] .orbit-pulse { animation: orbitPulse 2.6s ease-out infinite; }
 .orbit-sat[data-state="waiting"] .orbit-pulse { animation: orbitPulse 1.6s ease-out infinite; }
 .orbit-sat[data-state="paused"] .orbit-face { border-style: dashed; }
@@ -165,7 +170,8 @@
 .orbit-arc .orbit-tip { bottom: auto; top: 50%; left: auto; right: calc(100% + 8px); transform: translateY(-50%) translateX(3px); }
 .orbit-arc.face-right .orbit-tip { right: auto; left: calc(100% + 8px); transform: translateY(-50%) translateX(-3px); }
 .orbit-ring .orbit-tip.below { bottom: auto; top: calc(100% + 8px); }
-.orbit-tip-title { font-size: 11px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orbit-tip-title { font-size: 11px; font-weight: 600; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.orbit-tip-note { margin-top: 2px; color: var(--text-muted); font-style: italic; }
 .orbit-sat:hover .orbit-tip, .orbit-sat:focus-visible .orbit-tip { opacity: 1; visibility: visible; transform: translateX(-50%); transition-delay: 0s; }
 .orbit-arc .orbit-sat:hover .orbit-tip, .orbit-arc .orbit-sat:focus-visible .orbit-tip { transform: translateY(-50%); }
 
@@ -210,6 +216,7 @@
 .orbit-more button[data-state="waiting"] svg { color: var(--orbit-waiting); }
 .orbit-more button[data-state="done"] svg { color: var(--orbit-done); }
 .orbit-more button[data-state="failed"] svg { color: var(--orbit-failed); }
+.orbit-more button[data-state="stopped"] svg { color: var(--orbit-stopped); }
 .orbit-more-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .orbit-more-state { color: var(--text-muted); font-size: 9.5px; }
 
@@ -240,6 +247,7 @@
 .lite-state[data-state="waiting"] { --lite-ring: var(--yellow); }
 .lite-state[data-state="done"] { --lite-ring: var(--green); }
 .lite-state[data-state="failed"] { --lite-ring: var(--red); }
+.lite-state[data-state="stopped"] { --lite-ring: var(--text-secondary); }
 .lite-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .lite-disc {
   width: 56px;
@@ -261,6 +269,7 @@
 .lite-disc[data-state="waiting"] { --lite-ring: var(--yellow); }
 .lite-disc[data-state="done"] { --lite-ring: var(--green); }
 .lite-disc[data-state="failed"] { --lite-ring: var(--red); }
+.lite-disc[data-state="stopped"] { --lite-ring: var(--text-secondary); border-style: dotted; }
 .lite-disc-solo { flex: none; }
 
 /* A tool call in the lite transcript: one line, opens to the full card. */

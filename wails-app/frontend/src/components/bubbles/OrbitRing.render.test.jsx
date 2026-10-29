@@ -32,6 +32,24 @@ describe('OrbitRing', () => {
     expect(container.querySelectorAll('.orbit-mark svg')).toHaveLength(4)
   })
 
+  it('shows a stopped agent as its own neutral state: label, icon and ring, not as failed', () => {
+    const { container } = render(<OrbitRing orbit={orbit([S(2, 1, { state: 'stopped' }), S(3, 1, { state: 'failed' })])} />)
+    const stopped = screen.getByRole('button', { name: 'Agent 2, Stopped' })
+    expect(stopped).toHaveAttribute('data-state', 'stopped')
+    expect(screen.getByRole('button', { name: 'Agent 3, Failed' })).toHaveAttribute('data-state', 'failed')
+    expect(stopped.querySelector('.orbit-mark svg')).not.toBeNull()
+    expect(container.querySelector('path.orbit-link.stopped')).not.toBeNull()
+    expect(stopped).toHaveTextContent('Stopped')
+  })
+
+  it('says in the tooltip and the name that a circle without a conversation opens its task board', () => {
+    const o = orbitOf([S(1), S(2, 1, { conversation_id: '', title: 'Crawl' }), S(3, 1, { title: 'Chatty' })], { sessionId: 1 })
+    render(<OrbitRing orbit={o} />)
+    const bare = screen.getByRole('button', { name: /^Crawl, Running, No conversation yet: opens its task board$/ })
+    expect(bare).toHaveTextContent('No conversation yet: opens its task board')
+    expect(screen.getByRole('button', { name: 'Chatty, Running' })).not.toHaveTextContent('opens its task board')
+  })
+
   it('opens the clicked agent', () => {
     const onOpen = vi.fn()
     render(<OrbitRing orbit={orbit([S(2, 1), S(3, 1)])} onOpen={onOpen} />)
