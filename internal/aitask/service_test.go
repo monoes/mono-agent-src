@@ -567,11 +567,13 @@ func TestStartHandsTheTurnAVerifiedReadOnlySnapshot(t *testing.T) {
 	if b, _ := os.ReadFile(file); string(b) != "the posting" {
 		t.Fatalf("snapshot holds %q", b)
 	}
-	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o400 {
-		t.Errorf("snapshot file mode %v", fi.Mode().Perm())
-	}
-	if fi, _ := os.Stat(snap); fi.Mode().Perm() != 0o500 {
-		t.Errorf("snapshot dir mode %v", fi.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no Unix modes
+		if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o400 {
+			t.Errorf("snapshot file mode %v", fi.Mode().Perm())
+		}
+		if fi, _ := os.Stat(snap); fi.Mode().Perm() != 0o500 {
+			t.Errorf("snapshot dir mode %v", fi.Mode().Perm())
+		}
 	}
 	if err := os.WriteFile(file, []byte("x"), 0o600); err == nil && os.Getuid() != 0 {
 		t.Error("the snapshot is writable")
