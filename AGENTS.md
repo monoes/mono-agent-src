@@ -2797,8 +2797,9 @@ monoagentcli --profile work coder host stop                        # the host on
   `parent_session_id` chain of the caller's own session in the same profile, never from input, and the direct
   parent, itself, a peer, a descendant and any other mission read as one `not_yours`/`invalid_input` refusal.
   A normal ask is queued to the ancestor lead's chat as a host-made `ask-q-` send: the question is quoted data
-  (cleaned, one line, fenced) that carries no authority. The ancestor replies with the existing `session_send`;
-  while it has an open ask from that session the message is the reply, delivered as sealed data (`ask-r-`).
+  (cleaned, one line, fenced) that carries no authority. The ancestor answers with `session_reply_ask`
+  `{ask_id, message}` (lead-only; only the addressed ancestor lead, while the asker is still below it, once),
+  delivered as sealed data (`ask-r-`); `session_send` is never a reply, it is always a command.
   A critical ask reaches no model: it is a person item of kind `ancestor_question` (no timeout, the autonomy
   matrix does not apply, `ancestor_question` is deliberately not a gap class) and the person's answer comes back
   through `Store.AnswerAncestorQuestion` as sealed data (`ask-p-`). Limits: 3 open asks, one a minute, 4 KiB each,

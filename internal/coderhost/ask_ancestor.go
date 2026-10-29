@@ -13,7 +13,7 @@ import (
 // Approval stays with the parent only. When a lead wants wider context it may ask a PROPER ANCESTOR above
 // its parent (grandparent by default, the root, or one named by session id); the parent is reached with the
 // existing messaging. A normal ask reaches the ancestor lead's chat as sealed, untrusted peer content that
-// carries no authority; the reply (session_send of the ancestor, see ask_reply.go) reaches the asker sealed
+// carries no authority; the reply (session_reply_ask of the ancestor, see ask_reply_tool.go) reaches the asker sealed
 // too. A critical ask is not delivered to any model: it becomes a person item that only the person answers.
 // The caller is the lead of a mission, identified by LeadScope (verified session token, no task binding);
 // the tool names no caller, and the ancestor is found by the parent_session_id chain read from the database.

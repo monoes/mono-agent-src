@@ -18,7 +18,7 @@ const askAncestorIntro = "Ask an ancestor: you lead a mission and want context o
 	"Refusals: not_yours (not a lead, or not an ancestor above your parent), invalid_input, limit (at most 3 open asks, one a minute, 4 KiB each, 8 KiB open in total), no_session. "
 
 func askAncestorTools() []tool {
-	return []tool{{
+	return append(askReplyTools(), tool{
 		name: "session_ask_ancestor", mutating: true, annotations: map[string]bool{"readOnlyHint": false, "destructiveHint": false}, handler: toolSessionAskAncestor,
 		description: askAncestorIntro + "importance normal (default) queues the question to that ancestor lead's chat as sealed untrusted content; it answers with session_send, and while it has your ask open " +
 			"its session_send to you is that reply (also sealed). importance critical reaches no model: it raises an item that only the person answers, with no timeout, and the person's answer comes back sealed. " +
@@ -28,7 +28,7 @@ func askAncestorTools() []tool {
 			"level":      strParam("grandparent (default), root, or an ancestor session id"),
 			"importance": strParam("normal (default) or critical"),
 		}, "question"),
-	}}
+	})
 }
 
 func toolSessionAskAncestor(ctx context.Context, s *Server, args json.RawMessage) (interface{}, error) {
