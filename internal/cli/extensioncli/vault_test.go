@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -25,7 +26,7 @@ import (
 func vaultEnv(t *testing.T) (path, home string) {
 	t.Helper()
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("USERPROFILE", home)
 	path = testdb.Path(t)
 	db, err := storage.NewDatabase(path)
@@ -112,7 +113,7 @@ func TestVaultSinkSavesOnceIntoTheProfilesVault(t *testing.T) {
 	if b, err := os.ReadFile(r.path); err != nil || !bytes.Equal(b, f.Data) {
 		t.Errorf("stored file: %v", err)
 	}
-	if fi, err := os.Stat(r.path); err == nil && fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(r.path); err == nil && runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("stored file mode %v, want 0600", fi.Mode().Perm())
 	}
 
@@ -192,7 +193,7 @@ func TestVaultSinkRefusesADeadProfile(t *testing.T) {
 // No database, or one from before vault.save: unavailable, nothing written,
 // and the bridge never migrates or creates the database.
 func TestVaultSinkWithoutAReadyDatabase(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	missing := filepath.Join(t.TempDir(), "none.db")
 	if _, err := extensionVaultSink(missing).SaveToVault(context.Background(), vaultFile("p-work", "v-1")); err == nil || sinkCode(t, err) != extension.CodeUnavailable {
 		t.Errorf("no database: %v, want unavailable", err)
@@ -220,7 +221,7 @@ func TestVaultSinkWithoutAReadyDatabase(t *testing.T) {
 // Every bridge this binary builds answers vault.save, and none has a method
 // that reads the vault.
 func TestEveryBridgeAnswersVaultSaveAndNothingReadsTheVault(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	srv := newExtensionServer(zerolog.Nop(), "test")
 	found := false
 	for _, m := range srv.RequestMethods() {

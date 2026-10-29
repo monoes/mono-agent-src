@@ -243,10 +243,10 @@ func backgroundMessage(refs []chatevents.ProcessRef) string {
 
 // backgroundNotice is the coder.background notice for processes a turn left
 // running, with each one's identity recorded for `coder stop-background`.
-func backgroundNotice(pids []int) chatevents.NoticePayload {
+func backgroundNoticeFor(root string, pids []int) chatevents.NoticePayload {
 	refs := make([]chatevents.ProcessRef, len(pids))
 	for i, pid := range pids {
-		refs[i] = chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Command: shortCommand(pid)}
+		refs[i] = chatevents.ProcessRef{Pid: pid, Identity: processIdentity(pid), Start: processStart(pid), Root: root, Command: shortCommand(pid)}
 	}
 	return chatevents.NoticePayload{
 		Code: noticeCoderBackground, Message: backgroundMessage(refs), Severity: chatevents.SeverityWarning,
@@ -259,9 +259,24 @@ func backgroundNotice(pids []int) chatevents.NoticePayload {
 // large that every further call re-reads it (protocol rev 30).
 const noticeCoderResult = "coder.result"
 
+// noticeCoderUsage carries a coder turn's context size and per-model tokens
+// to the UI, which sums them across the session.
+const noticeCoderUsage = "coder.usage"
+
 // resultNoticesLocked journals unexpected_models and context_warning from a
 // result event, each as a warning; a result without them adds nothing.
 func (j *turnJournal) resultNoticesLocked(ev monomind.Event) {
+	if ev.PeakContextTokens > 0 || len(ev.ModelUsage) > 0 {
+		u := chatevents.CoderUsage{PeakContextTokens: ev.PeakContextTokens}
+		if len(ev.ModelUsage) > 0 {
+			u.Models = make(map[string]chatevents.CoderModelUsage, len(ev.ModelUsage))
+			for m, mu := range ev.ModelUsage {
+				u.Models[m] = chatevents.CoderModelUsage{Input: mu.Input, Output: mu.Output, CacheRead: mu.CacheRead, CacheCreation: mu.CacheCreation}
+			}
+		}
+		j.forceFlushLocked()
+		_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeCoderUsage, Severity: chatevents.SeverityInfo, CoderUsage: &u})
+	}
 	var msgs []string
 	if len(ev.UnexpectedModels) > 0 {
 		msgs = append(msgs, "This turn also ran on "+strings.Join(ev.UnexpectedModels, ", ")+", not only the selected model.")

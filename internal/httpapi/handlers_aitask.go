@@ -182,7 +182,8 @@ func (s *Server) aitaskFor(w http.ResponseWriter, r *http.Request) (*aitask.Serv
 		writeAitaskError(w, r, err)
 		return nil, aitask.Task{}, false
 	}
-	if tok.BoundConversation != t.ConversationID {
+	// A cancelled task (cancelled, or its conversation was deleted) is refused everywhere, reads included.
+	if tok.BoundConversation != t.ConversationID || t.Status == aitask.StatusCancelled || !s.conversationExists(r, t.ConversationID) {
 		writeError(w, http.StatusForbidden, "this token is not bound to that task")
 		return nil, aitask.Task{}, false
 	}
@@ -281,4 +282,12 @@ func (s *Server) handleAitaskCancel(w http.ResponseWriter, r *http.Request) {
 // svcStore is the profile's task store for a request.
 func svcStore(s *Server, r *http.Request) *aitask.Store {
 	return &aitask.Store{DB: s.rt.db.DB, Profile: profileOf(r)}
+}
+
+// conversationExists says the conversation is still one of the request's profile: a task whose
+// conversation was deleted is refused to its bound token, reads included.
+func (s *Server) conversationExists(r *http.Request, conversationID string) bool {
+	var n int
+	err := s.rt.db.DB.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileOf(r)).Scan(&n)
+	return err == nil && n > 0
 }

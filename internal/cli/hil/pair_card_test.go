@@ -10,11 +10,18 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
+// setHome points both variables os.UserHomeDir reads (HOME on Unix, USERPROFILE on Windows) at dir.
+func setHome(t testing.TB, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 // A browser's pairing card is decided only by the operator path: `hil approve`
 // approves the claim, an agent's approve changes nothing, and an approval on
 // the bare row (the MCP/API route) does not approve the claim.
 func TestHILPairCardDecidesTheClaim(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	cfg := &testConfig{DBPath: newHILTestDB(t), ProfileID: "default"}
 	claim, secret, err := extension.CreatePendingClaim(extension.PendingClaim{Label: "Edge", Origin: "chrome-extension://aaaa"})
 	code := extension.PairCode(claim.ID, secret)
@@ -109,7 +116,7 @@ func TestHILPairCardDecidesTheClaim(t *testing.T) {
 // stores when the owner types it), and a hostile label reaches the card
 // without an escape sequence or a bidi control.
 func TestHILPairCardCodeInEditableFieldAndHostileLabel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	cfg := &testConfig{DBPath: newHILTestDB(t), ProfileID: "default"}
 	claim, secret, err := extension.CreatePendingClaim(extension.PendingClaim{
 		Label: "Edge\x1b[2K\x1b[1A\x1b[2KMonoAgent official‮", Origin: "chrome-extension://aaaa‮"})

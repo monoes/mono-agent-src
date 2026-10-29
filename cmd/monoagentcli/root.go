@@ -194,7 +194,8 @@ func buildRootCmd(installProvider bool) *cobra.Command {
 //
 // Replacing cobra's own unknown-command error also replaced its "Did you
 // mean" suggestions, so the error adds them back (SuggestionsFor) before the
-// list of available subcommands.
+// list of available subcommands. Like a flag the parser refuses, it is invalid
+// input: exit 3, and {"code":"invalid_input"} with --json.
 func rejectUnknownSubcommands(cmd *cobra.Command) {
 	for _, sub := range cmd.Commands() {
 		rejectUnknownSubcommands(sub)
@@ -222,7 +223,7 @@ func rejectUnknownSubcommands(cmd *cobra.Command) {
 			if suggestions := c.SuggestionsFor(args[0]); len(suggestions) > 0 {
 				msg += fmt.Sprintf(". Did you mean: %s?", strings.Join(suggestions, ", "))
 			}
-			return fmt.Errorf("%s (available: %s)", msg, strings.Join(names, ", "))
+			return errInvalidInput("%s (available: %s)", msg, strings.Join(names, ", "))
 		}
 		cmd.RunE = func(c *cobra.Command, _ []string) error { return c.Help() }
 	}

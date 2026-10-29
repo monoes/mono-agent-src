@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,6 +99,14 @@ type turnJournal struct {
 	// backgroundPids are what the done event said the turn left running;
 	// the notice is written at finish, for those still alive then (#294).
 	backgroundPids []int
+	// marker is the exec-tree marker of this turn's own process tree, learned by the host from the
+	// runtime's process at the start of the turn (see learnTurnMarker); "" when it could not be read.
+	markerMu       sync.Mutex
+	marker         string
+	launcher       *pinnedLauncher // the process monomind.Exec reported it started (OnStart), pinned
+	launcherClosed bool            // the turn finished: the pin is released and no new one is kept
+	stopMarker     context.CancelFunc
+	markerDone     chan struct{}
 }
 
 // lockedEmitter journals through a turnJournal whose mu the caller holds.
@@ -225,6 +234,21 @@ func (j *turnJournal) handle(ev monomind.Event) {
 
 	switch ev.Type {
 	case monomind.EventStart:
+		j.markerMu.Lock()
+		launcher := j.launcher
+		j.markerMu.Unlock()
+		if ev.Pid > 0 && launcher != nil && j.stopMarker == nil {
+			ctx, cancel := context.WithCancel(context.Background())
+			j.stopMarker = cancel
+			j.markerDone = make(chan struct{})
+			go func(runner int, launcher *pinnedLauncher, done chan struct{}) {
+				defer close(done)
+				m := learnTurnMarker(ctx, runner, launcher)
+				j.markerMu.Lock()
+				j.marker = m
+				j.markerMu.Unlock()
+			}(ev.Pid, launcher, j.markerDone)
+		}
 		// The badge the app shows on the turn; message is the status key.
 		if ev.SandboxStatus != "" {
 			_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandbox, Message: ev.SandboxStatus, Severity: chatevents.SeverityInfo})
@@ -315,11 +339,28 @@ func (j *turnJournal) finishCode(stopRequested bool, res *monomind.TurnResult, c
 	j.forceFlushLocked()
 	j.closeOpenNativeCallsLocked()
 	j.finished = true
+	if j.stopMarker != nil {
+		// A turn that ends at once may end before the lookup does: give it a moment, then stop it
+		// and wait for its answer, so the marker read below is the lookup's last word.
+		select {
+		case <-j.markerDone:
+		case <-time.After(300 * time.Millisecond):
+		}
+		j.stopMarker()
+		<-j.markerDone
+	}
+	j.markerMu.Lock()
+	j.launcher.close()
+	j.launcherClosed = true
+	j.markerMu.Unlock()
 	// The runtime's own helpers (e.g. the MCP servers opencode starts) are
 	// still alive when it reports done and exit with it; only processes
 	// that outlive the runtime are worth a warning.
 	if pids := stillRunning(j.backgroundPids, backgroundSettle); len(pids) > 0 {
-		_ = j.appendLocked(chatevents.EventNotice, backgroundNotice(pids))
+		j.markerMu.Lock()
+		root := j.marker
+		j.markerMu.Unlock()
+		_ = j.appendLocked(chatevents.EventNotice, backgroundNoticeFor(root, pids))
 	}
 
 	status, reason := chatevents.ComputeTurnStatus(stopRequested, res)
@@ -364,4 +405,18 @@ func sandboxDetail(ev monomind.Event) string {
 		return ev.SandboxApplied
 	}
 	return ev.SandboxNote
+}
+
+// setLauncher records the pid of the process this turn's launcher started: the anchor the turn's
+// marker is learned from. It is monomind.Exec's own report, not the runner's.
+func (j *turnJournal) setLauncher(pid int) {
+	l := pinLauncher(pid)
+	j.markerMu.Lock()
+	defer j.markerMu.Unlock()
+	if j.launcherClosed {
+		l.close() // the turn is over: nothing to learn, nothing to keep open
+		return
+	}
+	j.launcher.close() // a second report replaces the first
+	j.launcher = l
 }

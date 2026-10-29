@@ -53,7 +53,7 @@ type cdpTestRig struct {
 
 func startCdpRig(t testing.TB) *cdpTestRig {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	port := freePortTB(t)

@@ -74,7 +74,7 @@ func TestBrowsersRevokeIsOperatorOnly(t *testing.T) {
 
 func TestExtensionPairModeReadsSetting(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("USERPROFILE", home)
 	path := filepath.Join(home, "monoagent.db")
 	if got := extensionPairMode(path)(); got != extension.PairModeAsk {
@@ -101,7 +101,7 @@ func TestExtensionPairModeReadsSetting(t *testing.T) {
 
 func TestAutoPairCommandSetsTheMode(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("USERPROFILE", home)
 	path := filepath.Join(home, "monoagent.db")
 	d := testDepsDB(false, path)
@@ -143,7 +143,7 @@ func newClaim(t *testing.T, label string, instance string) (extension.PendingCla
 
 func pairHome(t *testing.T) *Deps {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv(extension.AutoPairEnv, "")
 	return testDepsDB(false, filepath.Join(home, "monoagent.db"))

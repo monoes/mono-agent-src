@@ -235,13 +235,38 @@ type NoticePayload struct {
 	// so a later stop never hits a reused pid.
 	Pids      []int        `json:"pids,omitempty"`
 	Processes []ProcessRef `json:"processes,omitempty"`
+	// CoderUsage rides a coder.usage notice: what the turn's result event
+	// reported about its context and per-model tokens.
+	CoderUsage *CoderUsage `json:"coderUsage,omitempty"`
+}
+
+// CoderUsage is a coder turn's token picture: the largest main-thread
+// context sent in one call, and per-model tokens (child agents included).
+type CoderUsage struct {
+	PeakContextTokens int64                      `json:"peakContextTokens,omitempty"`
+	Models            map[string]CoderModelUsage `json:"models,omitempty"`
+}
+
+// CoderModelUsage is one model's tokens in a CoderUsage.
+type CoderModelUsage struct {
+	Input         int64 `json:"input"`
+	Output        int64 `json:"output"`
+	CacheRead     int64 `json:"cacheRead"`
+	CacheCreation int64 `json:"cacheCreation"`
 }
 
 // ProcessRef is a pid plus what identified that process when recorded.
 type ProcessRef struct {
 	Pid      int    `json:"pid"`
 	Identity string `json:"identity,omitempty"`
-	Command  string `json:"command,omitempty"`
+	// Start is the process's start time as the kernel keeps it (Linux): it tells a process from a later
+	// one that was given the same pid. Empty on records made without it and on other platforms.
+	Start string `json:"start,omitempty"`
+	// Root is the marker of the turn's own process tree, as the host read it from the runtime's
+	// process at the start of the turn (never from the model or the runtime's report). Only a
+	// process whose marker is this one may be stopped as the turn's.
+	Root    string `json:"root,omitempty"`
+	Command string `json:"command,omitempty"`
 }
 
 // TurnStatus is turn.finished's terminal classification — see the

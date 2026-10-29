@@ -21,7 +21,7 @@ import (
 // logged, not just that it happened).
 func startStatusTestServer(t *testing.T) (*Server, string, string, *syncBuffer) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	port := freePort(t)

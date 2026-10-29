@@ -65,6 +65,9 @@ func TestMissionTokenOverPipeEndToEnd(t *testing.T) {
 
 // The host keeps no copy of the read end and no open write end.
 func TestAttachMissionTokenHostSideLeaks(t *testing.T) {
+	if _, err := os.Stat("/proc/self/fd"); err != nil {
+		t.Skip("counts descriptors through /proc/self/fd, which this OS does not have")
+	}
 	count := func() int { d, _ := os.ReadDir("/proc/self/fd"); return len(d) }
 	before := count()
 	cmd := exec.Command("true")

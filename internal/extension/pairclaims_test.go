@@ -320,7 +320,7 @@ func newClaimT(t *testing.T, label string) (PendingClaim, string) {
 // "The newest" is the attacker's to choose (the last forged claim wins), so no
 // id names a claim only when exactly one is waiting.
 func TestDecidePendingClaimWithoutAnIDNeedsExactlyOne(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	a, aCode := newClaimT(t, "a")
 	time.Sleep(5 * time.Millisecond)
 	b, bCode := newClaimT(t, "b")
@@ -351,7 +351,7 @@ func TestDecidePendingClaimWithoutAnIDNeedsExactlyOne(t *testing.T) {
 // The owner approves the claim THEIR browser shows: the code of another claim
 // (a forged one's) or none does not approve.
 func TestApprovalNeedsTheCodeOfThatClaim(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	a, aCode := newClaimT(t, "real")
 	_, forgedCode := newClaimT(t, "forged")
 	for name, code := range map[string]string{"none": "", "other claim's": forgedCode, "garbage": "ZZZ-ZZZ"} {
@@ -378,7 +378,7 @@ func TestApprovalNeedsTheCodeOfThatClaim(t *testing.T) {
 }
 
 func TestDenyAllClearsTheQueue(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	for i := 0; i < 3; i++ {
 		newClaimT(t, string(rune('a'+i))+"xyz")
 	}
@@ -397,7 +397,7 @@ func TestDenyAllClearsTheQueue(t *testing.T) {
 // A decided claim is a tombstone: an approval cannot be undone by deciding
 // again, and a denial cannot be turned into an approval.
 func TestDecidedClaimStaysDecided(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	a, code := newClaimT(t, "aaaa")
 	if _, err := DecidePendingClaim(a.ID, false, ""); err != nil {
 		t.Fatal(err)
@@ -441,7 +441,7 @@ func readPendingForTest(t *testing.T) ([]PendingClaim, error) {
 // not eat the slots a legitimate claim needs (a forger would keep the queue
 // full otherwise, even after the owner ran `deny --all`).
 func TestDecidedTombstonesDoNotConsumeQueueSlots(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	for i := 0; i < maxPendingClaims; i++ {
 		newClaimT(t, "forged"+strconv.Itoa(i))
 	}
@@ -468,7 +468,7 @@ func TestDecidedTombstonesDoNotConsumeQueueSlots(t *testing.T) {
 // Five wrong confirmation codes destroy the claim: the code cannot be guessed
 // against a claim that stays open.
 func TestWrongCodesDestroyTheClaim(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	c, code := newClaimT(t, "guess")
 	for i := 0; i < 5; i++ {
 		if _, err := DecidePendingClaim(c.ID, true, "ZZZ-ZZ"+strconv.Itoa(2+i)); !errors.Is(err, ErrBadCode) {
@@ -485,7 +485,7 @@ func TestWrongCodesDestroyTheClaim(t *testing.T) {
 
 // Expired claims are pruned by every read-modify-write, not only by create.
 func TestDecisionPrunesExpiredClaims(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	old, _ := newClaimT(t, "old")
 	live, _ := newClaimT(t, "live")
 	expireClaimNow(t, old.ID)

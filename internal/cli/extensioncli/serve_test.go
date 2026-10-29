@@ -44,7 +44,7 @@ func (w *syncWriter) String() string {
 func isolateBridgeEnv(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("USERPROFILE", home)
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")

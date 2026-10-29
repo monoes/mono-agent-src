@@ -241,6 +241,16 @@ func (s *AIStore) BindConversationSession(id, profileID, runtimeID, sessionID st
 // TestChatEvents_DeleteConversationRaceAgainstConcurrentCreateTurn, which
 // exercises both layers together.
 func (s *AIStore) DeleteConversation(id, profileID string) error {
+	return s.DeleteConversationGuarded(id, profileID, nil)
+}
+
+// DeleteConversationGuarded is DeleteConversation with a last check made inside the write transaction,
+// after the conversation is known to exist and to have no active turn and before anything is deleted:
+// while it runs no turn can be admitted or recorded. A guard error rolls the delete back and is
+// returned as it is. It is how a caller that has to undo something outside the database first (stop
+// the processes the conversation's turns left running) learns that the record it acted on is still
+// the whole record.
+func (s *AIStore) DeleteConversationGuarded(id, profileID string, guard func(ctx context.Context, conn *sql.Conn) error) error {
 	if profileID == "" {
 		return ErrProfileRequired
 	}
@@ -283,6 +293,11 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 	if activeCount > 0 {
 		return ErrTurnActive
 	}
+	if guard != nil {
+		if err := guard(ctx, conn); err != nil {
+			return err
+		}
+	}
 
 	if _, err := conn.ExecContext(ctx, `DELETE FROM ai_chat_events WHERE conversation_id = ? AND profile_id = ?`, id, profileID); err != nil {
 		return fmt.Errorf("delete events: %w", err)
@@ -304,6 +319,8 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		return fmt.Errorf("delete mission confirmations: %w", err)
 	}
 	for _, q := range []string{
+		// A scoped agent token bound to a task of this conversation ends with it.
+		`UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE bound_conversation = ?1 AND profile_id = ?2 AND revoked_at IS NULL`,
 		`DELETE FROM coder_session_commands WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_decisions WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_questions WHERE conversation_id = ? AND profile_id = ?`,
@@ -317,6 +334,11 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
+		// Its AI task's token carries the conversation's privileges: it stops working, and a task still open is cancelled.
+		`UPDATE ai_tasks SET token_hash = '', holder_pid = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+			status = CASE WHEN status IN ('queued', 'running', 'needs_user') THEN 'cancelled' ELSE status END,
+			error = CASE WHEN status IN ('queued', 'running', 'needs_user') THEN 'the conversation was deleted' ELSE error END
+			WHERE conversation_id = ?1 AND profile_id = ?2`,
 		// A task a child session was running (or was about to run: its conversation is still pending) goes to "gone" (its lead learns that from the row); what the
 		// conversation led as a mission lead (audit rows, marks, policy) goes with it.
 		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', reserved_usd = 0, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE (child_conversation_id = ?1 OR pending_conversation_id = ?1) AND profile_id = ?2 AND state IN ('spawning', 'spawned')`,
@@ -325,6 +347,8 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		`DELETE FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
+		// The answers its questions were given.
+		`DELETE FROM ai_chat_answers WHERE conversation_id = ? AND profile_id = ?`,
 	} {
 		if _, err := conn.ExecContext(ctx, q, id, profileID); err != nil {
 			return fmt.Errorf("delete coder session: %w", err)
