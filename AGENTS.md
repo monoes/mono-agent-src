@@ -2953,6 +2953,30 @@ login (and its bill) is what the turn uses.
   record** column (`track_record` in JSON) is its score per role
   category from real dynamic-org workers (see "Dynamic org"). The roster is machine-wide,
   not per profile, and the AI agents page shows it with live validation.
+- **Agent purposes: which validated models each kind of work may use.**
+  `monoagentcli --profile P agent purposes list|set|reset` (`--json`). A purpose
+  (`coding`, `debugging`, `research`, `deep-research`, `planning`, `strategy`,
+  `review`, `testing`, `security-audit`, `writing`, `data`, `automation`,
+  `browsing`, `design`, `triage`, `judging`, `orchestrating`, `translation`) maps
+  to the role categories of the dynamic org. `set` replaces one purpose's whole
+  setting: `--pair RUNTIME:MODEL` (repeatable, each a roster pair with status ok;
+  an unvalidated pair is refused), `--rule any|order|cheapest`, `--effort`,
+  `--different-from-author on|off`, `--fallback any|none`, `--budget-share PCT`
+  (recorded only). A purpose with nothing chosen (`isDefault`) uses every
+  validated model, as before. When one is chosen, a dynamic org's `org_spawn`
+  draws the worker's model from it in code: the worker's purpose is the one the
+  lead names in `purpose` or else its role's category; a model the lead names
+  outside the set, a stale pair, or an unknown purpose id is refused; an empty
+  or unavailable set fails the spawn with the reason unless `--fallback any`;
+  with `--different-from-author on` a checking worker runs on another model than
+  the one that produced the work, and with one validated model it uses that one
+  and the worker's `why` says so. `list` is open to agents and prints the
+  purposes, each pair's status (`ok`, `stale`, `failed`, `unvalidated`) and the
+  roster; it computes status from the stored results without a scan. `set` and
+  `reset` are the user's own (exit 3, `operator_only`). The choice lives in the
+  profile's `agent_purposes.<profile>.<purpose>` config rows, which are reserved
+  (`config set` refuses them); a row that can't be read counts as the default and
+  `list` says so on stderr.
 - **Automatic re-validation (off by default; it spends money).**
   `monoagentcli agent roster auto-revalidate on|off|status` (#230). When on,
   the daemon re-checks **stale** roster models (never failed or untested

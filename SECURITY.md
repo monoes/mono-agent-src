@@ -2101,6 +2101,22 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder
   sessions").
 
+## Which models an agent may run on (agent purposes)
+
+The user may limit each kind of agent work (coding, review, research, and so on) to the validated
+runtime and model pairs they choose (`agent purposes set`, AGENTS.md, "Agent purposes"). Authority: it
+decides which models, and so which accounts and spend, a dynamic org's workers run on; with nothing
+chosen a purpose uses every validated model, as before. Who may change it: only the user. `set` and
+`reset` refuse an agent's shell, the chat, a workflow and a master with a session token (exit 3,
+`operator_only`), the settings are reserved config rows that `config set` and `config delete` refuse
+and `config get` hides from them, and the storage layer's write guard refuses the rows to anyone but
+the user. What stops a model from widening it: the spawn path checks the set in code, not in the
+prompt: a lead that names a model outside the set, a stale pair or an unknown purpose is refused, it
+has no tool that edits the set, and it cannot choose the author model that the different-model rule
+compares against (the code that knows it supplies it). What it does not stop: a lead may name which
+purpose a worker is for, and so choose among the user's sets; and a same-user process can still edit the
+database directly, as for every setting here.
+
 ## OpenAI-compatible API surface
 
 `monoagentcli httpapi` and `monoagentcli daemon` serve `GET /v1/models`,
