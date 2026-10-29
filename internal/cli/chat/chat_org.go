@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/agentroster"
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -140,6 +141,15 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	if q, err := agentroster.LoadQuality(ctx, db.DB, time.Now()); err == nil {
 		staffer.Quality = q
 	}
+	// The operator's model set per purpose limits every worker's model. A
+	// store that can't be read fails closed: no org this turn.
+	purposes, err := agentpurposes.Store{DB: db, ProfileID: cfg.ProfileID()}.Usable()
+	if err != nil {
+		db.Close()
+		journal.notice(noticeOrgUnavailable, "the agent works alone this turn: the model sets per purpose can't be read: "+err.Error(), chatevents.SeverityWarning)
+		return nil, nil
+	}
+	staffer.Purposes = purposes
 	if client, err := jevconf.NewClient(ctx, db.DB, cfg.ProfileID(), "", "", jevconf.DynamicOrg); err == nil {
 		staffer.Chooser = dynorg.JevChooser{Client: client}
 	}

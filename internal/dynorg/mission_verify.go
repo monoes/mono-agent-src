@@ -25,6 +25,10 @@ const ToolMissionVerify = "mission_verify"
 // never the executor's (m<session>-t<task>) nor the lead's.
 func missionVerifierName(session, task int64) string { return fmt.Sprintf("v%d-t%d", session, task) }
 
+// verifierPurpose is the purpose of the verifier's role (the reviewer), whose
+// model set the operator may limit.
+const verifierPurpose = "review"
+
 // VerifierFor picks the model that verifies a task: a ready model other than the
 // executor's when the roster has one (a second opinion), else the executor's own, which
 // the result says. An unknown executor (a worker of an earlier turn) counts as the lead's.
@@ -36,7 +40,7 @@ func VerifierFor(s *Staffer, executor Model) (m Model, same bool) {
 		executor = s.Lead
 	}
 	for _, c := range s.Roster {
-		if c.Stale || (c.Runtime == executor.Runtime && c.Model == executor.Model) {
+		if c.Stale || (c.Runtime == executor.Runtime && c.Model == executor.Model) || !s.permits(verifierPurpose, c) {
 			continue
 		}
 		if c.FullAccess || c.Read || c.ReadOnlySandbox {
@@ -275,7 +279,7 @@ func (c *Conductor) missionVerify(ctx context.Context, mc *MissionRun, sid, task
 	// leaves this and nothing else, and the scheduler then counts it as an attempt.
 	actor := tasks.Actor{Kind: tasks.Agent, Name: missionVerifierName(sid, taskID), Session: sid, Task: taskID, Verifier: true}
 	started := c.verifierMark(ctx, mc, sid, taskID, actor, verifierStartedMarker+" on "+pick.Runtime+"/"+pick.Model)
-	info, err := c.spawn(ctx, SpawnRequest{TaskID: taskID, verify: true, Role: "reviewer", Runtime: pick.Runtime, Model: pick.Model}, nil)
+	info, err := c.spawn(ctx, SpawnRequest{TaskID: taskID, verify: true, Role: "reviewer", Runtime: pick.Runtime, Model: pick.Model, AuthorModel: authorKey(exModel)}, nil)
 	if err != nil {
 		if started {
 			c.verifierMark(ctx, mc, sid, taskID, actor, verifierAbandonedMarker+": "+boundText(err.Error(), 200))
@@ -328,4 +332,13 @@ func failureNotes(d tasks.SessionTaskDetail) []string {
 		out = out[len(out)-5:]
 	}
 	return out
+}
+
+// authorKey names the executor's model for the different-from-author rule;
+// "" for an executor this Conductor does not know.
+func authorKey(m Model) string {
+	if m.Runtime == "" {
+		return ""
+	}
+	return m.Key()
 }

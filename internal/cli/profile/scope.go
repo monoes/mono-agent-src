@@ -28,7 +28,8 @@ const (
 
 // derivedScope is what a profile owns that carries neither a profile_id nor
 // a cascading foreign key: rows keyed by the profile's workflows and
-// executions, its counters, and its settings entries.
+// executions, its counters, its settings entries and the configs rows of its
+// agent purposes.
 var derivedScope = []scopeEntry{
 	{Table: "app_webhooks", Where: `workflow_id IN ` + wfOfProfile},
 	{Table: "webhook_deliveries", Where: `workflow_id IN ` + wfOfProfile},
@@ -39,6 +40,7 @@ var derivedScope = []scopeEntry{
 	{Table: "wait_replies", Where: `workflow_id IN ` + wfOfProfile + ` OR execution_id IN ` + execOfProfile},
 	{Table: "subworkflow_runs", Where: `parent_execution_id IN ` + execOfProfile + ` OR child_execution_id IN ` + execOfProfile},
 	{Table: "workflow_daily_counters", Where: `profile_key = @p`},
+	{Table: "configs", Where: `name LIKE 'agent_purposes.' || replace(replace(replace(@p, '\', '\\'), '%', '\%'), '_', '\_') || '.%' ESCAPE '\'`},
 	{Table: "settings", Where: `key = 'task_agent_access:' || @p OR key LIKE 'jev.' || replace(replace(replace(@p, '\', '\\'), '%', '\%'), '_', '\_') || '.%' ESCAPE '\'`},
 }
 

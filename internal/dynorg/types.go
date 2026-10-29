@@ -119,6 +119,16 @@ type SpawnRequest struct {
 	Files      []string `json:"files,omitempty"`
 	NeedsWrite *bool    `json:"needs_write,omitempty"`
 	Wait       bool     `json:"wait,omitempty"`
+	// Purpose names the kind of work (internal/agentpurposes), so the worker's
+	// model is drawn from the operator's set for it; left out it is derived
+	// from the role's category. A purpose the operator limited can't be
+	// escaped by naming another model: the set is checked in Staffer.staffModel.
+	Purpose string `json:"purpose,omitempty"`
+	// AuthorModel is the model ("runtime/model") that produced the work this
+	// worker checks, for a purpose set to a different model than the author.
+	// Set by the code that knows (the verifier path), never by the lead's JSON;
+	// left empty it is taken to be the lead's own model.
+	AuthorModel string `json:"-"`
 	// AllowSpawn gives the worker org_spawn, org_wait and org_message for
 	// sub-workers of its own (#230); only the lead may set it.
 	AllowSpawn bool `json:"allow_spawn,omitempty"`
@@ -151,6 +161,7 @@ type Staff struct {
 	Model     Model   // the runtime and model it runs on
 	Effort    string
 	Access    string   // an access profile
+	Purpose   string   // the purpose whose model set limited the choice ("" = none)
 	Fallbacks []Model  // next models to try if Model can't run
 	Why       []string // who chose what, for agent.spawned.why
 	PickConf  *float64

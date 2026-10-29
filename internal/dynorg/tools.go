@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -87,6 +88,7 @@ func spawnSpec(lead bool, profiles []string) monomind.ToolSpec {
 		"runtime":     str("Runtime to run on (e.g. claude, codex). Must have a ready model; see org_roster."),
 		"model":       str("Model id on that runtime; see org_roster."),
 		"effort":      str("Reasoning effort, one of the model's effort levels."),
+		"purpose":     str("What kind of work this is (" + strings.Join(agentpurposes.IDs(), ", ") + "); the operator may limit the models each purpose can use, and a model outside that set is refused. Leave out to derive it from the role."),
 		"access":      str(accessDesc(profiles)),
 		"files":       strList("Files the worker should keep to."),
 		"needs_write": map[string]any{"type": "boolean", "description": "The worker will edit files (it then waits its turn for the write lease)."},

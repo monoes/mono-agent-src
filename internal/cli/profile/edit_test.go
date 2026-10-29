@@ -221,8 +221,8 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 		var n int
 		conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+e.Table+`"`).Scan(&n)
 		before[e.Table] = n
-		if e.Table == "settings" || e.Table == "workflow_publications" {
-			continue // publications block the delete (TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen)
+		if e.Table == "settings" || e.Table == "configs" || e.Table == "workflow_publications" {
+			continue // publications block the delete (TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen); settings and configs are seeded by key below
 		}
 		cols, vals := []string{}, []any{}
 		var pkCols int // a lone INTEGER primary key is the rowid; part of a composite one needs a value
@@ -268,6 +268,11 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, name := range []string{"agent_purposes." + id + ".coding", "agent_purposes.someone-else.coding"} {
+		if _, err := conn.ExecContext(ctx, `INSERT INTO configs (name, config_data) VALUES (?, '{}')`, name); err != nil {
+			t.Fatal(err)
+		}
+	}
 	conn.Close()
 	db.Close()
 
@@ -294,7 +299,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	}
 	defer db.Close()
 	for _, e := range scope {
-		if e.Table == "settings" || e.Table == "workflow_publications" {
+		if e.Table == "settings" || e.Table == "configs" || e.Table == "workflow_publications" {
 			continue
 		}
 		var n int
@@ -309,6 +314,9 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	keys, _ = queryStrings(ctx, db.DB, `SELECT key FROM settings WHERE key LIKE 'task_agent_access:%' OR key LIKE 'jev.%'`)
 	if len(keys) != 1 || keys[0] != "jev.someone-else.chat.model" {
 		t.Errorf("settings left after the delete: %v, want only another profile's jev key", keys)
+	}
+	if names, _ := queryStrings(ctx, db.DB, `SELECT name FROM configs WHERE name LIKE 'agent_purposes.%'`); len(names) != 1 || names[0] != "agent_purposes.someone-else.coding" {
+		t.Errorf("agent purpose rows left after the delete: %v, want only another profile's", names)
 	}
 	if _, err := os.Stat(wfFile); !os.IsNotExist(err) {
 		t.Errorf("the profile's workflow file was left behind: %v", err)
