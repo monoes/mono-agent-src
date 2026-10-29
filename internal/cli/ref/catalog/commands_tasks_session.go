@@ -142,9 +142,10 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session archive",
-		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only)",
-		Usage:    "monoagentcli [--profile P] task session archive ID",
-		Examples: []string{"monoagentcli --profile work task session archive 3"},
+		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only). Refused while draft, running or paused sessions are below it, unless --cascade",
+		Usage:    "monoagentcli [--profile P] task session archive ID [--cascade]",
+		Flags:    "  --cascade   Also stop (running, paused) and archive every session below it, the deepest first, in one write; prints the archived ids",
+		Examples: []string{"monoagentcli --profile work task session archive 3", "monoagentcli --profile work --json task session archive 3 --cascade"},
 	},
 	{
 		Name:  "task session budget",

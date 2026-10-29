@@ -196,10 +196,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 			func(s *tasks.Store, ctx context.Context, p string, id int64, a tasks.Actor) (tasks.Session, error) {
 				return s.StopSession(ctx, p, id, a)
 			}),
-		d.newSessionLifecycleCmd("archive", "Hide a session that is not running (you only)", false,
-			func(s *tasks.Store, ctx context.Context, p string, id int64, a tasks.Actor) (tasks.Session, error) {
-				return s.ArchiveSession(ctx, p, id, a)
-			}),
+		d.newSessionArchiveCmd(),
 		d.newSessionCloseCmd(),
 		d.newSessionBudgetCmd(),
 	)
@@ -414,9 +411,9 @@ func (d Deps) operatorSession(use, short, what string, actor *tasks.Actor, run f
 	return cmd
 }
 
-var pastTense = map[string]string{"pause": "Paused", "resume": "Resumed", "stop": "Stopped", "archive": "Archived"}
+var pastTense = map[string]string{"pause": "Paused", "resume": "Resumed", "stop": "Stopped"}
 
-// newSessionLifecycleCmd is pause, resume, stop or archive. open says an agent may too.
+// newSessionLifecycleCmd is pause, resume or stop. open says an agent may too.
 func (d Deps) newSessionLifecycleCmd(verb, short string, open bool, do func(*tasks.Store, context.Context, string, int64, tasks.Actor) (tasks.Session, error)) *cobra.Command {
 	var actor tasks.Actor
 	run := func(cmd *cobra.Command, store *tasks.Store, p tasks.Profile, id int64) error {

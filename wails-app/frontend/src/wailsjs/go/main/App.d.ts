@@ -809,6 +809,8 @@ export function TaskSessionApproveAt(arg1:number,arg2:number):Promise<string>;
 
 export function TaskSessionArchive(arg1:number):Promise<string>;
 
+export function TaskSessionArchiveCascade(arg1:number):Promise<string>;
+
 export function TaskSessionBoard(arg1:number,arg2:number):Promise<string>;
 
 export function TaskSessionBudget(arg1:number,arg2:string):Promise<string>;

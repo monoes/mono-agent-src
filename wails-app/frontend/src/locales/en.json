@@ -1861,6 +1861,8 @@
         "conversation": "Open conversation"
       },
       "confirmClose": "Close this mission? Its tasks stay as they are; workers stop starting.",
+      "confirmArchiveCascade_one": "Archive this session and {{count}} session below it? Running ones are stopped first (their claims are released). Open below it: {{titles}}",
+      "confirmArchiveCascade_other": "Archive this session and the {{count}} sessions below it? Running ones are stopped first (their claims are released). Open below it: {{titles}}",
       "confirmStop": "Stop this session for good? Every claim is released and its workers stop; the tasks stay where they are.",
       "budgetLabel": "Budget (USD)",
       "budgetHint": "0 for no budget",

@@ -115,6 +115,23 @@ export function sessionTree(sessions) {
   return roots
 }
 
+// belowOf lists the sessions below session id (not archived), nearest first. A ring of
+// parents ends the walk, so it always ends.
+export function belowOf(sessions, id) {
+  const list = (sessions || []).filter(s => s && !s.archived)
+  const seen = new Set([id])
+  const out = []
+  for (let frontier = [id]; frontier.length;) {
+    const next = list.filter(s => frontier.includes(s.parent_session_id) && !seen.has(s.id))
+    next.forEach(s => { seen.add(s.id); out.push(s) })
+    frontier = next.map(s => s.id)
+  }
+  return out
+}
+
+// openBelow: the sessions below id that are still draft, running or paused (a plain archive is refused for them).
+export const openBelow = (sessions, id) => belowOf(sessions, id).filter(s => ['draft', 'running', 'paused'].includes(s.state))
+
 // hasSessionTree: some listed session has a listed parent, so the strip needs the tree.
 export const hasSessionTree = (sessions) => sessionTree(sessions).some(r => r.children.length > 0)
 
