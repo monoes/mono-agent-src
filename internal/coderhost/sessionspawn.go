@@ -180,6 +180,10 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 			if err != nil {
 				return err
 			}
+			if err := s.holdDirections(ctx, c, sid, made); err != nil {
+				_, _ = ts.StopSession(ctx, profile, made.ID, leadActor(c.ConversationID, made.ID, conv))
+				return err
+			}
 			if err := s.recordSpawn(c, title, req, facts, AdviceAccept, adv.Why); err != nil {
 				_, _ = ts.StopSession(ctx, profile, made.ID, leadActor(c.ConversationID, made.ID, conv)) // as the child session: the lead cannot see it; the undo deletes the conversation
 				return fmt.Errorf("the spawn was not recorded in the decisions ledger, so it was not made: %w", err)

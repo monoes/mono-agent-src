@@ -1830,7 +1830,9 @@ that works a task acts on them. The defences:
   budget), a drop is a proposal, and a worker or helper does not have them. Research sessions are told to read only;
   their report text is data written by a model that read the web, and a reviewer's brief carries it inside a fence. The
   host's check-in line "Consider mission_reevaluate" is numbers from its own rows only. The operator's `mission_directions`
-  (1 to 6) caps the picks.
+  (1 to 6) caps the picks and, in `session_spawn`, the direction sessions open below the lead's session
+  (checked after the insert, so racing spawns cannot pass it; the setting follows the lead down the tree). That the brief asks for
+  a reviewer on another model is prompt-only: nothing in code checks which model the lead picks.
   **The conductor's git work in agent-writable folders** (the isolated writers' worktrees,
   the verifiers' checkouts and the merge into the chat folder's repository) runs as the
   operator. Repository-local git configuration or hook scripts can make git run a program
