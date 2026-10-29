@@ -542,6 +542,10 @@ export function GetChatEvents(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetChatEvents'](arg1, arg2, arg3, arg4);
 }
 
+export function GetChatMissionToggle(arg1) {
+  return window['go']['main']['App']['GetChatMissionToggle'](arg1);
+}
+
 export function GetChatTurns(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetChatTurns'](arg1, arg2, arg3);
 }
@@ -1488,6 +1492,10 @@ export function SetBrowserSiteRule(arg1, arg2) {
 
 export function SetChatAccess(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SetChatAccess'](arg1, arg2, arg3, arg4);
+}
+
+export function SetChatMissionToggle(arg1, arg2) {
+  return window['go']['main']['App']['SetChatMissionToggle'](arg1, arg2);
 }
 
 export function SetChatOrgMode(arg1, arg2) {
