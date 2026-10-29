@@ -350,7 +350,7 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 					}
 				}
 				beforeGuardedDelete()
-				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(cfg, profileID, args[0], seen))
 				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
 					continue
 				}
@@ -361,6 +361,18 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 					return partial(chatStoreErr(err))
 				}
 				break
+			}
+			// The delete committed: the files its turns left are removed now (the list was kept in the same
+			// transaction, so if this process dies here `chat history reconcile` finishes the job).
+			if !skipFileCleanup {
+				if db, err := cfg.OpenDB(); err != nil {
+					warnOnStderr("could not clean up the conversation's files: %v", err)
+				} else {
+					if err := runCleanups(cmd.Context(), db.DB, cleanupName(profileID, args[0]), warnOnStderr); err != nil {
+						warnOnStderr("could not clean up the conversation's files: %v", err)
+					}
+					db.Close()
+				}
 			}
 			stop := backgroundStop{Stopped: stopped}
 			if cfg.JSONOutput() {
@@ -507,7 +519,7 @@ var errBackgroundRecorded = errors.New("a background-process record appeared whi
 // by the caller; then it revokes the mission tokens the conversation's runs minted (owner
 // dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
 // conductor would have swept them. Both are undone with the delete if it is rolled back.
-func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+func deleteGuard(cfg *Deps, profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
 	return func(ctx context.Context, conn *sql.Conn) error {
 		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
 			return err
@@ -526,7 +538,9 @@ func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRe
 		if err != nil {
 			return fmt.Errorf("revoking the conversation's mission tokens: %w", err)
 		}
-		return nil
+		// Last: list the files its turns left on disk, from the database, and keep the list as a row in
+		// the same transaction (no file is touched here). It is run after the commit.
+		return recordCleanup(ctx, conn, cfg, profileID, conversationID)
 	}
 }
 

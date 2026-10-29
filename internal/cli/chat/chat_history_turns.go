@@ -228,6 +228,14 @@ func newChatHistoryReconcileCmd(cfg *Deps) *cobra.Command {
 			closeSkip()
 			// Mailbox folders of turns whose process died (#255).
 			sweepAgentControl(agentControlRoot(cfg), time.Now())
+			// Files a deleted conversation's turns left, when the delete that listed them died before
+			// removing them.
+			if db, err := cfg.OpenDB(); err == nil {
+				if err := runCleanups(cmd.Context(), db.DB, cleanupPrefix, warnOnStderr); err != nil {
+					warnOnStderr("could not clean up the files of deleted conversations: %v", err)
+				}
+				db.Close()
+			}
 			res := chatReconcileResult{Reconciled: []ai.TurnRecord{}, Errors: []string{}, Worktrees: reconcileWorktrees(cmd.Context(), store)}
 			for _, t := range turns {
 				res.Reconciled = append(res.Reconciled, t.Record())

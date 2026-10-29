@@ -175,7 +175,7 @@ func TestCoderTurnWithAttachments(t *testing.T) {
 		j := parseJournaledTurn(t, out)
 		var started chatevents.TurnStartedPayload
 		json.Unmarshal(j.byType(chatevents.EventTurnStarted)[0].Payload, &started)
-		if started.Text != "what is wrong here?" || len(started.Attachments) != 1 || started.Attachments[0] != (chatevents.TurnAttachment{Name: "shot.png", Path: copied, Mime: "image/png", Size: int64(len(pngHeader))}) {
+		if started.Text != "what is wrong here?" || len(started.Attachments) != 1 || withoutIdentity(started.Attachments[0]) != (chatevents.TurnAttachment{Name: "shot.png", Path: copied, Mime: "image/png", Size: int64(len(pngHeader))}) {
 			t.Errorf("native=%v: turn.started = %+v", native, started)
 		}
 	}
@@ -236,4 +236,10 @@ func TestPlainCoderTurnWithAttachment(t *testing.T) {
 	if prompt, _ := os.ReadFile(promptLog); !strings.Contains(string(prompt), "- "+matches[0]+" (") {
 		t.Errorf("prompt = %q", prompt)
 	}
+}
+
+// withoutIdentity is att without the device and inode the host records for the copy (they differ per run).
+func withoutIdentity(att chatevents.TurnAttachment) chatevents.TurnAttachment {
+	att.Dev, att.Ino = 0, 0
+	return att
 }

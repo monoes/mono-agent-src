@@ -1135,6 +1135,19 @@ those surfaces, and they are not equally strong.
   edited message). Long hex and base64 are left alone on purpose: they
   would also hide commit hashes and ordinary data.
 
+### Files a deleted conversation's turns left
+
+Deleting a conversation removes the host's log and prompt file of each of its turns and the copies of
+attached files made in its folder. The delete only lists them (from the database, in its own transaction);
+the files are removed after it commits, by what was recorded and not by a name: a copy only while it still is
+the file the host made (device and inode), a log only if it was last written before the delete. Folders are
+opened as handles checked against what was just inspected, and a link is never followed.
+
+Limits: the conversation's own folder is opened as it is (a copy is removed only if it is the recorded file,
+so a folder replaced by a link to somewhere else cannot make anything else go); the host's state folder under
+`~/.monoagent` is trusted; a mount beneath an opened folder is not detected, and only the recorded file can go
+through it; copies made before their identity was recorded, and every copy on Windows, are left in place.
+
 ### Stopping the processes a coder turn left running
 
 Lowering a conversation's access, `coder stop-background` and deleting a conversation stop the

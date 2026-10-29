@@ -106,7 +106,11 @@ func copyAttachments(cwd, dir string, srcs []string) ([]chatevents.TurnAttachmen
 		if err != nil {
 			return nil, fmt.Errorf("attaching %s: %w", src, err)
 		}
-		atts = append(atts, chatevents.TurnAttachment{Name: name, Path: dst, Mime: attachmentMime(name, head), Size: size})
+		att := chatevents.TurnAttachment{Name: name, Path: dst, Mime: attachmentMime(name, head), Size: size}
+		if fi, err := os.Lstat(dst); err == nil {
+			att.Dev, att.Ino, _ = fileIdentity(fi)
+		}
+		atts = append(atts, att)
 	}
 	return atts, nil
 }
