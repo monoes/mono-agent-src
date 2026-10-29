@@ -982,9 +982,11 @@ func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, p
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET updated_at = ?, pending_conversation_id = CASE WHEN ? <> '' THEN ? ELSE pending_conversation_id END
 		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND (? = 0 OR generation = ?)
 		AND (? = '' OR NOT EXISTS (SELECT 1 FROM coder_mission_children o WHERE o.profile_id = ? AND (o.child_conversation_id = ? OR o.pending_conversation_id = ?)
-			AND NOT (o.session_id = ? AND o.task_id = ?)))`,
+			AND NOT (o.session_id = ? AND o.task_id = ?)))
+		AND (? = '' OR EXISTS (SELECT 1 FROM coder_sessions x WHERE x.profile_id = ? AND x.conversation_id = ?))`,
 		s.stamp(), pending, pending, profileID, sessionID, taskID, lead, generation, generation,
-		pending, profileID, pending, pending, sessionID, taskID)
+		pending, profileID, pending, pending, sessionID, taskID,
+		pending, profileID, pending)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("%w: that conversation is pending on a task already", ErrInvalid)
@@ -1117,6 +1119,14 @@ func (s *Store) expireOrphan(profileID string, sid, tid int64, conv, seenAt stri
 		if k, _ := r.RowsAffected(); k == 0 {
 			return false, nil
 		}
+	}
+	// A refused carve is not an attempt (spawn_cleanup.go): give it back.
+	if _, err := tx.Exec(`UPDATE coder_mission_children SET attempts = MAX(attempts - 1, 0)
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND state = 'failed' AND end_reason = 'expired' AND ended_at = ?
+		AND EXISTS (SELECT 1 FROM coder_mission_events e WHERE e.profile_id = ? AND e.session_id = ? AND e.task_id = ? AND e.kind = 'spawn'
+			AND e.note = 'carve refused: gen=' || coder_mission_children.generation || ' conv=' || ?)`,
+		profileID, sid, tid, now, profileID, sid, tid, conv); err != nil {
+		return false, err
 	}
 	if err := addMissionEvent(tx, profileID, sid, tid, "end", "host", "expired: the spawn never linked its conversation", now); err != nil {
 		return false, err
