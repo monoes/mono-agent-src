@@ -292,7 +292,8 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			"keeps the conversation (exit 5, survivors_remain, the survivors listed). --abandon-processes deletes it anyway and " +
 			"leaves those processes running: nothing is signalled, and what is left running is listed. It is the operator's " +
 			"alone (exit 3, operator_only for an agent, the chat or a workflow) and needs --confirm \"" + abandonConfirmPhrase + "\"; " +
-			"without it nothing is deleted and the processes that would be left are listed.",
+			"without it nothing is deleted and the processes that would be left are listed. Whether a process is still running is read from the " +
+			"system; where that is unreliable the list may be incomplete or hold one that has ended. Nothing is ever signalled.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, profileID, closeDB, err := openChatHistory(cfg)
@@ -679,9 +680,13 @@ func nonNilSurvivors(s []survivor) []survivor {
 // previewAbandon is --abandon-processes without the words: nothing is deleted or signalled; it lists what
 // would be left running and says what to add to go ahead.
 func previewAbandon(cmd *cobra.Command, cfg *Deps, store *ai.AIStore, profileID, conversationID string) error {
-	_, _, _, left, err := abandonBackground(store, profileID, conversationID)
+	_, active, _, left, err := abandonBackground(store, profileID, conversationID)
 	if err != nil {
 		return err
+	}
+	if active {
+		// The delete would be refused whatever the words: say that, not "add --confirm".
+		return chatStoreErr(ai.ErrTurnActive)
 	}
 	if cfg.JSONOutput() {
 		if err := clicore.PrintJSON(map[string]any{"id": conversationID, "deleted": false, "would_abandon": nonNilSurvivors(left)}); err != nil {

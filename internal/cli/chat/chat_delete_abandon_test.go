@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/ai/chatevents"
 )
 
 // --abandon-processes deletes the conversation and leaves the processes its turns left running: nothing
@@ -151,5 +152,76 @@ func TestAbandonProcessesWithNothingRunningStillStopsAMission(t *testing.T) {
 	}
 	if got := sessionState(t, ts, id); got != "stopped" {
 		t.Errorf("the lead's mission session is %q", got)
+	}
+}
+
+// A conversation with an active turn is refused with the usual answer, with or without the words: the
+// preview does not tell the operator to add --confirm for a delete that would be refused anyway.
+func TestAbandonProcessesDoesNotLetAnActiveTurnThrough(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	if _, _, err := r.store.CreateTurn(c.ID, "default", "live-1", "i", "go"); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"--abandon-processes"}, {"--abandon-processes", "--confirm", abandonConfirmPhrase}} {
+		_, err := r.history(t, nil, append([]string{"delete", c.ID}, args...)...)
+		if exitCodeFor(err) != 3 || err == nil || !strings.Contains(err.Error(), "active turn") || strings.Contains(err.Error(), "--confirm") {
+			t.Fatalf("%v: exit %d (%v), want the active-turn refusal", args, exitCodeFor(err), err)
+		}
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation was deleted: %v", err)
+	}
+	if !processAlive(pid) {
+		t.Error("a process was signalled")
+	}
+}
+
+// A process a turn records while the delete is running is not missed by the report: the transaction's last
+// check sees the new record, the delete goes round again and lists it too, still signalling nothing.
+func TestAbandonProcessesListsAProcessRecordedWhileDeleting(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	first := background(t)
+	r.leaveBehind(t, c.ID, first)
+	var late int
+	calls := 0
+	beforeGuardedDelete = func() {
+		calls++
+		if calls != 1 {
+			return
+		}
+		late = background(t)
+		if _, _, err := r.store.CreateTurn(c.ID, "default", "late-1", "i", "go"); err != nil {
+			t.Error(err)
+		}
+		if _, err := r.store.AppendEvent("default", c.ID, "late-1", chatevents.EventNotice, backgroundNotice([]int{late})); err != nil {
+			t.Error(err)
+		}
+		if _, _, err := r.store.FinalizeTurn("default", c.ID, "late-1", chatevents.StatusCompleted, "", nil, false); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	out, err := r.history(t, nil, "delete", c.ID, "--abandon-processes", "--confirm", abandonConfirmPhrase)
+	if err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	var res struct {
+		Abandoned []survivor `json:"abandoned"`
+	}
+	decodeChatJSON(t, out, &res)
+	got := map[int]bool{}
+	for _, s := range res.Abandoned {
+		got[s.Pid] = true
+	}
+	if !got[first] || !got[late] || len(res.Abandoned) != 2 {
+		t.Errorf("abandoned = %+v, want both %d and %d", res.Abandoned, first, late)
+	}
+	if !processAlive(first) || !processAlive(late) {
+		t.Error("a process was signalled")
 	}
 }
