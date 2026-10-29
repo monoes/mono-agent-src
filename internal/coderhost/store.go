@@ -380,6 +380,8 @@ func (s *Store) SweepOrphans() (int, error) {
 	for _, q := range []string{
 		`DELETE FROM coder_session_commands WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`,
 		`DELETE FROM coder_sessions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_sessions.conversation_id AND c.profile_id = coder_sessions.profile_id)`,
+		// A child whose master is gone (the delete demotes them in its own transaction; this catches what an older build or a hand edit left) is a solo session, as that delete makes it.
+		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE role = 'child' AND NOT EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = coder_sessions.profile_id AND m.conversation_id = coder_sessions.parent_conversation_id)`,
 		`DELETE FROM coder_session_decisions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_decisions.conversation_id AND c.profile_id = coder_session_decisions.profile_id)`,
 		`DELETE FROM coder_session_questions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_questions.conversation_id AND c.profile_id = coder_session_questions.profile_id)`,
 		`DELETE FROM coder_session_person_items WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_person_items.conversation_id AND c.profile_id = coder_session_person_items.profile_id)`,
