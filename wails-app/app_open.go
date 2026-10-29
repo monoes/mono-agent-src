@@ -56,12 +56,38 @@ func parseChatToken(token string) (string, int, error) {
 			return "", 0, errors.New("path contains a control character")
 		}
 	}
+	if err := refuseNetworkOrDevicePath(token); err != nil {
+		return "", 0, err
+	}
 	line := 0
 	if m := chatLineSuffix.FindStringSubmatch(token); m != nil {
 		token = m[1]
 		line, _ = strconv.Atoi(m[2])
+		if err := refuseNetworkOrDevicePath(token); err != nil {
+			return "", 0, err
+		}
 	}
 	return token, line, nil
+}
+
+// refuseNetworkOrDevicePath rejects, on every OS and before any syscall, the
+// forms Windows reads as a UNC share, a device or a drive-relative path: a
+// lookup of one could make the machine contact a host the model chose. Go's
+// Windows volume parsing treats mixed slashes ("/\h\s", "//h/s") as UNC too.
+func refuseNetworkOrDevicePath(p string) error {
+	isSlash := func(c byte) bool { return c == '/' || c == '\\' }
+	if len(p) >= 2 && isSlash(p[0]) && isSlash(p[1]) {
+		return errors.New("network and device paths are not supported")
+	}
+	for _, bad := range []string{`\\?\`, `\\.\`, `\??\`} {
+		if strings.Contains(p, bad) {
+			return errors.New("network and device paths are not supported")
+		}
+	}
+	if len(p) >= 2 && p[1] == ':' && (p[0]|0x20) >= 'a' && (p[0]|0x20) <= 'z' && (len(p) == 2 || !isSlash(p[2])) {
+		return errors.New("a drive-relative path is not supported")
+	}
+	return nil
 }
 
 // resolveChatToken turns a token into a cleaned, symlink-resolved absolute

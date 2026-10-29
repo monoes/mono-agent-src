@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyUrl, disguisedHost, findPathTokens, codeLooksLikePath, splitLine } from './chatLinks.js'
+import { isNetworkOrDevicePath, classifyUrl, disguisedHost, findPathTokens, codeLooksLikePath, splitLine } from './chatLinks.js'
 
 describe('classifyUrl', () => {
   it('opens http and https only', () => {
@@ -65,5 +65,20 @@ describe('codeLooksLikePath / splitLine', () => {
   it('splits a line suffix', () => {
     expect(splitLine('a.go:12:3')).toEqual({ path: 'a.go', line: 12 })
     expect(splitLine('C:\\a.md')).toEqual({ path: 'C:\\a.md', line: 0 })
+  })
+})
+
+describe('network and device paths', () => {
+  const bad = ['/\\h\\s\\x.md', '\\/h/s/x.md', '//h/s/x.md', '\\\\h\\s\\x.md', '\\\\?\\C:\\x.md', '\\\\.\\pipe\\x', '\\??\\C:\\x.md', 'C:foo.md', 'c:foo.md:3', '//h/s/x.md:7']
+  it.each(bad)('%s is never looked up', (tok) => {
+    expect(isNetworkOrDevicePath(tok)).toBe(true)
+    expect(codeLooksLikePath(tok)).toBe(false)
+    expect(findPathTokens(`see ${tok} now`).map((h) => h.token)).not.toContain(tok)
+  })
+  it('keeps the ordinary drive and posix forms', () => {
+    for (const ok of ['C:\\ok\\x.md', 'C:/ok/x.md', '/abs/x.md', 'docs/plan.md']) {
+      expect(isNetworkOrDevicePath(ok)).toBe(false)
+      expect(codeLooksLikePath(ok)).toBe(true)
+    }
   })
 })

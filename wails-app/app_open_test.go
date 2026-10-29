@@ -255,3 +255,26 @@ func TestChatPathHomeExpansion(t *testing.T) {
 		t.Fatalf("~user: %+v", g)
 	}
 }
+
+func TestChatTokenRefusesNetworkAndDevicePaths(t *testing.T) {
+	for _, tok := range []string{
+		`/\h\s\x.md`, `\/h/s/x.md`, `//h/s/x.md`, `\\h\s\x.md`, `\\?\C:\x.md`, `\\.\pipe\x`,
+		`\??\C:\x.md`, `C:foo.md`, `c:foo.md:3`, `//h/s/x.md:7`, `docs\\?\x.md`,
+	} {
+		if _, _, err := parseChatToken(tok); err == nil {
+			t.Errorf("%q was accepted by parseChatToken", tok)
+		}
+		if _, _, err := resolveChatToken(t.TempDir(), tok); err == nil {
+			t.Errorf("%q was resolved", tok)
+		}
+		if g := resolveChatPathInfo(t.TempDir(), tok); g.Kind != "missing" {
+			t.Errorf("%q: %+v", tok, g)
+		}
+	}
+	// the ordinary Windows drive form still gets through the syntax check
+	for _, tok := range []string{`C:\ok\x.md`, `C:/ok/x.md:3`, `docs/plan.md`, `/abs/x.md`} {
+		if _, _, err := parseChatToken(tok); err != nil {
+			t.Errorf("%q refused: %v", tok, err)
+		}
+	}
+}

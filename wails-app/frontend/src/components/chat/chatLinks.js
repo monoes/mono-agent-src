@@ -40,13 +40,22 @@ const PATH_RE = new RegExp(
     '|(?:' + SEG + '/)+' + SEG + '\\.(?:' + EXTS + ')' +
   ')(?::\\d+(?::\\d+)?)?(?![\\w/-])', 'g')
 
+// isNetworkOrDevicePath: forms Windows reads as a UNC share, a device or a
+// drive-relative path. Mirrors refuseNetworkOrDevicePath in app_open.go: they
+// are never looked up, so rendering a message cannot reach out to a host.
+export function isNetworkOrDevicePath(p) {
+  if (/^[\\/][\\/]/.test(p)) return true
+  if (p.includes('\\\\?\\') || p.includes('\\\\.\\') || p.includes('\\??\\')) return true
+  return /^[A-Za-z]:(?![\\/])/.test(p)
+}
+
 // findPathTokens lists the path-looking tokens in plain text.
 export function findPathTokens(text) {
   if (typeof text !== 'string' || text.length > 20000) return []
   const out = []
   for (const m of text.matchAll(PATH_RE)) {
     // a URL's tail ("//host/x.html" after "https:") is not a path
-    if (text[m.index - 1] === ':' || m[0].startsWith('//')) continue
+    if (text[m.index - 1] === ':' || isNetworkOrDevicePath(m[0])) continue
     out.push({ start: m.index, end: m.index + m[0].length, token: m[0] })
   }
   return out
@@ -65,6 +74,7 @@ export function codeLooksLikePath(s) {
   if (typeof s !== 'string' || s.length === 0 || s.length > 300) return false
   if (/[\s<>|*?"'`$;&(){}]/.test(s) || s.startsWith('-')) return false
   const { path } = splitLine(s)
+  if (isNetworkOrDevicePath(s) || isNetworkOrDevicePath(path)) return false
   if (/^(~|\.{1,2})?\/\S+/.test(path) || /^[A-Za-z]:[\\/]\S+/.test(path)) return path !== '/' && !path.startsWith('//')
   return new RegExp('^(?:' + SEG + '/)*' + SEG + '\\.(?:' + EXTS + ')$').test(path)
 }
