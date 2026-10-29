@@ -1,17 +1,21 @@
 package hil
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/extension"
+	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
 // A form submit an agent tried on a page that is not local (internal/browserctl:
@@ -86,22 +90,70 @@ func (d Deps) decisionError(id string, err error) error {
 	return err
 }
 
-// pairCardCode is the confirmation code the owner typed for a pairing card:
-// in --data, or in the card's editable "code" field.
-func pairCardCode(cmd *cobra.Command, db *sql.DB, cardID string) string {
-	var doc struct {
-		Code string `json:"code"`
-	}
+// pairCardFields are the card's editable fields: the confirmation code the
+// owner typed and the profiles the browser may run, in --data or in the
+// card's stored fields.
+type pairCardFields struct {
+	Code     string  `json:"code"`
+	Profiles *string `json:"profiles"`
+}
+
+func pairCardInput(cmd *cobra.Command, db *sql.DB, cardID string) pairCardFields {
+	var doc pairCardFields
 	if f := cmd.Flags().Lookup("data"); f != nil {
 		_ = json.Unmarshal([]byte(f.Value.String()), &doc)
 	}
+	var stored pairCardFields
+	var raw string
+	if db.QueryRowContext(cmd.Context(), `SELECT editable_data FROM hil_pending WHERE id = ?`, cardID).Scan(&raw) == nil {
+		_ = json.Unmarshal([]byte(raw), &stored)
+	}
 	if doc.Code == "" {
-		var raw string
-		if db.QueryRowContext(cmd.Context(), `SELECT editable_data FROM hil_pending WHERE id = ?`, cardID).Scan(&raw) == nil {
-			_ = json.Unmarshal([]byte(raw), &doc)
+		doc.Code = stored.Code
+	}
+	if doc.Profiles == nil {
+		doc.Profiles = stored.Profiles
+	}
+	return doc
+}
+
+// pairCardProfiles reads the card's profiles field: profile ids or names,
+// comma separated. "any" or "*" as the WHOLE field lets the browser run every
+// profile; an empty field limits it to none, and so does a card without the
+// field (filed by an older bridge). Each entry goes through profiledir.Resolve:
+// an exact id wins, then a name that only one profile has; an unknown or
+// shared name is refused, never guessed.
+func pairCardProfiles(ctx context.Context, db *sql.DB, field *string) (ids []string, any bool, err error) {
+	if field == nil {
+		return nil, false, nil
+	}
+	if extension.IsAnyKeyword(*field) {
+		return nil, true, nil
+	}
+	for _, p := range strings.Split(*field, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if extension.IsAnyKeyword(p) {
+			return nil, false, errors.New(`"any" must be the whole field, not one entry of a list`)
+		}
+		id, err := profiledir.Resolve(ctx, db, p)
+		var ambiguous *profiledir.AmbiguousError
+		switch {
+		case err == nil:
+			if !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		case errors.Is(err, profiledir.ErrUnknownProfile):
+			return nil, false, fmt.Errorf("profile %q not found (checked both id and name)", p)
+		case errors.As(err, &ambiguous):
+			return nil, false, fmt.Errorf("%v: type the profile id instead", ambiguous)
+		default:
+			return nil, false, fmt.Errorf("looking up profile %q: %w", p, err)
 		}
 	}
-	return doc.Code
+	return ids, false, nil
 }
 
 // decidePairCard decides a browser's request to pair (a card the bridge filed
@@ -114,10 +166,17 @@ func (d Deps) decidePairCard(cmd *cobra.Command, db *sql.DB, cardID, claim strin
 		return true, err
 	}
 	code := ""
+	var allowed []string
+	var anyProfile bool
 	if approve {
-		code = pairCardCode(cmd, db, cardID)
+		in := pairCardInput(cmd, db, cardID)
+		code = in.Code
+		var err error
+		if allowed, anyProfile, err = pairCardProfiles(cmd.Context(), db, in.Profiles); err != nil {
+			return true, d.InvalidInput("%v", err)
+		}
 	}
-	c, err := extension.DecidePendingClaim(claim, approve, code)
+	c, err := extension.DecidePendingClaimWith(claim, approve, code, allowed, anyProfile)
 	status := "rejected"
 	if approve {
 		status = "approved"
