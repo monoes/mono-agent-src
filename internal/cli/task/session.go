@@ -33,12 +33,17 @@ func (d Deps) parseSessionID(s string) (int64, error) {
 
 // sessionFlag reads --session, which must name a session when it is given.
 func (d Deps) sessionFlag(cmd *cobra.Command, value string) (int64, bool, error) {
-	if !cmd.Flags().Changed("session") {
+	return d.sessionFlagNamed(cmd, "session", value)
+}
+
+// sessionFlagNamed reads a flag that names a session (--session, --parent) when it is given.
+func (d Deps) sessionFlagNamed(cmd *cobra.Command, name, value string) (int64, bool, error) {
+	if !cmd.Flags().Changed(name) {
 		return 0, false, nil
 	}
 	id, err := d.parseSessionID(value)
 	if err != nil {
-		return 0, false, d.InvalidInput("--session: %v", err)
+		return 0, false, d.InvalidInput("--%s: %v", name, err)
 	}
 	return id, true, nil
 }
@@ -69,6 +74,9 @@ func money(f float64) string { return fmt.Sprintf("$%.2f", f) }
 func printSession(w io.Writer, p tasks.Profile, se tasks.Session) {
 	fmt.Fprintf(w, "Session #%d [%s]  %s\n", se.ID, se.State, se.Title)
 	fmt.Fprintf(w, "Profile:  %s\n", p.Name)
+	if se.ParentSessionID != 0 {
+		fmt.Fprintf(w, "Parent:   #%d (%s, level %d)\n", se.ParentSessionID, se.Kind, se.Depth)
+	}
 	if se.Archived {
 		fmt.Fprintln(w, "Archived: yes")
 	}
@@ -171,6 +179,8 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 		d.newSessionNewCmd(),
 		d.newSessionListCmd(),
 		d.newSessionShowCmd(),
+		d.newSessionRenameCmd(),
+		d.newSessionTreeCmd(),
 		d.newSessionPlanCmd(),
 		d.newSessionApproveCmd(),
 		d.newSessionLifecycleCmd("pause", "Stop a running session handing out tasks (you or an agent)", true,
@@ -185,10 +195,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 			func(s *tasks.Store, ctx context.Context, p string, id int64, a tasks.Actor) (tasks.Session, error) {
 				return s.StopSession(ctx, p, id, a)
 			}),
-		d.newSessionLifecycleCmd("archive", "Hide a session that is not running (you only)", false,
-			func(s *tasks.Store, ctx context.Context, p string, id int64, a tasks.Actor) (tasks.Session, error) {
-				return s.ArchiveSession(ctx, p, id, a)
-			}),
+		d.newSessionArchiveCmd(),
 		d.newSessionCloseCmd(),
 		d.newSessionBudgetCmd(),
 	)
@@ -199,11 +206,11 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 }
 
 func (d Deps) newSessionNewCmd() *cobra.Command {
-	var goal, access, conversation, clientID string
+	var goal, access, conversation, clientID, titleFlag, kind, parentFlag string
 	var budget float64
 	var maxTasks, maxDepth int
 	cmd := &cobra.Command{
-		Use:   "new TITLE... [--goal TEXT] [--conversation ID] [--client-id KEY] [--budget-usd N --max-tasks N --max-depth N --access LEVEL]",
+		Use:   "new TITLE... [--title TEXT] [--parent ID] [--kind KIND] [--goal TEXT] [--conversation ID] [--client-id KEY] [--budget-usd N --max-tasks N --max-depth N --access LEVEL]",
 		Short: "Start a session, as a draft (an agent plans; the budget, limits and access are yours to set)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			caller := d.callerFor(flagAs(cmd))
@@ -221,9 +228,21 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 				}
 				actor.Conversation = chat
 			}
+			title := strings.Join(args, " ")
+			if cmd.Flags().Changed("title") {
+				if len(args) > 0 {
+					return d.InvalidInput("give the title once: as arguments or with --title")
+				}
+				title = titleFlag
+			}
+			parent, _, err := d.sessionFlagNamed(cmd, "parent", parentFlag)
+			if err != nil {
+				return err
+			}
 			in := tasks.SessionInput{
-				Title: strings.Join(args, " "), Goal: goal, ConversationID: conversation,
+				Title: title, Goal: goal, ConversationID: conversation,
 				AccessLevel: access, BudgetUSD: budget, MaxTasks: maxTasks, MaxDepth: maxDepth, ClientID: clientID,
+				ParentSessionID: parent, Kind: kind,
 			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
 				se, err := store.CreateSession(ctx, p.ID, in, actor)
@@ -234,6 +253,9 @@ func (d Deps) newSessionNewCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().StringVar(&titleFlag, "title", "", "The title, instead of arguments")
+	cmd.Flags().StringVar(&parentFlag, "parent", "", "Start the session below this one (same profile; an agent: a session it works in; levels go to 4)")
+	cmd.Flags().StringVar(&kind, "kind", "", "What the session is for: board (default), mission, research, direction or task")
 	cmd.Flags().StringVar(&goal, "goal", "", "What the session is for (the plan card shows it)")
 	cmd.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the session belongs to (an agent: only its own chat)")
 	cmd.Flags().StringVar(&clientID, "client-id", "", "An idempotency key (up to 64 letters, digits, - or _): a repeat in the profile returns the same session, with deduped true")
@@ -377,9 +399,9 @@ func (d Deps) operatorSession(use, short, what string, actor *tasks.Actor, run f
 	return cmd
 }
 
-var pastTense = map[string]string{"pause": "Paused", "resume": "Resumed", "stop": "Stopped", "archive": "Archived"}
+var pastTense = map[string]string{"pause": "Paused", "resume": "Resumed", "stop": "Stopped"}
 
-// newSessionLifecycleCmd is pause, resume, stop or archive. open says an agent may too.
+// newSessionLifecycleCmd is pause, resume or stop. open says an agent may too.
 func (d Deps) newSessionLifecycleCmd(verb, short string, open bool, do func(*tasks.Store, context.Context, string, int64, tasks.Actor) (tasks.Session, error)) *cobra.Command {
 	var actor tasks.Actor
 	run := func(cmd *cobra.Command, store *tasks.Store, p tasks.Profile, id int64) error {

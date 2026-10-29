@@ -6,10 +6,12 @@ var taskSessionCommandDocs = []cmdDoc{
 	{
 		Name:  "task session",
 		Short: "Task sessions: one goal with a board of its own, planned as a draft and opened by the operator",
-		Usage: "monoagentcli [--profile P] task session new|list|show|plan|approve|pause|resume|stop|archive|budget",
+		Usage: "monoagentcli [--profile P] task session new|list|show|rename|tree|plan|approve|pause|resume|stop|archive|budget",
 		Flags: `  new      Start a session, as a draft (an agent may; the budget, limits and access level are the operator's)
   list     The profile's sessions
   show     One session: state, limits, progress, goal and history
+  rename   Change a session's title (the operator: any; an agent: one it started)
+  tree     The sessions nested below their parents, with state, progress and spend
   plan     Its tasks with their dependencies and acceptance criteria
   approve  Open it: the draft's tasks become Ready (the operator only)
   pause    Stop handing out tasks (the operator or an agent)
@@ -25,8 +27,11 @@ var taskSessionCommandDocs = []cmdDoc{
 	{
 		Name:  "task session new",
 		Short: "Start a session, as a draft: its tasks cannot be taken until the operator approves the plan (an agent may start one; only the operator sets the budget, limits and access level)",
-		Usage: "monoagentcli [--profile P] task session new TITLE... [--goal TEXT] [--conversation ID] [--client-id KEY] [--budget-usd N] [--max-tasks N] [--max-depth N] [--access LEVEL] [--as NAME]",
-		Flags: `  --goal string          What the session is for
+		Usage: "monoagentcli [--profile P] task session new TITLE... [--title TEXT] [--parent ID] [--kind KIND] [--goal TEXT] [--conversation ID] [--client-id KEY] [--budget-usd N] [--max-tasks N] [--max-depth N] [--access LEVEL] [--as NAME]",
+		Flags: `  --title string         The title, instead of arguments
+  --parent int           Start it below this session (same profile; levels go to 4; its access, budget and caps are the parent's ceiling; an agent: only below a session it works in)
+  --kind string          board (default), mission, research, direction or task
+  --goal string          What the session is for
   --conversation string  The chat conversation it belongs to
   --client-id string     An idempotency key (up to 64 letters, digits, - or _): a repeat in the profile returns the same session with deduped true, and creates no second one
   --budget-usd float     Budget in dollars (the operator only; 0 for none)
@@ -49,6 +54,19 @@ var taskSessionCommandDocs = []cmdDoc{
 		Usage:    "monoagentcli [--profile P] task session show ID [--events N]",
 		Flags:    `  --events int  The newest N events of its history (default 50; 0 for all)`,
 		Examples: []string{"monoagentcli --profile work task session show 3"},
+	},
+	{
+		Name:     "task session rename",
+		Short:    "Change a session's title, nothing else (the operator renames any session; an agent only one it started)",
+		Usage:    "monoagentcli [--profile P] task session rename ID TITLE... [--as NAME]",
+		Examples: []string{`monoagentcli --profile work task session rename 3 "Logger migration"`},
+	},
+	{
+		Name:     "task session tree",
+		Short:    "The sessions nested below their parents, ordered by id; --json is an array of root sessions, each with children",
+		Usage:    "monoagentcli [--profile P] task session tree [--all]",
+		Flags:    `  --all  Include archived sessions`,
+		Examples: []string{"monoagentcli --profile work --json task session tree"},
 	},
 	{
 		Name:     "task session plan",
@@ -89,9 +107,10 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session archive",
-		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only)",
-		Usage:    "monoagentcli [--profile P] task session archive ID",
-		Examples: []string{"monoagentcli --profile work task session archive 3"},
+		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only). Refused while draft, running or paused sessions are below it, unless --cascade",
+		Usage:    "monoagentcli [--profile P] task session archive ID [--cascade]",
+		Flags:    "  --cascade   Also stop (running, paused) and archive every session below it, the deepest first, in one write; prints the archived ids",
+		Examples: []string{"monoagentcli --profile work task session archive 3", "monoagentcli --profile work --json task session archive 3 --cascade"},
 	},
 	{
 		Name:  "task session budget",

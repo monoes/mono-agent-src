@@ -1713,7 +1713,18 @@ that works a task acts on them. The defences:
   `session approve`, `session resume` and `session budget`: it can open its own plan,
   resume a pause and raise its own budget. That weakness predates sessions and has
   higher stakes with them; the guard stops accidents and injected text, not an agent
-  that works around it on purpose. A session's
+  that works around it on purpose. **The session tree** (`task_sessions.parent_session_id`, `kind`, `approval_basis`) is
+  bounded in the store, not in the callers: a parent is a session of the same profile, there is no cycle, the depth
+  is computed from the chain and never above `tasks.HardMaxSessionDepth` (4), and a child never gets more access,
+  `max_tasks`, `max_depth` or budget than its parent (a child's budget is carved out of what the parent has left,
+  less what its open children hold and what its closed children spent; an agent starts at most 12 open children below
+  one parent; lowering a parent clamps its children). An agent creates a session only below one it works in, and a
+  `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
+  An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
+  code, never by a label or a flag) may start a session of kind `mission` or use the name `mission-lead`; sessions an
+  agent named `mission-lead` before the refusal existed still read as missions, so check existing databases. A row
+  with a parent cycle or too deep a chain is left out of the list and named, not a failure of the whole list. A
+  session's
   goal and a task's acceptance criteria are text an agent wrote and come back
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
   deleted with its profile. A session that has spent its budget hands out no tasks.
@@ -1917,7 +1928,7 @@ that works a task acts on them. The defences:
   (it shows the Inbox) and `approve` (both unless delegated, see above),
   `edit`, `move`, `archive`, `unarchive`, `add --ready`, `agents allow`,
   `agents deny`, `session approve`, `session resume`, `session close`,
-  `session archive`, `session budget` and `undepend`. A caller is agent-driven when an
+  `session archive` (also with `--cascade`, which stops and archives the open sessions below it and is never an agent's), `session budget` and `undepend`. A caller is agent-driven when an
   agent-context environment variable is set (the markers org signing
   already uses, `CLAUDECODE` among them), or `--as` is given, or
   `MONOAGENT_ACTOR` is set. This stops an agent acting by accident or on
