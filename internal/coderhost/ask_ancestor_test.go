@@ -47,7 +47,11 @@ func newAskTree(t *testing.T) *askTree {
 	f.rc, f.pc, f.cc, f.gc, f.s = chat(t, st), chat(t, st), chat(t, st), chat(t, st), chat(t, st)
 	xc := chat(t, st)
 	mk := func(title, conv string, parent int64, budget float64) tasks.Session {
-		se, err := f.ts.CreateSession(context.Background(), "p", tasks.SessionInput{Title: title, ConversationID: conv, ParentSessionID: parent, BudgetUSD: budget, MaxTasks: 10}, opActor)
+		kind := tasks.SessionKindMission
+		if parent != 0 {
+			kind = tasks.SessionKindDirection
+		}
+		se, err := f.ts.CreateSession(context.Background(), "p", tasks.SessionInput{Title: title, ConversationID: conv, ParentSessionID: parent, Kind: kind, BudgetUSD: budget, MaxTasks: 10}, opActor)
 		if err != nil {
 			t.Fatal(err)
 		}

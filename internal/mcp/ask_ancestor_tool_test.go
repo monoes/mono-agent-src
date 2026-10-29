@@ -18,7 +18,7 @@ import (
 func newAskFixture(t *testing.T) (*missionChildFixture, tasks.Session) {
 	t.Helper()
 	m := newMissionChildFixture(t, true)
-	mid, err := m.f.Store.CreateSession(opCtx, m.profile, tasks.SessionInput{Title: "mid", ConversationID: m.a, ParentSessionID: m.otherSe.ID}, sessOperator)
+	mid, err := m.f.Store.CreateSession(opCtx, m.profile, tasks.SessionInput{Title: "mid", ConversationID: m.a, ParentSessionID: m.otherSe.ID, Kind: tasks.SessionKindDirection}, sessOperator)
 	if err != nil {
 		t.Fatal(err)
 	}

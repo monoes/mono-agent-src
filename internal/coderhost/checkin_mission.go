@@ -67,7 +67,7 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 	var id int64
 	var state string
 	err := db.QueryRow(`SELECT id, state FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = ''
-		AND state IN ('draft','running','paused') ORDER BY id DESC LIMIT 1`, profileID, conversationID).Scan(&id, &state)
+		AND state IN ('draft','running','paused') AND `+LeadSessionSQL+` ORDER BY id DESC LIMIT 1`, profileID, conversationID).Scan(&id, &state)
 	if err == sql.ErrNoRows {
 		return nil, true
 	}
