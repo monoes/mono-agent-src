@@ -37,6 +37,13 @@ describe('PersonItemCard', () => {
     await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('approve', expect.objectContaining({ sessionId: 7 }), undefined))
   })
 
+  it('says the plan changed and asks for a new look when the approval is refused for a moved plan', async () => {
+    const onAnswer = vi.fn().mockResolvedValue({ error: 'the plan of session #7 changed since you read it', code: 'plan_changed' })
+    render(<PersonItemCard item={item({ rev: 3, digest: 'abc' })} onAnswer={onAnswer} />)
+    fireEvent.click(screen.getByRole('button', { name: /Approve/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The plan changed after you opened it')
+  })
+
   it('denies with a note: the box takes focus, the send button needs words', async () => {
     const onAnswer = vi.fn().mockResolvedValue({ session: { state: 'draft' } })
     render(<PersonItemCard item={item()} onAnswer={onAnswer} />)

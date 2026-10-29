@@ -79,7 +79,7 @@ func TestPersonVerbsRefuseEveryAgentContext(t *testing.T) {
 	t.Parallel()
 	verbs := [][]string{
 		{"inbox"},
-		{"approve", "SESSION"},
+		{"approve", "SESSION", "--rev", "1"},
 		{"deny", "SESSION", "--note", "no"},
 		{"ask", "SESSION", "--text", "why"},
 	}
@@ -117,7 +117,8 @@ func TestPersonApproveRecordsThePerson(t *testing.T) {
 	t.Parallel()
 	db, _, big := giantWithItem(t)
 	var out map[string]map[string]any
-	mustTaskJSON(t, db, "default", &out, "", "session", "person", "approve", id(big))
+	rev, _ := inboxRev(t, db)
+	mustTaskJSON(t, db, "default", &out, "", "session", "person", "approve", id(big), "--rev", id(rev))
 	if se := out["session"]; se["state"] != "running" || se["approval_basis"] != "person" {
 		t.Fatalf("session = %+v", se)
 	}
@@ -132,7 +133,7 @@ func TestPersonVerbsNeedAnOpenItem(t *testing.T) {
 	db, root, _ := giantWithItem(t)
 	other := sessionNew(t, db, "other", "--parent", id(root))
 	sessionAdd(t, db, other, "a")
-	for _, v := range [][]string{{"approve", id(other)}, {"deny", id(other), "--note", "x"}, {"ask", id(other), "--text", "x"}} {
+	for _, v := range [][]string{{"approve", id(other), "--rev", "1"}, {"deny", id(other), "--note", "x"}, {"ask", id(other), "--text", "x"}} {
 		doc := failedTaskJSON(t, db, "default", 2, append([]string{"session", "person"}, v...)...)
 		if doc["code"] != "not_found" {
 			t.Errorf("%v: %v", v, doc)

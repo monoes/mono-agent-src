@@ -8,7 +8,10 @@
 // with a dash is never a flag.
 package main
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // PersonItemsList is `task session person inbox`: {"items":[…]} with each item's kind, session,
 // agent chat, why it is giant work and its numbers.
@@ -19,9 +22,24 @@ func (a *App) PersonItemsList() string {
 	return a.taskCLI("", "session", "person", "inbox")
 }
 
-// PersonItemApprove is `task session person approve ID`.
-func (a *App) PersonItemApprove(sessionID int64) string {
-	return a.personAnswer(sessionID, "", "approve")
+// PersonItemApprove is `task session person approve ID --rev=N [--digest=HASH]`: the revision and
+// digest are the ones the inbox showed, so a plan that changed since is refused (code plan_changed).
+func (a *App) PersonItemApprove(sessionID, rev int64, digest string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	sid, bad := sessionIDArg(sessionID)
+	if bad != "" {
+		return bad
+	}
+	if rev <= 0 {
+		return taskRefusal("the plan revision you read is missing: reload and read the plan again")
+	}
+	args := []string{"session", "person", "approve", sid, "--rev=" + strconv.FormatInt(rev, 10)}
+	if d := strings.TrimSpace(digest); d != "" {
+		args = append(args, "--digest="+d)
+	}
+	return a.taskCLI("", args...)
 }
 
 // PersonItemDeny is `task session person deny ID --note=TEXT`.

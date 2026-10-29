@@ -2293,6 +2293,7 @@
     "saveFailed": "Could not change the mission setting: {{error}}"
   },
   "personItem": {
+    "planChanged": "The plan changed after you opened it, so nothing was approved. The card has reloaded: review it again.",
     "notifyTitle": "Needs you",
     "notifyBody_one": "{{count}} plan is waiting for your approval",
     "notifyBody_other": "{{count}} plans are waiting for your approval",

@@ -89,8 +89,9 @@ var taskSessionCommandDocs = []cmdDoc{
 	{
 		Name:     "task session person approve",
 		Short:    "Approve the plan of a giant session that waits for you: it runs and the approval is recorded as the person's (the operator only; needs an open item)",
-		Usage:    "monoagentcli [--profile P] task session person approve ID",
-		Examples: []string{"monoagentcli --profile work task session person approve 7"},
+		Usage:    "monoagentcli [--profile P] task session person approve ID --rev N [--digest HASH]",
+		Flags:    "  --rev int         The plan revision `person inbox` showed (required): refused if the plan changed since\n  --digest string   The plan digest `person inbox` showed (optional): also refused if the content differs",
+		Examples: []string{"monoagentcli --profile work task session person approve 7 --rev 12"},
 	},
 	{
 		Name:     "task session person deny",

@@ -71,6 +71,11 @@ func notYourApproval(id int64) error {
 // and is not giant (see giantReasons); a giant session raises a person item instead. An agent never
 // approves a session it leads or sits in, a root session, or one of another mission.
 func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, actor Actor) (Session, error) {
+	return s.approveSession(ctx, profileID, id, actor, nil)
+}
+
+// approveSession is ApproveSession; a guard (the person's) makes it refuse a plan that moved.
+func (s *Store) approveSession(ctx context.Context, profileID string, id int64, actor Actor, guard *PlanGuard) (Session, error) {
 	var rootConv string
 	var pol ApprovalPolicy
 	switch actor.Kind {
@@ -89,6 +94,11 @@ func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, 
 	}
 	var giant *GiantError
 	out, err := s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		if guard != nil {
+			if err := s.checkPlanGuard(ctx, x, se, *guard); err != nil {
+				return err
+			}
+		}
 		if actor.Kind == Agent {
 			g, err := s.checkLeadApproval(ctx, x, profileID, se, actor, rootConv, pol)
 			if err != nil {

@@ -50,7 +50,7 @@ export function PersonItemCard({ item, onAnswer, onOpenAgent = null, showMute = 
     setBusy(true); setError('')
     const res = await onAnswer(verb, item, words)
     setBusy(false)
-    if (res?.error) { setError(String(res.error)); return }
+    if (res?.error) { setError(res.code === 'plan_changed' ? t('personItem.planChanged') : String(res.error)); return }
     if (verb === 'ask') { setAsked(true); setText(''); setMode(null) }
   }
   const submit = () => { if (text.trim() && !busy) send(mode, text.trim()) }

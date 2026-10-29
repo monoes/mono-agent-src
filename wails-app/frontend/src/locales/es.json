@@ -2251,6 +2251,7 @@
     "saveFailed": "No se pudo cambiar el ajuste de misión: {{error}}"
   },
   "personItem": {
+    "planChanged": "El plan cambió después de abrirlo, así que no se aprobó nada. La tarjeta se recargó: revísala de nuevo.",
     "notifyTitle": "Te necesita",
     "notifyBody_one": "{{count}} plan espera tu aprobación",
     "notifyBody_other": "{{count}} planes esperan tu aprobación",

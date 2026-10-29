@@ -151,6 +151,8 @@ func (d Deps) taskErr(err error) error {
 		return taskCLIError{error: d.NotFound("%v", err), code: "not_found"}
 	case errors.Is(err, tasks.ErrOperatorOnly):
 		return d.operatorOnlyError("%v", err)
+	case errors.Is(err, tasks.ErrPlanChanged):
+		return taskCLIError{error: d.InvalidInput("%v", err), code: "plan_changed"}
 	case errors.Is(err, tasks.ErrNotReady):
 		return taskCLIError{error: d.InvalidInput("%v", err), code: "not_ready"}
 	case errors.Is(err, tasks.ErrNotClaimant):

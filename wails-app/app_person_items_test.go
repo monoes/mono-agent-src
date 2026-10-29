@@ -14,7 +14,7 @@ func TestPersonItemBindingsRunTheCLI(t *testing.T) {
 	a := newTaskTestApp(t)
 	for i, got := range []string{
 		a.PersonItemsList(),
-		a.PersonItemApprove(7),
+		a.PersonItemApprove(7, 12, "abc"),
 		a.PersonItemDeny(7, "--split it"),
 		a.PersonItemAsk(7, "why 30 tasks?"),
 	} {
@@ -25,7 +25,7 @@ func TestPersonItemBindingsRunTheCLI(t *testing.T) {
 	p := "--profile|work|--json|task|session|person|"
 	want := []string{
 		p + "inbox|",
-		p + "approve|7|",
+		p + "approve|7|--rev=12|--digest=abc|",
 		p + "deny|7|--note=--split it|",
 		p + "ask|7|--text=why 30 tasks?|",
 	}
@@ -38,7 +38,8 @@ func TestPersonItemBindingsRefuseBadInputWithoutTheCLI(t *testing.T) {
 	log, _ := taskCLIFake(t, `{}`, 0)
 	a := newTaskTestApp(t)
 	for i, got := range []string{
-		a.PersonItemApprove(0),
+		a.PersonItemApprove(0, 1, ""),
+		a.PersonItemApprove(3, 0, "abc"),
 		a.PersonItemDeny(-1, "x"),
 		a.PersonItemDeny(3, "  "),
 		a.PersonItemAsk(3, ""),
