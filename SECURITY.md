@@ -1750,8 +1750,11 @@ that works a task acts on them. The defences:
   that works around it on purpose. **The session tree** (`task_sessions.parent_session_id`, `kind`, `approval_basis`) is
   bounded in the store, not in the callers: a parent is a session of the same profile, there is no cycle, the depth
   is computed from the chain and never above `tasks.HardMaxSessionDepth` (4), and a child never gets more access,
-  `max_tasks`, `max_depth` or budget than its parent (a child's budget is carved out of what the parent has left;
-  a session's budget caps the spend of its whole subtree. What a session can still use or hand to a new child is its budget minus its own spend, minus what its running workers were issued (reserved, `task_sessions.reserved_usd`), minus what its children hold. An open child holds at least its real commitment (its budget, or its spend plus reservations plus its own children's holds if larger); a closed child keeps holding what it and its descendants spent. Workers reserve before they run and settle after (`Store.ReserveSpend`, `SettleSpend`); a crashed or cancelled worker's reservation is released when its exec ends, and one a dead process left is released by the mission reconcile of a session with no running worker (`Store.ReleaseReserved`). An update cannot lower a child below its real commitment or make it unlimited under a capped parent, a closed session takes no new child and its children's budgets are not raised, and an overspend is recorded and blocks later reserves, carves and dispatches. An agent starts at most 12 open children below
+  `max_tasks`, `max_depth` or budget than its parent (an agent cannot name or change a budget: a budget in a tree is the operator's to set, so an agent's
+  child has none; the operator's budget for a child is above 0 and at most the parent's, 0 is refused under a parent
+  that has a budget, and approving a child with no budget under such a parent is refused until the operator sets
+  one. Each child is checked on its own: the sum of the children's budgets and a roll-up of their spend are not
+  accounted in this change. An agent starts at most 12 open children below
   one parent; lowering a parent clamps its children). An agent creates a session only below one it works in, and a
   `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
