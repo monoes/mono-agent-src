@@ -339,10 +339,43 @@ downgrade: step 3 of the launch ordering refuses to issue while the service is n
   `mission_process.go`) can never validate as a v2 MAC and a v2 row cannot be reinterpreted as a
   v1 row by editing a column. A verifier never selects the field list from a mutable column: it
   selects it from where the record is (v2 table) and from the token's own marker (below).
-- A new table or settings row `procbind_host` holds `{profile, generation, started_at, mac}`,
-  written by the host at start; its MAC key is the vault-derived key, so it is courtesy-grade
-  under the section 1 threat model, and the profile and generation inside the MAC stop a verifier
-  mixing records, registry entries or sockets between profiles or host restarts.
+- A new table `procbind_host` is an **append-only log** of host starts: one row per start,
+  `{profile, seq, generation, started_at, prev_mac_hash, mac}`, where `seq` is a per-profile
+  strictly increasing integer, `generation` the random 128-bit value of that start, and
+  `prev_mac_hash` the hash of the previous row's MAC (a chain). The **current row** is the one
+  with the highest `seq` for the profile; a verifier reads only that row and requires the
+  service's hello generation to equal it. Its MAC key is the vault-derived key, so it is
+  courtesy-grade under the section 1 threat model, and the profile, `seq`, generation and
+  `prev_mac_hash` inside the MAC stop a verifier mixing records, registry entries or sockets
+  between profiles or host restarts, and stop a row being replaced or the chain being re-cut
+  without the key. The latest row cannot be deleted (the retention rule below only deletes a row
+  that a newer row supersedes), so an older generation cannot be resurrected by deleting the
+  newest.
+
+**Immutability and retention (one rule for all five tables).** Every v2 table rejects `UPDATE`
+outright (a trigger raises). `DELETE` is rejected **unless the row is past retention**, and
+nothing else is exempt: no named table or operation bypasses the triggers, and there is no
+separate archive step.
+
+- `agent_tokens_v2`, `coder_session_tokens_v2`, `process_bindings`: a row may be deleted only when
+  its MAC-covered `expires_at` is older than the retention window (default 7 days). A live or
+  recently expired token's row cannot be removed by anyone.
+- `token_revocations_v2`: a row may be deleted only when the token it revokes has an `expires_at`
+  older than the same window (the trigger looks the token up; a revocation whose token row is
+  already gone counts as past retention only if its own `created_at` is older than the window).
+  Deleting such a revocation cannot un-revoke anything, because the token it names expired long
+  ago (the MAC-covered expiry denies it independently).
+- `procbind_host`: a row may be deleted only if a newer row exists for the profile and it is older
+  than the window; the newest row is never deletable.
+
+The authenticated purge is therefore just `DELETE` of rows that satisfy those conditions, run by
+`SweepMissions` (conductor start/resume) and by the host at start; anything else the triggers
+refuse, with or without the vault key (a writer who drops the triggers is the database-writer
+case of section 1). **Storage is bounded**: at most one token row, one binding row and one
+revocation row per issuance, each removed after expiry plus the window, and one host row per
+start removed once superseded and past the window; expiry cleanup is not omitted. The legacy
+sweep keeps its own immediate purge of expired legacy rows (unchanged); the v2 purge is the
+retention-gated one above.
 - **The token carries its own requirement.** A `peercred` token's secret has a distinct,
   versioned prefix (`mat2_` / `sst2_`); its hash covers the whole string. A verifier that sees a
   v2-prefixed token **requires** a valid v2 binding row and a service answer, whatever the legacy
@@ -429,7 +462,7 @@ after a crash (the revocation row is the recovery marker).
 | `Store.Revoke(profile, ref)` (agent-mode token revoke, mission revoke) | `revoked_at` on one `agent_tokens` row | `Revoke(token id)` |
 | `Store.RevokeProfile` | all of a profile's tokens | `Revoke(profile)` |
 | `Store.RevokeOwner` (conductor ends a run, sweep) | tokens of one `mission_owner` | `Revoke(owner)` |
-| `Store.SweepMissions` (conductor start/resume) | revokes orphan owners, purges expired | `Revoke(owner)` for each orphan the legacy sweep revokes, plus purge of expired v2 rows and their revocations |
+| `Store.SweepMissions` (conductor start/resume) | revokes orphan owners, purges expired | `Revoke(owner)` for each orphan the legacy sweep revokes, plus the retention-gated purge of v2 rows past expiry plus the window (section 7, immutability and retention) |
 | `RevokeSessionTokens(profile, conv)` (turn ended) | deletes `coder_session_tokens` | `RevokeTx(session)` in the same transaction as the delete, then `Drop(session)`; the turn-end path completes it before the next turn is launched |
 | Turn replacement (`IssueSessionToken` for a new turn) | the verify join on the current `turn_id` | v2 registration is keyed by `(session, turn)`; issuing a new turn revokes the previous turn's entry first |
 | Conversation / session deletion (`AIStore.DeleteConversation`, the delete stack of #1119, #1123, #1124) | revokes legacy rows in the delete transaction | `RevokeTx(session)` **inside that same transaction**; `Drop(session)` after it commits and before the delete returns success |
@@ -464,8 +497,8 @@ pinned by a test that presents a v2 mission token to every bearer route.
 - Only tokens issued after the flag is on have v2 rows. Nothing needs re-signing; a legacy token
   is simply a legacy token for its remaining life (tokens are short-lived and per run).
 - Migration number: next free at implementation-PR time (master ends at 141, epic #1106 may take
-  142); not taken now. The actual SQL, constraints (insert-only enforced by triggers that reject
-  `UPDATE` and `DELETE` on the v2 tables) and indexes are written with the version number at
+  142); not taken now. The actual SQL, constraints (the triggers of section 7: `UPDATE` always
+  rejected, `DELETE` rejected unless past retention) and indexes are written with the version number at
   implementation time. The migration creates five tables: `process_bindings`, `procbind_host`,
   `agent_tokens_v2`, `coder_session_tokens_v2` and `token_revocations_v2`; nothing existing is
   altered.
@@ -611,6 +644,12 @@ scratch `HOME`, never the real database, and the same fake vault-key source the 
 - **Launch ordering:** a child that polls its own environment and `/proc/<pid>/environ` finds no
   token before commit; commit failure kills the child and delivers nothing; reaping while a
   verify is in flight denies.
+- **Immutability and retention:** `UPDATE` on every v2 table is rejected; `DELETE` of a live row,
+  a recently expired row, a revocation of a recently expired token and the newest host row is
+  rejected; `DELETE` of a row past the window succeeds (and a revocation past the window does not
+  un-revoke a token whose expiry denies it); `SweepMissions` removes exactly the rows past the
+  window; storage after N issue/expire cycles stays bounded; the host log chain detects a replaced
+  or re-cut row and an older generation cannot be made current.
 - **Migration:** a legacy row verifies unchanged; deleting the v2 binding row of a v2-prefixed
   token denies; a v1 MAC cannot validate a v2 row.
 - **Socket creation:** a symlinked leaf, a wrong-mode directory, a foreign-owned directory, an
