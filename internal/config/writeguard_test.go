@@ -74,6 +74,7 @@ var writeAllowlist = map[string]struct {
 	"internal/cli/chat/coder_projects.go":          {"coder projects map/unmap: operator-only", 2},
 	"internal/coderhost/missionconfirm.go":         {"the coder host's signed per-send confirmations, written for the operator's own confirm", 5},
 	"internal/ai/chat_events_conversations.go":     {"revokes (deletes) confirmations when a conversation is deleted; never writes a value", 1},
+	"internal/agentpurposes/store.go":              {"agent purposes set/reset: operator-only commands; Load reads the row", 3},
 	"internal/applypark/cap.go":                    {"reads applications.max_parked only", 1},
 	"internal/automation/health_repair.go":         {"reads automation.autoRepair only", 1},
 	"internal/browserctl/policy.go":                {"reads the browser allowlist only", 1},

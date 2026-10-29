@@ -42,6 +42,9 @@ type Deps struct {
 	FinishStreamed func(out io.Writer, asJSON bool, err error, okMsg string) error
 	// StdinIsTerminal says whether standard input is a terminal, where a command may ask.
 	StdinIsTerminal func() bool
+	// RequireOperator refuses what is not the operator's own terminal (exit 3, operator_only); nil refuses, as an
+	// unwired check never opens a command.
+	RequireOperator func(what string) error
 }
 
 // NewCommand returns the `agent` command group.

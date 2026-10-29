@@ -3,6 +3,7 @@ package dynorg
 import (
 	"context"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"slices"
 	"strings"
 
@@ -53,6 +54,8 @@ type Staffer struct {
 	// profile. A lead that asks for it is refused; one staffing picked is
 	// lowered to coding.
 	NoAppAccess bool
+	// Purposes is what the operator chose for each kind of work: the pairs a spawn may pick from (purposes.go).
+	Purposes agentpurposes.Set
 }
 
 // appAccess reports coder.appAccess for this turn (a nil Staffer: on).

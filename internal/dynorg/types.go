@@ -122,6 +122,12 @@ type SpawnRequest struct {
 	// AllowSpawn gives the worker org_spawn, org_wait and org_message for
 	// sub-workers of its own (#230); only the lead may set it.
 	AllowSpawn bool `json:"allow_spawn,omitempty"`
+	// Purpose names the kind of work (internal/agentpurposes); the operator's chosen models for it are all the worker may run
+	// on. Empty: the purpose of the role's category, when it has one.
+	Purpose string `json:"purpose,omitempty"`
+	// authorKey is the runtime/model that wrote the work this worker reviews, verifies or judges: set by the
+	// conductor, never by the lead's JSON.
+	authorKey string
 	// TaskID makes the worker a mission worker: it takes that task of a task
 	// session, its brief is built from the task, and it is bound to the task
 	// (mission_exec.go). Brief then only adds to the generated one.
@@ -155,6 +161,8 @@ type Staff struct {
 	Why       []string // who chose what, for agent.spawned.why
 	PickConf  *float64
 	JevConf   *float64
+	// purposeEffort is the effort the operator set for the purpose; used when the lead names none.
+	purposeEffort string
 }
 
 // Emitter journals one chat event of the lead's turn. turnJournal

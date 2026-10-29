@@ -29,6 +29,7 @@ func agentDeps(cfg *globalConfig) agentcli.Deps {
 	d := agentBaseDeps
 	d.JSONOutput = func() bool { return cfg.JSONOutput }
 	d.OpenDB = func() (*storage.Database, error) { return initDB(cfg) }
+	d.RequireOperator = requireOperator
 	return d
 }
 

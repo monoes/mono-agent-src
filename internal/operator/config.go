@@ -34,6 +34,8 @@ import "strings"
 //     the definition, so a save by anyone but the operator leaves it
 //     unapproved, and the engine ignores the own setting of an unapproved
 //     definition (errorWorkflowID), leaving only this default.
+//   - agent.purposes: the (runtime, model) pairs a parent may pick from for each purpose, and how
+//     (agentpurposes.ConfigName; `agent purposes set|reset`). It bounds which models run.
 //   - every row under ReservedConfigPrefixes: families of rows named by a
 //     prefix. coder-mission-confirm/ holds the operator's per-send mission
 //     confirmations, which the coder host and its chat turns accept as proof
@@ -58,6 +60,7 @@ var reservedConfigs = []string{
 	"applications.max_parked",
 	"memory.runs",
 	"workflow.error_workflow",
+	"agent.purposes",
 }
 
 // ReservedConfigPrefixes are the reserved families of config rows: a name that
