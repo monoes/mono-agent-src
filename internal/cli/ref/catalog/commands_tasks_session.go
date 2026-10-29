@@ -76,7 +76,7 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session approve",
-		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator only; an empty draft is refused)",
+		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator only; an empty draft is refused, and so is one with no budget under a parent that has one: set it first)",
 		Usage:    "monoagentcli [--profile P] task session approve ID",
 		Examples: []string{"monoagentcli --profile work task session approve 3"},
 	},
@@ -116,7 +116,7 @@ var taskSessionCommandDocs = []cmdDoc{
 		Name:  "task session budget",
 		Short: "Set a session's budget, limits, access level or auto-close setting, or record spend (the operator only)",
 		Usage: "monoagentcli [--profile P] task session budget ID [--usd N] [--max-tasks N] [--max-depth N] [--max-retries N] [--access LEVEL] [--auto-close on|off] [--spend N] [--note TEXT]",
-		Flags: `  --usd float        Budget in dollars (0 for none); a session that has spent it hands out no tasks
+		Flags: `  --usd float        Budget in dollars (0 for none); a session that has spent it hands out no tasks; under a parent with a budget, above 0 and at most the parent's
   --max-tasks int    Most tasks the session holds (the only bound on additions after approval)
   --max-depth int    Deepest nesting of tasks
   --max-retries int  Failed verifications a task may have before it is blocked (default 2)
