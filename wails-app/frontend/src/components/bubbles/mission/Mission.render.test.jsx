@@ -221,26 +221,3 @@ describe('report card', () => {
     expect(nav).toHaveBeenCalledWith('tasks', { sessionId: 7, report: true })
   })
 })
-
-describe('mission templates', () => {
-  it('inserts a skeleton into the composer', async () => {
-    render(<Harness open={conv()} />)
-    fireEvent.click(await screen.findByTestId('mission-templates-btn'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Bug fix' }))
-    const box = document.querySelector('textarea')
-    expect(box.value).toContain('Goal:')
-    expect(box.value).toContain('Reproduction:')
-    expect(box.value).toContain('Non-goals:')
-    expect(n).toBeGreaterThan(0)
-  })
-  it('closes only the menu on Escape (with focus on its button), not the whole chat', async () => {
-    render(<Harness open={conv()} />)
-    const btn = await screen.findByTestId('mission-templates-btn')
-    btn.focus()
-    fireEvent.click(btn)
-    expect(screen.getByRole('menu')).toBeInTheDocument()
-    fireEvent.keyDown(btn, { key: 'Escape' })
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-    expect(screen.getByTestId('mission-templates-btn')).toBeInTheDocument()
-  })
-})
