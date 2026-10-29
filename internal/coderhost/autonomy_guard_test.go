@@ -183,6 +183,7 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 		"children_control.go:ControlChild": 1, // Enqueue: pause/resume/stop by a master
 		"children.go:spawnWith":            1, // Enqueue: a master's first message to a new child
 		"parked_deliver.go:deliver":        1, // Enqueue: an answer note (answer- turn id)
+		"person_deny.go:tellDenied":        1, // Enqueue: the lead told a plan was turned down (answer-p-deny- turn id keyed by item and round, no issuer; it approves nothing)
 		"person_plan.go:TellLeadAboutPlan": 1, // Enqueue: the person's own words about a giant plan (answer-p turn id, no issuer; it approves nothing: only the operator's CLI verbs call it)
 		"ask_ancestor.go:AskAncestor":      1, // Enqueue: a normal ask to an ancestor lead (ask-q- turn id, no issuer, sealed text, no authority)
 		"ask_reply.go:closeAndDeliver":     1, // Enqueue: the sealed reply to the asker (ask-r- from an ancestor lead, ask-p- from the person)

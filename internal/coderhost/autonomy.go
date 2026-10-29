@@ -34,9 +34,10 @@ type Decision struct {
 // HardClass says whether a class of gap can never be answered by the model, nor
 // have a default applied for it: acting on it widens what the session does in
 // the world (a risky action) or needs something the session was not given (a
-// credential).
+// credential), or approves a giant plan, which only the person does (plan_approval: it can
+// never be answered by the model or settled by a default).
 func HardClass(class string) bool {
-	return class == "risky_action" || class == "missing_credential"
+	return class == "risky_action" || class == "missing_credential" || class == "plan_approval"
 }
 
 // Decide is the policy: for a class of gap, with the gap's reversibility and

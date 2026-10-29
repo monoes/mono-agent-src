@@ -210,14 +210,9 @@ func (d Deps) newPersonDenyCmd() *cobra.Command {
 	return d.personAnswer("deny ID --note TEXT", "Turn the plan down: the session stays a draft, the note is kept in its history and sent to its lead",
 		"note", "Why (required): kept in the session's history and sent to its lead",
 		func(cmd *cobra.Command, store *tasks.Store, cs *coderhost.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor, note string) error {
-			if _, err := cs.TellLeadAboutPlan(cmd.Context(), p.ID, it.ConversationID, it.RefID, coderhost.PlanDenied, note); err != nil {
+			// One transaction closes the item and writes the history; the lead is told after it commits.
+			if _, err := cs.DenyPlan(cmd.Context(), it, actor.Label(), note); err != nil {
 				return d.InvalidInput("%v", err)
-			}
-			if err := store.AddSessionEvent(cmd.Context(), p.ID, it.RefID, tasks.EventNote, "the person turned the plan down: "+note, actor); err != nil {
-				return d.taskErr(err)
-			}
-			if err := cs.ClosePlanApprovalItem(p.ID, it.RefID); err != nil {
-				return err
 			}
 			se, err := store.GetSession(cmd.Context(), p.ID, it.RefID, actor)
 			if err != nil {
