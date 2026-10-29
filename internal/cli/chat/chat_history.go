@@ -14,6 +14,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -299,6 +300,12 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			// delete itself re-reads the record inside its write transaction, where no turn can be
 			// recorded, and gives way if one appeared since: then the new ones are stopped too.
 			var stopped []int
+			// The key that signs the cleanup row is had before the transaction (it can need the database).
+			var cleanupKey []byte
+			if db, err := cfg.OpenDB(); err == nil {
+				cleanupKey, _ = secrets.DeriveKey(cmd.Context(), db.DB, profileID, cleanupKeyPurpose)
+				db.Close()
+			}
 			missions := 0
 			// Whatever ends the delete after something was stopped says so: the conversation is kept,
 			// but the processes and missions stopped before are not coming back.
@@ -350,8 +357,10 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						return partial(err)
 					}
 				}
+				// The identity of the turns' log files is read here, outside the transaction.
+				logs := statLogs(cfg, store, profileID, args[0])
 				beforeGuardedDelete()
-				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen, cleanupKey, logs))
 				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
 					continue
 				}
@@ -520,7 +529,7 @@ var errBackgroundRecorded = errors.New("a background-process record appeared whi
 // by the caller; then it revokes the mission tokens the conversation's runs minted (owner
 // dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
 // conductor would have swept them. Both are undone with the delete if it is rolled back.
-func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool, cleanupKey []byte, logs []fileRef) func(context.Context, *sql.Conn) error {
 	return func(ctx context.Context, conn *sql.Conn) error {
 		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
 			return err
@@ -541,7 +550,7 @@ func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRe
 		}
 		// Last: list the files its turns left on disk, from the database, and keep the list as a row in
 		// the same transaction (no file is touched here). It is run after the commit.
-		return recordCleanup(ctx, conn, profileID, conversationID)
+		return recordCleanup(ctx, conn, profileID, conversationID, cleanupKey, logs)
 	}
 }
 
