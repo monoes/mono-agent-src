@@ -42,6 +42,7 @@ const (
 	opSave    seqOp = "save"    // some worker's hand-off is stored (the oldest unsaved first, else a random one: a late save)
 	opLoad    seqOp = "load"    // the next turn loads the veterans and the ids
 	opFill    seqOp = "fill"    // unrelated stored workers, so that more rows exist than a turn loads
+	opRenew   seqOp = "renew"   // the holder renews its lease: the store writes one more claim event
 )
 
 var seqTable = map[string][]seqOp{
@@ -49,6 +50,8 @@ var seqTable = map[string][]seqOp{
 	"retire, then the old worker's late save, then a new claim":                {opClaim, opRelease, opRetire, opSave, opClaim, opSave, opLoad},
 	"a delayed older worker after a later retirement":                          {opClaim, opRelease, opClaim, opRelease, opRetire, opSave, opSave, opLoad},
 	"more rows than a turn loads, the retired worker the oldest":               {opClaim, opRelease, opRetire, opSave, opFill, opLoad, opClaim, opSave, opLoad},
+	"renewals between the claims, a retirement after them":                     {opClaim, opRenew, opRenew, opRelease, opRetire, opClaim, opRenew, opRelease, opSave, opSave, opLoad},
+	"retire before any claim is refused, then the normal run":                  {opRetire, opClaim, opRelease, opRetire, opSave, opLoad},
 	"two retirements, a worker between them":                                   {opClaim, opRelease, opRetire, opClaim, opRelease, opRetire, opSave, opSave, opLoad},
 	"a worker stopped before its first hand-off, the task retired and retaken": {opClaim, opRelease, opRetire, opClaim, opLoad, opSave, opLoad},
 }
@@ -60,7 +63,7 @@ func TestRetirementIdentitySequences(t *testing.T) {
 	for seed := int64(1); seed <= 40; seed++ {
 		t.Run("seed "+strconv.FormatInt(seed, 10), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
-			all := []seqOp{opClaim, opRelease, opRetire, opSave, opSave, opLoad, opFill}
+			all := []seqOp{opClaim, opRelease, opRetire, opSave, opSave, opLoad, opFill, opRenew}
 			ops := make([]seqOp, 0, 24)
 			for i := 0; i < 24; i++ {
 				ops = append(ops, all[rng.Intn(len(all))])
@@ -198,8 +201,27 @@ func runRetirementSequence(t *testing.T, ops []seqOp) {
 				fail("release: %v", err)
 			}
 			held = false
+		case opRenew:
+			if !held {
+				continue
+			}
+			_, n, err := ts.SessionClaimNumbered(ctx, "default", se.ID, tk.ID, actor, 0)
+			if err != nil {
+				fail("renew: %v", err)
+			}
+			claims++
+			if n != claims {
+				fail("the renewal was given the number %d, the model counts %d claim events", n, claims)
+			}
 		case opRetire:
-			if held || claims == 0 {
+			if held {
+				continue
+			}
+			if claims == 0 {
+				// Nothing has taken the task yet: there is no worker to retire.
+				if _, err := ts.RetireWorker(ctx, "default", se.ID, tk.ID, "", human); err == nil {
+					fail("a task no worker took was retired")
+				}
 				continue
 			}
 			if _, err := ts.RetireWorker(ctx, "default", se.ID, tk.ID, "", human); err != nil {

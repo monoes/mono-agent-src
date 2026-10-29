@@ -158,6 +158,14 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		Bin: opts.Bin, Settings: monomind.CoderSettings, MaxTurns: settings.MaxTurns, Timeout: settings.timeout(),
 		EffortFlag: opts.EffortFlag, Env: agentSendEnv(journal, "", ""),
 	}
+	// Every stored worker id must be known before the first worker is made: a new worker that took the id of a stored
+	// one would be saved over it. A conversation whose ids cannot be read gets no conductor this turn.
+	storedIDs, err := orgStoredIDs(journal)
+	if err != nil {
+		db.Close()
+		journal.notice(noticeOrgUnavailable, "the agent works alone this turn: its earlier workers could not be listed: "+err.Error(), chatevents.SeverityWarning)
+		return nil, nil
+	}
 	mission := missionConfig(ctx, db.DB, cfg.ProfileID(), journal.conversationID, t)
 	limits.MaxAgents = missionMaxAgents(settings, mission)
 	writers := missionWriters(ctx, settings, mission, t.cwd)
@@ -181,9 +189,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		Missions: missionRun(mission, db.DB, journal.turnID),
 	})
 	cond.AddVeterans(journal.veterans())
-	if ids, err := journal.store.OrgWorkerIDs(journal.profileID, journal.conversationID); err == nil {
-		cond.ReserveWorkerIDs(ids) // every stored id, not only the latest ones a turn loads
-	}
+	cond.ReserveWorkerIDs(storedIDs) // every stored id, not only the latest ones a turn loads
 	opts.Tools = dynorg.ToolSpecs(settings.appAccess())
 	opts.OnToolCall = cond.Handle
 	opts.ToolTimeout = dynorg.ToolTimeout
@@ -207,6 +213,11 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		cond.Close()
 		db.Close()
 	}, cond.LeadEvent
+}
+
+// orgStoredIDs reads the ids of every worker stored for the conversation; tests replace it to inject a read error.
+var orgStoredIDs = func(j *turnJournal) ([]string, error) {
+	return j.store.OrgWorkerIDs(j.profileID, j.conversationID)
 }
 
 // journalAnswers hands a turn's conductor the answers `chat turn answer`
