@@ -188,7 +188,7 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 		"ask_ancestor.go:AskAncestor":      1, // Enqueue: a normal ask to an ancestor lead (ask-q- turn id, no issuer, sealed text, no authority)
 		"ask_reply.go:closeAndDeliver":     1, // Enqueue: the sealed reply to the asker (ask-r- from an ancestor lead, ask-p- from the person)
 		"missionchild.go:queueCascadeStop": 1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
-		"missionchild.go:reconcileChild":   2, // Enqueue: a pause of a paused mission's child, and the resume of one it paused (no send, no issuer)
+		"missionchild.go:reconcileChild":   1, // Enqueue: a pause of a paused mission's child (no send, no issuer); its resume goes through enqueueCascadeResume (store.go), which a person's pause stops
 		"sessionspawn.go:SpawnSession":     1, // Enqueue: a lead's first message to the session it spawned (master- turn id, issuer)
 		"treecascade.go:queueCascade":      1, // Enqueue: the host's own pause or resume of a descendant of a paused session (no send, no issuer)
 	}

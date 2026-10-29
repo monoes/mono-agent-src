@@ -385,8 +385,13 @@ func (h *Host) Tick() error {
 				if h.live[k] != nil {
 					x.State = StateRunning
 				}
-				if err := h.Store.SaveSession(x); err != nil {
+				// One statement decides and lifts: a model's resume (a master's or the cascade's) leaves a
+				// person's pause alone (pause_owner.go).
+				if lifted, err := h.Store.liftPause(c, x.State); err != nil {
 					return err
+				} else if !lifted {
+					h.end(c, CmdFailed, ErrPersonPause.Error())
+					continue
 				}
 			}
 			h.end(c, CmdDone, "")

@@ -59,6 +59,13 @@ func (h *Host) queueCascade(profile, conv string, kind Kind) {
 	if h.Store.hasPendingCascade(profile, conv, kind, treeTurn) {
 		return
 	}
+	if kind == KindResume {
+		// decided by the INSERT itself: a person's pause queued after the pass looked is not followed by a resume
+		if _, err := h.Store.enqueueCascadeResume(profile, conv, treeTurn); err != nil {
+			h.logf("coder host: queueing a %s for %s: %v", kind, conv, err)
+		}
+		return
+	}
 	if _, err := h.Store.Enqueue(Command{ProfileID: profile, ConversationID: conv, Kind: kind, TurnID: treeTurn}); err != nil {
 		h.logf("coder host: queueing a %s for %s: %v", kind, conv, err)
 	}

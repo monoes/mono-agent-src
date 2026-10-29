@@ -162,7 +162,7 @@ func TestSpawnForTaskCarveRefusedDoesNotFailInterleavedReservation(t *testing.T)
 		}
 		original := f.st.now
 		f.st.now = func() time.Time {
-			if row, _, err := f.st.Child("p", f.se.ID, f.ids[0]); err == nil && row.State == ChildMarked && row.Attempts == 0 {
+			if row, _, err := f.st.Child("p", f.se.ID, f.ids[0]); err == nil && row.State == ChildGone && row.Attempts == 1 { // the delete ended the row; the release has not run yet
 				f.st.now = original
 				if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 0.1}); err != nil {
 					t.Error(err)

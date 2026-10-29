@@ -241,16 +241,36 @@ func (s *AIStore) BindConversationSession(id, profileID, runtimeID, sessionID st
 // TestChatEvents_DeleteConversationRaceAgainstConcurrentCreateTurn, which
 // exercises both layers together.
 func (s *AIStore) DeleteConversation(id, profileID string) error {
-	return s.DeleteConversationGuarded(id, profileID, nil)
+	return s.deleteConversationInTx(id, profileID, nil)
 }
 
-// DeleteConversationGuarded is DeleteConversation with a last check made inside the write transaction,
-// after the conversation is known to exist and to have no active turn and before anything is deleted:
-// while it runs no turn can be admitted or recorded. A guard error rolls the delete back and is
-// returned as it is. It is how a caller that has to undo something outside the database first (stop
-// the processes the conversation's turns left running) learns that the record it acted on is still
-// the whole record.
+// ErrConversationGuarded is returned by DeleteConversationIfUnowned when the guard refused: nothing was deleted.
+var ErrConversationGuarded = errors.New("chat: the conversation is not the caller's to delete")
+
+// DeleteConversationIfUnowned is DeleteConversation with a guard that runs on the delete's own connection, inside
+// its BEGIN IMMEDIATE transaction and after the existence check, so what the guard saw cannot change before the
+// delete commits. The guard returns false to refuse (ErrConversationGuarded, nothing deleted); an error aborts.
+func (s *AIStore) DeleteConversationIfUnowned(id, profileID string, mayDelete func(ctx context.Context, conn *sql.Conn) (bool, error)) error {
+	return s.deleteConversationInTx(id, profileID, mayDelete)
+}
+
+// DeleteConversationGuarded is DeleteConversation with a last check made inside the write transaction
+// (a guard error rolls the delete back and is returned wrapped, so errors.Is still finds it). It runs on
+// the same helper as DeleteConversationIfUnowned: the guard runs after the existence check and BEFORE
+// the active-turn check. It is how a caller that has to undo something outside the database first
+// (stop the processes the conversation's turns left running) learns that the record it acted on is
+// still the whole record.
 func (s *AIStore) DeleteConversationGuarded(id, profileID string, guard func(ctx context.Context, conn *sql.Conn) error) error {
+	if guard == nil {
+		return s.deleteConversationInTx(id, profileID, nil)
+	}
+	return s.deleteConversationInTx(id, profileID, func(ctx context.Context, conn *sql.Conn) (bool, error) {
+		return true, guard(ctx, conn)
+	})
+}
+
+// deleteConversationInTx is the body of DeleteConversation; guard, when not nil, runs in the transaction first.
+func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx context.Context, conn *sql.Conn) (bool, error)) error {
 	if profileID == "" {
 		return ErrProfileRequired
 	}
@@ -282,6 +302,15 @@ func (s *AIStore) DeleteConversationGuarded(id, profileID string, guard func(ctx
 	if exists == 0 {
 		return ErrConversationNotFound
 	}
+	if guard != nil {
+		ok, err := guard(ctx, conn)
+		if err != nil {
+			return fmt.Errorf("delete conversation: guard: %w", err)
+		}
+		if !ok {
+			return ErrConversationGuarded
+		}
+	}
 
 	var activeCount int
 	if err := conn.QueryRowContext(ctx,
@@ -293,12 +322,6 @@ func (s *AIStore) DeleteConversationGuarded(id, profileID string, guard func(ctx
 	if activeCount > 0 {
 		return ErrTurnActive
 	}
-	if guard != nil {
-		if err := guard(ctx, conn); err != nil {
-			return err
-		}
-	}
-
 	if _, err := conn.ExecContext(ctx, `DELETE FROM ai_chat_events WHERE conversation_id = ? AND profile_id = ?`, id, profileID); err != nil {
 		return fmt.Errorf("delete events: %w", err)
 	}

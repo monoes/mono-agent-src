@@ -1401,16 +1401,7 @@
       "openReport": "Open in Tasks",
       "closeProposed": "The mission lead proposed closing it.",
       "closed": "Closed",
-      "readyToClose": "Ready to close",
-      "templates": "Mission templates",
-      "templateHint": "Looks like a mission: use a template?",
-      "template": {
-        "feature": "Feature",
-        "bugfix": "Bug fix",
-        "refactor": "Refactor",
-        "research": "Research",
-        "migration": "Migration"
-      }
+      "readyToClose": "Ready to close"
     }
   },
   "agentRow": {
