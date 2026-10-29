@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/gitsafe"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -31,10 +32,18 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 		Store: store, ProfileID: profileID, ConversationID: conversationID,
 		Actor: missionActor, Access: t.access, Confirmed: t.missionConfirmed,
 	}
-	if !m.Confirmed && m.HasOpenSession(ctx) {
+	if !m.Confirmed && (m.HasOpenSession(ctx) || missionToggleOn(db, profileID, conversationID)) {
 		m.Confirmed = true
 	}
 	return m
+}
+
+// missionToggleOn is the operator's Mission toggle for the conversation (`coder sessions
+// settings set --mission on`). A store that cannot answer leaves it off: no mission
+// starts without the operator's word.
+func missionToggleOn(db *sql.DB, profileID, conversationID string) bool {
+	s, err := coderhost.NewStore(db).GetSettings(profileID, conversationID)
+	return err == nil && s.Mission
 }
 
 // missionRun connects the conductor's mission tools (mission_next, mission_assign,

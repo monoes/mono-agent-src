@@ -1,11 +1,15 @@
 package chat
 
 import (
+	"context"
+	"slices"
+
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `coder sessions settings`: the per-session knobs shown in the coder pane
@@ -21,6 +25,7 @@ type sessionSettingsView struct {
 	OperatorOnly   []string            `json:"operatorOnly"`
 	Allowed        map[string][]string `json:"allowed"`
 	Changed        []string            `json:"changed,omitempty"`
+	Mission        missionToggleView   `json:"mission"`
 	// Checkin is set for a master: how many check-in turns ran in a row with no message
 	// from a person between them, against its limit. Waiting says the scheduler would check
 	// in (it is unattended and has children) but has reached the limit, so it waits until
@@ -79,6 +84,7 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 			"checkin_triggers": coderhost.CheckinEvents, "mesh_accept": coderhost.MeshAccepts,
 		},
 	}
+	v.Mission = missionToggleOf(context.Background(), tasks.NewStore(db.DB), profileID, conv, settings.Mission)
 	if x, ok, err := cs.GetSession(profileID, conv.ID); err != nil {
 		return v, err
 	} else if ok {
@@ -127,7 +133,7 @@ func newCoderSessionsSettingsGetCmd(cfg *Deps) *cobra.Command {
 }
 
 func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
-	var patch, unattended, role, parent string
+	var patch, unattended, role, parent, mission string
 	var budget float64
 	cmd := &cobra.Command{
 		Use:   "set CONVERSATION",
@@ -139,13 +145,16 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if sessionTokenFromEnv() != "" { // a master's turn: agent-adjustable settings of its descendants only
-				return masterSet(cfg, cmd, args[0], patch, unattended != "" || role != "" || parent != "" || cmd.Flags().Changed("budget-usd"))
+				return masterSet(cfg, cmd, args[0], patch, unattended != "" || role != "" || parent != "" || mission != "" || cmd.Flags().Changed("budget-usd"))
 			}
 			if err := clicore.RequireOperator(cfg.RequireOperator, "change a coder session's settings"); err != nil {
 				return err
 			}
-			if patch == "" && unattended == "" && role == "" && !cmd.Flags().Changed("budget-usd") {
-				return clicore.InvalidInput("nothing to change: give --patch, --unattended, --role and/or --budget-usd")
+			if patch == "" && unattended == "" && role == "" && mission == "" && !cmd.Flags().Changed("budget-usd") {
+				return clicore.InvalidInput("nothing to change: give --patch, --unattended, --role, --mission and/or --budget-usd")
+			}
+			if mission != "" && mission != "on" && mission != "off" {
+				return clicore.InvalidInput("--mission is on or off")
 			}
 			if parent != "" && role != "child" {
 				return clicore.InvalidInput("--parent goes with --role child")
@@ -163,16 +172,28 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 			}
 			cs := coderhost.NewStore(db.DB)
 			var changed []string
-			if patch != "" {
+			if patch != "" || mission != "" {
 				cur, err := cs.GetSettings(profileID, args[0])
 				if err != nil {
 					db.Close()
 					return err
 				}
-				next, keys, err := cur.Apply([]byte(patch))
-				if err != nil {
-					db.Close()
-					return clicore.InvalidInput("%v", err)
+				next, keys := cur, []string(nil)
+				if patch != "" {
+					if next, keys, err = cur.Apply([]byte(patch)); err != nil {
+						db.Close()
+						return clicore.InvalidInput("%v", err)
+					}
+				}
+				if mission != "" {
+					next.Mission = mission == "on"
+					keys = append(keys, "mission")
+				}
+				if slices.Contains(keys, "mission") {
+					if err := applyMissionToggle(cfg, profileID, cur, next, args[0]); err != nil {
+						db.Close()
+						return err
+					}
 				}
 				if err := cs.SaveSettings(profileID, args[0], next); err != nil {
 					db.Close()
@@ -217,6 +238,7 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&patch, "patch", "", "JSON object with the settings to change")
 	cmd.Flags().StringVar(&unattended, "unattended", "", "true or false: false turns off the host's own scheduled check-ins for the session")
+	cmd.Flags().StringVar(&mission, "mission", "", "on or off: the chat's Mission toggle (the operator's; needs coding access or more; stays on while the chat has an open mission session)")
 	cmd.Flags().StringVar(&role, "role", "", "solo, master or child (a child needs --parent: a master with room for it)")
 	cmd.Flags().Float64Var(&budget, "budget-usd", 0, "The session's spend cap in USD that its children are carved from (0 = none; not below what its children hold)")
 	cmd.Flags().StringVar(&parent, "parent", "", "the master conversation, with --role child")
