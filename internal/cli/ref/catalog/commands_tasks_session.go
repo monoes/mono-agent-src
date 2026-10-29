@@ -10,7 +10,7 @@ var taskSessionCommandDocs = []cmdDoc{
 		Flags: `  new      Start a session, as a draft (an agent may; the budget, limits and access level are the operator's)
   list     The profile's sessions
   show     One session: state, limits, progress, goal and history
-  rename   Change a session's title (the operator: any; an agent: one it started)
+  rename   Change a session's title (the operator: any; an agent: a draft it started from its own chat)
   tree     The sessions nested below their parents, with state, progress and spend
   plan     Its tasks with their dependencies and acceptance criteria
   approve  Open it: the draft's tasks become Ready (the operator only)
@@ -57,7 +57,7 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session rename",
-		Short:    "Change a session's title, nothing else (the operator renames any session; an agent only one it started)",
+		Short:    "Change a session's title, nothing else (the operator renames any session; an agent only a draft it started from its own chat)",
 		Usage:    "monoagentcli [--profile P] task session rename ID TITLE... [--as NAME]",
 		Examples: []string{`monoagentcli --profile work task session rename 3 "Logger migration"`},
 	},
