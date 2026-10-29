@@ -91,7 +91,7 @@ describe('disguisedHost bypasses', () => {
   })
   it('sees lookalike letters, shown in punycode', () => {
     expect(disguisedHost('bаnk.com', evil)).toMatch(/^xn--/)
-    expect(disguisedHost('bаnk', evil)).toBe('bаnk')
+    expect(disguisedHost('bаnk', evil)).toMatch(/^xn--/)
   })
   it('leaves honest text alone', () => {
     expect(disguisedHost('the report', evil)).toBe('')
