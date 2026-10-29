@@ -161,6 +161,7 @@ var sessionOperatorCommands = [][]string{
 	{"session", "resume", "1"},
 	{"session", "archive", "1"},
 	{"session", "close", "1"},
+	{"session", "retire-worker", "1", "1"},
 	{"session", "budget", "1", "--usd", "5"},
 	{"session", "budget", "1", "--auto-close", "on"},
 	{"session", "budget", "1", "--max-tasks", "999"},

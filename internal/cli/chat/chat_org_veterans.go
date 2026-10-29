@@ -18,6 +18,7 @@ func (j *turnJournal) rememberWorker(v dynorg.Veteran) {
 		AgentID: v.ID, ParentID: v.ParentID, TurnID: j.turnID, Role: v.Role, AgentType: v.AgentType, Category: v.Category,
 		Access: v.Access, Skills: v.Skills, Runtime: v.Runtime, Model: v.Model, Effort: v.Effort, SessionID: v.Session,
 		Cwd: v.Cwd, Report: v.Report, Outcome: v.Outcome, AllowSpawn: v.AllowSpawn,
+		MissionSession: v.MissionSession, MissionTask: v.MissionTask,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: keeping worker %s for later turns: %v\n", v.ID, err)
@@ -33,6 +34,9 @@ func (j *turnJournal) veterans() []dynorg.Veteran {
 	}
 	out := make([]dynorg.Veteran, 0, len(ws))
 	for _, w := range ws {
+		if w.Outcome == ai.OrgWorkerRetired {
+			continue // the operator retired it: the lead does not get it back (tasks.RetireWorker)
+		}
 		out = append(out, dynorg.Veteran{
 			ID: w.AgentID, ParentID: w.ParentID, Role: w.Role, AgentType: w.AgentType, Category: w.Category,
 			Access: w.Access, Skills: w.Skills, Runtime: w.Runtime, Model: w.Model, Effort: w.Effort, Session: w.SessionID,

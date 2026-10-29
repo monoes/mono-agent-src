@@ -1718,7 +1718,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session close`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session retire-worker`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -1873,6 +1873,21 @@ Worker and verifier briefs fence foreign text in a per-brief random delimiter
 in all, whichever route starts them. A mission closes only if the integration check's
 verdict is newer than every other task's last hand-back, verdict or merge; a plan's
 integration check depends on every non-check task, and tasks added later make it wait.
+
+**Retiring a mission worker (`task session retire-worker SESSION TASK [--note TEXT]`, operator only).** The lead's
+`org_clear_worker` and `org_compact_worker` refuse a worker bound to a mission task, because its context is part of the
+task's evidence. The operator can end such a worker once it is idle: the lead can then no longer message it, its stored
+session is dropped (a later turn does not load it), and its report and the task's comments, artifacts, commit references
+and result are untouched. The verb checks the operator before it reads its arguments (an agent, a token or a binding
+process gets exit 3, `operator_only`; no MCP tool exposes it). In ONE transaction it judges the worker idle (the task is
+not claimed and no mission token of that session and task is live: a running worker holds the claim and a live token, so
+it is refused with `not_ready`), writes a `worker_retired` event to the session's history (actor, task and note), and
+ends the stored worker rows linked to the task (`ai_chat_org_workers.mission_session` / `mission_task`, migration 147;
+rows from before it have no link and are not reached). A second retire changes nothing and says so. A conductor that is
+live learns from the store, not from the CLI process: before it resumes a mission worker it asks, and each look at the
+session (`missionTick`) retires the idle workers the operator retired, dropping what they kept to be resumed from; a
+worker that is running is never touched. A task running as a child coder session (#1130, off by default) is stopped with
+`coder sessions stop` and is not touched by this verb.
 
 **Missions in the host (unattended).** Since the coder host (below) every coder turn, a mission's
 included, is a host turn, so a mission no longer ends with the app: the lead's conductor, its workers and

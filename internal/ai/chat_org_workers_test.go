@@ -82,3 +82,37 @@ func TestOrgWorkersRoundTrip(t *testing.T) {
 		t.Errorf("%d workers outlived their conversation", len(left))
 	}
 }
+
+// A mission worker's row remembers the task it worked, and a retired row stays retired: a later
+// save of the same worker (a late hand-off of an old run) cannot give it its session back.
+func TestOrgWorkerKeepsItsMissionLinkAndStaysRetired(t *testing.T) {
+	db := openTestDB(t)
+	s, err := NewAIStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := s.CreateConversationMode("default", "agent", "general", "claude", "", "", ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := OrgWorker{AgentID: "w1", TurnID: "t1", Runtime: "claude", SessionID: "sess-1", Report: "the report", Outcome: "done", MissionSession: 7, MissionTask: 42}
+	if err := s.SaveOrgWorker("default", conv.ID, w); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListOrgWorkers("default", conv.ID, 0)
+	if err != nil || len(got) != 1 || got[0].MissionSession != 7 || got[0].MissionTask != 42 {
+		t.Fatalf("the link is not stored: %+v %v", got, err)
+	}
+	// The retirement is a direct update (tasks.RetireWorker); the report stays.
+	if _, err := db.Exec(`UPDATE ai_chat_org_workers SET session_id = '', outcome = ? WHERE conversation_id = ? AND agent_id = 'w1'`, OrgWorkerRetired, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.TurnID, w.SessionID, w.Outcome = "t2", "sess-2", "done"
+	if err := s.SaveOrgWorker("default", conv.ID, w); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.ListOrgWorkers("default", conv.ID, 0)
+	if len(got) != 1 || got[0].Outcome != OrgWorkerRetired || got[0].SessionID != "" || got[0].Report != "the report" {
+		t.Fatalf("a retired worker was revived: %+v", got)
+	}
+}

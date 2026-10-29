@@ -174,6 +174,8 @@ type worker struct {
 	merged                    bool // org_merge brought its branch into the chat folder
 	// task is the mission task it works, if any (mission_exec.go).
 	task *missionBind
+	// retired: the operator retired this mission worker (mission_retire.go); it takes no follow-up.
+	retired bool
 }
 
 // MaxFollowups caps org_message runs per worker, so follow-ups can't stand
@@ -447,6 +449,9 @@ func (c *Conductor) message(ctx context.Context, from *worker, id, text string) 
 	if strings.TrimSpace(text) == "" {
 		return WorkerInfo{}, fmt.Errorf("text is required")
 	}
+	if err := c.retiredRefusal(ctx, id); err != nil {
+		return WorkerInfo{}, err
+	}
 	c.mu.Lock()
 	var w *worker
 	for {
@@ -499,6 +504,9 @@ func (c *Conductor) followupCheckLocked(from *worker, id string) (*worker, error
 	}
 	if err := c.veteranBlockedLocked(w); err != nil {
 		return nil, err
+	}
+	if w.retired {
+		return nil, retiredError(id)
 	}
 	if running(w.status) {
 		return nil, fmt.Errorf("%s is still working; org_wait for it first", id)

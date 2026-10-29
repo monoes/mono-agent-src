@@ -38,6 +38,9 @@ type Veteran struct {
 	Report     string
 	Outcome    string
 	AllowSpawn bool
+	// MissionSession and MissionTask are the mission task an executor worked (0: none, and always 0
+	// for a verifier), so the operator can retire its stored row (tasks.RetireWorker).
+	MissionSession, MissionTask int64
 }
 
 // remember hands w to Config.Remember once a run of it ended: only a
@@ -55,6 +58,9 @@ func (c *Conductor) keep(w *worker, force bool) {
 		ID: w.id, ParentID: parentID(w), Role: w.staff.Role, AgentType: w.staff.AgentType, Category: w.staff.Category,
 		Access: w.staff.Access, Runtime: w.model.Runtime, Model: w.model.Model, Effort: w.staff.Effort,
 		Session: w.session, Cwd: w.cwd, Report: w.report, Outcome: w.status, AllowSpawn: w.allowSpawn,
+	}
+	if w.task != nil && !w.task.verifier {
+		v.MissionSession, v.MissionTask = w.task.session, w.task.task.ID
 	}
 	for _, s := range w.staff.Skills {
 		v.Skills = append(v.Skills, s.Name)
