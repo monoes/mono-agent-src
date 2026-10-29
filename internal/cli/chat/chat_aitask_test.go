@@ -69,13 +69,20 @@ func (r *taskRig) taskOfKind(t *testing.T, profile, status, kind string) (aitask
 	}
 	st, done := r.store(t, profile)
 	defer done()
-	task, err := st.Insert(aitask.Task{ID: aitask.NewID(), Kind: kind, ConversationID: r.convID, Status: status, Goal: "g", BudgetUSD: 5})
+	// A task that is over takes no token: give it one while it is live, then end it.
+	task, err := st.Insert(aitask.Task{ID: aitask.NewID(), Kind: kind, ConversationID: r.convID, Status: aitask.StatusNeedsUser, Goal: "g", BudgetUSD: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
 	old := aitask.NewToken()
 	if err := st.SetToken(task.ID, old); err != nil {
 		t.Fatal(err)
+	}
+	if status != aitask.StatusNeedsUser {
+		if _, err := st.DB.Exec(`UPDATE ai_tasks SET status = ? WHERE id = ?`, status, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		task.Status = status
 	}
 	return task, old
 }
@@ -184,8 +191,9 @@ func TestFollowUpGetsNothingForTerminalQueuedOrOtherProfileTasks(t *testing.T) {
 			t.Errorf("%s: the turn got the task env %q %q", name, id, token)
 		}
 		st, done := r.store(t, tc.profile)
-		if !st.CheckToken(task.ID, old) {
-			t.Errorf("%s: the token was replaced", name)
+		// A cancelled task's token stops working with the task; every other keeps the one it had.
+		if st.CheckToken(task.ID, old) != (tc.status != aitask.StatusCancelled) {
+			t.Errorf("%s: the token was replaced (or kept past the task)", name)
 		}
 		if got, _ := st.Get(task.ID); got.Status != tc.status {
 			t.Errorf("%s: status %s -> %s", name, tc.status, got.Status)
