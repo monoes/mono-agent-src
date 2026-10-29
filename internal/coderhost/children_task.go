@@ -169,16 +169,16 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 }
 
 // keepLostIdentity is the release's guard for a row whose conversation is known to it (child id, else pending
-// id) but has no coder session, no spend snapshot, no charge and no unresolved record: its conversation was
-// deleted without the snapshot (the bypass window). Releasing would clear the pending id and with it the only
-// way to find the cost, so the unresolved record, holding what lostHoldSQL holds, is written in this
-// transaction and the caller keeps the row's identity. It says whether it did.
+// id) but has no coder session, no spend snapshot and no charge: its conversation was deleted without the
+// snapshot (the bypass window). Releasing would clear the pending id and with it the only way to find the cost,
+// so the unresolved record is written once in this transaction (a host that wrote it first leaves it as it is)
+// and the caller keeps the row's identity, linked and failed, never marked again while the record stands. It
+// says whether it did.
 func (s *Store) keepLostIdentity(tx *sql.Tx, profileID string, sessionID, taskID, generation int64, lead, now string) (bool, error) {
 	var child, pending string
-	var wish float64
-	err := tx.QueryRow(`SELECT child_conversation_id, pending_conversation_id, budget_usd FROM coder_mission_children
+	err := tx.QueryRow(`SELECT child_conversation_id, pending_conversation_id FROM coder_mission_children
 		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND (state = 'spawning' OR (state = 'gone' AND end_reason = 'deleted')) AND generation = ?`,
-		profileID, sessionID, taskID, lead, generation).Scan(&child, &pending, &wish)
+		profileID, sessionID, taskID, lead, generation).Scan(&child, &pending)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -194,16 +194,17 @@ func (s *Store) keepLostIdentity(tx *sql.Tx, profileID string, sessionID, taskID
 	}
 	var known int
 	if err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?)
-		+ (SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind IN ('charge', 'spend', '`+unresolvedKind+`') AND substr(note, 1, ?) = ?)`,
+		+ (SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind IN ('charge', 'spend') AND substr(note, 1, ?) = ?)`,
 		profileID, conv, profileID, sessionID, len(conv)+1, conv+" ").Scan(&known); err != nil {
 		return false, err
 	}
 	if known > 0 {
 		return false, nil
 	}
-	hold, err := s.lostHoldIn(tx, profileID, sessionID, wish)
+	hold, err := s.unresolvedHold(tx, profileID, sessionID)
 	if err != nil {
 		return false, err
 	}
-	return true, addMissionEvent(tx, profileID, sessionID, taskID, unresolvedKind, "host", unresolvedNote(conv, hold, "the child's conversation is gone and its spend was not recorded"), now)
+	_, err = insertUnresolvedOnce(tx, profileID, sessionID, taskID, conv, unresolvedNote(conv, hold, "the child's conversation is gone and its spend was not recorded"), now)
+	return err == nil, err
 }

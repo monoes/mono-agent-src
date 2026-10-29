@@ -72,6 +72,9 @@ func TestADeletedChildIsStillChargedWhatItSpent(t *testing.T) {
 
 func TestADeletedChildWhoseSpendWasNotRecordedIsNotChargedZeroOrGuessed(t *testing.T) {
 	f := newHostFix(t)
+	if _, err := f.st.db.Exec(`UPDATE task_sessions SET budget_usd = 10 WHERE id = ?`, f.se.ID); err != nil {
+		t.Fatal(err)
+	}
 	conv := f.endedChild(t, 0, 1.25) // wish 4
 	f.deleteChild(t, conv, false)
 	f.h.missionChildPass()
@@ -82,8 +85,8 @@ func TestADeletedChildWhoseSpendWasNotRecordedIsNotChargedZeroOrGuessed(t *testi
 	if ev := f.eventsOfKind(t, "charge"); len(ev) != 0 {
 		t.Fatalf("charge rows = %v: an unknown cost was settled", ev)
 	}
-	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 || !strings.HasPrefix(ev[0], conv+" $4.000000 unresolved") {
-		t.Fatalf("unresolved rows = %v: the row's budget (4) is the hold", ev)
+	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 || !strings.HasPrefix(ev[0], conv+" $10.000000 unresolved") {
+		t.Fatalf("unresolved rows = %v: the whole remainder (10) is the hold, not the row's budget", ev)
 	}
 }
 

@@ -24,6 +24,8 @@ type walkCase struct {
 	release     bool   // the cleanup's release marks the row again after the delete, clearing the link
 	failedRel   bool   // the release is the failed-spawn one (the attempt ends as failed), not the refused one
 	spawning    bool   // an older binary's delete leaves a pending-only row spawning (it does not mark it gone)
+	hostFirst   bool   // the host's pass runs between the delete and the release (round 3c P2-3)
+	policyUp    bool   // the share and the default budget are raised between the delete and the host pass (round 3c P1-2)
 	unresolved  bool   // expected: nobody can know the cost
 	recoverable bool   // expected: the meter ends at the real cost
 }
@@ -42,6 +44,10 @@ var walkCases = []walkCase{
 	{name: "pending only, bypass delete, row left spawning, refused-carve release (round 3b P1-2)", pendingOnly: true, cost: "lost", spawning: true, release: true, unresolved: true},
 	{name: "pending only, bypass delete, row marked gone, failed-spawn release (round 3b P1-2)", pendingOnly: true, cost: "lost", release: true, failedRel: true, unresolved: true},
 	{name: "pending only, bypass delete, row marked gone, refused-carve release (round 3b P1-2)", pendingOnly: true, cost: "lost", release: true, unresolved: true},
+	{name: "pending only, row left spawning, host first, then refused-carve release (round 3c P2-3)", pendingOnly: true, cost: "lost", spawning: true, hostFirst: true, release: true, unresolved: true},
+	{name: "pending only, row marked gone, host first, then refused-carve release (round 3c P2-3)", pendingOnly: true, cost: "lost", hostFirst: true, release: true, unresolved: true},
+	{name: "child id, bypass delete, policy raised before the host pass (round 3c P1-2)", cost: "lost", policyUp: true, unresolved: true},
+	{name: "pending only, row left spawning, policy raised before the host pass (round 3c P1-1/2)", pendingOnly: true, cost: "lost", spawning: true, policyUp: true, unresolved: true},
 }
 
 const walkCost = 1.25
@@ -79,6 +85,12 @@ func (f *hostFix) buildWalk(t *testing.T, c walkCase) string {
 		if _, err := f.st.db.Exec(`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted' WHERE task_id = ?`, f.ids[0]); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if c.policyUp {
+		f.setPolicy(t, f.scope(), PolicyPatch{SharePct: ip(80), DefaultBudgetUSD: fp(8)})
+	}
+	if c.hostFirst {
+		f.passes(2)
 	}
 	if c.release {
 		if err := f.st.releaseReservation("p", f.se.ID, f.ids[0], 7, f.lead.ConversationID, c.failedRel, "undo"); err != nil {
@@ -132,6 +144,9 @@ func TestTheStatesAChildsCostCanBeInHoldTheInvariants(t *testing.T) {
 				f.reserveSecondTaskIsRefused(t)
 			}
 			early := f.held(t)
+			if c.cost == "lost" && early != 10 { // round 3c: one lost child holds the whole remainder, once (no reservation added on top)
+				t.Fatalf("held = %v, want the mission's whole remainder 10", early)
+			}
 			if c.cost == "lost" && c.release {
 				// round 3b P1-2: the release never clears the identity of a row whose cost nothing records
 				if r := f.row(t, 0); r.ident() != conv || r.State != ChildFailed || len(f.eventsOfKind(t, "unresolved")) != 1 {
@@ -334,38 +349,135 @@ func (f *hostFix) held(t *testing.T) float64 {
 	return held
 }
 
-// Round 3b P1-1: a child with a lost cost (a bypass delete) holds max(its wish, the default share) from the first
-// moment, so a second reservation that fits the early hold is still inside the budget once the host has written
-// the unresolved record, and one that does not fit it is refused.
-func TestALostCostHoldDoesNotGrowAfterCapacityWasReservedAgainstIt(t *testing.T) {
+// Round 3c: a lost child holds the WHOLE remainder of its mission, from the first moment and whatever the policy
+// says later, so a small reservation is refused beside it and the hold never moves.
+func TestALostChildHoldsTheWholeRemainderWhateverThePolicySaysLater(t *testing.T) {
+	f := newHostFix(t)
+	if _, err := f.st.db.Exec(`UPDATE task_sessions SET budget_usd = 10 WHERE id = ?`, f.se.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.setPolicy(t, f.scope(), PolicyPatch{DefaultBudgetUSD: fp(1)})
+	conv := f.endedChild(t, 0, walkCost) // its row's wish is $4
+	f.deleteChild(t, conv, false)
+	early := f.held(t)
+	if early != 10 {
+		t.Fatalf("early hold = %v, want the whole remainder 10 (not the wish 4 or the default share 1)", early)
+	}
+	f.reserveSecondTaskIsRefusedAt(t, 1)
+	// a lead raises the share and the default before the host's pass (round 3c P1-2): nothing grows, nothing passes
+	f.setPolicy(t, f.scope(), PolicyPatch{SharePct: ip(80), DefaultBudgetUSD: fp(8)})
+	f.reserveSecondTaskIsRefusedAt(t, 1)
+	f.passes(3)
+	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 {
+		t.Fatalf("unresolved rows = %v, want one", ev)
+	}
+	if got := f.held(t); got != early {
+		t.Fatalf("held went from %v to %v across the policy change and the pass", early, got)
+	}
+	f.reserveSecondTaskIsRefusedAt(t, 1)
+}
+
+// Two lost children hold the remainder once, not twice (max, not sum), and a spawning reservation beside them adds nothing.
+func TestTwoLostChildrenHoldTheRemainderOnce(t *testing.T) {
+	f := newHostFix(t)
+	if _, err := f.st.db.Exec(`UPDATE task_sessions SET budget_usd = 10 WHERE id = ?`, f.se.ID); err != nil {
+		t.Fatal(err)
+	}
+	a := f.endedChild(t, 0, walkCost)
+	b := f.endedChild(t, 1, walkCost)
+	f.deleteChild(t, a, false)
+	f.deleteChild(t, b, false)
+	f.passes(3)
+	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 2 {
+		t.Fatalf("unresolved rows = %v, want one per child", ev)
+	}
+	if got := f.held(t); got != 10 {
+		t.Fatalf("held = %v, want 10 (the remainder once)", got)
+	}
+}
+
+// Round 3c P1-1: a pending-only row an older binary's delete left `spawning` holds the whole remainder at once; the
+// release that follows (refused carve) adds no second hold, and the total never exceeds the mission's budget.
+func TestALostChildLeftSpawningHoldsTheRemainderNotItsReservation(t *testing.T) {
 	f := newHostFix(t)
 	if _, err := f.st.db.Exec(`UPDATE task_sessions SET budget_usd = 10 WHERE id = ?`, f.se.ID); err != nil {
 		t.Fatal(err)
 	}
 	f.setPolicy(t, f.scope(), PolicyPatch{DefaultBudgetUSD: fp(8)})
-	conv := f.endedChild(t, 0, walkCost) // its row's wish is $4
-	f.deleteChild(t, conv, false)
-	early := f.held(t)
-	if early != 8 {
-		t.Fatalf("early hold = %v, want the default share 8, not the wish 4", early)
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 4}); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[1], MarkOptions{BudgetUSD: 6}); err != nil {
+	row, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.db.Exec(`UPDATE coder_mission_children SET pending_conversation_id = 'vanished-conv' WHERE task_id = ?`, f.ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.held(t); got != 10 {
+		t.Fatalf("held with a lost spawning row = %v, want 10 (the $4 reservation is subsumed)", got)
+	}
+	f.reserveSecondTaskIsRefusedAt(t, 6)
+	if err := f.st.releaseReservation("p", f.se.ID, f.ids[0], row.Generation, f.lead.ConversationID, false, "undo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.held(t); got != 10 {
+		t.Fatalf("held after the release = %v, want 10", got)
+	}
+	f.reserveSecondTaskIsRefusedAt(t, 6)
+}
+
+// Round 3c P2-3 and P2-4: the host's record and the release's record are one record, and the release never clears
+// the identity of a row the host already wrote it for.
+func TestHostFirstThenReleaseKeepsTheRowLinkedWithOneRecord(t *testing.T) {
+	for _, spawning := range []bool{false, true} {
+		t.Run(fmt.Sprintf("spawning=%v", spawning), func(t *testing.T) {
+			f := newHostFix(t)
+			c := walkCase{pendingOnly: true, cost: "lost", spawning: spawning}
+			conv := f.buildWalk(t, c)
+			f.passes(2) // the host writes the unresolved record first
+			if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 {
+				t.Fatalf("after the host: unresolved = %v", ev)
+			}
+			if err := f.st.releaseReservation("p", f.se.ID, f.ids[0], 7, f.lead.ConversationID, false, "undo"); err != nil {
+				t.Fatal(err)
+			}
+			if r := f.row(t, 0); r.ident() != conv || r.State == ChildMarked {
+				t.Fatalf("after the release: row = %+v, want it linked to %s and not marked", r, conv)
+			}
+			if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 {
+				t.Fatalf("after the release: unresolved = %v, want still one", ev)
+			}
+			if err := f.markable(t); !errors.Is(err, ErrChildUnsettled) {
+				t.Fatalf("mark before the resolution = %v, want ErrChildUnsettled", err)
+			}
+		})
+	}
+}
+
+// The once-only write: whoever writes second adds nothing.
+func TestTheUnresolvedRecordIsWrittenOnce(t *testing.T) {
+	f := newHostFix(t)
+	for i := 0; i < 3; i++ {
+		if _, err := insertUnresolvedOnce(f.st.db, "p", f.se.ID, f.ids[0], "conv-x", "conv-x $1 unresolved: test", "t"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.st.markUnresolved("p", chargeTarget{session: f.se.ID, task: f.ids[0]}, "conv-x", "again"); err != nil {
+		t.Fatal(err)
+	}
+	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 {
+		t.Fatalf("unresolved rows = %v, want one", ev)
+	}
+}
+
+// reserveSecondTaskIsRefusedAt marks task 1 with a budget of usd and shows that Reserve refuses it.
+func (f *hostFix) reserveSecondTaskIsRefusedAt(t *testing.T, usd float64) {
+	t.Helper()
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[1], MarkOptions{BudgetUSD: usd}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[1]); !errors.Is(err, ErrChildrenFull) {
-		t.Fatalf("a $6 reservation beside an $8 hold on a $10 mission = %v, want ErrChildrenFull", err)
-	}
-	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[1], MarkOptions{BudgetUSD: 2}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[1]); err != nil {
-		t.Fatalf("a $2 reservation beside the $8 hold: %v", err)
-	}
-	f.passes(3)
-	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 || !strings.Contains(ev[0], " $8.000000 ") {
-		t.Fatalf("unresolved rows = %v, want one holding $8", ev)
-	}
-	if got := f.held(t); got != early+2 { // the $8 hold plus the second child's $2 reservation
-		t.Fatalf("held after the pass = %v, want %v: the hold grew", got, early+2)
+		t.Fatalf("Reserve of $%v beside a lost child = %v, want ErrChildrenFull", usd, err)
 	}
 }

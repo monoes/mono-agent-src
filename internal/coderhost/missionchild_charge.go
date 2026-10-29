@@ -46,8 +46,8 @@ import (
 // chargeKind is the audit row that says a child's spend was added to its mission.
 const chargeKind = "charge"
 
-// unresolvedKind is the audit row of a child whose cost nobody knows. Its note is "<conversation> $<held> ...": the
-// amount missionBudgetRefusal keeps held against the mission's budget until a charge row for the conversation exists.
+// unresolvedKind is the audit row of a child whose cost nobody knows. Its note is "<conversation> $<left> ...": while
+// it has no charge row, missionBudgetRefusal holds the whole remainder of the mission's budget (lostChildSQL).
 const unresolvedKind = "unresolved"
 
 // chargeBatch bounds the rows one pass of the sweep settles: a backlog is worked off over several passes.
@@ -217,16 +217,12 @@ func (c ctxExec) Exec(q string, a ...any) (sql.Result, error) { return c.x.ExecC
 
 // markUnresolved records, once, that nobody knows what the child cost, and how much of the mission's budget stays held until the person resolves it.
 func (s *Store) markUnresolved(profileID string, t chargeTarget, conv, why string) error {
-	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind = ? AND substr(note, 1, ?) = ?`,
-		profileID, t.session, unresolvedKind, len(conv)+1, conv+" ").Scan(&n); err != nil || n > 0 {
-		return err
-	}
-	hold, err := s.unresolvedHold(profileID, t)
+	hold, err := s.unresolvedHold(s.db, profileID, t.session)
 	if err != nil {
 		return err
 	}
-	return addMissionEvent(s.db, profileID, t.session, t.task, unresolvedKind, "host", unresolvedNote(conv, hold, why), s.stamp())
+	_, err = insertUnresolvedOnce(s.db, profileID, t.session, t.task, conv, unresolvedNote(conv, hold, why), s.stamp())
+	return err
 }
 
 // unresolvedNote is the note of an unresolved record: "<conversation> $<held> ...".
