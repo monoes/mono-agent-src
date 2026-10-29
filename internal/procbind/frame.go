@@ -79,8 +79,11 @@ func readFrame(r io.Reader, v any) error {
 	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("%w: %v", errFrame, err)
 	}
-	if dec.More() {
-		return fmt.Errorf("%w: trailing data", errFrame)
+	// Only the exact bytes the writer produces are accepted: this refuses trailing data (including
+	// a stray closing brace), duplicate keys, keys in another case, other orderings and spacing,
+	// and a null body, none of which the decoder rejects by itself.
+	if canon, err := json.Marshal(v); err != nil || !bytes.Equal(canon, body) {
+		return fmt.Errorf("%w: not in canonical form", errFrame)
 	}
 	return nil
 }

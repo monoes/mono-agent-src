@@ -13,8 +13,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -218,8 +220,8 @@ func TestClientRefusesAServiceThatCannotProveItself(t *testing.T) {
 	path, _ := startServer(t, register(t, self), nil)
 	wrongKey := goodClient()
 	wrongKey.Key = bytes.Repeat([]byte{8}, 32)
-	if v, err := verifyOnce(t, path, wrongKey); !errors.Is(err, ErrNotAnswered) || v != VerdictDeny {
-		t.Errorf("a different key: %v %v", v, err)
+	if v, err := verifyOnce(t, path, wrongKey); !errors.Is(err, ErrNotAnswered) || !errors.Is(err, ErrAnswer) || v != VerdictDeny {
+		t.Errorf("a different key must fail on the MAC: %v %v", v, err)
 	}
 	wrongGen := goodClient()
 	wrongGen.Generation = "gen-other"
@@ -260,8 +262,8 @@ func TestClientRefusesAReplayedAnswer(t *testing.T) {
 		_ = readFrame(c, &req)
 		_ = writeFrame(c, wireReply{V: protoVersion, Verdict: "allow", MAC: mac})
 	}()
-	if v, err := verifyOnce(t, path, goodClient()); !errors.Is(err, ErrNotAnswered) || v != VerdictDeny {
-		t.Errorf("a replayed allow was accepted: %v %v", v, err)
+	if v, err := verifyOnce(t, path, goodClient()); !errors.Is(err, ErrNotAnswered) || !errors.Is(err, ErrAnswer) || v != VerdictDeny {
+		t.Errorf("a replayed allow must be refused on its MAC: %v %v", v, err)
 	}
 }
 
@@ -302,11 +304,24 @@ func goodRequest(h wireHello) wireRequest {
 	return wireRequest{V: protoVersion, TokenID: tToken, Profile: tProfile, Scope: tScope, NV: hex.EncodeToString(bytes.Repeat([]byte{9}, NonceLen)), NS: h.NS}
 }
 
+// expectClosedWithoutAnswer wants the service to end the connection (EOF) promptly, not answer
+// and not stall until a deadline.
 func expectClosedWithoutAnswer(t *testing.T, c *net.UnixConn, what string) {
 	t.Helper()
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	start := time.Now()
 	var rep wireReply
-	if err := readFrame(c, &rep); err == nil {
+	err := readFrame(c, &rep)
+	if err == nil {
 		t.Errorf("%s: the service answered: %+v", what, rep)
+		return
+	}
+	// a close with unread request bytes left is reported by the kernel as a reset
+	if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, syscall.ECONNRESET) {
+		t.Errorf("%s: the connection was not closed by the service: %v", what, err)
+	}
+	if time.Since(start) > 1500*time.Millisecond {
+		t.Errorf("%s: the service took %v to close", what, time.Since(start))
 	}
 }
 
@@ -320,6 +335,7 @@ func TestServiceRefusesBadRequestsWithoutAnswering(t *testing.T) {
 		"no token":             func(r *wireRequest) { r.TokenID = "" },
 		"short verifier nonce": func(r *wireRequest) { r.NV = "abcd" },
 		"non-hex nonce":        func(r *wireRequest) { r.NV = strings.Repeat("zz", NonceLen) },
+		"empty request":        func(r *wireRequest) { *r = wireRequest{} },
 	}
 	for name, m := range mutate {
 		c, h := rawHello(t, path)
@@ -414,6 +430,147 @@ func TestServiceTimesOutASilentClient(t *testing.T) {
 	}
 }
 
+// The request must follow the hello promptly even when the connection itself may live longer.
+func TestServiceDropsAVerifierThatDoesNotSendItsRequest(t *testing.T) {
+	self := open(t, os.Getpid())
+	path, _ := startServer(t, register(t, self), func(s *Server) { s.Timeout = 3 * time.Second; s.RequestTimeout = 200 * time.Millisecond })
+	c, _ := rawHello(t, path)
+	expectClosedWithoutAnswer(t, c, "a verifier that sent nothing after the hello")
+}
+
+func TestServiceLimitsTheConnectionRate(t *testing.T) {
+	self := open(t, os.Getpid())
+	path, _ := startServer(t, register(t, self), func(s *Server) { s.Rate = 3 })
+	served, refused := 0, 0
+	for i := 0; i < 12; i++ {
+		c, err := DialUnix(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = c.SetReadDeadline(time.Now().Add(time.Second))
+		var h wireHello
+		if err := readFrame(c, &h); err == nil {
+			served++
+		} else {
+			refused++
+		}
+		_ = c.Close()
+	}
+	if refused == 0 || served == 0 {
+		t.Errorf("rate limit: %d served, %d refused out of 12 rapid connections", served, refused)
+	}
+}
+
+// A peer lookup that fails after it produced a pidfd must not keep the descriptor.
+func TestServiceClosesAPidfdOfARefusedPeer(t *testing.T) {
+	skipWithoutPeerPidfd(t)
+	var leakedFD atomic.Int64
+	leakedFD.Store(-1)
+	path, _ := startServer(t, register(t, open(t, os.Getpid())), func(s *Server) {
+		s.peerOf = func(c *net.UnixConn) (unix.Ucred, int, error) {
+			fd, err := unix.PidfdOpen(os.Getpid(), 0)
+			if err != nil {
+				t.Error(err)
+			}
+			leakedFD.Store(int64(fd))
+			return unix.Ucred{}, fd, errors.New("stub: refused")
+		}
+	})
+	c, err := DialUnix(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	expectClosedWithoutAnswer(t, c, "a refused peer")
+	leaked := int(leakedFD.Load())
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat("/proc/self/fd/" + strconv.Itoa(leaked)); err != nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("the pidfd (fd %d) of a refused peer is still open", leaked)
+}
+
+// flakyAcceptor fails its first accepts with a transient error, then serves one real listener.
+type flakyAcceptor struct {
+	l     *net.UnixListener
+	mu    sync.Mutex
+	fails int
+}
+
+func (a *flakyAcceptor) AcceptUnix() (*net.UnixConn, error) {
+	a.mu.Lock()
+	if a.fails > 0 {
+		a.fails--
+		a.mu.Unlock()
+		return nil, syscall.EMFILE
+	}
+	a.mu.Unlock()
+	return a.l.AcceptUnix()
+}
+
+func TestServeSurvivesTransientAcceptErrors(t *testing.T) {
+	skipWithoutPeerPidfd(t)
+	dir, err := os.MkdirTemp("", "pb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(filepath.Join(dir, "s")); _ = os.Remove(dir) })
+	path := filepath.Join(dir, "s")
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Profile: tProfile, Generation: tGen, Key: tKey, Registry: register(t, open(t, os.Getpid())), Procs: lp(t), UID: os.Getuid()}
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(&flakyAcceptor{l: l, fails: 3}) }()
+	if v, err := verifyOnce(t, path, goodClient()); err != nil || v != VerdictAllow {
+		t.Fatalf("after transient accept errors: %v %v", v, err)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Serve ended on a transient error: %v", err)
+	default:
+	}
+	_ = l.Close()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("Serve did not return when the listener closed")
+	}
+}
+
+// flakyRegistry panics on its first lookup and then answers like a normal registry.
+type flakyRegistry struct {
+	mu    sync.Mutex
+	calls int
+	next  Registry
+}
+
+func (r *flakyRegistry) Lookup(a, b, c string) (Handle, bool) {
+	r.mu.Lock()
+	r.calls++
+	first := r.calls == 1
+	r.mu.Unlock()
+	if first {
+		panic("registry bug")
+	}
+	return r.next.Lookup(a, b, c)
+}
+
+func TestServiceSurvivesAPanicInTheRegistry(t *testing.T) {
+	path, _ := startServer(t, &flakyRegistry{next: register(t, open(t, os.Getpid()))}, nil)
+	if v, err := verifyOnce(t, path, goodClient()); err == nil {
+		t.Fatalf("a panicking registry produced an answer: %v", v)
+	}
+	// the service still serves the next connection
+	if v, err := verifyOnce(t, path, goodClient()); err != nil || v != VerdictAllow {
+		t.Errorf("after a panic: %v %v", v, err)
+	}
+}
+
 func TestServiceBoundsConcurrentConnections(t *testing.T) {
 	self := open(t, os.Getpid())
 	path, _ := startServer(t, register(t, self), func(s *Server) { s.MaxConns = 1; s.Timeout = 2 * time.Second })
@@ -426,7 +583,10 @@ func TestServiceBoundsConcurrentConnections(t *testing.T) {
 	defer second.Close()
 	_ = second.SetDeadline(time.Now().Add(1500 * time.Millisecond))
 	var h wireHello
-	if err := readFrame(second, &h); err == nil {
+	err = readFrame(second, &h)
+	if err == nil {
 		t.Error("a second connection was served while the only slot was busy")
+	} else if !errors.Is(err, io.EOF) {
+		t.Errorf("the excess connection was not closed at once: %v", err)
 	}
 }

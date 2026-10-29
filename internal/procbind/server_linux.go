@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,7 +36,15 @@ type Server struct {
 	// Logf receives the reason of every refusal. It is for the operator: reasons are never sent.
 	Logf func(format string, args ...any)
 
-	sem chan struct{}
+	// RequestTimeout is how long the service waits for the request after its hello; 1 s by default.
+	RequestTimeout time.Duration
+	// Rate is the connections accepted per second (and the burst); 100 by default. An excess
+	// connection is closed without a hello.
+	Rate int
+
+	once   sync.Once
+	sem    chan struct{}
+	bucket chan struct{}
 	// peerOf reads the other end's credentials; tests replace it to stand in for a peer the
 	// service cannot see. It is the real kernel lookup otherwise.
 	peerOf func(*net.UnixConn) (unix.Ucred, int, error)
@@ -64,17 +73,56 @@ func PeerPidfdSupported() bool {
 	return true
 }
 
+// unixAcceptor is what Serve needs of a listener; a *net.UnixListener is one.
+type unixAcceptor interface {
+	AcceptUnix() (*net.UnixConn, error)
+}
+
 // Serve accepts connections until the listener is closed; each is handled on its own goroutine, up
 // to MaxConns at a time, and an excess connection is closed without an answer.
-func (s *Server) Serve(l *net.UnixListener) error {
-	if s.MaxConns <= 0 {
-		s.MaxConns = 32
-	}
-	s.sem = make(chan struct{}, s.MaxConns)
+func (s *Server) Serve(l unixAcceptor) error {
+	s.init()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() { // refill the rate bucket
+		t := time.NewTicker(time.Second / time.Duration(cap(s.bucket)))
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				select {
+				case s.bucket <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+	backoff := time.Duration(0)
 	for {
 		c, err := l.AcceptUnix()
 		if err != nil {
-			return err
+			if errors.Is(err, net.ErrClosed) {
+				return err
+			}
+			// a transient failure (out of descriptors, an aborted connection) must not end the service
+			if backoff == 0 {
+				backoff = 5 * time.Millisecond
+			} else if backoff *= 2; backoff > time.Second {
+				backoff = time.Second
+			}
+			s.logf("procbind: accept: %v", err)
+			time.Sleep(backoff)
+			continue
+		}
+		backoff = 0
+		select {
+		case <-s.bucket:
+		default:
+			s.logf("procbind: connection rate exceeded")
+			_ = c.Close()
+			continue
 		}
 		select {
 		case s.sem <- struct{}{}:
@@ -132,13 +180,42 @@ func peer(c *net.UnixConn) (cred unix.Ucred, pidfd int, err error) {
 	}); err != nil {
 		return cred, -1, err
 	}
-	if e1 != nil {
-		return cred, -1, e1
-	}
-	if e2 != nil {
+	if e1 != nil || e2 != nil {
+		if e2 == nil && pidfd >= 0 {
+			_ = unix.Close(pidfd) // do not keep a pidfd for a peer that is refused
+		}
+		if e1 != nil {
+			return cred, -1, e1
+		}
 		return cred, -1, fmt.Errorf("SO_PEERPIDFD: %w", e2)
 	}
 	return cred, pidfd, nil
+}
+
+func deadlineOf(d time.Duration) time.Time { return time.Now().Add(d) }
+
+func (s *Server) init() {
+	s.once.Do(func() {
+		n, r := s.MaxConns, s.Rate
+		if n <= 0 {
+			n = 32
+		}
+		if r <= 0 {
+			r = 100
+		}
+		s.sem = make(chan struct{}, n)
+		s.bucket = make(chan struct{}, r)
+		for i := 0; i < r; i++ {
+			s.bucket <- struct{}{}
+		}
+	})
+}
+
+func (s *Server) requestTimeout() time.Duration {
+	if s.RequestTimeout > 0 {
+		return s.RequestTimeout
+	}
+	return time.Second
 }
 
 func (s *Server) timeout() time.Duration {
@@ -152,7 +229,14 @@ func (s *Server) timeout() time.Duration {
 // another uid, one the service cannot see, a malformed or slow request, a passed descriptor) is
 // closed without an answer, which the verifier reads as not answered, a deny.
 func (s *Server) ServeConn(c *net.UnixConn) {
+	s.init()
 	defer c.Close()
+	// a failure inside the registry or the walk ends this connection, never the host process
+	defer func() {
+		if r := recover(); r != nil {
+			s.logf("procbind: panic while serving: %v", r)
+		}
+	}()
 	_ = c.SetDeadline(time.Now().Add(s.timeout()))
 	lookup := s.peerOf
 	if lookup == nil {
@@ -161,6 +245,9 @@ func (s *Server) ServeConn(c *net.UnixConn) {
 	cred, pfd, err := lookup(c)
 	if err != nil {
 		s.logf("procbind: peer credentials: %v", err)
+		if pfd >= 0 {
+			_ = unix.Close(pfd)
+		}
 		return
 	}
 	caller := HandleFromPidfd(pfd)
@@ -182,6 +269,9 @@ func (s *Server) ServeConn(c *net.UnixConn) {
 	nsHex := hex.EncodeToString(ns)
 	if err := writeFrame(c, wireHello{V: protoVersion, Generation: s.Generation, NS: nsHex}); err != nil {
 		return
+	}
+	if d := time.Now().Add(s.requestTimeout()); d.Before(deadlineOf(s.timeout())) {
+		_ = c.SetReadDeadline(d) // a verifier that does not send its request promptly is dropped
 	}
 	var req wireRequest
 	if err := readFrame(noFDReader{c}, &req); err != nil {

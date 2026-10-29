@@ -42,7 +42,7 @@ func (c Client) timeout() time.Duration {
 func (c Client) Verify(conn net.Conn, tokenID, scope string) (Verdict, error) {
 	v, err := c.verify(conn, tokenID, scope)
 	if err != nil {
-		return VerdictDeny, fmt.Errorf("%w: %v", ErrNotAnswered, err)
+		return VerdictDeny, fmt.Errorf("%w: %w", ErrNotAnswered, err)
 	}
 	return v, nil
 }
