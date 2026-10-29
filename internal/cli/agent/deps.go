@@ -42,6 +42,12 @@ type Deps struct {
 	FinishStreamed func(out io.Writer, asJSON bool, err error, okMsg string) error
 	// StdinIsTerminal says whether standard input is a terminal, where a command may ask.
 	StdinIsTerminal func() bool
+	// ProfileID is the profile in effect (--profile); read after OpenDB, which resolves it.
+	ProfileID func() string
+	// Refusal says why this process may not change which models agents may use
+	// (operator.Refusal): an agent, the chat or a workflow runs it. "" for the user;
+	// nil refuses (clicore.OperatorRefusal).
+	Refusal func() string
 }
 
 // NewCommand returns the `agent` command group.

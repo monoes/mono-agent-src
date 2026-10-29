@@ -51,6 +51,10 @@ var classes = map[string]string{
 
 	"api config": ClassGlobal,
 
+	// The agent roster is machine state, but which of its models each purpose
+	// may use is a setting of one profile: `agent purposes` names its profile.
+	"agent purposes": ClassScoped,
+
 	// The TypeSafe key is machine-wide: `jev key set` and `jev key remove` act
 	// on the machine vault only. `jev key adopt` is cross-profile by design: it
 	// copies from profile vaults and spells the source by its own
