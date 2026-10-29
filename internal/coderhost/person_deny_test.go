@@ -114,10 +114,20 @@ func TestDenyPlanRacingAnApprovalIsConsistent(t *testing.T) {
 	ctx := context.Background()
 	for i := 0; i < 12; i++ {
 		st, ts, c, it := giantItem(t)
+		// The person approves what they read: the revision of the inbox card, as `person approve --rev` and the
+		// app send it. A deny writes a note, which moves the revision, so a stale approve is refused (plain
+		// `session approve` after a deny is a second, deliberate act of the operator).
+		pv, err := ts.PlanOf(ctx, "p", c.ID, opActor)
+		if err != nil {
+			t.Fatal(err)
+		}
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() { defer wg.Done(); _, _ = st.DenyPlan(ctx, it, "you", "no") }()
-		go func() { defer wg.Done(); _, _ = ts.ApproveSession(ctx, "p", c.ID, opActor) }()
+		go func() {
+			defer wg.Done()
+			_, _ = ts.ApproveSessionAt(ctx, "p", c.ID, opActor, tasks.PlanGuard{Rev: pv.Rev, Digest: pv.Digest})
+		}()
 		wg.Wait()
 		cmds, events := denyFacts(t, st, c.ID)
 		se, _ := ts.GetSession(ctx, "p", c.ID, opActor)
