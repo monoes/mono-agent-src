@@ -2015,7 +2015,8 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   proper ancestor above the caller's parent, read from the `parent_session_id` chain in the caller's profile;
   approval stays with the parent. The question and the reply are cleaned quoted data in a fixed fence, queued as
   host-made `ask-` turns that cannot carry a mission confirmation or a person's authority, and counted in the
-  check-in streak. Rate limits (3 open, 1 a minute, 4 KiB, 8 KiB open) are enforced in the INSERT. A critical ask
+  check-in streak. The reply is `session_reply_ask` only (`session_send` is always a command and is never read as
+  a reply, so a leaf cannot turn its root's orders into quoted data); every error path of it refuses. Rate limits (3 open, 1 a minute, 4 KiB, 8 KiB open) are enforced in the INSERT. A critical ask
   is a person item (`ancestor_question`): no model reads it, no timeout or autonomy class answers it, and the
   answer path is the operator's `AnswerAncestorQuestion`, which no tool exposes.
 - **Autonomy decides who answers a gap, nothing more.** `risky_action` and `missing_credential` are never

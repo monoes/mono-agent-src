@@ -18,4 +18,6 @@ export const personItemsApi = {
   deny: (sessionId, note) => run(() => GoApp.PersonItemDeny(sessionId, note)),
   // {profile, sessionId, commandId, item: 'open'}: the question goes to the lead; the item stays open.
   ask: (sessionId, text) => run(() => GoApp.PersonItemAsk(sessionId, text)),
+  // {profile, askId, status: 'answered', commandId}: the answer to a critical ask of a lead; the item closes.
+  answerAsk: (askId, text) => run(() => GoApp.PersonItemAnswerAsk(askId, text)),
 }

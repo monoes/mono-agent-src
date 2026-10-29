@@ -58,7 +58,7 @@ func TestOnlyOnePersonAnswerWinsARace(t *testing.T) {
 	}
 }
 
-func TestAReplyIsVoidedWhenTheAncestorsLeadChatChanged(t *testing.T) {
+func TestAReplyIsRefusedWhenTheAncestorsLeadChatChanged(t *testing.T) {
 	f := newAskTree(t)
 	got, err := f.st.AskAncestor(f.lead(f.cc), "p", AskRequest{Question: "q"})
 	if err != nil {
@@ -67,11 +67,15 @@ func TestAReplyIsVoidedWhenTheAncestorsLeadChatChanged(t *testing.T) {
 	if _, err := f.st.db.Exec(`UPDATE task_sessions SET conversation_id = ? WHERE id = ?`, f.s, f.R.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.st.SendToChild(Caller{ProfileID: "p", ConversationID: f.rc}, f.cc, "late"); !errors.Is(err, ErrNotYours) {
-		t.Fatalf("the old lead of the ancestor replied: %v", err)
+	if _, err := f.st.ReplyAsk(f.lead(f.rc), "p", got.AskID, "late"); err == nil {
+		t.Fatal("the old lead of the ancestor replied")
 	}
-	if a, _ := f.st.GetAsk("p", got.AskID); a.Status != askVoid {
-		t.Fatalf("%+v", a)
+	// The new lead of that session was not the one asked: the ask names the chat, not the session.
+	if _, err := f.st.ReplyAsk(f.lead(f.s), "p", got.AskID, "late"); !errors.Is(err, ErrNotYours) {
+		t.Fatalf("the new lead replied: %v", err)
+	}
+	if n := len(f.commandsTo(f.cc)); n != 0 {
+		t.Fatalf("%d notes queued", n)
 	}
 }
 

@@ -108,6 +108,13 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{`monoagentcli --profile work task session person ask 7 --text "why 30 tasks?"`},
 	},
 	{
+		Name:     "task session person answer-ask",
+		Short:    "Answer a critical ask that a lead raised for you (an ancestor_question item); the answer reaches the asking lead as quoted data and the item closes (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person answer-ask --ask ID --text TEXT",
+		Flags:    "  --ask int       The ask id, from the inbox (required)\n  --text string   Your answer (required)",
+		Examples: []string{`monoagentcli --profile work task session person answer-ask --ask 4 --text "yes, go ahead"`},
+	},
+	{
 		Name:     "task session pause",
 		Short:    "Stop a running session handing out tasks; claims stay (the operator or an agent)",
 		Usage:    "monoagentcli [--profile P] task session pause ID [--as NAME]",

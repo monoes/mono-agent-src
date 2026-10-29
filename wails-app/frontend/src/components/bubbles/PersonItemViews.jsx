@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { BellRing, ExternalLink } from 'lucide-react'
 import { itemsForConversation } from '../../lib/personItems.js'
 import { usePersonItemsContext } from './PersonItemsContext.jsx'
-import { MuteToggle, PersonItemCard } from './PersonItemCard.jsx'
+import { MuteToggle } from './PersonItemCard.jsx'
+import { PersonCard } from './AskItemCard.jsx'
 import './personitem.css'
 
-const isPlan = it => it?.kind === 'plan_approval' && it.sessionId > 0
+// A card item: a giant plan waiting for approval, or a critical ask of a lead (it names its ask).
+const isPlan = it => (it?.kind === 'plan_approval' && it.sessionId > 0) || (it?.kind === 'ancestor_question' && it.askId > 0)
 
 // PersonItemsRegion is the answer cards in one agent's pane (root or lite): the plan items of the
 // session this chat is the agent of, above the transcript so they are seen at once.
@@ -17,7 +19,7 @@ export function PersonItemsRegion({ conversationId }) {
   if (mine.length === 0) return null
   return (
     <div className="pi-region" data-testid="person-items-pane" role="region" aria-label={t('personItem.regionLabel')} aria-live="polite">
-      {mine.map(it => <PersonItemCard key={it.id} item={it} onAnswer={answer} />)}
+      {mine.map(it => <PersonCard key={it.id} item={it} onAnswer={answer} />)}
     </div>
   )
 }
@@ -52,7 +54,7 @@ export function PersonItemTray() {
       </button>
       {open && (
         <div className="pi-tray-pop" role="region" aria-label={t('personItem.regionLabel')}>
-          {list.map(it => <PersonItemCard key={it.id} item={it} onAnswer={answer} onOpenAgent={openAgent} />)}
+          {list.map(it => <PersonCard key={it.id} item={it} onAnswer={answer} onOpenAgent={openAgent} />)}
         </div>
       )}
     </div>
@@ -73,7 +75,7 @@ export function PersonItemsInbox() {
         <MuteToggle />
       </div>
       {items.map(it => isPlan(it)
-        ? <PersonItemCard key={it.id} item={it} onAnswer={answer} onOpenAgent={openAgent} showMute={false} />
+        ? <PersonCard key={it.id} item={it} onAnswer={answer} onOpenAgent={openAgent} showMute={false} />
         : (
           <div className="pi-row" key={it.id} data-kind={it.kind}>
             <span className="pi-row-text">{t('personItem.otherKind', { kind: it.kind })}</span>
