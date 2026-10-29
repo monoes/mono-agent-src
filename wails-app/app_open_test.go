@@ -325,3 +325,58 @@ func TestRevealNeverOpensABundleOrBareDirectory(t *testing.T) {
 }
 
 func recImpl(r *recorder) chatOpener { return r.opener("linux") }
+
+func TestReadChatMarkdownSwappedAfterResolve(t *testing.T) {
+	root, outside := chatTree(t)
+	t.Cleanup(func() { chatAfterResolve = nil })
+	target := filepath.Join(root, "docs", "plan.md")
+
+	// the last component becomes a symlink to a file outside the folder
+	chatAfterResolve = func() {
+		_ = os.Remove(target)
+		_ = os.Symlink(filepath.Join(outside, "pw.md"), target)
+	}
+	if s, err := readChatMarkdown(root, "docs/plan.md"); err == nil {
+		t.Fatalf("read through a swapped symlink: %q", s)
+	}
+
+	// ... or a FIFO: it must not hang
+	_ = os.Remove(target)
+	_ = os.WriteFile(target, []byte("# Plan\n"), 0o644)
+	chatAfterResolve = func() {
+		_ = os.Remove(target)
+		_ = syscall.Mkfifo(target, 0o644)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := readChatMarkdown(root, "docs/plan.md"); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("a swapped-in FIFO was read")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("swapped-in FIFO blocked the read")
+	}
+
+	// a directory in the path becomes a link out of the folder
+	_ = os.Remove(target)
+	_ = os.WriteFile(target, []byte("# Plan\n"), 0o644)
+	chatAfterResolve = func() {
+		_ = os.Rename(filepath.Join(root, "docs"), filepath.Join(root, "docs-old"))
+		_ = os.Symlink(outside, filepath.Join(root, "docs"))
+		_ = os.WriteFile(filepath.Join(outside, "plan.md"), []byte("# stolen\n"), 0o644)
+	}
+	if s, err := readChatMarkdown(root, "docs/plan.md"); err == nil {
+		t.Fatalf("read through a swapped directory: %q", s)
+	}
+
+	// and an undisturbed file still reads
+	chatAfterResolve = nil
+	if s, err := readChatMarkdown(root, "main.go"); err == nil {
+		t.Fatalf("not previewable: %q", s)
+	}
+	_ = os.WriteFile(filepath.Join(root, "n.md"), []byte("hi"), 0o644)
+	if s, err := readChatMarkdown(root, "n.md"); err != nil || s != "hi" {
+		t.Fatalf("normal read: %q %v", s, err)
+	}
+}

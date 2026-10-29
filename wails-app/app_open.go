@@ -24,7 +24,7 @@ import (
 // here executes a file or hands one to its default handler.
 
 // maxChatPreviewBytes bounds ReadChatMarkdown.
-const maxChatPreviewBytes = 512 << 10
+const maxChatPreviewBytes = 128 << 10
 
 const maxChatTokenLen = 4096
 
@@ -173,34 +173,59 @@ func resolveChatPathInfo(cwd, token string) ChatPathInfo {
 	return ChatPathInfo{Kind: "missing"} // fifo, device, socket: nothing to offer
 }
 
+// chatAfterResolve is a test hook run between resolving a path and opening it.
+var chatAfterResolve func()
+
 // readChatMarkdown returns the text of a .md/.markdown/.txt regular file
 // inside cwd, at most maxChatPreviewBytes.
 func readChatMarkdown(cwd, token string) (string, error) {
-	p, _, err := confinedChatPath(cwd, token)
+	if cwd == "" {
+		return "", errors.New("this chat has no folder to read from")
+	}
+	root, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return "", err
+	}
+	p, _, err := resolveChatToken(root, token)
+	if err != nil {
+		return "", err
+	}
+	if !insideDir(root, p) {
+		return "", fmt.Errorf("%s is outside the chat's folder", token)
 	}
 	if !chatPreviewExts[strings.ToLower(filepath.Ext(p))] {
 		return "", errors.New("only .md, .markdown and .txt files can be previewed")
 	}
-	fi, err := os.Stat(p)
+	if chatAfterResolve != nil {
+		chatAfterResolve()
+	}
+	// Open without following a swapped-in symlink or blocking on a swapped-in
+	// FIFO, then judge the file we actually hold, not the name we resolved.
+	f, err := openChatFileNoFollow(p)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
 	if err != nil {
 		return "", err
 	}
 	if !fi.Mode().IsRegular() {
 		return "", errors.New("not a regular file")
 	}
-	f, err := os.Open(p)
-	if err != nil {
-		return "", err
+	again, err := filepath.EvalSymlinks(p)
+	if err != nil || !insideDir(root, again) {
+		return "", fmt.Errorf("%s is outside the chat's folder", token)
 	}
-	defer f.Close()
+	if now, err := os.Stat(again); err != nil || !os.SameFile(fi, now) {
+		return "", errors.New("the file changed while it was being opened")
+	}
 	b, err := io.ReadAll(io.LimitReader(f, maxChatPreviewBytes+1))
 	if err != nil {
 		return "", err
 	}
 	if len(b) > maxChatPreviewBytes {
-		return "", errors.New("file is too large to preview (over 512 KiB)")
+		return "", errors.New("file is too large to preview (over 128 KiB)")
 	}
 	if !utf8.Valid(b) || strings.IndexByte(string(b), 0) >= 0 {
 		return "", errors.New("not a text file")
