@@ -11,6 +11,7 @@
 .pi-head-title { flex: 1; min-width: 0; }
 .pi-title { margin: 6px 0 0; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
 .pi-goal { margin: 3px 0 0; font-size: 11px; line-height: 1.45; color: var(--text-secondary, var(--text)); overflow-wrap: anywhere; max-height: 5.8em; overflow: auto; }
+.pi-question { margin: 2px 0 0; font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9em; overflow: auto; padding: 5px 8px; border-left: 2px solid var(--border-bright); background: var(--elevated); }
 .pi-why { margin-top: 8px; font-size: 10.5px; }
 .pi-why-head { color: var(--text-muted); font-size: 9.5px; margin-bottom: 2px; }
 .pi-why ul { margin: 0; padding-left: 16px; display: grid; gap: 1px; }

@@ -39,7 +39,7 @@ func TestPersonInboxShowsTheCriticalAsk(t *testing.T) {
 	}
 	it := l.Items[0]
 	if it.Kind != coderhost.ItemAncestorQuestion || it.AskID != ask || it.AskerTitle != "the leaf" || it.AncestorTitle != "the root" || it.Importance != "critical" ||
-		it.Level != "root" || it.Conversation != "conv-leaf" || !strings.Contains(it.Question, "may I drop the legacy table?") {
+		it.Level != "root" || it.SessionID == 0 || it.Conversation != "conv-leaf" || !strings.Contains(it.Question, "may I drop the legacy table?") {
 		t.Fatalf("item = %+v", it)
 	}
 }

@@ -2282,6 +2282,12 @@
     "inboxTitle_one": "Te necesita ({{count}})",
     "inboxTitle_other": "Te necesita ({{count}})",
     "otherKind": "Una solicitud ({{kind}}) espera por ti",
+    "askHeading": "Un líder te pregunta",
+    "askCardLabel": "Un líder te pregunta: {{asker}}",
+    "askParties": "{{asker}} pregunta a {{ancestor}}",
+    "askQuestion": "La pregunta (la escribió un agente, no el sistema)",
+    "answerLabel": "Tu respuesta. Llega al líder que pregunta como dato citado y no concede nada.",
+    "answerSend": "Responder",
     "settings": {
       "title": "Notificaciones",
       "sound": "Sonar un aviso cuando algo me necesita (un plan que espera aprobación)",

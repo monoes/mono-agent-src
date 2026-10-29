@@ -25,7 +25,7 @@ func fillAskView(v *personItemView, cs *coderhost.Store, profileID string, it co
 		return
 	}
 	v.AskID, v.Question, v.Importance, v.Level = a.ID, a.Question, a.Importance, a.Level
-	v.AskerTitle, v.AncestorTitle, v.Conversation = a.AskerTitle, a.AncestorTitle, a.AskerConv
+	v.AskerTitle, v.AncestorTitle, v.Conversation, v.SessionID = a.AskerTitle, a.AncestorTitle, a.AskerConv, a.AskerSession
 }
 
 func (d Deps) newPersonAnswerAskCmd() *cobra.Command {

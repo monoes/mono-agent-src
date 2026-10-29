@@ -1194,6 +1194,10 @@ export function PauseOrgAutonomy(arg1, arg2) {
   return window['go']['main']['App']['PauseOrgAutonomy'](arg1, arg2);
 }
 
+export function PersonItemAnswerAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAnswerAsk'](arg1, arg2);
+}
+
 export function PersonItemApprove(arg1) {
   return window['go']['main']['App']['PersonItemApprove'](arg1);
 }
