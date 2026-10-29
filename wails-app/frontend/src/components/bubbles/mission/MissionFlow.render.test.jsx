@@ -106,7 +106,7 @@ describe('mission flow, end to end', () => {
 
     // 3. Approve calls TaskSessionApprove; the strip shows running with progress and a worker
     fireEvent.click(screen.getByTestId('mission-approve'))
-    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7))
+    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7, 1))
     const strip = await screen.findByTestId('mission-strip')
     await waitFor(() => expect(within(strip).getByTestId('ts-state')).toHaveTextContent('Running'))
     expect(screen.getByTestId('mission-strip-progress')).toHaveTextContent('1/4')

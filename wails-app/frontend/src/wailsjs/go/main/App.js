@@ -1618,6 +1618,10 @@ export function TaskSessionApprove(arg1) {
   return window['go']['main']['App']['TaskSessionApprove'](arg1);
 }
 
+export function TaskSessionApproveAt(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionApproveAt'](arg1, arg2);
+}
+
 export function TaskSessionArchive(arg1) {
   return window['go']['main']['App']['TaskSessionArchive'](arg1);
 }
