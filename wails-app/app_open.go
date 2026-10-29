@@ -36,6 +36,18 @@ var (
 	chatStat         = os.Stat
 )
 
+// Residual risk, documented on purpose: a lookup cannot be proven local by
+// looking at the path's spelling. A link planted in the chat folder (or on the
+// path of a token the user clicks) that points at a network target costs one
+// lookup, and only when the user clicks: rendering, hover and focus never do
+// one (see classifyChatToken). Before that one lookup, chatLinkGuard (Windows)
+// reads the link text of each component without following it and refuses a
+// link to a UNC share or another drive; after it, the resolved path is
+// refused when it is on a network volume or filesystem (networkVolume,
+// chatOnNetworkFS). Both are best effort: a relative link that leads on
+// through further links is not walked, and a network mount that reports a
+// local filesystem type is not recognised.
+
 var chatPreviewExts = map[string]bool{".md": true, ".markdown": true, ".txt": true}
 
 // ChatPathClass is how a path in a chat message is offered, from its
@@ -184,24 +196,29 @@ func resolveChatToken(cwd, token string) (string, int, error) {
 		}
 		p = filepath.Join(cwd, p)
 	}
-	real, err := chatEvalSymlinks(filepath.Clean(p))
+	p = filepath.Clean(p)
+	if err := chatLinkGuard(p); err != nil {
+		return "", 0, err
+	}
+	real, err := chatEvalSymlinks(p)
 	if err != nil {
 		return "", 0, err
 	}
 	if strings.HasPrefix(real, "-") {
 		return "", 0, errors.New("a path may not start with '-'")
 	}
-	if networkVolume(real) {
+	if networkVolume(real) || chatOnNetworkFS(real) {
 		return "", 0, errors.New("network paths are not supported")
 	}
 	return real, line, nil
 }
 
 // networkVolume: a resolved path on a UNC share (a symlink or junction in the
-// chat folder can lead there). Only Windows paths have a volume name.
+// chat folder can lead there). It is a spelling test, the same on every OS: a
+// resolved local path never starts with two slashes (Clean collapses them on
+// Unix), while Windows spells a share, and an extended-length path, that way.
 func networkVolume(real string) bool {
-	v := filepath.VolumeName(real)
-	return len(v) >= 2 && (v[0] == '/' || v[0] == '\\') && (v[1] == '/' || v[1] == '\\')
+	return len(real) >= 2 && (real[0] == '/' || real[0] == '\\') && (real[1] == '/' || real[1] == '\\')
 }
 
 // classifyChatToken says how a token is offered, from its spelling alone: it
