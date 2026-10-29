@@ -252,11 +252,21 @@ func TestEvaluateAndReevaluateGrantNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	d2, err := r.store.CreateSession(tbg, "default", tasks.SessionInput{Title: "dir 3", Goal: "g", ParentSessionID: r.sid, Kind: tasks.SessionKindDirection}, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.store.AddSessionTask(tbg, "default", d2.ID, tasks.SessionTaskInput{Title: "t", Acceptance: "rubric: x"}, operator); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.store.ApproveSession(tbg, "default", d2.ID, operator); err != nil { // running: the drop would have something to stop
+		t.Fatal(err)
+	}
 	before := r.boardState()
 	if _, err := r.evaluate(c, ToolMissionEvaluate, evalArgs(nil, candidatesJSON(5))); err != nil {
 		t.Fatal(err)
 	}
-	args := evalArgs(map[string]any{"reason": "budget 85%", "k": 1, "current": []map[string]any{{"title": "dir 0", "session_id": d1.ID}, {"title": "dir 3", "session_id": 0}}}, candidatesJSON(5))
+	args := evalArgs(map[string]any{"reason": "budget 85%", "k": 1, "current": []map[string]any{{"title": "dir 0", "session_id": d1.ID}, {"title": "dir 3", "session_id": d2.ID}}}, candidatesJSON(5))
 	v, err := r.evaluate(c, ToolMissionReevaluate, args)
 	if err != nil {
 		t.Fatal(err)
@@ -363,5 +373,16 @@ func TestEvaluationRecordFitsOneEventForTwentyLongCandidates(t *testing.T) {
 	var rec map[string]any
 	if err := json.Unmarshal([]byte(strings.TrimPrefix(n[0], evaluationNote)), &rec); err != nil {
 		t.Fatalf("the record is not valid JSON: %v", err)
+	}
+}
+
+func TestAnEvaluationThatCannotBeRecordedDoesNotStand(t *testing.T) {
+	r, c := evalRig(t, 3)
+	if _, err := r.store.StopSession(tbg, "default", r.sid, operator); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.evaluate(c, ToolMissionEvaluate, evalArgs(nil, candidatesJSON(3)))
+	if err == nil || !strings.Contains(err.Error(), "not recorded") {
+		t.Fatalf("an evaluation nobody can read back was returned: %v", err)
 	}
 }

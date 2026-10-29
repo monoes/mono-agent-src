@@ -35,6 +35,9 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 	if !m.Confirmed && (m.HasOpenSession(ctx) || missionToggleOn(db, profileID, conversationID)) {
 		m.Confirmed = true
 	}
+	if s, err := coderhost.NewStore(db).GetSettings(profileID, conversationID); err == nil {
+		m.MaxDirections = s.MissionDirections // the operator's K; a store that cannot answer leaves the default
+	}
 	return m
 }
 
