@@ -80,6 +80,7 @@ type SpawnRequest struct {
 	Access    string  // coding or workspace, at most the parent's; "" = the parent's, capped at workspace
 	Cwd       string  // a folder inside the parent's (default: the parent's)
 	BudgetUSD float64 // carved out of the parent's remaining budget (0 = no cap of its own, only when the parent has none)
+	Scoped    bool    // the child runs scoped (the sandboxed assistant: no folder, read only); a research session
 	Runtime   string  // another runtime than the parent's ("" = the parent's); the model and provider then are not inherited
 	Model     string  // another model ("" = the parent's, or the runtime's default when Runtime is set)
 }
@@ -284,6 +285,24 @@ func (s *Store) Spawn(c Caller, req SpawnRequest) (Spawned, error) {
 	return s.spawnWith(c, req, spawnHooks{})
 }
 
+// ErrLeadSpawnsWithReason is why a plain spawn was refused: the session leads a mission or a direction, so every
+// session it creates is a named task session below its own and goes through SpawnSession (the advisory, the ledger).
+var ErrLeadSpawnsWithReason = fmt.Errorf("%w: this session leads a task session, so a child session needs a title, a kind and a reason (session_spawn)", ErrInvalid)
+
+// SpawnPlain is Spawn for the master verbs (the MCP tool and the CLI verb) when the caller leads no task session. A
+// caller that leads an open one (draft, running or paused) is refused, so leaving out the title and the reason is not
+// a way round the advisory.
+func (s *Store) SpawnPlain(c Caller, req SpawnRequest) (Spawned, error) {
+	open, err := s.openMissionSession(c.ProfileID, c.ConversationID)
+	if err != nil {
+		return Spawned{}, err
+	}
+	if open != 0 {
+		return Spawned{}, ErrLeadSpawnsWithReason
+	}
+	return s.Spawn(c, req)
+}
+
 // mayHaveChildren says whether the caller may create child sessions at all: it is a running master, or a child whose
 // carve gave it room for children (max_children above 0, which only a session below the working depth gets), and the
 // tree has a level left. A solo session, and a child at the working depth, may not. It returns the caller's settings.
@@ -350,13 +369,14 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	if err != nil {
 		return Spawned{}, fmt.Errorf("%w: the master's conversation is gone", ErrNotYours)
 	}
-	access, err := childAccess(pconv.EffectiveAccess(), req.Access)
-	if err != nil {
-		return Spawned{}, err
-	}
-	cwd, err := childCwd(pconv.Cwd, req.Cwd)
-	if err != nil {
-		return Spawned{}, err
+	access, cwd := ai.AccessScoped, ""
+	if !req.Scoped {
+		if access, err = childAccess(pconv.EffectiveAccess(), req.Access); err != nil {
+			return Spawned{}, err
+		}
+		if cwd, err = childCwd(pconv.Cwd, req.Cwd); err != nil {
+			return Spawned{}, err
+		}
 	}
 	if err := s.takeSpawnSlot(c.ProfileID, c.ConversationID); err != nil {
 		return Spawned{}, err

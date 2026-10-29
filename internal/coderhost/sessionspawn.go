@@ -28,6 +28,34 @@ import (
 // SessionKinds a lead may spawn. The mission itself and a plain board are not spawned.
 var SpawnKinds = []string{tasks.SessionKindDirection, tasks.SessionKindResearch, tasks.SessionKindTask}
 
+// A session made by a lead is never "giant" by default (the approval rules send giant work to a person): at most
+// MaxSpawnedSessionTasks tasks, and a budget of at most SpawnShareMaxPct percent of what the lead's session has left,
+// DefaultSpawnSharePct of it when the lead names none.
+const (
+	MaxSpawnedSessionTasks = 25
+	SpawnShareMaxPct       = 40
+	DefaultSpawnSharePct   = 20
+)
+
+// childShare is the budget of the new session, for its task session and its carve: what the lead asked for, else the
+// default share of what its own session has left. A lead whose session has no budget gets what it asked for (0: none).
+func childShare(lead tasks.Session, asked float64) (float64, error) {
+	if lead.BudgetUSD <= 0 {
+		return asked, nil
+	}
+	left := lead.BudgetUSD - lead.SpentUSD
+	if left <= 0 {
+		return 0, fmt.Errorf("%w: your session has no budget left to share", ErrLimit)
+	}
+	if asked <= 0 {
+		return left * DefaultSpawnSharePct / 100, nil
+	}
+	if asked > left*SpawnShareMaxPct/100 {
+		return 0, fmt.Errorf("%w: a new session takes at most %d%% of what yours has left ($%.2f of $%.2f); ask for less", ErrLimit, SpawnShareMaxPct, left*SpawnShareMaxPct/100, left)
+	}
+	return asked, nil
+}
+
 // MaxScopeTasks bounds the task ids one request names.
 const MaxScopeTasks = 50
 
@@ -74,24 +102,6 @@ func scopeHash(kind, title string, ids []int64) string {
 	return hex.EncodeToString(h[:])
 }
 
-// ErrLeadSpawnsWithReason is why a plain spawn was refused: the session leads a mission or a direction, so every
-// session it creates is a named task session below its own and goes through SpawnSession (the advisory, the ledger).
-var ErrLeadSpawnsWithReason = fmt.Errorf("%w: this session leads a task session, so a child session needs a title, a kind and a reason (session_spawn)", ErrInvalid)
-
-// SpawnPlain is Spawn for the master verbs (the MCP tool and the CLI verb) when the caller leads no task session. A
-// caller that leads an open one (draft, running or paused) is refused, so leaving out the title and the reason is not
-// a way round the advisory.
-func (s *Store) SpawnPlain(c Caller, req SpawnRequest) (Spawned, error) {
-	open, err := s.openMissionSession(c.ProfileID, c.ConversationID)
-	if err != nil {
-		return Spawned{}, err
-	}
-	if open != 0 {
-		return Spawned{}, ErrLeadSpawnsWithReason
-	}
-	return s.Spawn(c, req)
-}
-
 // LeadsOpenSession says whether the conversation leads an open task session (draft, running or paused).
 func (s *Store) LeadsOpenSession(profileID, conversationID string) (bool, error) {
 	open, err := s.openMissionSession(profileID, conversationID)
@@ -128,6 +138,10 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 	if se.State != tasks.SessionRunning || se.Archived {
 		return SessionSpawned{}, fmt.Errorf("%w: your session #%d is %s: sessions are spawned only from a running one (the operator approves the plan first)", ErrInvalid, sid, se.State)
 	}
+	budget, err := childShare(se, req.BudgetUSD)
+	if err != nil {
+		return SessionSpawned{}, err
+	}
 	// A limit is checked before the advisory, so a refusal that cannot be repeated away does not use up the advisory's one.
 	if _, err := s.spawnRoom(c); err != nil {
 		s.recordSpawn(c, title, req, SpawnFacts{}, AdviceRefuse, err.Error())
@@ -157,10 +171,11 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 		return SessionSpawned{}, fmt.Errorf("the spawn was not recorded in the decisions ledger, so it was not made: %w", err)
 	}
 	var made tasks.Session
-	out, err := s.spawnWith(c, SpawnRequest{BudgetUSD: req.BudgetUSD, Access: req.Access, Runtime: req.Runtime, Model: req.Model}, spawnHooks{
+	out, err := s.spawnWith(c, SpawnRequest{Scoped: req.Kind == tasks.SessionKindResearch, BudgetUSD: budget, Access: req.Access, Runtime: req.Runtime, Model: req.Model}, spawnHooks{
 		beforeMessage: func(conv string) error {
 			var err error
-			made, err = ts.CreateSession(ctx, profile, tasks.SessionInput{Title: title, Goal: req.Goal, ConversationID: conv, ParentSessionID: sid, Kind: req.Kind},
+			made, err = ts.CreateSession(ctx, profile, tasks.SessionInput{Title: title, Goal: req.Goal, ConversationID: conv, ParentSessionID: sid, Kind: req.Kind,
+				MaxTasks: min(MaxSpawnedSessionTasks, se.MaxTasks), BudgetUSD: budget},
 				leadActor(c.ConversationID, sid, conv))
 			return err
 		},

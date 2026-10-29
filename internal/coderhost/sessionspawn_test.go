@@ -461,3 +461,66 @@ func TestSpawnSessionIsNotMadeWhenItsDecisionCannotBeRecorded(t *testing.T) {
 		t.Fatal("a spawn that could not be recorded was made")
 	}
 }
+
+func TestASpawnedSessionIsNotGiantByDefault(t *testing.T) {
+	f := newMC(t, true)
+	if f.se.MaxTasks <= MaxSpawnedSessionTasks {
+		t.Fatalf("the fixture's cap %d does not show the default being lowered", f.se.MaxTasks)
+	}
+	out, err := f.spawnSession(req("A", f.bigScope()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	se, _ := f.ts.GetSession(context.Background(), "p", out.TaskSessionID, opActor)
+	if se.MaxTasks != MaxSpawnedSessionTasks || se.AccessLevel != f.se.AccessLevel {
+		t.Fatalf("task session = %+v", se)
+	}
+	// with a budget: the default share is 20 percent of what the lead's session has left, and 40 percent is the most
+	bud := 10.0
+	if _, err := f.ts.UpdateSession(context.Background(), "p", f.se.ID, tasks.SessionUpdate{BudgetUSD: &bud}, opActor); err != nil {
+		t.Fatal(err)
+	}
+	f.st.SetBudget("p", f.lead.ConversationID, 10)
+	d, err := f.spawnSession(req("B", f.bigScope()))
+	if err != nil || d.BudgetUSD != 2 {
+		t.Fatalf("default share = %+v, %v", d, err)
+	}
+	if se, _ := f.ts.GetSession(context.Background(), "p", d.TaskSessionID, opActor); se.BudgetUSD != 2 {
+		t.Fatalf("task session budget = %v", se.BudgetUSD)
+	}
+	over := req("C", f.bigScope())
+	over.BudgetUSD = 4.5
+	if _, err := f.spawnSession(over); !errors.Is(err, ErrLimit) {
+		t.Fatalf("a share above 40 percent: %v", err)
+	}
+	over.BudgetUSD = 4
+	if _, err := f.spawnSession(over); err != nil {
+		t.Fatalf("a share of exactly 40 percent: %v", err)
+	}
+}
+
+func TestAResearchSessionRunsScopedWhateverIsAskedFor(t *testing.T) {
+	f := newMC(t, true) // the lead has workspace access and a folder
+	for _, access := range []string{"", "coding", "workspace"} {
+		r := req("Research "+access, f.bigScope())
+		r.Kind, r.Access = tasks.SessionKindResearch, access
+		out, err := f.spawnSession(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got, cwd string
+		if err := f.st.db.QueryRow(`SELECT access, cwd FROM ai_chat_conversations WHERE id = ?`, out.ConversationID).Scan(&got, &cwd); err != nil {
+			t.Fatal(err)
+		}
+		if got != "scoped" || cwd != "" || out.Access != "scoped" {
+			t.Fatalf("a research session asked for %q runs at %q in %q (result %q)", access, got, cwd, out.Access)
+		}
+	}
+	d, err := f.spawnSession(req("Plain", f.bigScope()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Access != "workspace" {
+		t.Fatalf("a direction session's access = %s", d.Access)
+	}
+}

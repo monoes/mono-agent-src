@@ -2793,6 +2793,9 @@ monoagentcli --profile work coder host stop                        # the host on
   remembered in `coder_spawn_advice` (migration 144), keyed by the spawner, the kind, the title and the task ids,
   so it survives a restart. Every accepted and refused spawn is a row of the decisions ledger (`scope_growth`,
   with the reason and the scope read from the tasks).
+  The new task session is not "giant" by default: its `max_tasks` is at most 25, its budget (and the child's carve) is the
+  asked share, at most 40 percent of what the lead's session has left, 20 percent when none is asked; a `research` session
+  runs `scoped` (the sandboxed assistant: no folder, read only) whatever access is asked for.
 - **Reading questions and decisions.** `sessions questions list` and `sessions decisions list|show` need the
   operator's terminal or a session token. Under a token they show only the caller's own session and its
   descendants (any other session is refused with one text), and the text a model wrote (question, options,
