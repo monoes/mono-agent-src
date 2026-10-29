@@ -40,7 +40,7 @@ type lowered struct{ level, maxTasks, maxDepth, budget bool }
 
 func (l lowered) any() bool { return l.level || l.maxTasks || l.maxDepth || l.budget }
 
-// clampChildren brings every open session below session id, at any depth and through closed ones, within
+// clampChildren brings every session below session id, open, closed or archived, at any depth, within
 // the limits low names, after the operator lowered them: down only, never up, each change an event of
 // the session. A budget is clamped session by session to id's; the budgets are not summed. The walk
 // visits each session once and fails closed on a cycle or a tree deeper than HardMaxSessionDepth.
@@ -48,17 +48,20 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 	if !low.any() {
 		return nil
 	}
-	var level string
-	var maxTasks, maxDepth int
-	var budget float64
-	if err := x.QueryRowContext(ctx, `SELECT access_level, max_tasks, max_depth, budget_usd FROM task_sessions WHERE id = ?`, id).Scan(&level, &maxTasks, &maxDepth, &budget); err != nil {
+	var top childKid
+	if err := x.QueryRowContext(ctx, `SELECT access_level, max_tasks, max_depth, budget_usd FROM task_sessions WHERE id = ?`, id).Scan(&top.level, &top.maxTasks, &top.maxDeep, &top.budget); err != nil {
 		return fmt.Errorf("tasks: reading session #%d: %w", id, err)
 	}
+	// floor is, for each session reached, the lowest limits on the way down from id (id's own, then
+	// each session passed, as clamped): a session is brought down to the floor above it, which is
+	// never above what a closed or unbudgeted session in between already holds.
+	floor := map[int64]childKid{id: top}
 	seen := []int64{id}
 	frontier := []int64{id}
 	for depth := 1; len(frontier) > 0; depth++ {
 		var next []int64
 		for _, parent := range frontier {
+			above := floor[parent]
 			kids, err := s.childrenOf(ctx, x, parent)
 			if err != nil {
 				return err
@@ -72,26 +75,24 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 				}
 				seen = append(seen, k.id)
 				next = append(next, k.id)
-				if !k.open {
-					continue
-				}
 				var changed []string
-				if low.level && slices.Index(AccessLevels, k.level) > slices.Index(AccessLevels, level) {
-					k.level = level
-					changed = append(changed, "access_level "+level)
+				if low.level && slices.Index(AccessLevels, k.level) > slices.Index(AccessLevels, above.level) {
+					k.level = above.level
+					changed = append(changed, "access_level "+k.level)
 				}
-				if low.maxTasks && k.maxTasks > maxTasks {
-					k.maxTasks = maxTasks
-					changed = append(changed, fmt.Sprintf("max_tasks %d", maxTasks))
+				if low.maxTasks && k.maxTasks > above.maxTasks {
+					k.maxTasks = above.maxTasks
+					changed = append(changed, fmt.Sprintf("max_tasks %d", k.maxTasks))
 				}
-				if low.maxDepth && k.maxDeep > maxDepth {
-					k.maxDeep = maxDepth
-					changed = append(changed, fmt.Sprintf("max_depth %d", maxDepth))
+				if low.maxDepth && k.maxDeep > above.maxDeep {
+					k.maxDeep = above.maxDeep
+					changed = append(changed, fmt.Sprintf("max_depth %d", k.maxDeep))
 				}
-				if low.budget && budget > 0 && (k.budget <= 0 || k.budget > budget) {
-					k.budget = budget
-					changed = append(changed, fmt.Sprintf("budget_usd %.2f", budget))
+				if low.budget && above.budget > 0 && (k.budget <= 0 || k.budget > above.budget) {
+					k.budget = above.budget
+					changed = append(changed, fmt.Sprintf("budget_usd %.2f", k.budget))
 				}
+				floor[k.id] = k.under(above)
 				if len(changed) == 0 {
 					continue
 				}
@@ -114,13 +115,26 @@ type childKid struct {
 	level             string
 	maxTasks, maxDeep int
 	budget            float64
-	open              bool
 }
 
-// childrenOf reads the sessions started directly below session id, archived or closed ones included
-// (marked not open), so that a lowered limit passes through them.
+// under is the floor for the sessions below k, given the floor above k: the lower of the two on each limit
+// (a budget of 0 is no cap, so the other one stands).
+func (k childKid) under(above childKid) childKid {
+	if slices.Index(AccessLevels, above.level) < slices.Index(AccessLevels, k.level) {
+		k.level = above.level
+	}
+	k.maxTasks = min(k.maxTasks, above.maxTasks)
+	k.maxDeep = min(k.maxDeep, above.maxDeep)
+	if above.budget > 0 && (k.budget <= 0 || above.budget < k.budget) {
+		k.budget = above.budget
+	}
+	return k
+}
+
+// childrenOf reads the sessions started directly below session id, archived or closed ones included,
+// so that a lowered limit passes through them and clamps them too.
 func (s *Store) childrenOf(ctx context.Context, x dbx, id int64) ([]childKid, error) {
-	rows, err := x.QueryContext(ctx, `SELECT id, access_level, max_tasks, max_depth, budget_usd, archived_at = '' AND state IN `+openChildStates+` FROM task_sessions WHERE parent_session_id = ? ORDER BY id`, id)
+	rows, err := x.QueryContext(ctx, `SELECT id, access_level, max_tasks, max_depth, budget_usd FROM task_sessions WHERE parent_session_id = ? ORDER BY id`, id)
 	if err != nil {
 		return nil, fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 	}
@@ -128,7 +142,7 @@ func (s *Store) childrenOf(ctx context.Context, x dbx, id int64) ([]childKid, er
 	var kids []childKid
 	for rows.Next() {
 		var k childKid
-		if err := rows.Scan(&k.id, &k.level, &k.maxTasks, &k.maxDeep, &k.budget, &k.open); err != nil {
+		if err := rows.Scan(&k.id, &k.level, &k.maxTasks, &k.maxDeep, &k.budget); err != nil {
 			return nil, fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 		}
 		kids = append(kids, k)

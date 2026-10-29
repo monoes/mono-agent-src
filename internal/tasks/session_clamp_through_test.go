@@ -66,10 +66,10 @@ func TestALoweredLimitReachesAnOpenSessionBelowAStoppedOne(t *testing.T) {
 	if n := clampedEvents(t, s, c[2].ID); n != 1 {
 		t.Fatalf("%d clamped events, want 1", n)
 	}
-	// the closed one is not open: it is left as it was
-	wantLimits(t, s, c[1].ID, "coding", 8)
-	if n := clampedEvents(t, s, c[1].ID); n != 0 {
-		t.Fatalf("a closed session got %d clamped events", n)
+	// the closed one is clamped too, so that the stored data agrees with the ceiling (down only)
+	wantLimits(t, s, c[1].ID, "scoped", 3)
+	if n := clampedEvents(t, s, c[1].ID); n != 1 {
+		t.Fatalf("a closed session got %d clamped events, want 1", n)
 	}
 }
 
@@ -131,4 +131,14 @@ func TestClampingThroughAParentCycleFailsClosed(t *testing.T) {
 	if err == nil {
 		t.Fatal("a cycle was walked without an error")
 	}
+}
+
+// A session with no budget below one with a budget of its own is brought to that one, not to the
+// lowered limit of the session far above (which may be higher).
+func TestClampingBringsAnUnbudgetedSessionToTheNearestBudgetAbove(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	c := chainOf(t, s, []string{"coding", "coding", "coding"}, []float64{0, 1, 0})
+	b := 3.0
+	lowerRoot(t, s, c[0].ID, SessionUpdate{BudgetUSD: &b})
+	wantLimits(t, s, c[2].ID, "coding", 1)
 }
