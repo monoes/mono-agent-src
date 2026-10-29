@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -278,3 +279,49 @@ func TestChatTokenRefusesNetworkAndDevicePaths(t *testing.T) {
 		}
 	}
 }
+
+// A .app bundle is a directory: handing it to "open" runs it, so a folder is
+// always revealed, never opened, on macOS and Windows.
+func TestRevealNeverOpensABundleOrBareDirectory(t *testing.T) {
+	root, _ := chatTree(t)
+	if err := os.MkdirAll(filepath.Join(root, "X.app", "Contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realRoot, _ := filepath.EvalSymlinks(root)
+	dir := filepath.Join(realRoot, "docs")
+	app := filepath.Join(realRoot, "X.app")
+	file := filepath.Join(realRoot, "docs", "plan.md")
+	for _, c := range []struct {
+		goos, token string
+		want        call
+	}{
+		{"darwin", "docs", call{"open", []string{"-R", dir}}},
+		{"darwin", "X.app", call{"open", []string{"-R", app}}},
+		{"darwin", "docs/plan.md", call{"open", []string{"-R", file}}},
+		{"windows", "docs", call{"explorer", []string{"/select," + dir}}},
+		{"windows", "X.app", call{"explorer", []string{"/select," + app}}},
+		{"windows", "docs/plan.md", call{"explorer", []string{"/select," + file}}},
+		{"linux", "docs", call{"xdg-open", []string{dir}}},
+		{"linux", "X.app", call{"xdg-open", []string{app}}},
+	} {
+		rec := &recorder{}
+		if err := revealChatPath(rec.opener(c.goos), root, c.token); err != nil {
+			t.Fatalf("%s %s: %v", c.goos, c.token, err)
+		}
+		if len(rec.starts) != 1 || len(rec.runs) != 0 || !reflect.DeepEqual(rec.starts[0], c.want) {
+			t.Errorf("%s %s: got %+v / %+v, want %+v", c.goos, c.token, rec.starts, rec.runs, c.want)
+		}
+	}
+	// reveal is handed a directory that is gone or is a file by the time it
+	// runs (Linux): it opens the parent folder, never the stale path.
+	rec := &recorder{}
+	if err := recImpl(rec).reveal(file, true); err != nil || rec.starts[0].args[0] != filepath.Dir(file) {
+		t.Fatalf("file passed as dir: %v %+v", err, rec.starts)
+	}
+	rec = &recorder{}
+	if err := recImpl(rec).reveal(filepath.Join(realRoot, "gone"), true); err != nil || rec.starts[0].args[0] != realRoot {
+		t.Fatalf("missing dir: %v %+v", err, rec.starts)
+	}
+}
+
+func recImpl(r *recorder) chatOpener { return r.opener("linux") }

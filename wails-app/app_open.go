@@ -245,17 +245,15 @@ func (o chatOpener) reveal(p string, isDir bool) error {
 	}
 	switch o.goos {
 	case "darwin":
-		if isDir {
-			return o.start("open", p)
-		}
+		// Always reveal: "open <dir>" launches a .app bundle, which is a directory.
 		return o.start("open", "-R", p)
 	case "windows":
-		if isDir {
-			return o.start("explorer", p)
-		}
+		// /select, shows the item (file, folder, bundle-like) in its parent
+		// without entering or running it; "explorer <dir>" would.
 		return o.start("explorer", "/select,"+p)
 	default:
-		if isDir {
+		// Re-checked here: only something that still is a folder goes to xdg-open.
+		if fi, err := os.Stat(p); isDir && err == nil && fi.IsDir() {
 			return o.start("xdg-open", p)
 		}
 		if _, err := o.lookPath("dbus-send"); err == nil {
