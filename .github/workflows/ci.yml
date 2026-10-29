@@ -21,13 +21,63 @@ concurrency:
 permissions:
   contents: read
 
+# Runner routing. Jobs that need no sudo, apt, Chrome or docker run on the
+# self-hosted runners named by the repository variable CI_RUNNER (a JSON array
+# of labels), using
+#   runs-on: ${{ fromJSON(<fork PR> && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+# A fork PR never targets self-hosted runners; an unset or empty CI_RUNNER falls
+# back to ubuntu-latest. KILL SWITCH: delete the CI_RUNNER variable (or set it to
+# "ubuntu-latest", quotes included) and every job runs on hosted runners again.
+# Everything else (apt, Chrome, macOS/Windows) stays on its hosted OS.
+#
+# Path trimming. The `changes` job (.github/scripts/ci-changes.sh) works out
+# which job groups a pull request can affect; push to master, and any change to
+# a workflow, this script or go.mod/go.sum, runs everything. KILL SWITCH for
+# trimming: set the repository variable CI_TRIM to `off` and every pull request
+# runs everything too.
+
 jobs:
+  # Which parts of the repository a change touches. A plain `git diff --name-only`
+  # against the PR base, no third-party action. Only pull requests are trimmed:
+  # push to master (the release guard needs a full green run) reports everything
+  # as changed. If the diff cannot be computed the result is also "everything".
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.c.outputs.go }}
+      wails: ${{ steps.c.outputs.wails }}
+      extension: ${{ steps.c.outputs.extension }}
+      nosocial: ${{ steps.c.outputs.nosocial }}
+      account: ${{ steps.c.outputs.account }}
+      docs_only: ${{ steps.c.outputs.docs_only }}
+      ci_workflow: ${{ steps.c.outputs.ci_workflow }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compute changed paths
+        id: c
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_TRIM: ${{ vars.CI_TRIM }}
+        run: |
+          files=""
+          if [ "$EVENT" = pull_request ] && [ "$CI_TRIM" != off ]; then
+            # An empty list (fetch or diff failed) means "everything" to the script.
+            if git fetch --no-tags --depth=1 origin "$BASE_SHA" 2>/dev/null; then
+              files="$(git diff --name-only "$BASE_SHA" HEAD || true)"
+            fi
+          fi
+          echo "changed files:"; echo "$files"
+          printf '%s\n' "$files" | bash .github/scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+
   # Guards MA-04: .mcp.json must pin an exact Monomind version. A floating
   # `@latest`/caret/tilde reference means a future, unreviewed package
   # publish executes locally the next time this repo's MCP server starts.
   mcp-pin-guard:
     name: Guard .mcp.json version pin
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Reject floating Monomind version
@@ -48,6 +98,8 @@ jobs:
   # error for users. See docs/plans/local-agent-monomind-delegation.md §11.
   monomind-smoke:
     name: Monomind integration smoke test
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,6 +189,8 @@ jobs:
   # and not for signed-in users. It must pass before release R.
   account-smoke:
     name: Account gate smoke (devaccount)
+    needs: changes
+    if: needs.changes.outputs.account == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -166,6 +220,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Test the CI path rules
+        run: bash .github/scripts/ci-changes_test.sh
       - name: Test the release guard
         run: bash scripts/check-release-tags-test.sh
       - name: Test the rollout guard
@@ -184,7 +240,9 @@ jobs:
   # above for why this repo never runs an unpinned npm package in CI.
   openapi-lint:
     name: Validate HTTP API OpenAPI spec
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -198,7 +256,9 @@ jobs:
   # dependencies and no install step.
   extension-test:
     name: Chrome extension
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.extension == 'true'
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -227,7 +287,9 @@ jobs:
   # Scheduled + on-push dependency vulnerability scanning (MA-06/MA-11).
   vuln-scan:
     name: Vulnerability scan
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -255,7 +317,9 @@ jobs:
   # review. Not a gate yet; pinned like every other tool.
   staticcheck:
     name: staticcheck (informational)
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -276,7 +340,9 @@ jobs:
   # hand-written and are not touched by this check.
   schemagen-check:
     name: Generated node schemas up to date
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -295,7 +361,11 @@ jobs:
   # below stay the checks that gate a merge: they need every shard.
   test-shards:
     name: Test shard (${{ matrix.tags }} ${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    needs: changes
+    # A job-level `if` cannot see the matrix, so the nosocial cells are skipped
+    # step by step (a skipped cell still reports green after a few seconds).
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     strategy:
       fail-fast: false
       matrix:
@@ -311,12 +381,15 @@ jobs:
           - { tags: nosocial, shard: r3 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: matrix.tags == 'default' || needs.changes.outputs.nosocial == 'true'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.tags == 'default' || needs.changes.outputs.nosocial == 'true'
         with:
           go-version-file: go.mod
 
       - name: Test
+        if: matrix.tags == 'default' || needs.changes.outputs.nosocial == 'true'
         env:
           SHARD: ${{ matrix.shard }}
           TAGS: ${{ matrix.tags }}
@@ -348,19 +421,32 @@ jobs:
   # CGO_ENABLED=1 works for modernc.org/sqlite and everything else we use.
   test:
     name: Build & test (default)
-    needs: test-shards
-    runs-on: ubuntu-latest
+    needs: [changes, test-shards]
+    # Always reports (a skipped test-shards is a pass, a failed one fails the
+    # first step), so the merge gate never waits on a trimmed job.
+    if: ${{ !cancelled() }}
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     steps:
+      - name: Fail if a test shard failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::a job this one needs failed or was cancelled"
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.go == 'true'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.go == 'true'
         with:
           go-version-file: go.mod
 
       - name: Build
+        if: needs.changes.outputs.go == 'true'
         run: go build ./...
 
       - name: Vet
+        if: needs.changes.outputs.go == 'true'
         run: go vet ./...
 
       # CLAUDE.md lists `gofmt -l .` as a check, but nothing enforced it, so
@@ -368,6 +454,7 @@ jobs:
       # the whole check: gofmt -l prints the offenders and exits 0 either way,
       # so the emptiness of its output is what has to be asserted.
       - name: Formatting
+        if: needs.changes.outputs.go == 'true'
         run: |
           unformatted="$(gofmt -l . | grep -v '^wails-app/frontend/node_modules/' || true)"
           if [ -n "$unformatted" ]; then
@@ -391,6 +478,8 @@ jobs:
   # already runs this package under -race.
   account-os:
     name: Account package (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.account == 'true'
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     strategy:
@@ -415,19 +504,30 @@ jobs:
   # (-tags nosocial) build compiling and passing.
   test-nosocial:
     name: Build & test (nosocial)
-    needs: test-shards
-    runs-on: ubuntu-latest
+    needs: [changes, test-shards]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
     steps:
+      - name: Fail if a test shard failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::a job this one needs failed or was cancelled"
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.go == 'true'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.go == 'true'
         with:
           go-version-file: go.mod
 
       - name: Build
+        if: needs.changes.outputs.go == 'true'
         run: go build -tags nosocial ./...
 
       - name: Vet
+        if: needs.changes.outputs.go == 'true'
         run: go vet -tags nosocial ./...
 
       - name: Test
@@ -440,6 +540,8 @@ jobs:
   # (24.04) has no webkit2gtk-4.0 dev package.
   wails:
     name: Wails GUI module
+    needs: changes
+    if: needs.changes.outputs.wails == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
