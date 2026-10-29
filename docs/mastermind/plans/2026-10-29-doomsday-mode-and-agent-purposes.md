@@ -45,7 +45,7 @@ A1 store + CLI + resolver used by `staffModel` (tests: set respected, outside th
 
 | | Mission | Doomsday |
 |---|---|---|
-| Ends | when the plan is done and the operator closes it | only by Stop (optionally: the judge proposes "goal met" and the boss switches to watch mode) |
+| Ends | when the plan is done and the operator closes it | by Stop, or when every success criterion of the charter is verified by an independent verifier (D2); otherwise never |
 | Questions | person items for giant work, ask the person | **never a person**: every question goes up the chain to the boss agent, who always answers |
 | Limits | operator-set, hard caps (depth 4, 12 live sessions) | operator-set **in a charter**, each one can be "unbounded" |
 | Approval | operator, or a lead below the root | the boss; no human approval |
@@ -84,8 +84,11 @@ B0 spec and independent security review of the charter and Stop. B1 charter + en
 - **Cost.** "No budget" is allowed; the live meter and hourly notice are there so it is visible, not a gate.
 - **Provider limits and account safety.** Unbounded fan-out against one provider hits rate limits or terms; the governor backs off.
 
-## 4. Open decisions
-1. Which charter lines are **default ticked** in the "everything" preset, and does "everything" include outbound actions to third parties and the vault?
-2. When the judge says the goal is met: keep running in watch mode, or stay strictly never-ending?
-3. Depth ceiling: allow up to what (suggest 8)? Concurrency default (suggest from the machine: min(cores, 8))?
-4. Does Part A ship first and alone (my recommendation)?
+## 4. Decisions (settled by the user, 2026-10-29)
+
+- **D1 The "everything" preset includes outbound actions to third parties and vault access.** One click ticks every charter line, those two included. They stay separate lines in the charter (so the operator can untick one), and the entry dialog names each lifted line in plain words before the typed confirmation.
+- **D2 Finishing is possible only on a fully verified goal.** The charter must carry the goal's **success criteria** (machine-checkable where possible: a command, a test, a file, an exact output; otherwise a rubric). The boss may end the mode only when an independent verifier (a model different from the one that did the work, from the "judging" purpose) has checked the evidence of **every** criterion and none is open or failing. Anything short of that, or a goal with no criteria, never finishes: the loop continues for as long as it takes. Stop still ends it at any time.
+- **D3 Defaults: depth 4, concurrency 30, both chosen by the operator in the charter.** The code ceiling for depth is an operator sanity limit (assumed 12; say if you want another). Concurrency 30 is a **cap**, not a promise: the resource governor (section 2.5) runs fewer when the machine is loaded, because 30 simultaneous agents on this machine reproduces the load that crashed it earlier. Width beyond 30 queues.
+- **D4 Part A (agent purposes) ships first and alone**, as its own PRs, before any doomsday work.
+
+Still open: none that block Part A. For Part B: the depth sanity ceiling above, and whether the verifier's "different model" rule may fall back to the same model when only one validated model exists (assumed: it may, and the ledger records that it did).
