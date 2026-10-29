@@ -8,9 +8,10 @@ import (
 	"strings"
 )
 
-// MaxOpenChildren is how many open (draft, running or paused) child sessions one session holds: the
-// coder host's default max_children for a spawning session.
-const MaxOpenChildren = 4
+// MaxOpenChildren is how many open (draft, running or paused) child sessions one session holds: a
+// fence for an agent that starts sessions through the store, equal to the coder host's live-session
+// cap per tree. The host's finer, operator-raisable max_children is enforced where it spawns.
+const MaxOpenChildren = 12
 
 // ChildSharePct is the share of what a parent has left that a child gets when it names no budget:
 // the coder host's default mission share_pct.

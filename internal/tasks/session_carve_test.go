@@ -35,7 +35,7 @@ func TestChildrenShareTheParentsBudgetAndAreBounded(t *testing.T) {
 	s, _, _ := newTestStore(t)
 	p, lead := carveParent(t, s, 10)
 	var refused error
-	for i := 0; i < 6; i++ {
+	for i := 0; i < MaxOpenChildren+2; i++ {
 		if _, err := s.CreateSession(bg, "default", SessionInput{Title: "kid", ParentSessionID: p.ID}, lead); err != nil {
 			refused = err
 			break

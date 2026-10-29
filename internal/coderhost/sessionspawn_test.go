@@ -475,7 +475,9 @@ func TestASpawnedSessionIsNotGiantByDefault(t *testing.T) {
 	if se.MaxTasks != MaxSpawnedSessionTasks || se.AccessLevel != f.se.AccessLevel {
 		t.Fatalf("task session = %+v", se)
 	}
-	// with a budget: the default share is 20 percent of what the lead's session has left, and 40 percent is the most
+	// with a budget: the default share is 20 percent of what the lead's session has left, and 40 percent is the most.
+	// A fresh tree: an unbudgeted child made before the parent had a budget is capped to what is left when it gets one.
+	f = newMC(t, true)
 	bud := 10.0
 	if _, err := f.ts.UpdateSession(context.Background(), "p", f.se.ID, tasks.SessionUpdate{BudgetUSD: &bud}, opActor); err != nil {
 		t.Fatal(err)
