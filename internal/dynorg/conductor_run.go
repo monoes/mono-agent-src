@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/agentroster"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -316,18 +317,21 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	}
 	c.mu.Unlock()
 	if w.task != nil {
-		// a mission worker is also capped by what its session has left (the operator's budget)
-		left, bounded, err := c.missionExecCap(ctx, w)
+		// a mission worker is also capped by what its session has left (the operator's budget):
+		// the cap is reserved, so a child session cannot be carved out of it while the worker runs
+		granted, err := c.missionReserve(ctx, w, opts.BudgetUSD)
 		if err != nil {
 			return nil, err
 		}
-		if bounded {
-			if left <= 0 {
-				return nil, fmt.Errorf("%w: the mission's budget is spent", errBudgetRefused)
-			}
-			if opts.BudgetUSD <= 0 || left < opts.BudgetUSD {
-				opts.BudgetUSD = left
-			}
+		if mc, err := c.missions(); err == nil {
+			defer func() {
+				sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+				defer cancel()
+				c.settleReserve(sctx, mc, w)
+			}()
+		}
+		if granted > 0 {
+			opts.BudgetUSD = granted
 		}
 	}
 	opts.SystemPrompt = workerSystemPrompt(w.staff, dir, w.files, c.spawnsOn(w, m, opts.Access)) + c.profileSection() + c.worktreeRule(w) + missionRule(w)

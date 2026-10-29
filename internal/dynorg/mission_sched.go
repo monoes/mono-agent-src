@@ -131,8 +131,9 @@ type missionBind struct {
 
 	// spendMu serializes durable charges from streaming, watcher and finish
 	// callbacks. spent advances only after the corresponding write commits.
-	spendMu sync.Mutex
-	spent   float64
+	spendMu  sync.Mutex
+	spent    float64
+	reserved float64 // what the session still holds reserved for this worker (ReserveSpend), settled as its cost is recorded
 
 	// guarded by missionState.mu
 	stopped      string    // why the mission ended the run ("" = it was not)
