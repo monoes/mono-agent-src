@@ -66,6 +66,7 @@ type Host struct {
 	MissionChildEvery time.Duration
 	lastMissionPass   time.Time
 	chargeCursor      int64               // the sweep of uncharged ended rows resumes after this row id
+	snapshotCursor    int64               // the sweep of unanswered spend snapshots resumes after this event id
 	orphanSeen        map[string]bool     // orphaned carves already reported; Tick only
 	leadFacts         map[string]leadFact // what one pass read about each lead; Tick only
 

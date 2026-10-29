@@ -137,6 +137,8 @@ type OperatorOverview struct {
 	Enabled  bool       `json:"missionChildrenEnabled"` // the operator's switch; off = no new child session starts
 	Policies []Policy   `json:"policies"`
 	Children []ChildRow `json:"children"`
+	// Unresolved are the children whose cost nobody knows: the person ends each with `resolve-charge` (the note names the conversation).
+	Unresolved []MissionEvent `json:"unresolved,omitempty"`
 }
 
 // OverviewOf reads the profile's stored policies and child rows.
@@ -174,5 +176,19 @@ func (s *Store) OverviewOf(profileID string) (OperatorOverview, error) {
 	if kids != nil {
 		out.Children = kids
 	}
-	return out, nil
+	ur, err := s.db.Query(`SELECT u.id, u.session_id, u.task_id, u.kind, u.who, u.note, u.at FROM coder_mission_events u WHERE u.profile_id = ? AND u.kind = ?
+		AND NOT EXISTS (SELECT 1 FROM coder_mission_events c WHERE c.profile_id = u.profile_id AND c.session_id = u.session_id AND c.kind = 'charge'
+			AND substr(c.note, 1, instr(u.note, ' ')) = substr(u.note, 1, instr(u.note, ' '))) ORDER BY u.id`, profileID, unresolvedKind)
+	if err != nil {
+		return out, err
+	}
+	defer ur.Close()
+	for ur.Next() {
+		var e MissionEvent
+		if err := ur.Scan(&e.ID, &e.SessionID, &e.TaskID, &e.Kind, &e.Who, &e.Note, &e.At); err != nil {
+			return out, err
+		}
+		out.Unresolved = append(out.Unresolved, e)
+	}
+	return out, ur.Err()
 }

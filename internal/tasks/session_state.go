@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -283,6 +284,30 @@ func (s *Store) AddSessionSpend(ctx context.Context, profileID string, id int64,
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
 		return s.applySpend(ctx, x, id, usd, note, actor)
+	})
+}
+
+// Tx is the transaction AddSessionSpendWith hands its callback: the one the spend is written in.
+type Tx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// AddSessionSpendWith is AddSessionSpend with a record written in the same transaction: also runs after the meter
+// is updated and, if it fails, the spend is rolled back with it. A caller that must record "this was charged"
+// exactly once uses it, so the meter and the record are never apart.
+func (s *Store) AddSessionSpendWith(ctx context.Context, profileID string, id int64, usd float64, note string, actor Actor, also func(ctx context.Context, x Tx) error) (Session, error) {
+	if actor.Kind != Human {
+		return Session{}, operatorOnly("record a session's spend")
+	}
+	if !finite(usd) || usd <= 0 {
+		return Session{}, invalid("spend is an amount in dollars above 0")
+	}
+	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		if err := s.applySpend(ctx, x, id, usd, note, actor); err != nil {
+			return err
+		}
+		return also(ctx, x)
 	})
 }
 

@@ -20,6 +20,11 @@ type Querier interface {
 // Kind is the audit row ("coder_mission_events.kind") that holds a deleted child's spend until the host charges it.
 const Kind = "spend"
 
+// ChargeKind is the audit row that says a child's spend is on the mission's meter. A deleted child that had spent
+// nothing needs no charge: the snapshot writes this row itself (with the note "<conversation> $0.000000 ..."), so
+// the task is free to be marked again at once.
+const ChargeKind = "charge"
+
 // Note is the text of that row: "<conversation> $<usd>".
 func Note(conversationID string, usd float64) string {
 	return fmt.Sprintf("%s $%.6f", conversationID, usd)
@@ -112,33 +117,55 @@ func Spent(q Querier, profileID, conversationID string) (float64, error) {
 
 // Snapshot records the spend of a mission child's conversation, to be called inside the transaction that deletes
 // the conversation (conn is that transaction's connection), before its usage events and turn caps are removed.
+// The conversation is a mission child's when a row names it as its child OR as its pending conversation: the
+// first message of a spawn is queued before the lead links the child, so a conversation can run, and be deleted,
+// while the row still knows it only as pending (review of the launcher, third round, P1-1).
 // It does nothing for a conversation that is no mission child's, or whose spend is already charged or recorded,
 // so running it twice writes one row. An error aborts the delete.
 func Snapshot(ctx context.Context, conn *sql.Conn, profileID, conversationID string) error {
-	var sid, tid int64
-	err := conn.QueryRowContext(ctx, `SELECT session_id, task_id FROM coder_mission_children WHERE profile_id = ? AND child_conversation_id = ?`,
-		profileID, conversationID).Scan(&sid, &tid)
-	if err == sql.ErrNoRows {
-		return nil
-	}
+	type owner struct{ sid, tid int64 }
+	var owners []owner
+	rows, err := conn.QueryContext(ctx, `SELECT session_id, task_id FROM coder_mission_children WHERE profile_id = ? AND (child_conversation_id = ? OR pending_conversation_id = ?)`,
+		profileID, conversationID, conversationID)
 	if err != nil {
 		return err
 	}
-	var n int
-	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind IN ('charge', 'spend')
-		AND substr(note, 1, ?) = ?`, profileID, sid, len(conversationID)+1, conversationID+" ").Scan(&n); err != nil {
-		return err
+	for rows.Next() {
+		var o owner
+		if err := rows.Scan(&o.sid, &o.tid); err != nil {
+			rows.Close()
+			return err
+		}
+		owners = append(owners, o)
 	}
-	if n > 0 {
-		return nil
+	err = rows.Err()
+	rows.Close()
+	if err != nil || len(owners) == 0 {
+		return err
 	}
 	spent, err := Spent(connQuerier{ctx, conn}, profileID, conversationID)
 	if err != nil {
 		return err
 	}
-	_, err = conn.ExecContext(ctx, `INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at)
-		VALUES (?, ?, ?, ?, 'host', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`, profileID, sid, tid, Kind, Note(conversationID, spent))
-	return err
+	for _, o := range owners {
+		var n int
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind IN ('charge', 'spend')
+			AND substr(note, 1, ?) = ?`, profileID, o.sid, len(conversationID)+1, conversationID+" ").Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		kind, note := Kind, Note(conversationID, spent)
+		if spent == 0 {
+			kind, note = ChargeKind, note+" nothing to charge: it had spent nothing when it was deleted"
+		}
+		if _, err := conn.ExecContext(ctx, `INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at)
+			VALUES (?, ?, ?, ?, 'host', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`, profileID, o.sid, o.tid, kind, note); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // connQuerier lets the spend computation read through the delete's connection.

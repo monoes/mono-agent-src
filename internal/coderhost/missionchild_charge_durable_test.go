@@ -24,7 +24,7 @@ func (f *hostFix) deleteChild(t *testing.T, conv string, withSnapshot bool) {
 		t.Fatal(err)
 	}
 	if !withSnapshot {
-		if _, err := f.st.db.Exec(`DELETE FROM coder_mission_events WHERE kind = 'spend' AND substr(note, 1, ?) = ?`, len(conv)+1, conv+" "); err != nil {
+		if _, err := f.st.db.Exec(`DELETE FROM coder_mission_events WHERE kind IN ('spend', 'charge') AND substr(note, 1, ?) = ?`, len(conv)+1, conv+" "); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -70,17 +70,20 @@ func TestADeletedChildIsStillChargedWhatItSpent(t *testing.T) {
 	}
 }
 
-func TestADeletedChildWhoseSpendWasNotRecordedIsNotChargedZero(t *testing.T) {
+func TestADeletedChildWhoseSpendWasNotRecordedIsNotChargedZeroOrGuessed(t *testing.T) {
 	f := newHostFix(t)
 	conv := f.endedChild(t, 0, 1.25) // wish 4
 	f.deleteChild(t, conv, false)
 	f.h.missionChildPass()
 	f.h.missionChildPass()
-	if got := f.missionSpent(t); got != 4 {
-		t.Fatalf("mission spent = %v, want the child's budget (4) as the conservative figure", got)
+	if got := f.missionSpent(t); got != 0 {
+		t.Fatalf("mission spent = %v: an unknown cost was guessed", got)
 	}
-	if ev := f.eventsOfKind(t, "charge"); len(ev) != 1 || !strings.Contains(ev[0], "assumed") {
-		t.Fatalf("charge row = %v: the assumption must be written down", ev)
+	if ev := f.eventsOfKind(t, "charge"); len(ev) != 0 {
+		t.Fatalf("charge rows = %v: an unknown cost was settled", ev)
+	}
+	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 || !strings.HasPrefix(ev[0], conv+" $4.000000 unresolved") {
+		t.Fatalf("unresolved rows = %v: the row's budget (4) is the hold", ev)
 	}
 }
 

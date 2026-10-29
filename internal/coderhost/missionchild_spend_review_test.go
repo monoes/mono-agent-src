@@ -42,8 +42,8 @@ func TestADeleteWhoseSnapshotFailsIsRolledBack(t *testing.T) {
 	}
 }
 
-// A wish is any finite number: the assumed charge never exceeds what the mission has left of its budget.
-func TestTheAssumedChargeIsBoundedByTheMissionsRemainingBudget(t *testing.T) {
+// A wish is any finite number: it is held, never charged, so it cannot push the meter past the mission's budget.
+func TestAnUnresolvedChildsHoldIsNeverCharged(t *testing.T) {
 	f := newHostFix(t)
 	conv := f.endedChild(t, 0, 1)
 	if _, err := f.st.db.Exec(`UPDATE coder_mission_children SET budget_usd = 1000000000 WHERE child_conversation_id = ?`, conv); err != nil {
@@ -55,23 +55,19 @@ func TestTheAssumedChargeIsBoundedByTheMissionsRemainingBudget(t *testing.T) {
 	}
 	f.h.missionChildPass()
 	f.h.missionChildPass()
-	if got := f.missionSpent(t); got != 10 {
-		t.Fatalf("mission spent = %v, want 10 (2 + the 8 left)", got)
+	if got := f.missionSpent(t); got != 2 {
+		t.Fatalf("mission spent = %v, want 2: the hold must not be charged", got)
 	}
-	if ev := f.eventsOfKind(t, "charge"); len(ev) != 1 || !strings.Contains(ev[0], "assumed") {
-		t.Fatalf("charge row = %v", ev)
+	if why, _ := missionBudgetRefusal(f.st.db, "p", f.se.ID, f.lead.ConversationID, 0.1); why == "" {
+		t.Fatal("the hold did not refuse a new carve")
 	}
 }
 
-// A row that recorded no budget is charged the share the mission would have given it, not nothing.
-func TestAnAssumedChargeForARowWithoutABudgetUsesTheDerivedShare(t *testing.T) {
+// A row that recorded no budget holds the share the mission would have given it, not nothing.
+func TestAnUnresolvedChildWithoutABudgetHoldsTheDerivedShare(t *testing.T) {
 	f := newHostFix(t)
 	conv := f.endedChild(t, 0, 1)
 	if _, err := f.st.db.Exec(`UPDATE coder_mission_children SET budget_usd = 0 WHERE child_conversation_id = ?`, conv); err != nil {
-		t.Fatal(err)
-	}
-	pol, err := f.st.GetPolicy("p", f.se.ID)
-	if err != nil {
 		t.Fatal(err)
 	}
 	want, err := f.st.DefaultChildBudget("p", f.se.ID)
@@ -81,17 +77,17 @@ func TestAnAssumedChargeForARowWithoutABudgetUsesTheDerivedShare(t *testing.T) {
 	f.deleteChild(t, conv, false)
 	f.h.missionChildPass()
 	f.h.missionChildPass()
-	got := f.missionSpent(t)
-	if want > 0 && got != want {
-		t.Fatalf("mission spent = %v, want the derived share %v (policy %+v)", got, want, pol)
+	if got := f.missionSpent(t); got != 0 {
+		t.Fatalf("mission spent = %v", got)
 	}
-	if ev := f.eventsOfKind(t, "charge"); len(ev) != 1 || !(strings.Contains(ev[0], "assumed") || strings.Contains(ev[0], "spend unknown")) {
-		t.Fatalf("charge row = %v: the gap must be written down", ev)
+	ev := f.eventsOfKind(t, "unresolved")
+	if len(ev) != 1 || (want > 0 && !strings.HasPrefix(ev[0], fmt.Sprintf("%s $%.6f unresolved", conv, want))) {
+		t.Fatalf("unresolved rows = %v, want a hold of the derived share %v", ev, want)
 	}
 }
 
 // The note also covers a row that ended some other way before its conversation went.
-func TestAnEndedRowWhoseConversationWasBypassDeletedIsNotChargedInSilence(t *testing.T) {
+func TestAnEndedRowWhoseConversationWasBypassDeletedIsNotSettledInSilence(t *testing.T) {
 	f := newHostFix(t)
 	rv := &fakeRevoker{err: fmt.Errorf("db busy")}
 	f.h.ChildTokens = rv
@@ -105,11 +101,11 @@ func TestAnEndedRowWhoseConversationWasBypassDeletedIsNotChargedInSilence(t *tes
 	rv.err = nil
 	rv.mu.Unlock()
 	f.h.missionChildPass()
-	if ev := f.eventsOfKind(t, "charge"); len(ev) != 1 || !(strings.Contains(ev[0], "assumed") || strings.Contains(ev[0], "spend unknown")) {
-		t.Fatalf("charge row = %v: a bypass-deleted ended row was charged without a note", ev)
+	if ev := f.eventsOfKind(t, "charge"); len(ev) != 0 {
+		t.Fatalf("charge rows = %v: a bypass-deleted ended row was settled without a cost", ev)
 	}
-	if got := f.missionSpent(t); got <= 0 {
-		t.Fatalf("mission spent = %v: an ended child with 1.25 of usage was charged nothing", got)
+	if ev := f.eventsOfKind(t, "unresolved"); len(ev) != 1 {
+		t.Fatalf("unresolved rows = %v", ev)
 	}
 }
 
@@ -117,7 +113,7 @@ func TestAnEndedRowWhoseConversationWasBypassDeletedIsNotChargedInSilence(t *tes
 func TestAGoneRowThatNeverStartedIsChargedNothingAndSaysSo(t *testing.T) {
 	f := newHostFix(t)
 	conv := f.endedChild(t, 0, 0)
-	if _, err := f.st.db.Exec(`UPDATE coder_mission_children SET spawned_at = '' WHERE child_conversation_id = ?`, conv); err != nil {
+	if _, err := f.st.db.Exec(`UPDATE coder_mission_children SET spawned_at = '', pending_conversation_id = '' WHERE child_conversation_id = ?`, conv); err != nil {
 		t.Fatal(err)
 	}
 	f.deleteChild(t, conv, false)
