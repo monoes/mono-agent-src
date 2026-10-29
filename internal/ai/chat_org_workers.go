@@ -29,6 +29,11 @@ type OrgWorker struct {
 	Report     string   `json:"report,omitempty"`
 	Outcome    string   `json:"outcome,omitempty"`
 	AllowSpawn bool     `json:"allow_spawn,omitempty"`
+	// Builtin and Purposes are what the purpose sets saw at staffing (migration
+	// 145): whether the role was built-in, and the purposes that limited it
+	// (comma-separated). A row from an older build has neither.
+	Builtin   bool   `json:"builtin,omitempty"`
+	Purposes  string `json:"purposes,omitempty"`
 	UpdatedAt  string   `json:"updated_at"`
 }
 
@@ -48,20 +53,25 @@ func (s *AIStore) SaveOrgWorker(profileID, conversationID string, w OrgWorker) e
 	if w.AllowSpawn {
 		allow = 1
 	}
+	builtin := 0
+	if w.Builtin {
+		builtin = 1
+	}
 	_, err := s.db.Exec(`INSERT INTO ai_chat_org_workers
 		(profile_id, conversation_id, agent_id, parent_id, turn_id, role, agent_type, category, access, skills,
-		 runtime, model, effort, session_id, cwd, report, outcome, allow_spawn, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 runtime, model, effort, session_id, cwd, report, outcome, allow_spawn, builtin, purposes, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(conversation_id, agent_id) DO UPDATE SET
 		parent_id = excluded.parent_id, turn_id = excluded.turn_id, role = excluded.role, agent_type = excluded.agent_type,
 		category = excluded.category, access = excluded.access, skills = excluded.skills, runtime = excluded.runtime,
 		model = excluded.model, effort = excluded.effort,
 		session_id = CASE WHEN excluded.session_id = '' THEN ai_chat_org_workers.session_id ELSE excluded.session_id END,
 		cwd = excluded.cwd,
-		report = CASE WHEN excluded.report = '' THEN ai_chat_org_workers.report ELSE excluded.report END, outcome = excluded.outcome, allow_spawn = excluded.allow_spawn, updated_at = excluded.updated_at
+		report = CASE WHEN excluded.report = '' THEN ai_chat_org_workers.report ELSE excluded.report END, outcome = excluded.outcome, allow_spawn = excluded.allow_spawn,
+		builtin = excluded.builtin, purposes = excluded.purposes, updated_at = excluded.updated_at
 		WHERE profile_id = excluded.profile_id`,
 		profileID, conversationID, w.AgentID, w.ParentID, w.TurnID, w.Role, w.AgentType, w.Category, w.Access, string(skills),
-		w.Runtime, w.Model, w.Effort, w.SessionID, w.Cwd, w.Report, w.Outcome, allow,
+		w.Runtime, w.Model, w.Effort, w.SessionID, w.Cwd, w.Report, w.Outcome, allow, builtin, w.Purposes,
 		time.Now().UTC().Format(orgWorkerTime))
 	if err != nil {
 		return fmt.Errorf("save org worker %s: %w", w.AgentID, err)
@@ -79,7 +89,7 @@ func (s *AIStore) ListOrgWorkers(profileID, conversationID string, limit int) ([
 		limit = -1
 	}
 	rows, err := s.db.Query(`SELECT agent_id, parent_id, turn_id, role, agent_type, category, access, skills,
-		runtime, model, effort, session_id, cwd, report, outcome, allow_spawn, updated_at
+		runtime, model, effort, session_id, cwd, report, outcome, allow_spawn, builtin, purposes, updated_at
 		FROM ai_chat_org_workers WHERE profile_id = ? AND conversation_id = ?
 		ORDER BY updated_at DESC, agent_id DESC LIMIT ?`, profileID, conversationID, limit)
 	if err != nil {
@@ -90,13 +100,13 @@ func (s *AIStore) ListOrgWorkers(profileID, conversationID string, limit int) ([
 	for rows.Next() {
 		var w OrgWorker
 		var skills string
-		var allow int
+		var allow, builtin int
 		if err := rows.Scan(&w.AgentID, &w.ParentID, &w.TurnID, &w.Role, &w.AgentType, &w.Category, &w.Access, &skills,
-			&w.Runtime, &w.Model, &w.Effort, &w.SessionID, &w.Cwd, &w.Report, &w.Outcome, &allow, &w.UpdatedAt); err != nil {
+			&w.Runtime, &w.Model, &w.Effort, &w.SessionID, &w.Cwd, &w.Report, &w.Outcome, &allow, &builtin, &w.Purposes, &w.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("read org worker: %w", err)
 		}
 		_ = json.Unmarshal([]byte(skills), &w.Skills)
-		w.AllowSpawn = allow != 0
+		w.AllowSpawn, w.Builtin = allow != 0, builtin != 0
 		out = append(out, w)
 	}
 	if err := rows.Err(); err != nil {

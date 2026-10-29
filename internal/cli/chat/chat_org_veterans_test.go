@@ -40,6 +40,8 @@ func TestDynamicOrgVeteranResumesInTheNextTurn(t *testing.T) {
 	if w := kept[0]; w.AgentID != "w1" || w.SessionID != "th_worker" || w.Cwd != cwd || w.Runtime != "claude" || w.Model != "opus" ||
 		w.Role != "Researcher" || w.TurnID != "turn-1" || w.Report != "The cache is in cache.go." {
 		t.Errorf("kept w1 = %+v", w)
+	} else if !w.Builtin || w.Purposes != "research" {
+		t.Errorf("the purpose record wasn't kept with w1: builtin %v, purposes %q", w.Builtin, w.Purposes)
 	}
 
 	t.Setenv("ORG_LEAD_CALL", `{"v":1,"type":"tool_call","id":"c1","name":"org_message","args":{"agent_id":"w1","text":"and where is it evicted?"}}`)

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 )
 
@@ -38,6 +39,11 @@ type Veteran struct {
 	Report     string
 	Outcome    string
 	AllowSpawn bool
+	// Builtin and Purposes are what the purpose sets saw when it was staffed:
+	// whether the role was built-in, and the purposes whose sets limited it
+	// (comma-separated). A veteran kept without them is unmapped.
+	Builtin  bool
+	Purposes string
 }
 
 // remember hands w to Config.Remember once a run of it ended: only a
@@ -55,6 +61,7 @@ func (c *Conductor) keep(w *worker, force bool) {
 		ID: w.id, ParentID: parentID(w), Role: w.staff.Role, AgentType: w.staff.AgentType, Category: w.staff.Category,
 		Access: w.staff.Access, Runtime: w.model.Runtime, Model: w.model.Model, Effort: w.staff.Effort,
 		Session: w.session, Cwd: w.cwd, Report: w.report, Outcome: w.status, AllowSpawn: w.allowSpawn,
+		Builtin: w.staff.Builtin, Purposes: strings.Join(w.staff.sides, ","),
 	}
 	for _, s := range w.staff.Skills {
 		v.Skills = append(v.Skills, s.Name)
@@ -96,7 +103,10 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 			}
 		}
 		model, ready := c.veteranModel(v)
-		st := Staff{Role: v.Role, AgentType: v.AgentType, Category: v.Category, Access: v.Access, Effort: v.Effort, Model: model}
+		st := Staff{Role: v.Role, AgentType: v.AgentType, Category: v.Category, Access: v.Access, Effort: v.Effort, Model: model, Builtin: v.Builtin}
+		if v.Purposes != "" {
+			st.sides = strings.Split(v.Purposes, ",")
+		}
 		for _, s := range v.Skills {
 			st.Skills = append(st.Skills, Skill{Name: s})
 		}
@@ -165,6 +175,38 @@ func (c *Conductor) veteranBlockedLocked(w *worker) error {
 		return fmt.Errorf("%s can't run confined any more (%s); spawn a new sub-worker", w.id, w.model.Key())
 	case c.cfg.Staffer.fitAccess(w.staff.Access) != w.staff.Access:
 		return fmt.Errorf("%s works with %s access, which the user turned off (app access); spawn a new worker", w.id, w.staff.Access)
+	}
+	return c.veteranPurposeErrLocked(w)
+}
+
+// veteranPurposeErrLocked rechecks a veteran's model against the operator's
+// CURRENT sets, read fresh (fail closed) at every follow-up: narrowing a set
+// after the worker was staffed refuses it rather than leaving it on its old
+// model. The purposes are the ones recorded when it was staffed; a veteran
+// that was not built-in, or was kept by a build that recorded none, is
+// unmapped (every purpose the operator restricted applies), and a record that
+// names an unknown purpose is refused.
+func (c *Conductor) veteranPurposeErrLocked(w *worker) error {
+	if !w.veteran || c.cfg.Staffer == nil {
+		return nil
+	}
+	sides := w.staff.sides
+	if !w.staff.Builtin || len(sides) == 0 {
+		sides = agentpurposes.IDs()
+	}
+	for _, id := range sides {
+		if _, ok := agentpurposes.Lookup(id); !ok {
+			return fmt.Errorf("%s's purpose record is unreadable (%q); spawn a new worker", w.id, id)
+		}
+	}
+	all, err := c.cfg.Staffer.settings()
+	if err != nil {
+		return fmt.Errorf("%s can't be messaged: %w", w.id, err)
+	}
+	for _, id := range sides {
+		if !c.cfg.Staffer.permits(all, id, w.model) {
+			return fmt.Errorf("%s runs on %s, which the operator's model set for %s no longer allows; the operator can change it with `agent purposes`, or spawn a new worker", w.id, w.model.Key(), id)
+		}
 	}
 	return nil
 }
