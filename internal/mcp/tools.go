@@ -264,6 +264,7 @@ func allTools() []tool {
 	native = append(native, sessionTools()...)
 	native = append(native, missionChildTools()...)
 	native = append(native, missionBudgetTools()...)
+	native = append(native, askAncestorTools()...)
 	native = append(native, apiTools()...)
 	native = append(native, publicationTools()...)
 	native = append(native, generateTools()...)
