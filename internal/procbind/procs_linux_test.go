@@ -55,6 +55,15 @@ func shTree(t *testing.T) (sh *exec.Cmd, sleepPid int) {
 	return sh, sleepPid
 }
 
+func lp(t *testing.T) LinuxProcs {
+	t.Helper()
+	p, err := NewLinuxProcs()
+	if err != nil {
+		t.Skipf("not this process's own procfs: %v", err)
+	}
+	return p
+}
+
 func open(t *testing.T, pid int) Handle {
 	t.Helper()
 	h, err := OpenPidfd(pid)
@@ -75,7 +84,7 @@ func TestLinuxHandleReadsTheRealProcessTable(t *testing.T) {
 	if pid, err := h.Pid(); err != nil || pid != sh.Process.Pid {
 		t.Errorf("Pid = %d, %v; want %d", pid, err, sh.Process.Pid)
 	}
-	var p LinuxProcs
+	p := lp(t)
 	if ppid, err := p.Parent(h); err != nil || ppid != os.Getpid() {
 		t.Errorf("Parent = %d, %v; want %d", ppid, err, os.Getpid())
 	}
@@ -109,10 +118,10 @@ func TestLinuxWalkOnRealProcesses(t *testing.T) {
 	worker := open(t, sh.Process.Pid)
 	child := open(t, sleepPid)
 
-	if r := Walk(LinuxProcs{}, child, worker); !r.Allowed {
+	if r := Walk(lp(t), child, worker); !r.Allowed {
 		t.Errorf("a child of the worker: %v", r)
 	}
-	if r := Walk(LinuxProcs{}, worker, worker); !r.Allowed {
+	if r := Walk(lp(t), worker, worker); !r.Allowed {
 		t.Errorf("the worker itself: %v", r)
 	}
 
@@ -122,11 +131,11 @@ func TestLinuxWalkOnRealProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = other.Process.Kill(); _ = other.Wait() })
-	if r := Walk(LinuxProcs{}, open(t, other.Process.Pid), worker); r.Allowed {
+	if r := Walk(lp(t), open(t, other.Process.Pid), worker); r.Allowed {
 		t.Errorf("a sibling of the worker: %v", r)
 	}
 	// the worker is not a descendant of its own child
-	if r := Walk(LinuxProcs{}, worker, child); r.Allowed {
+	if r := Walk(lp(t), worker, child); r.Allowed {
 		t.Errorf("the parent walking to its child: %v", r)
 	}
 
@@ -135,7 +144,7 @@ func TestLinuxWalkOnRealProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitDead(t, child)
-	if r := Walk(LinuxProcs{}, child, worker); r.Allowed || r.Reason != ReasonExited {
+	if r := Walk(lp(t), child, worker); r.Allowed || r.Reason != ReasonExited {
 		t.Errorf("an exited caller: %v", r)
 	}
 }
@@ -148,7 +157,7 @@ func TestLinuxWalkDeniesAWorkerThatExited(t *testing.T) {
 	_ = sh.Process.Kill()
 	_ = sh.Wait()
 	// the child is reparented away from the worker, which is gone
-	if r := Walk(LinuxProcs{}, child, worker); r.Allowed {
+	if r := Walk(lp(t), child, worker); r.Allowed {
 		t.Errorf("a child of an exited worker: %v", r)
 	}
 }
@@ -162,4 +171,54 @@ func waitDead(t *testing.T, h Handle) {
 		unix.Nanosleep(&unix.Timespec{Nsec: 5_000_000}, nil)
 	}
 	t.Fatal("process did not exit")
+}
+
+func TestLinuxProcsZeroValueReadsNothing(t *testing.T) {
+	var p LinuxProcs
+	if _, err := p.Open(os.Getpid()); err == nil {
+		t.Error("the zero LinuxProcs opened a process")
+	}
+	h := open(t, os.Getpid())
+	if _, err := p.Parent(h); err == nil {
+		t.Error("the zero LinuxProcs read a parent")
+	}
+	if _, err := p.Start(h); err == nil {
+		t.Error("the zero LinuxProcs read a start time")
+	}
+	if r := Walk(p, h, h); !r.Allowed {
+		// a walk from a process to itself needs no table: it matches on the numbers
+		t.Errorf("self walk: %v", r)
+	}
+	if r := Walk(p, h, open(t, os.Getppid())); r.Allowed {
+		t.Errorf("a walk that needs the table was allowed by the zero LinuxProcs: %v", r)
+	}
+}
+
+func TestPidfdHandleCloseIsIdempotentAndFinal(t *testing.T) {
+	skipWithoutPidfd(t)
+	h, err := OpenPidfd(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a second descriptor that could take the closed one's number
+	other, err := os.Open("/dev/null")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if err := h.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Close(); err != nil {
+		t.Errorf("second Close: %v", err)
+	}
+	if _, err := os.Stat("/proc/self/fd/" + strconv.Itoa(int(other.Fd()))); err != nil {
+		t.Errorf("a second Close closed an unrelated descriptor: %v", err)
+	}
+	if h.Alive() {
+		t.Error("a closed handle is alive")
+	}
+	if _, err := h.Pid(); err == nil {
+		t.Error("a closed handle still read a number")
+	}
 }

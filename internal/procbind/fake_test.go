@@ -25,7 +25,10 @@ type world struct {
 	calls  int
 	log    []fcall
 	closed int
-	fail   map[string]error // op -> error, to simulate an unreadable table
+	// closedSet and openedSet hold the handles that were closed and those Open handed out
+	closedSet map[*fhandle]bool
+	openedSet map[*fhandle]bool
+	fail      map[string]error // op -> error, to simulate an unreadable table
 }
 
 func (w *world) spawn(pid, ppid int, start uint64) *fproc {
@@ -67,7 +70,12 @@ type fhandle struct {
 	p *fproc
 }
 
-func (w *world) handle(p *fproc) Handle { return &fhandle{w, p} }
+func (w *world) handle(p *fproc) Handle {
+	if w.closedSet == nil {
+		w.closedSet, w.openedSet = map[*fhandle]bool{}, map[*fhandle]bool{}
+	}
+	return &fhandle{w, p}
+}
 
 func (h *fhandle) Alive() bool {
 	_ = h.w.tick("alive", h.p)
@@ -84,7 +92,7 @@ func (h *fhandle) Pid() (int, error) {
 	return h.p.pid, nil
 }
 
-func (h *fhandle) Close() error { h.w.closed++; return nil }
+func (h *fhandle) Close() error { h.w.closed++; h.w.closedSet[h] = true; return nil }
 
 type fprocs struct{ w *world }
 
@@ -96,7 +104,9 @@ func (f fprocs) Open(pid int) (Handle, error) {
 	if p == nil {
 		return nil, fmt.Errorf("no process %d", pid)
 	}
-	return f.w.handle(p), nil
+	h := f.w.handle(p)
+	f.w.openedSet[h.(*fhandle)] = true
+	return h, nil
 }
 
 // read finds the process that holds h's number now, after the number was read from h.

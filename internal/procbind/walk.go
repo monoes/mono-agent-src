@@ -95,19 +95,16 @@ func Walk(p Procs, caller, worker Handle) Result {
 		if parent2 != parent {
 			return deny(ReasonParentMoved)
 		}
-		if !pp.Alive() {
-			return deny(ReasonParentGone)
-		}
 		ps, err := p.Start(pp)
 		if err != nil {
 			return deny(ReasonUnreadable)
 		}
-		if !pp.Alive() {
-			return deny(ReasonParentGone)
-		}
 		if ps > start {
 			return deny(ReasonStartOrder)
 		}
+		// pp is not checked alive here: if it died during the read the start time may be another
+		// process's, which can only make the order check wrong, and the final validation below
+		// polls every handle of the chain once the match is complete.
 		cur = pp
 	}
 	if !matched {

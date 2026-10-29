@@ -90,27 +90,36 @@ func TestWalkFailsClosedOnUnreadableTable(t *testing.T) {
 
 var errFake = fmt.Errorf("unreadable")
 
-func TestWalkClosesWhatItOpened(t *testing.T) {
-	w, W, _, C := tree()
-	if r := walk(w, C, W); !r.Allowed {
-		t.Fatal(r)
-	}
-	if w.closed != 2 { // M and W's twin, opened by number on the way up
-		t.Errorf("closed %d handles, want 2", w.closed)
-	}
-	w2, W2, M2, C2 := tree()
-	M2.start = 99
-	w2.closed = 0
-	_ = walk(w2, C2, W2)
-	if w2.closed != 1 {
-		t.Errorf("a denied walk closed %d handles, want 1", w2.closed)
+func TestWalkClosesExactlyWhatItOpened(t *testing.T) {
+	for name, tweak := range map[string]func(M *fproc){"allowed": func(*fproc) {}, "denied": func(M *fproc) { M.start = 99 }} {
+		w, W, M, C := tree()
+		tweak(M)
+		caller, worker := w.handle(C), w.handle(W)
+		r := Walk(fprocs{w}, caller, worker)
+		if name == "allowed" && !r.Allowed {
+			t.Fatal(r)
+		}
+		if len(w.openedSet) == 0 {
+			t.Fatalf("%s: the walk opened nothing", name)
+		}
+		for h := range w.openedSet {
+			if !w.closedSet[h] {
+				t.Errorf("%s: a handle the walk opened was not closed", name)
+			}
+		}
+		for h := range w.closedSet {
+			if !w.openedSet[h] {
+				t.Errorf("%s: the walk closed a handle it does not own", name)
+			}
+		}
+		if w.closedSet[caller.(*fhandle)] || w.closedSet[worker.(*fhandle)] {
+			t.Errorf("%s: the caller's or worker's handle was closed", name)
+		}
 	}
 }
 
 // matchCall is the index of the call that completed the match in a clean walk: the last read of a
-// process number. Everything after it is the final validation. The cutoff comes from the call
-// sequence of the search, not from which checks the final validation happens to make, so a walk
-// that drops its final validation is judged by the same cutoff.
+// process number. Everything after it is the final validation.
 func matchCall(w *world) int {
 	m := -1
 	for i, c := range w.log {
@@ -121,18 +130,39 @@ func matchCall(w *world) int {
 	return m
 }
 
-// An exit of any process of the chain before the search ends must deny, wherever it falls.
+// lastAlive maps each process to the index of the last liveness check made on it in a clean walk.
+func lastAlive(w *world) map[*fproc]int {
+	m := map[*fproc]int{}
+	for i, c := range w.log {
+		if c.op == "alive" {
+			m[c.p] = i
+		}
+	}
+	return m
+}
+
+// An exit of any process of the chain, at any call of the walk, must deny. Up to the call that
+// completes the match nothing may be allowed, whatever checks the code makes; after it, the final
+// validation must still poll every process of the chain (each has a liveness check after the
+// match), and an exit before that process's last check denies. The cutoff and the "polled after
+// the match" requirement are stated here, not read off which checks a mutated walk makes.
 func TestWalkExitAtEveryCall(t *testing.T) {
-	base, W, _, C := tree()
+	base, W, M, C := tree()
 	if r := walk(base, C, W); !r.Allowed {
 		t.Fatal(r)
 	}
-	cutoff := matchCall(base)
+	cutoff, last, total := matchCall(base), lastAlive(base), base.calls
 	if cutoff < 8 {
 		t.Fatalf("suspiciously short search: %d", cutoff)
 	}
+	for name, p := range map[string]*fproc{"caller": C, "middle": M, "worker": W} {
+		if last[p] <= cutoff {
+			t.Fatalf("the %s is not checked after the match completes (last check %d, match %d)", name, last[p], cutoff)
+		}
+	}
 	for name, idx := range map[string]int{"caller": 2, "middle": 1, "worker": 0} {
-		for k := 0; k <= cutoff; k++ {
+		ref := []*fproc{W, M, C}[idx]
+		for k := 0; k < total; k++ {
 			w, Wk, _, Ck := tree()
 			victim := w.procs[idx]
 			w.hook = func(n int) {
@@ -140,8 +170,9 @@ func TestWalkExitAtEveryCall(t *testing.T) {
 					w.exit(victim)
 				}
 			}
-			if r := walk(w, Ck, Wk); r.Allowed {
-				t.Errorf("exit of the %s before call %d was allowed", name, k)
+			r := walk(w, Ck, Wk)
+			if wantDeny := k <= cutoff || k <= last[ref]; wantDeny == r.Allowed {
+				t.Errorf("exit of the %s before call %d (match %d, last check %d): %v", name, k, cutoff, last[ref], r)
 			}
 		}
 	}
@@ -207,19 +238,22 @@ func TestWalkRecycledNumbersAtEveryCall(t *testing.T) {
 	}
 }
 
-// The caller moves under a different parent between the two reads of its parent.
+// The caller moves under a different parent after its parent was pinned.
 func TestWalkDeniesAParentThatMovesDuringTheRead(t *testing.T) {
 	w, W, _, C := tree()
 	other := w.spawn(250, 100, 15)
 	moved := false
 	w.hook = func(n int) {
-		// after the first parent read (a "start" follows it) and before the second
-		if !moved && n > 0 && w.log[len(w.log)-1].op == "open" {
+		if !moved && w.log[len(w.log)-1].op == "open" {
 			C.ppid = other.pid
 			moved = true
 		}
 	}
-	if r := walk(w, C, W); r.Allowed {
-		t.Errorf("a caller that changed parent while it was read was allowed: %v", r)
+	r := walk(w, C, W)
+	if !moved {
+		t.Fatal("the hook never fired")
+	}
+	if r.Allowed || r.Reason != ReasonParentMoved {
+		t.Errorf("a caller that changed parent while it was read: %v", r)
 	}
 }
