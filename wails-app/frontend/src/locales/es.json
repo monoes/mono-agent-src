@@ -1723,6 +1723,8 @@
       "saveFirst": "Guarda primero tus cambios"
     },
     "refused": "Rechazado: {{error}}",
+    "showMore": "Mostrar {{count}} más ({{left}} restantes)",
+    "showMoreIn": "Mostrar {{count}} tarjetas más en {{column}}",
     "emptyBy": {
       "inbox": "Resalta texto en Chrome y elige MonoAgent, Add selection as task, o selecciona texto en cualquier app: Servicios, Add to MonoAgent Tasks",
       "ready": "Aprueba tareas de la Bandeja para que los agentes puedan tomarlas"
@@ -1802,7 +1804,8 @@
       "listError": "No se pudieron leer las sesiones",
       "retry": "Reintentar",
       "planError": "No se pudo leer el plan",
-      "planEmpty": "Este plan aún no tiene tareas"
+      "planEmpty": "Este plan aún no tiene tareas",
+      "planShowMore": "Mostrar {{count}} filas más ({{left}} restantes)"
     }
   },
   "publication": {

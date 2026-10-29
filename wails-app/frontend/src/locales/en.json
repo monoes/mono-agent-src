@@ -1765,6 +1765,8 @@
       "saveFirst": "Save your edits first"
     },
     "refused": "Refused: {{error}}",
+    "showMore": "Show {{count}} more ({{left}} left)",
+    "showMoreIn": "Show {{count}} more cards in {{column}}",
     "emptyBy": {
       "inbox": "Highlight text in Chrome and choose MonoAgent, Add selection as task, or select text in any app: Services, Add to MonoAgent Tasks",
       "ready": "Approve tasks from Inbox so agents can pick them up"
@@ -1844,7 +1846,8 @@
       "listError": "Could not read sessions",
       "retry": "Retry",
       "planError": "Could not read the plan",
-      "planEmpty": "No tasks in this plan yet"
+      "planEmpty": "No tasks in this plan yet",
+      "planShowMore": "Show {{count}} more rows ({{left}} left)"
     }
   },
   "publication": {
