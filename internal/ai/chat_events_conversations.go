@@ -308,7 +308,12 @@ func (s *AIStore) DeleteConversation(id, profileID string) error {
 		`DELETE FROM coder_session_decisions WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_questions WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_person_items WHERE conversation_id = ? AND profile_id = ?`,
-		`DELETE FROM coder_session_asks WHERE (asker_conv = ?1 OR ancestor_conv = ?1) AND profile_id = ?2`,
+		// Asks: the asker's own rows go with its chat (its person item went above). A normal ask addressed TO this chat
+		// is void (nobody reads it any more, the asker's slot is free again; the asker is not told, because a note
+		// needs the host's queue, which this package cannot reach). A critical ask goes to the person, not to this
+		// chat, so it stays.
+		`DELETE FROM coder_session_asks WHERE asker_conv = ?1 AND profile_id = ?2`,
+		`UPDATE coder_session_asks SET status = 'void' WHERE ancestor_conv = ?1 AND profile_id = ?2 AND importance = 'normal' AND status = 'open'`,
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
