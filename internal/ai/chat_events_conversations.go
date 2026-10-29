@@ -354,6 +354,8 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		// chat, so it stays.
 		`DELETE FROM coder_session_asks WHERE asker_conv = ?1 AND profile_id = ?2`,
 		`UPDATE coder_session_asks SET status = 'void' WHERE ancestor_conv = ?1 AND profile_id = ?2 AND importance = 'normal' AND status = 'open'`,
+		// The spawn advisory's remembered refusal belongs to the lead that was refused.
+		`DELETE FROM coder_spawn_advice WHERE spawner = ?1 AND profile_id = ?2`,
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
