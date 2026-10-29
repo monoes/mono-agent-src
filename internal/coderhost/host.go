@@ -65,6 +65,7 @@ type Host struct {
 	// MissionChildEvery is how often the mission child pass runs (default 5 s); see missionchild.go.
 	MissionChildEvery time.Duration
 	lastMissionPass   time.Time
+	chargeCursor      int64               // the sweep of uncharged ended rows resumes after this row id
 	orphanSeen        map[string]bool     // orphaned carves already reported; Tick only
 	leadFacts         map[string]leadFact // what one pass read about each lead; Tick only
 

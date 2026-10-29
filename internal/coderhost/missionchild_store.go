@@ -661,6 +661,24 @@ func (s *Store) childrenWhere(where string, args ...any) ([]ChildRow, error) {
 	return out, rows.Err()
 }
 
+// childrenWhereLimit is childrenWhere for a sweep: at most limit rows, oldest first.
+func (s *Store) childrenWhereLimit(where string, limit int, args ...any) ([]ChildRow, error) {
+	rows, err := s.db.Query(`SELECT `+childColumns+` FROM coder_mission_children WHERE `+where+` ORDER BY id LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChildRow
+	for rows.Next() {
+		c, err := scanChild(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ChildrenOfSession lists the rows of a task session, oldest first.
 func (s *Store) ChildrenOfSession(profileID string, sessionID int64) ([]ChildRow, error) {
 	return s.childrenWhere(`profile_id = ? AND session_id = ?`, profileID, sessionID)
@@ -724,7 +742,7 @@ func (s *Store) Mark(sc CallerScope, profileID string, sessionID, taskID int64, 
 			end_reason = '', ended_at = '', child_conversation_id = '', pending_conversation_id = '', reserved_usd = 0, lead_conversation_id = excluded.lead_conversation_id, updated_at = excluded.updated_at
 		WHERE coder_mission_children.state IN ('marked', 'ended', 'failed', 'gone', 'released')
 		AND NOT (`+notCharged+`)`,
-		profileID, sessionID, taskID, m.lead, opt.Size, opt.BudgetUSD, now, now, s.chargeCutoff())
+		profileID, sessionID, taskID, m.lead, opt.Size, opt.BudgetUSD, now, now)
 	if err != nil {
 		return ChildRow{}, err
 	}

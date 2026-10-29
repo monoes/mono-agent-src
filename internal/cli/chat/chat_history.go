@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -519,6 +520,10 @@ func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRe
 		}
 		if open > 0 {
 			return errSessionOpened
+		}
+		// a mission child's spend is written down before the delete erases the usage it is computed from
+		if err := coderhost.SnapshotChildSpendTx(ctx, conn, profileID, conversationID); err != nil {
+			return fmt.Errorf("recording the child's spend: %w", err)
 		}
 		owner := dynorg.ConversationOwner(profileID, conversationID)
 		_, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

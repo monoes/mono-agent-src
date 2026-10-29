@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -27,12 +28,14 @@ import (
 // chargeKind is the audit row that says a child's spend was added to its mission.
 const chargeKind = "charge"
 
-// chargeLookback is how far back the sweep looks for ended rows that were never charged (a host that was down).
-const chargeLookback = 7 * 24 * time.Hour
+// chargeBatch bounds the rows one pass of the sweep settles: a backlog is worked off over several passes.
+const chargeBatch = 50
 
-// notCharged is the sweep's query: ended rows, newly ended, with no charge row for their conversation. Mark
-// refuses to reuse such a row (it would forget the conversation the sweep finds the child through).
-const notCharged = `coder_mission_children.state IN ('ended', 'failed', 'gone') AND coder_mission_children.child_conversation_id <> '' AND coder_mission_children.ended_at >= ?
+// notCharged is the sweep's query: ended rows of any age with no charge row for their conversation (an uncharged
+// row has no age limit: its spend is not on the meter yet, however long ago the child ended). Mark refuses to
+// reuse such a row (it would forget the conversation the sweep finds the child through). The way out of the
+// state is a charge row, and every charge ends in one: the spend, or a "skipped" note with the reason.
+const notCharged = `coder_mission_children.state IN ('ended', 'failed', 'gone') AND coder_mission_children.child_conversation_id <> ''
 	AND NOT EXISTS (SELECT 1 FROM coder_mission_events e WHERE e.profile_id = coder_mission_children.profile_id
 		AND e.session_id = coder_mission_children.session_id AND e.kind = 'charge'
 		AND substr(e.note, 1, length(coder_mission_children.child_conversation_id) + 1) = coder_mission_children.child_conversation_id || ' ')`
@@ -57,7 +60,11 @@ func (s *Store) ChargeChild(profileID, childConversationID string) (float64, err
 	if err != nil {
 		return 0, err
 	}
-	note := fmt.Sprintf("%s $%.6f", childConversationID, spent)
+	note := ""
+	spent, note, err = s.recoveredSpend(profileID, r, spent)
+	if err != nil {
+		return 0, err
+	}
 	_, found, err := s.loadMissionSession(profileID, r.SessionID)
 	if err != nil {
 		return 0, err
@@ -70,7 +77,10 @@ func (s *Store) ChargeChild(profileID, childConversationID string) (float64, err
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		why := fmt.Sprintf("child session of task #%d", r.TaskID)
-		if _, err := tasks.NewStore(s.db).AddSessionSpend(ctx, profileID, r.SessionID, spent, why, tasks.Actor{Kind: tasks.Human}); err != nil {
+		if _, err := tasks.NewStore(s.db).AddSessionSpend(ctx, profileID, r.SessionID, spent, why, tasks.Actor{Kind: tasks.Human}); errors.Is(err, tasks.ErrNotFound) {
+			note += " skipped: the mission session is gone" // vanished since it was read: the charge can never succeed
+			spent = 0
+		} else if err != nil {
 			return 0, fmt.Errorf("charging the child %s to mission #%d: %w", childConversationID, r.SessionID, err)
 		}
 	}
@@ -110,17 +120,18 @@ func (h *Host) settleChild(profileID, conv string) {
 	}
 }
 
-// chargeCutoff is the oldest ended_at the sweep (and Mark's refusal) still looks at.
-func (s *Store) chargeCutoff() string {
-	return s.now().Add(-chargeLookback).UTC().Format(timeLayout)
-}
-
-// settleEnded settles the rows that ended without being settled: a host that was down or a failed write.
+// settleEnded settles the rows that ended without being settled: a host that was down or a failed write. A pass
+// takes the next chargeBatch rows after the cursor, oldest row first; when it reaches the end the cursor starts
+// over, so rows whose charge keeps failing cannot keep the later ones from being tried.
 func (h *Host) settleEnded() {
-	rows, err := h.Store.childrenWhere(strings.TrimSpace(notCharged), h.Store.chargeCutoff())
+	rows, err := h.Store.childrenWhereLimit(strings.TrimSpace(notCharged)+` AND coder_mission_children.id > ?`, chargeBatch, h.chargeCursor)
 	if err != nil {
 		h.logf("coder host: ended mission children: %v", err)
 		return
+	}
+	h.chargeCursor = 0
+	if len(rows) == chargeBatch {
+		h.chargeCursor = rows[len(rows)-1].ID
 	}
 	for _, r := range rows {
 		h.settleChild(r.ProfileID, r.ChildConversationID)
