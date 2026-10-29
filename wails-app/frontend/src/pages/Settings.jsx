@@ -13,6 +13,7 @@ import ApiSection from '../components/settings/ApiSection.jsx'
 import VaultKeyringSection from '../components/settings/VaultKeyringSection.jsx'
 import CoderModeSection from '../components/settings/CoderModeSection.jsx'
 import CoderOrgSection from '../components/settings/CoderOrgSection.jsx'
+import NotificationsSection from '../components/settings/NotificationsSection.jsx'
 import ExtensionSection from '../components/settings/ExtensionSection.jsx'
 import BrowserPermissionsSection from '../components/settings/BrowserPermissionsSection.jsx'
 import AiTaskBudgetsSection from '../components/settings/AiTaskBudgetsSection.jsx'
@@ -411,6 +412,13 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
           </div>
 
           <AssistantToolsSection />
+
+          <div style={headingStyle}>
+            <span style={headingText}>{t('personItem.settings.title')}</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
+
+          <NotificationsSection />
 
           {/* Coder mode (#203) */}
           <div style={headingStyle}>
