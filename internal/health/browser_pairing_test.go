@@ -14,7 +14,9 @@ import (
 // authStatus, asked through extension.CheckPairing as doctor asks it.
 func pairingEnv(t *testing.T, authStatus int) *Env {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/monoagent/auth" {
 			http.NotFound(w, r)

@@ -175,6 +175,7 @@ func TestMonoagentToolSpecsAdvertisesSaveDocument(t *testing.T) {
 func newChatCLITestDB(t *testing.T) string {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	// A copy of the one migrated template (internal/testdb), not 130+
 	// migrations run again for every test.
 	return testdb.Path(t)
