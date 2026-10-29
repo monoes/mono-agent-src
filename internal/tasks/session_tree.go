@@ -56,7 +56,8 @@ func (s *Store) sessionChain(ctx context.Context, x dbx, id int64) ([]int64, err
 }
 
 // checkParent reads the parent of a new session: it must be a session of the profile, the new
-// session must fit within HardMaxSessionDepth, and an agent must work in the parent or above it.
+// session must fit within HardMaxSessionDepth, an agent must work in the parent or above it, and the
+// parent must be open (draft, running or paused): nothing is started below an archived or closed session.
 func (s *Store) checkParent(ctx context.Context, x dbx, profileID string, parent int64, actor Actor) (Session, error) {
 	par, err := s.sessionTx(ctx, x, profileID, parent)
 	if err != nil {
@@ -72,6 +73,12 @@ func (s *Store) checkParent(ctx context.Context, x dbx, profileID string, parent
 	if actor.Kind == Agent && !slices.Contains(chain, actor.Session) {
 		// Not found, as a bound agent reads no session outside its own.
 		return Session{}, sessionNotFound(parent)
+	}
+	if par.Archived {
+		return Session{}, invalid("session #%d is archived: no session is started below it", parent)
+	}
+	if !isOpen(par.State) {
+		return Session{}, invalid("session #%d is %s: no session is started below it", parent, par.State)
 	}
 	return par, nil
 }
