@@ -14,6 +14,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // Deleting a conversation stops the processes its turns left running: the
@@ -458,5 +459,233 @@ func TestDeleteRevokesTheMissionTokensOfItsRuns(t *testing.T) {
 	}
 	if revoked(others) || revoked(stranger) {
 		t.Error("a mission token of another conversation or owner was revoked")
+	}
+}
+
+// leadSession makes a running mission session led by the conversation, in the test database.
+func (r *accessRig) leadSession(t *testing.T, convID string) (*tasks.Store, int64) {
+	t.Helper()
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ts := tasks.NewStore(db.DB)
+	ctx := context.Background()
+	op := tasks.Actor{Kind: tasks.Human}
+	se, err := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "mission", Goal: "g", ConversationID: convID}, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.AddSessionTask(ctx, "default", se.ID, tasks.SessionTaskInput{Title: "a step", Acceptance: "it is done"}, op); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.ApproveSession(ctx, "default", se.ID, op); err != nil {
+		t.Fatal(err)
+	}
+	return ts, se.ID
+}
+
+func sessionState(t *testing.T, ts *tasks.Store, id int64) tasks.SessionState {
+	t.Helper()
+	se, err := ts.GetSession(context.Background(), "default", id, tasks.Actor{Kind: tasks.Human})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return se.State
+}
+
+// The operator deleting the lead of a running mission stops the mission with it: its tasks are not
+// left open with nothing to own them.
+func TestDeleteStopsTheMissionSessionOfTheLead(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	ts, id := r.leadSession(t, c.ID)
+	if sessionState(t, ts, id) != tasks.SessionRunning {
+		t.Fatal("the session is not running")
+	}
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if got := sessionState(t, ts, id); got != tasks.SessionStopped {
+		t.Errorf("the lead's mission session is %q after its conversation was deleted", got)
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err == nil {
+		t.Error("the conversation is still there")
+	}
+}
+
+// An agent's delete of the lead of a running mission is refused as the operator's: nothing is
+// stopped, neither the mission nor the processes its turns left.
+func TestAgentDeleteOfAMissionLeadIsRefused(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	ts, id := r.leadSession(t, c.ID)
+
+	out, err := r.history(t, errNotOperator, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if got := sessionState(t, ts, id); got != tasks.SessionRunning {
+		t.Errorf("the mission session is %q", got)
+	}
+	if !processAlive(pid) {
+		t.Error("a refused delete stopped a process")
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation is gone: %v", err)
+	}
+}
+
+// A conversation whose mission has ended is an ordinary delete, an agent's included.
+func TestAgentMayDeleteAConversationWhoseMissionEnded(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	ts, id := r.leadSession(t, c.ID)
+	if _, err := ts.StopSession(context.Background(), "default", id, tasks.Actor{Kind: tasks.Human}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := r.history(t, errNotOperator, "delete", c.ID); err != nil {
+		t.Fatalf("an agent's delete after the mission ended: %v\n%s", err, out)
+	}
+}
+
+// A mission session opened for the conversation after the delete read the list is not missed: the
+// guarded delete gives way, the next pass finds it, and an agent is refused as the operator's.
+func TestAgentDeleteIsRefusedWhenAMissionOpensMeanwhile(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	var ts *tasks.Store
+	var id int64
+	calls := 0
+	beforeGuardedDelete = func() {
+		calls++
+		if calls == 1 {
+			ts, id = r.leadSession(t, c.ID)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	out, err := r.history(t, errNotOperator, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete with a mission opened meanwhile: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if ts == nil {
+		t.Fatal("the seam never ran")
+	}
+	if got := sessionState(t, ts, id); got != tasks.SessionRunning {
+		t.Errorf("the mission session is %q", got)
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation is gone: %v", err)
+	}
+}
+
+// The operator's delete finds and stops a mission opened meanwhile.
+func TestDeleteStopsAMissionOpenedMeanwhile(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	var ts *tasks.Store
+	var id int64
+	calls := 0
+	beforeGuardedDelete = func() {
+		calls++
+		if calls == 1 {
+			ts, id = r.leadSession(t, c.ID)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	if out, err := r.history(t, nil, "delete", c.ID); err != nil {
+		t.Fatalf("delete: %v\n%s", err, out)
+	}
+	if ts == nil || sessionState(t, ts, id) != tasks.SessionStopped {
+		t.Error("the mission opened meanwhile was not stopped")
+	}
+}
+
+// An agent may delete a conversation that never led a mission.
+func TestAgentMayDeleteAConversationThatNeverLedAMission(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	if out, err := r.history(t, errNotOperator, "delete", c.ID); err != nil {
+		t.Fatalf("an agent's delete: %v\n%s", err, out)
+	}
+}
+
+// Deleting a conversation stops the processes its turns left running: that is the operator's. An
+// agent's delete is refused before any signal is sent, so a refusal can never come after a process
+// was already stopped.
+func TestAgentDeleteOfAConversationWithRecordedProcessesIsRefusedBeforeAnySignal(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+
+	out, err := r.history(t, errNotOperator, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("a refused delete stopped a process")
+	}
+	if _, err := r.store.GetConversation(c.ID, "default"); err != nil {
+		t.Errorf("the conversation is gone: %v", err)
+	}
+}
+
+// A mission opened between the session list and the process stop does not let an agent's delete
+// stop anything: the stop asks for the operator itself, before the first signal.
+func TestAgentDeleteStopsNothingWhenAMissionOpensBeforeTheStop(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	var ts *tasks.Store
+	var id int64
+	afterSessionList = func() {
+		if ts == nil {
+			ts, id = r.leadSession(t, c.ID)
+		}
+	}
+	t.Cleanup(func() { afterSessionList = func() {} })
+
+	if out, err := r.history(t, errNotOperator, "delete", c.ID); err == nil || exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's delete: exit %d (%v)\n%s", exitCodeFor(err), err, out)
+	}
+	if !processAlive(pid) {
+		t.Error("the agent's refused delete stopped a process")
+	}
+	if ts == nil || sessionState(t, ts, id) != tasks.SessionRunning {
+		t.Error("the mission opened meanwhile was touched")
+	}
+}
+
+// Whatever ends a delete after something was stopped says what was stopped: here the conversation is
+// removed by someone else between the stop and the delete (not found), and the error still carries the
+// exit code of the failure and the count of what is gone for good.
+func TestDeleteSaysWhatItStoppedWhenItEndsInAnotherError(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	pid := background(t)
+	r.leaveBehind(t, c.ID, pid)
+	beforeGuardedDelete = func() {
+		if err := r.store.DeleteConversation(c.ID, "default"); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeGuardedDelete = func() {} })
+
+	_, err := r.history(t, nil, "delete", c.ID)
+	if err == nil || exitCodeFor(err) != 2 {
+		t.Fatalf("exit %d (%v), want 2 (not found)", exitCodeFor(err), err)
+	}
+	if !strings.Contains(err.Error(), "1 process(es) and 0 mission(s) were stopped before this") {
+		t.Errorf("the error does not say what was stopped: %v", err)
+	}
+	if !gone(pid) {
+		t.Error("the process the delete stopped is still running")
 	}
 }
