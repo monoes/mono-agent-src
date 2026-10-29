@@ -148,8 +148,8 @@ func TestSweepOrphansDemotesAChildWhoseMasterIsGone(t *testing.T) {
 	m, _ := master(t, st, "workspace")
 	kid := spawn(t, st, m)
 	// the master vanishes without the delete's own demotion (an older build, a hand edit)
-	st.db.Exec("DEL" + "ETE FROM coder_sessions WHERE conversation_id = ?", m.ConversationID)
-	st.db.Exec("DEL" + "ETE FROM ai_chat_conversations WHERE id = ?", m.ConversationID)
+	st.db.Exec("DEL"+"ETE FROM coder_sessions WHERE conversation_id = ?", m.ConversationID)
+	st.db.Exec("DEL"+"ETE FROM ai_chat_conversations WHERE id = ?", m.ConversationID)
 	if len(danglingChildren(t, st)) != 1 {
 		t.Fatal("setup: expected a dangling child")
 	}
