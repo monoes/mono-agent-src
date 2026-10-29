@@ -843,7 +843,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if !room.OK {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, room.Reason)
 	}
-	if reason, err := missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
+	if reason, err := s.missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
 		return ChildRow{}, err
 	} else if reason != "" {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, reason) // before takeReservation: no attempt is used
@@ -883,7 +883,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 // is still alive is bound through its cap: with a mission budget the carve must be positive, and the caps the
 // lead's live children hold (sessions and reserved rows) plus this carve must fit what the mission has left. A
 // mission without a budget does not refuse here.
-func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
+func (s *Store) missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
 	var budget, spent float64
 	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
 		return "", err
@@ -895,6 +895,9 @@ func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead str
 		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
 	}
 	var held float64
+	args := append([]any{profileID, lead, sessionID, profileID, lead, profileID, sessionID, profileID, sessionID},
+		lostHoldArgs(s.defaultShareIn(q, profileID, sessionID), math.Max(budget-spent, 0))...)
+	args = append(args, profileID, sessionID)
 	// A child that ended and whose spend is on the meter (a charge row, missionchild_charge.go) holds nothing: its
 	// cap was lowered to that spend, which spent already contains. A child whose cost nobody knows (an "unresolved"
 	// row) holds the amount the host wrote on it until the person resolves it.
@@ -910,12 +913,12 @@ func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead str
 		+ (SELECT COALESCE(SUM(CAST(substr(e.note, instr(e.note, ' $') + 2) AS REAL)), 0) FROM coder_mission_events e WHERE e.profile_id = ? AND e.session_id = ? AND e.kind = 'spend'
 			AND NOT EXISTS (SELECT 1 FROM coder_mission_events c WHERE c.profile_id = e.profile_id AND c.session_id = e.session_id AND c.kind = 'charge'
 				AND substr(c.note, 1, instr(e.note, ' ')) = substr(e.note, 1, instr(e.note, ' '))))
-		+ (SELECT COALESCE(SUM(CASE WHEN coder_mission_children.budget_usd > 0 THEN coder_mission_children.budget_usd ELSE ? END), 0) FROM coder_mission_children WHERE coder_mission_children.profile_id = ? AND coder_mission_children.session_id = ?
+		+ (SELECT COALESCE(SUM(`+lostHoldSQL("coder_mission_children.budget_usd")+`), 0) FROM coder_mission_children WHERE coder_mission_children.profile_id = ? AND coder_mission_children.session_id = ?
 			AND coder_mission_children.state IN ('spawned', 'ended', 'failed', 'gone') AND `+rowIdent+` <> '' AND (coder_mission_children.spawned_at <> '' OR coder_mission_children.pending_conversation_id <> '')
 			AND NOT EXISTS (SELECT 1 FROM coder_sessions s WHERE s.profile_id = coder_mission_children.profile_id AND s.conversation_id = `+rowIdent+`)
 			AND NOT EXISTS (SELECT 1 FROM coder_mission_events x WHERE x.profile_id = coder_mission_children.profile_id AND x.session_id = coder_mission_children.session_id AND x.kind IN ('charge', 'spend', '`+unresolvedKind+`')
 				AND substr(x.note, 1, length(`+rowIdent+`) + 1) = `+rowIdent+` || ' '))`,
-		profileID, lead, sessionID, profileID, lead, profileID, sessionID, profileID, sessionID, math.Max(budget-spent, 0), profileID, sessionID).Scan(&held); err != nil {
+		args...).Scan(&held); err != nil {
 		return "", err
 	}
 	if held+carve > budget-spent+1e-9 {

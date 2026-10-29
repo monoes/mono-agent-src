@@ -226,8 +226,12 @@ func (s *Store) markUnresolved(profileID string, t chargeTarget, conv, why strin
 	if err != nil {
 		return err
 	}
-	note := fmt.Sprintf("%s $%s unresolved: %s; the person resolves it with `coder sessions mission-children resolve-charge`", conv, formatUSD(hold), why)
-	return addMissionEvent(s.db, profileID, t.session, t.task, unresolvedKind, "host", note, s.stamp())
+	return addMissionEvent(s.db, profileID, t.session, t.task, unresolvedKind, "host", unresolvedNote(conv, hold, why), s.stamp())
+}
+
+// unresolvedNote is the note of an unresolved record: "<conversation> $<held> ...".
+func unresolvedNote(conv string, hold float64, why string) string {
+	return fmt.Sprintf("%s $%s unresolved: %s; the person resolves it with `coder sessions mission-children resolve-charge`", conv, formatUSD(hold), why)
 }
 
 // charged says whether a charge row exists for the child conversation. A query that fails is an error, never "no".

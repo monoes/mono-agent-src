@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -136,8 +137,17 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	lost, err := s.keepLostIdentity(tx, profileID, sessionID, taskID, generation, lead, now)
+	if err != nil {
+		return err
+	}
 	var res interface{ RowsAffected() (int64, error) }
-	if failed {
+	if lost {
+		// The row's conversation is known to it but nothing records its cost (no session, snapshot, charge or
+		// unresolved row, written just above): the row keeps its identity and ends as failed, never back to marked.
+		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'no_finish', reserved_usd = 0, ended_at = ?, updated_at = ?
+			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND (state = 'spawning' OR (state = 'gone' AND end_reason = 'deleted')) AND generation = ?`, now, now, profileID, sessionID, taskID, lead, generation)
+	} else if failed {
 		res, err = tx.Exec(`UPDATE coder_mission_children SET state = 'failed', end_reason = 'no_finish', reserved_usd = 0, pending_conversation_id = '', ended_at = ?, updated_at = ?
 			WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND state = 'spawning' AND generation = ?`, now, now, profileID, sessionID, taskID, lead, generation)
 	} else {
@@ -156,4 +166,44 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 		return err
 	}
 	return tx.Commit()
+}
+
+// keepLostIdentity is the release's guard for a row whose conversation is known to it (child id, else pending
+// id) but has no coder session, no spend snapshot, no charge and no unresolved record: its conversation was
+// deleted without the snapshot (the bypass window). Releasing would clear the pending id and with it the only
+// way to find the cost, so the unresolved record, holding what lostHoldSQL holds, is written in this
+// transaction and the caller keeps the row's identity. It says whether it did.
+func (s *Store) keepLostIdentity(tx *sql.Tx, profileID string, sessionID, taskID, generation int64, lead, now string) (bool, error) {
+	var child, pending string
+	var wish float64
+	err := tx.QueryRow(`SELECT child_conversation_id, pending_conversation_id, budget_usd FROM coder_mission_children
+		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND (state = 'spawning' OR (state = 'gone' AND end_reason = 'deleted')) AND generation = ?`,
+		profileID, sessionID, taskID, lead, generation).Scan(&child, &pending, &wish)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	conv := child
+	if conv == "" {
+		conv = pending
+	}
+	if conv == "" {
+		return false, nil
+	}
+	var known int
+	if err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?)
+		+ (SELECT COUNT(*) FROM coder_mission_events WHERE profile_id = ? AND session_id = ? AND kind IN ('charge', 'spend', '`+unresolvedKind+`') AND substr(note, 1, ?) = ?)`,
+		profileID, conv, profileID, sessionID, len(conv)+1, conv+" ").Scan(&known); err != nil {
+		return false, err
+	}
+	if known > 0 {
+		return false, nil
+	}
+	hold, err := s.lostHoldIn(tx, profileID, sessionID, wish)
+	if err != nil {
+		return false, err
+	}
+	return true, addMissionEvent(tx, profileID, sessionID, taskID, unresolvedKind, "host", unresolvedNote(conv, hold, "the child's conversation is gone and its spend was not recorded"), now)
 }

@@ -65,27 +65,49 @@ func (s *Store) goneConversation(profileID, conv string) (bool, error) {
 	return n == 0, err
 }
 
-// unresolvedHold is the amount an unresolved child keeps held against its mission's budget: the larger of its
-// row's budget and the share the mission would have given it (the most it could have been carved), and when
-// neither is known, everything the mission has left. It is a hold, never a charge: the person's resolution
-// replaces it with the real figure.
-func (s *Store) unresolvedHold(profileID string, t chargeTarget) (float64, error) {
-	hold := 0.0
-	if t.hasRow {
-		hold = t.row.BudgetUSD
+// lostHoldSQL is THE formula of the hold a child with a lost cost keeps against its mission, as a SQL expression
+// over the row's own wish b (a column or a parameter): the larger of the wish and the default share the mission
+// would have carved (a finite positive number), else everything the mission has left. The early term of
+// missionBudgetRefusal and the unresolved record the host writes (unresolvedHold) both use it with the same
+// inputs, so the hold a reservation saw is the hold the child keeps: it never grows after capacity was reserved
+// against it. Its four parameters are lostHoldArgs.
+func lostHoldSQL(b string) string {
+	return "(CASE WHEN MAX(" + b + ", ?) > 0 AND MAX(" + b + ", ?) < 1e300 THEN MAX(" + b + ", ?) ELSE ? END)"
+}
+
+// lostHoldArgs are the parameters of lostHoldSQL: the default share (three times) and what the mission has left.
+func lostHoldArgs(def, remaining float64) []any { return []any{def, def, def, remaining} }
+
+// defaultShareIn is the carve a task without its own budget would get (DefaultChildBudget), read through q; 0 when unknown.
+func (s *Store) defaultShareIn(q querier, profileID string, sessionID int64) float64 {
+	p, err := s.policyIn(q, profileID, sessionID)
+	if err != nil {
+		return 0
 	}
-	if def, err := s.DefaultChildBudget(profileID, t.session); err == nil && def > hold {
-		hold = def
-	}
+	return s.childBudgetIn(q, p, 0, p.LeadConversationID, func() (float64, error) { return s.spentIn(q, profileID, p.LeadConversationID) })
+}
+
+// lostHoldIn evaluates lostHoldSQL for a row with the wish rowBudget (0 for no row), reading through q.
+func (s *Store) lostHoldIn(q querier, profileID string, sessionID int64, rowBudget float64) (float64, error) {
 	var budget, spent float64
-	err := s.db.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, t.session).Scan(&budget, &spent)
+	err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
-	if hold <= 0 || math.IsNaN(hold) || math.IsInf(hold, 0) {
-		hold = math.Max(budget-spent, 0)
+	var hold float64
+	args := append(lostHoldArgs(s.defaultShareIn(q, profileID, sessionID), math.Max(budget-spent, 0)), rowBudget)
+	err = q.QueryRow(`SELECT `+lostHoldSQL("h.b")+` FROM (SELECT ? AS b) h`, args...).Scan(&hold)
+	return hold, err
+}
+
+// unresolvedHold is the amount an unresolved child keeps held against its mission's budget (lostHoldSQL). It is a
+// hold, never a charge: the person's resolution replaces it with the real figure.
+func (s *Store) unresolvedHold(profileID string, t chargeTarget) (float64, error) {
+	wish := 0.0
+	if t.hasRow {
+		wish = t.row.BudgetUSD
 	}
-	return hold, nil
+	return s.lostHoldIn(s.db, profileID, t.session, wish)
 }
 
 // recovered is what to do for a settled row: charge usd under the note, or (unknown) hold it for the person.

@@ -58,7 +58,7 @@ func TestAnUnresolvedChildsHoldIsNeverCharged(t *testing.T) {
 	if got := f.missionSpent(t); got != 2 {
 		t.Fatalf("mission spent = %v, want 2: the hold must not be charged", got)
 	}
-	if why, _ := missionBudgetRefusal(f.st.db, "p", f.se.ID, f.lead.ConversationID, 0.1); why == "" {
+	if why, _ := f.st.missionBudgetRefusal(f.st.db, "p", f.se.ID, f.lead.ConversationID, 0.1); why == "" {
 		t.Fatal("the hold did not refuse a new carve")
 	}
 }
