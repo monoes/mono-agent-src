@@ -37,7 +37,7 @@ func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, 
 			}
 		}
 		stamp := s.stamp()
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = 'running', approved_by = ?, approved_at = ? WHERE id = ?`, actor.Label(), stamp, id); err != nil {
+		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = 'running', approved_by = ?, approved_at = ?, approval_basis = 'operator' WHERE id = ?`, actor.Label(), stamp, id); err != nil {
 			return fmt.Errorf("tasks: approving session #%d: %w", id, err)
 		}
 		return s.sessionEvent(ctx, x, id, actor, "approved", fmt.Sprintf("%d tasks to Ready", len(ids)))
@@ -91,20 +91,26 @@ func (s *Store) transition(ctx context.Context, profileID string, id int64, acto
 		if !slices.Contains(from, se.State) || se.Archived {
 			return sessionNotReady("session #%d is %s: it cannot %s now", id, se.State, kind)
 		}
-		if to == SessionStopped || kind == "close" {
-			why := "the session was stopped"
-			if kind == "close" {
-				why = "the session was closed"
-			}
-			if err := s.releaseClaims(ctx, x, profileID, id, actor, why); err != nil {
-				return err
-			}
-		}
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = ? WHERE id = ?`, string(to), id); err != nil {
-			return fmt.Errorf("tasks: %s session #%d: %w", kind, id, err)
-		}
-		return s.sessionEvent(ctx, x, id, actor, kind, note)
+		return s.endTx(ctx, x, profileID, id, actor, to, kind, note)
 	})
+}
+
+// endTx moves session id to a new state inside a write: a stop or a close releases the
+// session's claims first.
+func (s *Store) endTx(ctx context.Context, x dbx, profileID string, id int64, actor Actor, to SessionState, kind, note string) error {
+	if to == SessionStopped || kind == "close" {
+		why := "the session was stopped"
+		if kind == "close" {
+			why = "the session was closed"
+		}
+		if err := s.releaseClaims(ctx, x, profileID, id, actor, why); err != nil {
+			return err
+		}
+	}
+	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = ? WHERE id = ?`, string(to), id); err != nil {
+		return fmt.Errorf("tasks: %s session #%d: %w", kind, id, err)
+	}
+	return s.sessionEvent(ctx, x, id, actor, kind, note)
 }
 
 // releaseClaims takes every claim of the session's tasks back: the tasks go to Ready.
@@ -183,11 +189,27 @@ func (s *Store) ArchiveSession(ctx context.Context, profileID string, id int64, 
 		if se.State == SessionRunning || se.State == SessionPaused {
 			return sessionNotReady("session #%d is %s: stop it before archiving", id, se.State)
 		}
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET archived_at = ? WHERE id = ?`, s.stamp(), id); err != nil {
-			return fmt.Errorf("tasks: archiving session #%d: %w", id, err)
+		all, err := s.subtree(ctx, x, profileID, id)
+		if err != nil {
+			return err
 		}
-		return s.sessionEvent(ctx, x, id, actor, "archived", "")
+		if open := openIn(all); len(open) > 0 {
+			return sessionNotReady("%s", openChildrenMessage(id, open))
+		}
+		// Only finished sessions are below it: they go with it, without a prompt.
+		if _, err := s.archiveBelow(ctx, x, profileID, all, actor); err != nil {
+			return err
+		}
+		return s.archiveTx(ctx, x, id, actor, "")
 	})
+}
+
+// archiveTx hides session id inside a write and records the event.
+func (s *Store) archiveTx(ctx context.Context, x dbx, id int64, actor Actor, note string) error {
+	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET archived_at = ? WHERE id = ?`, s.stamp(), id); err != nil {
+		return fmt.Errorf("tasks: archiving session #%d: %w", id, err)
+	}
+	return s.sessionEvent(ctx, x, id, actor, "archived", note)
 }
 
 // UpdateSession changes a session's budget, caps, access level or auto-close setting.
@@ -269,7 +291,15 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 		maxTasks, maxDepth, maxRetries, budget, level, on, id); err != nil {
 		return fmt.Errorf("tasks: updating session #%d: %w", id, err)
 	}
-	return s.sessionEvent(ctx, x, id, actor, "limits", strings.Join(changed, ", "))
+	if err := s.sessionEvent(ctx, x, id, actor, "limits", strings.Join(changed, ", ")); err != nil {
+		return err
+	}
+	return s.clampChildren(ctx, x, id, actor, lowered{
+		level:    slices.Index(AccessLevels, level) < slices.Index(AccessLevels, se.AccessLevel),
+		maxTasks: maxTasks < se.MaxTasks,
+		maxDepth: maxDepth < se.MaxDepth,
+		budget:   budget > 0 && (se.BudgetUSD <= 0 || budget < se.BudgetUSD),
+	})
 }
 
 // AddSessionSpend adds usd to what the session has spent. Only the operator's process
