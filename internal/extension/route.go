@@ -15,9 +15,18 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	if cmd.ID == "" {
 		cmd.ID = uuid.New().String()
 	}
-	c, err := s.resolve(t)
+	// A set_binding is an administrative binding operation: it may name a browser by
+	// instance alone, and its profiles are checked against the allowed set below.
+	c, err := s.resolveWith(t, cmd.Type == CmdSetBinding)
 	if err != nil {
 		return nil, err
+	}
+	// The relay forwards this with only the relay token, so the browser's
+	// allowed set is enforced here, where every path to a socket passes.
+	if cmd.Type == CmdSetBinding {
+		if out := c.outsideAllowed(setBindingNames(cmd.Params)); len(out) > 0 {
+			return nil, errNotAllowed(out)
+		}
 	}
 
 	// An unbind is effective at once: the bridge stops routing the removed
@@ -41,11 +50,32 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		s.pendMu.Unlock()
 	}()
 
-	if err := s.writeCommandTo(c, cmd); err != nil {
+	// A set_binding is sent only if its profiles are still allowed at this
+	// moment (the owner may have narrowed the set while it waited for bindMu).
+	data, merr := json.Marshal(cmd)
+	if merr != nil {
 		if restore != nil {
 			restore()
 		}
-		return nil, err
+		return nil, fmt.Errorf("marshal command: %w", merr)
+	}
+	var werr error
+	sent := true
+	if cmd.Type == CmdSetBinding {
+		names := setBindingNames(cmd.Params)
+		sent, werr = c.checkedWrite(func() bool { return c.allowedNow(names) }, data)
+	} else {
+		werr = s.deliver(c, t.Profile, cmd)
+	}
+	if !sent {
+		restore()
+		return nil, errNotAllowed(setBindingNames(cmd.Params))
+	}
+	if werr != nil {
+		if restore != nil {
+			restore()
+		}
+		return nil, werr
 	}
 	s.logger.Debug().Str("id", cmd.ID).Str("type", cmd.Type).Str("instance", c.id).Msg("command sent")
 
@@ -60,8 +90,13 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		if cmd.Type == CmdSetBinding {
 			// The extension stored it; mirror it here so the very next
 			// command routes by it rather than by the auth frame from
-			// whenever this socket opened.
-			c.applyBindingParams(cmd.Params)
+			// whenever this socket opened. If the owner narrowed the allowed set
+			// while it was in flight, the browser now holds a binding it may not:
+			// drop its socket instead of mirroring it.
+			if !c.whileAllowed(setBindingNames(cmd.Params), func() { c.applyBindingParams(cmd.Params) }) {
+				c.closeUnauthorized("this browser is not allowed to run a profile it was given")
+				return nil, errNotAllowed(setBindingNames(cmd.Params))
+			}
 		}
 		return resp, nil
 	case <-time.After(timeout):
@@ -78,18 +113,7 @@ func (s *Server) writeCommand(t Target, cmd *Command) error {
 	if err != nil {
 		return err
 	}
-	return s.writeCommandTo(c, cmd)
-}
-
-func (s *Server) writeCommandTo(c *extConn, cmd *Command) error {
-	data, err := json.Marshal(cmd)
-	if err != nil {
-		return fmt.Errorf("marshal command: %w", err)
-	}
-	if err := c.write(data); err != nil {
-		return fmt.Errorf("write command: %w", err)
-	}
-	return nil
+	return s.deliver(c, t.Profile, cmd)
 }
 
 // CreateTabFor opens a tab at url in the browser t resolves to.
@@ -142,7 +166,12 @@ func (s *Server) serveBinding(c *extConn, msg []byte) {
 		s.logger.Warn().Err(err).Msg("invalid binding frame")
 		return
 	}
-	c.setBinding(profilesFromWire(f.Profiles, f.Profile), f.Label)
+	profiles := profilesFromWire(f.Profiles, f.Profile)
+	if !c.whileAllowed(profiles, func() { c.setBinding(profiles, f.Label) }) {
+		s.logger.Warn().Str("instance", c.id).Msg("binding frame names a profile outside the browser's allowed set: closing it")
+		c.closeUnauthorized("this browser is not allowed to run a profile it asked for")
+		return
+	}
 	// Off the read loop: the profile source may take seconds to answer, and
 	// this browser's frames must not wait for it.
 	go s.dropDeletedBinding(c)

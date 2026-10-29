@@ -54,7 +54,7 @@ func gateHome(t *testing.T) (home, zip string) {
 // gated are the commands that change which browser or profile the
 // extension acts as, which bridge it pairs with, or the code it runs.
 func gated(zip string) [][]string {
-	return [][]string{{"bind", "Edge", "Work"}, {"unbind", "Edge"}, {"unbind", "Edge", "Work"}, {"assign", "Work", "Edge"}, {"assign", "Work"}, {"reset"}, {"pair", "--open"}, {"install", "--zip", zip}}
+	return [][]string{{"bind", "Edge", "Work"}, {"unbind", "Edge"}, {"unbind", "Edge", "Work"}, {"assign", "Work", "Edge"}, {"assign", "Work"}, {"browsers", "allow", "abcd1234", "--any"}, {"reset"}, {"pair", "--open"}, {"install", "--zip", zip}}
 }
 
 // A marked process — an agent's shell, the chat, a workflow's run, a coder

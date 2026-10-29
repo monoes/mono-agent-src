@@ -8,6 +8,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/commsync"
+	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/hilsend"
 )
 
@@ -29,6 +30,9 @@ func ItemRefusal(ctx context.Context, db *sql.DB, profileID, id string) error {
 	case browserctl.IsSubmitItem(nc), browserctl.IsSiteItem(nc), hilsend.IsSend(nc):
 		return &ItemError{ID: id, Profile: profileID}
 	}
+	if _, pair := extension.IsPairCard(nc); pair {
+		return &ItemError{ID: id, Profile: profileID, Pairing: true}
+	}
 	if commsync.OutboundHIL(nc) {
 		return &ItemError{ID: id, Profile: profileID, Message: true}
 	}
@@ -40,11 +44,16 @@ func ItemRefusal(ctx context.Context, db *sql.DB, profileID, id string) error {
 type ItemError struct {
 	ID, Profile string
 	Message     bool
+	// Pairing: the item is a browser's request to pair, which gives it access to the user's data.
+	Pairing bool
 }
 
 func (e *ItemError) Error() string {
 	what := "is for the user to decide, not an agent"
-	if e.Message {
+	switch {
+	case e.Pairing:
+		what = "is a browser's request to pair, which would give it access to the user's data, so the user decides it, not an agent"
+	case e.Message:
 		what = "may let a message to a person go out once approved, so the user decides it, not an agent"
 	}
 	return fmt.Sprintf("HIL item %s %s: the user approves or rejects it in their own terminal "+

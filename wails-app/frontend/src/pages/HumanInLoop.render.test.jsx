@@ -102,6 +102,36 @@ describe('HumanInLoop unified approvals', () => {
     })
   })
 
+  it('shows a browser pairing card with its profile preselected and sends the choice', async () => {
+    WailsApp.GetHILItems.mockResolvedValue([{
+      id: 'pair-1', node_name: 'Pair browser: Edge', workflow_name: '', execution_id: 'extpair:abc', status: 'pending',
+      readonly_data: {
+        browser: 'Edge',
+        summary: 'The profiles field lists the profiles this browser may run. Type any to let it run every profile. Left empty, this browser can\'t serve any profile yet.',
+      },
+      editable_data: { code: '', profiles: 'Work' },
+      node_config: { kind: 'extension.pair', claim: 'abc' },
+      created_at: '2026-10-28 10:00:00',
+    }])
+    WailsApp.GetDraftPersonMessages.mockResolvedValue([])
+    WailsApp.ApproveHIL.mockResolvedValue(undefined)
+    api.getPendingPeopleApprovals.mockResolvedValue([])
+    api.listOrgDesigns.mockResolvedValue({ items: [] })
+
+    render(<HumanInLoop embedded isOpen={true} onClose={() => {}} />)
+
+    const profiles = await screen.findByDisplayValue('Work')
+    expect(screen.getByText(/can't serve any profile yet/)).toBeInTheDocument()
+    fireEvent.change(profiles, { target: { value: 'any' } })
+    fireEvent.change(screen.getByDisplayValue(''), { target: { value: 'ABC-123' } })
+    fireEvent.click(screen.getByText('Approve & Continue'))
+
+    await waitFor(() => expect(WailsApp.ApproveHIL).toHaveBeenCalled())
+    const [id, json] = WailsApp.ApproveHIL.mock.calls[0]
+    expect(id).toBe('pair-1')
+    expect(JSON.parse(json)).toEqual({ code: 'ABC-123', profiles: 'any' })
+  })
+
   it('shows Jev suggestion chips and sorts workflow items by confidence', async () => {
     const hil = (id, name, suggestion) => ({
       id, node_name: name, workflow_name: '', execution_id: 'exec-' + id, status: 'pending',
