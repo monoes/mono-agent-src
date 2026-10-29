@@ -43,7 +43,7 @@ export default function TasksShell({ isActive = true, Board, sessionHint = null,
   }
   const header = (
     <SessionHeader
-      session={session} view={view} onView={setView} onAct={s.act} onBudget={s.setBudget}
+      sessions={s.sessions} session={session} view={view} onView={setView} onAct={s.act} onBudget={s.setBudget}
       notice={s.notice} onClearNotice={s.clearNotice}
       onOpenConversation={openDraft ? (id) => openDraft({ conversationId: id }) : null}
     />

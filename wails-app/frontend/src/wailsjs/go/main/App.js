@@ -1622,6 +1622,10 @@ export function TaskSessionArchive(arg1) {
   return window['go']['main']['App']['TaskSessionArchive'](arg1);
 }
 
+export function TaskSessionArchiveCascade(arg1) {
+  return window['go']['main']['App']['TaskSessionArchiveCascade'](arg1);
+}
+
 export function TaskSessionBoard(arg1, arg2) {
   return window['go']['main']['App']['TaskSessionBoard'](arg1, arg2);
 }
