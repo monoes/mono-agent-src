@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 )
 
 // Who approved a session (task_sessions.approval_basis).
@@ -56,7 +55,8 @@ func (e *GiantError) Error() string {
 	if e.Raised {
 		tail = "a person item waits for the person, with no timeout"
 	}
-	return fmt.Sprintf("session #%d is giant (%s): %s", e.Session, strings.Join(e.Reasons, "; "), tail)
+	// Reasons are for the operator's view (GiantFactsOf): an agent is told that the person decides, not why.
+	return fmt.Sprintf("session #%d: this plan needs the person: %s", e.Session, tail)
 }
 
 func (e *GiantError) Unwrap() error { return ErrOperatorOnly }

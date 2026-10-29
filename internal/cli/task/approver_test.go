@@ -79,7 +79,7 @@ func TestLeadApprovesWithItsRealTokenAndGiantWorkWaitsForThePerson(t *testing.T)
 	}
 
 	doc = approve(big)
-	if doc["code"] != "operator_only" || !strings.Contains(doc["error"].(string), "giant") {
+	if doc["code"] != "operator_only" || !strings.Contains(doc["error"].(string), "needs the person") {
 		t.Fatalf("giant: %v", doc)
 	}
 	if items := openItems(t, db); len(items) != 1 || items[0].Kind != coderhost.ItemPlanApproval || items[0].RefID != big {
