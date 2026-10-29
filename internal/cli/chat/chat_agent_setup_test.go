@@ -24,6 +24,7 @@ const notLoggedInTranscript = `  echo '{"v":1,"type":"start","runtime":"claude",
 func withoutMonomind(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv(monomind.EnvOverride, filepath.Join(t.TempDir(), "no-monomind"))
 	if bin, err := monomind.Find(); err == nil {

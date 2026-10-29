@@ -125,4 +125,5 @@
 139_coder_mission_children.sql
 140_coder_session_commands_chat_idx.sql
 141_coder_mission_child_generation.sql
+143_coder_budget_requests.sql
 147_org_worker_mission_link.sql

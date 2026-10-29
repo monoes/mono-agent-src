@@ -1962,7 +1962,7 @@ command with no issuer) ran for it since its last turn began (a stop counts unti
 never ends a child spawned after it; it is dated by when it completed), and a mission that was stopped, done, failed,
 archived, deleted or handed to a different, non-empty lead conversation ends its old lead's children too; a mission
 whose link is empty or unset is unknown and ends nothing. It pauses the children of a paused mission (a turn that is
-running finishes under its cap, which is weaker than halting in-turn workers) and, when the mission runs again, queues one host-made resume (no issuer) for a child whose newest pause or resume is its own cascade pause (a person's pause stays); it
+running finishes under its cap, which is weaker than halting in-turn workers) and, when the mission runs again, queues one host-made resume (no issuer) for a child whose newest pause or resume is its own cascade pause (a person's pause stays: the host refuses to apply any resume with an issuer or the cascade's turn id while a person's pause, a no-issuer command that is not the cascade's, stands in the command history, and the cascade's resume is queued by one statement that checks the same, so `session_resume` cannot lift an operator's pause; only a person's resume does); it
 gives back reservations whose spawn died and stops what they left; and it logs once, and changes nothing, for each
 child that holds a carve but belongs to no mission row (`FindOrphanCarves`; informational, and forgotten once the
 session is gone): a lead may legitimately have such children, so nothing is stopped on age and policy alone. It
@@ -2001,6 +2001,23 @@ setting, turn on mode `all` or lift an operator's `off` or cap. The operator's c
 [--clear-max-children-cap] [--clear-share-pct-cap]` and `list`: both refuse any process that holds a coder session
 token or a mission binding. An operator who writes a number also sets it as the lead's cap; giving the lead a value
 without limiting takes two calls.
+
+**Budget requests.** When a mission's budget (or a child session's cap) is used up, the lead may ask the person for
+more with the MCP tool `mission_budget_request{amount_usd,reason?,task_id?}` (mutating: needs `--allow-mutations`;
+no `task_id` = its own session budget, a `task_id` = the cap of that running child session; at most $50 a request).
+It raises nothing: the request is a person item (kind `budget_request`, shown with the other items that need you) that
+waits with no timeout, no default and no master. One request may be open per session, a lead may file three an
+hour and twelve per mission. Only the operator answers: `coder sessions budget list [--open]`, `grant <id> [--usd N]`
+(at most what was asked, in whole cents, once, on exactly the session the request names; a child's raise has to fit
+the same limits a carve fits: the mission's budget, the policy's share of the lead's remaining budget and what the lead
+has left, counting its children's caps and what it has reserved for children still starting; otherwise the request stays
+open and a smaller `--usd` may fit) and `decline <id>`. All three refuse a process that holds a coder session token or a
+mission binding (a courtesy check on the environment and the CLI's operator check, not a barrier against a same-user
+process that can edit the database). A request whose mission is archived or finished, whose lead or session is stopped
+or gone, or whose target's budget changed since it was filed, is void for good: it cannot be granted or declined, even
+if the numbers come back. A grant on a root lead's own budget (a lead with no master) is the person's allowance: it
+does not raise the task-session mission budget, and that mission budget is not a total cap over the lead's own
+session. A pending request changes nothing else and starts no turn.
 
 **Who closes what in a mission.** Workers finish a task to Review; the verifier marks it
 verified; a verified task unlocks its dependents (it counts as done for them). The
@@ -2652,6 +2669,7 @@ monoagentcli --profile work coder sessions list --json            # sessions, st
 monoagentcli --profile work coder sessions stop|pause|resume <conv>
 monoagentcli --profile work coder sessions command <id>            # how one queued command ended: pending, done, or failed with the reason
 monoagentcli --profile work coder sessions mission-children list                 # operator: child-session policy per mission lead (set: see Missions)
+monoagentcli --profile work coder sessions budget list --open|grant <id> [--usd N]|decline <id>   # operator: a mission lead's requests for more budget (see Missions)
 monoagentcli --profile work coder host status --json               # running? pid, since when
 monoagentcli --profile work coder host stop                        # the host only; running turns keep going
 ```
