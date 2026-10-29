@@ -95,14 +95,49 @@ type LinuxProcs struct{ ok bool }
 
 var errProcfs = errors.New("procbind: /proc is not this process's own procfs (another pid namespace or a mount over /proc)")
 
-// NewLinuxProcs checks that /proc/self is this process: the mount in front of /proc belongs to
-// the pid namespace this process is in. It fails closed otherwise.
+// NewLinuxProcs checks that the /proc in front of this process is the procfs of the pid namespace
+// the process is in, so that a number read from a pidfd (reported in the procfs mount's namespace)
+// and the same number given to pidfd_open (read in this process's namespace) name one process. A
+// matching self pid is not evidence: an ancestor namespace's procfs can show the same number by
+// coincidence. The kernel states the relationship itself: NSpid in /proc/self/status lists the
+// process's pid in every namespace from the one procfs was mounted in down to its own, so exactly
+// one entry means the two are the same namespace. It fails closed otherwise.
 func NewLinuxProcs() (LinuxProcs, error) {
-	target, err := os.Readlink("/proc/self")
-	if err != nil || target != strconv.Itoa(os.Getpid()) {
+	link, err := os.Readlink("/proc/self")
+	if err != nil {
 		return LinuxProcs{}, errProcfs
 	}
+	status, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return LinuxProcs{}, errProcfs
+	}
+	if err := checkProcfsNamespace(status, link, os.Getpid()); err != nil {
+		return LinuxProcs{}, err
+	}
 	return LinuxProcs{ok: true}, nil
+}
+
+// checkProcfsNamespace is the decision of NewLinuxProcs on what it read: the target of
+// /proc/self, the contents of /proc/self/status and the process's own pid.
+func checkProcfsNamespace(status []byte, selfLink string, pid int) error {
+	if selfLink != strconv.Itoa(pid) {
+		return errProcfs
+	}
+	for _, line := range bytes.Split(status, []byte{'\n'}) {
+		v, ok := bytes.CutPrefix(line, []byte("NSpid:"))
+		if !ok {
+			continue
+		}
+		f := bytes.Fields(v)
+		if len(f) != 1 {
+			return errProcfs // procfs of an ancestor namespace (or empty)
+		}
+		if n, err := strconv.Atoi(string(f[0])); err != nil || n != pid {
+			return errProcfs
+		}
+		return nil
+	}
+	return errProcfs // no NSpid line: a kernel that cannot say, so the check cannot be made
 }
 
 func (p LinuxProcs) Open(pid int) (Handle, error) {
