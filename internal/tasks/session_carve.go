@@ -58,17 +58,25 @@ func (s *Store) carveChild(ctx context.Context, x dbx, par Session, budget float
 	return budget, nil
 }
 
-// clampChildren brings the open children of session id (and theirs) within its limits after the
-// operator lowered them: down only, never up, each change an event of the child. The children share
-// what the parent has left, in id order.
-func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor) error {
+// lowered names the limits of a session that an update lowered: only those are clamped on its children.
+type lowered struct{ level, maxTasks, maxDepth, budget bool }
+
+func (l lowered) any() bool { return l.level || l.maxTasks || l.maxDepth || l.budget }
+
+// clampChildren brings the open children of session id (and theirs) within the limits low names, after
+// the operator lowered them: down only, never up, each change an event of the child. The children
+// share what the parent has left, in id order; a child's budget is never cut below what it spent.
+func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor, low lowered) error {
+	if !low.any() {
+		return nil
+	}
 	var level string
 	var maxTasks, maxDepth int
 	var budget, spent float64
 	if err := x.QueryRowContext(ctx, `SELECT access_level, max_tasks, max_depth, budget_usd, spent_usd FROM task_sessions WHERE id = ?`, id).Scan(&level, &maxTasks, &maxDepth, &budget, &spent); err != nil {
 		return fmt.Errorf("tasks: reading session #%d: %w", id, err)
 	}
-	rows, err := x.QueryContext(ctx, `SELECT id, access_level, max_tasks, max_depth, budget_usd FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates+` ORDER BY id`, id)
+	rows, err := x.QueryContext(ctx, `SELECT id, access_level, max_tasks, max_depth, budget_usd, spent_usd FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates+` ORDER BY id`, id)
 	if err != nil {
 		return fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 	}
@@ -76,12 +84,12 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor)
 		id                int64
 		level             string
 		maxTasks, maxDeep int
-		budget            float64
+		budget, spent     float64
 	}
 	var kids []kid
 	for rows.Next() {
 		var k kid
-		if err := rows.Scan(&k.id, &k.level, &k.maxTasks, &k.maxDeep, &k.budget); err != nil {
+		if err := rows.Scan(&k.id, &k.level, &k.maxTasks, &k.maxDeep, &k.budget, &k.spent); err != nil {
 			rows.Close()
 			return fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 		}
@@ -98,21 +106,22 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor)
 	left := budget - spent - closed
 	for _, k := range kids {
 		var changed []string
-		if slices.Index(AccessLevels, k.level) > slices.Index(AccessLevels, level) {
-			k.level = level
+		var cut lowered
+		if low.level && slices.Index(AccessLevels, k.level) > slices.Index(AccessLevels, level) {
+			k.level, cut.level = level, true
 			changed = append(changed, "access_level "+level)
 		}
-		if k.maxTasks > maxTasks {
-			k.maxTasks = maxTasks
+		if low.maxTasks && k.maxTasks > maxTasks {
+			k.maxTasks, cut.maxTasks = maxTasks, true
 			changed = append(changed, fmt.Sprintf("max_tasks %d", maxTasks))
 		}
-		if k.maxDeep > maxDepth {
-			k.maxDeep = maxDepth
+		if low.maxDepth && k.maxDeep > maxDepth {
+			k.maxDeep, cut.maxDepth = maxDepth, true
 			changed = append(changed, fmt.Sprintf("max_depth %d", maxDepth))
 		}
-		if budget > 0 {
-			if cap := math.Floor(max(left, 0.01)*100) / 100; k.budget <= 0 || k.budget > cap {
-				k.budget = cap
+		if low.budget && budget > 0 {
+			if cap := max(math.Floor(max(left, 0.01)*100)/100, k.spent); k.budget <= 0 || k.budget > cap {
+				k.budget, cut.budget = cap, true
 				changed = append(changed, fmt.Sprintf("budget_usd %.2f", cap))
 			}
 			left -= k.budget
@@ -126,7 +135,7 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor)
 		if err := s.sessionEvent(ctx, x, k.id, actor, "clamped", fmt.Sprintf("to session #%d's lowered limits: %s", id, strings.Join(changed, ", "))); err != nil {
 			return err
 		}
-		if err := s.clampChildren(ctx, x, k.id, actor); err != nil {
+		if err := s.clampChildren(ctx, x, k.id, actor, cut); err != nil {
 			return err
 		}
 	}

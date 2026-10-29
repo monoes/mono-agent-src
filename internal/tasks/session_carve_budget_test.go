@@ -48,3 +48,45 @@ func TestASpentClosedChildLeavesNothingToGiveAgain(t *testing.T) {
 		t.Fatalf("the spent $10 came back: %v", err)
 	}
 }
+
+// Review 2, smaller (a): an update clamps only what it lowered, and never below a child's spend.
+func TestAnUnrelatedParentEditLeavesAChildsBudgetAlone(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	p, _ := carveParent(t, s, 10)
+	k, err := s.CreateSession(bg, "default", SessionInput{Title: "kid", ParentSessionID: p.ID, BudgetUSD: 5}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddSessionSpend(bg, "default", k.ID, 4, "work", human); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddSessionSpend(bg, "default", p.ID, 6, "work", human); err != nil {
+		t.Fatal(err)
+	}
+	mt := 100
+	if _, err := s.UpdateSession(bg, "default", p.ID, SessionUpdate{MaxTasks: &mt}, human); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetSession(bg, "default", k.ID, human); got.BudgetUSD != 5 {
+		t.Fatalf("an edit of max_tasks changed the child's budget to $%.2f", got.BudgetUSD)
+	}
+}
+
+func TestLoweringTheBudgetNeverClampsAChildBelowItsSpend(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	p, _ := carveParent(t, s, 10)
+	k, err := s.CreateSession(bg, "default", SessionInput{Title: "kid", ParentSessionID: p.ID, BudgetUSD: 5}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddSessionSpend(bg, "default", k.ID, 4, "work", human); err != nil {
+		t.Fatal(err)
+	}
+	b := 2.0
+	if _, err := s.UpdateSession(bg, "default", p.ID, SessionUpdate{BudgetUSD: &b}, human); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetSession(bg, "default", k.ID, human); got.BudgetUSD != 4 {
+		t.Fatalf("the child's budget is $%.2f, want its $4 spend", got.BudgetUSD)
+	}
+}
