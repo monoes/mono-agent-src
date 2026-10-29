@@ -142,10 +142,15 @@ func TestStoreRoundTripResetAndCorruptRow(t *testing.T) {
 	if err != nil || got.Err == nil || !got.Setting.IsDefault() {
 		t.Errorf("corrupt row: %+v %v", got, err)
 	}
-	if u, _ := st.Usable(); len(u) != 1 { // only coding (reset) is usable
-		if _, in := u["review"]; in {
-			t.Errorf("the corrupt row is used: %+v", u["review"])
-		}
+	// The resolver's read fails closed: an unreadable row is an error naming the purpose, never the default.
+	if u, err := st.Usable(); err == nil || !strings.Contains(err.Error(), "review") || u != nil {
+		t.Errorf("a corrupt row must fail the resolver's read and name the purpose: %+v %v", u, err)
+	}
+	if err := st.Reset("review"); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := st.Usable(); err != nil || len(u) != len(builtins) {
+		t.Errorf("after the reset every purpose is usable: %d %v", len(u), err)
 	}
 	if _, err := st.Load("wizardry"); err == nil {
 		t.Error("an unknown purpose was loaded")

@@ -58,18 +58,28 @@ func (s Store) LoadAll() (map[string]Loaded, error) {
 	return out, nil
 }
 
-// Usable is the settings the resolver uses, by id: a corrupt row is left
-// out, so that purpose reads as the default.
+// Usable is the settings the resolver uses, by id. A row that cannot be read
+// is an error, never the default: the operator's restriction would be
+// unknown, and a spawn must not run unrestricted by mistake. The error names
+// every unreadable purpose so the operator can reset it; `list` still shows
+// such a row as the default with a warning.
 func (s Store) Usable() (map[string]Setting, error) {
 	all, err := s.LoadAll()
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]Setting{}
-	for id, l := range all {
-		if l.Err == nil {
-			out[id] = l.Setting
+	var bad []string
+	for _, p := range builtins {
+		l := all[p.ID]
+		if l.Err != nil {
+			bad = append(bad, p.ID)
+			continue
 		}
+		out[p.ID] = l.Setting
+	}
+	if len(bad) > 0 {
+		return nil, fmt.Errorf("the model set for %s is unreadable: reset it with `agent purposes reset PURPOSE`", strings.Join(bad, ", "))
 	}
 	return out, nil
 }
