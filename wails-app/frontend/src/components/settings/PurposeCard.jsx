@@ -30,6 +30,10 @@ export default function PurposeCard({ purpose, roster, pending, error, onSave, o
   if (base !== saved) { setBase(saved); setDraft(draftFrom(purpose)) }
 
   const dirty = isDirty(draft, purpose)
+
+  // The CLI refuses a pair that is not validated, so Save waits until the chosen pairs are all usable (remove or re-validate).
+
+  const draftUnusable = draft.pairs.some(x => rosterStatus(roster, x) !== 'ok')
   const bErr = budgetError(draft.budgetShare)
   const set = (patch) => { if (error) onDismissError(purpose.id); setDraft(d => ({ ...d, ...patch })) }
   const chosen = new Set(draft.pairs.map(pairKey))
@@ -84,8 +88,8 @@ export default function PurposeCard({ purpose, roster, pending, error, onSave, o
             <span style={fieldLabel} id={id('models')}>{t('settings.purposes.models')}</span>
             <PairChips pairs={draft.pairs} roster={roster} ordered={draft.rule === 'order'} disabled={pending}
               labelledBy={id('models')} onChange={(pairs) => set({ pairs })} />
-            {draft.pairs.some(x => rosterStatus(roster, x) !== 'ok') && (
-              <div style={{ ...hint, color: 'var(--yellow)' }}>{t('settings.purposes.notUsableHint')}</div>
+            {draftUnusable && (
+              <div role="status" style={{ ...hint, color: 'var(--yellow)' }}>{t('settings.purposes.notUsableHint')}</div>
             )}
             <AddModel idBase={id('add')} roster={roster} chosen={chosen} disabled={pending} onPick={addPair} />
             {draft.pairs.length === 0 && <div style={hint}>{t('settings.purposes.nothingChosen')}</div>}
@@ -133,7 +137,7 @@ export default function PurposeCard({ purpose, roster, pending, error, onSave, o
             <div role="alert" data-testid="purpose-error" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={errText}>{error.message}</span>
               {retryable && (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => onSave(purpose.id, draft)} disabled={pending || !!bErr}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => onSave(purpose.id, draft)} disabled={pending || !!bErr || draftUnusable}>
                   {t('settings.purposes.retry')}
                 </button>
               )}
@@ -141,7 +145,7 @@ export default function PurposeCard({ purpose, roster, pending, error, onSave, o
           )}
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-primary btn-sm" disabled={pending || !dirty || !!bErr}
+            <button type="button" className="btn btn-primary btn-sm" disabled={pending || !dirty || !!bErr || draftUnusable}
               onClick={() => onSave(purpose.id, draft)} style={{ gap: 6 }}>
               {pending && <Loader2 size={11} className="spin" aria-hidden="true" />}
               {pending ? t('settings.purposes.saving') : t('settings.purposes.save')}

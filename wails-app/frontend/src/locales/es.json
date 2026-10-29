@@ -781,7 +781,7 @@
       "noneLeft": "No quedan modelos validados para añadir",
       "added": "añadido",
       "notUsable": "no se puede usar hasta validarlo",
-      "notUsableHint": "Un modelo sin validar sigue en la lista, pero no se puede usar hasta que se valide de nuevo.",
+      "notUsableHint": "Un modelo sin validar sigue en la lista pero no se puede usar hasta validarlo de nuevo. Quítalo o valídalo de nuevo para guardar.",
       "moveUp": "Subir {{model}}",
       "moveDown": "Bajar {{model}}",
       "remove": "Quitar {{model}}",

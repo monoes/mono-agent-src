@@ -781,7 +781,7 @@
       "noneLeft": "No validated model left to add",
       "added": "added",
       "notUsable": "not usable until validated",
-      "notUsableHint": "A model that is not validated stays listed but is not usable until it is validated again.",
+      "notUsableHint": "A model that is not validated stays listed but is not usable until it is validated again. Remove it or validate it again to save.",
       "moveUp": "Move {{model}} up",
       "moveDown": "Move {{model}} down",
       "remove": "Remove {{model}}",

@@ -91,7 +91,19 @@ describe('AgentPurposesSection', () => {
     expect(within(li).getByText(/not validated stays listed/)).toBeInTheDocument()
     fireEvent.click(within(stale).getByRole('button', { name: 'Remove claude / haiku' }))
     expect(li.querySelector('[data-pair="claude:haiku"]')).toBeNull()
+    // The CLI refuses a pair that is not validated: Save waits until every unusable pair is gone.
+    expect(within(li).getByRole('button', { name: 'Save' })).toBeDisabled()
+    fireEvent.click(within(li.querySelector('[data-pair="codex:gpt-5-mini"]')).getByRole('button', { name: 'Remove codex / gpt-5-mini' }))
+    expect(li.querySelector('[data-pair="codex:gpt-5-mini"]')).toBeNull()
     expect(within(li).getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('Save and Retry are blocked while a chosen pair is not usable', async () => {
+    render(<AgentPurposesSection />)
+    const li = await open('triage')
+    expect(within(li).getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(within(li).getByRole('status')).toHaveTextContent(/Remove it or validate it again to save/)
+    expect(App.AgentPurposeSet).not.toHaveBeenCalled()
   })
 
   it('the Add model list offers only ok pairs; the others show their status and are disabled', async () => {
