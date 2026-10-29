@@ -2964,9 +2964,16 @@ login (and its bill) is what the turn uses.
   `--different-from-author on|off`, `--fallback any|none`, `--budget-share PCT`
   (recorded only). A purpose with nothing chosen (`isDefault`) uses every
   validated model, as before. When one is chosen, a dynamic org's `org_spawn`
-  draws the worker's model from it in code: the worker's purpose is the one the
-  lead names in `purpose` or else its role's category; a model the lead names
-  outside the set, a stale pair, or an unknown purpose id is refused; an empty
+  draws the worker's model from it in code. The worker's purpose comes from its
+  role's category (every built-in category maps to a default purpose and the
+  few it allows); a `purpose` the lead names can only narrow: it must be one the
+  category allows (else refused, with the list) and the model must then be in
+  both sets. A role whose category maps to nothing (a custom or library role)
+  is limited by every purpose that has a set chosen, the intersection of them;
+  with nothing in common the spawn fails. The sets are read again at each spawn
+  and at the verifier's model choice, so a change made during a turn applies to
+  the next spawn, and a set that can't be read refuses the spawn. A model the
+  lead names outside the set, a stale pair, or an unknown purpose id is refused; an empty
   or unavailable set fails the spawn with the reason unless `--fallback any`;
   with `--different-from-author on` a checking worker runs on another model than
   the one that produced the work, and with one validated model it uses that one
