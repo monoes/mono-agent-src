@@ -20,10 +20,12 @@ func (s *Store) LeadMission(sc CallerScope, profileID string) (int64, error) {
 	if !ok || l.binding != BindingNone || l.Caller.ProfileID == "" || l.Caller.ConversationID == "" || l.Caller.ProfileID != profileID || profileID == "" {
 		return 0, errMissionRefused
 	}
+	// the same session openMissionSession names (the newest open one); a paused newest is no session to write to
 	var id int64
-	err := s.db.QueryRow(`SELECT id FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = '' AND state IN ('draft', 'running') ORDER BY id DESC LIMIT 1`,
-		profileID, l.Caller.ConversationID).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	var state string
+	err := s.db.QueryRow(`SELECT id, state FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = '' AND state IN ('draft', 'running', 'paused') AND `+LeadSessionSQL+` ORDER BY id DESC LIMIT 1`,
+		profileID, l.Caller.ConversationID).Scan(&id, &state)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && state == "paused") {
 		return 0, errMissionRefused
 	}
 	return id, err
@@ -33,7 +35,7 @@ func (s *Store) LeadMission(sc CallerScope, profileID string) (int64, error) {
 // person names the conversation, so a missing mission is a plain error.
 func (s *Store) OperatorMissionOf(profileID, leadConversationID string) (int64, error) {
 	var id int64
-	err := s.db.QueryRow(`SELECT id FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = '' ORDER BY id DESC LIMIT 1`,
+	err := s.db.QueryRow(`SELECT id FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = '' AND `+LeadSessionSQL+` ORDER BY id DESC LIMIT 1`,
 		profileID, leadConversationID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("%w: that conversation leads no mission", ErrInvalid)

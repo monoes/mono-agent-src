@@ -167,9 +167,9 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 		s.recordSpawn(c, title, req, facts, AdviceRefuse, adv.Why)
 		return SessionSpawned{}, ErrSpawnAdvice
 	}
-	if err := s.recordSpawn(c, title, req, facts, AdviceAccept, adv.Why); err != nil {
-		return SessionSpawned{}, fmt.Errorf("the spawn was not recorded in the decisions ledger, so it was not made: %w", err)
-	}
+	// The acceptance is a master row nothing rotates out, so it is written only once every check of the spawn (access,
+	// runtime, model, folder, the limits, the carve, the task session) has passed, in the last step before the first
+	// message. A failed write there undoes the spawn, so an acceptance that cannot be recorded is still not made.
 	var made tasks.Session
 	out, err := s.spawnWith(c, SpawnRequest{Scoped: req.Kind == tasks.SessionKindResearch, BudgetUSD: budget, Access: req.Access, Runtime: req.Runtime, Model: req.Model}, spawnHooks{
 		beforeMessage: func(conv string) error {
@@ -177,7 +177,18 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 			made, err = ts.CreateSession(ctx, profile, tasks.SessionInput{Title: title, Goal: req.Goal, ConversationID: conv, ParentSessionID: sid, Kind: req.Kind,
 				MaxTasks: min(MaxSpawnedSessionTasks, se.MaxTasks), BudgetUSD: budget},
 				leadActor(c.ConversationID, sid, conv))
-			return err
+			if err != nil {
+				return err
+			}
+			if err := s.holdDirections(ctx, c, sid, made); err != nil {
+				_, _ = ts.StopSession(ctx, profile, made.ID, leadActor(c.ConversationID, made.ID, conv))
+				return err
+			}
+			if err := s.recordSpawn(c, title, req, facts, AdviceAccept, adv.Why); err != nil {
+				_, _ = ts.StopSession(ctx, profile, made.ID, leadActor(c.ConversationID, made.ID, conv)) // as the child session: the lead cannot see it; the undo deletes the conversation
+				return fmt.Errorf("the spawn was not recorded in the decisions ledger, so it was not made: %w", err)
+			}
+			return nil
 		},
 	})
 	if err != nil {

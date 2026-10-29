@@ -14,7 +14,7 @@ func TestOneAncestorTakesAtMostSixOpenAsksFromBelow(t *testing.T) {
 	f := newAskTree(t)
 	for i := 0; i < MaxOpenAsksPerTarget+1; i++ {
 		conv := chat(t, f.st)
-		if _, err := f.ts.CreateSession(context.Background(), "p", tasks.SessionInput{Title: "c", ConversationID: conv, ParentSessionID: f.P.ID, BudgetUSD: 1, MaxTasks: 5}, opActor); err != nil {
+		if _, err := f.ts.CreateSession(context.Background(), "p", tasks.SessionInput{Title: "c", ConversationID: conv, ParentSessionID: f.P.ID, Kind: tasks.SessionKindDirection, BudgetUSD: 1, MaxTasks: 5}, opActor); err != nil {
 			t.Fatal(err)
 		}
 		_, err := f.st.AskAncestor(f.lead(conv), "p", AskRequest{Question: "q"})

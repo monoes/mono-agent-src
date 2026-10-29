@@ -2786,7 +2786,7 @@ monoagentcli --profile work coder host stop                        # the host on
   id starts with `master-`, it can carry no mission confirmation, and, like `checkin-`, it counts toward the
   host-made turns in a row (`checkin_limit`) after which the child waits for a person.
 - **Mission directions and the working depth.** The operator's `mission_directions` setting (1 to 6, default 3) is how many
-  directions a mission lead keeps after `mission_evaluate`; the default depth is 3 (the working `max_depth`; the hard limit is 4),
+  directions a mission lead keeps after `mission_evaluate` and the most direction sessions it can have open at once (`session_spawn` refuses the next, inside the spawn, with no `mission_evaluate` call needed; a child session inherits the setting); the default depth is 3 (the working `max_depth`; the hard limit is 4),
   so a mission lead (level 1) can start direction leads (level 2) that start sub-agents (level 3) only when the work needs it.
 - **A tree of sessions: `session_spawn` for a lead.** Sessions form a tree to a hard maximum of 4 levels
   (`coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth`: one source of truth); the working depth is each

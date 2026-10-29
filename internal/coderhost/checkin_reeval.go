@@ -62,7 +62,7 @@ func (h *Host) directionFacts(sessionID int64) (dirs []dirFact, researchDone, sp
 		return nil, 0, 0, err
 	}
 	var budget, spent sql.NullFloat64
-	if err := db.QueryRow(`WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL SELECT s.id FROM task_sessions s JOIN tree ON s.parent_session_id = tree.id)
+	if err := db.QueryRow(`WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT s.id FROM task_sessions s JOIN tree ON s.parent_session_id = tree.id)
 		SELECT (SELECT budget_usd FROM task_sessions WHERE id = ?), (SELECT SUM(spent_usd) FROM task_sessions WHERE id IN tree)`,
 		sessionID, sessionID).Scan(&budget, &spent); err != nil {
 		return nil, 0, 0, err

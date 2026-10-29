@@ -56,7 +56,7 @@ func TestPausingAParentPausesEveryDescendantAtDepthThreeAndFour(t *testing.T) {
 	forceState(t, st, tree[0].ConversationID, StatePaused)
 	h.treeCascadePass()
 	for lvl := 1; lvl < 4; lvl++ {
-		if !st.hasPendingCascade("p", tree[lvl].ConversationID, KindPause) {
+		if !st.hasPendingCascade("p", tree[lvl].ConversationID, KindPause, treeTurn) {
 			t.Fatalf("level %d has no pause queued", lvl+1)
 		}
 	}

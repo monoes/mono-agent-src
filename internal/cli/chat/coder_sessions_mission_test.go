@@ -31,7 +31,7 @@ func missionOfMaster(t *testing.T, m masterTurn, n int, approve bool) (int64, []
 	defer db.Close()
 	ts := tasks.NewStore(db.DB)
 	ctx := context.Background()
-	se, err := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "mission", Goal: "g", ConversationID: m.master}, missionHuman)
+	se, err := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "mission", Goal: "g", ConversationID: m.master, Kind: tasks.SessionKindMission}, missionHuman)
 	if err != nil {
 		t.Fatal(err)
 	}

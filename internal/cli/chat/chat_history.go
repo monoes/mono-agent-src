@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -513,7 +514,7 @@ func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRe
 			return err
 		}
 		var open int
-		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = '' AND state IN ('draft', 'running', 'paused')`,
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = '' AND state IN ('draft', 'running', 'paused') AND `+coderhost.LeadSessionSQL,
 			profileID, conversationID).Scan(&open); err != nil {
 			return err
 		}

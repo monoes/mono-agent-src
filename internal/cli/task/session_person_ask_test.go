@@ -12,8 +12,8 @@ import (
 func criticalAsk(t *testing.T, db, question string) int64 {
 	t.Helper()
 	root := sessionNew(t, db, "the root", "--conversation", "conv-root", "--budget-usd", "100", "--kind", "mission")
-	mid := sessionNew(t, db, "the middle", "--parent", id(root), "--conversation", "conv-mid", "--budget-usd", "50")
-	sessionNew(t, db, "the leaf", "--parent", id(mid), "--conversation", "conv-leaf", "--budget-usd", "10")
+	mid := sessionNew(t, db, "the middle", "--parent", id(root), "--conversation", "conv-mid", "--budget-usd", "50", "--kind", "direction")
+	sessionNew(t, db, "the leaf", "--parent", id(mid), "--conversation", "conv-leaf", "--budget-usd", "10", "--kind", "task")
 	d, err := storage.NewDatabase(db)
 	if err != nil {
 		t.Fatal(err)

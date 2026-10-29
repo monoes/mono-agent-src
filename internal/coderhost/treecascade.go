@@ -4,7 +4,8 @@ package coderhost
 // descendant down with it, and a paused session has its descendants paused, at any depth of the tree (the design
 // allows four levels). The mission child pass (missionchild.go) already does this for the task children of a mission
 // lead; this pass covers the sessions made with the master tools, whatever level they sit at, and uses the same
-// stop (stopChild) and the same pause turn (cascadeTurn), so the two never disagree.
+// stop (stopChild); its pauses and resumes carry its own turn id (treeTurn), so each pass lifts only its own pause (a task child
+// the mission pass paused for a paused mission stays paused; one this pass paused for a paused lead is resumed by it).
 //
 // A pause is the weaker half, as there: a running turn finishes under its cap. When no ancestor is paused any more, a
 // descendant the pass itself paused is resumed; one a person or a master paused stays paused. A stop is final for the
@@ -47,18 +48,18 @@ func (h *Host) treeCascadePass() {
 			h.stopChild(n.profile, "", n.conv)
 		case pause && State(n.state) != StatePaused:
 			h.queueCascade(n.profile, n.conv, KindPause)
-		case !pause && State(n.state) == StatePaused && st.pausedByCascade(n.profile, n.conv):
+		case !pause && State(n.state) == StatePaused && st.pausedByCascade(n.profile, n.conv, treeTurn):
 			h.queueCascade(n.profile, n.conv, KindResume) // the pause was this pass's own: lifted with the ancestor's
 		}
 	}
 }
 
-// queueCascade queues the host's own pause or resume (no issuer, the pass's turn id) unless one is already waiting.
+// queueCascade queues the host's own pause or resume (no issuer, the tree pass's own turn id) unless one is already waiting.
 func (h *Host) queueCascade(profile, conv string, kind Kind) {
-	if h.Store.hasPendingCascade(profile, conv, kind) {
+	if h.Store.hasPendingCascade(profile, conv, kind, treeTurn) {
 		return
 	}
-	if _, err := h.Store.Enqueue(Command{ProfileID: profile, ConversationID: conv, Kind: kind, TurnID: cascadeTurn}); err != nil {
+	if _, err := h.Store.Enqueue(Command{ProfileID: profile, ConversationID: conv, Kind: kind, TurnID: treeTurn}); err != nil {
 		h.logf("coder host: queueing a %s for %s: %v", kind, conv, err)
 	}
 }

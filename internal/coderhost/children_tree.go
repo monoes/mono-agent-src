@@ -42,6 +42,7 @@ func childRuntime(parent ai.Conversation, req SpawnRequest) (runtimeID, provider
 func childSettings(parent Settings, childLevel int) Settings {
 	cs := DefaultSettings()
 	cs.MaxDepth = parent.MaxDepth
+	cs.MissionDirections = parent.MissionDirections // the operator's K holds all the way down the tree
 	if childLevel >= min(parent.MaxDepth, MaxSessionDepth) {
 		cs.MaxChildren = 0
 		return cs

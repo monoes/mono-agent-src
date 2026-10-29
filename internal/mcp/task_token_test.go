@@ -27,7 +27,7 @@ func (f *taskFixture) missionToken(b agenttokens.MissionBinding, ttl time.Durati
 // managedSession is a running session a conversation manages, with one task per title.
 func (f *taskFixture) managedSession(titles ...string) (tasks.Session, []tasks.Task) {
 	f.t.Helper()
-	se, err := f.Store.CreateSession(opCtx, "default", tasks.SessionInput{Title: "managed", Goal: "g", ConversationID: "conv-1"}, sessOperator)
+	se, err := f.Store.CreateSession(opCtx, "default", tasks.SessionInput{Title: "managed", Goal: "g", ConversationID: "conv-1", Kind: tasks.SessionKindMission}, sessOperator)
 	if err != nil {
 		f.t.Fatal(err)
 	}

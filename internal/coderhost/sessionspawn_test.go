@@ -387,7 +387,7 @@ func TestSessionSpawnToLevelFourWhenTheOperatorRaisedTheDepth(t *testing.T) {
 	forceState(t, f.st, f.lead.ConversationID, StateStopped)
 	h.treeCascadePass()
 	// level 4 still has its first message queued, so the host queues its own stop for it instead of marking it
-	if stateOf(t, f.st, last.ConversationID) != StateStopped && !f.st.hasPendingCascade("p", last.ConversationID, KindStop) {
+	if stateOf(t, f.st, last.ConversationID) != StateStopped && !f.st.hasPendingCascade("p", last.ConversationID, KindStop, cascadeTurn) {
 		t.Fatal("level 4 outlived the root")
 	}
 }
@@ -412,6 +412,7 @@ func TestSessionSpawnRateAndLiveCapHold(t *testing.T) {
 	f := newMC(t, true)
 	s, _ := f.st.GetSettings("p", f.lead.ConversationID)
 	s.MaxChildren = 20
+	s.MissionDirections = 6 // the rate and live cap are under test here, not the direction cap
 	f.st.SaveSettings("p", f.lead.ConversationID, s)
 	var err error
 	n := 0
@@ -457,7 +458,7 @@ func TestSpawnSessionIsNotMadeWhenItsDecisionCannotBeRecorded(t *testing.T) {
 	if _, err := f.spawnSession(req("A", f.bigScope())); err == nil || !strings.Contains(err.Error(), "ledger") {
 		t.Fatalf("err = %v", err)
 	}
-	if countRows(t, f.st, `SELECT COUNT(*) FROM coder_sessions`) != before || countRows(t, f.st, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id IS NOT NULL`) != 0 {
+	if countRows(t, f.st, `SELECT COUNT(*) FROM coder_sessions`) != before || countRows(t, f.st, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id IS NOT NULL AND state != 'stopped'`) != 0 { // the session made just before the write is stopped by the undo
 		t.Fatal("a spawn that could not be recorded was made")
 	}
 }
