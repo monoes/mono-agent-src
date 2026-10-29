@@ -61,6 +61,8 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		"coder_mission_children.child_conversation_id":   "closed (state gone)",
 		"coder_mission_children.lead_conversation_id":    "deleted",
 		"coder_mission_children.pending_conversation_id": "closed (state gone)",
+		"coder_budget_requests.lead_conversation_id":     "deleted",
+		"coder_budget_requests.target_conversation_id":   "closed (void): a child's request stays as its lead's record and can never be granted",
 		"coder_mission_policy.lead_conversation_id":      "deleted",
 		"coder_session_commands.conversation_id":         "deleted",
 		"coder_session_decisions.conversation_id":        "deleted",

@@ -35,6 +35,7 @@ type itemKind struct {
 
 var itemKinds = map[string]itemKind{
 	ItemParkedQuestion: {open: (*Store).openParkedQuestionItems},
+	ItemBudgetRequest:  {open: (*Store).openBudgetItems},
 }
 
 // PersonItem is a request waiting for the person.

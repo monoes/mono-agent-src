@@ -221,6 +221,7 @@ func TestNormalInstallUnchanged(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "pin.log")
 	t.Setenv("PIN_LOG", log)
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	build := exec.Command("sh", filepath.Join("testdata", "make-shim-fixture.sh"), prefix, prefix, project, testHandshake(t))
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %v: %s", err, out)
@@ -562,6 +563,7 @@ func TestShimManagerDetection(t *testing.T) {
 	home := t.TempDir()
 	custom := filepath.Join(t.TempDir(), "asdf-data")
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("ASDF_DATA_DIR", custom)
 	t.Setenv("MISE_DATA_DIR", "")
 	t.Setenv("VOLTA_HOME", "")
@@ -601,6 +603,7 @@ func TestProtoShimFailsClosed(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("PROTO_HOME", "")
 	shim := filepath.Join(home, ".proto", "shims", "monomind")
 	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
@@ -637,6 +640,7 @@ func TestAsdfBinPaths(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			data := t.TempDir()
 			t.Setenv("HOME", t.TempDir())
+			t.Setenv("USERPROFILE", os.Getenv("HOME"))
 			t.Setenv("ASDF_DATA_DIR", data)
 			t.Setenv("PATH", "/usr/bin"+string(os.PathListSeparator)+"/bin")
 			want := []string{}

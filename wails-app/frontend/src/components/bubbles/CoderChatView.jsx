@@ -24,7 +24,6 @@ import { isAgentNotSetup } from '../../lib/agentSetup.js'
 import AgentSetupLink from '../AgentSetupLink.jsx'
 import MissionCards from './mission/MissionCards.jsx'
 import MissionStrip from './mission/MissionStrip.jsx'
-import MissionTemplates from './mission/MissionTemplates.jsx'
 import { missionItems, startedProposals } from '../../lib/missionModel.js'
 import '../chat/chat.css'
 
@@ -213,9 +212,6 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
       </div>
       {isCoderAccess(level) && !!conv.conversationId && (
         <MissionStrip conversationId={conv.conversationId} bump={allMission.length} reported={reported} closeProposed={closeProposed} />
-      )}
-      {isCoderAccess(level) && !conv.streaming && (
-        <MissionTemplates draft={draft} onDraftChange={onDraftChange} hintable={empty} />
       )}
       <ChatComposer value={draft} onChange={onDraftChange} onSend={send} onStop={conv.stop}
         streaming={conv.streaming} disabled={blocked || conv.loading}
