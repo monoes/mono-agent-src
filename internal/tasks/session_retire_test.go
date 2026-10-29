@@ -336,3 +336,41 @@ func TestRetirementNoteFormatIsPinned(t *testing.T) {
 		t.Fatalf("task #7 was never retired, got %d", n)
 	}
 }
+
+// Workers stored before migration 147 have no link to a task, so the retirement cannot reach them. It
+// says so instead of reporting them retired: the result counts the unmatched workers of the session's
+// conversation that still hold a session.
+func TestRetireWorkerSaysWhatItCouldNotMatch(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	se, err := s.CreateSession(bg, "default", SessionInput{Title: "m", Goal: "g", ConversationID: "conv"}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk := mustTask(t, s, "default", se.ID, "t")
+	mustRun(t, s, "default", se)
+	w := Actor{Kind: Agent, Name: "w", Session: se.ID, Task: tk.ID}
+	if _, err := s.SessionClaim(bg, "default", se.ID, tk.ID, w, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SessionFinish(bg, "default", se.ID, tk.ID, Outcome{Result: "done"}, w); err != nil {
+		t.Fatal(err)
+	}
+	storedWorker(t, db, "conv", "linked", se.ID, tk.ID)
+	storedWorker(t, db, "conv", "old-1", 0, 0) // stored before the migration: no link
+	storedWorker(t, db, "conv", "old-2", 0, 0)
+	storedWorker(t, db, "other", "elsewhere", 0, 0)                                                               // another conversation's: not this session's
+	if _, err := db.Exec(`UPDATE ai_chat_org_workers SET session_id = '' WHERE agent_id = 'old-2'`); err != nil { // nothing left to resume
+		t.Fatal(err)
+	}
+
+	r, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "", human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StoredWorkersEnded != 1 || r.UnmatchedStoredWorkers != 1 {
+		t.Fatalf("result = %+v, want one worker ended and one unmatched (old-1)", r)
+	}
+	if got := storedState(t, db, "conv", "old-1"); got != "sess-1|the report|done" {
+		t.Fatalf("an unmatched worker was touched: %q", got)
+	}
+}

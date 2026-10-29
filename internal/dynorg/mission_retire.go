@@ -14,6 +14,21 @@ import (
 // session any more and takes no follow-up. A worker that is running is never retired from under it:
 // the store refuses to retire while the task is claimed or a mission token is live.
 
+// missionIdentity is the mission task an executor worked: its binding in this turn, or the link a veteran
+// carries from an earlier one. A verifier has none, and nor has a worker of no task.
+func (w *worker) missionIdentity() (session, task int64, ok bool) {
+	if w.task != nil {
+		if w.task.verifier {
+			return 0, 0, false
+		}
+		return w.task.session, w.task.task.ID, true
+	}
+	if w.missionSession > 0 && w.missionTask > 0 {
+		return w.missionSession, w.missionTask, true
+	}
+	return 0, 0, false
+}
+
 func retiredError(id string) error {
 	return fmt.Errorf("%s was retired by the operator: its context is closed. Start a new worker for the task if more is needed", id)
 }
@@ -24,7 +39,12 @@ func retiredError(id string) error {
 func (c *Conductor) retiredRefusal(ctx context.Context, id string) error {
 	c.mu.Lock()
 	w := c.workers[id]
-	if w == nil || w.task == nil || w.task.verifier {
+	if w == nil {
+		c.mu.Unlock()
+		return nil
+	}
+	sid, tid, bound := w.missionIdentity()
+	if !bound {
 		c.mu.Unlock()
 		return nil
 	}
@@ -36,7 +56,6 @@ func (c *Conductor) retiredRefusal(ctx context.Context, id string) error {
 		c.mu.Unlock()
 		return nil // the follow-up check says it is still working
 	}
-	sid, tid := w.task.session, w.task.task.ID
 	c.mu.Unlock()
 	mc, err := c.missions()
 	if err != nil {
@@ -74,8 +93,12 @@ func (c *Conductor) noteRetirements(mc *MissionRun, sid int64) {
 	var idle []look
 	c.mu.Lock()
 	for _, id := range c.order {
-		if w := c.workers[id]; w != nil && w.task != nil && !w.task.verifier && w.task.session == sid && !w.retired && !running(w.status) {
-			idle = append(idle, look{w, w.task.task.ID})
+		w := c.workers[id]
+		if w == nil || w.retired || running(w.status) {
+			continue
+		}
+		if s, t, ok := w.missionIdentity(); ok && s == sid {
+			idle = append(idle, look{w, t})
 		}
 	}
 	c.mu.Unlock()
@@ -88,3 +111,6 @@ func (c *Conductor) noteRetirements(mc *MissionRun, sid int64) {
 		}
 	}
 }
+
+// afterFollowupCheck, set by tests only, runs between the retirement check of a follow-up and its queueing.
+var afterFollowupCheck func()

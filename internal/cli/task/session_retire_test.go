@@ -10,6 +10,9 @@ type retireDoc struct {
 		Session        int64 `json:"session"`
 		Task           int64 `json:"task"`
 		AlreadyRetired bool  `json:"already_retired"`
+
+		StoredWorkersEnded     int `json:"stored_workers_ended"`
+		UnmatchedStoredWorkers int `json:"unmatched_stored_workers"`
 	} `json:"retired"`
 }
 

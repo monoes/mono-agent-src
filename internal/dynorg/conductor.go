@@ -176,6 +176,10 @@ type worker struct {
 	task *missionBind
 	// retired: the operator retired this mission worker (mission_retire.go); it takes no follow-up.
 	retired bool
+	// missionSession and missionTask are the mission task a veteran worked in an earlier turn. A veteran
+	// has no task binding (it runs as an ordinary agent), but the operator can still retire it, and a
+	// later save writes the same link back.
+	missionSession, missionTask int64
 }
 
 // MaxFollowups caps org_message runs per worker, so follow-ups can't stand
@@ -451,6 +455,9 @@ func (c *Conductor) message(ctx context.Context, from *worker, id, text string) 
 	}
 	if err := c.retiredRefusal(ctx, id); err != nil {
 		return WorkerInfo{}, err
+	}
+	if afterFollowupCheck != nil {
+		afterFollowupCheck()
 	}
 	c.mu.Lock()
 	var w *worker

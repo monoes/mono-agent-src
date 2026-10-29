@@ -133,3 +133,70 @@ func TestAMissionWorkerIsNotResumedWhenTheStoreCannotBeReached(t *testing.T) {
 		t.Fatal("a follow-up was sent to a mission worker whose retirement could not be checked")
 	}
 }
+
+// A worker loaded from an earlier turn keeps the task it worked: the operator's retirement reaches it
+// in the new turn's conductor, and a later save of it writes the same link.
+func TestAVeteranOfAMissionTaskIsRetirable(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	a := idleMissionWorker(t, r)
+	kept := &keptWorkers{}
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em, Missions: r.mc, Remember: kept.remember})
+	t.Cleanup(c2.Close)
+	c2.AddVeterans([]Veteran{{ID: "w1", Runtime: opus.Runtime, Model: opus.Model, Session: "sess-1", Report: "the report", Outcome: "done", MissionSession: r.sid, MissionTask: a.ID}})
+
+	// Saved again, the worker still names its task.
+	c2.mu.Lock()
+	w := c2.workers["w1"]
+	c2.mu.Unlock()
+	c2.keep(w, true)
+	if got := kept.list(); len(got) != 1 || got[0].MissionSession != r.sid || got[0].MissionTask != a.ID {
+		t.Fatalf("a veteran saved again lost its task: %+v", got)
+	}
+
+	if _, err := r.store.RetireWorker(tbg, "default", r.sid, a.ID, "", operator); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c2.Message(tbg, "w1", "one more thing"); err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("a veteran of a retired task took a follow-up: %v", err)
+	}
+	c2.mu.Lock()
+	dropped := c2.workers["w1"].session == ""
+	c2.mu.Unlock()
+	if !dropped {
+		t.Error("the veteran still holds its session after the refusal")
+	}
+}
+
+// The operator retires the worker between the conductor's check and the run: the run, which cannot start
+// without minting its mission token, sees the committed retirement and does not start. The token is the barrier
+// the store looks at, so either the retirement sees the token and refuses, or the run sees the retirement.
+func TestARetirementBetweenTheFollowUpCheckAndTheRunStopsTheRun(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	a := idleMissionWorker(t, r)
+	runs := r.ex.runCount(a.ID)
+	afterFollowupCheck = func() {
+		if _, err := r.store.RetireWorker(tbg, "default", r.sid, a.ID, "raced", operator); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterFollowupCheck = nil })
+	if _, err := r.c.Message(tbg, "w1", "one more thing"); err != nil {
+		t.Fatalf("the follow-up passed its check and is queued: %v", err)
+	}
+	eventually(t, "the queued follow-up to end", func() bool {
+		r.c.mu.Lock()
+		defer r.c.mu.Unlock()
+		w := r.c.workers["w1"]
+		return !running(w.status) && w.errText != ""
+	})
+	r.c.mu.Lock()
+	errText := r.c.workers["w1"].errText
+	r.c.mu.Unlock()
+	if !strings.Contains(errText, "retired") {
+		t.Fatalf("the worker's error = %q, want it to say it was retired", errText)
+	}
+	if got := r.ex.runCount(a.ID); got != runs {
+		t.Fatalf("a retired worker ran again: %d runs, was %d", got, runs)
+	}
+}

@@ -1889,7 +1889,14 @@ retired, and a worker's hand-off stored after the retirement is stored already r
 nothing and says so. A conductor that is
 live learns from the store, not from the CLI process: before it resumes a mission worker it asks, and each look at the
 session (`missionTick`) retires the idle workers the operator retired, dropping what they kept to be resumed from; a
-worker that is running is never touched. A task running as a child coder session (#1130, off by default) is stopped with
+worker that is running is never touched. A worker run in this turn cannot be resumed past a retirement even
+when the retirement lands between the lead's follow-up check and the run: a run mints its mission token first and asks the
+store afterwards, and the store refuses to retire while a token of the task is live, so of the two one comes first in
+the database. A worker loaded from an earlier turn keeps its task link (it runs as an unbound agent, which cannot change the
+task) and is checked the same way; its follow-up has no token, so a retirement committed in the very instant of its check can
+still let that one unbound run start (the residual; it cannot touch the task). Stored workers saved before migration 147 have
+no link: the verb counts the ones of the session's conversation it could not match (`unmatched_stored_workers`) and says so,
+instead of reporting them retired. A task running as a child coder session (#1130, off by default) is stopped with
 `coder sessions stop` and is not touched by this verb.
 
 **Missions in the host (unattended).** Since the coder host (below) every coder turn, a mission's

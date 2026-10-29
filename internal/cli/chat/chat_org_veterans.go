@@ -41,6 +41,7 @@ func (j *turnJournal) veterans() []dynorg.Veteran {
 			ID: w.AgentID, ParentID: w.ParentID, Role: w.Role, AgentType: w.AgentType, Category: w.Category,
 			Access: w.Access, Skills: w.Skills, Runtime: w.Runtime, Model: w.Model, Effort: w.Effort, Session: w.SessionID,
 			Cwd: w.Cwd, Report: w.Report, Outcome: w.Outcome, AllowSpawn: w.AllowSpawn,
+			MissionSession: w.MissionSession, MissionTask: w.MissionTask,
 		})
 	}
 	return out

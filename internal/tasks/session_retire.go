@@ -13,6 +13,12 @@ type WorkerRetirement struct {
 	// AlreadyRetired: the worker of this task was retired before and no worker has taken the
 	// task since; nothing was written.
 	AlreadyRetired bool `json:"already_retired"`
+	// StoredWorkersEnded is how many stored dynamic-org workers linked to the task were ended.
+	StoredWorkersEnded int `json:"stored_workers_ended"`
+	// UnmatchedStoredWorkers is how many stored workers of the session's conversation have no link to
+	// any task (they were stored before migration 147) and still hold a session: the retirement cannot
+	// tell whether one of them worked this task, so it leaves them, and a later turn may load them.
+	UnmatchedStoredWorkers int `json:"unmatched_stored_workers"`
 }
 
 // missionTokenTimeFmt is how agent_tokens stores its times (internal/agenttokens).
@@ -70,9 +76,9 @@ func (s *Store) RetireWorker(ctx context.Context, profileID string, sessionID, i
 			out.AlreadyRetired = true
 			// Still ends any stored worker of the task: one saved by a turn that was running when
 			// the first retirement was written.
-			return s.endStoredWorkers(ctx, x, profileID, sessionID, id)
+			return s.endStoredWorkers(ctx, x, profileID, sessionID, id, &out)
 		}
-		if err := s.endStoredWorkers(ctx, x, profileID, sessionID, id); err != nil {
+		if err := s.endStoredWorkers(ctx, x, profileID, sessionID, id, &out); err != nil {
 			return err
 		}
 		text := fmt.Sprintf("%s (claims: %d)", retirementNote(id), claims)
@@ -112,10 +118,20 @@ func (s *Store) WorkerRetired(ctx context.Context, profileID string, sessionID, 
 // endStoredWorkers drops the session of the dynamic-org workers stored for the task and marks
 // them retired; their reports stay. The lead cannot resume a stored worker without a session, and
 // the chat does not load a retired one (internal/cli/chat).
-func (s *Store) endStoredWorkers(ctx context.Context, x dbx, profileID string, sessionID, id int64) error {
-	if _, err := x.ExecContext(ctx, `UPDATE ai_chat_org_workers SET session_id = '', outcome = 'retired'
-		WHERE profile_id = ? AND mission_session = ? AND mission_task = ?`, profileID, sessionID, id); err != nil {
+func (s *Store) endStoredWorkers(ctx context.Context, x dbx, profileID string, sessionID, id int64, out *WorkerRetirement) error {
+	res, err := x.ExecContext(ctx, `UPDATE ai_chat_org_workers SET session_id = '', outcome = 'retired'
+		WHERE profile_id = ? AND mission_session = ? AND mission_task = ?`, profileID, sessionID, id)
+	if err != nil {
 		return fmt.Errorf("tasks: ending the stored workers of task #%d: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	out.StoredWorkersEnded = int(n)
+	// Workers stored before the link existed cannot be matched to a task: count the ones that could
+	// still be resumed so the operator is told instead of being shown a success.
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_chat_org_workers w JOIN task_sessions s ON s.conversation_id = w.conversation_id
+		WHERE s.id = ? AND w.profile_id = ? AND w.mission_task = 0 AND w.session_id <> '' AND w.outcome <> 'retired'`,
+		sessionID, profileID).Scan(&out.UnmatchedStoredWorkers); err != nil {
+		return fmt.Errorf("tasks: counting the stored workers of session #%d that could not be matched: %w", sessionID, err)
 	}
 	return nil
 }

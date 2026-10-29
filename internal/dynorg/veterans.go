@@ -59,9 +59,7 @@ func (c *Conductor) keep(w *worker, force bool) {
 		Access: w.staff.Access, Runtime: w.model.Runtime, Model: w.model.Model, Effort: w.staff.Effort,
 		Session: w.session, Cwd: w.cwd, Report: w.report, Outcome: w.status, AllowSpawn: w.allowSpawn,
 	}
-	if w.task != nil && !w.task.verifier {
-		v.MissionSession, v.MissionTask = w.task.session, w.task.task.ID
-	}
+	v.MissionSession, v.MissionTask, _ = w.missionIdentity()
 	for _, s := range w.staff.Skills {
 		v.Skills = append(v.Skills, s.Name)
 	}
@@ -110,7 +108,7 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 			id: v.ID, staff: st, model: st.Model, status: chatevents.AgentIdle, report: v.Report, session: v.Session,
 			changed: map[string]bool{}, started: c.cfg.Now(), parent: parent, allowSpawn: v.AllowSpawn && parent == nil,
 			mustConfine: parent != nil && parent.staff.Access == ProfileResearch, veteran: true, cwd: v.Cwd,
-			notReady: !ready,
+			notReady: !ready, missionSession: v.MissionSession, missionTask: v.MissionTask,
 		}
 		if err := c.veteranBlockedLocked(w); err != nil {
 			w.errText = err.Error()

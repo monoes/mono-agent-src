@@ -141,6 +141,20 @@ func (c *Conductor) mintMission(ctx context.Context, w *worker, env map[string]s
 	if err != nil {
 		return "", nil, fmt.Errorf("task #%d: its process could not be bound to the task: %w", w.task.task.ID, err)
 	}
+	// The retirement barrier: the token is stored, and only now is the task asked whether its worker was retired.
+	// RetireWorker refuses while a token of the task is live, so of a retirement and this run one comes
+	// first in the database: a retirement that came first is seen here and the run does not start; one that
+	// comes later finds this token and refuses.
+	if !w.task.verifier {
+		retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, w.task.session, w.task.task.ID)
+		if err != nil || retired {
+			c.revokeMissionToken(mc, tok.ID)
+			if err != nil {
+				return "", nil, fmt.Errorf("task #%d: could not check whether its worker was retired: %w", w.task.task.ID, err)
+			}
+			return "", nil, retiredError(w.id)
+		}
+	}
 	env[agenttokens.EnvMissionToken] = secret
 	return tok.ID, func() { c.revokeMissionToken(mc, tok.ID) }, nil
 }

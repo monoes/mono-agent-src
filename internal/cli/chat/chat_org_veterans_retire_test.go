@@ -129,3 +129,29 @@ func TestAWorkerStoredAfterItsRetirementIsBornRetired(t *testing.T) {
 		t.Fatalf("the stored row = %+v, want retired, no session, report kept", all)
 	}
 }
+
+// A veteran loaded for the next turn names the mission task it worked, so the turn can still retire it.
+func TestVeteransKeepTheirMissionLink(t *testing.T) {
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	aiStore, err := ai.NewAIStore(db.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := aiStore.CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := &turnJournal{store: aiStore, profileID: "default", conversationID: conv.ID, turnID: "t1"}
+	j.rememberWorker(dynorg.Veteran{ID: "w1", Runtime: "claude", Session: "s", Report: "r", Outcome: "done", MissionSession: 7, MissionTask: 42})
+	got := j.veterans()
+	if len(got) != 1 || got[0].MissionSession != 7 || got[0].MissionTask != 42 {
+		t.Fatalf("the loaded veteran = %+v, want its mission link", got)
+	}
+}
