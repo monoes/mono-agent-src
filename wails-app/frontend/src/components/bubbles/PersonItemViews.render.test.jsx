@@ -2,7 +2,8 @@
 import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import '../../i18n.js'
 import { PersonItemsProvider } from './PersonItemsContext.jsx'
 import { PersonItemsInbox, PersonItemsRegion, PersonItemTray } from './PersonItemViews.jsx'
@@ -87,5 +88,46 @@ describe('the orbit circle', () => {
     expect(waiting).toHaveAttribute('data-state', 'waiting')
     expect(waiting).toHaveAttribute('data-needs-you', 'true')
     expect(screen.getByRole('button', { name: 'Agent 3, Running' })).not.toHaveAttribute('data-needs-you')
+  })
+})
+
+// An answered card leaves the page with the focus that was on its button: it goes back to the composer or the tray.
+function Live({ initial, fail = false, children }) {
+  const [items, setItems] = useState(initial)
+  const answer = async (verb, item) => {
+    if (fail) return { error: 'refused' }
+    setItems(list => list.filter(i => i.id !== item.id))
+    return {}
+  }
+  return <PersonItemsProvider value={wrap(items, { answer })}>{children}</PersonItemsProvider>
+}
+
+describe('focus after an answer', () => {
+  it('goes to the pane composer when the plan card is approved', async () => {
+    render(<Live initial={[plan(1)]}><div data-testid="bubble-overlay" role="dialog"><PersonItemsRegion conversationId="c1" /><textarea aria-label="composer" /></div></Live>)
+    const approve = screen.getByRole('button', { name: /Approve/ })
+    approve.focus()
+    fireEvent.click(approve)
+    await waitFor(() => expect(screen.queryByTestId('person-items-pane')).toBeNull())
+    expect(screen.getByLabelText('composer')).toHaveFocus()
+  })
+  it('goes back to the tray button while other items still wait', async () => {
+    render(<Live initial={[plan(1), plan(2)]}><PersonItemTray /></Live>)
+    const btn = screen.getByRole('button', { name: '2 items need you' })
+    fireEvent.click(btn)
+    const approve = screen.getAllByRole('button', { name: /Approve/ })[0]
+    approve.focus()
+    fireEvent.click(approve)
+    await waitFor(() => expect(screen.getAllByTestId('person-item-card')).toHaveLength(1))
+    expect(screen.getByRole('button', { name: '1 item needs you' })).toHaveFocus()
+  })
+  it('leaves the focus alone when the answer is refused', async () => {
+    render(<Live initial={[plan(1)]} fail><div data-testid="bubble-overlay" role="dialog"><PersonItemsRegion conversationId="c1" /><textarea aria-label="composer" /></div></Live>)
+    const approve = screen.getByRole('button', { name: /Approve/ })
+    approve.focus()
+    fireEvent.click(approve)
+    await screen.findByRole('alert')
+    expect(screen.getByLabelText('composer')).not.toHaveFocus()
+    expect(screen.getByTestId('person-item-card')).toBeInTheDocument()
   })
 })
