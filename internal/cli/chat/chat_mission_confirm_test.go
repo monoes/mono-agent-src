@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -172,6 +173,9 @@ func TestHostMissionConfirmedIsSingleUseAndBoundToTheSession(t *testing.T) {
 }
 
 func TestExecLauncherPassesTheTokenOnAPipeNeverInEnvironmentOrArguments(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the stand-in launcher is a shell script that reads /proc/self/environ and an inherited descriptor")
+	}
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args.log")
 	bin := filepath.Join(dir, "fake")

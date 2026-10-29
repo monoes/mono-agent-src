@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/monoes/mono-agent/data"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -327,7 +328,11 @@ func (d *Database) applyMigrations() error {
 		// Split on semicolons and execute each statement individually.
 		// This is necessary because modernc.org/sqlite's Exec does not
 		// support multiple statements in a single call reliably.
-		statements := splitStatements(string(content))
+		statements, err := splitStatementsChecked(string(content))
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d (%s): %w", m.version, m.filename, err)
+		}
 		for _, stmt := range statements {
 			stmt = strings.TrimSpace(stmt)
 			if stmt == "" {
@@ -453,56 +458,181 @@ func checkDuplicateVersions(migrations []migration) error {
 }
 
 // splitStatements splits a SQL script by semicolons while respecting quoted
-// strings and comments.
+// strings, quoted identifiers and comments, and keeps a CREATE TRIGGER whole (see splitStatementsChecked). A
+// script whose trigger never reaches its END comes out with that trigger as its last statement, which SQLite
+// refuses.
 func splitStatements(sql string) []string {
+	statements, _ := splitStatementsChecked(sql)
+	return statements
+}
+
+// Lexer states of splitStatementsChecked: what the next character is part of.
+const (
+	lexNormal   = iota
+	lexSingle   // 'string' ('' is an escaped quote: it closes and reopens)
+	lexDouble   // "identifier"
+	lexBacktick // `identifier`
+	lexBracket  // [identifier]
+	lexLine     // -- comment, to the end of the line
+	lexBlock    // /* comment */
+)
+
+// splitStatementsChecked is splitStatements that also says when the script ends inside a string, a quoted
+// identifier or a block comment, or a CREATE TRIGGER is never closed by its END, so the migration runner refuses
+// the script explicitly before running any of it (SQLite would take an unterminated comment or string to the end
+// of the input; a migration should fail loudly instead). One lexer reads the script: a ';' ends a statement only
+// in normal text, and only outside a trigger's BEGIN ... END body; the body ends at the END that is not the end of
+// a CASE expression. The words CASE, BEGIN and END are counted only in normal text, never inside strings, quoted
+// identifiers or comments.
+func splitStatementsChecked(sql string) ([]string, error) {
 	var statements []string
 	var current strings.Builder
-	inSingleQuote := false
-	inLineComment := false
+	var trig triggerScan
+	state := lexNormal
 	runes := []rune(sql)
 
 	for i := 0; i < len(runes); i++ {
 		ch := runes[i]
-
-		// Handle line comments (-- ...)
-		if !inSingleQuote && ch == '-' && i+1 < len(runes) && runes[i+1] == '-' {
-			inLineComment = true
-			current.WriteRune(ch)
-			continue
+		var next rune
+		if i+1 < len(runes) {
+			next = runes[i+1]
 		}
-		if inLineComment {
-			current.WriteRune(ch)
+		switch state {
+		case lexSingle:
+			if ch == '\'' {
+				state = lexNormal
+			}
+		case lexDouble:
+			if ch == '"' {
+				state = lexNormal
+			}
+		case lexBacktick:
+			if ch == '`' {
+				state = lexNormal
+			}
+		case lexBracket:
+			if ch == ']' {
+				state = lexNormal
+			}
+		case lexLine:
 			if ch == '\n' {
-				inLineComment = false
+				state = lexNormal
 			}
-			continue
-		}
-
-		// Handle single-quoted strings.
-		if ch == '\'' && !inLineComment {
-			inSingleQuote = !inSingleQuote
-			current.WriteRune(ch)
-			continue
-		}
-
-		if ch == ';' && !inSingleQuote {
-			stmt := strings.TrimSpace(current.String())
-			if stmt != "" {
-				statements = append(statements, stmt)
+		case lexBlock:
+			if ch == '*' && next == '/' {
+				current.WriteRune(ch)
+				i++
+				ch = next
+				state = lexNormal
 			}
-			current.Reset()
-			continue
+		default: // normal text
+			switch {
+			case ch == '-' && next == '-':
+				trig.flush()
+				state = lexLine
+			case ch == '/' && next == '*':
+				trig.flush()
+				current.WriteRune(ch)
+				i++
+				ch = next
+				state = lexBlock
+			case ch == '\'':
+				trig.flush()
+				state = lexSingle
+			case ch == '"':
+				trig.flush()
+				state = lexDouble
+			case ch == '`':
+				trig.flush()
+				state = lexBacktick
+			case ch == '[':
+				trig.flush()
+				state = lexBracket
+			case ch == ';':
+				trig.flush()
+				if trig.open() {
+					break // a ';' inside a trigger's body ends a body statement, not the trigger
+				}
+				if stmt := strings.TrimSpace(current.String()); stmt != "" {
+					statements = append(statements, stmt)
+				}
+				current.Reset()
+				trig = triggerScan{}
+				continue
+			default:
+				trig.feed(ch)
+			}
 		}
-
 		current.WriteRune(ch)
 	}
+	trig.flush()
 
 	// Capture any trailing statement without a semicolon.
 	if stmt := strings.TrimSpace(current.String()); stmt != "" {
 		statements = append(statements, stmt)
 	}
+	switch state {
+	case lexSingle, lexDouble, lexBacktick, lexBracket, lexBlock:
+		return statements, fmt.Errorf("unterminated %s at the end of the script", lexNames[state])
+	}
+	if trig.open() {
+		return statements, fmt.Errorf("incomplete CREATE TRIGGER: no closing END before the end of the script")
+	}
+	return statements, nil
+}
 
-	return statements
+var lexNames = map[int]string{lexSingle: "string", lexDouble: "quoted identifier", lexBacktick: "quoted identifier", lexBracket: "quoted identifier", lexBlock: "block comment"}
+
+// triggerScan follows the words of one statement just far enough to tell where a CREATE TRIGGER ends: it reads
+// the statement's first words, then counts CASE ... END pairs so that only the END that closes the trigger's
+// BEGIN counts. The lexer feeds it only characters of normal text.
+type triggerScan struct {
+	word            []rune
+	words           []string // the statement's first three words
+	isTrigger       bool
+	sawBegin, ended bool
+	caseDepth       int
+}
+
+func (t *triggerScan) open() bool { return t.isTrigger && !t.ended }
+
+func (t *triggerScan) feed(ch rune) {
+	if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' {
+		t.word = append(t.word, ch)
+		return
+	}
+	t.flush()
+}
+
+func (t *triggerScan) flush() {
+	if len(t.word) == 0 {
+		return
+	}
+	w := strings.ToUpper(string(t.word))
+	t.word = t.word[:0]
+	if len(t.words) < 3 {
+		t.words = append(t.words, w)
+		if n := len(t.words); !t.isTrigger && n >= 2 && t.words[0] == "CREATE" {
+			t.isTrigger = t.words[1] == "TRIGGER" || (n == 3 && (t.words[1] == "TEMP" || t.words[1] == "TEMPORARY") && t.words[2] == "TRIGGER")
+		}
+	}
+	if !t.isTrigger {
+		return
+	}
+	switch w {
+	case "CASE":
+		t.caseDepth++
+	case "BEGIN":
+		if t.caseDepth == 0 {
+			t.sawBegin = true
+		}
+	case "END":
+		if t.caseDepth > 0 {
+			t.caseDepth--
+		} else if t.sawBegin {
+			t.ended = true
+		}
+	}
 }
 
 // truncate shortens a string to at most n characters, appending "..." if truncated.

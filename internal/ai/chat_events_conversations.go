@@ -362,6 +362,10 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		`DELETE FROM coder_mission_events WHERE profile_id = ?2 AND session_id IN (SELECT session_id FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2)`,
 		`DELETE FROM coder_mission_children WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
 		`DELETE FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
+		// A budget request the conversation made as a lead goes with it; one that named it as the target (a child's
+		// cap) closes (void) and stays as the lead's record, so it can never be granted.
+		`DELETE FROM coder_budget_requests WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
+		`UPDATE coder_budget_requests SET status = 'void', answered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE target_conversation_id = ?1 AND profile_id = ?2 AND status = 'open'`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
 		// The answers its questions were given.

@@ -4,7 +4,8 @@
 # mutating verbs gated by --allow-mutations, claim -> comment -> finish, a
 # task session worked through the tools (dependencies, evidence, no self-verification, an environment label that binds
 # nothing), a non-task tool refused by name, the CLI showing what the agent did, and the
-# --api-only combination refused. Never touches the real ~/.monoagent.
+# --api-only combination refused, and the session verbs of the command line (list, show, plan, depend, undepend,
+# split, budget, pause, resume, close, archive, stop) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
 #
 #   go build -tags devaccount -o /tmp/monoagentcli ./cmd/monoagentcli && scripts/tasks-mcp-smoke.sh /tmp/monoagentcli
 set -euo pipefail
@@ -175,6 +176,65 @@ echo "== a different agent verifies: a pass marks it verified, closing it stays 
 checker_init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke checker","version":"1"}}}'
 out="$({ echo "$checker_init"; call 2 task_verify "{\"id\":$ta,\"pass\":true,\"note\":\"meets the acceptance\"}"; } | rpc --allow-mutations)"
 resp "$out" 2 | jq -e '.result.isError!=true and (.result.content[0].text|fromjson|.task|.verified==true and .status=="review")' >/dev/null || fail "another agent's task_verify: $(resp "$out" 2)"
+
+echo "== session verbs from the command line: list, show, plan, depend, undepend, split, budget, pause, resume, close, archive, stop"
+# Run here as the operator (a clean environment, as above). The operator's own verbs (undepend, budget, resume, close,
+# archive) are also tried as an agent (--as) and must be refused and change nothing; depend, split, pause and stop are
+# open to agents and are tried as one. This is a CI-only check: the operator steps cannot run from an agent's shell.
+sj() { run --profile "$prof" --json "$@"; }
+sj task session list >"$root/sl.out" 2>"$root/sl.err" || fail "task session list: $(cat "$root/sl.err")"
+jq -e --argjson a "$s1" --argjson b "$s2" '[.sessions[]|select(.id==$a or .id==$b)|.state]==["running","running"]' "$root/sl.out" >/dev/null || fail "task session list: $(cat "$root/sl.out")"
+sj task session list --state draft >"$root/sl.out" 2>"$root/sl.err" || fail "task session list --state draft: $(cat "$root/sl.err")"
+jq -e --argjson a "$s1" --argjson b "$s2" '(.sessions|map(.id)) as $ids | ($ids|index($a))==null and ($ids|index($b))==null' "$root/sl.out" >/dev/null || fail "a running session listed as a draft: $(cat "$root/sl.out")"
+sj task session show "$s1" >"$root/ss.out" 2>"$root/ss.err" || fail "task session show: $(cat "$root/ss.err")"
+jq -e --argjson a "$s1" '.session.id==$a and .session.state=="running" and .session.title=="smoke session" and (.events|length)>0' "$root/ss.out" >/dev/null || fail "task session show: $(cat "$root/ss.out")"
+
+# A session of its own for the verbs that change things, planned as a draft.
+sj task session new "verbs session" --goal "exercise the session verbs" >"$root/s3.out" 2>"$root/s3.err" || fail "task session new (verbs): $(cat "$root/s3.out" "$root/s3.err")"
+s3="$(jq -r '.session.id' "$root/s3.out")"
+t1="$(sess_add "$s3" "step one")"
+t2="$(sess_add "$s3" "step two")"
+t3="$(sess_add "$s3" "step three")"
+sj task depend "$t2" --on "$t1" >"$root/d.out" 2>"$root/d.err" || fail "task depend: $(cat "$root/d.err")"
+jq -e --argjson t "$t2" --argjson d "$t1" '.task.id==$t and (.task.depends_on|index($d))!=null' "$root/d.out" >/dev/null || fail "task depend: $(cat "$root/d.out")"
+if sj task depend "$t1" --on "$t2" >/dev/null 2>"$root/err"; then fail "a dependency cycle was accepted"; fi
+grep -q "cycle" "$root/err" || fail "the cycle refusal: $(cat "$root/err")"
+sj task session plan "$s3" >"$root/p.out" 2>"$root/p.err" || fail "task session plan: $(cat "$root/p.err")"
+jq -e --argjson a "$t1" --argjson b "$t2" --argjson c "$t3" --argjson d "$t1" '([.tasks[].id]|sort)==([$a,$b,$c]|sort) and ([.tasks[]|select(.id==$b)][0].depends_on|index($d))!=null' "$root/p.out" >/dev/null || fail "task session plan: $(cat "$root/p.out")"
+if run --profile "$prof" task undepend "$t2" "$t1" --as bot >/dev/null 2>&1; then fail "an agent removed a dependency"; fi
+sj task session plan "$s3" | jq -e --argjson b "$t2" --argjson d "$t1" '[.tasks[]|select(.id==$b)][0].depends_on|index($d)!=null' >/dev/null || fail "the dependency is gone after an agent's undepend"
+sj task undepend "$t2" "$t1" >"$root/d.out" 2>"$root/d.err" || fail "task undepend: $(cat "$root/d.err")"
+jq -e --argjson d "$t1" '((.task.depends_on // [])|index($d))==null' "$root/d.out" >/dev/null || fail "task undepend: $(cat "$root/d.out")"
+sj task split "$t3" --into "part a|accept a" --into "part b|accept b" >"$root/sp.out" 2>"$root/sp.err" || fail "task split: $(cat "$root/sp.err")"
+jq -e '(.tasks|map(.title)|sort)==["part a","part b"]' "$root/sp.out" >/dev/null || fail "task split: $(cat "$root/sp.out")"
+
+run --profile "$prof" task session approve "$s3" >/dev/null || fail "task session approve $s3"
+sj task session budget "$s3" --usd 5 --max-tasks 150 >"$root/b.out" 2>"$root/b.err" || fail "task session budget: $(cat "$root/b.err")"
+jq -e '.session.budget_usd==5 and .session.max_tasks==150' "$root/b.out" >/dev/null || fail "task session budget: $(cat "$root/b.out")"
+sj task session budget "$s3" --spend 1.25 --note "smoke" >"$root/b.out" 2>"$root/b.err" || fail "task session budget --spend: $(cat "$root/b.err")"
+jq -e '.session.spent_usd==1.25 and .session.budget_usd==5' "$root/b.out" >/dev/null || fail "task session budget --spend: $(cat "$root/b.out")"
+if sj task session budget "$s3" >/dev/null 2>&1; then fail "task session budget with nothing to change was accepted"; fi
+if run --profile "$prof" task session budget "$s3" --usd 99 --as bot >/dev/null 2>&1; then fail "an agent raised a budget"; fi
+sj task session show "$s3" | jq -e '.session.budget_usd==5' >/dev/null || fail "an agent changed the budget"
+
+echo "-- pause is open to an agent, resume and close are not, archive waits for the session to end"
+run --profile "$prof" --json task session pause "$s3" --as bot | jq -e '.session.state=="paused"' >/dev/null || fail "an agent could not pause a session"
+if run --profile "$prof" task session resume "$s3" --as bot >/dev/null 2>&1; then fail "an agent resumed a session"; fi
+sj task session show "$s3" | jq -e '.session.state=="paused"' >/dev/null || fail "the session is not paused after an agent's resume"
+sj task session resume "$s3" | jq -e '.session.state=="running"' >/dev/null || fail "task session resume"
+if run --profile "$prof" task session close "$s3" --as bot >/dev/null 2>&1; then fail "an agent closed a session"; fi
+if sj task session archive "$s3" >/dev/null 2>&1; then fail "a running session was archived"; fi
+sj task session close "$s3" --note "smoke done" | jq -e '.session.state=="done"' >/dev/null || fail "task session close"
+if run --profile "$prof" task session archive "$s3" --as bot >/dev/null 2>&1; then fail "an agent archived a session"; fi
+sj task session archive "$s3" | jq -e '.session.archived==true' >/dev/null || fail "task session archive"
+sj task session list | jq -e --argjson a "$s3" '(.sessions|map(.id)|index($a))==null' >/dev/null || fail "an archived session is in the default listing"
+sj task session list --all | jq -e --argjson a "$s3" '(.sessions|map(.id)|index($a))!=null' >/dev/null || fail "an archived session is missing from the listing with --all"
+
+echo "-- stop is open to an agent, and a stopped session does not run again"
+sj task session new "stopped session" >"$root/s4.out" 2>"$root/s4.err" || fail "task session new (stopped): $(cat "$root/s4.out" "$root/s4.err")"
+s4="$(jq -r '.session.id' "$root/s4.out")"
+run --profile "$prof" --json task session stop "$s4" --as bot | jq -e '.session.state=="stopped"' >/dev/null || fail "an agent could not stop a session"
+if sj task session resume "$s4" >/dev/null 2>&1; then fail "a stopped session was resumed"; fi
 
 echo "== an environment label binds nothing: a server given MONOAGENT_TASK_SESSION but no token is an ordinary agent"
 # What binds a server to a session, a task and a role is a mission token the conductor mints per run
