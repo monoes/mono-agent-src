@@ -24,11 +24,25 @@ permissions:
 # Runner routing. Jobs that need no sudo, apt, Chrome or docker run on the
 # self-hosted runners named by the repository variable CI_RUNNER (a JSON array
 # of labels), using
-#   runs-on: ${{ fromJSON(<fork PR> && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
-# A fork PR never targets self-hosted runners; an unset or empty CI_RUNNER falls
-# back to ubuntu-latest. KILL SWITCH: delete the CI_RUNNER variable (or set it to
+#   runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || <head repo is this repo>) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+# The test is POSITIVE: self-hosted only for a push or a pull request whose head
+# repository is this repository. A fork, a deleted fork (head.repo is null) or
+# anything unknown gets ubuntu-latest. An unset or empty CI_RUNNER falls back to
+# ubuntu-latest too. KILL SWITCH: delete the CI_RUNNER variable (or set it to
 # "ubuntu-latest", quotes included) and every job runs on hosted runners again.
 # Everything else (apt, Chrome, macOS/Windows) stays on its hosted OS.
+#
+# SECURITY (this repository is PUBLIC). The expression above protects only an
+# UNMODIFIED workflow. A pull request runs the workflow file from ITS OWN merge
+# ref, so a fork PR can edit this file and name the self-hosted labels itself.
+# The only guard is the repository setting "Fork pull request workflows from
+# outside collaborators: require approval for all external contributors"
+# (check: gh api repos/monoes/mono-agent-src/actions/permissions/fork-pr-contributor-approval
+# must say all_external_contributors). Whoever approves a fork PR run MUST read
+# its diff first: if it touches .github/ or any script a job runs, approving
+# hands a runner to the contributor. NEVER use pull_request_target or
+# workflow_run here. .github/scripts/workflow-guard_test.sh fails CI if a
+# workflow does either, or names self-hosted outside the CI_RUNNER variable.
 #
 # Path trimming. The `changes` job (.github/scripts/ci-changes.sh) works out
 # which job groups a pull request can affect; push to master, and any change to
@@ -37,7 +51,8 @@ permissions:
 # runs everything too.
 
 jobs:
-  # Which parts of the repository a change touches. A plain `git diff --name-only`
+  # Which parts of the repository a change touches. A plain `git diff --no-renames --name-only`
+  # (so a rename lists BOTH paths: moving a .go file to notes.md must still run Go tests)
   # against the PR base, no third-party action. Only pull requests are trimmed:
   # push to master (the release guard needs a full green run) reports everything
   # as changed. If the diff cannot be computed the result is also "everything".
@@ -66,7 +81,7 @@ jobs:
           if [ "$EVENT" = pull_request ] && [ "$CI_TRIM" != off ]; then
             # An empty list (fetch or diff failed) means "everything" to the script.
             if git fetch --no-tags --depth=1 origin "$BASE_SHA" 2>/dev/null; then
-              files="$(git diff --name-only "$BASE_SHA" HEAD || true)"
+              files="$(git diff --no-renames --name-only "$BASE_SHA" HEAD || true)"
             fi
           fi
           echo "changed files:"; echo "$files"
@@ -77,7 +92,7 @@ jobs:
   # publish executes locally the next time this repo's MCP server starts.
   mcp-pin-guard:
     name: Guard .mcp.json version pin
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Reject floating Monomind version
@@ -222,6 +237,10 @@ jobs:
           go-version-file: go.mod
       - name: Test the CI path rules
         run: bash .github/scripts/ci-changes_test.sh
+      - name: Test the workflow security guard
+        run: bash .github/scripts/workflow-guard_test.sh
+      - name: Test the release guard's full-run check
+        run: bash .github/scripts/ci-run-is-full_test.sh
       - name: Test the release guard
         run: bash scripts/check-release-tags-test.sh
       - name: Test the rollout guard
@@ -242,7 +261,7 @@ jobs:
     name: Validate HTTP API OpenAPI spec
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -258,7 +277,7 @@ jobs:
     name: Chrome extension
     needs: changes
     if: needs.changes.outputs.extension == 'true'
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -289,7 +308,7 @@ jobs:
     name: Vulnerability scan
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -319,7 +338,7 @@ jobs:
     name: staticcheck (informational)
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -342,7 +361,7 @@ jobs:
     name: Generated node schemas up to date
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -365,7 +384,7 @@ jobs:
     # A job-level `if` cannot see the matrix, so the nosocial cells are skipped
     # step by step (a skipped cell still reports green after a few seconds).
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     strategy:
       fail-fast: false
       matrix:
@@ -425,7 +444,7 @@ jobs:
     # Always reports (a skipped test-shards is a pass, a failed one fails the
     # first step), so the merge gate never waits on a trimmed job.
     if: ${{ !cancelled() }}
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - name: Fail if a test shard failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
@@ -506,7 +525,7 @@ jobs:
     name: Build & test (nosocial)
     needs: [changes, test-shards]
     if: ${{ !cancelled() }}
-    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-latest"' || vars.CI_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - name: Fail if a test shard failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

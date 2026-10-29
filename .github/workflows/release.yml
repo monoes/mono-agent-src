@@ -31,7 +31,8 @@ jobs:
   # The root module's vet and tests are skipped when CI already passed for the
   # same code: a CI run on this SHA, or -- for a PR merge commit -- the PR's CI
   # run on its head (the second parent) that started after the first parent
-  # landed on master. That run tested the PR merged into exactly that parent,
+  # landed on master and was a FULL run (.github/scripts/ci-run-is-full.sh: no
+  # job skipped by the path rules). That run tested the PR merged into exactly that parent,
   # which is this commit. Anything else runs them as before.
   test:
     runs-on: ubuntu-latest
@@ -59,9 +60,18 @@ jobs:
           elif p1=$(git rev-parse -q --verify "$SHA^1") && p2=$(git rev-parse -q --verify "$SHA^2"); then
             pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq ".[] | select(.merge_commit_sha == \"$SHA\" and .base.ref == \"$BRANCH\" and .head.sha == \"$p2\") | .number" || true)
             landed=$(runs "$p1" event=push '[.workflow_runs[].created_at] | min // empty')
-            if [ -n "$pr" ] && [ -n "$landed" ] &&
-              [ -n "$(runs "$p2" 'event=pull_request&status=success' ".workflow_runs[] | select(.created_at > \"$landed\") | .id")" ]; then
-              echo "CI passed on PR #$pr merged into $p1 (on $BRANCH since $landed), which is $SHA"; passed=true
+            full=""
+            if [ -n "$pr" ] && [ -n "$landed" ]; then
+              # A PR run counts as proof only if it was a FULL run: path trimming can
+              # skip jobs, and a trimmed green run proves nothing about this commit.
+              # A trimmed or unreadable run falls through to running the tests here.
+              for id in $(runs "$p2" 'event=pull_request&status=success' ".workflow_runs[] | select(.created_at > \"$landed\") | .id"); do
+                if bash .github/scripts/ci-run-is-full.sh "$REPO" "$id"; then full=$id; break; fi
+                echo "PR run $id was trimmed or unreadable: not proof"
+              done
+            fi
+            if [ -n "$full" ]; then
+              echo "CI passed (full run $full) on PR #$pr merged into $p1 (on $BRANCH since $landed), which is $SHA"; passed=true
             fi
           fi
           [ "$passed" = true ] || echo "no successful CI run for this code: running vet and tests here"

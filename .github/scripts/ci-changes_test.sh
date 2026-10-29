@@ -52,4 +52,38 @@ check "wails-app/go.mod change"            $'wails-app/go.mod'                  
 check "unknown path fails safe"            $'somewhere/new.txt'                          "true true false false false false false"
 check "docs + one go file"                 $'docs/plans/x.md\ninternal/plain/p.go'       "true true false false false false false"
 check "./ prefix and blank lines"          $'\n./docs/plans/x.md\n'                      "false false false false false true false"
+
+# The changes job computes the list with git; a rename must list BOTH paths, or
+# moving a .go file to notes.md looks like a docs-only change. This runs the very
+# command ci.yml uses (extracted from it, so the two cannot drift apart).
+cmd="$(grep -o 'git diff --no-renames --name-only "\$BASE_SHA" HEAD' "$here/../workflows/ci.yml" | head -1 || true)"
+if [ -z "$cmd" ]; then
+  echo "FAIL  ci.yml no longer computes the file list with git diff --no-renames --name-only"
+  fail=1
+else
+  g="$(mktemp -d)"
+  trap 'find "$fix" "$g" -mindepth 1 -delete; rmdir "$fix" "$g"' EXIT
+  git_in() { git -C "$g" -c user.name=t -c user.email=t@t "$@"; }
+  git_in init -q
+  mkdir -p "$g/internal/plain" "$g/docs"
+  printf 'package plain\n' >"$g/internal/plain/p.go"
+  printf '# n\n' >"$g/docs/n.md"
+  git_in add -A
+  git_in commit -q -m base
+  base="$(git_in rev-parse HEAD)"
+  # scenario NAME SETUP-COMMAND WANT: change the tree, diff it the way ci.yml does, classify
+  scenario() {
+    local name="$1" setup="$2" want="$3" files
+    git_in reset -q --hard "$base"
+    (cd "$g" && eval "$setup")
+    git_in add -A
+    git_in commit -q -m change
+    files="$(cd "$g" && BASE_SHA="$base" eval "$cmd")"
+    check "$name" "$files" "$want"
+  }
+  scenario "rename .go -> .md still runs Go"  'git mv internal/plain/p.go notes.md'        "true true false false false false false"
+  scenario "rename .md -> .go runs Go"        'git mv docs/n.md internal/plain/n.go'       "true true false false false false false"
+  scenario "delete of a .go file runs Go"     'git rm -q internal/plain/p.go'              "true true false false false false false"
+  scenario "rename .md -> .md stays docs"     'git mv docs/n.md docs/m.md'                 "false false false false false true false"
+fi
 exit $fail
