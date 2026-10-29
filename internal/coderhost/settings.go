@@ -94,7 +94,7 @@ func DefaultSettings() Settings {
 		AutonomyClasses: map[string]AutonomyChoice{},
 		MaxChildren:     4,
 		MaxConcurrent:   2,
-		MaxDepth:        2,
+		MaxDepth:        3,
 		AgentApproval:   "off",
 		MeshVisible:     true,
 		MeshAccept:      "subtree", // not "project": that trusts any local process that claims the project
@@ -165,7 +165,7 @@ func (s Settings) Validate() error {
 	if err := within("max_concurrent", s.MaxConcurrent, 1, 10); err != nil {
 		return err
 	}
-	if err := within("max_depth", s.MaxDepth, 1, 2); err != nil { // 2 is the hard limit of the design
+	if err := within("max_depth", s.MaxDepth, 1, MaxSessionDepth); err != nil { // the hard limit of the design (tasks.HardMaxSessionDepth)
 		return err
 	}
 	if err := within("mission_directions", s.MissionDirections, 0, 6); err != nil { // 6 is the hard cap of the design

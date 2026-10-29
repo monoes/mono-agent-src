@@ -2067,6 +2067,20 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   than halting in-turn workers: a turn that is already running finishes under its cap. The files are covered by the same
   static scan (no approval writer named, only the mission tables written). Not yet built: the launcher's per-child task
   token (P-B2).
+- **A tree of sessions and `session_spawn` for a lead.** The depth of a tree is bounded by code: `coderhost.MaxSessionDepth`
+  is `tasks.HardMaxSessionDepth` (4), `max_depth` is operator-only and validated against it, and a child takes its
+  parent's value; a child has room for children only below that depth and never more than its parent (`childSettings`),
+  its access is never above its parent's and never `full`, its budget is carved from the parent's, and one tree holds
+  at most 12 live sessions (counted again after the link, so two racing spawns cannot both take the last place). A
+  lead's `session_spawn` / `mission_session_spawn` is the lead scope (a verified session token and no task binding; the
+  conductor blanks the token for every helper it starts, and the tool is not in `childToolSpecs`), needs the lead's task
+  session to be **running** (a draft plan spawns nothing), reads the size of the work from the lead's own tasks (an id of
+  another session reads as not yours), and creates the task session as an agent below its own, so the store's tree rules
+  (same profile, depth, a child never above its parent's access and caps) apply and the new session is a draft the
+  operator approves. A plain spawn by a session that leads an open task session is refused, so leaving out the reason
+  is not a way round the advisory. The advisory is guidance against needless spawning, not an authorisation: it
+  refuses a small scope once, remembers it in `coder_spawn_advice`, and records every decision in the ledger. A stopped
+  or paused session cascades to its descendants at any depth (`treecascade.go`).
 - **Mission child sessions: the conductor and the lead's tools (not enabled end to end until P-B2).** The conductor
   (`dynorg/mission_child.go`) decides where a worker task runs: a session of its own only for a marked task or mode
   `all`, with mode not `off`, room, and `ChildSpawner.Ready()`; everything else is the unchanged in-turn path.

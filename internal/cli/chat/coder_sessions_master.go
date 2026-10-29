@@ -86,7 +86,7 @@ func newCoderSessionsSpawnCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer mc.close()
-			out, err := mc.store.Spawn(mc.caller, coderhost.SpawnRequest{Message: message, Access: access, Cwd: cwd, BudgetUSD: budget})
+			out, err := mc.store.SpawnPlain(mc.caller, coderhost.SpawnRequest{Message: message, Access: access, Cwd: cwd, BudgetUSD: budget})
 			if err != nil {
 				return masterErr(err)
 			}

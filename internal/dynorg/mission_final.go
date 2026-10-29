@@ -59,7 +59,7 @@ func missionRunTools() []monomind.ToolSpec {
 }
 
 // MissionRunToolSpecs are the lead's execution tools of a mission: mission_next,
-// mission_assign, mission_report, mission_verify and mission_finish. They are offered only
+// mission_assign, mission_report, mission_verify, mission_finish and mission_session_spawn. They are offered only
 // to a lead whose mission the user confirmed and whose conversation already has a session
 // (the plan is written, so there is something to run).
 func MissionRunToolSpecs(ctx context.Context, m *MissionConfig) []monomind.ToolSpec {
@@ -69,7 +69,7 @@ func MissionRunToolSpecs(ctx context.Context, m *MissionConfig) []monomind.ToolS
 	if se, err := m.latest(ctx); err != nil || se == nil {
 		return nil
 	}
-	return append(missionExecToolSpecs(), missionRunToolSpecs()...)
+	return append(append(missionExecToolSpecs(), missionRunToolSpecs()...), missionSessionSpawnSpec())
 }
 
 // Unfinished is a task that stops the mission from closing.

@@ -249,6 +249,8 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 		return c.handleMissionVerify(ctx, args)
 	case ToolMissionFinish:
 		return c.handleMissionFinish(ctx, args)
+	case ToolMissionSessionSpawn:
+		return c.handleMissionSessionSpawn(ctx, args)
 	// --- end of mission verification and closing tools ---
 	case ToolMissionEvaluate, ToolMissionReevaluate:
 		return c.handleMissionEvaluate(ctx, name, args)

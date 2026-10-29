@@ -11,7 +11,7 @@ func TestDefaultSettingsAreValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := DefaultSettings()
-	if d.CheckinMinutes != 15 || !d.SkipIfUnchanged || d.AutonomyPreset != "ask-on-risk" || d.MaxDepth != 2 {
+	if d.CheckinMinutes != 15 || !d.SkipIfUnchanged || d.AutonomyPreset != "ask-on-risk" || d.MaxDepth != 3 {
 		t.Fatalf("defaults = %+v", d)
 	}
 }
@@ -32,7 +32,7 @@ func TestApplyRefusesWhatIsNotASetting(t *testing.T) {
 		"class without who":    `{"autonomy_classes": {"ambiguity": {"fallback": "park"}}}`,
 		"bad trigger":          `{"checkin_triggers": ["child_died"]}`,
 		"duplicate trigger":    `{"checkin_triggers": ["budget_80", "budget_80"]}`,
-		"depth over the limit": `{"max_depth": 3}`,
+		"depth over the limit": `{"max_depth": 5}`,
 		"no concurrency":       `{"max_concurrent": 0}`,
 		"alias with a slash":   `{"mesh_alias": "a/b"}`,
 		"alias with a space":   `{"mesh_alias": "a b"}`,

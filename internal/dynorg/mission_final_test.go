@@ -267,7 +267,7 @@ func TestMissionRunToolsAreOfferedToAConfirmedLeadWithASession(t *testing.T) {
 	if _, err := call(t, c, ToolMissionPlan, goodPlan()); err != nil {
 		t.Fatal(err)
 	}
-	want := "mission_next,mission_assign,mission_report,mission_verify,mission_finish,mission_evaluate,mission_reevaluate"
+	want := "mission_next,mission_assign,mission_report,mission_verify,mission_finish,mission_evaluate,mission_reevaluate,mission_session_spawn"
 	if got := names(conf); got != want {
 		t.Errorf("confirmed with a session: %q", got)
 	}

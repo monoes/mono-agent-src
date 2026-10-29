@@ -205,7 +205,9 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 		if err := agentMayStart(actor, in.ParentSessionID); err != nil {
 			return Session{}, err
 		}
-		if in.AccessLevel != "" || in.BudgetUSD != 0 || in.MaxTasks != 0 || in.MaxDepth != 0 {
+		// Below a parent an agent may ask for a lower task cap and a budget: withinParent refuses anything above the
+		// parent's, so this can only narrow. The access level and the depth cap stay the operator's.
+		if in.AccessLevel != "" || in.MaxDepth != 0 || (in.ParentSessionID == 0 && (in.BudgetUSD != 0 || in.MaxTasks != 0)) {
 			return Session{}, operatorOnly("set a session's access level, budget or caps")
 		}
 	default:

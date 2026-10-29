@@ -217,3 +217,29 @@ func TestSessionTreeNestsByIDAndBindsAgents(t *testing.T) {
 		t.Fatalf("capture: %v", err)
 	}
 }
+
+func TestAnAgentBelowAParentMayNarrowTheCapsButNeverRaiseThem(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	par, err := s.CreateSession(bg, "default", SessionInput{Title: "p", BudgetUSD: 10, MaxTasks: 50}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := Actor{Kind: Agent, Name: "lead-a", Session: par.ID}
+	ok, err := s.CreateSession(bg, "default", SessionInput{Title: "c", ParentSessionID: par.ID, MaxTasks: 25, BudgetUSD: 2}, lead)
+	if err != nil || ok.MaxTasks != 25 || ok.BudgetUSD != 2 {
+		t.Fatalf("narrowed = %+v, %v", ok, err)
+	}
+	for name, in := range map[string]SessionInput{
+		"more tasks":  {Title: "c", ParentSessionID: par.ID, MaxTasks: 51},
+		"more budget": {Title: "c", ParentSessionID: par.ID, BudgetUSD: 11},
+		"depth":       {Title: "c", ParentSessionID: par.ID, MaxDepth: 1},
+		"access":      {Title: "c", ParentSessionID: par.ID, AccessLevel: "read"},
+	} {
+		if _, err := s.CreateSession(bg, "default", in, lead); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if _, err := s.CreateSession(bg, "default", SessionInput{Title: "top", MaxTasks: 5}, Actor{Kind: Agent, Name: "loose"}); err == nil {
+		t.Error("a top-level agent set a cap")
+	}
+}
