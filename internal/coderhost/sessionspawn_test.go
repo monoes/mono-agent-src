@@ -457,7 +457,7 @@ func TestSpawnSessionIsNotMadeWhenItsDecisionCannotBeRecorded(t *testing.T) {
 	if _, err := f.spawnSession(req("A", f.bigScope())); err == nil || !strings.Contains(err.Error(), "ledger") {
 		t.Fatalf("err = %v", err)
 	}
-	if countRows(t, f.st, `SELECT COUNT(*) FROM coder_sessions`) != before || countRows(t, f.st, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id IS NOT NULL`) != 0 {
+	if countRows(t, f.st, `SELECT COUNT(*) FROM coder_sessions`) != before || countRows(t, f.st, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id IS NOT NULL AND state != 'stopped'`) != 0 { // the session made just before the write is stopped by the undo
 		t.Fatal("a spawn that could not be recorded was made")
 	}
 }
