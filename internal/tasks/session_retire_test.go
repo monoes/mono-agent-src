@@ -288,4 +288,51 @@ func TestAWorkerThatTakesTheTaskAfterTheRetirementIsNotRetired(t *testing.T) {
 	if retired, err := s.WorkerRetired(bg, "default", se.ID, tk.ID); err != nil || retired {
 		t.Fatalf("a new worker took the task, yet it reads as retired: %v %v", retired, err)
 	}
+	// The new worker finishes and is idle again (here: it never held the claim in the store): retiring
+	// it is a new retirement at the new claim count, not "already retired".
+	r, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "second worker", human)
+	if err != nil || r.AlreadyRetired {
+		t.Fatalf("retiring the second worker: %+v %v", r, err)
+	}
+	ev := retiredEvents(t, db, se.ID)
+	want := []string{fmt.Sprintf("you: task #%d (claims: 1)", tk.ID), fmt.Sprintf("you: task #%d (claims: 2): second worker", tk.ID)}
+	if len(ev) != 2 || ev[0] != want[0] || ev[1] != want[1] {
+		t.Fatalf("history = %q, want %q", ev, want)
+	}
+	if retired, err := s.WorkerRetired(bg, "default", se.ID, tk.ID); err != nil || !retired {
+		t.Fatalf("after the second retirement: %v %v", retired, err)
+	}
+}
+
+// The retirement note is read back by its exact form, `task #N (claims: K)`: a task whose number is a
+// prefix of another's is not confused with it, and a note of another shape stands for nothing.
+func TestRetirementNoteFormatIsPinned(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	se := mustSession(t, s, "default", "s")
+	for _, note := range []string{"task #12 (claims: 3): x", "task #1 (claims: oops)", "task #1: no count", "task #1 (claims: 2)"} {
+		if _, err := db.Exec(`INSERT INTO task_session_events (session_id, at, actor, kind, note) VALUES (?, 'n', 'you', 'worker_retired', ?)`, se.ID, note); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := func(task int64) int {
+		var n int
+		err := s.snapshot(bg, func(x dbx) error {
+			var err error
+			n, err = s.retiredAtClaims(bg, x, se.ID, task)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := got(1); n != 2 {
+		t.Fatalf("task #1 retired at %d claims, want 2 (the newest well-formed note, not #12's)", n)
+	}
+	if n := got(12); n != 3 {
+		t.Fatalf("task #12 retired at %d claims, want 3", n)
+	}
+	if n := got(7); n != 0 {
+		t.Fatalf("task #7 was never retired, got %d", n)
+	}
 }
