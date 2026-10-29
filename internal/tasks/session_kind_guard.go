@@ -1,5 +1,10 @@
 package tasks
 
+import (
+	"context"
+	"slices"
+)
+
 // MissionPlannerName is the name the in-process mission planner of a chat works under. Sessions it
 // started before the kind column held mission sessions carry it in created_by (kind "board"), so the
 // name is reserved: only the planner itself (Actor.MissionPlanner, set by trusted code) may use it.
@@ -26,4 +31,19 @@ func checkMissionKind(actor Actor, kind string) error {
 // CreateSession now reserves, so a later agent cannot forge it).
 func IsMissionSession(se Session) bool {
 	return se.Kind == SessionKindMission || (se.Kind == SessionKindBoard && se.CreatedBy == MissionPlannerName)
+}
+
+// dedupeFits says whether an agent's client id may answer with the session it names: that session is
+// in the agent's own subtree (when it works in a session) and was started as this call asks, below the
+// same parent and of the same kind. Anything else is a key another caller used. The mission planner is
+// not held to the kind: its old sessions are of kind board.
+func (s *Store) dedupeFits(ctx context.Context, x dbx, found Session, in SessionInput, kind string, actor Actor) bool {
+	if found.ParentSessionID != in.ParentSessionID || (found.Kind != kind && !actor.MissionPlanner) {
+		return false
+	}
+	if actor.Session == 0 {
+		return true
+	}
+	chain, err := s.sessionChain(ctx, x, found.ID)
+	return err == nil && slices.Contains(chain, actor.Session)
 }

@@ -285,7 +285,7 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 				}
 				// An agent never gets back a session of another chat (or of none, when it asked
 				// for a chat): a key another chat used is refused, whatever the session holds.
-				if actor.Kind == Agent && found.ConversationID != strings.TrimSpace(in.ConversationID) {
+				if actor.Kind == Agent && (found.ConversationID != strings.TrimSpace(in.ConversationID) || !s.dedupeFits(ctx, x, found, in, kind, actor)) {
 					return invalid("client id %q is already used: pick another", echo(clientID))
 				}
 				out, out.Deduped = found, true
