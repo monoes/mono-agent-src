@@ -206,6 +206,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
+				TitleOf:              func(profileID, id string) string { return chatDisplayTitle(db.DB, profileID, id) },
 			}
 			if meshEnabled() {
 				h.Mesh = &coderhost.HubMesh{StartHub: func(ctx context.Context) error { return startMeshHub(ctx, hostDir(cfg)) }, Logf: logf}

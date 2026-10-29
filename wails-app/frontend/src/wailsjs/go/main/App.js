@@ -1282,6 +1282,10 @@ export function RemoveProfileDocument(arg1, arg2) {
   return window['go']['main']['App']['RemoveProfileDocument'](arg1, arg2);
 }
 
+export function RenameChatConversation(arg1, arg2) {
+  return window['go']['main']['App']['RenameChatConversation'](arg1, arg2);
+}
+
 export function RerecordSelector(arg1, arg2) {
   return window['go']['main']['App']['RerecordSelector'](arg1, arg2);
 }

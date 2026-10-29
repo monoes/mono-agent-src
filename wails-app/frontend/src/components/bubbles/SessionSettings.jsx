@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../services/api.js'
+import { aliasFromTitle } from '../../lib/meshAlias.js'
 
 const mono = 'var(--font-mono)'
 const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px solid var(--border)' }
 const label = { fontFamily: mono, fontSize: 10, color: 'var(--text-muted)', minWidth: 78 }
+const field = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 } // a label stays with its control
 const value = { fontFamily: mono, fontSize: 11, color: 'var(--text)' }
 const INTERVALS = [0, 5, 10, 15, 30, 60]
 const REFRESH_MS = 15000
@@ -177,12 +179,23 @@ export function SessionSettings({ conversationId, access }) {
           <input type="checkbox" checked={s.mesh_visible} disabled={busy} onChange={e => save({ mesh_visible: e.target.checked })} />
           {t('bubbles.pane.session.meshVisible')}
         </label>
-        <label htmlFor="pane-mesh-alias" style={label}>{t('bubbles.pane.session.meshAlias')}</label>
-        <input id="pane-mesh-alias" defaultValue={s.mesh_alias} key={`al${rev}`} disabled={busy} className="input-compact" style={{ width: 110 }} maxLength={64}
-          onBlur={e => { if (e.target.value !== s.mesh_alias) save({ mesh_alias: e.target.value }) }} />
-        <label htmlFor="pane-mesh-accept" style={label}>{t('bubbles.pane.session.meshAccept')}</label>
-        <Select id="pane-mesh-accept" value={s.mesh_accept} disabled={busy} onChange={v => save({ mesh_accept: v })}
-          options={data.allowed.mesh_accept.map(a => ({ value: a, label: t(`bubbles.pane.session.accept.${a}`) }))} />
+        <span style={{ ...label, flexBasis: '100%', minWidth: 0 }}>{t('bubbles.pane.session.meshAliasWhy')}</span>
+        <div style={field}>
+          <label htmlFor="pane-mesh-alias" style={label}>{t('bubbles.pane.session.meshAlias')}</label>
+          <input id="pane-mesh-alias" defaultValue={s.mesh_alias} key={`al${rev}`} disabled={busy || !s.mesh_visible} className="input-compact" style={{ width: 190 }} maxLength={64}
+            placeholder={data.defaultAlias || t('bubbles.pane.session.meshAliasAuto')}
+            onBlur={e => {
+              // Spaces are what a person types for a name; the mesh wants dashes.
+              const raw = e.target.value.trim()
+              const next = raw ? (aliasFromTitle(raw) || raw) : ''
+              if (next !== s.mesh_alias) save({ mesh_alias: next })
+            }} />
+        </div>
+        <div style={field}>
+          <label htmlFor="pane-mesh-accept" style={label}>{t('bubbles.pane.session.meshAccept')}</label>
+          <Select id="pane-mesh-accept" value={s.mesh_accept} disabled={busy || !s.mesh_visible} onChange={v => save({ mesh_accept: v })}
+            options={data.allowed.mesh_accept.map(a => ({ value: a, label: t(`bubbles.pane.session.accept.${a}`) }))} />
+        </div>
       </div>
     </details>
     </>

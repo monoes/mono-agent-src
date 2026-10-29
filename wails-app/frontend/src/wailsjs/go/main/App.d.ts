@@ -643,6 +643,8 @@ export function RemovePersonTag(arg1:string,arg2:string):Promise<void>;
 
 export function RemoveProfileDocument(arg1:string,arg2:boolean):Promise<void>;
 
+export function RenameChatConversation(arg1:string,arg2:string):Promise<string>;
+
 export function RerecordSelector(arg1:string,arg2:string):Promise<string>;
 
 export function ResolveOrgChat(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<string>;

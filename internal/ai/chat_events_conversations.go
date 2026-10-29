@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -180,6 +182,42 @@ func (s *AIStore) SetConversationOrgMode(id, profileID, mode string) error {
 		return ErrConversationNotFound
 	}
 	return nil
+}
+
+// MaxConversationTitle is the longest name a person can give a conversation, in characters.
+const MaxConversationTitle = 80
+
+// CleanConversationTitle is a typed title as one line: whitespace collapsed, control characters
+// dropped, cut to MaxConversationTitle characters. "" clears the name.
+func CleanConversationTitle(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > MaxConversationTitle {
+		s = strings.TrimSpace(string(r[:MaxConversationTitle]))
+	}
+	return s
+}
+
+// SetConversationTitle gives a conversation a name of the person's own ("" takes it back).
+// The caller redacts it first; this stores the cleaned line. The chat keeps its place in the history.
+func (s *AIStore) SetConversationTitle(id, profileID, title string) (string, error) {
+	if profileID == "" {
+		return "", ErrProfileRequired
+	}
+	title = CleanConversationTitle(title)
+	res, err := s.db.Exec(`UPDATE ai_chat_conversations SET title = ? WHERE id = ? AND profile_id = ?`, title, id, profileID)
+	if err != nil {
+		return "", fmt.Errorf("set title: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrConversationNotFound
+	}
+	return title, nil
 }
 
 // BindConversationSession records a runtime-reported resumable session id

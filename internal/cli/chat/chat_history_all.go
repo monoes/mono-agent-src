@@ -45,6 +45,7 @@ type HistoryRow struct {
 	ID              string   `json:"id"`
 	Kind            string   `json:"kind"`
 	Title           string   `json:"title"`
+	Renamed         bool     `json:"renamed,omitempty"` // the title is one the person typed
 	Status          string   `json:"status"`
 	UpdatedAt       string   `json:"updatedAt"`
 	Runtime         string   `json:"runtime,omitempty"`
@@ -174,7 +175,7 @@ type historyQuerier interface {
 // (its text titles the chat) and the latest bound AI task come in as joins on
 // indexed lookups, so a page costs one query however many rows it holds.
 const histSQL = `SELECT id, workflow_context, runtime_id, model, mode, cwd, updated_at, effort, org_mode, access,
-	status, first_prompt, task_id, task_status, task_goal, application_id FROM (
+	status, first_prompt, task_id, task_status, task_goal, application_id, custom_title FROM (
 SELECT c.id, c.workflow_context, c.runtime_id, c.model, c.mode, c.cwd, c.updated_at, c.effort, c.org_mode, c.access,
 	CASE
 		WHEN COALESCE(k.status, '') = 'needs_user' THEN 'needs'
@@ -185,7 +186,8 @@ SELECT c.id, c.workflow_context, c.runtime_id, c.model, c.mode, c.cwd, c.updated
 	END AS status,
 	COALESCE(substr(ft.prompt, 1, ` + "%d" + `), '') AS first_prompt,
 	COALESCE(k.id, '') AS task_id, COALESCE(k.status, '') AS task_status,
-	COALESCE(k.goal, '') AS task_goal, COALESCE(k.application_id, '') AS application_id
+	COALESCE(k.goal, '') AS task_goal, COALESCE(k.application_id, '') AS application_id,
+	c.title AS custom_title
 FROM ai_chat_conversations c
 LEFT JOIN ai_chat_turns lt ON lt.id = (SELECT id FROM ai_chat_turns WHERE conversation_id = c.id AND profile_id = c.profile_id ORDER BY created_at DESC, id DESC LIMIT 1)
 LEFT JOIN ai_chat_turns ft ON ft.id = (SELECT id FROM ai_chat_turns WHERE conversation_id = c.id AND profile_id = c.profile_id ORDER BY created_at ASC, id ASC LIMIT 1)
@@ -217,9 +219,9 @@ func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limi
 	if f.query != "" {
 		// Titles are derived in Go from these columns, so the text is matched
 		// on them (the first message is bounded to its first bytes).
-		outer += ` AND (LOWER(task_goal) LIKE ? ESCAPE '\' OR LOWER(first_prompt) LIKE ? ESCAPE '\' OR LOWER(cwd) LIKE ? ESCAPE '\' OR LOWER(model) LIKE ? ESCAPE '\')`
+		outer += ` AND (LOWER(task_goal) LIKE ? ESCAPE '\' OR LOWER(first_prompt) LIKE ? ESCAPE '\' OR LOWER(cwd) LIKE ? ESCAPE '\' OR LOWER(model) LIKE ? ESCAPE '\' OR LOWER(custom_title) LIKE ? ESCAPE '\')`
 		like := "%" + likeEscape(strings.ToLower(f.query)) + "%"
-		args = append(args, like, like, like, like)
+		args = append(args, like, like, like, like, like)
 	}
 	args = append(args, limit)
 	rows, err := db.Query(fmt.Sprintf(histSQL, histPromptBytes, inner, outer), args...)
@@ -230,14 +232,17 @@ func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limi
 	out := []HistoryRow{}
 	for rows.Next() {
 		var r HistoryRow
-		var first string
+		var first, custom string
 		if err := rows.Scan(&r.ID, &r.WorkflowContext, &r.Runtime, &r.Model, &r.Mode, &r.Cwd, &r.UpdatedAt, &r.Effort, &r.OrgMode, &r.Access,
-			&r.Status, &first, &r.TaskID, &r.TaskStatus, &r.TaskGoal, &r.ApplicationID); err != nil {
+			&r.Status, &first, &r.TaskID, &r.TaskStatus, &r.TaskGoal, &r.ApplicationID, &custom); err != nil {
 			return nil, fmt.Errorf("scan history: %w", err)
 		}
 		r.Kind = histKindChat
 		r.TaskGoal = redactTitleText(r.TaskGoal)
 		r.Title = historyTitle(r.TaskGoal, first, r.Cwd)
+		if c := oneLine(redactTitleText(custom)); c != "" {
+			r.Title, r.Renamed = c, true
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -246,6 +251,19 @@ func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limi
 func likeEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
+
+// chatDisplayTitle is the title the app shows for one conversation ("" when it has none yet, or
+// the row cannot be read): the name the person typed, else the history's derived one.
+func chatDisplayTitle(db historyQuerier, profileID, id string) string {
+	rows, err := queryHistoryRows(db, profileID, historyFilter{id: id}, 1)
+	if err != nil || len(rows) == 0 || rows[0].Title == histNewChat {
+		return ""
+	}
+	return rows[0].Title
+}
+
+// histNewChat is the title of a chat with nothing to title it by.
+const histNewChat = "New chat"
 
 // historyTitle is the task goal when a task is bound, else the first message
 // trimmed to histTitleMax, else the folder's name, else "New chat". Both texts
@@ -262,7 +280,7 @@ func historyTitle(goal, firstPrompt, cwd string) string {
 			return b
 		}
 	}
-	return "New chat"
+	return histNewChat
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

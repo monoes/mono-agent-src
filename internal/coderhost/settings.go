@@ -39,7 +39,7 @@ type Settings struct {
 
 	// Mesh: whether other monomind agents see this session and who may message it.
 	MeshVisible bool   `json:"mesh_visible"`
-	MeshAlias   string `json:"mesh_alias"` // "" = a name made from the project and start time
+	MeshAlias   string `json:"mesh_alias"` // "" = the chat's name with dashes for spaces, else one made from the project and start time
 	MeshAccept  string `json:"mesh_accept"`
 }
 
@@ -151,7 +151,7 @@ func (s Settings) Validate() error {
 		return err
 	}
 	if s.MeshAlias != "" && !meshAlias.MatchString(s.MeshAlias) {
-		return errors.New("mesh_alias must be letters, digits, '.', '_' and '-', starting with a letter or digit, at most 64 characters")
+		return errors.New("mesh_alias can use letters, digits, '.', '_' and '-' (no spaces: write meeting-notes), must start with a letter or digit, and is at most 64 characters")
 	}
 	if !oneOf(s.MeshAccept, MeshAccepts) {
 		return fmt.Errorf("mesh_accept must be one of %s", strings.Join(MeshAccepts, ", "))

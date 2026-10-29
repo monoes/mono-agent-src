@@ -1114,6 +1114,11 @@
   "bubbles": {
     "dockLabel": "Chats",
     "newChat": "Nuevo chat",
+    "renameHint": "Doble clic para renombrar",
+    "renameAria": "Nombre del chat: {{name}}. Pulsa Intro para renombrar.",
+    "renameLabel": "Nombre del chat",
+    "renamePlaceholder": "Déjalo vacío para usar el nombre automático",
+    "renameFailed": "No se renombró: {{error}}",
     "newCoderChat": "Nuevo chat",
     "bubbleLabel": "{{name}}, {{status}}",
     "unread_one": "{{count}} respuesta nueva",
@@ -1285,7 +1290,9 @@
         "depth": "Profundidad {{depth}}",
         "mesh": "Mesh",
         "meshVisible": "Visible para otros agentes",
-        "meshAlias": "Nombre",
+        "meshAlias": "Nombre en la malla",
+        "meshAliasAuto": "automático (hecho con el proyecto y la hora)",
+        "meshAliasWhy": "Otros agentes usan este nombre para dirigirse a este chat. Vacío = el nombre del chat, con guiones en lugar de espacios.",
         "meshAccept": "Acepta mensajes de",
         "accept": {
           "none": "Nadie",

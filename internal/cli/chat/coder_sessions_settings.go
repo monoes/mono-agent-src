@@ -21,6 +21,9 @@ type sessionSettingsView struct {
 	OperatorOnly   []string            `json:"operatorOnly"`
 	Allowed        map[string][]string `json:"allowed"`
 	Changed        []string            `json:"changed,omitempty"`
+	// DefaultAlias is the mesh name the session takes while mesh_alias is empty: the chat's name with
+	// dashes for spaces. Empty when it has no name yet (the host then makes one from the project and time).
+	DefaultAlias string `json:"defaultAlias"`
 	// Checkin is set for a master: how many check-in turns ran in a row with no message
 	// from a person between them, against its limit. Waiting says the scheduler would check
 	// in (it is unattended and has children) but has reached the limit, so it waits until
@@ -79,6 +82,7 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 			"checkin_triggers": coderhost.CheckinEvents, "mesh_accept": coderhost.MeshAccepts,
 		},
 	}
+	v.DefaultAlias = coderhost.AliasFromTitle(chatDisplayTitle(db.DB, profileID, conv.ID))
 	if x, ok, err := cs.GetSession(profileID, conv.ID); err != nil {
 		return v, err
 	} else if ok {

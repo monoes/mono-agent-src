@@ -29,7 +29,8 @@ type HistoryRow struct {
 	ID              string   `json:"id"`
 	Kind            string   `json:"kind"`
 	Title           string   `json:"title"`
-	Status          string   `json:"status"` // running, done, error, needs or idle
+	Renamed         bool     `json:"renamed"` // Title is a name the person typed
+	Status          string   `json:"status"`  // running, done, error, needs or idle
 	UpdatedAt       string   `json:"updatedAt"`
 	Runtime         string   `json:"runtime"`
 	Model           string   `json:"model"`
@@ -264,6 +265,8 @@ type ChatConversationRecord struct {
 	Cwd             string `json:"cwd"`
 	OrgMode         string `json:"orgMode"`
 	WorkflowContext string `json:"workflowContext"`
+	// Renamed is true when Title is a name the person typed (RenameChatConversation).
+	Renamed bool `json:"renamed"`
 }
 
 // GetChatConversationRecord reads one conversation from the CLI
@@ -283,10 +286,30 @@ func (a *App) GetChatConversationRecord(id string) (ChatConversationRecord, erro
 	for _, r := range page.Items {
 		if r.ID == id {
 			return ChatConversationRecord{OK: true, ID: r.ID, Title: r.Title, Access: r.Access, Mode: r.Mode, Runtime: r.Runtime,
-				Model: r.Model, Effort: r.Effort, Cwd: r.Cwd, OrgMode: r.OrgMode, WorkflowContext: r.WorkflowContext}, nil
+				Model: r.Model, Effort: r.Effort, Cwd: r.Cwd, OrgMode: r.OrgMode, WorkflowContext: r.WorkflowContext, Renamed: r.Renamed}, nil
 		}
 	}
 	return ChatConversationRecord{Code: "not_found"}, nil
+}
+
+// RenameChatConversation is `chat history rename`: it gives the chat a name of the person's own and
+// returns the name as stored (cleaned, redacted, cut to length). An empty title takes the name back, and
+// the chat shows its derived title again.
+func (a *App) RenameChatConversation(id, title string) (string, error) {
+	if err := a.signedOut(); err != nil {
+		return "", err
+	}
+	args := []string{"rename", id}
+	if strings.TrimSpace(title) != "" {
+		args = append(args, "--", title) // a title that starts with a dash is still a title
+	}
+	var res struct {
+		Title string `json:"title"`
+	}
+	if err := a.historyCLI(&res, args...); err != nil {
+		return "", err
+	}
+	return res.Title, nil
 }
 
 // DeleteChatResult says what DeleteChatConversations did, per id: Active ids

@@ -1156,6 +1156,11 @@
   "bubbles": {
     "dockLabel": "Chats",
     "newChat": "New chat",
+    "renameHint": "Double-click to rename",
+    "renameAria": "Chat name: {{name}}. Press Enter to rename.",
+    "renameLabel": "Chat name",
+    "renamePlaceholder": "Leave empty to use the automatic name",
+    "renameFailed": "Not renamed: {{error}}",
     "newCoderChat": "New chat",
     "bubbleLabel": "{{name}}, {{status}}",
     "unread_one": "{{count}} new reply",
@@ -1327,7 +1332,9 @@
         "depth": "Depth {{depth}}",
         "mesh": "Mesh",
         "meshVisible": "Visible to other agents",
-        "meshAlias": "Name",
+        "meshAlias": "Mesh name",
+        "meshAliasAuto": "automatic (made from the project and time)",
+        "meshAliasWhy": "Other agents use this name to address this chat. Empty = the chat's name, with dashes for spaces.",
         "meshAccept": "Accepts messages from",
         "accept": {
           "none": "Nobody",

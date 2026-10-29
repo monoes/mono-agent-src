@@ -38,6 +38,8 @@ var addedColumns = []addedColumn{
 	{"ai_chat_conversations", "org_mode", `ALTER TABLE ai_chat_conversations ADD COLUMN org_mode TEXT NOT NULL DEFAULT 'solo'`},
 	// 119: a conversation's access level, after mode so the backfill can read it.
 	{"ai_chat_conversations", "access", `ALTER TABLE ai_chat_conversations ADD COLUMN access TEXT NOT NULL DEFAULT 'scoped' CHECK (access IN ('scoped', 'coding', 'workspace', 'full'))`},
+	// A name the person gave the chat; '' = the derived one (task goal, first message, folder).
+	{"ai_chat_conversations", "title", `ALTER TABLE ai_chat_conversations ADD COLUMN title TEXT NOT NULL DEFAULT ''`},
 }
 
 // reconcileAddedColumns adds every addedColumns entry whose table exists
