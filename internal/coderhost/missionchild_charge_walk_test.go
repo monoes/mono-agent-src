@@ -481,3 +481,21 @@ func (f *hostFix) reserveSecondTaskIsRefusedAt(t *testing.T, usd float64) {
 		t.Fatalf("Reserve of $%v beside a lost child = %v, want ErrChildrenFull", usd, err)
 	}
 }
+
+// Round 3d: a lost child freezes the mission outright. The final comparison has a float tolerance, so a tiny
+// positive carve used to slip under it; whatever the amount, a reservation beside a lost child is refused.
+func TestALostChildRefusesEveryReservationHoweverSmall(t *testing.T) {
+	f := newHostFix(t)
+	if _, err := f.st.db.Exec(`UPDATE task_sessions SET budget_usd = 10 WHERE id = ?`, f.se.ID); err != nil {
+		t.Fatal(err)
+	}
+	a := f.endedChild(t, 0, walkCost)
+	f.deleteChild(t, a, false)
+	f.passes(2)
+	if got := f.held(t); got != 10 {
+		t.Fatalf("held = %v, want 10 before the probes", got)
+	}
+	for _, usd := range []float64{1e-10, 1e-12, 5e-324, 0.01, 10} {
+		f.reserveSecondTaskIsRefusedAt(t, usd)
+	}
+}

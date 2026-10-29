@@ -917,7 +917,9 @@ func (s *Store) missionBudgetRefusal(q querier, profileID string, sessionID int6
 		return "", err
 	}
 	if lost {
-		held = math.Max(held, math.Max(budget-spent, 0))
+		// The freeze is a refusal, not a number: the comparison below has a float tolerance that a tiny carve would slip under.
+		left := math.Max(budget-spent, 0)
+		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions): a child session of this mission lost its cost record, so the mission accepts no new child session until the operator resolves it (coder sessions mission-children resolve-charge)", carve, left, math.Max(held, left)), nil
 	}
 	if held+carve > budget-spent+1e-9 {
 		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil
