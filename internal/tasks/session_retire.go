@@ -46,11 +46,11 @@ func (s *Store) RetireWorker(ctx context.Context, profileID string, sessionID, i
 		if t.Claim != nil {
 			return sessionNotReady("task #%d is held by %s: a worker is still on it", id, t.Claim.By)
 		}
-		var lastClaim int64
-		if err := x.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM task_events WHERE task_id = ? AND kind = 'claimed'`, id).Scan(&lastClaim); err != nil {
-			return fmt.Errorf("tasks: reading the claims of task #%d: %w", id, err)
+		claims, err := s.claimCount(ctx, x, id)
+		if err != nil {
+			return err
 		}
-		if lastClaim == 0 {
+		if claims == 0 {
 			return invalid("no worker has taken task #%d", id)
 		}
 		var live int
@@ -62,11 +62,11 @@ func (s *Store) RetireWorker(ctx context.Context, profileID string, sessionID, i
 		if live > 0 {
 			return sessionNotReady("task #%d still has a live mission token: its worker is running", id)
 		}
-		lastRetire, err := s.lastRetirement(ctx, x, sessionID, id)
+		retiredAt, err := s.retiredAtClaims(ctx, x, sessionID, id)
 		if err != nil {
 			return err
 		}
-		if lastRetire != 0 && !s.claimedAfter(ctx, x, id, lastRetire) {
+		if retiredAt == claims {
 			out.AlreadyRetired = true
 			// Still ends any stored worker of the task: one saved by a turn that was running when
 			// the first retirement was written.
@@ -75,7 +75,7 @@ func (s *Store) RetireWorker(ctx context.Context, profileID string, sessionID, i
 		if err := s.endStoredWorkers(ctx, x, profileID, sessionID, id); err != nil {
 			return err
 		}
-		text := fmt.Sprintf("task #%d", id)
+		text := fmt.Sprintf("%s (claims: %d)", retirementNote(id), claims)
 		if note = cleanText(note); note != "" {
 			text += ": " + note
 		}
@@ -95,11 +95,15 @@ func (s *Store) WorkerRetired(ctx context.Context, profileID string, sessionID, 
 		if _, err := s.sessionTx(ctx, x, profileID, sessionID); err != nil {
 			return err
 		}
-		last, err := s.lastRetirement(ctx, x, sessionID, id)
+		claims, err := s.claimCount(ctx, x, id)
 		if err != nil {
 			return err
 		}
-		retired = last != 0 && !s.claimedAfter(ctx, x, id, last)
+		at, err := s.retiredAtClaims(ctx, x, sessionID, id)
+		if err != nil {
+			return err
+		}
+		retired = claims > 0 && at == claims
 		return nil
 	})
 	return retired, err
@@ -116,31 +120,36 @@ func (s *Store) endStoredWorkers(ctx context.Context, x dbx, profileID string, s
 	return nil
 }
 
-// retirementNote is how a retirement event names the task, the start of its note.
+// retirementNote is how a retirement event names the task: the start of its note, followed by the
+// number of claims the task had then (" (claims: N)") and the operator's note.
 func retirementNote(id int64) string { return fmt.Sprintf("task #%d", id) }
 
-// lastRetirement is the id of the newest `worker_retired` event of the session that names the task, 0 if none.
-func (s *Store) lastRetirement(ctx context.Context, x dbx, sessionID, id int64) (int64, error) {
-	var ev sql.NullInt64
+// claimCount is how many times a worker took the task. Events are never deleted, so it only grows: a
+// retirement made at N claims stands until a worker takes the task again. It needs no clock, which the
+// store stamps to the second.
+func (s *Store) claimCount(ctx context.Context, x dbx, id int64) (int, error) {
+	var n int
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_events WHERE task_id = ? AND kind = 'claimed'`, id).Scan(&n); err != nil {
+		return 0, fmt.Errorf("tasks: counting the claims of task #%d: %w", id, err)
+	}
+	return n, nil
+}
+
+// retiredAtClaims is the claim count the newest retirement of the task was made at, 0 if it was never retired.
+func (s *Store) retiredAtClaims(ctx context.Context, x dbx, sessionID, id int64) (int, error) {
+	var note sql.NullString
 	n := retirementNote(id)
-	err := x.QueryRowContext(ctx, `SELECT MAX(id) FROM task_session_events WHERE session_id = ? AND kind = 'worker_retired' AND (note = ? OR note LIKE ?)`,
-		sessionID, n, n+": %").Scan(&ev)
+	err := x.QueryRowContext(ctx, `SELECT note FROM task_session_events WHERE session_id = ? AND kind = 'worker_retired' AND note LIKE ? ORDER BY id DESC LIMIT 1`,
+		sessionID, n+" (claims: %").Scan(&note)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, fmt.Errorf("tasks: reading the retirements of session #%d: %w", sessionID, err)
 	}
-	return ev.Int64, nil
-}
-
-// claimedAfter says whether a worker took the task after the retirement event with this id. The two
-// event tables have their own counters, so it compares times: a claim at or after the retirement.
-func (s *Store) claimedAfter(ctx context.Context, x dbx, id, retirementID int64) bool {
-	var at string
-	if x.QueryRowContext(ctx, `SELECT at FROM task_session_events WHERE id = ?`, retirementID).Scan(&at) != nil {
-		return true // cannot tell: treat the retirement as stale and record a new one
+	var claims int
+	if _, err := fmt.Sscanf(note.String, n+" (claims: %d)", &claims); err != nil {
+		return 0, nil // not a retirement written by this code: it stands for nothing
 	}
-	var n int
-	if x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_events WHERE task_id = ? AND kind = 'claimed' AND at > ?`, id, at).Scan(&n) != nil {
-		return true
-	}
-	return n > 0
+	return claims, nil
 }

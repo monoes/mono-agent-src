@@ -40,7 +40,7 @@ func (c *Conductor) retiredRefusal(ctx context.Context, id string) error {
 	c.mu.Unlock()
 	mc, err := c.missions()
 	if err != nil {
-		return nil
+		return fmt.Errorf("could not check whether %s was retired: %w", id, err)
 	}
 	retired, err := mc.Store.WorkerRetired(ctx, mc.ProfileID, sid, tid)
 	if err != nil {

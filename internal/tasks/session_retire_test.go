@@ -109,7 +109,7 @@ func TestRetireWorkerRecordsItAndKeepsTheEvidence(t *testing.T) {
 		t.Fatalf("result = %+v", r)
 	}
 	ev := retiredEvents(t, db, se.ID)
-	if len(ev) != 1 || ev[0] != fmt.Sprintf("you: task #%d: stale context", tk.ID) {
+	if len(ev) != 1 || ev[0] != fmt.Sprintf("you: task #%d (claims: 1): stale context", tk.ID) {
 		t.Fatalf("audit events = %q", ev)
 	}
 	if after := dump(t, db, tk.ID); after != before {
@@ -267,5 +267,25 @@ func TestRetireWorkerRefusedLeavesTheStoredWorker(t *testing.T) {
 	}
 	if got := storedState(t, db, "conv", "w1"); got != "sess-1|the report|done" {
 		t.Fatalf("the stored worker changed: %q", got)
+	}
+}
+
+// A worker that takes the task after the retirement is a new one: the task is not retired any more,
+// even when its claim is stamped in the very second of the retirement.
+func TestAWorkerThatTakesTheTaskAfterTheRetirementIsNotRetired(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	se, tk := finishedWorkerTask(t, s)
+	if _, err := s.RetireWorker(bg, "default", se.ID, tk.ID, "", human); err != nil {
+		t.Fatal(err)
+	}
+	if retired, err := s.WorkerRetired(bg, "default", se.ID, tk.ID); err != nil || !retired {
+		t.Fatalf("after the retirement: %v %v", retired, err)
+	}
+	// a worker takes the task again, in the very second of the retirement (the store's clock does not move)
+	if _, err := db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, '2026-10-05T12:00:00Z', 'w2', 'claimed', '')`, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	if retired, err := s.WorkerRetired(bg, "default", se.ID, tk.ID); err != nil || retired {
+		t.Fatalf("a new worker took the task, yet it reads as retired: %v %v", retired, err)
 	}
 }

@@ -123,3 +123,13 @@ func TestAKeptMissionWorkerCarriesItsTask(t *testing.T) {
 		t.Fatalf("kept worker = %+v, want session %d task %d", v, r.sid, a.ID)
 	}
 }
+
+// A conductor that cannot reach the mission store refuses the follow-up: it cannot tell the worker was not retired.
+func TestAMissionWorkerIsNotResumedWhenTheStoreCannotBeReached(t *testing.T) {
+	r := newRig(t, rigOpts{})
+	idleMissionWorker(t, r)
+	r.c.cfg.Missions = nil
+	if _, err := r.c.Message(tbg, "w1", "one more thing"); err == nil {
+		t.Fatal("a follow-up was sent to a mission worker whose retirement could not be checked")
+	}
+}

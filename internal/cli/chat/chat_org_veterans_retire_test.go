@@ -81,3 +81,51 @@ func TestARetiredMissionWorkerIsNotLoadedAsAVeteran(t *testing.T) {
 		t.Fatalf("a late hand-off revived the retired worker: %d veterans", got)
 	}
 }
+
+// The operator retires a worker that has finished but whose hand-off has not been stored yet: the
+// row stored afterwards is born retired, so the next turn does not load it.
+func TestAWorkerStoredAfterItsRetirementIsBornRetired(t *testing.T) {
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	aiStore, err := ai.NewAIStore(db.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := aiStore.CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := tasks.NewStore(db.DB)
+	ctx := context.Background()
+	human := tasks.Actor{Kind: tasks.Human}
+	se, _ := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "m", Goal: "g", ConversationID: conv.ID}, human)
+	tk, _ := ts.AddSessionTask(ctx, "default", se.ID, tasks.SessionTaskInput{Title: "t", Acceptance: "done"}, human)
+	if _, err := ts.ApproveSession(ctx, "default", se.ID, human); err != nil {
+		t.Fatal(err)
+	}
+	w := tasks.Actor{Kind: tasks.Agent, Name: "w", Session: se.ID, Task: tk.ID}
+	if _, err := ts.SessionClaim(ctx, "default", se.ID, tk.ID, w, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.SessionFinish(ctx, "default", se.ID, tk.ID, tasks.Outcome{Result: "done"}, w); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.RetireWorker(ctx, "default", se.ID, tk.ID, "", human); err != nil { // no stored row yet
+		t.Fatal(err)
+	}
+	j := &turnJournal{store: aiStore, profileID: "default", conversationID: conv.ID, turnID: "t1"}
+	j.rememberWorker(dynorg.Veteran{ID: "w1", Runtime: "claude", Session: "sess-1", Report: "late hand-off", Outcome: "done", MissionSession: se.ID, MissionTask: tk.ID})
+	if got := j.veterans(); len(got) != 0 {
+		t.Fatalf("the next turn loads a worker retired before it was stored: %+v", got)
+	}
+	all, _ := aiStore.ListOrgWorkers("default", conv.ID, 0)
+	if len(all) != 1 || all[0].SessionID != "" || all[0].Outcome != ai.OrgWorkerRetired || all[0].Report != "late hand-off" {
+		t.Fatalf("the stored row = %+v, want retired, no session, report kept", all)
+	}
+}

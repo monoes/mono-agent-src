@@ -1883,7 +1883,10 @@ process gets exit 3, `operator_only`; no MCP tool exposes it). In ONE transactio
 not claimed and no mission token of that session and task is live: a running worker holds the claim and a live token, so
 it is refused with `not_ready`), writes a `worker_retired` event to the session's history (actor, task and note), and
 ends the stored worker rows linked to the task (`ai_chat_org_workers.mission_session` / `mission_task`, migration 147;
-rows from before it have no link and are not reached). A second retire changes nothing and says so. A conductor that is
+rows from before it have no link and are not reached). The event records how many times a worker has taken the task
+(`task #12 (claims: 3)`); the task counts as retired until a worker takes it again, so a new worker for it is not
+retired, and a worker's hand-off stored after the retirement is stored already retired. A second retire changes
+nothing and says so. A conductor that is
 live learns from the store, not from the CLI process: before it resumes a mission worker it asks, and each look at the
 session (`missionTick`) retires the idle workers the operator retired, dropping what they kept to be resumed from; a
 worker that is running is never touched. A task running as a child coder session (#1130, off by default) is stopped with

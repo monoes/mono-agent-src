@@ -57,7 +57,7 @@ func TestSessionRetireWorkerByTheOperator(t *testing.T) {
 		t.Fatalf("retire = %+v", got.Retired)
 	}
 	ev := sessionEventKinds(t, db, session)
-	if len(ev) != 1 || !strings.Contains(ev[0], "task #"+id(task)+": stale context") {
+	if len(ev) != 1 || !strings.Contains(ev[0], "task #"+id(task)+" (claims: 1): stale context") {
 		t.Fatalf("session history = %q", ev)
 	}
 	// The task's own record (result, comments, history) is byte for byte what it was.

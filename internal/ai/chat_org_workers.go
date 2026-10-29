@@ -77,6 +77,28 @@ func (s *AIStore) SaveOrgWorker(profileID, conversationID string, w OrgWorker) e
 	if err != nil {
 		return fmt.Errorf("save org worker %s: %w", w.AgentID, err)
 	}
+	if w.MissionTask != 0 {
+		return s.endIfRetired(profileID, conversationID, w.AgentID)
+	}
+	return nil
+}
+
+// endIfRetired ends the stored worker if the operator retired its mission task and no worker has
+// taken the task since (tasks.RetireWorker, tasks.Store.WorkerRetired). It runs after the row is
+// written: a retirement committed before the write is seen here, and one committed after it ends
+// the row itself, so a worker whose hand-off was stored late cannot slip through between the two.
+func (s *AIStore) endIfRetired(profileID, conversationID, agentID string) error {
+	_, err := s.db.Exec(`UPDATE ai_chat_org_workers SET session_id = '', outcome = ?
+		WHERE profile_id = ? AND conversation_id = ? AND agent_id = ? AND mission_task > 0
+		AND EXISTS (SELECT 1 FROM task_session_events e
+			WHERE e.session_id = ai_chat_org_workers.mission_session AND e.kind = 'worker_retired'
+			AND e.note LIKE 'task #' || ai_chat_org_workers.mission_task || ' (claims: %'
+			AND CAST(substr(e.note, instr(e.note, 'claims: ') + 8) AS INTEGER) =
+				(SELECT COUNT(*) FROM task_events t WHERE t.task_id = ai_chat_org_workers.mission_task AND t.kind = 'claimed'))`,
+		OrgWorkerRetired, profileID, conversationID, agentID)
+	if err != nil {
+		return fmt.Errorf("end a retired org worker %s: %w", agentID, err)
+	}
 	return nil
 }
 
