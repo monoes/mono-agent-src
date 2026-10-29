@@ -130,4 +130,19 @@ describe('Mission toggle', () => {
     await t.applyPending('again') // applied once
     expect(api.setChatMissionToggle).toHaveBeenCalledTimes(1)
   })
+
+  it('keeps the locked switch legible (the default disabled 40% opacity is about 2:1 on this background), and only that one', async () => {
+    api.getChatMissionToggle.mockResolvedValue(view(mission({ on: true, locked: true, sessionId: 7 })))
+    const { unmount } = render(<Harness />)
+    const sw = await screen.findByTestId('mission-toggle')
+    await waitFor(() => expect(sw).toBeDisabled())
+    expect(Number(sw.style.opacity)).toBeGreaterThanOrEqual(0.85)
+    // The folder path wraps to its own row instead of being squeezed to two characters beside the reason.
+    expect(screen.getByTestId('coder-cwd').style.flex).toBe('1 1 160px')
+    unmount()
+    api.getChatMissionToggle.mockResolvedValue(view(mission({ available: false })))
+    render(<Harness />)
+    const other = await screen.findByTestId('mission-toggle')
+    expect(other.style.opacity).toBe('')
+  })
 })

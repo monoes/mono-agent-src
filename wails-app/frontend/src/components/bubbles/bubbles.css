@@ -208,6 +208,19 @@ body:has(.bubble-overlay.narrow) .bubble-dock.left { left: auto; right: 18px; }
    stands: keep a column (18px + the 50px bubble + a gap, as above) clear so
    the drawer's close button, actions and notes are never under a bubble. */
 body:has(.bubble-dock.right) .tb-drawer { margin-right: 76px; }
+/* The inbox (Human in Loop) ends at the same edge: its cards and buttons stay clear of the bubble column. */
+body:has(.bubble-dock.right) .hil-body { padding-right: 76px; }
+/* A bubble with an orbit reaches about 100px further into the window (the dock's arc), so the drawer, the inbox and an
+   expanded pane keep that much clear as well, or the circles sit on their buttons. */
+body:has(.bubble-dock.right .has-orbit) .tb-drawer { margin-right: 150px; }
+body:has(.bubble-dock.right .has-orbit) .hil-body { padding-right: 150px; }
+@media (min-width: 641px) {
+  body:has(.bubble-dock.right .has-orbit) .bubble-overlay:not(.narrow) { width: min(1080px, calc(100vw - 300px)); }
+  body:has(.bubble-dock.left .has-orbit) .bubble-overlay:not(.narrow) { left: calc(50% + 130px); width: min(1080px, calc(100vw - 520px)); }
+}
+/* A full-width pane has no room beside it: its dock circles step aside while it is open (collapse it to use them). */
+body:has(.bubble-overlay.narrow) .bubble-dock .orbit-arc { display: none; }
+body:has(.bubble-overlay.narrow) .bubble-wrap.has-orbit { margin-block: 0; }
 
 .bubble-divider {
   height: 7px;

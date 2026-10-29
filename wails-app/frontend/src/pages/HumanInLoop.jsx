@@ -1301,7 +1301,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
           </button>
         )}
       </div>
-      <div style={bodyStyle}>{body}</div>
+      <div className="hil-body" style={bodyStyle}>{body}</div>
     </div>
   )
 }
