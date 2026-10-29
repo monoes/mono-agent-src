@@ -10,8 +10,8 @@ package coderhost
 // descendant the pass itself paused is resumed; one a person or a master paused stays paused. A stop is final for the
 // descendant.
 
-// treeNode is what the pass reads about one session.
-type treeNode struct{ profile, conv, parent, state string }
+// cascadeNode is what the pass reads about one session.
+type cascadeNode struct{ profile, conv, parent, state string }
 
 // treeCascadePass is one pass over every session that has a parent and is not stopped. It runs on every Tick: the
 // read is one query over the sessions that have a parent, none in a host with no child sessions. A failure is logged and the
@@ -23,8 +23,8 @@ func (h *Host) treeCascadePass() {
 		h.logf("coder host: tree cascade: %v", err)
 		return
 	}
-	nodes := map[string]treeNode{}
-	var live []treeNode
+	nodes := map[string]cascadeNode{}
+	var live []cascadeNode
 	for rows.Next() {
 		var p, c, par, state string
 		if err := rows.Scan(&p, &c, &par, &state); err != nil {
@@ -32,7 +32,7 @@ func (h *Host) treeCascadePass() {
 			h.logf("coder host: tree cascade: %v", err)
 			return
 		}
-		n := treeNode{profile: p, conv: c, parent: par, state: state}
+		n := cascadeNode{profile: p, conv: c, parent: par, state: state}
 		nodes[key(p, c)] = n
 		if State(state) != StateStopped {
 			live = append(live, n)
@@ -65,7 +65,7 @@ func (h *Host) queueCascade(profile, conv string, kind Kind) {
 
 // ancestorFate walks up from conv and says whether an ancestor is stopped (or was stopped by a person since its last
 // turn began) and whether one is paused. The walk is bounded, so a damaged tree with a loop ends.
-func (h *Host) ancestorFate(nodes map[string]treeNode, profile, conv string, stops map[string]bool) (stop, pause bool) {
+func (h *Host) ancestorFate(nodes map[string]cascadeNode, profile, conv string, stops map[string]bool) (stop, pause bool) {
 	cur := conv
 	for i := 0; i < maxTreeWalk; i++ {
 		n, ok := nodes[key(profile, cur)]

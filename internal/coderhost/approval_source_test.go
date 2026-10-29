@@ -79,7 +79,7 @@ func TestApprovalPolicyReadsTheRootsOperatorSettings(t *testing.T) {
 	if _, err := st.ApprovalPolicy(ctx, "p", ""); err == nil {
 		t.Fatal("a root with no chat has no settings")
 	}
-	if pol, err := st.ApprovalPolicy(ctx, "p", "nobody"); err != nil || pol.AgentLead || pol.WorkingDepth != 2 || pol.CeilingUSD != 0 {
+	if pol, err := st.ApprovalPolicy(ctx, "p", "nobody"); err != nil || pol.AgentLead || pol.WorkingDepth != 3 || pol.CeilingUSD != 0 {
 		t.Fatalf("defaults are off: %+v %v", pol, err)
 	}
 	set, _, err := DefaultSettings().Apply([]byte(`{"agent_approval":"lead","approval_ceiling_usd":7,"max_depth":1}`))
@@ -134,19 +134,19 @@ func missionTree(t *testing.T, st *Store, rootSettings string) (c tasks.Session,
 	return c, ts
 }
 
-var leadActor = tasks.Actor{Kind: tasks.Agent, Name: "lead-p", Conversation: "lead-p"}
+var approvalLeadActor = tasks.Actor{Kind: tasks.Agent, Name: "lead-p", Conversation: "lead-p"}
 
 func TestLeadApprovalNeedsTheOperatorsSettingOnTheRoot(t *testing.T) {
 	ctx := context.Background()
 	st := newStoreT(t)
 	c, ts := missionTree(t, st, "")
-	if _, err := ts.ApproveSession(ctx, "p", c.ID, leadActor); !errors.Is(err, tasks.ErrOperatorOnly) {
+	if _, err := ts.ApproveSession(ctx, "p", c.ID, approvalLeadActor); !errors.Is(err, tasks.ErrOperatorOnly) {
 		t.Fatalf("default is off: %v", err)
 	}
 	st2 := newStoreT(t)
 	c, ts = missionTree(t, st2, `{"agent_approval":"lead","max_depth":2}`)
 	// Level 3 is deeper than the operator's working depth 2: giant, so a person item.
-	_, err := ts.ApproveSession(ctx, "p", c.ID, leadActor)
+	_, err := ts.ApproveSession(ctx, "p", c.ID, approvalLeadActor)
 	var g *tasks.GiantError
 	if !errors.As(err, &g) || !g.Raised {
 		t.Fatalf("want giant: %v", err)
@@ -158,7 +158,7 @@ func TestGiantApprovalIsAPersonItemThatNoTimeoutOrMatrixAnswers(t *testing.T) {
 	st := newStoreT(t)
 	// The matrix names the model with a default for plan_approval: it changes nothing for giant work.
 	c, ts := missionTree(t, st, `{"agent_approval":"lead","max_depth":2,"autonomy_classes":{"plan_approval":{"who":"model","fallback":"take_default"}}}`)
-	if _, err := ts.ApproveSession(ctx, "p", c.ID, leadActor); err == nil {
+	if _, err := ts.ApproveSession(ctx, "p", c.ID, approvalLeadActor); err == nil {
 		t.Fatal("giant work was approved by an agent")
 	}
 	st.now = func() time.Time { return time.Now().Add(10 * ParkTimeout) }
@@ -170,7 +170,7 @@ func TestGiantApprovalIsAPersonItemThatNoTimeoutOrMatrixAnswers(t *testing.T) {
 		t.Fatal("PersonItemRaised")
 	}
 	// Asking again raises nothing new.
-	_, _ = ts.ApproveSession(ctx, "p", c.ID, leadActor)
+	_, _ = ts.ApproveSession(ctx, "p", c.ID, approvalLeadActor)
 	if items, _ = st.OpenPersonItems("p"); len(items) != 1 {
 		t.Fatalf("a second ask duplicated the item: %+v", items)
 	}
