@@ -303,12 +303,23 @@ type DeleteChatResult struct {
 // DeleteChatConversations deletes each conversation with the single delete,
 // so a turn that is running refuses exactly as DeleteChatConversation does.
 func (a *App) DeleteChatConversations(ids []string) (DeleteChatResult, error) {
+	return a.deleteChats(ids, a.historyDelete)
+}
+
+// DeleteChatConversationsAnyway is DeleteChatConversations for ids whose delete was kept because processes the
+// chat left are still running, after the person chose to leave them running. Only the ids it is given are
+// affected; anything else the CLI declines still comes back in Kept.
+func (a *App) DeleteChatConversationsAnyway(ids []string) (DeleteChatResult, error) {
+	return a.deleteChats(ids, a.historyDeleteAbandoning)
+}
+
+func (a *App) deleteChats(ids []string, del func(string) deleteAnswer) (DeleteChatResult, error) {
 	res := DeleteChatResult{Deleted: []string{}, Active: []string{}, Failed: map[string]string{}, Kept: map[string]DeleteKept{}}
 	if err := a.signedOut(); err != nil {
 		return res, err
 	}
 	for _, id := range ids {
-		ans := a.historyDelete(id)
+		ans := del(id)
 		var ae *aitaskError
 		switch {
 		case ans.Deleted:

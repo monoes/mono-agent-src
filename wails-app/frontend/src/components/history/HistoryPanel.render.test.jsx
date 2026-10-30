@@ -9,11 +9,11 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key, o) => (o && o.names != null && key === 'history.keptRunning' ? `${key}:${o.count}:${o.names}` : o && o.count != null ? `${key}:${o.count}` : o && o.title ? `${key}:${o.title}` : key) }),
 }))
 
-const { listHistory, deleteChats, handlers, confirmMock, getOrgStatus } = vi.hoisted(() => ({
-  listHistory: vi.fn(), deleteChats: vi.fn(), handlers: {}, confirmMock: vi.fn(), getOrgStatus: vi.fn(),
+const { listHistory, deleteChats, deleteAnyway, handlers, confirmMock, getOrgStatus } = vi.hoisted(() => ({
+  listHistory: vi.fn(), deleteChats: vi.fn(), deleteAnyway: vi.fn(), handlers: {}, confirmMock: vi.fn(), getOrgStatus: vi.fn(),
 }))
 vi.mock('../../services/api.js', () => ({
-  api: { listHistory, deleteChatConversations: deleteChats, getOrgStatus },
+  api: { listHistory, deleteChatConversations: deleteChats, deleteChatConversationsAnyway: deleteAnyway, getOrgStatus },
   subscribeEvent: (name, cb) => { handlers[name] = cb; return () => { delete handlers[name] } },
 }))
 vi.mock('../ConfirmDialog.jsx', () => ({ confirm: confirmMock }))
@@ -352,6 +352,44 @@ describe('HistoryPanel', () => {
       // nothing was removed from the list: both chats are still there
       expect(screen.getByText('Chat c1')).toBeInTheDocument()
       expect(screen.getByText('Chat c2')).toBeInTheDocument()
+    })
+
+    it('offers to delete anyway after a delete kept for running processes, and only on a second confirm', async () => {
+      confirmMock.mockResolvedValue(true)
+      deleteChats.mockResolvedValue({
+        deleted: [], active: [], failed: {},
+        kept: { c1: { code: 'survivors_remain', message: 'not deleted', stopped: [], survivors: [{ pid: 4242, command: 'node server.js', reason: 'x' }] } },
+      })
+      deleteAnyway.mockResolvedValue({ deleted: ['c1'], active: [], failed: {}, kept: {} })
+      mount()
+      await open()
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'history.select:Chat c1' }))
+      fireEvent.click(screen.getByRole('button', { name: 'history.deleteSelected' }))
+      const anyway = await screen.findByRole('button', { name: 'history.anywayAction' })
+      expect(deleteAnyway).not.toHaveBeenCalled()
+      confirmMock.mockClear()
+      fireEvent.click(anyway)
+      await waitFor(() => expect(deleteAnyway).toHaveBeenCalledWith(['c1']))
+      expect(confirmMock).toHaveBeenCalledWith('history.anywayBody:1', expect.objectContaining({ danger: true }))
+      await waitFor(() => expect(screen.queryByText('Chat c1')).toBeNull())
+      expect(screen.queryByRole('button', { name: 'history.anywayAction' })).toBeNull()
+    })
+
+    it('does not delete anyway when the second confirm is declined', async () => {
+      confirmMock.mockResolvedValueOnce(true)
+      deleteChats.mockResolvedValue({
+        deleted: [], active: [], failed: {},
+        kept: { c1: { code: 'survivors_remain', message: 'm', stopped: [], survivors: [{ pid: 1, command: 'sleep', reason: 'x' }] } },
+      })
+      mount()
+      await open()
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'history.select:Chat c1' }))
+      fireEvent.click(screen.getByRole('button', { name: 'history.deleteSelected' }))
+      confirmMock.mockResolvedValue(false)
+      fireEvent.click(await screen.findByRole('button', { name: 'history.anywayAction' }))
+      await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(2))
+      expect(deleteAnyway).not.toHaveBeenCalled()
+      expect(screen.getByText('Chat c1')).toBeInTheDocument()
     })
 
     it('does nothing when the confirm is declined', async () => {

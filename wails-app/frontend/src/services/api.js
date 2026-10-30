@@ -322,6 +322,7 @@ export const api = {
   // Unified chat and org-run history (ListHistory pages, DeleteChatConversations).
   listHistory:        (cursor, limit, filter) => GoApp.ListHistory(cursor || '', limit, filter || {}),
   deleteChatConversations: (ids) => GoApp.DeleteChatConversations(ids),
+  deleteChatConversationsAnyway: (ids) => GoApp.DeleteChatConversationsAnyway(ids),
   // Orgs (monomind Org Runtime v2)
   listOrgs:           () => GoApp.ListOrgs().then(s => JSON.parse(s)).catch(guard('list orgs', null)),
   getOrgStatus:       (name = '') => GoApp.GetOrgStatus(name).then(s => JSON.parse(s)).catch(guard('org status', null)),

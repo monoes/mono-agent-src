@@ -374,6 +374,10 @@ export function DeleteChatConversations(arg1) {
   return window['go']['main']['App']['DeleteChatConversations'](arg1);
 }
 
+export function DeleteChatConversationsAnyway(arg1) {
+  return window['go']['main']['App']['DeleteChatConversationsAnyway'](arg1);
+}
+
 export function DeleteOrgDesign(arg1) {
   return window['go']['main']['App']['DeleteOrgDesign'](arg1);
 }

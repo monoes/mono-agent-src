@@ -115,10 +115,10 @@ export default function HistoryPanel({ store, onNavigate }) {
     close()
   }
 
-  const runDelete = async (ids) => {
+  const runDelete = async (ids, anyway = false) => {
     setBusy(true)
     try {
-      const out = deleteOutcome(await api.deleteChatConversations(ids))
+      const out = deleteOutcome(await (anyway ? api.deleteChatConversationsAnyway(ids) : api.deleteChatConversations(ids)))
       h.removeLocal(out.deleted)
       setSelected(prev => { const n = new Set(prev); out.deleted.forEach(i => n.delete(i)); return n })
       const parts = []
@@ -134,13 +134,24 @@ export default function HistoryPanel({ store, onNavigate }) {
       const otherKept = out.kept.filter(k => k.code !== 'survivors_remain' && k.code !== 'operator_only')
       if (otherKept.length) parts.push(t('history.deleteFailed', { count: otherKept.length, message: otherKept[0].message }))
       if (out.failed.length) parts.push(t('history.deleteFailed', { count: out.failed.length, message: out.failed[0].message }))
-      setNotice({ tone: out.active.length || out.failed.length || out.kept.length ? 'warn' : 'ok', text: parts.join(' ') })
+      // Only a delete that stops processes offers to leave them running; the offer names them again.
+      const stuck = anyway ? [] : running.map(k => ({ id: k.id, survivors: k.survivors }))
+      setNotice({ tone: out.active.length || out.failed.length || out.kept.length ? 'warn' : 'ok', text: parts.join(' '), stuck })
       if (out.deleted.length) h.reload({ silent: true })
     } catch (e) {
       setNotice({ tone: 'warn', text: t('history.deleteFailed', { count: ids.length, message: String(e?.message || e) }) })
     } finally {
       setBusy(false)
     }
+  }
+
+  // Delete anyway: the person is shown which processes stay running, and only then are the chats deleted
+  // without stopping them.
+  const deleteAnyway = async (stuck) => {
+    const survivors = stuck.flatMap(k => k.survivors)
+    const ok = await confirm(t('history.anywayBody', { count: survivors.length, names: survivorNames(survivors) }),
+      { title: t('history.anywayTitle'), confirmLabel: t('history.anywayAction'), danger: true })
+    if (ok) await runDelete(stuck.map(k => k.id), true)
   }
 
   const deleteSelected = async () => {
@@ -231,6 +242,9 @@ export default function HistoryPanel({ store, onNavigate }) {
       {notice && (
         <p className="hist-banner" data-tone={notice.tone} role="status">
           {notice.text}
+          {notice.stuck?.length > 0 && (
+            <button type="button" className="hist-link" disabled={busy} onClick={() => deleteAnyway(notice.stuck)}>{t('history.anywayAction')}</button>
+          )}
           <button type="button" className="hist-link" onClick={() => setNotice(null)}>{t('history.dismiss')}</button>
         </p>
       )}

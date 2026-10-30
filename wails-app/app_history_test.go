@@ -280,3 +280,37 @@ esac
 		t.Fatalf("ok: %s", out)
 	}
 }
+
+// "Delete anyway" is its own binding: it passes the CLI the words that leave the processes running, only for
+// the ids it is given, and answers like the plain delete.
+func TestDeleteChatConversationsAnywayLeavesTheProcessesRunning(t *testing.T) {
+	a, log := aitaskApp(t, `case "$*" in
+*"--abandon-processes --confirm leave them running"*) echo '{"id":"x","deleted":true,"abandoned":[{"pid":4242}]}';;
+*) echo '{"error":"not confirmed","code":"survivors_remain"}'; exit 5;;
+esac
+`)
+	got, err := a.DeleteChatConversationsAnyway([]string{"running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.Deleted, ",") != "running" || len(got.Kept) != 0 || len(got.Failed) != 0 {
+		t.Fatalf("got %+v", got)
+	}
+	calls := loggedArgs(t, log)
+	if len(calls) != 1 || calls[0] != "--profile work --json chat history delete running --abandon-processes --confirm leave them running" {
+		t.Fatalf("calls = %v", calls)
+	}
+}
+
+// The plain delete never carries those words.
+func TestDeleteChatConversationsNeverAbandonsProcesses(t *testing.T) {
+	a, log := aitaskApp(t, `echo '{"deleted":true}'`+"\n")
+	if _, err := a.DeleteChatConversations([]string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range loggedArgs(t, log) {
+		if strings.Contains(c, "abandon") {
+			t.Fatalf("call = %s", c)
+		}
+	}
+}
