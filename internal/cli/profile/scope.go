@@ -45,15 +45,16 @@ var derivedScope = []scopeEntry{
 // retainedOnDelete are tables with a profile_id column whose rows a profile delete leaves in place, each
 // with the reason. The peer-credential binding tables (migration 148) are insert-only and can be removed
 // only after a retention window (their triggers have no exempt operation, by design), so deleting the
-// profile does not remove them. They hold no secret (hashes, MACs, a pid and a start stamp), a token in
-// them is inert once the profile is gone (authorization is the host's live registry, which the profile
-// delete revokes), and the retention sweep removes them once their expiry plus the window has passed.
+// profile does not remove them. They hold no secret (hashes, MACs, a pid and a start stamp) and nothing
+// reads them yet. Once the binding is wired in, a token in them is inert after the profile is gone
+// (authorization is the host's live registry, which the profile delete will revoke). A retention sweep
+// will remove them after their expiry plus the window; it is not shipped yet, so until it is they stay.
 var retainedOnDelete = map[string]string{
-	"agent_tokens_v2":         "insert-only; removed by the retention sweep after expiry plus 7 days",
-	"coder_session_tokens_v2": "insert-only; removed by the retention sweep after expiry plus 7 days",
-	"process_bindings":        "insert-only; removed by the retention sweep after expiry plus 7 days",
-	"token_revocations_v2":    "insert-only; removed by the retention sweep once its token is long expired",
-	"procbind_host":           "append-only log; each profile's newest row is never removable (kept permanently), older ones only by the retention sweep",
+	"agent_tokens_v2":         "insert-only; will be removed by the retention sweep after expiry plus 7 days (not shipped yet)",
+	"coder_session_tokens_v2": "insert-only; will be removed by the retention sweep after expiry plus 7 days (not shipped yet)",
+	"process_bindings":        "insert-only; will be removed by the retention sweep after expiry plus 7 days (not shipped yet)",
+	"token_revocations_v2":    "insert-only; will be removed by the retention sweep once its token is long expired (not shipped yet)",
+	"procbind_host":           "append-only log; each profile's newest row is never removable (kept permanently), older ones only by the retention sweep (not shipped yet)",
 }
 
 // retainedRows counts the profile's rows in the tables a delete leaves in place (retainedOnDelete).
