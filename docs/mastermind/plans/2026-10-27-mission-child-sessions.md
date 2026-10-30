@@ -1,6 +1,6 @@
 # Mission tasks as host child sessions: plan
 
-Status: plan, nothing built. It builds on `2026-10-27-mission-child-sessions-options.md`, `2026-10-26-coder-session-host.md` and the user's decisions of 2026-10-27 (see section 1).
+Status: mission child sessions are OFF until the operator runs `coder sessions mission-children enable` (decision of the coordinator: an old `max_children` must not let a model-written mark start spawning on upgrade; stored as the reserved configs row `coder.mission_children_enabled`, absent = off; disabling stops new spawns only). P-A, P-B1 and P-C are built; P-B2 (the launcher's child task token, its readiness gate and the charge of a child's spend to the mission meter) is built on `feat/mission-child-launcher`. Nothing has been run live: the live acceptance run is the person's. Section 2.2 step 5 below is as built, except the token travels over the inherited pipe and the chat process sets `MONOAGENT_TASK_BINDING` itself, and the host revokes by conversation. Original status: plan. It builds on `2026-10-27-mission-child-sessions-options.md`, `2026-10-26-coder-session-host.md` and the user's decisions of 2026-10-27 (see section 1).
 
 ## 0. Constraints from the coordinator (they shape the design)
 

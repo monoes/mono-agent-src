@@ -34,6 +34,9 @@ import "strings"
 //     the definition, so a save by anyone but the operator leaves it
 //     unapproved, and the engine ignores the own setting of an unapproved
 //     definition (errorWorkflowID), leaving only this default.
+//   - coder.mission_children_enabled: whether a mission's tasks may run in
+//     child sessions at all; absent = off (coderhost.MissionChildrenConfig;
+//     `coder sessions mission-children enable|disable`).
 //   - every row under ReservedConfigPrefixes: families of rows named by a
 //     prefix. coder-mission-confirm/ holds the operator's per-send mission
 //     confirmations, which the coder host and its chat turns accept as proof
@@ -58,6 +61,7 @@ var reservedConfigs = []string{
 	"applications.max_parked",
 	"memory.runs",
 	"workflow.error_workflow",
+	"coder.mission_children_enabled",
 }
 
 // ReservedConfigPrefixes are the reserved families of config rows: a name that

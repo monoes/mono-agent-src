@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/monoes/mono-agent/internal/agentroster"
+	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -249,6 +250,9 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	// master and mission-child tools (a task-less helper has no mission binding to refuse it). The lead's own turn,
 	// which is not started here, keeps it. An empty value overrides the inherited one.
 	opts.Env[SessionTokenEnv] = ""
+	// Nor the task token a mission child session carries: a helper it starts is not the child, and would act as the
+	// child on its task. A worker the conductor binds to a task of its own gets that task's token just below.
+	opts.Env[agenttokens.EnvMissionToken] = ""
 	missionEnv(w, opts.Env) // a mission worker's labels (they bind nothing)
 	tokenID, unbind, err := c.mintMission(ctx, w, opts.Env)
 	if err != nil {

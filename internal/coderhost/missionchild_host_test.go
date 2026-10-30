@@ -131,6 +131,9 @@ func TestSpawnIdempotentUnderRace(t *testing.T) {
 func TestTaskChildAccessNeverAboveLeadNeverFull(t *testing.T) {
 	for lead, want := range map[string]string{"full": "workspace", "coding": "coding", "workspace": "workspace"} {
 		st := newStoreT(t)
+		if err := st.SetMissionChildrenEnabled(true); err != nil {
+			t.Fatal(err)
+		}
 		c, _ := master(t, st, lead)
 		se, _ := missionFor(t, st, c.ConversationID, true)
 		ids := taskIDs(t, st, se.ID)
@@ -483,7 +486,7 @@ func TestCascadeStopOnLeadStop(t *testing.T) {
 	if _, err := f.st.db.Exec(`UPDATE coder_session_commands SET status = 'done' WHERE conversation_id = ?`, idle.ConversationID); err != nil {
 		t.Fatal(err)
 	}
-	tasksBefore := dump(t, f.st, "tasks", "task_sessions")
+	tasksBefore := dump(t, f.st, "tasks") + sessionShape(t, f.st)
 	// the lead is stopped
 	x := state(t, f.st, f.lead.ConversationID)
 	x.State = StateStopped
@@ -518,9 +521,20 @@ func TestCascadeStopOnLeadStop(t *testing.T) {
 	if b := f.capOf(t, running.ConversationID); b != 2 { // a turn that reported no cost is charged its whole cap
 		t.Fatalf("the stopped child's cap = %v, want what it was charged (2)", b)
 	}
-	if after := dump(t, f.st, "tasks", "task_sessions"); after != tasksBefore {
+	if after := dump(t, f.st, "tasks") + sessionShape(t, f.st); after != tasksBefore {
 		t.Fatalf("the pass wrote task rows:\nbefore %s\nafter %s", tasksBefore, after)
 	}
+	// the one thing it adds to the mission is the child's cost, on the meter (phase P-B2)
+	var spent float64
+	if err := f.st.db.QueryRow(`SELECT spent_usd FROM task_sessions WHERE id = ?`, f.se.ID).Scan(&spent); err != nil || spent != 2 {
+		t.Fatalf("mission spent = %v (%v), want the stopped child's 2", spent, err)
+	}
+}
+
+// sessionShape is the task sessions without their meter and clock: what a host pass must leave alone.
+func sessionShape(t *testing.T, st *Store) string {
+	t.Helper()
+	return "task_sessions:\n" + rowsOf(t, st, `SELECT id, profile_id, conversation_id, title, goal, state, access_level, budget_usd, max_tasks, max_depth, max_retries, auto_close_verified, created_by, approved_by, archived_at FROM task_sessions`) + "\n"
 }
 
 func TestCascadeOnAStoppedMissionAndADeletedOne(t *testing.T) {
@@ -792,6 +806,7 @@ func TestMissionChildHostHalfMovesOnlyItsOwnTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := protectedState(t, f.st.db)
+	beforeShape := sessionShape(t, f.st)
 	out := f.task(t, 0, 3)
 	if err := f.h.Tick(); err != nil {
 		t.Fatal(err)
@@ -808,7 +823,14 @@ func TestMissionChildHostHalfMovesOnlyItsOwnTables(t *testing.T) {
 	after := protectedState(t, f.st.db)
 	// what spawning legitimately adds (conversations, turns, the spawn log) is not compared; what could carry an
 	// approval or a grant is
-	for _, k := range []string{"tasks", "task_sessions", "task_events", "task_deps", "configs", "agent_tokens", "workflow_approvals"} {
+	if sessionShape(t, f.st) != beforeShape {
+		t.Errorf("task_sessions changed beyond its meter:\nbefore %s\nafter  %s", beforeShape, sessionShape(t, f.st))
+	}
+	var spent float64
+	if err := f.st.db.QueryRow(`SELECT spent_usd FROM task_sessions WHERE id = ?`, f.se.ID).Scan(&spent); err != nil || spent != 3 {
+		t.Errorf("mission spent = %v (%v), want the stopped child's whole cap 3 on the meter", spent, err)
+	}
+	for _, k := range []string{"tasks", "task_events", "task_deps", "configs", "agent_tokens", "workflow_approvals"} {
 		if _, ok := before[k]; !ok {
 			t.Fatalf("%s is not in the dump", k)
 		}

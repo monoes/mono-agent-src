@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/monoes/mono-agent/internal/coderspend"
 )
 
 // CreateConversation creates and returns a new app-level conversation
@@ -321,6 +322,11 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 	}
 	if activeCount > 0 {
 		return ErrTurnActive
+	}
+	// A mission child's spend is written down before the usage it is computed from goes: unconditionally, so no
+	// caller (or older binary) can delete a child without it. A failure aborts the delete.
+	if err := coderspend.Snapshot(ctx, conn, profileID, id); err != nil {
+		return fmt.Errorf("record the child's spend: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx, `DELETE FROM ai_chat_events WHERE conversation_id = ? AND profile_id = ?`, id, profileID); err != nil {
 		return fmt.Errorf("delete events: %w", err)
