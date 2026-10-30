@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/testhome"
@@ -399,5 +400,30 @@ func TestLowerConversationCap(t *testing.T) {
 	}
 	if err := op.l.LowerConversationCap("c1", 1, "agent"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Deleting a conversation cancels its open task, and the room that task held under a cap comes back at the
+// next admission: a deleted chat does not keep a reservation (and so a cap's room) forever.
+func TestDeletingAConversationFreesWhatItsTaskHeld(t *testing.T) {
+	r := newRig(t, 0)
+	_ = r.l.SetCap(ScopeGlobal, "", 5, "operator")
+	first := r.task("c1", "generic", 5)
+	if _, err := r.l.Admit(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	second := r.task("c2", "generic", 5)
+	if _, err := r.l.Admit(context.Background(), second); code(err) != CodeExceeded {
+		t.Fatalf("the cap's room is held by the first task, but admitting the second gave %v", err)
+	}
+	store, err := ai.NewAIStore(r.l.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteConversation("c1", "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.l.Admit(context.Background(), second); err != nil || got != 5 {
+		t.Fatalf("after the first conversation was deleted the second task got %v, %v", got, err)
 	}
 }
