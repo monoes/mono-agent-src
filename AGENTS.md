@@ -1718,7 +1718,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session close`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session retire-worker`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -1728,7 +1728,7 @@ letters, digits and `._#@:-`, the same name for a whole task; `you`,
 not a credential), use `list`, `show`, `next`, `claim`, `comment` (on a
 task they hold), `finish`, `release` and `digest`, and may `add` to the
 Inbox (inside a task session they also use `session new`, `session list`,
-`session show`, `session plan`, `session pause`, `session stop`, `split`,
+`session show`, `session rename` (its own), `session tree`, `session plan`, `session pause`, `session stop`, `split`,
 `depend`, `artifact` and `verify`, below). `digest` has no gate: it runs the same in any
 context, so a session-start hook can call it. A `comment` run under an
 agent context is an agent's comment: it needs a name.
@@ -1786,7 +1786,7 @@ TEXT`, then `task add TITLE --session N --acceptance TEXT [--depends-on IDS]
 [--parent ID] [--kind task|epic|check]` (acceptance criteria are required). A
 draft's tasks sit in the inbox column and nothing hands them out until the user
 runs `task session approve N`, which moves them to Ready and sets the session
-running; an agent cannot approve its own plan. An agent may link a session (`--conversation`)
+running; an agent cannot approve its own plan. Sessions form a tree (migration 142: `task_sessions.parent_session_id`, `kind`, `approval_basis`): `task session new --parent ID --kind K` starts one below another of the profile, at most `tasks.HardMaxSessionDepth` (4) levels, never with more access, budget or caps than its parent (an unset cap takes the parent's; an unset budget stays unset. A budget in a tree is the operator's to set: an agent cannot name one when it starts a session (refused) or change one, so an agent's child has none; the operator's budget for a child is above 0 and at most its parent's, and 0 (no cap) is refused under a parent that has a budget; `task session approve` of a draft child with no budget under a parent that has one is refused until `task session budget ID --usd N` sets it; each child is checked on its own: the sum of the children's budgets is not checked against the parent's, and no spend rolls up from children to parents in this change; an agent starts at most 12 open children below a parent; the operator lowering a parent clamps every session below it, open or closed, at any depth, down, a budget to the lowest budget on the way down session by session, event `clamped`; a session can never exceed the minimum of its whole ancestor chain, closed ancestors included, checked when it is created, updated or approved; a session cannot be started below an archived or closed one), and an agent only below a session it works in, where it may narrow the task cap but never name a budget or set the access level or the depth cap (a `--client-id` hit returns only a session below the same parent and of the same kind); `task session rename ID TITLE` (the operator any; an agent only a draft it started from its own chat) and `task session tree [--json]` read and name them. `task session archive ID` is refused while draft, running or paused sessions are below the session (at any depth; the refusal lists their ids and titles); `--cascade` (the operator only: an agent can neither archive nor pass it) stops the running and paused ones (claims released through the stop path) and archives the whole subtree in one transaction, the deepest first, each with an `archived` event that names the session archived (`Store.ArchiveSessionCascade`, JSON `{"profile","session","archived":[ids]}`); finished sessions below it go with it without the flag; a closed child's spend is not returned to the parent; a cycle or an over-deep tree fails closed and archives nothing. The Sessions UI asks to confirm before it cascades. An agent may link a session (`--conversation`)
 only to its own chat, which it proves with its coder-session token; without one it links none. In a running session an agent uses
 `task next --session N [--claim --as NAME]` (a Ready task whose dependencies are
 all done, never a draft's, a paused session's or an epic), `claim`, `comment`,
@@ -1874,6 +1874,39 @@ in all, whichever route starts them. A mission closes only if the integration ch
 verdict is newer than every other task's last hand-back, verdict or merge; a plan's
 integration check depends on every non-check task, and tasks added later make it wait.
 
+**Retiring a mission worker (`task session retire-worker SESSION TASK [--note TEXT]`, operator only).** The lead's
+`org_clear_worker` and `org_compact_worker` refuse a worker bound to a mission task, because its context is part of the
+task's evidence. The operator can end such a worker once it is idle: the lead can then no longer message it, its stored
+session is dropped (a later turn does not load it), and its report and the task's comments, artifacts, commit references
+and result are untouched. The verb checks the operator before it reads its arguments (an agent, a token or a binding
+process gets exit 3, `operator_only`; no MCP tool exposes it). In ONE transaction it judges the worker idle (the task is
+not claimed and no mission token of that session and task is live: a running worker holds the claim and a live token, so
+it is refused with `not_ready`), writes a `worker_retired` event to the session's history (actor, task and note), and
+ends the stored worker rows linked to the task (`ai_chat_org_workers.mission_session` / `mission_task`, migration 147;
+rows from before it have no link and are not reached). The event records how many claim events the task has
+(`task #12 (claims: 3)`; a claim, a renewal of one and a takeover of an expired lease each count), and every worker carries the claim
+number it started under: the claim returns its own number, counted in the transaction that wrote it, so nothing that
+happens afterwards can change it (it is known before the worker waits for a slot or mints a token; stored with it: `ai_chat_org_workers.mission_claims`, in a later turn's veteran too). A worker whose
+number is unknown counts as retired when its task was ever retired. A retirement made at claim N retires the workers
+numbered N or less, so a worker that takes the task afterwards is not retired and a later claim does not undo an earlier
+worker's retirement; a worker's hand-off stored after the retirement is stored already retired (a delayed older worker too: a later
+retirement covers it). A retired stored worker is not given back to the lead but still takes its id out of the sequence (seeded
+from every stored id of the conversation, not only the latest ones a turn loads), so a new worker does not reuse it; a row stays retired only against a late save of the same worker (the same task, a claim
+number no higher). A second retire changes
+nothing and says so. A conductor that is
+live learns from the store, not from the CLI process: before it resumes a mission worker it asks, and each look at the
+session (`missionTick`) retires the idle workers the operator retired, dropping what they kept to be resumed from; a
+worker that is running is never touched. A worker run in this turn cannot be resumed past a retirement even
+when the retirement lands between the lead's follow-up check and the run: a run mints its mission token first and asks the
+store afterwards, and the store refuses to retire while a token of the task is live, so of the two one comes first in
+the database. A worker loaded from an earlier turn keeps its task link (it runs as an unbound agent, which cannot change the
+task) and is checked the same way; its follow-up has no token, so a retirement committed in the very instant of its check can
+still let that one unbound run start (the residual; it cannot touch the task). Stored workers with no link to a task (saved before migration
+147, or not mission workers) cannot be matched: the verb counts the ones of the session's conversation that still hold a
+session (`unmatched_stored_workers`) and says so, instead of reporting them retired; `stored_workers_ended` counts only the
+rows it changed. A task running as a child coder session (#1130, off by default) is stopped with
+`coder sessions stop` and is not touched by this verb.
+
 **Missions in the host (unattended).** Since the coder host (below) every coder turn, a mission's
 included, is a host turn, so a mission no longer ends with the app: the lead's conductor, its workers and
 verifiers live in the turn process the host started, the plan and the board live in the database, and a later
@@ -1932,7 +1965,7 @@ the folder is the lead's, and the brief is forwarded as the child's first messag
 That message is a `master-` turn, which is host-made and cannot carry a mission confirmation or a plan approval. A
 lead that is itself a child, or a caller holding a task binding, cannot spawn. When a limit is reached nothing is
 reserved and the error wraps `ErrChildrenFull`, so the conductor leaves the task waiting; any other failure after the
-reservation deletes the conversation it created and ends the attempt as failed, except a carve the lead's budget no longer covers: that is a refusal, the row goes back to `marked` with its attempts. When the task session has a budget (`task_sessions.budget_usd`), `Reserve` also refuses a carve that is not positive or that, with the caps its children already hold (their sessions and reserved rows), passes what the mission has left (`budget - spent`); a refusal uses no attempt and the task waits. A child's own spend is not charged to the mission's `spent_usd`; the mission budget binds children through their caps, which is a bound on exposure, not an exact meter. A mission without a budget does not refuse here, and a lead without a cap still hands a child any carve. The host's pass
+reservation deletes the conversation it created and ends the attempt as failed, except a carve the lead's budget no longer covers: that is a refusal, the row goes back to `marked` with its attempts. When the task session has a budget (`task_sessions.budget_usd`), `Reserve` also refuses a carve that is not positive or that, with the caps its children already hold (their sessions and reserved rows), passes what the mission has left (`budget - spent`); a refusal uses no attempt and the task waits. A live child is bound through its cap; once it ends, its spend is added to the mission's `spent_usd` (see "Mission child sessions: the launcher"), so the 90 and 100 percent checks see it, and the cap that was lowered to that spend is no longer counted as held. A mission without a budget does not refuse here, and a lead without a cap still hands a child any carve. The host's pass
 (`coderhost/missionchild.go`, every 5 s from `Tick`) only observes: it ends a child's row once the child is idle with
 nothing queued (`done` when its task is in Review or Done, checked first; `stopped` when a stop, a person's or its
 lead's, ran since its last turn began; `expired` when its first message never ran; `budget` when its cap is used up;
@@ -1949,16 +1982,14 @@ gives back reservations whose spawn died and stops what they left; and it logs o
 child that holds a carve but belongs to no mission row (`FindOrphanCarves`; informational, and forgotten once the
 session is gone): a lead may legitimately have such children, so nothing is stopped on age and policy alone. It
 claims, finishes, verifies and approves nothing and writes no task. The check-in digest's mission line gains three
-numbers (task child sessions running, queued, failed), and a change in them counts as a change; while the launcher cannot start a child (`coderhost.MissionChildrenReady`, set by `RegisterChildTokenMinter`) marks are stored but not counted as queued, and the mark tool tells the lead that sessions of their own are not available yet. The launcher does not yet mint the child a task-bound token, so the conductor's call of `SpawnForTask` is gated off. Migration 140 adds the command queue's (profile, conversation, kind) index the stop lookup uses.
+numbers (task child sessions running, queued, failed), and a change in them counts as a change; while the launcher cannot start a child (`coderhost.MissionChildrenReady`, set by `RegisterChildTokenMinter`) marks are stored but not counted as queued, and the mark tool tells the lead that sessions of their own are not available yet. The launcher now mints the child a task-bound token (next paragraphs), so that gate opens in a process that has a running host that mints; not verified in a live run. Migration 140 adds the command queue's (profile, conversation, kind) index the stop lookup uses.
 
-**Mission child sessions: the conductor and the lead's tools (NOT enabled end to end until the launcher phase P-B2
-lands).** A task runs in a coder session of its own only when the mission's policy says so; otherwise the conductor's
+**Mission child sessions: the conductor and the lead's tools (built end to end; NOT verified in a live run, and spawning stays
+behind the mode and the marks).** A task runs in a coder session of its own only when the mission's policy says so; otherwise the conductor's
 in-turn worker path runs unchanged, and that is the default (mode `marked` with nothing marked changes nothing).
 `startTask` asks `childDecide` (`dynorg/mission_child.go`): the task is for a child when its executor is a worker, the
 mode is `all` or the lead marked it, the mode is not `off`, there is room, and `ChildSpawner.Ready()` is true. `Ready`
-is the launcher's capability to give a child the task token that confines it to its one task; **it is false until
-P-B2 registers a minter with `RegisterChildTokenMinter` in `cli/chat/chat_mission_children.go`), so no child is spawned today,
-whatever is marked.** When wanted, the ordinary prepare and claim run, the brief is built by the same sealed
+is the launcher's capability to give a child the task token that confines it to its one task; **it is true only in a process with a launcher that mints (the host's own, `RegisterChildTokenMinter` in `cli/chat/chat_mission_children.go`) or a running host whose info file says `childTokens` (the lead's chat process asks the host, which is the process that starts the child; a host built earlier, a missing host or a stale info file read as no), and nothing spawns unless a task is marked (or the operator turned mode `all` on), so a mission nobody marked behaves as before.** When wanted, the ordinary prepare and claim run, the brief is built by the same sealed
 `buildTaskBrief` (per-brief `DATA-xxxx` fence, never raw task text) and `ChildSpawner.Spawn(ctx, session, task, brief)`
 starts the session; its signature carries no access, folder, budget or size, so nothing in a plan or a task's text can
 choose them. In mode `all` a session that ended stopped (by a person or the lead), cascaded or out of budget is not started again by itself: the task waits for the lead to mark it again (only unfinished, never-run or deleted sessions are retried, up to three attempts). A full host (the ceiling, the running-turn cap or the budget share, mirrored in `cannotStart` as
@@ -1980,9 +2011,51 @@ it starts; only the lead's own turn holds it; every caller that is not the lead 
 the same refusal. The lead can lower its ceiling and raise it only up to the operator's limits; it can never change a
 setting, turn on mode `all` or lift an operator's `off` or cap. The operator's control is
 `coder sessions mission-children set <lead-conv> --mode off|marked|all --max-children N --share-pct P
-[--clear-max-children-cap] [--clear-share-pct-cap]` and `list`: both refuse any process that holds a coder session
+[--clear-max-children-cap] [--clear-share-pct-cap]`, `list` and `resolve-charge` (below): all refuse any process that holds a coder session
 token or a mission binding. An operator who writes a number also sets it as the lead's cap; giving the lead a value
 without limiting takes two calls.
+
+**Mission child sessions: the operator's switch (off by default).** `coder sessions mission-children enable|disable`
+is the one switch for the whole feature. It is OFF on a fresh install and after an upgrade, whatever a master's
+`max_children` says (that number was set long ago for ordinary children), so a model-written mark never starts spawning
+budgeted child sessions nobody opted into: the operator runs `enable` once. It is stored as the reserved configs row
+`coder.mission_children_enabled` (`coderhost.MissionChildrenConfig`, absent = off; `config set` refuses it, no
+MCP tool writes it) and read inside `Store.Reserve`'s transaction, the one place every spawn passes (conductor, marked
+spawn, `SpawnForTask`). Marks are still stored while it is off; `mission_child_status` shows `switch: children: off
+(operator setting)`, the digest says so, and the conductor runs the task in-turn. `disable` stops NEW spawns only: a
+running child keeps running, and the host pass still settles, charges and revokes it. `list` shows
+`missionChildrenEnabled`. Both verbs refuse any process holding a coder session token or a mission binding.
+
+**Mission child sessions: the launcher (P-B2; built, not verified in a live run).** The coder host's launcher
+(`execLauncher.start`, `cli/chat/coder_host_exec.go`, with `coder_host_childtoken.go`) is the only process that starts a
+child's turn and the only place the child's task token is minted. The lead's chat process asks for the child through the
+command queue and never holds, mints or sees it. For a conversation the child store names as the live session of a task
+(`Store.ChildTaskOf`: a `spawning` or `spawned` row of a running or paused mission whose lead owns it) the launcher
+mints `agenttokens.CreateMission` with role `worker`, the row's session and task, the actor name the lead claimed the task
+under (`dynorg.MissionWorkerName`), owner `dynorg.TurnOwner(profile, child, turn)` and a lifetime of two hours and five
+minutes. The role, session and task come from the host's own rows, never from a message, a flag or the environment, and a
+verifier token is never minted for a child, so a child cannot hold a broader binding than its one task. Before it mints,
+every earlier task token of that conversation is revoked (one live token per child; a second run for the same attempt gets
+a new one and the old one is dead), and a conversation with no live row, an ended row or a mission that is stopped,
+closed, archived or handed to another lead gets none and its turn does not start. The token goes to the child's chat
+process over the inherited pipe that carries a mission confirmation (never in the arguments or the host's environment;
+`MONOAGENT_TASK_BINDING` is set by the chat process itself after it reads the pipe, for its shells and tool servers, the way
+a worker's is); a child's turn never carries a confirmation. Right after the turn starts the token is bound to the turn's
+process (`BindMissionProcess`, where ancestry is supported: Linux), the launcher re-checks that the row still names this
+attempt (a generation fence), and it stops the turn and fails when the check fails, or when the bind fails where ancestry is supported (off Linux nothing is bound and the turn goes on: whoever can read the token can use it). The chat process
+itself refuses a turn in a conversation that is a task's live session unless it holds a token the database verifies for exactly
+that row's session and task (`childTaskGate`), whoever started it (the app, a shell, a host built before this), and it
+refuses a task token for any other conversation. The token is revoked when the turn's process ends, when the host settles the
+session's turn, when the host handles a stop for it (before the turn has wound down), and when the child's row ends;
+the conductor blanks `MONOAGENT_TASK_BINDING` for every helper it starts, as it does the session token, so a helper of a
+child cannot act as the child. Spend: when a child's row ends the host adds the child's cost (`Store.Spent` over its
+turns) to the mission's `spent_usd` with `tasks.Store.AddSessionSpend`, once, atomically (an audit row of kind `charge` named by
+the child conversation is the record, written in the SAME transaction as the meter update through `tasks.Store.AddSessionSpendWith`: a record that cannot be written leaves the meter as it was, and a re-settle, a second pass, a restarted host or a racing writer add nothing); a failed settle (revoke or spend) is retried by every host pass from the row's conversation, which `Mark` therefore refuses to forget: while an ended, failed or gone row has no `charge` row, the task cannot be marked again. A row is known by its child conversation or, before the spawn linked it, its pending conversation, and both are charged. A child's spend survives the deletion of its conversation: every conversation delete records it, for a child or a pending conversation (`ai.AIStore`'s delete calls `coderspend.Snapshot` unconditionally: a `spend` audit row, or for a child that spent nothing the `charge` row itself, in the delete's own transaction, before the usage is erased; a failure aborts the delete) and the host charges that figure, also when the row was released and marked again meanwhile (the sweep also answers every `spend` snapshot that has no `charge` row). The cost stays HELD continuously from the delete until its `charge` row exists: `missionBudgetRefusal` (read in `Reserve`'s own transaction) counts, besides live session caps and spawning reservations, every `spend` snapshot with no `charge` row (its exact amount, which cannot grow), so another task cannot reserve money already spent or unknown in the interval before the host's pass. A snapshot keeps the recorded amount exactly (six decimals when those are exact, else the shortest exact decimal; $0.0000004 is never written as $0). One amount, and a session's total, is bounded by `tasks.MaxSpendUSD` ($1e9): `resolve-charge --usd` above it is refused and the meter refuses, in its transaction, a total that is not finite or passes it. The `charge` row is inserted by one `INSERT ... WHERE NOT EXISTS` statement (also for a zero-cost charge and a `--skip`), so racing resolutions leave exactly one. A row whose conversation is gone with no record (a raw delete, an older binary) is UNRESOLVED, not guessed and not settled: the host writes an `unresolved` audit row, and while ANY child of the mission is lost (a spawning, spawned, ended, failed or gone row whose conversation has no session, snapshot, charge or `unresolved` row, or an `unresolved` row with no `charge` row; ONE SQL fragment, `lostChildSQL`) `missionBudgetRefusal` holds the WHOLE remainder of the mission (budget - spent), once for the mission (the larger of that and the other holds, never a sum, so a spawning row's reservation or a second lost child adds nothing): no new reservation passes until the person resolves it, and because the hold has no inputs (not the row's wish, the default share or the policy, which a lead may change) it cannot grow after capacity was reserved and the task cannot be marked again. A failed-spawn or refused-carve release never clears the identity of a row whose conversation has no session, snapshot, charge or unresolved record: in the same transaction it writes the `unresolved` record (once: `insertUnresolvedOnce`, one conditional statement shared with the host, so neither duplicates the other; a record the host wrote first is left as it is) and ends the row `failed`, keeping its pending id, so the task is not markable before the resolution. The person ends the state with `coder sessions mission-children resolve-charge <child-conversation> --usd N` (adds N to the meter once, in one transaction with its `charge` row) or `--skip --reason TEXT` (nothing added; the reason is kept); both refuse a process holding a session token or a mission binding, and `mission-children list --json` shows the unresolved children. A row that never linked a conversation (no `spawned_at`, no pending id) is charged $0 with `never ran`. The sweep of uncharged ended rows has no age limit (it takes 50 rows per pass, oldest first, with a cursor), and `Mark` refuses to overwrite such a row at any age; a charge that can never succeed (the mission's session is gone) ends in a `charge` row that says `skipped` and why. A live child that runs no turn has its token revoke retried on every pass), also for a mission that is stopped, halting
+or archived, after the token is revoked; the lead's next budget check (`missionBudget`) reads the new total. No migration was
+needed. Known limits: a process that can read the child's process environment (same user, same machine) can read the
+token, as for an in-turn worker, and only the process binding limits it (a courtesy layer between agents of one user, not
+a sandbox; off Linux the token is not bound to a process); a child turn that runs longer than two hours loses its token and
+its task commands fail closed.
 
 **Budget requests.** When a mission's budget (or a child session's cap) is used up, the lead may ask the person for
 more with the MCP tool `mission_budget_request{amount_usd,reason?,task_id?}` (mutating: needs `--allow-mutations`;

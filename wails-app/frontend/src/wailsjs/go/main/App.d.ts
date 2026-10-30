@@ -128,6 +128,8 @@ export function ChooseProfileFolder():Promise<string>;
 
 export function ChooseWorkflowFile():Promise<string>;
 
+export function ClassifyChatPath(arg1:string,arg2:string):Promise<main.ChatPathClass>;
+
 export function ClearAITaskBudget(arg1:string,arg2:string):Promise<string>;
 
 export function ClearLogs():Promise<void>;
@@ -615,6 +617,8 @@ export function ReadHILScreenshot(arg1:string):Promise<string>;
 
 export function ReadJSONFile(arg1:string):Promise<Record<string, any>>;
 
+export function ReadChatMarkdown(arg1:string,arg2:string):Promise<string>;
+
 export function ReadWorkspaceImage(arg1:string,arg2:string):Promise<string>;
 
 export function RejectDraftPersonMessage(arg1:string):Promise<void>;
@@ -645,6 +649,8 @@ export function RemoveProfileDocument(arg1:string,arg2:boolean):Promise<void>;
 
 export function RerecordSelector(arg1:string,arg2:string):Promise<string>;
 
+export function ResolveChatPath(arg1:string,arg2:string):Promise<main.ChatPathInfo>;
+
 export function ResolveOrgChat(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<string>;
 
 export function RestoreAutomation(arg1:string):Promise<string>;
@@ -654,6 +660,8 @@ export function RestoreExcludedDocument(arg1:string):Promise<void>;
 export function ResumeOrgAutonomy(arg1:string):Promise<string>;
 
 export function ResumeApplicationFill(arg1:string):Promise<main.AITask>;
+
+export function RevealChatPath(arg1:string,arg2:string):Promise<void>;
 
 export function RevealProfileFolder(arg1:string):Promise<void>;
 
@@ -798,17 +806,23 @@ export function TaskSessionApprove(arg1:number):Promise<string>;
 
 export function TaskSessionArchive(arg1:number):Promise<string>;
 
+export function TaskSessionArchiveCascade(arg1:number):Promise<string>;
+
 export function TaskSessionBoard(arg1:number,arg2:number):Promise<string>;
 
 export function TaskSessionBudget(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionClose(arg1:number,arg2:string):Promise<string>;
 
+export function TaskSessionCreate(arg1:string,arg2:string,arg3:number,arg4:string):Promise<string>;
+
 export function TaskSessionPause(arg1:number):Promise<string>;
 
 export function TaskSessionPlan(arg1:number):Promise<string>;
 
 export function TaskSessionPulse(arg1:number):Promise<Record<string, any>>;
+
+export function TaskSessionRename(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionResume(arg1:number):Promise<string>;
 

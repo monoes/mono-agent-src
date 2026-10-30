@@ -1,11 +1,11 @@
 package coderhost
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/coderspend"
 )
 
 // A session with a budget (coder_sessions.budget_usd > 0) runs every turn under a spend cap of what
@@ -81,13 +81,8 @@ func (s *Store) runningCap(profileID, conversationID string) (turn string, capUS
 }
 
 func (s *Store) runningCapIn(q querier, profileID, conversationID string) (turn string, capUSD float64) {
-	_ = q.QueryRow(`SELECT x.turn_id, COALESCE(k.cap_usd, 0) FROM coder_sessions x
-		LEFT JOIN coder_session_turn_caps k ON k.profile_id = x.profile_id AND k.conversation_id = x.conversation_id AND k.turn_id = x.turn_id
-		WHERE x.profile_id = ? AND x.conversation_id = ? AND x.turn_id != ''`, profileID, conversationID).Scan(&turn, &capUSD)
-	return turn, capUSD
+	return coderspend.RunningCap(q, profileID, conversationID)
 }
-
-func validCost(p *float64) bool { return p != nil && *p >= 0 && !math.IsNaN(*p) && !math.IsInf(*p, 0) }
 
 // Spent is what the session's turns have cost.
 func (s *Store) Spent(profileID, conversationID string) (float64, error) {
@@ -99,76 +94,7 @@ func (s *Store) spentIn(q querier, profileID, conversationID string) (float64, e
 	if s.onSpent != nil {
 		s.onSpent(q)
 	}
-	caps := map[string]float64{}
-	rows, err := q.Query(`SELECT turn_id, cap_usd FROM coder_session_turn_caps WHERE profile_id = ? AND conversation_id = ? AND started = 1`, profileID, conversationID)
-	if err != nil {
-		return 0, err
-	}
-	for rows.Next() {
-		var t string
-		var c float64
-		if err := rows.Scan(&t, &c); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		caps[t] = c
-	}
-	rows.Close()
-
-	lead := map[string]float64{}       // turn -> its largest reported total
-	workers := map[[2]string]float64{} // (turn, worker) -> its largest finished cost
-	ev, err := q.Query(`SELECT turn_id, type, payload FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND type IN ('usage.updated', 'agent.finished')`, profileID, conversationID)
-	if err != nil {
-		return 0, err
-	}
-	for ev.Next() {
-		var turn, typ, raw string
-		if err := ev.Scan(&turn, &typ, &raw); err != nil {
-			ev.Close()
-			return 0, err
-		}
-		var p struct {
-			AgentID string   `json:"agentId"`
-			CostUSD *float64 `json:"costUsd"`
-		}
-		if json.Unmarshal([]byte(raw), &p) != nil || !validCost(p.CostUSD) {
-			continue // not numeric, negative: not a cost
-		}
-		if typ == "usage.updated" {
-			if cur, seen := lead[turn]; p.AgentID == "" && (!seen || *p.CostUSD > cur) {
-				lead[turn] = *p.CostUSD
-			}
-		} else if k := [2]string{turn, p.AgentID}; true {
-			if cur, seen := workers[k]; !seen || *p.CostUSD > cur {
-				workers[k] = *p.CostUSD
-			}
-		}
-	}
-	ev.Close()
-	running, _ := s.runningCapIn(q, profileID, conversationID)
-	total := 0.0
-	workerSum := map[string]float64{} // per turn
-	for k, v := range workers {
-		workerSum[k[0]] += v
-	}
-	for turn, c := range caps {
-		if v, reported := lead[turn]; reported {
-			total += v + workerSum[turn]
-		} else if turn != running {
-			total += max(c, workerSum[turn]) // no usage event at all: the whole cap, or its workers if they cost more
-		} else {
-			total += workerSum[turn]
-		}
-		delete(lead, turn)
-		delete(workerSum, turn)
-	}
-	for _, v := range lead {
-		total += v // turns that ran before the session had a budget
-	}
-	for _, v := range workerSum {
-		total += v
-	}
-	return total, nil
+	return coderspend.Spent(q, profileID, conversationID)
 }
 
 // TurnCap is the spend cap the session's next turn runs under: capped is false for a session

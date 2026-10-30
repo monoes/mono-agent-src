@@ -36,6 +36,9 @@ type execLauncher struct {
 	revoke func(profileID, conversationID string)
 	// bind names the turn's process for its token, right after the turn starts.
 	bind func(profileID, conversationID, turnID string, pid int, stamp string) error
+	// child mints a mission child's task token for its turn and binds it to the turn's process (nil: none; see
+	// coder_host_childtoken.go).
+	child *childTokenMinter
 }
 
 // hostID is what makes a host-owned name safe to put in a file name and a flag.
@@ -113,6 +116,28 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	if missionToken != "" && !hostID.MatchString(missionToken) {
 		return nil, fmt.Errorf("the mission confirmation is not a valid token")
 	}
+	// A mission child's turn gets the task token of its one task, minted here from the host's own child store.
+	var ct *childToken
+	if l.child != nil {
+		if ct, err = l.child.mint(profileID, conversationID, turnID); err != nil {
+			os.Remove(promptPath)
+			return nil, err
+		}
+	}
+	launched := false
+	defer func() {
+		if ct != nil && !launched {
+			l.child.revokeToken(ct) // not started: the turn's own wait revokes it otherwise
+		}
+	}()
+	pipe := missionToken // what goes over the inherited pipe: a mission confirmation, or a child's task token
+	if ct != nil {
+		if missionToken != "" {
+			os.Remove(promptPath)
+			return nil, errors.New("a mission child's turn cannot carry a mission confirmation")
+		}
+		pipe = ct.secret
+	}
 	cmd := exec.Command(l.bin, l.args(profileID, rest...)...)
 	// The environment is the host's without any token of a session that started the host, plus this
 	// turn's own: a turn must never inherit another session's identity (the host can have been
@@ -121,8 +146,8 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// the mission confirmation goes over an inherited pipe the child reads once and closes, so it
 	// is never in any environment block.
 	cmd.Env = turnEnv(os.Environ())
-	if missionToken != "" {
-		closeToken, terr := coderhost.AttachMissionToken(cmd, missionToken)
+	if pipe != "" {
+		closeToken, terr := coderhost.AttachMissionToken(cmd, pipe)
 		if terr != nil {
 			os.Remove(promptPath)
 			return nil, fmt.Errorf("could not hand over the mission confirmation: %w", terr)
@@ -163,12 +188,20 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		if l.revoke != nil {
 			l.revoke(profileID, conversationID) // before done closes: a session that sees its turn end has no token left
 		}
-		os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
+		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
+		os.Remove(promptPath)   // before done closes: whoever sees the turn end sees no prompt left
 		close(t.done)
 	}()
+	launched = true // the wait goroutine above revokes the child's token from here on
 	if stamp == "" {
 		t.stopAndWait()
 		return nil, errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped")
+	}
+	if ct != nil {
+		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
+			t.stopAndWait()
+			return nil, err
+		}
 	}
 	if l.bind != nil {
 		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {

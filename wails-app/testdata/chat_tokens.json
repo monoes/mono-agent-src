@@ -1,0 +1,146 @@
+[
+ {
+  "token": "a/b.md",
+  "valid": true
+ },
+ {
+  "token": "./a.md",
+  "valid": true
+ },
+ {
+  "token": "../a.md",
+  "valid": true
+ },
+ {
+  "token": "/etc/hosts",
+  "valid": true
+ },
+ {
+  "token": "~/projects/x",
+  "valid": true
+ },
+ {
+  "token": "main.go:12",
+  "valid": true
+ },
+ {
+  "token": "main.go:12:3",
+  "valid": true
+ },
+ {
+  "token": "C:/x.md",
+  "valid": true
+ },
+ {
+  "token": "C:\\x\\y.md",
+  "valid": true
+ },
+ {
+  "token": "PROGRA~1/a.md",
+  "valid": true
+ },
+ {
+  "token": "dir/COM10.txt",
+  "valid": true
+ },
+ {
+  "token": "con.d/x.md",
+  "valid": false
+ },
+ {
+  "token": "NUL.md",
+  "valid": false
+ },
+ {
+  "token": "nul.MD",
+  "valid": false
+ },
+ {
+  "token": "COM1.txt",
+  "valid": false
+ },
+ {
+  "token": "Com1.txt.",
+  "valid": false
+ },
+ {
+  "token": "aux",
+  "valid": false
+ },
+ {
+  "token": "CON",
+  "valid": false
+ },
+ {
+  "token": "dir/NUL/x.md",
+  "valid": false
+ },
+ {
+  "token": "CON .txt",
+  "valid": false
+ },
+ {
+  "token": "dir/lpt9.log",
+  "valid": false
+ },
+ {
+  "token": "COM\u00b9.txt",
+  "valid": false
+ },
+ {
+  "token": "CONIN$",
+  "valid": false
+ },
+ {
+  "token": "CONOUT$.md",
+  "valid": false
+ },
+ {
+  "token": "PRN.tar.gz",
+  "valid": false
+ },
+ {
+  "token": "file.md:stream",
+  "valid": false
+ },
+ {
+  "token": "file.md::$DATA",
+  "valid": false
+ },
+ {
+  "token": "a/file.md:stream:3",
+  "valid": false
+ },
+ {
+  "token": "C:x.md",
+  "valid": false
+ },
+ {
+  "token": "\\\\host\\share\\x.md",
+  "valid": false
+ },
+ {
+  "token": "//host/share/x.md",
+  "valid": false
+ },
+ {
+  "token": "/\\host\\s\\x.md",
+  "valid": false
+ },
+ {
+  "token": " a/b.md",
+  "valid": false
+ },
+ {
+  "token": "a/b.md ",
+  "valid": false
+ },
+ {
+  "token": "-a/b.md",
+  "valid": false
+ },
+ {
+  "token": "",
+  "valid": false
+ }
+]

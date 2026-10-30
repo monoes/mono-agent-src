@@ -105,7 +105,9 @@ func toolMissionChildMark(ctx context.Context, s *Server, args json.RawMessage) 
 		return nil, sessionToolErr(err)
 	}
 	out := map[string]any{"taskId": row.TaskID, "state": row.State, "size": row.Size, "budgetUsd": row.BudgetUSD, "attempts": row.Attempts}
-	if !coderhost.MissionChildrenReady() {
+	if on, err := store.MissionChildrenEnabled(); err == nil && !on {
+		out["note"] = "the mark is stored, but child sessions are off (operator setting): the task runs in this turn as a worker until the person enables them"
+	} else if !coderhost.MissionChildrenReady() {
 		out["note"] = "the mark is stored, but sessions of their own are not available yet: the task runs in this turn as a worker"
 	}
 	return out, nil

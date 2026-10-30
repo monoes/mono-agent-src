@@ -546,14 +546,20 @@ type querier interface {
 // each of mark, raise, lower, mode, budget and the rest, so a loop of one kind cannot push another out (a flood
 // of raises can only push out earlier raises of the lead). The operator's and the host's rows are never rotated out (the operator is a person, and the host's
 // are bounded by tasks times attempts).
-func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
+// clipNote keeps an audit note within 300 bytes, never cutting a multibyte character in two.
+func clipNote(note string) string {
 	if len(note) > 300 {
 		n := 300
-		for n > 0 && !utf8.RuneStart(note[n]) { // never cut a multibyte character in two
+		for n > 0 && !utf8.RuneStart(note[n]) {
 			n--
 		}
 		note = note[:n]
 	}
+	return note
+}
+
+func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
+	note = clipNote(note)
 	if _, err := db.Exec(`INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		profileID, sessionID, taskID, kind, who, note, at); err != nil {
 		return err
@@ -661,6 +667,24 @@ func (s *Store) childrenWhere(where string, args ...any) ([]ChildRow, error) {
 	return out, rows.Err()
 }
 
+// childrenWhereLimit is childrenWhere for a sweep: at most limit rows, oldest first.
+func (s *Store) childrenWhereLimit(where string, limit int, args ...any) ([]ChildRow, error) {
+	rows, err := s.db.Query(`SELECT `+childColumns+` FROM coder_mission_children WHERE `+where+` ORDER BY id LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChildRow
+	for rows.Next() {
+		c, err := scanChild(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ChildrenOfSession lists the rows of a task session, oldest first.
 func (s *Store) ChildrenOfSession(profileID string, sessionID int64) ([]ChildRow, error) {
 	return s.childrenWhere(`profile_id = ? AND session_id = ?`, profileID, sessionID)
@@ -722,12 +746,19 @@ func (s *Store) Mark(sc CallerScope, profileID string, sessionID, taskID int64, 
 		VALUES (?, ?, ?, ?, 'lead', ?, ?, 'marked', ?, ?)
 		ON CONFLICT(profile_id, session_id, task_id) DO UPDATE SET size = excluded.size, budget_usd = excluded.budget_usd, state = 'marked',
 			end_reason = '', ended_at = '', child_conversation_id = '', pending_conversation_id = '', reserved_usd = 0, lead_conversation_id = excluded.lead_conversation_id, updated_at = excluded.updated_at
-		WHERE coder_mission_children.state IN ('marked', 'ended', 'failed', 'gone', 'released')`,
+		WHERE coder_mission_children.state IN ('marked', 'ended', 'failed', 'gone', 'released')
+		AND NOT (`+notCharged+`)`,
 		profileID, sessionID, taskID, m.lead, opt.Size, opt.BudgetUSD, now, now)
 	if err != nil {
 		return ChildRow{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		if r, ok, _ := s.Child(profileID, sessionID, taskID); ok && (r.State == ChildEnded || r.State == ChildFailed || r.State == ChildGone) {
+			if s.isUnresolved(profileID, sessionID, r.ident()) {
+				return ChildRow{}, fmt.Errorf("%w: %w: the earlier child session of that task has a spend nobody knows; the person resolves it with `coder sessions mission-children resolve-charge`", ErrInvalid, ErrChildUnsettled)
+			}
+			return ChildRow{}, fmt.Errorf("%w: %w: the earlier child session of that task is still being settled (its spend is not on the mission's meter yet); try again shortly", ErrInvalid, ErrChildUnsettled)
+		}
 		return ChildRow{}, fmt.Errorf("%w: that task already runs in its own session", ErrInvalid)
 	}
 	if err := addMarkEvent(tx, profileID, sessionID, taskID, who, fmt.Sprintf("size=%s budget=%.2f", opt.Size, opt.BudgetUSD), now); err != nil {
@@ -783,6 +814,11 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if _, err := tx.Exec(`UPDATE coder_mission_children SET id = id WHERE 0`); err != nil {
 		return ChildRow{}, err
 	}
+	if on, err := childrenEnabledIn(tx); err != nil {
+		return ChildRow{}, err
+	} else if !on {
+		return ChildRow{}, ErrChildrenOff
+	}
 	pol, err := s.policyIn(tx, profileID, sessionID)
 	if err != nil {
 		return ChildRow{}, err
@@ -807,7 +843,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if !room.OK {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, room.Reason)
 	}
-	if reason, err := missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
+	if reason, err := s.missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
 		return ChildRow{}, err
 	} else if reason != "" {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, reason) // before takeReservation: no attempt is used
@@ -843,11 +879,11 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 }
 
 // missionBudgetRefusal says why a child may not start under the mission's own budget (task_sessions.budget_usd),
-// or "" when it may. A child's spend never reaches the mission's spent_usd, so the budget binds children through
-// their caps: with a mission budget the carve must be positive, and the caps the lead's children already hold
-// (running sessions and reserved ones) plus this carve must fit what the mission has left. A mission without a
-// budget does not refuse here.
-func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
+// or "" when it may. An ended child's spend reaches the mission's spent_usd (missionchild_charge.go); a child that
+// is still alive is bound through its cap: with a mission budget the carve must be positive, and the caps the
+// lead's live children hold (sessions and reserved rows) plus this carve must fit what the mission has left. A
+// mission without a budget does not refuse here.
+func (s *Store) missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
 	var budget, spent float64
 	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
 		return "", err
@@ -859,10 +895,31 @@ func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead str
 		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
 	}
 	var held float64
-	if err := q.QueryRow(`SELECT (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
-		+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')`,
-		profileID, lead, profileID, lead).Scan(&held); err != nil {
+	// A child that ended and whose spend is on the meter (a charge row, missionchild_charge.go) holds nothing: its
+	// cap was lowered to that spend, which spent already contains. A deleted child whose spend snapshot has no
+	// charge row yet holds exactly that amount (known, cannot grow).
+	if err := q.QueryRow(`SELECT (SELECT COALESCE(SUM(s.budget_usd), 0) FROM coder_sessions s WHERE s.profile_id = ? AND s.parent_conversation_id = ?
+			AND NOT EXISTS (SELECT 1 FROM coder_mission_children c WHERE c.profile_id = s.profile_id AND c.child_conversation_id = s.conversation_id
+				AND c.session_id = ? AND c.state IN ('ended', 'failed')
+				AND EXISTS (SELECT 1 FROM coder_mission_events e WHERE e.profile_id = c.profile_id AND e.session_id = c.session_id AND e.kind = 'charge'
+					AND substr(e.note, 1, length(c.child_conversation_id) + 1) = c.child_conversation_id || ' ')))
+		+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')
+		+ (SELECT COALESCE(SUM(CAST(substr(e.note, instr(e.note, ' $') + 2) AS REAL)), 0) FROM coder_mission_events e WHERE e.profile_id = ? AND e.session_id = ? AND e.kind = 'spend'
+			AND NOT EXISTS (SELECT 1 FROM coder_mission_events c WHERE c.profile_id = e.profile_id AND c.session_id = e.session_id AND c.kind = 'charge'
+				AND substr(c.note, 1, instr(e.note, ' ')) = substr(e.note, 1, instr(e.note, ' '))))`,
+		profileID, lead, sessionID, profileID, lead, profileID, sessionID).Scan(&held); err != nil {
 		return "", err
+	}
+	// A lost child (lostChildSQL) holds the whole remainder, once for the mission: the larger of that and the rest,
+	// never their sum, so its own reservation or a second lost child adds nothing.
+	lost, err := lostChildExists(q, profileID, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if lost {
+		// The freeze is a refusal, not a number: the comparison below has a float tolerance that a tiny carve would slip under.
+		left := math.Max(budget-spent, 0)
+		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions): a child session of this mission lost its cost record, so the mission accepts no new child session until the operator resolves it (coder sessions mission-children resolve-charge)", carve, left, math.Max(held, left)), nil
 	}
 	if held+carve > budget-spent+1e-9 {
 		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil

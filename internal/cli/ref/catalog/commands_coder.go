@@ -167,8 +167,20 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:     "coder sessions mission-children",
 		Short:    "The person's control of a mission's child sessions: set the policy, list it (a session token or a mission binding is refused)",
-		Usage:    "monoagentcli [--profile P] coder sessions mission-children set|list",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children enable|disable|set|list|resolve-charge",
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children list --json"},
+	},
+	{
+		Name:     "coder sessions mission-children enable",
+		Short:    "Allow mission child sessions to start. They are off on a fresh install and after an upgrade until you run this (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children enable",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children enable"},
+	},
+	{
+		Name:     "coder sessions mission-children disable",
+		Short:    "Stop new mission child sessions from starting. Running ones are not stopped: they finish and are settled and charged as usual (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children disable",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children disable"},
 	},
 	{
 		Name:  "coder sessions mission-children set",
@@ -180,6 +192,15 @@ var coderCommandDocs = []cmdDoc{
   --clear-max-children-cap   Lift your cap on the lead's max_children
   --clear-share-pct-cap      Lift your cap on the lead's share_pct`,
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children set <lead-conv> --mode marked --max-children 3 --share-pct 40"},
+	},
+	{
+		Name:  "coder sessions mission-children resolve-charge",
+		Short: "End the unresolved state of a deleted mission child whose cost nobody recorded: say what it cost (--usd, added to the mission's meter once) or skip it with a reason. Until then the host holds part of the mission's budget for it and its task cannot be marked again (operator only)",
+		Usage: "monoagentcli [--profile P] coder sessions mission-children resolve-charge CHILD_CONVERSATION (--usd N | --skip --reason TEXT)",
+		Flags: `  --usd float     What the child cost, in dollars
+  --skip          Charge nothing (needs --reason)
+  --reason string Why it is skipped, or where the figure comes from`,
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --usd 1.25", "monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --skip --reason 'free tier'"},
 	},
 	{
 		Name:     "coder sessions mission-children list",
