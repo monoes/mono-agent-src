@@ -2,8 +2,6 @@ package applypark
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/monoes/mono-agent/internal/aitask"
@@ -75,18 +73,16 @@ func parkIfTaskEnded(ctx context.Context, store Store, t Tab) error {
 	if t.State != StateActive || t.TaskID == "" {
 		return nil
 	}
-	var status string
-	err := store.DB.QueryRowContext(ctx, `SELECT status FROM ai_tasks WHERE id = ? AND profile_id = ?`, t.TaskID, store.Profile).Scan(&status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !aitask.Terminal(status) {
-		return nil
-	}
-	return store.SetState(ctx, t.ApplicationID, StateParked, "")
+	// One statement: the tab is parked only while it still is the one this sweep read (active under the same
+	// task) and that task still is over, so a task that took the tab since the read keeps it.
+	_, err := store.DB.ExecContext(ctx,
+		`UPDATE application_tabs SET state = ?, updated_at = ?
+		 WHERE application_id = ? AND state = ? AND task_id = ?
+		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)
+		   AND EXISTS (SELECT 1 FROM ai_tasks k WHERE k.id = application_tabs.task_id AND k.profile_id = ? AND k.status IN (?, ?, ?))`,
+		string(StateParked), now(), t.ApplicationID, string(StateActive), t.TaskID, store.Profile,
+		store.Profile, aitask.StatusComplete, aitask.StatusFailed, aitask.StatusCancelled)
+	return err
 }
 
 // markReopen turns the application into needs_you with ReopenNote, keeping its

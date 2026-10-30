@@ -314,6 +314,38 @@ func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
 	}
 }
 
+// Sweep read the tab as active under an ended task; before the park a new task took the tab. The park must not
+// land on the new task's tab, whatever state that task is in.
+func TestParkIfTaskEndedLeavesATabANewTaskTook(t *testing.T) {
+	for _, status := range []string{"running", "queued", "needs_user"} {
+		t.Run(status, func(t *testing.T) {
+			db, st, apps := fixture(t)
+			app := parkedApp(t, st, apps, 7)
+			ins := func(id, status string) {
+				if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+					VALUES (?, ?, 'apply', 'c1', ?, 'g', '', 'x', 'x')`, id, profile, status); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ins("t1", "cancelled")
+			ins("t2", status)
+			if err := st.SetState(bg, app, StateActive, "t1"); err != nil {
+				t.Fatal(err)
+			}
+			snap, _ := st.Get(bg, app) // what the sweep's read saw
+			if err := st.SetState(bg, app, StateActive, "t2"); err != nil {
+				t.Fatal(err)
+			}
+			if err := parkIfTaskEnded(bg, st, *snap); err != nil {
+				t.Fatal(err)
+			}
+			if tab, _ := st.Get(bg, app); tab.State != StateActive || tab.TaskID != "t2" {
+				t.Fatalf("a %s task's tab was parked from a stale read: %+v", status, tab)
+			}
+		})
+	}
+}
+
 // fakeRunner stands in for the application commands.
 type fakeRunner struct {
 	mu        sync.Mutex
