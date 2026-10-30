@@ -393,6 +393,10 @@ func (s *Store) SweepOrphans() (int, error) {
 		`DELETE FROM coder_mission_events WHERE session_id IN (SELECT p.session_id FROM coder_mission_policy p WHERE p.profile_id = coder_mission_events.profile_id AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = p.lead_conversation_id AND c.profile_id = p.profile_id))`,
 		`DELETE FROM coder_mission_children WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.lead_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
 		`DELETE FROM coder_mission_policy WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_policy.lead_conversation_id AND c.profile_id = coder_mission_policy.profile_id)`,
+		// A child whose master is gone (the delete demotes them in its own transaction; this catches what an older build or a hand edit left) is a solo session, as that delete makes it.
+		// It runs after the mission rows of a deleted lead are removed, and it leaves a child that a live mission row still names: that child keeps running as a mission child and its carve keeps holding the mission's budget.
+		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE role = 'child' AND NOT EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = coder_sessions.profile_id AND m.conversation_id = coder_sessions.parent_conversation_id)
+			AND NOT EXISTS (SELECT 1 FROM coder_mission_children k WHERE k.profile_id = coder_sessions.profile_id AND k.state IN ('spawning', 'spawned') AND (k.child_conversation_id = coder_sessions.conversation_id OR k.pending_conversation_id = coder_sessions.conversation_id))`,
 	} {
 		res, err := s.db.Exec(q)
 		if err != nil {
