@@ -13,7 +13,7 @@ const calls = []
 for (const f of readdirSync(dir)) {
   if (!f.endsWith('.js') || f.endsWith('.test.js')) continue
   const src = readFileSync(join(dir, f), 'utf8')
-  for (const m of src.matchAll(/\bGoApp\.([A-Za-z0-9_]+)\s*\(/g)) calls.push([f, m[1]])
+  for (const m of src.matchAll(/\bGoApp\.([A-Za-z0-9_]+)\s*(?:\?\.)?\(/g)) calls.push([f, m[1]])
 }
 
 describe('the services only call bindings that exist', () => {
