@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 const convJSON = `{"id":"c1","profile_id":"work","backend":"agent","workflow_context":"general","runtime_id":"claude","model":"sonnet","session_id":"","mode":"coder","access":"coding","cwd":"/p","created_at":"a","updated_at":"b"}`
@@ -283,22 +284,97 @@ esac
 
 // "Delete anyway" is its own binding: it passes the CLI the words that leave the processes running, only for
 // the ids it is given, and answers like the plain delete.
-func TestDeleteChatConversationsAnywayLeavesTheProcessesRunning(t *testing.T) {
-	a, log := aitaskApp(t, `case "$*" in
+const anywayScript = `case "$*" in
 *"--abandon-processes --confirm leave them running"*) echo '{"id":"x","deleted":true,"abandoned":[{"pid":4242}]}';;
-*) echo '{"error":"not confirmed","code":"survivors_remain"}'; exit 5;;
+*) echo '{"id":"x","deleted":false,"stopped":[],"survivors":[{"pid":4242,"command":"node server.js"}]}'; echo '{"error":"not deleted","code":"survivors_remain"}'; exit 5;;
 esac
-`)
+`
+
+// asked records the native dialog's seam: what it was asked and what the person answers.
+func asked(t *testing.T, answer bool) *[]string {
+	t.Helper()
+	var msgs []string
+	old := confirmAbandon
+	confirmAbandon = func(_ *App, _, msg string) bool { msgs = append(msgs, msg); return answer }
+	t.Cleanup(func() { confirmAbandon = old })
+	return &msgs
+}
+
+func abandoningCalls(t *testing.T, log string) int {
+	t.Helper()
+	if _, err := os.Stat(log); err != nil {
+		return 0
+	}
+	n := 0
+	for _, c := range loggedArgs(t, log) {
+		if strings.Contains(c, "--abandon-processes") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestDeleteAnywayRefusesAnIdTheCLINeverKept(t *testing.T) {
+	a, log := aitaskApp(t, anywayScript)
+	msgs := asked(t, true)
+	got, err := a.DeleteChatConversationsAnyway([]string{"never"})
+	if err != nil || len(got.Deleted) != 0 || got.Failed["never"] == "" || len(*msgs) != 0 || abandoningCalls(t, log) != 0 {
+		t.Fatalf("an id the CLI never kept was acted on: %+v %v asked %v", got, err, *msgs)
+	}
+	if _, statErr := os.Stat(log); statErr == nil {
+		t.Fatalf("the CLI was called: %v", loggedArgs(t, log))
+	}
+}
+
+// The dialog shows the CLI's own list of processes, the delete carries the confirmation only after a yes, and
+// the offer is used once.
+func TestDeleteAnywayAsksNativelyWithTheCLIsListThenLeavesThemRunning(t *testing.T) {
+	a, log := aitaskApp(t, anywayScript)
+	msgs := asked(t, true)
+	if first, err := a.DeleteChatConversations([]string{"running"}); err != nil || first.Kept["running"].Code != "survivors_remain" {
+		t.Fatalf("setup: %+v %v", first, err)
+	}
+	got, err := a.DeleteChatConversationsAnyway([]string{"running", "other"})
+	if err != nil || strings.Join(got.Deleted, ",") != "running" || got.Failed["other"] == "" || len(got.Failed) != 1 {
+		t.Fatalf("got %+v %v", got, err)
+	}
+	if len(*msgs) != 1 || !strings.Contains((*msgs)[0], "node server.js (pid 4242)") {
+		t.Fatalf("dialog = %v, want the CLI's process list", *msgs)
+	}
+	if abandoningCalls(t, log) != 1 {
+		t.Fatalf("calls = %v", loggedArgs(t, log))
+	}
+	again, _ := a.DeleteChatConversationsAnyway([]string{"running"})
+	if len(again.Deleted) != 0 || abandoningCalls(t, log) != 1 || len(*msgs) != 1 {
+		t.Fatalf("an offer was used twice: %+v", again)
+	}
+}
+
+func TestDeleteAnywayDeclinedSendsNothing(t *testing.T) {
+	a, log := aitaskApp(t, anywayScript)
+	msgs := asked(t, false)
+	a.DeleteChatConversations([]string{"running"})
 	got, err := a.DeleteChatConversationsAnyway([]string{"running"})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(got.Deleted) != 0 || len(*msgs) != 1 || abandoningCalls(t, log) != 0 {
+		t.Fatalf("a declined dialog sent something: %+v %v calls %v", got, err, loggedArgs(t, log))
 	}
-	if strings.Join(got.Deleted, ",") != "running" || len(got.Kept) != 0 || len(got.Failed) != 0 {
-		t.Fatalf("got %+v", got)
+	if got.Kept["running"].Code != "survivors_remain" {
+		t.Fatalf("the chat is not reported kept: %+v", got)
 	}
-	calls := loggedArgs(t, log)
-	if len(calls) != 1 || calls[0] != "--profile work --json chat history delete running --abandon-processes --confirm leave them running" {
-		t.Fatalf("calls = %v", calls)
+}
+
+func TestDeleteAnywayRefusesAnExpiredOffer(t *testing.T) {
+	a, log := aitaskApp(t, anywayScript)
+	asked(t, true)
+	now := time.Now()
+	old := abandonNow
+	abandonNow = func() time.Time { return now }
+	t.Cleanup(func() { abandonNow = old })
+	a.DeleteChatConversations([]string{"running"})
+	now = now.Add(offerLifetime + time.Second)
+	got, _ := a.DeleteChatConversationsAnyway([]string{"running"})
+	if len(got.Deleted) != 0 || got.Failed["running"] == "" || abandoningCalls(t, log) != 0 {
+		t.Fatalf("an expired offer was acted on: %+v", got)
 	}
 }
 

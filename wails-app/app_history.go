@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // The unified history and the access-aware chat bindings. Each shells out to
@@ -306,11 +308,90 @@ func (a *App) DeleteChatConversations(ids []string) (DeleteChatResult, error) {
 	return a.deleteChats(ids, a.historyDelete)
 }
 
-// DeleteChatConversationsAnyway is DeleteChatConversations for ids whose delete was kept because processes the
-// chat left are still running, after the person chose to leave them running. Only the ids it is given are
-// affected; anything else the CLI declines still comes back in Kept.
+// offeredDelete is a delete the CLI kept because processes were still running: the processes it listed and
+// when the offer lapses.
+type offeredDelete struct {
+	survivors []Survivor
+	expires   time.Time
+}
+
+// offerLifetime is how long after the CLI's refusal a chat can still be deleted anyway.
+const offerLifetime = 10 * time.Minute
+
+// abandonNow and confirmAbandon are seams of the tests: the clock, and the native dialog.
+var (
+	abandonNow = time.Now
+	// confirmAbandon asks in a window of the OS, not of the web view, so no script of the page can answer it.
+	confirmAbandon = func(a *App, title, msg string) bool {
+		choice, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+			Type: runtime.WarningDialog, Title: title, Message: msg,
+			Buttons: []string{"Delete anyway", "Cancel"}, DefaultButton: "Cancel", CancelButton: "Cancel",
+		})
+		return err == nil && choice == "Delete anyway"
+	}
+)
+
+// DeleteChatConversationsAnyway is DeleteChatConversations for ids whose delete the CLI kept because
+// processes the chat left are still running, after the person chose to leave them running. It acts only on
+// ids the CLI itself reported that way in an earlier delete of this app (this profile, not older than
+// offerLifetime), each once; any other id is refused without calling the CLI. A native dialog built here from
+// the CLI's own list of processes asks first, and declining sends nothing. Whatever the CLI declines still
+// comes back in Kept.
 func (a *App) DeleteChatConversationsAnyway(ids []string) (DeleteChatResult, error) {
-	return a.deleteChats(ids, a.historyDeleteAbandoning)
+	res := DeleteChatResult{Deleted: []string{}, Active: []string{}, Failed: map[string]string{}, Kept: map[string]DeleteKept{}}
+	if err := a.signedOut(); err != nil {
+		return res, err
+	}
+	profile, err := a.profileID()
+	if err != nil {
+		return res, err
+	}
+	for _, id := range ids {
+		off, ok := a.takeOffer(profile, id)
+		if !ok {
+			res.Failed[id] = "this chat's delete was not kept for running processes (or the offer lapsed); delete it again first"
+			continue
+		}
+		names := make([]string, 0, len(off.survivors))
+		for _, s := range off.survivors {
+			names = append(names, fmt.Sprintf("%s (pid %d)", s.Command, s.Pid))
+		}
+		msg := fmt.Sprintf("Delete this chat without stopping the %d process(es) it left running?\n\n%s\n\nThey keep running after the chat is gone and nothing will stop them for you.", len(names), strings.Join(names, "\n"))
+		if !confirmAbandon(a, "Delete chat anyway", msg) {
+			a.offer(profile, id, off.survivors) // asking again is allowed; every ask is the native dialog
+			res.Kept[id] = DeleteKept{Code: keptSurvivorsRemain, Message: "not deleted", Stopped: []int{}, Survivors: off.survivors}
+			continue
+		}
+		one, _ := a.deleteChats([]string{id}, a.historyDeleteAbandoning)
+		res.Deleted = append(res.Deleted, one.Deleted...)
+		res.Active = append(res.Active, one.Active...)
+		for k, v := range one.Failed {
+			res.Failed[k] = v
+		}
+		for k, v := range one.Kept {
+			res.Kept[k] = v
+		}
+	}
+	return res, nil
+}
+
+func (a *App) offer(profile, id string, survivors []Survivor) {
+	a.offeredMu.Lock()
+	defer a.offeredMu.Unlock()
+	if a.offered == nil {
+		a.offered = map[string]offeredDelete{}
+	}
+	a.offered[profile+"/"+id] = offeredDelete{survivors: survivors, expires: abandonNow().Add(offerLifetime)}
+}
+
+// takeOffer returns and consumes the offer for a chat, if there is a live one.
+func (a *App) takeOffer(profile, id string) (offeredDelete, bool) {
+	a.offeredMu.Lock()
+	defer a.offeredMu.Unlock()
+	k := profile + "/" + id
+	off, ok := a.offered[k]
+	delete(a.offered, k)
+	return off, ok && abandonNow().Before(off.expires)
 }
 
 func (a *App) deleteChats(ids []string, del func(string) deleteAnswer) (DeleteChatResult, error) {
@@ -326,6 +407,11 @@ func (a *App) deleteChats(ids []string, del func(string) deleteAnswer) (DeleteCh
 			res.Deleted = append(res.Deleted, id)
 		case ans.Kept != nil:
 			res.Kept[id] = *ans.Kept
+			if ans.Kept.Code == keptSurvivorsRemain {
+				if profile, perr := a.profileID(); perr == nil {
+					a.offer(profile, id, ans.Kept.Survivors)
+				}
+			}
 		case errors.As(ans.Err, &ae) && strings.Contains(ae.msg, "active turn"):
 			res.Active = append(res.Active, id)
 		default:
