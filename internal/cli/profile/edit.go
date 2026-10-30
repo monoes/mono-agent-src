@@ -399,7 +399,7 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	if err != nil {
 		return nil, fmt.Errorf("check foreign keys: %w", err)
 	}
-	for _, e := range scope {
+	for _, e := range sessionsBeforeTheirReservations(scope) {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+e.Table+`" WHERE `+e.Where, sql.Named("p", id)); err != nil {
 			return nil, fmt.Errorf("delete from %s: %w", e.Table, err)
 		}
@@ -417,6 +417,24 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 		return nil, fmt.Errorf("delete profile: %w", err)
 	}
 	return tables, nil
+}
+
+// sessionsBeforeTheirReservations moves the task_sessions entry ahead of task_session_reservations: a
+// reservation is refused a hand delete while its session exists, and it goes with the session.
+func sessionsBeforeTheirReservations(scope []scopeEntry) []scopeEntry {
+	out := make([]scopeEntry, 0, len(scope))
+	var held []scopeEntry
+	for _, e := range scope {
+		if e.Table == "task_session_reservations" {
+			held = append(held, e)
+			continue
+		}
+		out = append(out, e)
+		if e.Table == "task_sessions" {
+			out, held = append(out, held...), nil
+		}
+	}
+	return append(out, held...)
 }
 
 func (d Deps) newProfileBackupsCmd() *cobra.Command {
