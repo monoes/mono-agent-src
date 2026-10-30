@@ -179,7 +179,8 @@ func (c *Conductor) veteranBlockedLocked(w *worker) error {
 	return c.veteranPurposeErrLocked(w)
 }
 
-// veteranPurposeErrLocked rechecks a veteran's model against the operator's
+// veteranPurposeErrLocked rechecks a worker's model (a veteran's, or one
+// staffed earlier in this turn: both have recorded sides) against the operator's
 // CURRENT sets, read fresh (fail closed) at every follow-up: narrowing a set
 // after the worker was staffed refuses it rather than leaving it on its old
 // model. The purposes are the ones recorded when it was staffed; a veteran
@@ -187,7 +188,7 @@ func (c *Conductor) veteranBlockedLocked(w *worker) error {
 // unmapped (every purpose the operator restricted applies), and a record that
 // names an unknown purpose is refused.
 func (c *Conductor) veteranPurposeErrLocked(w *worker) error {
-	if !w.veteran || c.cfg.Staffer == nil {
+	if c.cfg.Staffer == nil {
 		return nil
 	}
 	sides := w.staff.sides

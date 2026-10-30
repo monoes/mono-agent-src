@@ -450,3 +450,57 @@ func TestAVeteranWithoutPurposeDataIsUnmapped(t *testing.T) {
 	}
 	c.Wait(context.Background(), nil, 0)
 }
+
+// A worker staffed earlier in THIS turn is rechecked at its follow-up like a
+// veteran: the operator narrows a set (or its row turns corrupt) after the
+// first run, and the worker is refused although it never left the turn.
+func TestASameTurnWorkerIsRecheckedAtItsFollowUp(t *testing.T) {
+	for _, name := range []string{"narrowed after the first run", "corrupt after the first run", "model still in the set"} {
+		cur := sets(nil)
+		ex := &treeExec{}
+		c := veteranTurn(t, ex, func() (map[string]agentpurposes.Setting, error) { return cur() })
+		if _, err := c.Spawn(context.Background(), SpawnRequest{Brief: "fix it", Role: "coder", Wait: true}); err != nil {
+			t.Fatal(err)
+		}
+		c.mu.Lock()
+		ran, other := c.workers["w1"].model.Key(), openModel.Key()
+		if ran == other {
+			other = treeModel.Key()
+		}
+		c.mu.Unlock()
+		refused := true
+		switch name {
+		case "narrowed after the first run":
+			cur = sets(map[string]agentpurposes.Setting{"coding": set("any", other)})
+		case "corrupt after the first run":
+			cur = func() (map[string]agentpurposes.Setting, error) { return nil, errors.New("corrupt row") }
+		default:
+			cur, refused = sets(map[string]agentpurposes.Setting{"coding": set("any", ran)}), false
+		}
+		n := len(ex.calls)
+		_, err := c.Message(context.Background(), "w1", "more")
+		c.Wait(context.Background(), nil, 0)
+		switch {
+		case refused && (err == nil || len(ex.calls) != n):
+			t.Errorf("%s: same-turn worker ran outside the current sets: err=%v calls %d->%d", name, err, n, len(ex.calls))
+		case !refused && (err != nil || len(ex.calls) != n+1):
+			t.Errorf("%s: a worker still inside its set was refused: err=%v calls %d->%d", name, err, n, len(ex.calls))
+		}
+	}
+}
+
+// A same-turn worker whose purpose record names an unknown id is refused.
+func TestASameTurnWorkerWithAnUnknownPurposeIsRefused(t *testing.T) {
+	ex := &treeExec{}
+	c := veteranTurn(t, ex, sets(nil))
+	if _, err := c.Spawn(context.Background(), SpawnRequest{Brief: "fix it", Role: "coder", Wait: true}); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	c.workers["w1"].staff.sides = []string{"not-a-purpose"}
+	c.mu.Unlock()
+	n := len(ex.calls)
+	if _, err := c.Message(context.Background(), "w1", "more"); err == nil || len(ex.calls) != n {
+		t.Errorf("unknown purpose id ran: err=%v calls %d->%d", err, n, len(ex.calls))
+	}
+}
