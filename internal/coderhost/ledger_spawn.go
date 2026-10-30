@@ -29,3 +29,16 @@ func spawnEntry(c Caller, title string, req SessionSpawnRequest, f SpawnFacts, d
 			req.Reason, f.OpenTasks, f.Larger, f.Writers, f.Parallel, f.HighRisk, why),
 	}
 }
+
+// operatorKeepEntry is the acceptance row of a held spawn the operator keeps (`spawn-intents resolve --keep`). The
+// table allows only model and master rows, so it is the master's kind of row (an acceptance); the reason says the
+// operator wrote it.
+func operatorKeepEntry(profile, spawner, child string, gen int64) LedgerEntry {
+	return LedgerEntry{
+		ProfileID: profile, ConversationID: spawner, Class: "scope_growth", MadeBy: WhoMaster,
+		Question:     fmt.Sprintf("keep the held spawn %q?", child),
+		Choice:       AdviceAccept,
+		Alternatives: []string{"discard the held spawn"},
+		Reason:       fmt.Sprintf("resolved by the operator with `coder sessions spawn-intents resolve --keep` (intent generation %d); the child and its task session were left as they are", gen),
+	}
+}

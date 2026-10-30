@@ -50,7 +50,7 @@ const (
 )
 
 // ErrSpawnPending refuses a spawn while an earlier spawn of this lead has not finished (or been cleaned up).
-var ErrSpawnPending = fmt.Errorf("%w: an earlier spawn of yours is unfinished (it may have been interrupted); it is cleaned up within a few minutes, then repeat the request", ErrLimit)
+var ErrSpawnPending = fmt.Errorf("%w: an earlier spawn of yours is unfinished (it may have been interrupted); it is cleaned up within a few minutes, then repeat the request; one held for the operator is listed and ended with `coder sessions spawn-intents list` and `resolve`", ErrLimit)
 
 // errIntentGone: the spawn's intent was claimed by the host's sweep (or removed) before the spawn finished.
 var errIntentGone = errors.New("the spawn's intent was ended by the host's sweep before the spawn finished")

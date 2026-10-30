@@ -203,6 +203,28 @@ var coderCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --usd 1.25", "monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --skip --reason 'free tier'"},
 	},
 	{
+		Name:     "coder sessions spawn-intents",
+		Short:    "The spawns the host holds for you after an interrupted session_spawn: list them, end one (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions spawn-intents list|resolve",
+		Examples: []string{"monoagentcli --profile work coder sessions spawn-intents list --json"},
+	},
+	{
+		Name:     "coder sessions spawn-intents list",
+		Short:    "Every spawn intent of the profile: spawner, state, attempts, claimed_at, child and its task sessions, the generation resolve needs, and whether the host holds it for you (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions spawn-intents list",
+		Examples: []string{"monoagentcli --profile work coder sessions spawn-intents list --json"},
+	},
+	{
+		Name:  "coder sessions spawn-intents resolve",
+		Short: "End a spawn the host holds for you (needs-operator only, at the generation list showed): --keep accepts it as it stands (one acceptance row; the child and task session stay), --discard removes the draft child and refuses an approved or running one (operator only)",
+		Usage: "monoagentcli [--profile P] coder sessions spawn-intents resolve SPAWNER --generation N (--keep | --discard) --confirm \"resolve spawn intent\"",
+		Flags: `  --generation int  The generation list showed for the intent
+  --keep            Accept the spawn as it stands
+  --discard         Remove the draft child and its task session
+  --confirm string  Exactly "resolve spawn intent"`,
+		Examples: []string{`monoagentcli --profile work coder sessions spawn-intents resolve <spawner-conv> --generation 7 --keep --confirm "resolve spawn intent"`},
+	},
+	{
 		Name:     "coder sessions mission-children list",
 		Short:    "Every child-session policy of the profile and the tasks that run, or ran, in sessions of their own (states and numbers, never task text)",
 		Usage:    "monoagentcli [--profile P] coder sessions mission-children list",
