@@ -102,13 +102,20 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 	}
 	var limits []string
 	var inter []agentpurposes.Pair
-	fallbackAny, diff := true, false
+	// fallbackAny governs the pair limits (only purposes that name pairs count); diffFallbackAny governs the
+	// author rule: the author's own model is allowed only when EVERY purpose that asks for the rule says
+	// Fallback any, whether or not that purpose names pairs (an empty pair list adds no pair limit, but its
+	// fallback policy still stands).
+	fallbackAny, diff, diffFallbackAny := true, false, true
 	for _, id := range st.sides {
 		set, ok := all[id]
 		if !ok {
 			continue
 		}
-		diff = diff || set.DifferentFromAuthor
+		if set.DifferentFromAuthor {
+			diff = true
+			diffFallbackAny = diffFallbackAny && set.Fallback == agentpurposes.FallbackAny
+		}
 		if len(set.Pairs) == 0 {
 			continue
 		}
@@ -156,7 +163,7 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 			if len(others) > 0 {
 				*eligible = others
 				pol.notes = append(pol.notes, "purpose "+pol.label+": a different model than the author "+pol.author)
-			} else if fallbackAny {
+			} else if diffFallbackAny {
 				pol.notes = append(pol.notes, "purpose "+pol.label+": only one validated model can run this, so it is the author's own "+pol.author+" (different-from-author fell back)")
 				pol.author = ""
 			} else {

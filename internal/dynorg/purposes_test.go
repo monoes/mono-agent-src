@@ -598,3 +598,34 @@ func TestCheapestTreatsAnUnknownPriceAsTheMostExpensive(t *testing.T) {
 		t.Errorf("all unpriced: %s, want the stated order", got)
 	}
 }
+
+// A purpose with different-from-author on, Fallback none and NO chosen pairs is still the operator's refusal:
+// an empty pair list adds no pair limit, but the purpose's fallback policy governs the author rule, so the
+// author's own model never reviews its work unless EVERY purpose that asks for the rule allows the fallback.
+func TestDifferentFromAuthorWithNoPairsKeepsItsFallbackPolicy(t *testing.T) {
+	diff := agentpurposes.Default()
+	diff.DifferentFromAuthor = true // no pairs, Fallback none
+	ctx := context.Background()
+
+	one := &Staffer{Roster: []Model{opus}, Lead: opus, Purposes: map[string]agentpurposes.Setting{"review": diff}}
+	if _, err := one.Staff(ctx, SpawnRequest{Brief: reviewBrief}); err == nil || !strings.Contains(err.Error(), "different") {
+		t.Errorf("no pairs, fallback none: the author's own model ran: %v", err)
+	}
+
+	// Together with another side whose fallback is any: the rule's own side said none.
+	other := set("any", "claude/opus")
+	other.Fallback = agentpurposes.FallbackAny
+	both := &Staffer{Roster: []Model{opus}, Lead: opus, Purposes: map[string]agentpurposes.Setting{"review": diff, "security-audit": other}}
+	if _, err := both.Staff(ctx, SpawnRequest{Brief: reviewBrief, Role: "security-reviewer"}); err == nil || !strings.Contains(err.Error(), "different") {
+		t.Errorf("combined with a fallback-any side: the author's own model ran: %v", err)
+	}
+
+	// The operator's explicit permission (Fallback any on the purpose that asks for the rule) still permits it,
+	// and the note says so.
+	diff.Fallback = agentpurposes.FallbackAny
+	one.Purposes["review"] = diff
+	st := staff(t, one, SpawnRequest{Brief: reviewBrief})
+	if st.Model.Key() != "claude/opus" || !strings.Contains(why(st), "fell back") {
+		t.Errorf("fallback any: %s: %s", st.Model.Key(), why(st))
+	}
+}
