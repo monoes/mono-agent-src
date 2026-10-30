@@ -37,7 +37,7 @@ var (
 
 // NewTokenID is a new token id: 128 random bits as lowercase hex. A token id is unique across both families
 // (mission and session) and all profiles; that holds because ids are random, and the inserts below refuse an id
-// the other family already holds.
+// the other family or a surviving revocation row already holds.
 func NewTokenID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -46,14 +46,27 @@ func NewTokenID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// idTaken says whether a token with this id exists in the table. Call it inside the write transaction of the insert.
-func idTaken(ctx context.Context, x DBTX, table, id string) (bool, error) {
-	var one int
-	err := x.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE id = ?`, id).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+// freeID is the guard of an insert, in the same statement as the insert so that no other writer can slip in between
+// the check and the write (a separate SELECT is not atomic with the INSERT outside a BEGIN IMMEDIATE transaction):
+// the id must be held by no token of the other family and by no revocation row of either kind (a surviving
+// tombstone would make a revoke of a token that reuses the id skip it).
+func freeID(otherTable string) string {
+	return ` WHERE NOT EXISTS (SELECT 1 FROM ` + otherTable + ` WHERE id = ?1)
+		  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 WHERE token_id = ?1)`
+}
+
+// insertGuarded runs a guarded INSERT ... SELECT; no row inserted means the id is in use.
+func insertGuarded(ctx context.Context, x DBTX, query string, args ...any) error {
+	res, err := x.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
 	}
-	return err == nil, err
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrIDInUse
+	}
+	return nil
 }
 
 const (
@@ -120,14 +133,9 @@ func InsertMissionToken(ctx context.Context, x DBTX, key []byte, r MissionTokenR
 	if err != nil {
 		return err
 	}
-	if taken, err := idTaken(ctx, x, "coder_session_tokens_v2", r.ID); err != nil {
-		return err
-	} else if taken {
-		return ErrIDInUse
-	}
-	_, err = x.ExecContext(ctx, `INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, mission_owner, mission_session, mission_task, mission_role, mission_actor, created_at, expires_at, version, mac)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, r.ProfileID, r.TokenHash, r.Owner, r.Session, r.Task, r.Role, r.Actor, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
-	return err
+	return insertGuarded(ctx, x, `INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, mission_owner, mission_session, mission_task, mission_role, mission_actor, created_at, expires_at, version, mac)
+		SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12`+freeID("coder_session_tokens_v2"),
+		r.ID, r.ProfileID, r.TokenHash, r.Owner, r.Session, r.Task, r.Role, r.Actor, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
 }
 
 func GetMissionToken(ctx context.Context, q DBTX, key []byte, profileID, id string) (MissionTokenRow, error) {
@@ -179,14 +187,9 @@ func InsertSessionToken(ctx context.Context, x DBTX, key []byte, r SessionTokenR
 	if err != nil {
 		return err
 	}
-	if taken, err := idTaken(ctx, x, "agent_tokens_v2", r.ID); err != nil {
-		return err
-	} else if taken {
-		return ErrIDInUse
-	}
-	_, err = x.ExecContext(ctx, `INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, r.ProfileID, r.TokenHash, r.ConversationID, r.TurnID, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
-	return err
+	return insertGuarded(ctx, x, `INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac)
+		SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9`+freeID("agent_tokens_v2"),
+		r.ID, r.ProfileID, r.TokenHash, r.ConversationID, r.TurnID, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
 }
 
 func GetSessionToken(ctx context.Context, q DBTX, key []byte, profileID, id string) (SessionTokenRow, error) {
