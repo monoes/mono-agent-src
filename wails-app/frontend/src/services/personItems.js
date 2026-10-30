@@ -14,6 +14,8 @@ export const personItemsApi = {
   // {profile, session}; rev and digest are the ones the list showed: a plan that changed since
   // is refused with code 'plan_changed'.
   approve: (sessionId, rev, digest) => run(() => GoApp.PersonItemApprove(sessionId, rev, digest || '')),
+  // {profile, item}: the whole plan of one waiting item (no field cut) under the rev and digest the list carried.
+  show: (sessionId) => run(() => GoApp.PersonItemShow(sessionId)),
   // {profile, session}: the session stays a draft; note goes to its lead.
   deny: (sessionId, note) => run(() => GoApp.PersonItemDeny(sessionId, note)),
   // {profile, sessionId, commandId, item: 'open'}: the question goes to the lead; the item stays open.

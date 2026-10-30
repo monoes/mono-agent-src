@@ -63,7 +63,7 @@ WHO MAY DO WHAT
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
   agents deny, session approve, session resume, session close, session retire-worker, session archive, session archive --cascade, session budget,
-  session person inbox, session person approve, session person deny, session person ask,
+  session person inbox, session person full, session person approve, session person deny, session person ask,
   undepend, os install and os uninstall are the operator's: they answer an agent
   with exit 3 and the code operator_only (board and approve unless delegated, see
   below). board shows the Inbox, so an agent uses "task list". os install and

@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, cleanup } from '@testing-library/react'
 
-const { api } = vi.hoisted(() => ({ api: { list: vi.fn(), approve: vi.fn(), deny: vi.fn(), ask: vi.fn() } }))
+const { api } = vi.hoisted(() => ({ api: { list: vi.fn(), approve: vi.fn(), show: vi.fn(), deny: vi.fn(), ask: vi.fn() } }))
 vi.mock('../../services/personItems.js', () => ({ personItemsApi: api }))
 
 import { usePersonItems } from './usePersonItems.js'
@@ -164,5 +164,57 @@ describe('usePersonItems', () => {
       await act(async () => { await result.current.answer('approve', it) })
       expect(api.approve).toHaveBeenCalledWith(10, 5, 'new')
     })
+  })
+
+  describe('long plan text', () => {
+    const cutItem = { ...item(1), rev: 3, digest: 'D1', tasks: [{ id: 101, title: 't', notes: 'cut…', truncated: true }] }
+    const fullItem = { ...cutItem, tasks: [{ id: 101, title: 't', notes: 'whole text' }] }
+
+    it('refuses to approve while a field is cut, and says why', async () => {
+      api.list.mockResolvedValue({ items: [cutItem] })
+      const { result } = await mount()
+      let res
+      await act(async () => { res = await result.current.answer('approve', result.current.items[0]) })
+      expect(res.code).toBe('truncated')
+      expect(api.approve).not.toHaveBeenCalled()
+    })
+
+    it('approves after expand, with the very rev and digest that were shown, and keeps the text over a poll', async () => {
+      api.list.mockResolvedValue({ items: [cutItem] })
+      api.show.mockResolvedValue({ item: fullItem })
+      const { result } = await mount()
+      await act(async () => { await result.current.expand(result.current.items[0]) })
+      expect(api.show).toHaveBeenCalledWith(10)
+      expect(result.current.items[0].tasks[0].notes).toBe('whole text')
+      await act(async () => { await result.current.refresh() })
+      expect(result.current.items[0].tasks[0].notes).toBe('whole text')
+      await act(async () => { await result.current.answer('approve', result.current.items[0]) })
+      expect(api.approve).toHaveBeenCalledWith(10, 3, 'D1')
+    })
+
+    it('treats a full text under another digest as a changed plan and does not adopt it', async () => {
+      api.list.mockResolvedValue({ items: [cutItem] })
+      api.show.mockResolvedValue({ item: { ...fullItem, digest: 'D2' } })
+      const { result } = await mount()
+      await act(async () => { await result.current.expand(result.current.items[0]) })
+      const it = result.current.items[0]
+      expect(it.changed).toBe(true)
+      expect(it.tasks[0].truncated).toBe(true)
+      let res
+      await act(async () => { res = await result.current.answer('approve', it) })
+      expect(res.code).toBe('plan_changed')
+      expect(api.approve).not.toHaveBeenCalled()
+    })
+  })
+
+  it('binds approve to the frozen item\'s own session and refuses another one', async () => {
+    api.list.mockResolvedValue({ items: [{ ...item(1), rev: 4, digest: 'same' }] })
+    const { result } = await mount()
+    let res
+    await act(async () => { res = await result.current.answer('approve', { ...result.current.items[0], sessionId: 99 }) })
+    expect(res.code).toBe('session_mismatch')
+    expect(api.approve).not.toHaveBeenCalled()
+    await act(async () => { await result.current.answer('approve', result.current.items[0]) })
+    expect(api.approve).toHaveBeenCalledWith(10, 4, 'same')
   })
 })

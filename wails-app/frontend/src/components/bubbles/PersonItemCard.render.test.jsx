@@ -147,4 +147,25 @@ describe('PersonItemCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Review the new plan/ }))
     expect(onReview).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }))
   })
+
+  it('shows each task\'s id next to its title, so "After #101" can be found', () => {
+    render(<PersonItemCard item={item({ tasks: [{ id: 101, title: 'first' }, { id: 202, title: 'second', dependsOn: [101] }] })} onAnswer={vi.fn()} />)
+    const rows = screen.getAllByRole('listitem').filter(li => /first|second/.test(li.textContent))
+    expect(rows[0]).toHaveTextContent('#101')
+    expect(rows[1]).toHaveTextContent('#202')
+    expect(rows[1]).toHaveTextContent('After #101')
+  })
+
+  it('keeps Approve off while a field is cut, offers Expand, and turns Approve on once it is shown whole', async () => {
+    const onExpand = vi.fn().mockResolvedValue({})
+    const cut = item({ rev: 2, digest: 'd', tasks: [{ id: 1, title: 't', notes: 'x'.repeat(399) + '…', truncated: true }] })
+    const { rerender } = render(<PersonItemCard item={cut} onAnswer={vi.fn()} onExpand={onExpand} />)
+    expect(screen.getByRole('button', { name: /Approve/ })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /Show the full text/ }))
+    await waitFor(() => expect(onExpand).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 7 })))
+    rerender(<PersonItemCard item={{ ...cut, tasks: [{ id: 1, title: 't', notes: 'x'.repeat(399) + '<b>HIDDEN</b>' }] }} onAnswer={vi.fn()} onExpand={onExpand} />)
+    expect(screen.getByRole('button', { name: /Approve/ })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /Show the full text/ })).toBeNull()
+    expect(screen.getByText(/<b>HIDDEN<\/b>/)).toBeInTheDocument()
+  })
 })

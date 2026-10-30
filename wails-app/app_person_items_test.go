@@ -17,6 +17,7 @@ func TestPersonItemBindingsRunTheCLI(t *testing.T) {
 		a.PersonItemApprove(7, 12, "abc"),
 		a.PersonItemDeny(7, "--split it"),
 		a.PersonItemAsk(7, "why 30 tasks?"),
+		a.PersonItemShow(7),
 	} {
 		if got != doc {
 			t.Fatalf("call %d did not return the CLI's stdout verbatim: %q", i, got)
@@ -28,6 +29,7 @@ func TestPersonItemBindingsRunTheCLI(t *testing.T) {
 		p + "approve|7|--rev=12|--digest=abc|",
 		p + "deny|7|--note=--split it|",
 		p + "ask|7|--text=why 30 tasks?|",
+		p + "full|7|",
 	}
 	if got := loggedArgs(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("argv:\n%q\nwant:\n%q", got, want)

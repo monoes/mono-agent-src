@@ -45,6 +45,7 @@ var refTaskGate = []struct {
 	{"session plan", false, []string{"session", "plan", "1"}},
 	{"session approve", true, []string{"session", "approve", "1"}},
 	{"session person inbox", true, []string{"session", "person", "inbox"}},
+	{"session person full", true, []string{"session", "person", "full", "1"}},
 	{"session person approve", true, []string{"session", "person", "approve", "1", "--rev", "1"}},
 	{"session person deny", true, []string{"session", "person", "deny", "1", "--note", "x"}},
 	{"session person ask", true, []string{"session", "person", "ask", "1", "--text", "x"}},

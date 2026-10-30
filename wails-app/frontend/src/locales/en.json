@@ -2279,6 +2279,8 @@
     "acceptance": "Done when",
     "dependsOn": "After {{ids}}",
     "changedNotice": "The plan changed since you opened it. Approve is off until you review the new plan.",
+    "cutNotice": "Part of this plan is cut short here. Approve stays off until you have read all of it.",
+    "expand": "Show the full text",
     "reviewNew": "Review the new plan",
     "planChanged": "The plan changed after you opened it, so nothing was approved. The card has reloaded: review it again.",
     "notifyTitle": "Needs you",

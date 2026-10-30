@@ -22,6 +22,8 @@ func personVerbs() map[string][]string {
 	with := func(rest ...string) []string { return append(append([]string{}, base...), rest...) }
 	return map[string][]string{
 		"inbox":                     with("inbox"),
+		"full":                      with("full", "1"),
+		"full-without-arguments":    with("full"),
 		"approve":                   with("approve", "1", "--rev", "1"),
 		"deny":                      with("deny", "1", "--note", "x"),
 		"ask":                       with("ask", "1", "--text", "x"),

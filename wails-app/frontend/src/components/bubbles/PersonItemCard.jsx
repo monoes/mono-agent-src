@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BellRing, Bell, BellOff, Check, Loader, MessageCircleQuestion, Undo2, ExternalLink } from 'lucide-react'
 import { budgetSharePercent } from '../../lib/personItems.js'
+import { isCut } from './usePersonItems.js'
 import { useNotifySound } from './useNotifySound.js'
 import './personitem.css'
 
@@ -25,7 +26,7 @@ export function MuteToggle() {
 // press; Deny and Ask more open a text box. onAnswer(verb, item, text) resolves to the CLI's
 // document or { error }. The card shows the tasks the digest covers; when the plan moved since it was
 // shown it says so, blocks Approve and offers onReview(item) to show (and guard) the new plan. The card shows a refusal where it was asked and keeps the typed text.
-export function PersonItemCard({ item, onAnswer, onReview = null, onOpenAgent = null, showMute = true }) {
+export function PersonItemCard({ item, onAnswer, onReview = null, onExpand = null, onOpenAgent = null, showMute = true }) {
   const { t } = useTranslation()
   const [mode, setMode] = useState(null) // null | 'deny' | 'ask'
   const [text, setText] = useState('')
@@ -39,6 +40,7 @@ export function PersonItemCard({ item, onAnswer, onReview = null, onOpenAgent = 
   const reasons = item.reasons || []
   const tasks = item.tasks || []
   const pct = budgetSharePercent(item)
+  const cut = isCut(item) // Approve waits until every field is shown whole
 
   // The box takes focus when it opens; closing it hands focus back to the button that opened it.
   useEffect(() => {
@@ -54,6 +56,12 @@ export function PersonItemCard({ item, onAnswer, onReview = null, onOpenAgent = 
     setBusy(false)
     if (res?.error) { setError(res.code === 'plan_changed' ? t('personItem.planChanged') : String(res.error)); return }
     if (verb === 'ask') { setAsked(true); setText(''); setMode(null) }
+  }
+  const expand = async () => {
+    setBusy(true); setError('')
+    const res = await onExpand?.(item)
+    setBusy(false)
+    if (res?.error) setError(res.code === 'plan_changed' ? t('personItem.planChanged') : String(res.error))
   }
   const submit = () => { if (text.trim() && !busy) send(mode, text.trim()) }
 
@@ -80,9 +88,15 @@ export function PersonItemCard({ item, onAnswer, onReview = null, onOpenAgent = 
       {tasks.length > 0 && (
         <div className="pi-plan">
           <div className="pi-why-head">{t('personItem.planTasks')}</div>
+          {cut && (
+            <div className="pi-note" role="status">
+              {t('personItem.cutNotice')}{' '}
+              {onExpand && <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={expand}>{t('personItem.expand')}</button>}
+            </div>
+          )}
           <ol>{tasks.map(tk => (
             <li key={tk.id}>
-              <strong>{tk.title}</strong>
+              <strong>#{tk.id} {tk.title}</strong>
               {tk.notes && <div className="pi-task-line">{tk.notes}</div>}
               {tk.acceptance && <div className="pi-task-line">{t('personItem.acceptance')}: {tk.acceptance}</div>}
               {tk.dependsOn?.length > 0 && <div className="pi-task-line">{t('personItem.dependsOn', { ids: tk.dependsOn.map(n => `#${n}`).join(', ') })}</div>}
@@ -109,7 +123,7 @@ export function PersonItemCard({ item, onAnswer, onReview = null, onOpenAgent = 
       <div className="pi-actions">
         {!mode && (
           <>
-            <button type="button" className="btn btn-primary btn-sm" disabled={busy || !!item.changed} onClick={() => send('approve')}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy || !!item.changed || cut} onClick={() => send('approve')}>
               {busy ? <Loader size={11} className="spin" aria-hidden="true" /> : <Check size={11} aria-hidden="true" />} {t('personItem.approve')}
             </button>
             <button type="button" className="btn btn-ghost btn-sm" disabled={busy} ref={el => { buttons.current.deny = el }} onClick={() => open('deny')}>

@@ -88,6 +88,12 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work --json task session person inbox"},
 	},
 	{
+		Name:     "task session person full",
+		Short:    "The whole plan of one waiting item, no field cut, under the same rev and digest `person inbox` carries; changes nothing (the operator only; needs an open item)",
+		Usage:    "monoagentcli [--profile P] task session person full ID",
+		Examples: []string{"monoagentcli --profile work --json task session person full 7"},
+	},
+	{
 		Name:     "task session person approve",
 		Short:    "Approve the plan of a giant session that waits for you: it runs and the approval is recorded as the person's (the operator only; needs an open item)",
 		Usage:    "monoagentcli [--profile P] task session person approve ID --rev N [--digest HASH]",

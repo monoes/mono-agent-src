@@ -31,13 +31,17 @@ const sameGuard = (a, b) => (a?.rev ?? 0) === (b?.rev ?? 0) && (a?.digest ?? '')
 // it is. An item already shown keeps the rev, digest and content it was shown with: a newer plan
 // goes to `latest` and the item is marked `changed`, so the guard an approval carries is never
 // swapped under the person. Only review() (a fresh explicit act) adopts the newer plan.
+// isCut: a field of the plan was cut for the card, so the person has not read all the words the
+// digest covers.
+export const isCut = item => (item?.tasks || []).some(tk => tk.truncated)
+
 export function freezeShown(shown, fresh) {
   const next = new Map()
   for (const it of fresh) {
     const was = shown.get(it.id)
     if (!was || was.sessionId !== it.sessionId) next.set(it.id, { ...it, changed: false, latest: null })
     else if (was.changed || !sameGuard(was, it)) next.set(it.id, { ...was, changed: true, latest: it })
-    else next.set(it.id, { ...it, changed: false, latest: null })
+    else next.set(it.id, { ...it, tasks: was.expanded ? was.tasks : it.tasks, expanded: !!was.expanded, changed: false, latest: null })
   }
   return next
 }
@@ -47,7 +51,10 @@ export function freezeShown(shown, fresh) {
 // at most one per five seconds, never twice for one item) and a desktop notification.
 // answer(verb, item, text) runs the CLI verb and reads the list again at once. Approve carries the
 // rev and digest the person was shown (never the newest) and is refused while the item is marked
-// changed; review(id) shows the newer plan and freezes its rev and digest.
+// changed or while any of its text is cut (code 'truncated'), and is bound to the frozen item's own
+// session (code 'session_mismatch' for another id). expand(item) loads the whole text for the same
+// rev and digest; a different digest marks the item changed and the cut text stays cut.
+// review(id) shows the newer plan and freezes its rev and digest.
 //   alerts { title, body(count) }: the notification's words, so the hook holds no copy.
 export function usePersonItems({ enabled = true, alerts = null, play = playChime, now = Date.now } = {}) {
   const [items, setItems] = useState([])
@@ -96,10 +103,31 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
     setItems([...shownRef.current.values()])
   }, [])
 
+  const expand = useCallback(async item => {
+    const shown = shownRef.current.get(item?.id)
+    if (!shown) return { error: 'unknown item' }
+    if (item.sessionId !== shown.sessionId) return { error: 'the item belongs to another session', code: 'session_mismatch' }
+    const res = await personItemsApi.show(shown.sessionId)
+    const full = res?.item
+    if (res?.error || !full || full.sessionId !== shown.sessionId || isCut(full)) return { error: res?.error || 'the full text could not be loaded', code: res?.code }
+    const base = shownRef.current.get(shown.id) // a poll may have replaced the entry meanwhile; its guard is the frozen one
+    if (!base || base.changed || !sameGuard(base, shown)) return { error: 'the plan changed since it was shown', code: 'plan_changed' }
+    if (!sameGuard(base, full)) {
+      shownRef.current = new Map(shownRef.current).set(base.id, { ...base, changed: true, latest: { ...base, ...full } })
+      setItems([...shownRef.current.values()])
+      return { error: 'the plan changed since it was shown', code: 'plan_changed' }
+    }
+    shownRef.current = new Map(shownRef.current).set(base.id, { ...base, tasks: full.tasks, expanded: true })
+    setItems([...shownRef.current.values()])
+    return {}
+  }, [])
+
   const answer = useCallback(async (verb, item, text = '') => {
-    const id = item?.sessionId
     const shown = shownRef.current.get(item?.id) ?? item
+    const id = shown?.sessionId
+    if (item?.sessionId !== id) return { error: 'the item belongs to another session', code: 'session_mismatch' }
     if (verb === 'approve' && shown?.changed) return { error: 'the plan changed since it was shown', code: 'plan_changed' }
+    if (verb === 'approve' && isCut(shown)) return { error: 'part of the plan has not been shown in full', code: 'truncated' }
     const res = verb === 'approve' ? await personItemsApi.approve(id, shown?.rev ?? 0, shown?.digest ?? '')
       : verb === 'deny' ? await personItemsApi.deny(id, text)
         : verb === 'ask' ? await personItemsApi.ask(id, text)
@@ -108,5 +136,5 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
     return res
   }, [refresh])
 
-  return { items, loaded, refresh, answer, review }
+  return { items, loaded, refresh, answer, review, expand }
 }

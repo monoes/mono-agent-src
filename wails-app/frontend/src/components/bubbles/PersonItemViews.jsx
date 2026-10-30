@@ -35,13 +35,13 @@ const composer = () => document.querySelector('[data-testid="bubble-overlay"] te
 // session this chat is the agent of, above the transcript so they are seen at once.
 export function PersonItemsRegion({ conversationId }) {
   const { t } = useTranslation()
-  const { items, answer, review } = usePersonItemsContext()
+  const { items, answer, review, expand } = usePersonItemsContext()
   const mine = itemsForConversation(items, conversationId).filter(isPlan)
   const keep = useKeepFocus(mine.length, composer)
   if (mine.length === 0) return null
   return (
     <div className="pi-region" data-testid="person-items-pane" role="region" aria-label={t('personItem.regionLabel')} aria-live="polite">
-      {mine.map(it => <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onReview={it => review(it.id)} />)}
+      {mine.map(it => <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onReview={it => review(it.id)} onExpand={expand} />)}
     </div>
   )
 }
@@ -50,7 +50,7 @@ export function PersonItemsRegion({ conversationId }) {
 // them, so a plan is answerable without finding the agent first. It pulses until it is opened.
 export function PersonItemTray() {
   const { t } = useTranslation()
-  const { items, answer, review, openAgent } = usePersonItemsContext()
+  const { items, answer, review, expand, openAgent } = usePersonItemsContext()
   const list = items.filter(isPlan)
   const [open, setOpen] = useState(false)
   const [seenCount, setSeenCount] = useState(0)
@@ -77,7 +77,7 @@ export function PersonItemTray() {
       </button>
       {open && (
         <div className="pi-tray-pop" role="region" aria-label={t('personItem.regionLabel')}>
-          {list.map(it => <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onReview={it => review(it.id)} onOpenAgent={openAgent} />)}
+          {list.map(it => <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onReview={it => review(it.id)} onExpand={expand} onOpenAgent={openAgent} />)}
         </div>
       )}
     </div>
@@ -88,7 +88,7 @@ export function PersonItemTray() {
 // item, a plan as its full card, any other kind as a row that opens the chat it was raised in.
 export function PersonItemsInbox() {
   const { t } = useTranslation()
-  const { items, answer, review, openAgent } = usePersonItemsContext()
+  const { items, answer, review, expand, openAgent } = usePersonItemsContext()
   const keep = useKeepFocus(items.length, () => document.querySelector('[data-testid="person-inbox"]'))
   if (items.length === 0) return null
   return (
@@ -99,7 +99,7 @@ export function PersonItemsInbox() {
         <MuteToggle />
       </div>
       {items.map(it => isPlan(it)
-        ? <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onReview={it => review(it.id)} onOpenAgent={openAgent} showMute={false} />
+        ? <PersonCard key={it.id} item={it} onAnswer={keep(answer)} onReview={it => review(it.id)} onExpand={expand} onOpenAgent={openAgent} showMute={false} />
         : (
           <div className="pi-row" key={it.id} data-kind={it.kind}>
             <span className="pi-row-text">{t('personItem.otherKind', { kind: it.kind })}</span>

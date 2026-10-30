@@ -14,6 +14,7 @@ import (
 func personVerbArgs(big int64) map[string][]string {
 	return map[string][]string{
 		"inbox":   {"inbox"},
+		"full":    {"full", id(big)},
 		"approve": {"approve", id(big), "--rev", "1"},
 		"deny":    {"deny", id(big), "--note", "n"},
 		"ask":     {"ask", id(big), "--text", "t"},

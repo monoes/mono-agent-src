@@ -69,3 +69,9 @@ func (a *App) personAnswer(sessionID int64, words, verb string, flag ...string) 
 	}
 	return a.taskCLI("", args...)
 }
+
+// PersonItemShow is `task session person full ID`: the whole plan of one waiting item, no field
+// cut, with the rev and digest the inbox carries.
+func (a *App) PersonItemShow(sessionID int64) string {
+	return a.personAnswer(sessionID, "", "full")
+}

@@ -2237,6 +2237,8 @@
     "acceptance": "Terminado cuando",
     "dependsOn": "Después de {{ids}}",
     "changedNotice": "El plan cambió desde que lo abriste. Aprobar queda desactivado hasta que revises el nuevo plan.",
+    "cutNotice": "Parte de este plan se muestra recortada. Aprobar queda desactivado hasta que lo hayas leído completo.",
+    "expand": "Mostrar el texto completo",
     "reviewNew": "Revisar el nuevo plan",
     "planChanged": "El plan cambió después de abrirlo, así que no se aprobó nada. La tarjeta se recargó: revísala de nuevo.",
     "notifyTitle": "Te necesita",

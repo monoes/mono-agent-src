@@ -18,6 +18,7 @@ import (
 //
 //	approve ID --rev N  the operator's `session approve` of the plan as read (the inbox's rev), recorded as the person's
 //	deny ID --note T  the session stays a draft; the note is kept in its history and told to its lead
+//	full ID           the whole plan of one item, under the same rev and digest the inbox carries
 //	ask ID --text T   the question is told to the lead; the item stays open
 
 const personWhat = "answer a person item"
@@ -54,14 +55,26 @@ type personTaskView struct {
 	Notes      string  `json:"notes,omitempty"`
 	Acceptance string  `json:"acceptance,omitempty"`
 	DependsOn  []int64 `json:"dependsOn,omitempty"`
+	Truncated  bool    `json:"truncated,omitempty"` // a field was cut: the digest covers more than this shows; `person full` has it whole
 }
 
 const personTaskCut = 400
 
-func personTasks(ts []tasks.PlanTask) []personTaskView {
+// personTasks lists the plan's tasks; unless full, a long field is cut for the inbox and the task
+// says so (Truncated), so the card never offers approval for words it did not show.
+func personTasks(ts []tasks.PlanTask, full bool) []personTaskView {
 	out := make([]personTaskView, 0, len(ts))
 	for _, t := range ts {
-		out = append(out, personTaskView{ID: t.ID, Title: taskCut(t.Title, personTaskCut), Notes: taskCut(t.Notes, personTaskCut), Acceptance: taskCut(t.Acceptance, personTaskCut), DependsOn: t.DependsOn})
+		v := personTaskView{ID: t.ID, Title: t.Title, Notes: t.Notes, Acceptance: t.Acceptance, DependsOn: t.DependsOn}
+		if !full {
+			cut := func(s string) string {
+				c := taskCut(s, personTaskCut)
+				v.Truncated = v.Truncated || c != s
+				return c
+			}
+			v.Title, v.Notes, v.Acceptance = cut(t.Title), cut(t.Notes), cut(t.Acceptance)
+		}
+		out = append(out, v)
 	}
 	return out
 }
@@ -75,7 +88,7 @@ func (d Deps) newSessionPersonCmd() *cobra.Command {
 			"`inbox` lists what waits and why; `approve` approves the plan (recorded as the person's approval); `deny --note` leaves the " +
 			"session a draft and sends the note to its lead; `ask --text` sends a question to the lead and leaves the item open.",
 	}
-	cmd.AddCommand(d.newPersonInboxCmd(), d.newPersonApproveCmd(), d.newPersonDenyCmd(), d.newPersonAskCmd())
+	cmd.AddCommand(d.newPersonInboxCmd(), d.newPersonFullCmd(), d.newPersonApproveCmd(), d.newPersonDenyCmd(), d.newPersonAskCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -105,7 +118,7 @@ func (d Deps) newPersonInboxCmd() *cobra.Command {
 				}
 				views := make([]personItemView, 0, len(items))
 				for _, it := range items {
-					views = append(views, d.personView(ctx, store, p, it, actor))
+					views = append(views, d.personView(ctx, store, p, it, actor, false))
 				}
 				if d.JSONOutput() {
 					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "items": views})
@@ -132,7 +145,7 @@ func (d Deps) newPersonInboxCmd() *cobra.Command {
 
 // personView fills what the item row does not hold. A session that cannot be read is listed
 // as the bare item: the person is still told something waits.
-func (d Deps) personView(ctx context.Context, store *tasks.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor) personItemView {
+func (d Deps) personView(ctx context.Context, store *tasks.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor, full bool) personItemView {
 	v := personItemView{ID: it.ID, Kind: it.Kind, CreatedAt: it.CreatedAt, LeadConversation: it.ConversationID}
 	if it.Kind != coderhost.ItemPlanApproval {
 		v.RefID = it.RefID
@@ -145,7 +158,7 @@ func (d Deps) personView(ctx context.Context, store *tasks.Store, p tasks.Profil
 	}
 	v.Conversation, v.Title, v.Goal, v.State = se.ConversationID, se.Title, se.Goal, string(se.State)
 	v.MaxTasks, v.Access, v.Depth = se.MaxTasks, se.AccessLevel, se.Depth
-	v.Rev, v.Digest, v.Tasks = pv.Rev, pv.Digest, personTasks(pv.Tasks)
+	v.Rev, v.Digest, v.Tasks = pv.Rev, pv.Digest, personTasks(pv.Tasks, full)
 	if f, err := store.GiantFactsOf(ctx, p.ID, it.RefID, actor); err == nil {
 		v.Reasons, v.TaskCount, v.BudgetUSD, v.BudgetShare = f.Reasons, f.TaskCount, f.BudgetUSD, f.BudgetShare
 	}
@@ -197,6 +210,28 @@ func (d Deps) personAnswer(use, short string, wordsFlag, wordsHelp string, run f
 		cmd.Flags().StringVar(&words, wordsFlag, "", wordsHelp)
 	}
 	return cmd
+}
+
+func (d Deps) newPersonFullCmd() *cobra.Command {
+	return d.personAnswer("full ID", "Show the whole plan of one waiting item, no field cut, under the rev and digest `person inbox` carries (nothing is changed)", "", "",
+		func(cmd *cobra.Command, store *tasks.Store, _ *coderhost.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor, _ string) error {
+			v := d.personView(cmd.Context(), store, p, it, actor, true)
+			if d.JSONOutput() {
+				return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "item": v})
+			}
+			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "session #%d  %s  rev %d\n", v.SessionID, v.Title, v.Rev)
+			for _, tk := range v.Tasks {
+				fmt.Fprintf(w, "#%d  %s\n", tk.ID, tk.Title)
+				if tk.Notes != "" {
+					fmt.Fprintf(w, "    %s\n", tk.Notes)
+				}
+				if tk.Acceptance != "" {
+					fmt.Fprintf(w, "    done when: %s\n", tk.Acceptance)
+				}
+			}
+			return nil
+		})
 }
 
 func (d Deps) newPersonApproveCmd() *cobra.Command {
