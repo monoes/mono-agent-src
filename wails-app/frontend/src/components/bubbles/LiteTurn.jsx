@@ -56,7 +56,7 @@ export function LiteTurn({ state, turnId = '', isLive = false }) {
   const parts = state?.parts || []
   const calls = state?.calls || {}
   return (
-    <div data-testid="lite-turn">
+    <div data-testid="lite-turn" style={{ maxWidth: '100%', minWidth: 0 }}>
       {parts.map((part, i) => {
         if (part.kind === 'text') return part.text ? <ChatMarkdown key={`t-${part.partId}-${i}`} content={part.text} /> : null
         if (part.kind !== 'tool') return null
