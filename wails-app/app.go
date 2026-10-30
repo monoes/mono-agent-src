@@ -26,12 +26,17 @@ import (
 
 // App holds application state bound to the Wails runtime.
 type App struct {
-	ctx     context.Context
-	db      *sql.DB
-	dbPath  string
-	logs    []LogEntry
-	logsMu  sync.Mutex
-	chatSup *chatSupervisor // conversation/turn/event supervisor; see app_chat.go
+	ctx    context.Context
+	db     *sql.DB
+	dbPath string
+	logs   []LogEntry
+	logsMu sync.Mutex
+	// offered are the chats whose last delete the CLI itself kept because processes they left are still
+	// running, with the processes it listed: only these can be deleted anyway (see
+	// DeleteChatConversationsAnyway). Keyed by profile and conversation; entries expire.
+	offered   map[string]offeredDelete
+	offeredMu sync.Mutex
+	chatSup   *chatSupervisor // conversation/turn/event supervisor; see app_chat.go
 
 	runningMu      sync.Mutex
 	runningCmds    map[string]*exec.Cmd // workflowID / "action:<id>" / "noderun:<id>" → running subprocess

@@ -190,6 +190,8 @@ export function DeleteChatConversation(arg1:string):Promise<string>;
 
 export function DeleteChatConversations(arg1:Array<string>):Promise<main.DeleteChatResult>;
 
+export function DeleteChatConversationsAnyway(arg1:Array<string>):Promise<main.DeleteChatResult>;
+
 export function DeleteOrgDesign(arg1:string):Promise<string>;
 
 export function DeleteOrgSection(arg1:string,arg2:string,arg3:string):Promise<string>;
