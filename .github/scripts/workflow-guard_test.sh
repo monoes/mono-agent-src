@@ -90,4 +90,24 @@ mutant on-target-mapping   $'\n  pull_request_target:'    ' ubuntu-latest'
 mutant matrix-custom-os    ' push'                          ' ${{ matrix.os }}' $'    strategy:\n      matrix:\n        os: [ubuntu-latest, monoes-local]\n'
 mutant matrix-no-os        ' push'                          ' ${{ matrix.os }}' $'    strategy:\n      matrix:\n        x: [1]\n'
 mutant pinned-label        ' push'                          ' ubuntu-22.04'
+
+# Job-level `uses:` (a reusable workflow call): only a LOCAL callee is allowed (it is
+# checked in its own file); a remote one could name self-hosted labels unseen.
+rawmutant() { # NAME FILE-CONTENT WANT(reject|accept)
+  local m="$d/$1" got=accept
+  mkdir -p "$m"
+  printf '%s\n' "$2" >"$m/w.yml"
+  check "$m" >/dev/null 2>&1 || got=reject
+  if [ "$got" = "$3" ]; then echo "ok    ${3}s $1"; else echo "FAIL  $1: wanted $3, got $got"; fail=1; fi
+}
+rawmutant remote-reusable-workflow $'on: [push]\njobs:\n  a:\n    uses: owner/repo/.github/workflows/x.yml@main' reject
+rawmutant remote-reusable-pinned   $'on: [push]\njobs:\n  a:\n    uses: owner/repo/.github/workflows/x.yml@0123456789abcdef0123456789abcdef01234567' reject
+rawmutant docker-job-uses          $'on: [push]\njobs:\n  a:\n    uses: docker://alpine' reject
+rawmutant local-reusable-workflow  $'on: [push]\njobs:\n  a:\n    uses: ./.github/workflows/x.yml' accept
+rawmutant step-level-uses-is-fine  $'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4' accept
+# YAML 1.1 (PyYAML) vs GitHub: constructs where the two parsers may disagree are rejected outright.
+rawmutant duplicate-runs-on        $'on: [push]\njobs:\n  a:\n    runs-on: monoes-local\n    runs-on: ubuntu-latest\n    steps:\n      - run: true' reject
+rawmutant duplicate-runs-on-rev    $'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    runs-on: monoes-local\n    steps:\n      - run: true' reject
+rawmutant merge-key                $'on: [push]\njobs:\n  a:\n    <<: {runs-on: monoes-local}\n    runs-on: ubuntu-latest\n    steps:\n      - run: true' reject
+rawmutant yaml-tag                 $'on: [push]\njobs:\n  a:\n    runs-on: !!str monoes-local\n    steps:\n      - run: true' reject
 exit $fail

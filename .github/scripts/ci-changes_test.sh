@@ -21,6 +21,15 @@ printf 'package tpl\n\n//go:embed templates/*.html\n' >"$fix/internal/tpl/embed.
 printf 'package ui\n\nvar (\n\t//go:embed all:dist\n\tdist int\n)\n' >"$fix/pkg/ui/embed.go"
 printf 'package config\n' >"$fix/internal/config/c.go"
 printf '//go:build nosocial\n\npackage social\n' >"$fix/internal/social/stub.go"
+# Build constraints: only a constraint that PROVABLY excludes nosocial counts (no || and no parentheses).
+printf '//go:build !nosocial && linux && !windows\n\npackage social\n' >"$fix/internal/social/and.go"
+printf '//go:build !nosocial && linux || nosocial\n\npackage social\n' >"$fix/internal/social/or_nosocial.go"
+printf '//go:build !nosocial && linux || windows\n\npackage social\n' >"$fix/internal/social/or_windows.go"
+printf '//go:build (!nosocial)\n\npackage social\n' >"$fix/internal/social/paren.go"
+printf '// +build !nosocial\n\npackage social\n' >"$fix/internal/social/oldstyle.go"
+# Quoted and backquoted //go:embed paths with spaces.
+mkdir -p "$fix/embq/a b" "$fix/embq/c d" "$fix/embq/plain"
+printf 'package embq\n\n//go:embed "a b" `c d` plain\n' >"$fix/embq/embed.go"
 
 fail=0
 # check NAME FILES WANT, WANT = "go wails extension nosocial account docs_only ci_workflow"
@@ -47,6 +56,15 @@ check "go, plain package: nosocial runs"    $'internal/plain/p.go'              
 check "shared dependency (config): nosocial" $'internal/config/c.go'                     "true true false true false false false"
 check "go, untagged file in social pkg"    $'internal/social/b.go'                       "true true false true false false false"
 check "go, !nosocial-only file: no nosocial" $'internal/social/a.go'                     "true true false false false false false"
+check "constraint !nosocial && tags (and only &&)" $'internal/social/and.go'             "true true false false false false false"
+check "constraint !nosocial && linux || nosocial" $'internal/social/or_nosocial.go'      "true true false true false false false"
+check "constraint !nosocial && linux || windows" $'internal/social/or_windows.go'        "true true false true false false false"
+check "constraint (!nosocial) is conservative" $'internal/social/paren.go'               "true true false true false false false"
+check "old // +build !nosocial is conservative" $'internal/social/oldstyle.go'           "true true false true false false false"
+check "new md under quoted embed with a space" $'embq/a b/new.md'                        "true true false true false false false"
+check "new md under backquoted embed with a space" $'embq/c d/new.md'                    "true true false true false false false"
+check "new md under unquoted embed beside quoted" $'embq/plain/new.md'                   "true true false true false false false"
+check "md in embq/, not embedded, stays docs" $'embq/readme.md'                          "false false false false false true false"
 check "go, nosocial stub file"             $'internal/social/stub.go'                    "true true false true false false false"
 check "go, deleted file (cannot inspect)"  $'internal/social/gone.go'                    "true true false true false false false"
 check "social-only file + shared package"  $'internal/social/a.go\ninternal/config/c.go' "true true false true false false false"
