@@ -1778,6 +1778,8 @@
         "conversation": "Abrir conversación"
       },
       "confirmClose": "¿Cerrar esta misión? Sus tareas se quedan como están; los agentes dejan de empezar trabajo.",
+      "confirmArchiveCascade_one": "¿Archivar esta sesión y {{count}} sesión por debajo? Las que corren se detienen primero (se liberan sus reclamaciones). Abiertas por debajo: {{titles}}",
+      "confirmArchiveCascade_other": "¿Archivar esta sesión y las {{count}} sesiones por debajo? Las que corren se detienen primero (se liberan sus reclamaciones). Abiertas por debajo: {{titles}}",
       "confirmStop": "¿Detener esta sesión para siempre? Se liberan todas las reclamaciones y sus agentes paran; las tareas se quedan donde están.",
       "budgetLabel": "Presupuesto (USD)",
       "budgetHint": "0 para sin presupuesto",
@@ -1805,7 +1807,20 @@
       "retry": "Reintentar",
       "planError": "No se pudo leer el plan",
       "planEmpty": "Este plan aún no tiene tareas",
-      "planShowMore": "Mostrar {{count}} filas más ({{left}} restantes)"
+      "planShowMore": "Mostrar {{count}} filas más ({{left}} restantes)",
+      "new": "Nueva sesión",
+      "create": "Crear sesión",
+      "rename": "Renombrar",
+      "renameLabel": "Título de la sesión",
+      "titleLabel": "Título",
+      "goalLabel": "Objetivo (opcional)",
+      "parentLabel": "Sesión superior",
+      "noParent": "Sin sesión superior",
+      "by": "por {{who}}",
+      "titleProblem": {
+        "empty": "Pon un título a la sesión.",
+        "tooLong": "El título supera los {{max}} caracteres. Acórtalo; no se recorta nada por ti."
+      }
     }
   },
   "publication": {
@@ -2190,5 +2205,27 @@
     "deleteFailed": "No se pudieron eliminar {{count}}: {{message}}",
     "dismiss": "Descartar",
     "mission": "Misión: {{state}}"
+  },
+  "chatLinks": {
+    "openInBrowser": "Abrir en el navegador",
+    "blocked": "Enlace bloqueado: solo se abren enlaces http y https",
+    "disguised": "El texto dice {{shown}} pero este enlace abre {{host}}",
+    "opensHost": "Abre {{host}}",
+    "previewHint": "Vista previa (Ctrl/Cmd-clic para mostrarlo en el gestor de archivos)",
+    "revealHint": "Mostrar en el gestor de archivos",
+    "checkHint": "Ruta: haz clic para comprobarla y abrirla",
+    "notFound": "No encontrada",
+    "reveal": "Mostrar en carpeta",
+    "revealNamed": "Mostrar {{name}} en el gestor de archivos",
+    "openFolder": "Abrir carpeta",
+    "line": "línea {{line}}",
+    "previewTitle": "Vista previa de {{name}}",
+    "close": "Cerrar vista previa",
+    "loading": "Cargando…",
+    "previewFailed": "No se pudo mostrar este archivo: {{message}}",
+    "revealFailed": "No se pudo mostrar el archivo: {{message}}",
+    "copyCode": "Copiar código",
+    "copy": "Copiar",
+    "copied": "Copiado"
   }
 }

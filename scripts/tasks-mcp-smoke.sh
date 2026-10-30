@@ -159,6 +159,8 @@ exec 3>&-
 wait "$wsrv" || true
 out="$(cat "$worker_out")"
 resp "$out" 2 | jq -e --argjson a "$s1" --argjson b "$s2" '.result.isError!=true and ((.result.content[0].text|fromjson|.sessions|map(.id))|index($a)!=null and index($b)!=null)' >/dev/null || fail "task_session_list: $(resp "$out" 2)"
+# the tree fields: top-level sessions (no parent_session_id key), kind, depth 1, and who approved them
+resp "$out" 2 | jq -e --argjson a "$s1" '(.result.content[0].text|fromjson|.sessions|map(select(.id==$a))|.[0]) as $s | ($s|has("parent_session_id")|not) and $s.kind=="board" and $s.depth==1 and $s.approval_basis=="operator"' >/dev/null || fail "task_session_list lacks kind, depth or approval_basis: $(resp "$out" 2)"
 resp "$out" 3 | jq -e --argjson a "$ta" --argjson b "$tb" '.result.isError!=true and ((.result.content[0].text|fromjson|.tasks|map(.id))|sort)==([$a,$b]|sort)' >/dev/null || fail "task_session_get: $(resp "$out" 3)"
 resp "$out" 4 | jq -e --argjson a "$ta" '.result.isError!=true and (.result.content[0].text|fromjson|.task.id)==$a' >/dev/null || fail "task_next in the session is not the first step: $(resp "$out" 4)"
 resp "$out" 5 | jq -e '.result.isError==true' >/dev/null || fail "claimed a task that waits for its dependency: $(resp "$out" 5)"

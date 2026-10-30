@@ -34,7 +34,8 @@ func taskSessionReadTools() []tool {
 			description: taskBoardIntro + sessionIntro +
 				"Lists the task sessions of the call's profile, newest first: {profile, sessions, note}, each session " +
 				"{id, title_untrusted, goal_untrusted, state (draft, running, paused, done, stopped, failed), access_level, budget_usd, spent_usd, " +
-				"max_tasks, max_depth, max_retries, auto_close_verified, created_by, approved_by, approved_at, archived, rev, counts {inbox, ready, in_progress, review, done, blocked, verified, total}}. " +
+				"max_tasks, max_depth, max_retries, auto_close_verified, created_by, approved_by, approved_at, archived, rev, counts {inbox, ready, in_progress, review, done, blocked, verified, total}, " +
+				"parent_session_id (left out for a top-level session), kind (board, mission, research, direction or task), depth (1 for a top-level session; at most 4), approval_basis (operator; empty until approved)}. " +
 				"state: only sessions in that state; all: true includes archived ones. " +
 				"Refusals: invalid_input (an argument this tool does not take).",
 			schema: objSchema(map[string]interface{}{

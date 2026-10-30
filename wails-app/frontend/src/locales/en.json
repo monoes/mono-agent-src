@@ -1820,6 +1820,8 @@
         "conversation": "Open conversation"
       },
       "confirmClose": "Close this mission? Its tasks stay as they are; workers stop starting.",
+      "confirmArchiveCascade_one": "Archive this session and {{count}} session below it? Running ones are stopped first (their claims are released). Open below it: {{titles}}",
+      "confirmArchiveCascade_other": "Archive this session and the {{count}} sessions below it? Running ones are stopped first (their claims are released). Open below it: {{titles}}",
       "confirmStop": "Stop this session for good? Every claim is released and its workers stop; the tasks stay where they are.",
       "budgetLabel": "Budget (USD)",
       "budgetHint": "0 for no budget",
@@ -1847,7 +1849,20 @@
       "retry": "Retry",
       "planError": "Could not read the plan",
       "planEmpty": "No tasks in this plan yet",
-      "planShowMore": "Show {{count}} more rows ({{left}} left)"
+      "planShowMore": "Show {{count}} more rows ({{left}} left)",
+      "new": "New session",
+      "create": "Create session",
+      "rename": "Rename",
+      "renameLabel": "Session title",
+      "titleLabel": "Title",
+      "goalLabel": "Goal (optional)",
+      "parentLabel": "Parent session",
+      "noParent": "No parent",
+      "by": "by {{who}}",
+      "titleProblem": {
+        "empty": "Give the session a title.",
+        "tooLong": "The title is longer than {{max}} characters. Shorten it; nothing is cut for you."
+      }
     }
   },
   "publication": {
@@ -2232,5 +2247,27 @@
     "deleteFailed": "Could not delete {{count}}: {{message}}",
     "dismiss": "Dismiss",
     "mission": "Mission: {{state}}"
+  },
+  "chatLinks": {
+    "openInBrowser": "Open in browser",
+    "blocked": "Link blocked: only http and https links open",
+    "disguised": "The text says {{shown}} but this link opens {{host}}",
+    "opensHost": "Opens {{host}}",
+    "previewHint": "Preview (Ctrl/Cmd-click to show in the file manager)",
+    "revealHint": "Show in the file manager",
+    "checkHint": "Path: click to check it and open it",
+    "notFound": "Not found",
+    "reveal": "Show in folder",
+    "revealNamed": "Show {{name}} in the file manager",
+    "openFolder": "Open folder",
+    "line": "line {{line}}",
+    "previewTitle": "Preview of {{name}}",
+    "close": "Close preview",
+    "loading": "Loading…",
+    "previewFailed": "Could not preview this file: {{message}}",
+    "revealFailed": "Could not show the file: {{message}}",
+    "copyCode": "Copy code",
+    "copy": "Copy",
+    "copied": "Copied"
   }
 }
