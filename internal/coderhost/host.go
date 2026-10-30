@@ -53,6 +53,10 @@ type Host struct {
 	// use sessions without conversation rows leave it off.
 	RequireConversations bool
 
+	// ChildTokens, when set, ends the task tokens of a mission child's runs (see missionchild_token.go): when its
+	// turn has ended and when it is stopped. The launcher that mints those tokens supplies it.
+	ChildTokens ChildTokenRevoker
+
 	// CheckinEvery is how often masters are looked at (default 30 s); the interval
 	// each master asks for is its own setting.
 	CheckinEvery time.Duration
@@ -61,6 +65,8 @@ type Host struct {
 	// MissionChildEvery is how often the mission child pass runs (default 5 s); see missionchild.go.
 	MissionChildEvery time.Duration
 	lastMissionPass   time.Time
+	chargeCursor      int64               // the sweep of uncharged ended rows resumes after this row id
+	snapshotCursor    int64               // the sweep of unanswered spend snapshots resumes after this event id
 	orphanSeen        map[string]bool     // orphaned carves already reported; Tick only
 	leadFacts         map[string]leadFact // what one pass read about each lead; Tick only
 
@@ -112,6 +118,9 @@ func (h *Host) Recover() error {
 
 // settle clears a session's turn; a paused session stays paused. Callers hold mu.
 func (h *Host) settle(x Session) {
+	if x.Role == "child" {
+		_ = h.revokeChildTokens(x.ProfileID, x.ConversationID) // the run is over: no token of it outlives it
+	}
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
 		x = cur
 	}
@@ -368,6 +377,9 @@ func (h *Host) Tick() error {
 			}
 			if t != nil {
 				t.Stop()
+				if x.Role == "child" {
+					_ = h.revokeChildTokens(c.ProfileID, c.ConversationID) // a stopped child holds no token while its turn winds down
+				}
 			}
 			h.end(c, CmdDone, "")
 		case KindPause:

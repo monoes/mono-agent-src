@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -381,7 +382,50 @@ func (s *Store) AddSessionSpend(ctx context.Context, profileID string, id int64,
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		if err := spendInRange(se, usd); err != nil {
+			return err
+		}
 		return s.applySpend(ctx, x, id, usd, note, actor)
+	})
+}
+
+// MaxSpendUSD bounds one recorded amount and a session's total: a figure beyond it is a typo or an overflow in
+// the making (1e308 + 1e308 is +Inf, which no budget arithmetic or JSON can carry), never a real bill.
+const MaxSpendUSD = 1e9
+
+// spendInRange refuses, before anything is written, an amount or a resulting total outside (0, MaxSpendUSD].
+func spendInRange(se Session, usd float64) error {
+	total := se.SpentUSD + usd
+	if usd > MaxSpendUSD || !finite(total) || total > MaxSpendUSD {
+		return invalid("spend of $%g would take session #%d to $%g, beyond the supported $%g", usd, se.ID, total, MaxSpendUSD)
+	}
+	return nil
+}
+
+// Tx is the transaction AddSessionSpendWith hands its callback: the one the spend is written in.
+type Tx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// AddSessionSpendWith is AddSessionSpend with a record written in the same transaction: also runs after the meter
+// is updated and, if it fails, the spend is rolled back with it. A caller that must record "this was charged"
+// exactly once uses it, so the meter and the record are never apart.
+func (s *Store) AddSessionSpendWith(ctx context.Context, profileID string, id int64, usd float64, note string, actor Actor, also func(ctx context.Context, x Tx) error) (Session, error) {
+	if actor.Kind != Human {
+		return Session{}, operatorOnly("record a session's spend")
+	}
+	if !finite(usd) || usd <= 0 {
+		return Session{}, invalid("spend is an amount in dollars above 0")
+	}
+	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+		if err := spendInRange(se, usd); err != nil {
+			return err
+		}
+		if err := s.applySpend(ctx, x, id, usd, note, actor); err != nil {
+			return err
+		}
+		return also(ctx, x)
 	})
 }
 

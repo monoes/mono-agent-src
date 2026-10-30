@@ -24,6 +24,9 @@ type missionFact struct {
 	ChildRun    int `json:"childRun,omitempty"`
 	ChildQueued int `json:"childQueued,omitempty"`
 	ChildFailed int `json:"childFailed,omitempty"`
+	// ChildrenOff: marks exist but the operator's switch is off, so none starts (ChildMarked of them).
+	ChildrenOff bool `json:"childrenOff,omitempty"`
+	ChildMarked int  `json:"-"`
 	// Open is the work a lead can move: tasks not started or in progress, plus tasks handed back to review
 	// that nobody has passed and that are not blocked. It is computed from disjoint statuses (a task keeps
 	// verified=1 after the operator closes it, so Done and Verified overlap and must not be summed). It is
@@ -107,6 +110,12 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 		return nil, false
 	}
 	f.ChildRun, f.ChildQueued, f.ChildFailed = cc.Live, cc.Queued, cc.Failed
+	if on, err := h.Store.MissionChildrenEnabled(); err != nil {
+		return nil, false
+	} else if !on {
+		f.ChildrenOff, f.ChildMarked = cc.Queued > 0, cc.Queued
+		f.ChildQueued = 0 // the operator's switch is off: a mark is stored and starts nothing
+	}
 	if !MissionChildrenReady() {
 		f.ChildQueued = 0 // nothing starts while the launcher cannot bind a child: a mark is not a queued session
 	}
@@ -119,6 +128,9 @@ func missionLine(m *missionFact) string {
 		return ""
 	}
 	kids := ""
+	if m.ChildrenOff {
+		kids = fmt.Sprintf(" Task child sessions: off (operator setting), %d marked task(s) run in your turn.", m.ChildMarked)
+	}
 	if m.ChildRun+m.ChildQueued+m.ChildFailed > 0 {
 		kids = fmt.Sprintf(" Task child sessions: %d running, %d queued, %d failed.", m.ChildRun, m.ChildQueued, m.ChildFailed)
 	}

@@ -106,12 +106,15 @@ func TestLeadMarksItsOwnTaskAndStatusShowsNoTaskText(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"state": "marked"`) || !strings.Contains(out, `"size": "large"`) {
 		t.Fatalf("mark = %v %s", err, out)
 	}
-	if !strings.Contains(out, "not available yet") { // no launcher can start a child session in this process
-		t.Fatalf("the mark does not say that child sessions are not available yet: %s", out)
+	if !strings.Contains(out, "off (operator setting)") { // the operator's switch is off until they enable it
+		t.Fatalf("the mark does not say that child sessions are off: %s", out)
 	}
 	out, err = m.as(t, m.tokM, "mission_child_status", nil)
 	if err != nil || !strings.Contains(out, fmt.Sprintf(`"taskId": %d`, m.t1.ID)) {
 		t.Fatalf("status = %v %s", err, out)
+	}
+	if !strings.Contains(out, `"switch": "children: off (operator setting)"`) {
+		t.Fatalf("the status does not show the switch: %s", out)
 	}
 	if strings.Contains(out, "ignore previous instructions") {
 		t.Fatalf("task text in the status: %s", out)

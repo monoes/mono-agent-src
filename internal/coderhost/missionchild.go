@@ -85,6 +85,7 @@ func (h *Host) missionChildPass() {
 			h.logf("coder host: mission child %s: %v", r.ChildConversationID, err)
 		}
 	}
+	h.settleEnded()
 	h.reportOrphanCarves()
 }
 
@@ -107,7 +108,10 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		if x, ok, err := st.GetSession(r.ProfileID, r.ChildConversationID); err == nil && ok && x.TurnID != "" {
 			return nil // its turn is being stopped: the row ends on a later pass, once the turn has, so the carve is not released under it
 		}
-		_, err := st.End(r.ProfileID, r.ChildConversationID, EndLeadStop)
+		ended, err := st.End(r.ProfileID, r.ChildConversationID, EndLeadStop)
+		if ended {
+			h.settleChild(r.ProfileID, r.ChildConversationID)
+		}
 		return err
 	}
 	// 2. The child itself.
@@ -116,12 +120,18 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		return err
 	}
 	if !exists {
-		_, err := st.MarkGone(r.ProfileID, r.ChildConversationID)
+		ended, err := st.MarkGone(r.ProfileID, r.ChildConversationID)
+		if ended {
+			h.settleChild(r.ProfileID, r.ChildConversationID)
+		}
 		return err
 	}
 	cs, ok, err := st.GetSession(r.ProfileID, r.ChildConversationID)
 	if err != nil || !ok {
 		return err
+	}
+	if st.PendingFor(r.ProfileID, r.ChildConversationID) == 0 {
+		h.revokeIfNoTurn(cs) // a message still queued means a turn is about to take a fresh token
 	}
 	if ms.state == "paused" {
 		if cs.State != StatePaused && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindPause, cascadeTurn) {
@@ -160,8 +170,24 @@ func (h *Host) reconcileChild(r ChildRow) error {
 	if err != nil || !ended {
 		return err
 	}
+	h.settleChild(r.ProfileID, r.ChildConversationID)
 	h.retireIdle(r.ProfileID, r.ChildConversationID)
 	return nil
+}
+
+// revokeIfNoTurn retries, on every pass, the revoke of the task tokens of a live child that runs no turn (one whose
+// settle failed, or whose launcher gave up): a token does not wait for its expiry because one revoke failed. It
+// is idempotent and a failure is only logged, so the next pass tries again.
+func (h *Host) revokeIfNoTurn(cs Session) {
+	if cs.TurnID != "" {
+		return
+	}
+	h.mu.Lock()
+	live := h.live[key(cs.ProfileID, cs.ConversationID)] != nil
+	h.mu.Unlock()
+	if !live {
+		_ = h.revokeChildTokens(cs.ProfileID, cs.ConversationID)
+	}
 }
 
 // retireIdle stops a task child's session once its row has ended, so it no longer counts toward its master's

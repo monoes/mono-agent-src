@@ -120,6 +120,8 @@ type Store struct {
 	afterChildCreated func()
 	// beforeCleanupDelete runs in abandonSpawn right before the conversation's delete (tests only).
 	beforeCleanupDelete func()
+	// afterCleanupDelete runs in abandonSpawn right after it (tests only).
+	afterCleanupDelete func()
 	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
 	afterStaleSelect func()
 	// betweenCascadeCheckAndResume lets a test act between the pass's pausedByCascade check and its resume.
