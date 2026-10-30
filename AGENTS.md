@@ -2884,6 +2884,10 @@ monoagentcli --profile work coder host stop                        # the host on
   spawn is made. A `research` session runs `scoped`. Task children of a mission (the launcher) additionally need the
   operator-only switch `coder.mission_children_enabled`; sessions started by `session_spawn` are not mission task children
   and do not go through Reserve or that switch.
+  A `session_spawn` is not one write: an intent row (`coder_spawn_intents`, migration 144) is written first and ends in
+  one transaction with the acceptance row; the host's sweep (every Tick, bounded, per profile) removes the child and its
+  draft task session of an intent older than the lease (2 minutes), and while an intent exists the same request is refused.
+  Spawn churn has no cumulative cap: the bound is the per-master rate limit (6 per 10 minutes) and the per-tree live cap (12).
 - **Reading questions and decisions.** `sessions questions list` and `sessions decisions list|show` need the
   operator's terminal or a session token. Under a token they show only the caller's own session and its
   descendants (any other session is refused with one text), and the text a model wrote (question, options,

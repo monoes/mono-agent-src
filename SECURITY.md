@@ -2174,7 +2174,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
 - **A tree of sessions and `session_spawn` for a lead.** The depth of a tree is bounded by code:
   `coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth` (4), `max_depth` is operator-only and validated against it
   (default 3), a child takes its parent's value, and has room for children only below that depth and never more than its
-  parent (`childSettings`); the live sessions of one tree are capped at 12 whatever the depth. Who may spawn: only the lead
+  parent (`childSettings`); the live sessions of one tree are capped at 12 whatever the depth. Spawn churn (a lead that stops its children and spawns more) has no cumulative cap: the bound is the per-master rate limit (6 per 10 minutes) and the live cap of 12 per tree. A crash in the middle of a spawn leaves an intent row that the host's sweep ends after a lease, never a second child (`coder_spawn_intents`). Who may spawn: only the lead
   of a running task session, with a verified session token and no task binding (`LeadMission`, the same lead scope as the
   mission child tools); a worker, a verifier and a helper are refused, and a plain spawn by a lead is refused so the advisory
   cannot be skipped. What a spawned session gets: access never above the lead's and never full, a `research` session runs
