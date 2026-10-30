@@ -139,4 +139,18 @@ rawmutant duplicate-runs-on        $'on: [push]\njobs:\n  a:\n    runs-on: monoe
 rawmutant duplicate-runs-on-rev    $'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    runs-on: monoes-local\n    steps:\n      - run: true' reject
 rawmutant merge-key                $'on: [push]\njobs:\n  a:\n    <<: {runs-on: monoes-local}\n    runs-on: ubuntu-latest\n    steps:\n      - run: true' reject
 rawmutant yaml-tag                 $'on: [push]\njobs:\n  a:\n    runs-on: !!str monoes-local\n    steps:\n      - run: true' reject
+
+# Every .github/scripts/*_test.sh must be run by ci.yml, so a test cannot silently drop out of CI.
+unreferenced() { # SCRIPTS_DIR CI_YML -> prints each *_test.sh the workflow never names
+  local t
+  for t in "$1"/*_test.sh; do
+    grep -qF "$(basename "$t")" "$2" || basename "$t"
+  done
+}
+mkdir -p "$d/meta"
+: >"$d/meta/a_test.sh"; : >"$d/meta/b_test.sh"
+printf 'run: bash .github/scripts/a_test.sh\n' >"$d/meta/ci.yml"
+if [ "$(unreferenced "$d/meta" "$d/meta/ci.yml")" = "b_test.sh" ]; then echo "ok    rejects an unreferenced test script (fixture)"; else echo "FAIL  unreferenced-test detection"; fail=1; fi
+missing="$(unreferenced .github/scripts .github/workflows/ci.yml)"
+if [ -z "$missing" ]; then echo "ok    every .github/scripts/*_test.sh is run by ci.yml"; else echo "FAIL  not run by ci.yml: $missing"; fail=1; fi
 exit $fail
