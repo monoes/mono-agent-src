@@ -183,7 +183,7 @@ func TestMarkCrossProfileRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the same conversation id leads a session in another profile
-	sq, err := tasks.NewStore(f.st.db).CreateSession(context.Background(), "q", tasks.SessionInput{Title: "t", ConversationID: f.lead.ConversationID}, opActor)
+	sq, err := tasks.NewStore(f.st.db).CreateSession(context.Background(), "q", tasks.SessionInput{Title: "t", ConversationID: f.lead.ConversationID, Kind: tasks.SessionKindMission}, opActor)
 	if err != nil {
 		t.Fatal(err)
 	}

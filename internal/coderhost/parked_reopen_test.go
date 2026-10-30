@@ -157,6 +157,7 @@ func TestMasterAnswerFollowsTheMastersState(t *testing.T) {
 	if err := st.SaveSession(m); err != nil {
 		t.Fatal(err)
 	}
+	_ = h.Tick() // the tree cascade resumes the child it paused with its master
 	_ = h.Tick()
 	if got, _, _ := st.GetCommand(cmd.ID); got.Status != CmdDone || len(l.started) != 1 {
 		t.Fatalf("the note did not run after the resume: %+v, started %v", got, l.started)
