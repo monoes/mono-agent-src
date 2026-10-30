@@ -356,7 +356,7 @@ func (f *fakeRunner) Sweep(ctx context.Context) error {
 // person submits each of ids once it is parked (awaiting_submit).
 func person(r *fakeRunner, ids []string) {
 	for _, id := range ids {
-		for i := 0; i < 500; i++ {
+		for i := 0; i < 4000; i++ {
 			a, err := r.apps.Get(bg, profile, id)
 			if err == nil && a.Status == applications.StatusAwaitingSubmit {
 				r.submitted <- id
@@ -383,11 +383,62 @@ func queueFixture(t *testing.T, n int) (*fakeRunner, Queue, []string) {
 	return r, q, ids
 }
 
+// waitStarted polls until n fills have started; a loaded runner can be slow to get there, so the deadline is
+// generous and nothing here depends on how long it takes.
+func waitStarted(t *testing.T, r *fakeRunner, n int) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		r.mu.Lock()
+		got := len(r.started)
+		r.mu.Unlock()
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("started %d, want %d", got, n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// holdStarted gives the queue time to start more than it should and fails if it did.
+func holdStarted(t *testing.T, r *fakeRunner, n int, what string) {
+	t.Helper()
+	time.Sleep(150 * time.Millisecond)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.started) != n {
+		t.Fatalf("started %d %s", len(r.started), what)
+	}
+}
+
+// waitJudged waits until the queue has read the status of n finished fills.
+func waitJudged(t *testing.T, judged <-chan string, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		select {
+		case <-judged:
+		case <-time.After(30 * time.Second):
+			t.Fatalf("only %d fills were judged, want %d", i, n)
+		}
+	}
+}
+
 func TestQueueNeverExceedsTheCapAndStartsTheNextAfterOneEnds(t *testing.T) {
 	r, q, ids := queueFixture(t, 5)
 	r.gate = make(chan struct{})
 	r.submitted = make(chan string, 8)
 	q.Max = 2
+	// The person submits only once the queue has read a fill's status: a submit that lands earlier turns the
+	// fill's outcome from parked into needs_you, which is the person's doing and not the queue's.
+	judged := make(chan string, 8)
+	status := q.Status
+	q.Status = func(ctx context.Context, id string) (string, error) {
+		st, err := status(ctx, id)
+		judged <- id
+		return st, err
+	}
 	done := make(chan []Outcome, 1)
 	go func() {
 		out, err := q.Run(bg, ids)
@@ -397,33 +448,23 @@ func TestQueueNeverExceedsTheCapAndStartsTheNextAfterOneEnds(t *testing.T) {
 		done <- out
 	}()
 	// With every fill held, exactly Max start, never more.
-	time.Sleep(250 * time.Millisecond)
-	r.mu.Lock()
-	if len(r.started) != 2 {
-		t.Fatalf("started %d before any ended, want the cap of 2", len(r.started))
-	}
-	r.mu.Unlock()
+	waitStarted(t, r, 2)
+	holdStarted(t, r, 2, "before any ended, want the cap of 2")
 	close(r.gate) // the two fills end and park: the queue waits for the person
-	time.Sleep(250 * time.Millisecond)
 	r.mu.Lock()
-	if len(r.started) != 2 {
-		t.Fatalf("started %d with 2 tabs parked, want 2: parked tabs hold their slots", len(r.started))
-	}
 	first, second := r.started[0], r.started[1]
 	r.mu.Unlock()
+	waitJudged(t, judged, 2)
+	holdStarted(t, r, 2, "with 2 tabs parked, want 2: parked tabs hold their slots")
 	r.submitted <- first // the person submits one: its slot frees and the next starts
-	time.Sleep(250 * time.Millisecond)
-	r.mu.Lock()
-	if len(r.started) != 3 {
-		t.Fatalf("started %d after a submit, want 3", len(r.started))
-	}
-	r.mu.Unlock()
+	waitStarted(t, r, 3)
+	holdStarted(t, r, 3, "after a submit, want 3")
 	r.submitted <- second
 	go person(r, ids[2:])
 	var out []Outcome
 	select {
 	case out = <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("the queue never finished")
 	}
 	if len(out) != 5 {

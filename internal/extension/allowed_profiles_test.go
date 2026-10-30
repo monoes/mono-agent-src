@@ -591,9 +591,20 @@ func TestACommandWaitingBehindAStalledWriterIsBounded(t *testing.T) {
 	c := srv.connList()[0]
 	stallable(t, c, client)
 
+	reply := []byte(strings.Repeat("x", 64<<20)) // a reply the browser does not read
 	stuck := make(chan error, 1)
-	go func() { stuck <- c.write([]byte(strings.Repeat("x", 64<<20))) }() // a reply the browser does not read
-	time.Sleep(400 * time.Millisecond)                                    // it holds the writer now
+	go func() { stuck <- c.write(reply) }()
+	// Wait until that write holds the writer: on a loaded machine it can start late, and a command that
+	// takes the writer first is simply delivered, which proves nothing about the bound.
+	held := time.Now().Add(30 * time.Second)
+	for c.writeMu.TryLock() {
+		c.writeMu.Unlock()
+		if time.Now().After(held) {
+			t.Fatal("the large reply never took the writer")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond) // and is blocked in it
 	select {
 	case <-stuck:
 		t.Skip("this machine's socket buffers absorbed the write, so nothing stalled; the fake-connection tests cover the bound")
