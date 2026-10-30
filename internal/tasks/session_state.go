@@ -248,8 +248,8 @@ func (s *Store) ChangeSession(ctx context.Context, profileID string, id int64, u
 	if u.AccessLevel != nil && !validAccess(*u.AccessLevel) {
 		return Session{}, invalid("unknown access level %q (use %s)", echo(*u.AccessLevel), strings.Join(AccessLevels, ", "))
 	}
-	if u.BudgetUSD != nil && (!finite(*u.BudgetUSD) || *u.BudgetUSD < 0) {
-		return Session{}, invalid("the budget is an amount in dollars, 0 or more")
+	if u.BudgetUSD != nil && (!finite(*u.BudgetUSD) || *u.BudgetUSD < 0 || *u.BudgetUSD > MaxBudgetUSD) {
+		return Session{}, invalid("the budget is an amount in dollars, 0 to %.0f", MaxBudgetUSD)
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
 		if update {

@@ -242,8 +242,8 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 	if !validAccess(level) {
 		return Session{}, invalid("unknown access level %q (use %s)", echo(level), strings.Join(AccessLevels, ", "))
 	}
-	if !finite(in.BudgetUSD) || in.BudgetUSD < 0 {
-		return Session{}, invalid("the budget is an amount in dollars, 0 or more")
+	if !finite(in.BudgetUSD) || in.BudgetUSD < 0 || in.BudgetUSD > MaxBudgetUSD {
+		return Session{}, invalid("the budget is an amount in dollars, 0 to %.0f", MaxBudgetUSD)
 	}
 	maxTasks, maxDepth := in.MaxTasks, in.MaxDepth
 	explicit := in // what the caller asked for, before the defaults and the parent's limits apply

@@ -19,7 +19,6 @@ const (
 	ReservationGrace = time.Minute
 
 	minReservationUSD = 0.01
-	maxReservationUSD = 1e12
 	// MaxBudgetUSD is the largest budget or cost the store takes: an overflow guard, not a policy.
 	MaxBudgetUSD      = 1e15
 	maxOwnerIDBytes   = 128
@@ -102,10 +101,10 @@ func reservationText(what, v string, max int) error {
 	return nil
 }
 
-// reservationAmount holds an amount to finite and within [0, maxReservationUSD].
+// reservationAmount holds an amount to finite and within [0, MaxBudgetUSD].
 func reservationAmount(what string, usd float64) error {
-	if !finite(usd) || usd < 0 || usd > maxReservationUSD {
-		return invalid("%s must be a finite amount from 0 to %.0f", what, maxReservationUSD)
+	if !finite(usd) || usd < 0 || usd > MaxBudgetUSD {
+		return invalid("%s must be a finite amount from 0 to %.0f", what, MaxBudgetUSD)
 	}
 	return nil
 }
@@ -137,7 +136,7 @@ func (s *Store) Reserve(ctx context.Context, profileID string, sessionID int64, 
 		amount, bounded := want, want > 0
 		if left, budgeted := c.Left(); budgeted {
 			if want == 0 || want > left {
-				want = left
+				want = min(left, MaxBudgetUSD)
 			}
 			if want+budgetEps < minReservationUSD {
 				return limit("session #%d has $%.4f left of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", sessionID, left, c.Budget, c.Spent, c.Held, c.Children)
