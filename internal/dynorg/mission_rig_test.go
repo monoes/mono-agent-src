@@ -175,7 +175,7 @@ func newRig(t *testing.T, o rigOpts) *missionRig {
 	db := openMissionDB(t)
 	r := &missionRig{t: t, db: db, store: tasks.NewStore(db), clk: &missionClock{t: time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)}, ex: newGateExec(), em: &recEmitter{}}
 	r.store.SetClock(r.clk.now)
-	se, err := r.store.CreateSession(tbg, "default", tasks.SessionInput{Title: "mission", Goal: "ship the feature", BudgetUSD: o.budget, ConversationID: o.conv}, operator)
+	se, err := r.store.CreateSession(tbg, "default", tasks.SessionInput{Title: "mission", Goal: "ship the feature", BudgetUSD: o.budget, ConversationID: o.conv, Kind: tasks.SessionKindMission}, operator)
 	if err != nil {
 		t.Fatal(err)
 	}

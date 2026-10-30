@@ -38,6 +38,9 @@ type hostInfo struct {
 	Stamp     string `json:"stamp"`
 	Instance  string `json:"instance"`
 	StartedAt string `json:"startedAt"`
+	// ChildTokens says this host mints a mission child's task token (coder_host_childtoken.go). A host without it
+	// (one built earlier) is not one a lead may hand a child session to.
+	ChildTokens bool `json:"childTokens,omitempty"`
 }
 
 func hostDir(cfg *Deps) string {
@@ -170,7 +173,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			if ownStamp == "" {
 				return fmt.Errorf("cannot read this process's start time, so `host stop` and a later host could not tell it from another process; not starting")
 			}
-			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339)}
+			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339), ChildTokens: true}
 			raw, _ := json.Marshal(info)
 			infoPath := filepath.Join(hostDir(cfg), hostInfoFile)
 			if err := os.WriteFile(infoPath+".tmp", raw, 0o600); err != nil { // renamed into place: a reader never sees half of it
@@ -194,9 +197,11 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), time.Now().Format(time.RFC3339)+" "+f+"\n", a...)
 			}
 			store := coderhost.NewStore(db.DB)
+			children := newChildTokenMinter(db.DB)
+			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)
 			h := &coderhost.Host{
-				Store: store,
-				L: &execLauncher{bin: exe, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
+				Store: store, ChildTokens: children,
+				L: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
 					tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokens, bind: func(p, c, turn string, pid int, stamp string) error {
 						if store.HostInsideTurn() {
 							return coderhost.ErrHostInsideTurn

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,6 +23,10 @@ import (
 // MissionFDEnv names the descriptor (Unix) or handle (Windows) the token pipe is
 // on. It holds a number, never the token.
 const MissionFDEnv = "MONOAGENT_MISSION_FD"
+
+// TaskTokenPrefix starts an agent token (agenttokens.Prefix). The same pipe carries a mission child's task token
+// as it carries a mission confirmation; a turn never has both (the launcher refuses the combination).
+const TaskTokenPrefix = "mat-"
 
 const missionTokenMax = 256 // most bytes read, newline included
 
@@ -87,7 +92,7 @@ func readMissionToken(r io.Reader, timeout time.Duration) (string, error) {
 			return "", errors.New("malformed mission token")
 		}
 		tok := string(b[:len(b)-1])
-		if _, _, ok := parseToken(tok); !ok {
+		if _, _, ok := parseToken(tok); !ok && !strings.HasPrefix(tok, TaskTokenPrefix) {
 			return "", errors.New("malformed mission token")
 		}
 		for _, c := range []byte(tok) {

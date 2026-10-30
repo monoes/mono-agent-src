@@ -400,7 +400,7 @@ func (s *Store) budgetRaiseRefusal(q querier, b BudgetRequest, usd float64) (str
 	share := 100
 	if b.Target == TargetChild {
 		holder = b.LeadConversationID
-		if why, err := missionBudgetRefusal(q, b.ProfileID, b.SessionID, b.LeadConversationID, usd); err != nil || why != "" {
+		if why, err := s.missionBudgetRefusal(q, b.ProfileID, b.SessionID, b.LeadConversationID, usd); err != nil || why != "" {
 			return why, err
 		}
 		pol, err := s.policyIn(q, b.ProfileID, b.SessionID)
