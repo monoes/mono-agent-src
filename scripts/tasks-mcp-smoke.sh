@@ -5,7 +5,7 @@
 # task session worked through the tools (dependencies, evidence, no self-verification, an environment label that binds
 # nothing), a non-task tool refused by name, the CLI showing what the agent did, and the
 # --api-only combination refused, and the session verbs of the command line (list, show, plan, depend, undepend,
-# split, budget, pause, resume, close, archive, stop) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
+# split, budget, pause, resume, close, archive, stop, and the tree: new --parent/--kind, rename, tree, archive --cascade) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
 #
 #   go build -tags devaccount -o /tmp/monoagentcli ./cmd/monoagentcli && scripts/tasks-mcp-smoke.sh /tmp/monoagentcli
 set -euo pipefail
@@ -235,6 +235,42 @@ sj task session new "stopped session" >"$root/s4.out" 2>"$root/s4.err" || fail "
 s4="$(jq -r '.session.id' "$root/s4.out")"
 run --profile "$prof" --json task session stop "$s4" --as bot | jq -e '.session.state=="stopped"' >/dev/null || fail "an agent could not stop a session"
 if sj task session resume "$s4" >/dev/null 2>&1; then fail "a stopped session was resumed"; fi
+
+echo "== the session tree: child sessions, kinds, rename, tree and the cascade archive"
+# Nesting is the operator's or a session's own: an agent below no session starts only top-level sessions,
+# cannot start a mission, and renames only a draft it started. The cascade archive is the operator's alone.
+sj task session new "tree root" --goal "nest sessions" >"$root/tr.out" 2>"$root/tr.err" || fail "task session new (tree root): $(cat "$root/tr.out" "$root/tr.err")"
+tr="$(jq -r '.session.id' "$root/tr.out")"
+jq -e '.session.kind=="board" and .session.depth==1 and (.session|has("parent_session_id")|not)' "$root/tr.out" >/dev/null || fail "a top-level session lacks kind board, depth 1 or has a parent: $(cat "$root/tr.out")"
+sj task session new "tree child" --parent "$tr" --kind research >"$root/tc1.out" 2>"$root/tc1.err" || fail "task session new --parent: $(cat "$root/tc1.out" "$root/tc1.err")"
+tc1="$(jq -r '.session.id' "$root/tc1.out")"
+jq -e --argjson p "$tr" '.session.parent_session_id==$p and .session.kind=="research" and .session.depth==2' "$root/tc1.out" >/dev/null || fail "the child is not nested below its parent: $(cat "$root/tc1.out")"
+sj task session new "tree sibling" --parent "$tr" >"$root/tc2.out" 2>"$root/tc2.err" || fail "task session new --parent (sibling): $(cat "$root/tc2.out" "$root/tc2.err")"
+tc2="$(jq -r '.session.id' "$root/tc2.out")"
+if sj task session new "orphan" --parent 999999 >/dev/null 2>&1; then fail "a session was started below a session that does not exist"; fi
+if sj task session new "odd kind" --kind nonsense >/dev/null 2>&1; then fail "a session of an unknown kind was started"; fi
+if run --profile "$prof" task session new "agent mission" --kind mission --as bot >/dev/null 2>&1; then fail "an agent started a mission session"; fi
+sj task session new "same key" --client-id smoke-tree-1 >"$root/k1.out" 2>"$root/k1.err" || fail "task session new --client-id: $(cat "$root/k1.err")"
+sj task session new "same key again" --client-id smoke-tree-1 >"$root/k2.out" 2>"$root/k2.err" || fail "task session new --client-id (repeat): $(cat "$root/k2.err")"
+jq -e --argjson a "$(jq '.session.id' "$root/k1.out")" '.session.id==$a and .session.deduped==true' "$root/k2.out" >/dev/null || fail "a repeated client id made a second session: $(cat "$root/k2.out")"
+
+sj task session rename "$tc1" "renamed child" >"$root/rn.out" 2>"$root/rn.err" || fail "task session rename: $(cat "$root/rn.err")"
+jq -e '.session.title=="renamed child"' "$root/rn.out" >/dev/null || fail "task session rename: $(cat "$root/rn.out")"
+if run --profile "$prof" task session rename "$tc1" "hijacked" --as bot >/dev/null 2>&1; then fail "an agent renamed a session it did not start"; fi
+sj task session show "$tc1" | jq -e '.session.title=="renamed child"' >/dev/null || fail "an agent changed a session title"
+
+sj task session tree >"$root/tree.out" 2>"$root/tree.err" || fail "task session tree: $(cat "$root/tree.err")"
+jq -e --argjson r "$tr" --argjson a "$tc1" --argjson b "$tc2" '[.[]|select(.id==$r)][0] as $n | ($n.children|map(.id))==[$a,$b] and ($n.children|map(.depth))==[2,2]' "$root/tree.out" >/dev/null || fail "task session tree does not nest the children below their parent: $(cat "$root/tree.out")"
+jq -e --argjson a "$tc1" '(map(.id)|index($a))==null' "$root/tree.out" >/dev/null || fail "a child session is also listed at the top level of the tree"
+
+echo "-- archive: a session with open sessions below it is refused, --cascade is the operator's and archives the subtree"
+if sj task session archive "$tr" >/dev/null 2>&1; then fail "a session with open sessions below it was archived without --cascade"; fi
+if run --profile "$prof" task session archive "$tr" --cascade --as bot >/dev/null 2>&1; then fail "an agent archived a subtree"; fi
+sj task session show "$tc1" | jq -e '.session.archived==false' >/dev/null || fail "a child was archived by a refused cascade"
+sj task session archive "$tr" --cascade >"$root/ca.out" 2>"$root/ca.err" || fail "task session archive --cascade: $(cat "$root/ca.err")"
+jq -e --argjson r "$tr" --argjson a "$tc1" --argjson b "$tc2" '(.archived|sort)==([$r,$a,$b]|sort) and .archived[-1]==$r and .session.archived==true' "$root/ca.out" >/dev/null || fail "task session archive --cascade did not archive the subtree, the deepest first: $(cat "$root/ca.out")"
+sj task session tree | jq -e --argjson r "$tr" '(map(.id)|index($r))==null' >/dev/null || fail "an archived subtree is in the default tree"
+sj task session tree --all | jq -e --argjson r "$tr" '(map(.id)|index($r))!=null' >/dev/null || fail "an archived subtree is missing from the tree with --all"
 
 echo "== an environment label binds nothing: a server given MONOAGENT_TASK_SESSION but no token is an ordinary agent"
 # What binds a server to a session, a task and a role is a mission token the conductor mints per run
