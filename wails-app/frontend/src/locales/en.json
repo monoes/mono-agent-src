@@ -1850,6 +1850,7 @@
       "planError": "Could not read the plan",
       "planEmpty": "No tasks in this plan yet",
       "planShowMore": "Show {{count}} more rows ({{left}} left)",
+      "sessionsShowMore": "Show {{count}} more sessions ({{left}} left)",
       "new": "New session",
       "create": "Create session",
       "rename": "Rename",

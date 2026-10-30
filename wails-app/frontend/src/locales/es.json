@@ -1808,6 +1808,7 @@
       "planError": "No se pudo leer el plan",
       "planEmpty": "Este plan aún no tiene tareas",
       "planShowMore": "Mostrar {{count}} filas más ({{left}} restantes)",
+      "sessionsShowMore": "Mostrar {{count}} sesiones más ({{left}} restantes)",
       "new": "Nueva sesión",
       "create": "Crear sesión",
       "rename": "Renombrar",
