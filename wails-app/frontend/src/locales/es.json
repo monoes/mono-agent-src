@@ -2205,5 +2205,27 @@
     "deleteFailed": "No se pudieron eliminar {{count}}: {{message}}",
     "dismiss": "Descartar",
     "mission": "Misión: {{state}}"
+  },
+  "chatLinks": {
+    "openInBrowser": "Abrir en el navegador",
+    "blocked": "Enlace bloqueado: solo se abren enlaces http y https",
+    "disguised": "El texto dice {{shown}} pero este enlace abre {{host}}",
+    "opensHost": "Abre {{host}}",
+    "previewHint": "Vista previa (Ctrl/Cmd-clic para mostrarlo en el gestor de archivos)",
+    "revealHint": "Mostrar en el gestor de archivos",
+    "checkHint": "Ruta: haz clic para comprobarla y abrirla",
+    "notFound": "No encontrada",
+    "reveal": "Mostrar en carpeta",
+    "revealNamed": "Mostrar {{name}} en el gestor de archivos",
+    "openFolder": "Abrir carpeta",
+    "line": "línea {{line}}",
+    "previewTitle": "Vista previa de {{name}}",
+    "close": "Cerrar vista previa",
+    "loading": "Cargando…",
+    "previewFailed": "No se pudo mostrar este archivo: {{message}}",
+    "revealFailed": "No se pudo mostrar el archivo: {{message}}",
+    "copyCode": "Copiar código",
+    "copy": "Copiar",
+    "copied": "Copiado"
   }
 }
