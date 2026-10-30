@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Send, Square, Paperclip } from 'lucide-react'
 import { AttachmentChips } from './ChatAttachments.jsx'
 
@@ -11,8 +12,23 @@ import { AttachmentChips } from './ChatAttachments.jsx'
 // With onAttach (coder chats), files can be pasted, dropped or picked:
 // onAttach(files) gets them, attachments are shown as chips above the
 // draft, and onRemoveAttachment(id) drops one.
+// The text being typed lives in this component's own state, so a keystroke
+// re-renders only the composer. The parent's `value` (which sits above the whole
+// transcript) is told about it at most every EMIT_MS, and at once on send, blur,
+// composition end and unmount; onSend(text) hands over the exact text so the
+// parent never reads a stale draft. An outside change to `value` (clearing after
+// a send, restoring after a failed one) still replaces the local text.
+const EMIT_MS = 250
+
 export function ChatComposer({ value, onChange, onSend, onStop, streaming, disabled, disabledReason, attachments = [], onAttach, onRemoveAttachment }) {
   const textareaRef = useRef(null)
+  const [text, setText] = useState(value)
+  const textRef = useRef(value)
+  const emitted = useRef([])      // values sent up that the parent has not echoed back yet
+  const timer = useRef(null)
+  const sizeFrame = useRef(0)
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
   const fileRef = useRef(null)
   const [dragging, setDragging] = useState(false)
   const canAttach = !!onAttach && !disabled
@@ -23,11 +39,67 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
   // both are checked.
   const composingRef = useRef(false)
 
+  const flush = useCallback(() => {
+    if (timer.current === null) return
+    clearTimeout(timer.current)
+    timer.current = null
+    emitted.current.push(textRef.current)
+    onChangeRef.current(textRef.current)
+  }, [])
+  useEffect(() => () => flush(), [flush])
+  // The overlay decides what Escape does from the parent's draft and listens on
+  // window in the capture phase, so the pending text is pushed up (and rendered)
+  // before that listener runs: ours is registered first, as a child's effect.
+  useEffect(() => {
+    const onEsc = (e) => { if (e.key === 'Escape' && timer.current !== null) flushSync(flush) }
+    window.addEventListener('keydown', onEsc, true)
+    return () => window.removeEventListener('keydown', onEsc, true)
+  }, [flush])
+
+  // Parent value changed: an echo of what we sent is ignored; anything else is
+  // an outside edit and wins (never while an IME composition is open).
+  useEffect(() => {
+    const i = emitted.current.indexOf(value)
+    if (i >= 0) { emitted.current.splice(0, i + 1); return }
+    if (value === textRef.current || composingRef.current) return
+    if (timer.current !== null) { clearTimeout(timer.current); timer.current = null }
+    emitted.current = []
+    textRef.current = value
+    setText(value)
+  }, [value])
+
+  const resize = useCallback(() => {
+    if (sizeFrame.current) return
+    sizeFrame.current = requestAnimationFrame(() => {
+      sizeFrame.current = 0
+      const el = textareaRef.current
+      if (!el) return
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+    })
+  }, [])
+  useEffect(() => () => { if (sizeFrame.current) cancelAnimationFrame(sizeFrame.current) }, [])
+  useLayoutEffect(resize, [text, resize])
+
+  const handleChange = (e) => {
+    const next = e.target.value
+    textRef.current = next
+    setText(next)
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = setTimeout(flush, EMIT_MS)
+  }
+
+  const send = () => {
+    flush()
+    emitted.current = []   // whatever the parent does next (clear, restore) is an outside edit
+    onSend(textRef.current)
+  }
+
   const handleKeyDown = (e) => {
     if (e.key !== 'Enter' || e.shiftKey) return
     if (composingRef.current || e.nativeEvent?.isComposing || e.keyCode === 229) return
     e.preventDefault()
-    onSend()
+    send()
   }
 
   // A paste with files and no text attaches them; text (even with a
@@ -88,12 +160,13 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
         )}
         <textarea
           ref={textareaRef}
-          value={value}
-          onChange={e => onChange(e.target.value)}
+          value={text}
+          onChange={handleChange}
+          onBlur={flush}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onCompositionStart={() => { composingRef.current = true }}
-          onCompositionEnd={() => { composingRef.current = false }}
+          onCompositionEnd={() => { composingRef.current = false; flush() }}
           // Typing is blocked too, not just Send: with no usable backend
           // there is nothing a draft can be sent to, and a composer that
           // accepts text while refusing to send it reads as a broken app
@@ -114,10 +187,6 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
             minHeight: 36,
             maxHeight: 120,
             lineHeight: 1.4,
-          }}
-          onInput={e => {
-            e.target.style.height = 'auto'
-            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
           }}
         />
         {streaming ? (
@@ -143,23 +212,23 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
           </button>
         ) : (
           <button
-            onClick={onSend}
-            disabled={!value.trim() || disabled}
+            onClick={send}
+            disabled={!text.trim() || disabled}
             title={disabled ? 'No backend selected — see the notice above' : 'Send message'}
             aria-label="Send message"
             style={{
-              background: !value.trim() || disabled ? 'rgba(0,180,216,0.05)' : 'rgba(0,180,216,0.15)',
-              border: `1px solid ${!value.trim() || disabled ? 'rgba(0,180,216,0.08)' : 'rgba(0,180,216,0.3)'}`,
+              background: !text.trim() || disabled ? 'rgba(0,180,216,0.05)' : 'rgba(0,180,216,0.15)',
+              border: `1px solid ${!text.trim() || disabled ? 'rgba(0,180,216,0.08)' : 'rgba(0,180,216,0.3)'}`,
               borderRadius: 8,
               padding: '0 12px',
-              cursor: !value.trim() || disabled ? 'default' : 'pointer',
-              color: !value.trim() || disabled ? 'var(--text-muted)' : '#00b4d8',
+              cursor: !text.trim() || disabled ? 'default' : 'pointer',
+              color: !text.trim() || disabled ? 'var(--text-muted)' : '#00b4d8',
               display: 'flex', alignItems: 'center',
               transition: 'all 100ms',
               flexShrink: 0,
             }}
-            onMouseEnter={e => { if (value.trim() && !disabled) e.currentTarget.style.background = 'rgba(0,180,216,0.25)' }}
-            onMouseLeave={e => { if (value.trim() && !disabled) e.currentTarget.style.background = 'rgba(0,180,216,0.15)' }}
+            onMouseEnter={e => { if (text.trim() && !disabled) e.currentTarget.style.background = 'rgba(0,180,216,0.25)' }}
+            onMouseLeave={e => { if (text.trim() && !disabled) e.currentTarget.style.background = 'rgba(0,180,216,0.15)' }}
           >
             <Send size={13} />
           </button>

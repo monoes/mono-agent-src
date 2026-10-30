@@ -25,7 +25,7 @@ func TestStorageSaveConfigGuardsReservedRows(t *testing.T) {
 		t.Fatalf("operator write: %v", err)
 	}
 	marker = "an agent marker"
-	for _, name := range []string{"memory.runs", "workflow.error_workflow", " Coder_Mode", "coder-mission-confirm/x/y"} {
+	for _, name := range []string{"memory.runs", "workflow.error_workflow", " Coder_Mode", "coder-mission-confirm/x/y", "file-cleanup/default/c1", " FILE-CLEANUP/x"} {
 		if err := db.SaveConfig(name, "off"); err == nil || !strings.Contains(err.Error(), "reserved setting") {
 			t.Errorf("%q by a non-operator: %v", name, err)
 		}
@@ -75,6 +75,7 @@ var writeAllowlist = map[string]struct {
 	"internal/coderhost/missionconfirm.go":          {"the coder host's signed per-send confirmations, written for the operator's own confirm", 5},
 	"internal/coderhost/mission_children_switch.go": {"the mission child sessions switch (coder.mission_children_enabled): read in Reserve, written only by the operator-only enable|disable command; config set refuses the name", 2},
 	"internal/ai/chat_events_conversations.go":      {"revokes (deletes) confirmations when a conversation is deleted; never writes a value", 1},
+	"internal/cli/chat/chat_delete_files.go":        {"the cleanup rows under the reserved file-cleanup/ prefix: written in the delete's own transaction, read and removed by the delete and by reconcile; every other writer is refused that prefix", 4},
 	"internal/applypark/cap.go":                     {"reads applications.max_parked only", 1},
 	"internal/automation/health_repair.go":          {"reads automation.autoRepair only", 1},
 	"internal/browserctl/policy.go":                 {"reads the browser allowlist only", 1},
