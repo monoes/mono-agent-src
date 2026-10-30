@@ -13,6 +13,10 @@ const purposesJSON = `{"purposes":[{"id":"coding","title":"Coding","category":"c
 func stripPurposeArgs(t *testing.T, argsLog string) []string {
 	var got []string
 	for _, line := range readArgsLog(t, argsLog) {
+		// Strict explicit profile: every call names its profile.
+		if !strings.HasPrefix(line, "--profile default --json ") {
+			t.Errorf("CLI call %q does not name its profile first", line)
+		}
 		got = append(got, strings.TrimPrefix(line, "--profile default --json "))
 	}
 	return got
