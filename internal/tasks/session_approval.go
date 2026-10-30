@@ -265,6 +265,11 @@ func (s *Store) checkLeadApproval(ctx context.Context, x dbx, profileID string, 
 	if !pol.AgentLead {
 		return nil, operatorOnly(fmt.Sprintf("approve session #%d: the operator has not allowed leads to approve (agentApproval is off)", se.ID))
 	}
+	// A lead's approval always has a spend limit: settings validation refuses lead without a ceiling,
+	// and a stored row that got past it is not acted on either.
+	if pol.CeilingUSD <= 0 {
+		return nil, operatorOnly(fmt.Sprintf("approve session #%d: the operator allowed leads to approve without a spend ceiling (approval_ceiling_usd); set one first", se.ID))
+	}
 	if reasons := giantReasons(se, parent, root, pol); len(reasons) > 0 {
 		return &GiantError{Session: se.ID, Reasons: reasons}, nil
 	}

@@ -80,7 +80,7 @@ func newApprovalTree(t *testing.T) *approvalTree {
 		}
 	}
 	a.fake = &fakeApproval{pol: map[string]ApprovalPolicy{}, raised: map[int64]string{}}
-	a.fake.pol["conv-root"] = ApprovalPolicy{AgentLead: true, WorkingDepth: 3}
+	a.fake.pol["conv-root"] = ApprovalPolicy{AgentLead: true, CeilingUSD: 50, WorkingDepth: 3}
 	s.SetApprovalSource(a.fake)
 	return a
 }
@@ -159,7 +159,7 @@ func TestAgentApprovalIsOffUnlessTheOperatorTurnedItOn(t *testing.T) {
 	// A mission whose root is linked to no chat has no settings to read.
 	d := newApprovalTree(t)
 	linkConv(t, d.db, d.r.ID, "")
-	d.fake.pol[""] = ApprovalPolicy{AgentLead: true, WorkingDepth: 3}
+	d.fake.pol[""] = ApprovalPolicy{AgentLead: true, CeilingUSD: 50, WorkingDepth: 3}
 	d.refused(t, d.c.ID, leadOf("conv-p"), "root without a chat")
 }
 
@@ -223,7 +223,7 @@ func TestApprovalNeverCrossesProfiles(t *testing.T) {
 func TestApprovalSettingsComeFromTheRootNotTheParent(t *testing.T) {
 	a := newApprovalTree(t)
 	// Only the parent's chat has it on: that is not the mission's setting.
-	a.fake.pol = map[string]ApprovalPolicy{"conv-p": {AgentLead: true, WorkingDepth: 3}}
+	a.fake.pol = map[string]ApprovalPolicy{"conv-p": {AgentLead: true, CeilingUSD: 50, WorkingDepth: 3}}
 	a.refused(t, a.c.ID, leadOf("conv-p"), "setting on the parent only")
 }
 
@@ -351,7 +351,7 @@ func TestGiantReasons(t *testing.T) {
 	root := Session{ID: 1, BudgetUSD: 100, AccessLevel: "workspace"}
 	parent := Session{ID: 2, BudgetUSD: 80, AccessLevel: "coding"}
 	ok := Session{ID: 3, AccessLevel: "coding", MaxTasks: 25, BudgetUSD: 32, Depth: 3, Counts: SessionCounts{Total: 25}}
-	pol := ApprovalPolicy{AgentLead: true, WorkingDepth: 3}
+	pol := ApprovalPolicy{AgentLead: true, CeilingUSD: 50, WorkingDepth: 3}
 	if r := giantReasons(ok, parent, root, pol); len(r) != 0 {
 		t.Fatalf("the edge of every threshold is not giant: %v", r)
 	}
@@ -362,7 +362,7 @@ func TestGiantReasons(t *testing.T) {
 		"max_tasks over 25":          {func(s *Session, _ *ApprovalPolicy, _ *Session) { s.MaxTasks = 26 }},
 		"over 40% of the parent's":   {func(s *Session, _ *ApprovalPolicy, _ *Session) { s.BudgetUSD = 32.01 }},
 		"no budget under a budget":   {func(s *Session, _ *ApprovalPolicy, _ *Session) { s.BudgetUSD = 0 }},
-		"no root budget, no ceiling": {func(_ *Session, _ *ApprovalPolicy, r *Session) { r.BudgetUSD = 0 }},
+		"no root budget, no ceiling": {func(_ *Session, p *ApprovalPolicy, r *Session) { r.BudgetUSD, p.CeilingUSD = 0, 0 }},
 		"over the USD ceiling":       {func(s *Session, p *ApprovalPolicy, _ *Session) { p.CeilingUSD = 31 }},
 		"no budget under a ceiling":  {func(s *Session, p *ApprovalPolicy, r *Session) { s.BudgetUSD, p.CeilingUSD, r.BudgetUSD = 0, 50, 0 }},
 		"access above the parent's":  {func(s *Session, _ *ApprovalPolicy, _ *Session) { s.AccessLevel = "workspace" }},
@@ -384,4 +384,55 @@ func TestGiantReasons(t *testing.T) {
 	if got := giantReasons(s, par, r, p); len(got) != 0 {
 		t.Errorf("a ceiling replaces the root's budget and an unbudgeted parent has no share: %v", got)
 	}
+}
+
+// A lead's approval always has a spend limit: agent_approval=lead with no ceiling above 0 is not
+// a policy an agent may act on, whatever else the mission holds (a root budget does not stand in
+// for it), even if such a row got stored past the settings' validation.
+func TestALeadWithoutACeilingAboveZeroNeverApproves(t *testing.T) {
+	for name, ceiling := range map[string]float64{"zero": 0, "negative": -1} {
+		t.Run(name, func(t *testing.T) {
+			a := newApprovalTree(t)
+			a.fake.pol["conv-root"] = ApprovalPolicy{AgentLead: true, CeilingUSD: ceiling, WorkingDepth: 3}
+			a.refused(t, a.c.ID, leadOf("conv-p"), "lead without a ceiling")
+			if len(a.fake.raised) != 0 {
+				t.Fatalf("a refusal for want of a ceiling raised a person item: %v", a.fake.raised)
+			}
+		})
+	}
+}
+
+// approval_basis 'person' is written only by the person's own path, for a human: whatever an
+// agent calls (even a lead, even while the item of that very session waits) never records it,
+// and every agent route into the person path is refused.
+func TestAnAgentNeverWritesTheBasisPerson(t *testing.T) {
+	a := newApprovalTree(t)
+	a.fake.raised[a.c.ID] = "conv-p"
+	lead := leadOf("conv-p")
+	rev := PlanGuard{Rev: a.state(t, a.c.ID).Rev}
+	if _, err := a.s.ApproveSessionAsPerson(bg, "default", a.c.ID, lead, rev); !errors.Is(err, ErrOperatorOnly) {
+		t.Fatalf("an agent answered as the person: %v", err)
+	}
+	if _, err := a.s.ApproveSessionAt(bg, "default", a.c.ID, lead, rev); !errors.Is(err, ErrOperatorOnly) {
+		t.Fatalf("an agent used the guarded operator path: %v", err)
+	}
+	if se := a.state(t, a.c.ID); se.State != SessionDraft || se.ApprovalBasis != "" {
+		t.Fatalf("a refused route changed the session: %+v", se)
+	}
+	se, err := a.s.ApproveSession(bg, "default", a.c.ID, lead)
+	if err != nil || se.ApprovalBasis != ApprovalLead {
+		t.Fatalf("a lead's plain approval while an item waits must record the lead: %+v %v", se, err)
+	}
+	if n := countBasis(t, a.db, ApprovalPerson); n != 0 {
+		t.Fatalf("%d sessions carry the person's basis after only agents acted", n)
+	}
+}
+
+func countBasis(t *testing.T, db *sql.DB, basis string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM task_sessions WHERE approval_basis = ?`, basis).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

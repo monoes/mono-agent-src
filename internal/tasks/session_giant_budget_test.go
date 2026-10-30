@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// With no budget anywhere (the root has none and the operator set no ceiling) the guard has
-// nothing to measure, so a child that brings no budget either is giant: the person decides.
+// With no budget anywhere (the root has none) the operator's ceiling is what the guard measures by:
+// a child that brings no budget is giant against it, so the person decides. Without a ceiling a
+// lead does not approve at all (see TestALeadWithoutACeilingAboveZeroNeverApproves).
 func TestAChildWithNoBudgetUnderAnUnbudgetedMissionIsGiant(t *testing.T) {
 	a := newApprovalTree(t)
 	for _, id := range []int64{a.r.ID, a.c.ID} {
@@ -17,27 +18,15 @@ func TestAChildWithNoBudgetUnderAnUnbudgetedMissionIsGiant(t *testing.T) {
 	}
 	_, err := a.s.ApproveSession(bg, "default", a.c.ID, leadOf("conv-p"))
 	var g *GiantError
-	if !errors.As(err, &g) || !strings.Contains(strings.Join(g.Reasons, ";"), "no budget set: the person decides") {
+	if !errors.As(err, &g) || !strings.Contains(strings.Join(g.Reasons, ";"), "ceiling") {
 		t.Fatalf("a lead approved unlimited spend: %v", err)
 	}
 	if se := a.state(t, a.c.ID); se.State != SessionDraft {
 		t.Fatalf("%+v", se)
 	}
-	// The operator's ceiling is a budget to measure by: the same child is then giant for the old reason, not this one.
-	a.fake.pol["conv-root"] = ApprovalPolicy{AgentLead: true, WorkingDepth: 3, CeilingUSD: 50}
-	_, err = a.s.ApproveSession(bg, "default", a.c.ID, leadOf("conv-p"))
-	if !errors.As(err, &g) || strings.Contains(strings.Join(g.Reasons, ";"), "no budget set") {
-		t.Fatalf("with a ceiling the reason is the ceiling's: %v", err)
-	}
-	// A child that brings a budget under an unbudgeted mission with no ceiling is still the person's.
-	if _, err := a.db.Exec(`UPDATE task_sessions SET budget_usd = 3 WHERE id = ?`, a.c.ID); err != nil {
-		t.Fatal(err)
-	}
+	// With no ceiling the lead is not allowed to approve anything, giant or not.
 	a.fake.pol["conv-root"] = ApprovalPolicy{AgentLead: true, WorkingDepth: 3}
-	_, err = a.s.ApproveSession(bg, "default", a.c.ID, leadOf("conv-p"))
-	if !errors.As(err, &g) || !strings.Contains(strings.Join(g.Reasons, ";"), "no budget set") {
-		t.Fatalf("a lead approved under a mission with no budget and no ceiling: %v", err)
-	}
+	a.refused(t, a.c.ID, leadOf("conv-p"), "no budget and no ceiling")
 }
 
 // The share is the child's budget against its PARENT's. The budgets of the parent's other children are
