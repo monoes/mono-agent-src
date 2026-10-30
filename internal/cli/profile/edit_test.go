@@ -404,6 +404,18 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	}
 }
 
+// The retention sweep does not exist yet: no reason given for keeping a row may say it removes them as if it did.
+func TestRetainedReasonsDoNotClaimASweepThatDoesNotExist(t *testing.T) {
+	for tbl, why := range retainedOnDelete {
+		if strings.Contains(why, "retention sweep") && !strings.Contains(why, "not shipped yet") {
+			t.Errorf("%s: %q names the retention sweep without saying it is not shipped yet", tbl, why)
+		}
+	}
+	if !strings.Contains(retainedOnDelete["procbind_host"], "kept permanently") {
+		t.Errorf("the host log's newest row is kept permanently, and its reason must say so: %q", retainedOnDelete["procbind_host"])
+	}
+}
+
 func TestProfileNamesAndIconsAreValidated(t *testing.T) {
 	dbPath := newProfileDocsCLITestDB(t)
 	id := createTestProfile(t, dbPath, "work")
