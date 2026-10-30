@@ -473,7 +473,7 @@ func (r *accessRig) leadSession(t *testing.T, convID string) (*tasks.Store, int6
 	ts := tasks.NewStore(db.DB)
 	ctx := context.Background()
 	op := tasks.Actor{Kind: tasks.Human}
-	se, err := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "mission", Goal: "g", ConversationID: convID}, op)
+	se, err := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "mission", Goal: "g", ConversationID: convID, Kind: tasks.SessionKindMission}, op)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,5 +687,34 @@ func TestDeleteSaysWhatItStoppedWhenItEndsInAnotherError(t *testing.T) {
 	}
 	if !gone(pid) {
 		t.Error("the process the delete stopped is still running")
+	}
+}
+
+// A plain board draft an agent linked to its own chat is no mission: it does not hold the chat's delete open (the
+// guard is the same selector the host uses for the chat's lead session).
+func TestDeleteGuardIgnoresAPlainBoardDraftLinkedToTheChat(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ts := tasks.NewStore(db.DB)
+	ctx := context.Background()
+	if _, err := ts.CreateSession(ctx, "default", tasks.SessionInput{Title: "mine", Goal: "g", ConversationID: c.ID}, tasks.Actor{Kind: tasks.Agent, Name: "agent-x", Conversation: c.ID}); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.DB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := deleteGuard("default", c.ID, nil)(ctx, conn); err != nil {
+		t.Fatalf("a plain board draft held the delete: %v", err)
+	}
+	r.leadSession(t, c.ID) // the real mission does
+	if err := deleteGuard("default", c.ID, nil)(ctx, conn); !errors.Is(err, errSessionOpened) {
+		t.Fatalf("the open mission did not hold the delete: %v", err)
 	}
 }

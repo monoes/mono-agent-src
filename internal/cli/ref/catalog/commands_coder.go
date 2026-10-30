@@ -74,7 +74,7 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:  "coder sessions spawn",
-		Short: "A master session creates a child session below itself (needs the session token of a master's turn; limits: max_children, max_depth, spawn rate, access never above the master's and never full, budget carved from the master's)",
+		Short: "A master session creates a child session below itself (needs the session token of a master's turn; limits: max_children, max_depth (default 3, at most 4), 12 live sessions per tree, spawn rate, access never above the master's and never full, budget carved from the master's; a session that leads a task session spawns through the session_spawn tool instead, with a title, kind and reason)",
 		Usage: "monoagentcli [--profile P] coder sessions spawn [--message TEXT] [--access coding|workspace] [--cwd DIR] [--budget-usd N]",
 		Flags: `  --message string     The child's first message
   --access string      coding or workspace, at most the master's (default: the master's, capped at workspace)
@@ -201,6 +201,28 @@ var coderCommandDocs = []cmdDoc{
   --skip          Charge nothing (needs --reason)
   --reason string Why it is skipped, or where the figure comes from`,
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --usd 1.25", "monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --skip --reason 'free tier'"},
+	},
+	{
+		Name:     "coder sessions spawn-intents",
+		Short:    "The spawns the host holds for you after an interrupted session_spawn: list them, end one (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions spawn-intents list|resolve",
+		Examples: []string{"monoagentcli --profile work coder sessions spawn-intents list --json"},
+	},
+	{
+		Name:     "coder sessions spawn-intents list",
+		Short:    "Every spawn intent of the profile: spawner, state, attempts, claimed_at, child and its task sessions, the generation resolve needs, and whether the host holds it for you (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions spawn-intents list",
+		Examples: []string{"monoagentcli --profile work coder sessions spawn-intents list --json"},
+	},
+	{
+		Name:  "coder sessions spawn-intents resolve",
+		Short: "End a spawn the host holds for you (needs-operator only, at the generation list showed): --keep accepts it as it stands (one acceptance row; the child and task session stay), --discard removes the draft child and refuses an approved or running one (operator only)",
+		Usage: "monoagentcli [--profile P] coder sessions spawn-intents resolve SPAWNER --generation N (--keep | --discard) --confirm \"resolve spawn intent\"",
+		Flags: `  --generation int  The generation list showed for the intent
+  --keep            Accept the spawn as it stands
+  --discard         Remove the draft child and its task session
+  --confirm string  Exactly "resolve spawn intent"`,
+		Examples: []string{`monoagentcli --profile work coder sessions spawn-intents resolve <spawner-conv> --generation 7 --keep --confirm "resolve spawn intent"`},
 	},
 	{
 		Name:     "coder sessions mission-children list",

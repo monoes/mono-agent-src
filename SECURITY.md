@@ -2171,6 +2171,23 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   move and come back, or a mission that ends and returns, do not make it answerable again. Filing is limited to one
   open request per session, three an hour per lead and twelve per mission, so a model cannot flood the person's list.
   Not covered: the person's judgement of the numbers, and anything a same-user process can do to the database.
+- **A tree of sessions and `session_spawn` for a lead.** The depth of a tree is bounded by code:
+  `coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth` (4), `max_depth` is operator-only and validated against it
+  (default 3), a child takes its parent's value, and has room for children only below that depth and never more than its
+  parent (`childSettings`); the live sessions of one tree are capped at 12 whatever the depth. Spawn churn (a lead that stops its children and spawns more) has no cumulative cap: the bound is the per-master rate limit (6 per 10 minutes) and the live cap of 12 per tree. A crash in the middle of a spawn leaves an intent row that the host's sweep ends after a lease, never a second child (`coder_spawn_intents`). The sweep removes only a DRAFT pair: a task session the operator approved meanwhile is never stopped, adopted or deleted (not by the sweep, not by the spawn's own undo, whose delete runs under the same guard in its own transaction) and the intent becomes `needs-operator`, which keeps blocking that lead and is logged once. The operator ends it with `coder sessions spawn-intents resolve` (operator only: the gate runs first, before any argument or database; only a `needs-operator` row at the generation `list` showed, by a guarded statement that must change exactly one row; `--keep` writes one acceptance row in the transaction that drops the intent, `--discard` goes through the sweep's guarded delete and refuses a task session that is not a draft); `doctor` warns while one is held. A claim is a lease (2 minutes, doubling per attempt; 5 failed attempts also end in `needs-operator`) and every cleanup step is fenced on the claim's generation. Residual: a crash in the microseconds between creating and naming the child conversation (a handful of writes, no network) leaves a conversation the intent never learned of; the sweep drops that intent after 6 minutes and does not guess which child it was (a plain `session_spawn` child of the same lead would look the same), so the idle child stays, counted against `max_children` and the live cap, until the lead or the operator deletes it. Who may spawn: only the lead
+  of a running task session, with a verified session token and no task binding (`LeadMission`, the same lead scope as the
+  mission child tools); a worker, a verifier and a helper are refused, and a plain spawn by a lead is refused so the advisory
+  cannot be skipped. What a spawned session gets: access never above the lead's and never full, a `research` session runs
+  `scoped`, the lead's folder, and the lead's own runtime, model and provider (a named runtime or model that differs is
+  refused: a lead cannot pick a runtime whose sandbox or tool set the operator did not choose for the tree; the mission
+  child launcher takes no runtime either). Its task session is created through the task store, so every ceiling of the
+  chain applies (a closed or archived ancestor refuses it), with no budget of its own (a budget in the tree is the
+  operator's) and at most 25 tasks; the conversation's carve comes from the lead's own host cap. The tree cascade stops or
+  pauses descendants of a stopped or paused session at every depth under its own turn id, so it never lifts a pause made by
+  the mission pass or a person. The advisory's one remembered refusal (`coder_spawn_advice`) holds no authority and
+  is deleted with its lead's chat; the accepting ledger row is written only after the spawn is made. These sessions are not
+  mission task children: they do not go through `Reserve` or the operator's `coder.mission_children_enabled` switch.
+  Not covered: the quality of a model's reason for a spawn, and anything a same-user process can do.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder

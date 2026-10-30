@@ -74,6 +74,21 @@ const ledgerCols = `id, profile_id, conversation_id, class, question, choice, al
 // RecordOwn (producer.go), which fixes MadeBy, and Record itself refuses a hard class as the
 // model's decision, so a model cannot have a risky action or a credential gap recorded as its own.
 func (s *Store) Record(e LedgerEntry) (LedgerEntry, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return e, err
+	}
+	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
+	e, err = s.recordIn(tx, e)
+	if err != nil {
+		return e, err
+	}
+	return e, tx.Commit()
+}
+
+// recordIn is Record inside the caller's transaction, which commits or rolls it back (the spawn writes its
+// acceptance in one transaction with the end of its intent).
+func (s *Store) recordIn(tx *sql.Tx, e LedgerEntry) (LedgerEntry, error) {
 	if e.ProfileID == "" || e.ConversationID == "" || len(e.ConversationID) > maxConversationLen {
 		return e, errors.New("coder host: a decision needs a profile and a conversation")
 	}
@@ -104,11 +119,6 @@ func (s *Store) Record(e LedgerEntry) (LedgerEntry, error) {
 		rev = 1
 	}
 	e.Status, e.RevertedBy, e.CreatedAt = DecisionActive, "", s.stamp()
-	tx, err := s.db.Begin()
-	if err != nil {
-		return e, err
-	}
-	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
 	res, err := tx.Exec(`INSERT INTO coder_session_decisions (profile_id, conversation_id, class, question, choice, alternatives, reason, reversible, made_by, status, reverted_by, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', '', ?)`, e.ProfileID, e.ConversationID, e.Class, e.Question, e.Choice, string(raw), e.Reason, rev, e.MadeBy, e.CreatedAt)
 	if err != nil {
@@ -131,7 +141,7 @@ func (s *Store) Record(e LedgerEntry) (LedgerEntry, error) {
 		e.ProfileID, e.ConversationID, e.ProfileID, e.ConversationID, e.ID, MaxDecisionsPerChat); err != nil {
 		return e, err
 	}
-	return e, tx.Commit()
+	return e, nil
 }
 
 func scanEntry(sc interface{ Scan(...any) error }) (LedgerEntry, error) {

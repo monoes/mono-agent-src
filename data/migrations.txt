@@ -127,5 +127,6 @@
 141_coder_mission_child_generation.sql
 142_task_session_tree.sql
 143_coder_budget_requests.sql
+144_coder_spawn_advice.sql
 147_org_worker_mission_link.sql
 148_procbind_v2_tables.sql
