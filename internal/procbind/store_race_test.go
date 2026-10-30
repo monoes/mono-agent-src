@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,14 +28,21 @@ func (b *barrier) wait() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	round := b.round
+	// a caller whose partner made no further statement stops waiting after a while
+	timer := time.AfterFunc(300*time.Millisecond, func() { b.mu.Lock(); b.cond.Broadcast(); b.mu.Unlock() })
+	defer timer.Stop()
+	deadline := time.Now().Add(300 * time.Millisecond)
 	b.here++
 	if b.here == b.n {
 		b.here, b.round = 0, b.round+1
 		b.cond.Broadcast()
 		return
 	}
-	for round == b.round {
+	for round == b.round && time.Now().Before(deadline) {
 		b.cond.Wait()
+	}
+	if round == b.round {
+		b.here-- // gave up: not arrived any more
 	}
 }
 
@@ -132,5 +140,39 @@ func TestAnIdWithASurvivingRevocationRowCannotBeReused(t *testing.T) {
 		if err := other(); !errors.Is(err, ErrIDInUse) {
 			t.Errorf("%s: the other family reused the tombstoned id: %v", kind, err)
 		}
+	}
+}
+
+// A surviving binding row keeps its id from being reused too (its insert-only row would fail the new token's
+// binding), and each refusal says what holds the id without naming it.
+func TestAnIdWithASurvivingBindingRowCannotBeReused(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	old := time.Now().UTC().AddDate(0, 0, -30)
+	m := mission("bound", "p1", "owner")
+	m.CreatedAt, m.ExpiresAt = old, old.Add(time.Hour)
+	if err := InsertMissionToken(ctx, db, storeKey, m); err != nil {
+		t.Fatal(err)
+	}
+	b := BindingRow{Kind: KindMission, TokenID: "bound", ProfileID: "p1", Scope: "sc", WorkerPID: 4242, WorkerStamp: "st", HostGeneration: "g", CreatedAt: old, ExpiresAt: old.Add(time.Hour)}
+	if err := InsertBinding(ctx, db, storeKey, b); err != nil {
+		t.Fatal(err)
+	}
+	if err := execErr(db, "DELETE FROM agent_tokens_v2 WHERE id = 'bound'"); err != nil {
+		t.Fatalf("the long-expired token row could not be deleted: %v", err)
+	}
+	err := InsertMissionToken(ctx, db, storeKey, m)
+	if !errors.Is(err, ErrIDInUse) || !strings.Contains(err.Error(), "binding record") || strings.Contains(err.Error(), "bound") {
+		t.Errorf("an id with a surviving binding was reused or the reason is wrong: %v", err)
+	}
+	if err := InsertSessionToken(ctx, db, storeKey, session("bound", "p1", "conv", "turn")); !errors.Is(err, ErrIDInUse) {
+		t.Errorf("the other family reused the bound id: %v", err)
+	}
+	// the other reasons are worded apart
+	if err := InsertMissionToken(ctx, db, storeKey, mission("s1", "p1", "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertSessionToken(ctx, db, storeKey, session("s1", "p1", "conv", "turn")); err == nil || !strings.Contains(err.Error(), "other family") {
+		t.Errorf("the other-family reason: %v", err)
 	}
 }

@@ -37,7 +37,7 @@ var (
 
 // NewTokenID is a new token id: 128 random bits as lowercase hex. A token id is unique across both families
 // (mission and session) and all profiles; that holds because ids are random, and the inserts below refuse an id
-// the other family or a surviving revocation row already holds.
+// the other family, a surviving revocation row or a surviving binding row already holds.
 func NewTokenID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -48,25 +48,41 @@ func NewTokenID() (string, error) {
 
 // freeID is the guard of an insert, in the same statement as the insert so that no other writer can slip in between
 // the check and the write (a separate SELECT is not atomic with the INSERT outside a BEGIN IMMEDIATE transaction):
-// the id must be held by no token of the other family and by no revocation row of either kind (a surviving
-// tombstone would make a revoke of a token that reuses the id skip it).
+// the id must be held by no token of the other family, no revocation row of either kind (a surviving tombstone
+// would make a revoke of a token that reuses the id skip it) and no binding row (its insert-only row would make
+// the new token's binding fail, and a read could return the old signed one). A duplicate id inside the same
+// family is not part of the guard: the table's primary key refuses it with a database error, not ErrIDInUse.
+// The revocation lookup walks the (token_kind, token_id) key, so it costs O(retained revocations); an index on
+// token_id alone belongs to the retention work.
 func freeID(otherTable string) string {
 	return ` WHERE NOT EXISTS (SELECT 1 FROM ` + otherTable + ` WHERE id = ?1)
-		  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 WHERE token_id = ?1)`
+		  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 WHERE token_id = ?1)
+		  AND NOT EXISTS (SELECT 1 FROM process_bindings WHERE token_id = ?1)`
 }
 
-// insertGuarded runs a guarded INSERT ... SELECT; no row inserted means the id is in use.
-func insertGuarded(ctx context.Context, x DBTX, query string, args ...any) error {
+// insertGuarded runs a guarded INSERT ... SELECT; no row inserted means the id is in use, and a follow-up read
+// (only to word the error, never to decide) says which record holds it.
+func insertGuarded(ctx context.Context, x DBTX, otherTable, id, query string, args ...any) error {
 	res, err := x.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 	if n, err := res.RowsAffected(); err != nil {
 		return err
-	} else if n == 0 {
-		return ErrIDInUse
+	} else if n > 0 {
+		return nil
 	}
-	return nil
+	for _, c := range []struct{ table, col, why string }{
+		{otherTable, "id", "a token of the other family"},
+		{"token_revocations_v2", "token_id", "a revocation record"},
+		{"process_bindings", "token_id", "a binding record"},
+	} {
+		var one int
+		if x.QueryRowContext(ctx, `SELECT 1 FROM `+c.table+` WHERE `+c.col+` = ?`, id).Scan(&one) == nil {
+			return fmt.Errorf("%w: held by %s", ErrIDInUse, c.why)
+		}
+	}
+	return ErrIDInUse
 }
 
 const (
@@ -133,7 +149,7 @@ func InsertMissionToken(ctx context.Context, x DBTX, key []byte, r MissionTokenR
 	if err != nil {
 		return err
 	}
-	return insertGuarded(ctx, x, `INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, mission_owner, mission_session, mission_task, mission_role, mission_actor, created_at, expires_at, version, mac)
+	return insertGuarded(ctx, x, "coder_session_tokens_v2", r.ID, `INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, mission_owner, mission_session, mission_task, mission_role, mission_actor, created_at, expires_at, version, mac)
 		SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12`+freeID("coder_session_tokens_v2"),
 		r.ID, r.ProfileID, r.TokenHash, r.Owner, r.Session, r.Task, r.Role, r.Actor, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
 }
@@ -187,7 +203,7 @@ func InsertSessionToken(ctx context.Context, x DBTX, key []byte, r SessionTokenR
 	if err != nil {
 		return err
 	}
-	return insertGuarded(ctx, x, `INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac)
+	return insertGuarded(ctx, x, "agent_tokens_v2", r.ID, `INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac)
 		SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9`+freeID("agent_tokens_v2"),
 		r.ID, r.ProfileID, r.TokenHash, r.ConversationID, r.TurnID, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
 }
