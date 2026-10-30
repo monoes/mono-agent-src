@@ -390,3 +390,36 @@ func TestDeleteChatConversationsNeverAbandonsProcesses(t *testing.T) {
 		}
 	}
 }
+
+// An offer is the profile's: with another profile selected the id is refused and the CLI is not called.
+func TestDeleteAnywayOfferBelongsToItsProfile(t *testing.T) {
+	a, log := aitaskApp(t, anywayScript)
+	asked(t, true)
+	a.DeleteChatConversations([]string{"running"})
+	other := "other-profile"
+	a.selectedProfilePtr.Store(&other)
+	got, err := a.DeleteChatConversationsAnyway([]string{"running"})
+	if err != nil || len(got.Deleted) != 0 || got.Failed["running"] == "" || abandoningCalls(t, log) != 0 {
+		t.Fatalf("an offer made under another profile was acted on: %+v %v", got, err)
+	}
+}
+
+// The dialog lists a bounded number of bounded entries.
+func TestDeleteAnywayDialogListIsBounded(t *testing.T) {
+	var many []Survivor
+	for i := 0; i < 25; i++ {
+		many = append(many, Survivor{Pid: i + 1, Command: strings.Repeat("x", 500)})
+	}
+	lines := strings.Split(survivorLines(many), "\n")
+	if len(lines) != dialogMaxSurvivors+1 || lines[dialogMaxSurvivors] != "… and 15 more" {
+		t.Fatalf("lines = %d, last %q", len(lines), lines[len(lines)-1])
+	}
+	for _, l := range lines[:dialogMaxSurvivors] {
+		if len([]rune(l)) > dialogMaxEntry {
+			t.Fatalf("entry is %d characters", len([]rune(l)))
+		}
+	}
+	if got := survivorLines([]Survivor{{Pid: 7, Command: "sleep"}}); got != "sleep (pid 7)" {
+		t.Fatalf("short list = %q", got)
+	}
+}

@@ -352,11 +352,7 @@ func (a *App) DeleteChatConversationsAnyway(ids []string) (DeleteChatResult, err
 			res.Failed[id] = "this chat's delete was not kept for running processes (or the offer lapsed); delete it again first"
 			continue
 		}
-		names := make([]string, 0, len(off.survivors))
-		for _, s := range off.survivors {
-			names = append(names, fmt.Sprintf("%s (pid %d)", s.Command, s.Pid))
-		}
-		msg := fmt.Sprintf("Delete this chat without stopping the %d process(es) it left running?\n\n%s\n\nThey keep running after the chat is gone and nothing will stop them for you.", len(names), strings.Join(names, "\n"))
+		msg := fmt.Sprintf("Delete this chat without stopping the %d process(es) it left running?\n\n%s\n\nThey keep running after the chat is gone and nothing will stop them for you.", len(off.survivors), survivorLines(off.survivors))
 		if !confirmAbandon(a, "Delete chat anyway", msg) {
 			a.offer(profile, id, off.survivors) // asking again is allowed; every ask is the native dialog
 			res.Kept[id] = DeleteKept{Code: keptSurvivorsRemain, Message: "not deleted", Stopped: []int{}, Survivors: off.survivors}
@@ -373,6 +369,29 @@ func (a *App) DeleteChatConversationsAnyway(ids []string) (DeleteChatResult, err
 		}
 	}
 	return res, nil
+}
+
+// The dialog names at most dialogMaxSurvivors processes, each cut to dialogMaxEntry characters, so a long
+// list or command line cannot push the buttons out of the window.
+const (
+	dialogMaxSurvivors = 10
+	dialogMaxEntry     = 120
+)
+
+func survivorLines(survivors []Survivor) string {
+	var lines []string
+	for i, s := range survivors {
+		if i == dialogMaxSurvivors {
+			lines = append(lines, fmt.Sprintf("… and %d more", len(survivors)-i))
+			break
+		}
+		line := []rune(fmt.Sprintf("%s (pid %d)", s.Command, s.Pid))
+		if len(line) > dialogMaxEntry {
+			line = append(line[:dialogMaxEntry-1], '…')
+		}
+		lines = append(lines, string(line))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (a *App) offer(profile, id string, survivors []Survivor) {
