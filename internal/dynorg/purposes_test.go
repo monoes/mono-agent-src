@@ -494,3 +494,39 @@ func TestNoAllowedVerifierIsAnErrorNotTheExecutor(t *testing.T) {
 		t.Errorf("an allowed lone executor: %s same=%v err=%v", m.Key(), same, err)
 	}
 }
+
+// The fallback `any` lets a validated model run when none of the set's pairs
+// is available; a stale model is never that fallback, for the verifier or for
+// a worker that runs again.
+func TestAStaleModelIsNotTheFallbackOfAnyCaller(t *testing.T) {
+	stale := opus
+	stale.Stale = true
+	fb := func(pair string) agentpurposes.Setting {
+		s := set("any", pair)
+		s.Fallback = agentpurposes.FallbackAny
+		return s
+	}
+	// permits: the set's pair (haiku) is not in the roster, a stale opus is the candidate.
+	s := &Staffer{Roster: []Model{stale}, Lead: stale}
+	all := map[string]agentpurposes.Setting{"review": fb("claude/haiku")}
+	if s.permits(all, "review", stale) {
+		t.Error("permits accepted a stale model as the fallback")
+	}
+	if !s.permits(all, "review", opus) {
+		t.Error("permits refused a validated model as the fallback")
+	}
+	// The verifier: the executor went stale, nothing else is validated.
+	s.Purposes = all
+	if m, _, err := VerifierFor(s, stale); err == nil {
+		t.Errorf("a stale executor verified its own task: %s", m.Key())
+	}
+	// A veteran whose model went stale does not run again under a restriction.
+	ex := &treeExec{}
+	c := New(context.Background(), Config{Cwd: "/w", Limits: treeLimits, ReadAccess: true, Exec: ex.exec, Emit: &recEmitter{},
+		Staffer: &Staffer{Roster: []Model{stale}, Lead: stale, Purposes: map[string]agentpurposes.Setting{"coding": fb("claude/haiku")}}})
+	defer c.Close()
+	c.AddVeterans([]Veteran{{ID: "w1", Role: "Coder", Access: ProfileCoding, Runtime: "claude", Model: "opus", Session: "s1", Cwd: "/w", Report: "r1", Builtin: true, Purposes: "coding"}})
+	if _, err := c.Message(context.Background(), "w1", "more"); err == nil || len(ex.calls) != 0 {
+		t.Errorf("a stale veteran ran under a restriction: err=%v calls=%d", err, len(ex.calls))
+	}
+}

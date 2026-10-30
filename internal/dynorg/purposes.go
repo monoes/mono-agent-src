@@ -209,7 +209,7 @@ func (p *purposePolicy) pick(eligible, bad []Model) (Model, bool) {
 
 // permits is whether the operator's set for purpose (all: the sets read for
 // this decision) lets m run its work: always when nothing is chosen, else only
-// a validated pair of the set (or any validated model when the set has none
+// a validated pair of the set (or any other validated model when the set has none
 // available and the operator allowed the fallback).
 func (s *Staffer) permits(all map[string]agentpurposes.Setting, purpose string, m Model) bool {
 	set, chosen := all[purpose]
@@ -219,7 +219,7 @@ func (s *Staffer) permits(all map[string]agentpurposes.Setting, purpose string, 
 	if !m.Stale && set.Has(m.Runtime, modelID(m)) {
 		return true
 	}
-	if set.Fallback != agentpurposes.FallbackAny {
+	if m.Stale || set.Fallback != agentpurposes.FallbackAny {
 		return false
 	}
 	return !slices.ContainsFunc(s.Roster, func(o Model) bool { return !o.Stale && set.Has(o.Runtime, modelID(o)) })
