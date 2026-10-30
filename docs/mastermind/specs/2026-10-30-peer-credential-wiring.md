@@ -1,4 +1,4 @@
-# Peer-credential binding: phase 3 and 4 wiring (design note, revision 4)
+# Peer-credential binding: phase 3 and 4 wiring (design note, revision 5)
 
 Issue #1100. Builds on the approved design (`2026-10-28-peer-credential-binding.md`, merged as #1115) and on
 what is on master: the encoding and keyed answer (#1138), the pidfd walk (#1139), the service and client
@@ -10,7 +10,8 @@ downgrade rules, the typed pipe frame, the in-flight rule of the service, the pl
 the verifier text. Revision 3 made recovery identify an old turn from the binding row, added a **runtime** readiness check and
 carried the reviewers' precisions (graceful stop, mission accounting, the frame reader, the byte-identical legacy
 path). Revision 4 **simplifies**: recovery stops only what it can pin (the turn's leader, by its own pidfd) and
-never signals a process group; and turning the setting **off** is always allowed.
+never signals a process group; and turning the setting **off** is always allowed. Revision 5 separates a
+**confirmed absence** of the leader from an **inability to check**: only the former lets a session settle.
 
 ## 1. What the launcher does today (checked on master)
 
@@ -208,18 +209,35 @@ running when the setting is turned on stay legacy and are adopted as today. `Hos
 else; it sends **no signal to any process group** (a group id can be reused between the last check and the signal,
 and a leader that is already gone leaves nothing to pin):
 1. `pidfd_open(worker_pid)`, poll alive, read the start stamp, poll alive again (the design's liveness rule),
-   compare the stamp with the binding row. A mismatch, or a pidfd that polled dead, means no signal is sent.
+   compare the stamp with the binding row. The outcome is one of three, and only the first two let the session
+   settle:
+   - **Confirmed absent:** `pidfd_open` fails with `ESRCH`, or the pidfd polls dead, or the stamp read for that
+     number does not match the binding row (the number now belongs to another process, so ours is gone). No
+     signal is sent.
+   - **Confirmed present:** the pidfd is open, polls alive and the stamp matches. Go to step 2.
+   - **Unable to check:** anything else: `EMFILE` or `ENFILE` (the host ran out of descriptors), `EPERM`,
+     `ENOMEM`, any other errno, an unreadable `/proc` entry or an unreadable stamp. This is **not** evidence that
+     the leader is gone. The session is **held** (not settled, no new turn started for the conversation),
+     `doctor` reports it with the cause, and the check is retried at the next pass. Holding is bounded only by
+     the operator's attention, never by giving up.
 2. `pidfd_send_signal(SIGTERM)` to the leader through that pidfd; wait for the pidfd to become readable (the
    leader exited) within a bounded grace (the turn flushes its events and exits); if it has not, send `SIGKILL`
    through the same pidfd and wait again. A signal that was sent is not an exit: only the pidfd polling readable
    is.
-3. The session is settled **when the leader has exited**. If the leader was already gone before recovery (its
-   pidfd cannot be opened or polls dead), there is nothing to signal and the session is settled at once.
+3. The session is settled **when the leader has exited**: its pidfd polled readable after the signal, or its
+   absence was **confirmed** in step 1 (nothing to signal, settle at once). A failure to open or poll is never
+   read as absence.
 4. Whatever else of the turn is still running (tool children, a runtime process) is **not** killed by group or
    session id. It is the existing marker-based stray reconciliation, which signals a process only when its
    identity is pinned and otherwise **reports** it (`doctor`). A leader-gone, child-alive state therefore settles
    normally and shows the stray; this is a stated limit, and the same rule as strays elsewhere (reported, not
    killed, when unidentified). There is no `kill(-pgid)` anywhere in recovery.
+
+*What "one live turn" means.* One live turn **leader** per conversation, not one live process tree. A surviving
+tool child of a stopped turn can still be running after the session settles; it is **detected and reported** by
+`doctor` as a stray of that conversation (its marker identifies the turn, its identity is pinned before any
+signal), and it cannot act as the conversation's turn: it holds no v2 token (revoked) and is not the registered
+worker.
 A **clean** host shutdown stops (or drains) the v2 turns first, **then** revokes, instead of leaving them
 running with dead tokens until the next start.
 
@@ -229,11 +247,14 @@ interrupted by a restart, with a way to continue (the wording is the operator's)
 child settles as `interrupted`, not as a failed attempt**, so restarts cannot exhaust the retry count, and the
 mission pass can launch it again (a test).
 
-*Tests (fake crash).* **One live turn per conversation** across: a crash between each launch step, after delivery
+*Tests (fake crash).* **One live turn leader per conversation** across: a crash between each launch step, after delivery
 and before `TurnPID` is saved, restart with the setting on, restart with it off, and a crash before the turn
 identity is recorded. And: **a leader that ignores `SIGTERM`** is killed by `SIGKILL` through its pidfd and the
 session settles only after the pidfd is readable; **a leader gone before restart with a child still alive**
-settles, the stray is reported, and **no signal is sent to any group** (the test asserts it).
+settles, the stray is reported **by `doctor`** (the test asserts the report), and **no signal is sent to any
+group** (the test asserts it). **An injected `EMFILE` (and `EPERM`) from `pidfd_open` while the leader is alive**
+holds the session: it is not settled, no new turn starts beside the live leader, and the next pass, once the
+injection stops, finds the leader present and stops it.
 
 *The setting.* `security.peercred_binding` is added to the reserved, operator-only settings (the same list
 `TestStorageSaveConfigGuardsReservedRows` guards) with a test that a non-operator write is refused. Its setter
