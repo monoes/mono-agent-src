@@ -13,12 +13,21 @@ func TestKeysAreDerivedPerProfileGenerationAndPurpose(t *testing.T) {
 	if err != nil || len(a1) != 32 {
 		t.Fatalf("answer key: %d bytes, %v", len(a1), err)
 	}
-	again, _ := AnswerKey(ctx, db, "p1", "gen-1")
+	again, err := AnswerKey(ctx, db, "p1", "gen-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(a1, again) {
 		t.Error("the same inputs gave another key")
 	}
-	a2, _ := AnswerKey(ctx, db, "p1", "gen-2")
-	other, _ := AnswerKey(ctx, db, "p2", "gen-1")
+	a2, err := AnswerKey(ctx, db, "p1", "gen-2")
+	if err != nil || len(a2) != 32 {
+		t.Fatalf("second generation: %d bytes, %v", len(a2), err)
+	}
+	other, err := AnswerKey(ctx, db, "p2", "gen-1")
+	if err != nil || len(other) != 32 {
+		t.Fatalf("other profile: %d bytes, %v", len(other), err)
+	}
 	row, err := RowKey(ctx, db, "p1")
 	if err != nil || len(row) != 32 {
 		t.Fatalf("row key: %d bytes, %v", len(row), err)

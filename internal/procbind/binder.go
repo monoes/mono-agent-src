@@ -38,7 +38,8 @@ type EntrySpec struct {
 	Owner   string
 	Session string
 	Turn    string
-	// Expires is when the token ends; a revoked entry is remembered until then so its id cannot be registered again.
+	// Expires is when the token ends. The entry stops answering then; a revoked entry is remembered until then so
+	// its id cannot be registered again.
 	Expires time.Time
 }
 
@@ -100,42 +101,65 @@ type entry struct {
 	h      Handle
 	state  state
 	leases int
-	closed bool // the handle has been closed
+	closed bool // the handle has been handed out to be closed
 }
 
 // Binder is the registry. One lock guards every field, so a decision made under it (activate, revoke,
-// lookup, a lease's validity) is linearised with every other.
+// lookup, a lease's validity) is linearised with every other. A worker's handle is never closed while the
+// lock is held (a Close that called back into the Binder would deadlock, and a slow one would block every
+// lookup): the methods collect the handles to close and close them after they unlock.
 type Binder struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	entries map[string]*entry
-	closed  bool
+	mu        sync.Mutex
+	now       func() time.Time
+	entries   map[entryKey]*entry
+	closed    bool
+	lastPrune time.Time
 }
+
+// entryKey: a token id is unique within a profile, not across profiles.
+type entryKey struct{ profile, id string }
 
 // NewBinder returns an empty binder; now is the clock (time.Now when nil).
 func NewBinder(now func() time.Time) *Binder {
 	if now == nil {
 		now = time.Now
 	}
-	return &Binder{now: now, entries: map[string]*entry{}}
+	return &Binder{now: now, entries: map[entryKey]*entry{}}
 }
 
-// releaseLocked closes the handle once the entry is revoked and no lease borrows it.
-func (e *entry) releaseLocked() {
+// release marks the handle of a revoked entry with no lease out as to be closed and returns it (nil when
+// there is nothing to close). Called with the lock held; the caller closes the handle after unlocking.
+func (e *entry) release() Handle {
 	if e.state == stateRevoked && e.leases == 0 && !e.closed {
 		e.closed = true
-		if e.h != nil {
-			_ = e.h.Close()
+		return e.h
+	}
+	return nil
+}
+
+func closeAll(hs []Handle) {
+	for _, h := range hs {
+		if h != nil {
+			_ = h.Close()
 		}
 	}
 }
 
-// pruneLocked forgets revoked entries whose handle is closed and whose token has expired.
-func (b *Binder) pruneLocked() {
+// pruneLocked ends every entry whose token has expired (whatever its state: an expired entry would otherwise
+// keep its descriptor and its id until someone revoked it) and forgets those whose handle is closed. It runs
+// on Register and Stats, and on a lookup at most once a second; a lookup checks expiry itself.
+func (b *Binder) pruneLocked(toClose *[]Handle) {
 	now := b.now()
-	for id, e := range b.entries {
-		if e.state == stateRevoked && e.closed && !now.Before(e.spec.Expires) {
-			delete(b.entries, id)
+	b.lastPrune = now
+	for k, e := range b.entries {
+		if !now.Before(e.spec.Expires) {
+			e.state = stateRevoked
+			if h := e.release(); h != nil {
+				*toClose = append(*toClose, h)
+			}
+			if e.closed {
+				delete(b.entries, k)
+			}
 		}
 	}
 }
@@ -143,38 +167,41 @@ func (b *Binder) pruneLocked() {
 // Register adds a pending entry and takes ownership of h (it closes it when the entry is revoked and no
 // lease is out). On any error the caller still owns h.
 func (b *Binder) Register(s EntrySpec, h Handle) error {
-	if h == nil || s.TokenID == "" || s.Profile == "" || (s.Kind != KindMission && s.Kind != KindSession) || s.Expires.IsZero() {
-		return errors.New("procbind: an entry needs a token id, a kind, a profile, an expiry and a handle")
+	if h == nil || s.TokenID == "" || s.Profile == "" || s.Scope == "" || (s.Kind != KindMission && s.Kind != KindSession) || s.Expires.IsZero() {
+		return errors.New("procbind: an entry needs a token id, a kind, a profile, a scope, an expiry and a handle")
 	}
+	var toClose []Handle
+	defer func() { closeAll(toClose) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
 		return ErrClosed
 	}
-	b.pruneLocked()
-	if e, ok := b.entries[s.TokenID]; ok {
+	b.pruneLocked(&toClose)
+	k := entryKey{s.Profile, s.TokenID}
+	if e, ok := b.entries[k]; ok {
 		if e.state == stateRevoked {
 			return ErrRevoked
 		}
 		return ErrDuplicate
 	}
-	b.entries[s.TokenID] = &entry{spec: s, h: h, state: statePending}
+	b.entries[k] = &entry{spec: s, h: h, state: statePending}
 	return nil
 }
 
-// Activate makes a pending entry usable. It is a compare-and-set: it fails if the entry was revoked or the
-// binder closed since it was registered.
-func (b *Binder) Activate(tokenID string) error {
+// Activate makes a pending entry usable. It is a compare-and-set: it fails if the entry was revoked, expired
+// or the binder closed since it was registered.
+func (b *Binder) Activate(profile, tokenID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
 		return ErrClosed
 	}
-	e, ok := b.entries[tokenID]
+	e, ok := b.entries[entryKey{profile, tokenID}]
 	if !ok {
 		return ErrUnknown
 	}
-	if e.state != statePending {
+	if e.state != statePending || !b.now().Before(e.spec.Expires) {
 		return ErrNotPending
 	}
 	e.state = stateActive
@@ -184,6 +211,8 @@ func (b *Binder) Activate(tokenID string) error {
 // Revoke ends every entry the selector matches (pending or active) and returns the ones that were newly
 // revoked. A revoked entry stays as a tombstone until its token's expiry.
 func (b *Binder) Revoke(sel Selector) []TokenRef {
+	var toClose []Handle
+	defer func() { closeAll(toClose) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var out []TokenRef
@@ -191,31 +220,41 @@ func (b *Binder) Revoke(sel Selector) []TokenRef {
 		if e.state != stateRevoked && sel.matches(e) {
 			e.state = stateRevoked
 			out = append(out, TokenRef{Kind: e.spec.Kind, TokenID: e.spec.TokenID, Profile: e.spec.Profile})
-			e.releaseLocked()
+			if h := e.release(); h != nil {
+				toClose = append(toClose, h)
+			}
 		}
 	}
 	return out
 }
 
 // Reap ends the entry of a worker that has exited.
-func (b *Binder) Reap(tokenID string) {
+func (b *Binder) Reap(profile, tokenID string) {
+	var toClose []Handle
+	defer func() { closeAll(toClose) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if e, ok := b.entries[tokenID]; ok && e.state != stateRevoked {
+	if e, ok := b.entries[entryKey{profile, tokenID}]; ok && e.state != stateRevoked {
 		e.state = stateRevoked
-		e.releaseLocked()
+		if h := e.release(); h != nil {
+			toClose = append(toClose, h)
+		}
 	}
 }
 
 // Close revokes everything and refuses further use. A handle that a lease still borrows is closed by its
 // last release.
 func (b *Binder) Close() {
+	var toClose []Handle
+	defer func() { closeAll(toClose) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closed = true
 	for _, e := range b.entries {
 		e.state = stateRevoked
-		e.releaseLocked()
+		if h := e.release(); h != nil {
+			toClose = append(toClose, h)
+		}
 	}
 }
 
@@ -223,9 +262,11 @@ func (b *Binder) Close() {
 type Stats struct{ Pending, Active, Revoked int }
 
 func (b *Binder) Stats() Stats {
+	var toClose []Handle
+	defer func() { closeAll(toClose) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.pruneLocked()
+	b.pruneLocked(&toClose)
 	var st Stats
 	for _, e := range b.entries {
 		switch e.state {
@@ -240,7 +281,8 @@ func (b *Binder) Stats() Stats {
 	return st
 }
 
-// Lease is a borrowed, counted hold on an active entry and its worker handle.
+// Lease is a borrowed, counted hold on an active entry and its worker handle. A nil Lease is safe to use:
+// it is never valid and releasing it does nothing.
 type Lease struct {
 	b        *Binder
 	e        *entry
@@ -250,14 +292,18 @@ type Lease struct {
 // Acquire looks up an active entry for exactly this token, profile and scope and takes a lease on it. A
 // pending, revoked, expired, unknown or mismatched entry gives nothing, and the caller cannot tell which.
 func (b *Binder) Acquire(tokenID, profile, scope string) (*Lease, bool) {
+	var toClose []Handle
+	defer func() { closeAll(toClose) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
 		return nil, false
 	}
-	b.pruneLocked()
-	e, ok := b.entries[tokenID]
-	if !ok || e.state != stateActive || e.spec.Profile != profile || e.spec.Scope != scope || !b.now().Before(e.spec.Expires) {
+	if b.now().Sub(b.lastPrune) >= time.Second {
+		b.pruneLocked(&toClose)
+	}
+	e, ok := b.entries[entryKey{profile, tokenID}]
+	if !ok || e.state != stateActive || e.spec.Scope != scope || !b.now().Before(e.spec.Expires) {
 		return nil, false
 	}
 	e.leases++
@@ -266,6 +312,9 @@ func (b *Binder) Acquire(tokenID, profile, scope string) (*Lease, bool) {
 
 // Handle is the worker's handle, borrowed from the entry: do not close it. Nil once the lease is released.
 func (l *Lease) Handle() Handle {
+	if l == nil {
+		return nil
+	}
 	l.b.mu.Lock()
 	defer l.b.mu.Unlock()
 	if l.released {
@@ -278,6 +327,9 @@ func (l *Lease) Handle() Handle {
 // immediately before signing an allow: a revoke, a reap, a Close or an expiry that happened since the lookup
 // makes it false. A revoke that completes after this call is not recalled (an allow is a point-in-time decision).
 func (l *Lease) Valid() bool {
+	if l == nil {
+		return false
+	}
 	l.b.mu.Lock()
 	defer l.b.mu.Unlock()
 	return !l.released && !l.b.closed && l.e.state == stateActive && l.b.now().Before(l.e.spec.Expires)
@@ -285,12 +337,18 @@ func (l *Lease) Valid() bool {
 
 // Release gives the lease back; the last release of a revoked entry closes its handle. It is idempotent.
 func (l *Lease) Release() {
-	l.b.mu.Lock()
-	defer l.b.mu.Unlock()
-	if l.released {
+	if l == nil {
 		return
 	}
-	l.released = true
-	l.e.leases--
-	l.e.releaseLocked()
+	var h Handle
+	l.b.mu.Lock()
+	if !l.released {
+		l.released = true
+		l.e.leases--
+		h = l.e.release()
+	}
+	l.b.mu.Unlock()
+	if h != nil {
+		_ = h.Close()
+	}
 }

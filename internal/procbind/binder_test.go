@@ -42,7 +42,7 @@ func activate(t *testing.T, b *Binder, s EntrySpec) *cHandle {
 	if err := b.Register(s, h); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Activate(s.TokenID); err != nil {
+	if err := b.Activate(s.Profile, s.TokenID); err != nil {
 		t.Fatal(err)
 	}
 	return h
@@ -59,7 +59,7 @@ func TestOnlyAnActiveEntryIsLookedUp(t *testing.T) {
 		l.Release()
 		t.Fatal("a pending entry was looked up")
 	}
-	if err := b.Activate("t1"); err != nil {
+	if err := b.Activate("p1", "t1"); err != nil {
 		t.Fatal(err)
 	}
 	l, ok := b.Acquire("t1", "p1", "session:7")
@@ -89,6 +89,11 @@ func TestRegisterRefusals(t *testing.T) {
 	if err := b.Register(noProfile, &cHandle{}); err == nil {
 		t.Error("an empty profile was accepted")
 	}
+	noScope := spec("t2b")
+	noScope.Scope = ""
+	if err := b.Register(noScope, &cHandle{}); err == nil {
+		t.Error("an empty scope was accepted")
+	}
 	h := &cHandle{}
 	if err := b.Register(spec("t3"), h); err != nil {
 		t.Fatal(err)
@@ -109,13 +114,13 @@ func TestActivateFailsAfterRevokeOrClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.Revoke(Selector{Profile: "p1", TokenID: "t1"})
-	if err := b.Activate("t1"); !errors.Is(err, ErrNotPending) {
+	if err := b.Activate("p1", "t1"); !errors.Is(err, ErrNotPending) {
 		t.Errorf("activating a revoked entry: %v", err)
 	}
 	if h.timesClosed() != 1 {
 		t.Errorf("the revoked entry's handle was closed %d times, want once", h.timesClosed())
 	}
-	if err := b.Activate("unknown"); err == nil {
+	if err := b.Activate("p1", "unknown"); err == nil {
 		t.Error("activating an unknown entry succeeded")
 	}
 	b2, _ := newTestBinder()
@@ -124,7 +129,7 @@ func TestActivateFailsAfterRevokeOrClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	b2.Close()
-	if err := b2.Activate("t2"); err == nil {
+	if err := b2.Activate("p1", "t2"); err == nil {
 		t.Error("activating after Close succeeded")
 	}
 	if err := b2.Register(spec("t3"), &cHandle{}); !errors.Is(err, ErrClosed) {
@@ -264,7 +269,7 @@ func TestReapRevokesTheEntry(t *testing.T) {
 	b, _ := newTestBinder()
 	h := activate(t, b, spec("t1"))
 	l, _ := b.Acquire("t1", "p1", "session:7")
-	b.Reap("t1")
+	b.Reap("p1", "t1")
 	if l.Valid() {
 		t.Error("a reaped worker's lease is still valid")
 	}
@@ -272,7 +277,7 @@ func TestReapRevokesTheEntry(t *testing.T) {
 	if h.timesClosed() != 1 {
 		t.Errorf("handle closed %d times", h.timesClosed())
 	}
-	b.Reap("unknown") // no effect, no panic
+	b.Reap("p1", "unknown") // no effect, no panic
 }
 
 func TestCloseRevokesEverythingAndKeepsLeasedHandlesUntilReleased(t *testing.T) {
@@ -314,8 +319,53 @@ func TestStats(t *testing.T) {
 	}
 }
 
-// Many goroutines register, activate, look up, revoke and release at once. Every handle is closed exactly
-// once at the end, and a lease that says it is valid belongs to an entry that was not revoked before it.
+// Leases are held across a concurrent revoke: once Revoke has returned, no Valid() may be true, and every handle is
+// closed exactly once in the end.
+func TestNoLeaseIsValidAfterARevokeReturned(t *testing.T) {
+	b, _ := newTestBinder()
+	const n = 32
+	handles := make([]*cHandle, n)
+	for i := range handles {
+		s := spec("t" + string(rune('A'+i)))
+		handles[i] = activate(t, b, s)
+	}
+	var revoked atomic.Bool
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		id := "t" + string(rune('A'+i))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			l, ok := b.Acquire(id, "p1", "session:7")
+			if !ok {
+				return
+			}
+			defer l.Release()
+			for j := 0; j < 2000; j++ {
+				after := revoked.Load() // read BEFORE asking: a true here means the revoke had already returned
+				if v := l.Valid(); v && after {
+					t.Errorf("%s: a lease was valid after Revoke had returned", id)
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+	b.Revoke(Selector{Profile: "p1", All: true})
+	revoked.Store(true)
+	wg.Wait()
+	b.Close()
+	for i, h := range handles {
+		if got := h.timesClosed(); got != 1 {
+			t.Errorf("handle %d closed %d times", i, got)
+		}
+	}
+}
+
+// Register, activate, look up, revoke and release at once, with the race detector: every handle ends up closed
+// exactly once.
 func TestConcurrentUseClosesEveryHandleOnce(t *testing.T) {
 	b, _ := newTestBinder()
 	const n = 64
@@ -332,7 +382,7 @@ func TestConcurrentUseClosesEveryHandleOnce(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			_ = b.Activate(s.TokenID)
+			_ = b.Activate(s.Profile, s.TokenID)
 			for j := 0; j < 20; j++ {
 				if l, ok := b.Acquire(s.TokenID, "p1", "session:7"); ok {
 					_ = l.Valid()
@@ -352,5 +402,147 @@ func TestConcurrentUseClosesEveryHandleOnce(t *testing.T) {
 		if got := h.timesClosed(); got != 1 {
 			t.Errorf("handle %d closed %d times", i, got)
 		}
+	}
+}
+
+// An entry that expires without ever being revoked, active or never activated, releases its handle and its id.
+func TestExpiredEntriesReleaseTheirHandleAndTheirId(t *testing.T) {
+	b, clk := newTestBinder()
+	hActive := activate(t, b, spec("active"))
+	hPending := &cHandle{}
+	if err := b.Register(spec("pending"), hPending); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(2 * time.Hour)
+	if err := b.Activate("p1", "pending"); !errors.Is(err, ErrNotPending) {
+		t.Errorf("activating an expired pending entry: %v", err)
+	}
+	if st := b.Stats(); st.Pending != 0 || st.Active != 0 {
+		t.Errorf("expired entries are still counted live: %+v", st)
+	}
+	if hActive.timesClosed() != 1 || hPending.timesClosed() != 1 {
+		t.Errorf("expired handles closed %d and %d times, want once each", hActive.timesClosed(), hPending.timesClosed())
+	}
+	if err := b.Register(spec("active"), &cHandle{}); err != nil {
+		t.Errorf("the id of an expired token could not be registered again: %v", err)
+	}
+}
+
+func TestTheExpiryBoundaryIsExclusive(t *testing.T) {
+	b, clk := newTestBinder()
+	s := spec("t1")
+	activate(t, b, s)
+	l, _ := b.Acquire("t1", "p1", "session:7")
+	defer l.Release()
+	clk.add(time.Hour - time.Nanosecond)
+	if !l.Valid() {
+		t.Fatal("the lease was invalid just before the expiry")
+	}
+	clk.add(time.Nanosecond) // now == Expires
+	if l.Valid() {
+		t.Error("the lease was valid at the expiry instant")
+	}
+	if l2, ok := b.Acquire("t1", "p1", "session:7"); ok {
+		l2.Release()
+		t.Error("an entry was looked up at its expiry instant")
+	}
+}
+
+// A lease still out when the token expires keeps the handle open until it is released, and the entry is not
+// forgotten before that.
+func TestAnExpiredEntryWithALeaseKeepsItsHandleUntilRelease(t *testing.T) {
+	b, clk := newTestBinder()
+	h := activate(t, b, spec("t1"))
+	l, _ := b.Acquire("t1", "p1", "session:7")
+	clk.add(2 * time.Hour)
+	b.Stats() // prunes
+	if h.timesClosed() != 0 {
+		t.Fatal("the handle was closed under a lease that was still out")
+	}
+	if l.Valid() {
+		t.Error("a lease on an expired entry is valid")
+	}
+	l.Release()
+	if h.timesClosed() != 1 {
+		t.Errorf("handle closed %d times after the release", h.timesClosed())
+	}
+}
+
+func TestTokenIdsAreUniqueWithinAProfileOnly(t *testing.T) {
+	b, _ := newTestBinder()
+	activate(t, b, spec("same"))
+	s2 := spec("same")
+	s2.Profile = "p2"
+	h2 := activate(t, b, s2)
+	if got := b.Revoke(Selector{Profile: "p1", TokenID: "same"}); len(got) != 1 {
+		t.Fatalf("revoking p1's token: %v", got)
+	}
+	if h2.timesClosed() != 0 {
+		t.Error("revoking p1's token released p2's entry that has the same id")
+	}
+	if got := b.Revoke(Selector{Profile: "p1", TokenID: "same"}); len(got) != 0 {
+		t.Errorf("revoked again: %v", got)
+	}
+	if l, ok := b.Acquire("same", "p2", "session:7"); !ok {
+		t.Error("p2's entry stopped answering")
+	} else {
+		l.Release()
+	}
+}
+
+// A handle's Close may call back into the Binder: it is not closed under the registry lock.
+type callbackHandle struct {
+	cHandle
+	b *Binder
+}
+
+func (h *callbackHandle) Close() error {
+	h.b.Stats() // would deadlock if Close ran under the lock
+	return h.cHandle.Close()
+}
+
+func TestHandlesAreClosedOutsideTheLock(t *testing.T) {
+	b, _ := newTestBinder()
+	h := &callbackHandle{b: b}
+	s := spec("t1")
+	if err := b.Register(s, h); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Activate("p1", "t1"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		b.Revoke(Selector{Profile: "p1", TokenID: "t1"})
+		l := (*Lease)(nil)
+		l.Release()
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Revoke deadlocked: the handle was closed under the registry lock")
+	}
+	if h.timesClosed() != 1 {
+		t.Errorf("closed %d times", h.timesClosed())
+	}
+}
+
+func TestANilLeaseIsSafe(t *testing.T) {
+	var l *Lease
+	if l.Valid() || l.Handle() != nil {
+		t.Error("a nil lease is valid")
+	}
+	l.Release()
+}
+
+// A selector for one profile's token never reaches another profile's token.
+func TestATokenIdSelectorStaysInItsProfile(t *testing.T) {
+	b, _ := newTestBinder()
+	s := spec("t1")
+	s.Profile = "p2"
+	h := activate(t, b, s)
+	if got := b.Revoke(Selector{Profile: "p1", TokenID: "t1"}); len(got) != 0 || h.timesClosed() != 0 {
+		t.Errorf("a p1 selector reached a p2 token: %v", got)
 	}
 }
