@@ -69,11 +69,11 @@ func TestRowsRoundTripAndAreSigned(t *testing.T) {
 	if err != nil || gs != s {
 		t.Fatalf("session token: %+v %v", gs, err)
 	}
-	b := BindingRow{TokenID: "m1", ProfileID: "p1", Scope: "session:7", WorkerPID: 4242, WorkerStamp: "start:1", HostGeneration: "gen-1", CreatedAt: t0, ExpiresAt: t0.Add(time.Hour)}
+	b := BindingRow{Kind: KindMission, TokenID: "m1", ProfileID: "p1", Scope: "session:7", WorkerPID: 4242, WorkerStamp: "start:1", HostGeneration: "gen-1", CreatedAt: t0, ExpiresAt: t0.Add(time.Hour)}
 	if err := InsertBinding(ctx, db, storeKey, b); err != nil {
 		t.Fatal(err)
 	}
-	gb, err := GetBinding(ctx, db, storeKey, "p1", "m1")
+	gb, err := GetBinding(ctx, db, storeKey, KindMission, "p1", "m1")
 	if err != nil || gb != b {
 		t.Fatalf("binding: %+v %v", gb, err)
 	}
@@ -211,11 +211,11 @@ func TestRevokeTxBySelector(t *testing.T) {
 		t.Errorf("revoking again must find nothing new: %s", got)
 	}
 	for _, id := range []string{"m1", "m2", "m3"} {
-		if rv, err := IsRevoked(ctx, db, KindMission, "p1", id); err != nil || !rv {
+		if rv, err := IsRevoked(ctx, db, KindMission, id); err != nil || !rv {
 			t.Errorf("mission %s revoked=%v %v", id, rv, err)
 		}
 	}
-	if rv, err := IsRevoked(ctx, db, KindMission, "p2", "o1"); err != nil || rv {
+	if rv, err := IsRevoked(ctx, db, KindMission, "o1"); err != nil || rv {
 		t.Errorf("another profile's token was revoked: %v %v", rv, err)
 	}
 	// the revocation rows are signed
@@ -258,7 +258,7 @@ func TestAnOwnerSelectorMayOmitTheProfileButNothingElseMay(t *testing.T) {
 			t.Errorf("unexpected ref %+v", r)
 		}
 	}
-	if rv, _ := IsRevoked(ctx, db, KindMission, "p2", "c"); rv {
+	if rv, _ := IsRevoked(ctx, db, KindMission, "c"); rv {
 		t.Error("ownerX was revoked by the owner selector")
 	}
 	for name, sel := range map[string]Selector{
@@ -292,7 +292,7 @@ func TestRevokeTxAsksForTheKeyOnlyWhenItWritesAndFailsClosedWithoutIt(t *testing
 	if _, err := RevokeTx(ctx, db, failing, Selector{Profile: "p1", Owner: "owner"}, "x", t0); err == nil {
 		t.Fatal("a revoke without a key succeeded")
 	}
-	if rv, _ := IsRevoked(ctx, db, KindMission, "p1", "m1"); rv {
+	if rv, _ := IsRevoked(ctx, db, KindMission, "m1"); rv {
 		t.Error("a failed revoke left a revocation row")
 	}
 	if _, err := RevokeTx(ctx, db, nil, Selector{Profile: "p1", Owner: "owner"}, "x", t0); err == nil {
@@ -322,11 +322,11 @@ func TestRevokeTxIsPartOfTheCallersTransaction(t *testing.T) {
 	if _, err := RevokeTx(ctx, tx, keyFor(nil), Selector{Profile: "p1", Owner: "owner"}, "x", t0); err != nil {
 		t.Fatal(err)
 	}
-	if rv, _ := IsRevoked(ctx, tx, KindMission, "p1", "m1"); !rv {
+	if rv, _ := IsRevoked(ctx, tx, KindMission, "m1"); !rv {
 		t.Error("the revocation is not visible inside its own transaction")
 	}
 	_ = tx.Rollback()
-	if rv, _ := IsRevoked(ctx, db, KindMission, "p1", "m1"); rv {
+	if rv, _ := IsRevoked(ctx, db, KindMission, "m1"); rv {
 		t.Error("a rolled-back transaction left a revocation")
 	}
 	tx, err = db.BeginTx(ctx, nil)
@@ -339,7 +339,7 @@ func TestRevokeTxIsPartOfTheCallersTransaction(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if rv, _ := IsRevoked(ctx, db, KindMission, "p1", "m1"); !rv {
+	if rv, _ := IsRevoked(ctx, db, KindMission, "m1"); !rv {
 		t.Error("a committed transaction lost the revocation")
 	}
 	// a write failure inside RevokeTx is an error for the caller, who rolls back its legacy change too
@@ -365,18 +365,20 @@ func TestDropEndsTheRegistryEntriesOfTheRefs(t *testing.T) {
 	}
 }
 
-func TestIsRevokedIsExactToKindAndProfile(t *testing.T) {
+// A revocation is keyed by kind and token id (the table's primary key, ids are global in the token tables): another kind
+// is a different token, and a row naming another profile still denies (a misplaced row can only deny).
+func TestIsRevokedIsExactToKindAndId(t *testing.T) {
 	db := newDB(t)
 	ctx := context.Background()
 	if err := InsertRevocation(ctx, db, storeKey, RevocationRow{Kind: KindSession, TokenID: "x", ProfileID: "p1", Reason: "r", CreatedAt: t0}); err != nil {
 		t.Fatal(err)
 	}
 	for name, c := range map[string]struct {
-		kind    Kind
-		profile string
-		want    bool
-	}{"same": {KindSession, "p1", true}, "other kind": {KindMission, "p1", false}, "other profile": {KindSession, "p2", false}} {
-		if got, err := IsRevoked(ctx, db, c.kind, c.profile, "x"); err != nil || got != c.want {
+		kind Kind
+		id   string
+		want bool
+	}{"same": {KindSession, "x", true}, "other kind": {KindMission, "x", false}, "other id": {KindSession, "y", false}} {
+		if got, err := IsRevoked(ctx, db, c.kind, c.id); err != nil || got != c.want {
 			t.Errorf("%s: %v %v", name, got, err)
 		}
 	}
@@ -435,7 +437,7 @@ func TestEveryColumnOfEveryRowIsSigned(t *testing.T) {
 		mut  func(r *MissionTokenRow)
 	}
 	for _, v := range []mvar{
-		{"token_hash", func(r *MissionTokenRow) { r.TokenHash += "x" }}, {"owner", func(r *MissionTokenRow) { r.Owner = "other" }},
+		{"id", func(r *MissionTokenRow) { r.ID += "x" }}, {"token_hash", func(r *MissionTokenRow) { r.TokenHash += "x" }}, {"owner", func(r *MissionTokenRow) { r.Owner = "other" }},
 		{"session", func(r *MissionTokenRow) { r.Session++ }}, {"task", func(r *MissionTokenRow) { r.Task++ }},
 		{"role", func(r *MissionTokenRow) { r.Role = "verifier" }}, {"actor", func(r *MissionTokenRow) { r.Actor = "other" }},
 		{"created_at", func(r *MissionTokenRow) { r.CreatedAt = later }}, {"expires_at", func(r *MissionTokenRow) { r.ExpiresAt = later }},
@@ -463,7 +465,7 @@ func TestEveryColumnOfEveryRowIsSigned(t *testing.T) {
 		mut  func(r *SessionTokenRow)
 	}
 	for _, v := range []svar{
-		{"token_hash", func(r *SessionTokenRow) { r.TokenHash += "x" }}, {"conversation", func(r *SessionTokenRow) { r.ConversationID = "other" }},
+		{"id", func(r *SessionTokenRow) { r.ID += "x" }}, {"token_hash", func(r *SessionTokenRow) { r.TokenHash += "x" }}, {"conversation", func(r *SessionTokenRow) { r.ConversationID = "other" }},
 		{"turn", func(r *SessionTokenRow) { r.TurnID = "other" }}, {"created_at", func(r *SessionTokenRow) { r.CreatedAt = later }},
 		{"expires_at", func(r *SessionTokenRow) { r.ExpiresAt = later }}, {"profile_id", func(r *SessionTokenRow) { r.ProfileID = "p2" }},
 	} {
@@ -483,18 +485,18 @@ func TestEveryColumnOfEveryRowIsSigned(t *testing.T) {
 		mut  func(r *BindingRow)
 	}
 	for _, v := range []bvar{
-		{"scope", func(r *BindingRow) { r.Scope = "other" }}, {"worker_pid", func(r *BindingRow) { r.WorkerPID++ }},
+		{"kind", func(r *BindingRow) { r.Kind = KindSession }}, {"token_id", func(r *BindingRow) { r.TokenID += "x" }}, {"scope", func(r *BindingRow) { r.Scope = "other" }}, {"worker_pid", func(r *BindingRow) { r.WorkerPID++ }},
 		{"worker_stamp", func(r *BindingRow) { r.WorkerStamp = "other" }}, {"host_generation", func(r *BindingRow) { r.HostGeneration = "other" }},
 		{"created_at", func(r *BindingRow) { r.CreatedAt = later }}, {"expires_at", func(r *BindingRow) { r.ExpiresAt = later }},
 		{"profile_id", func(r *BindingRow) { r.ProfileID = "p2" }},
 	} {
-		g := BindingRow{TokenID: fresh("b"), ProfileID: "p1", Scope: "sc", WorkerPID: 4242, WorkerStamp: "st", HostGeneration: "g", CreatedAt: t0, ExpiresAt: exp}
+		g := BindingRow{Kind: KindMission, TokenID: fresh("b"), ProfileID: "p1", Scope: "sc", WorkerPID: 4242, WorkerStamp: "st", HostGeneration: "g", CreatedAt: t0, ExpiresAt: exp}
 		mac, _ := rowMAC(storeKey, "binding", g.fields()...)
 		r := g
 		v.mut(&r)
 		mustExec(t, db, `INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES (?, ?, ?, 'peercred', ?, ?, ?, 2, ?, ?, ?)`,
 			r.TokenID, r.ProfileID, r.Scope, r.WorkerPID, r.WorkerStamp, r.HostGeneration, f(r.CreatedAt), f(r.ExpiresAt), mac)
-		if _, err := GetBinding(ctx, db, storeKey, r.ProfileID, r.TokenID); !errors.Is(err, ErrRowTampered) {
+		if _, err := GetBinding(ctx, db, storeKey, r.Kind, r.ProfileID, r.TokenID); !errors.Is(err, ErrRowTampered) {
 			t.Errorf("binding differing in %s was accepted: %v", v.name, err)
 		}
 	}
@@ -504,7 +506,7 @@ func TestEveryColumnOfEveryRowIsSigned(t *testing.T) {
 		mut  func(r *RevocationRow)
 	}
 	for _, v := range []rvar{
-		{"kind", func(r *RevocationRow) { r.Kind = KindSession }}, {"reason", func(r *RevocationRow) { r.Reason = "other" }},
+		{"kind", func(r *RevocationRow) { r.Kind = KindSession }}, {"token_id", func(r *RevocationRow) { r.TokenID += "x" }}, {"reason", func(r *RevocationRow) { r.Reason = "other" }},
 		{"created_at", func(r *RevocationRow) { r.CreatedAt = later }}, {"profile_id", func(r *RevocationRow) { r.ProfileID = "p2" }},
 	} {
 		g := RevocationRow{Kind: KindMission, TokenID: fresh("r"), ProfileID: "p1", Reason: "why", CreatedAt: t0}
@@ -523,7 +525,7 @@ func TestEveryColumnOfEveryRowIsSigned(t *testing.T) {
 	}
 	for i, v := range []hvar{
 		{"generation", func(r *HostRow) { r.Generation = "other" }}, {"started_at", func(r *HostRow) { r.StartedAt = later }},
-		{"seq", func(r *HostRow) { r.Seq++ }},
+		{"seq", func(r *HostRow) { r.Seq++ }}, {"profile_id", func(r *HostRow) { r.ProfileID += "-moved" }},
 	} {
 		profile := "ph" + string(rune('a'+i))
 		g := HostRow{ProfileID: profile, Seq: 1, Generation: "gen", StartedAt: t0}
@@ -531,7 +533,7 @@ func TestEveryColumnOfEveryRowIsSigned(t *testing.T) {
 		r := g
 		v.mut(&r)
 		mustExec(t, db, `INSERT INTO procbind_host (profile_id, seq, generation, started_at, mac) VALUES (?, ?, ?, ?, ?)`, r.ProfileID, r.Seq, r.Generation, f(r.StartedAt), mac)
-		if _, err := CurrentHost(ctx, db, storeKey, profile); !errors.Is(err, ErrRowTampered) {
+		if _, err := CurrentHost(ctx, db, storeKey, r.ProfileID); !errors.Is(err, ErrRowTampered) {
 			t.Errorf("host row differing in %s was accepted: %v", v.name, err)
 		}
 	}
