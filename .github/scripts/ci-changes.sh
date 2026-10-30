@@ -35,6 +35,7 @@ doc_is_referenced() {
 # prefix (conservative: everything under that directory counts); an "all:"
 # prefix is dropped. An empty result line means the repository root itself.
 embed_roots_cache=""
+embed_tok_re='^[[:space:]]*("([^"\\]|\\.)*"|`[^`]*`|[^[:space:]"`]+)(.*)$'
 embed_roots_ready=0
 embed_roots() {
   if [ "$embed_roots_ready" -eq 0 ]; then
@@ -48,10 +49,22 @@ embed_roots() {
       rel="${file#"$root"/}"
       dir="$(dirname "$rel")"
       [ "$dir" = . ] && dir=""
-      read -ra toks <<<"$text"
+      # Shell-like tokens: "double quoted", `backquoted` (both may hold spaces) or
+      # bare. Anything that does not tokenise (an unterminated quote) makes the
+      # whole directory of the file a root, conservatively.
+      toks=()
+      rest="$text"
+      while [[ "$rest" =~ $embed_tok_re ]]; do
+        tok="${BASH_REMATCH[1]}"
+        rest="${BASH_REMATCH[3]}"
+        case "$tok" in
+          \"*\" | \`*\`) tok="${tok:1:${#tok}-2}" ;;
+        esac
+        toks+=("$tok")
+      done
+      [[ "$rest" =~ ^[[:space:]]*(//.*)?$ ]] || toks+=("")
       for tok in "${toks[@]}"; do
-        pat="${tok//\"/}"
-        pat="${pat//\`/}"
+        pat="$tok"
         pat="${pat#all:}"
         pat="${pat#./}"
         prefix=""
@@ -87,14 +100,20 @@ fallback_code_root() {
   return 1
 }
 
-# True when the changed file exists, is Go, and is built only WITHOUT the
-# nosocial tag (`//go:build !nosocial`): it is not part of the nosocial build, so
-# changing it cannot change that build's tests. Anything else (a shared
-# package, an untagged file, the nosocial stub, a deleted file we cannot
-# inspect) can, so it turns the nosocial tests on.
+# True when the changed file exists, is Go, and its build constraint PROVABLY
+# leaves it out of the nosocial build: the constraint line is a conjunction only
+# (terms joined by &&, no ||, no parentheses) that contains `!nosocial`. Such a
+# file is not part of the nosocial build, so changing it cannot change that
+# build's tests. Anything else counts as included: a shared package, an
+# untagged file, the nosocial stub, a deleted file we cannot inspect, an
+# expression with || or parentheses (`!nosocial && linux || nosocial` IS built
+# with the tag), and the old `// +build` style.
 excluded_from_nosocial() {
-  [[ "$1" == *.go ]] && [ -f "$root/$1" ] &&
-    grep -qE '^//go:build !nosocial([[:space:]]*&&.*)?[[:space:]]*$' "$root/$1"
+  local line tag='!?[A-Za-z0-9_.]+'
+  [[ "$1" == *.go ]] && [ -f "$root/$1" ] || return 1
+  line="$(grep -m1 '^//go:build' "$root/$1")" || return 1
+  line="${line%"${line##*[![:space:]]}"}"
+  [[ "$line" =~ ^//go:build\ (${tag}\ \&\&\ )*\!nosocial(\ \&\&\ ${tag})*$ ]]
 }
 
 while IFS= read -r f || [ -n "$f" ]; do

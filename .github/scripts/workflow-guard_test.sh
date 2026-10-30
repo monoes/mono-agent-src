@@ -8,6 +8,15 @@
 # Anything else (a custom label, a runner group, another variable, a list such as
 # [self-hosted]) fails. It also proves itself: each mutation fixture below must
 # be REJECTED. Comments are not code, so the YAML parser ignores them.
+#  - a job-level `uses:` (reusable workflow) must be a LOCAL `./...` workflow,
+#    which this guard checks in its own file; remote callees could name
+#    self-hosted labels unseen. Step-level `uses:` (actions) is not restricted.
+#  - duplicate mapping keys and `<<` merge keys are rejected.
+# RESIDUAL: PyYAML implements YAML 1.1, GitHub's parser differs in edge cases
+# (the `on` key as boolean, merge keys, duplicate-key handling, anchors, tag
+# resolution). Duplicates and merge keys, the constructs where a disagreement
+# could hide a runs-on, are refused outright; tags other than the standard ones
+# fail to load (SafeLoader). Anything beyond that is the review of the diff.
 # It cannot stop a fork PR that edits the workflow AND this test; see the
 # SECURITY note at the top of ci.yml (fork approval setting + reading the diff).
 set -euo pipefail
@@ -16,6 +25,20 @@ cd "$(dirname "$0")/../.."
 check() { # DIR -> prints FAIL lines, exit 1 on any
   python3 -I - "$1" <<'PY'
 import sys, glob, os, yaml
+
+class Strict(yaml.SafeLoader):
+    pass
+def _mapping(loader, node, deep=False):
+    seen = set()
+    for k, _ in node.value:
+        if k.tag == "tag:yaml.org,2002:merge":
+            raise yaml.YAMLError("merge key `<<` is not allowed")
+        if isinstance(k, yaml.ScalarNode):
+            if k.value in seen:
+                raise yaml.YAMLError(f"duplicate key {k.value!r}")
+            seen.add(k.value)
+    return yaml.SafeLoader.construct_mapping(loader, node, deep)
+Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
 SANCTIONED = ("${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) "
               "&& vars.CI_RUNNER) || '\"ubuntu-latest\"') }}")
 HOSTED = {"ubuntu-latest", "windows-latest", "macos-latest"}
@@ -27,7 +50,10 @@ def fail(f, msg):
     print(f"FAIL  {f}: {msg}")
 files = sorted(glob.glob(os.path.join(sys.argv[1], "*.yml")) + glob.glob(os.path.join(sys.argv[1], "*.yaml")))
 for f in files:
-    wf = yaml.safe_load(open(f))
+    try:
+        wf = yaml.load(open(f), Loader=Strict)
+    except yaml.YAMLError as e:
+        fail(f, f"unparseable or ambiguous YAML: {e}"); continue
     if not isinstance(wf, dict):
         fail(f, "not a mapping"); continue
     on = wf.get("on", wf.get(True))  # YAML 1.1 parses the key `on` as True
@@ -38,8 +64,11 @@ for f in files:
     for t in sorted(triggers & BAD_TRIGGERS):
         fail(f, f"triggers on {t}")
     for name, job in (wf.get("jobs") or {}).items():
-        if "uses" in job and "runs-on" not in job:
-            continue  # reusable workflow call: the callee's runs-on is checked in its own file
+        if "uses" in job:
+            u = job["uses"]
+            if isinstance(u, str) and u.startswith("./") and "runs-on" not in job:
+                continue  # local reusable workflow: the callee's runs-on is checked in its own file
+            fail(f, f"job {name}: `uses: {u}` is not a local ./ reusable workflow"); continue
         ro = job.get("runs-on")
         if ro == SANCTIONED or (isinstance(ro, str) and ro in HOSTED):
             continue
