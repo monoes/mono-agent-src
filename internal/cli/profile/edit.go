@@ -37,6 +37,12 @@ type profileTable struct {
 type profileImpact struct {
 	Profile profileJSON    `json:"profile"`
 	Tables  []profileTable `json:"tables"`
+	// KeptUntilRetention are rows of the profile that a delete leaves in place on purpose: insert-only
+	// tables (see retainedOnDelete) that only a retention sweep can remove, once their expiry plus the
+	// window has passed. That sweep is a later change: until it exists they stay.
+	KeptUntilRetention []profileTable `json:"kept_until_retention,omitempty"`
+	// KeptNote says why they stay and for how long.
+	KeptNote string `json:"kept_note,omitempty"`
 	// FolderKept says the profile's folder on disk is never deleted.
 	FolderKept bool `json:"folder_kept"`
 	// Backup is the database snapshot taken before a delete ("" for --summary).
@@ -257,6 +263,14 @@ func (d Deps) newProfileDeleteCmd() *cobra.Command {
 				return err
 			}
 			impact.Tables = tables
+			if kept, kerr := retainedRows(ctx, db.DB, p.ID); kerr != nil {
+				impact.Warnings = append(impact.Warnings, "could not count the rows kept after the delete: "+kerr.Error())
+			} else {
+				impact.KeptUntilRetention = kept
+				if len(kept) > 0 {
+					impact.KeptNote = keptNote
+				}
+			}
 			// After the commit: files and the keychain are not part of the transaction.
 			for _, name := range wfFiles {
 				if err := os.Remove(filepath.Join(wfDir, name)); err != nil && !os.IsNotExist(err) {
@@ -288,6 +302,7 @@ func (d Deps) newProfileDeleteCmd() *cobra.Command {
 				return printJSON(impact)
 			}
 			fmt.Printf("Deleted profile: %s (%s)\nDatabase backup: %s\n%s\nIts folder %s was left on disk.\n", p.Name, p.ID, impact.Backup, backupNote, p.RootDir)
+			printKept(impact.KeptUntilRetention)
 			if keepAttachments {
 				fmt.Printf("Its synced message attachments (%s) were kept.\n", attachments.Dir())
 			} else {
@@ -318,6 +333,12 @@ func (d Deps) printDeleteSummary(ctx context.Context, db *sql.DB, p *profileJSON
 		tables = append(tables, profileTable{Table: "workflow files", Rows: len(files)})
 	}
 	impact := profileImpact{Profile: *p, Tables: tables, FolderKept: true}
+	if kept, err := retainedRows(ctx, db, p.ID); err == nil {
+		impact.KeptUntilRetention = kept
+		if len(kept) > 0 {
+			impact.KeptNote = keptNote
+		}
+	}
 	if d.JSONOutput() {
 		return printJSON(impact)
 	}
@@ -325,6 +346,7 @@ func (d Deps) printDeleteSummary(ctx context.Context, db *sql.DB, p *profileJSON
 	for _, t := range tables {
 		fmt.Printf("  %-32s %d\n", t.Table, t.Rows)
 	}
+	printKept(impact.KeptUntilRetention)
 	fmt.Printf("and its vault key and synced message attachments (%s; --keep-attachments leaves them). Its folder %s would be left on disk.\n", attachments.Dir(), p.RootDir)
 	return nil
 }

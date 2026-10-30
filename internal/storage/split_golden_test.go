@@ -82,7 +82,7 @@ func TestSplitterLeavesEveryExistingMigrationUnchanged(t *testing.T) {
 		}
 	}
 	sort.Strings(withTriggers)
-	if want := []string{"migrations/143_coder_budget_requests.sql"}; !reflect.DeepEqual(withTriggers, want) {
+	if want := []string{"migrations/143_coder_budget_requests.sql", "migrations/148_procbind_v2_tables.sql"}; !reflect.DeepEqual(withTriggers, want) {
 		t.Fatalf("migrations with triggers = %v, want %v: a new trigger migration needs this list and its split checked", withTriggers, want)
 	}
 }
@@ -122,6 +122,34 @@ func TestTriggerMigrationSplitsIntoStatementsSQLiteAccepts(t *testing.T) {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("SQLite refused %q: %v", s, err)
 		}
+	}
+}
+
+// The peer-credential tables (148) carry fifteen triggers, each split whole and ending in its END, with the
+// WHEN conditions (a subquery, EXISTS, quoted strftime arguments) left inside the statement.
+func TestProcbindMigrationTriggersSplitWhole(t *testing.T) {
+	raw, err := data.MigrationsFS.ReadFile("migrations/148_procbind_v2_tables.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	triggers, tables := 0, 0
+	for _, s := range splitStatements(string(raw)) {
+		up := strings.ToUpper(s)
+		switch {
+		case strings.Contains(up, "CREATE TRIGGER"): // a leading comment stays with its statement
+			triggers++
+			if !strings.HasSuffix(up, "END") || strings.Count(up, "BEGIN") != 1 || strings.Count(up, "CREATE TRIGGER") != 1 {
+				t.Errorf("a trigger was cut or glued: %q", s)
+			}
+		case strings.Contains(up, "CREATE TABLE"):
+			if strings.Count(up, "CREATE TABLE") != 1 {
+				t.Errorf("tables were glued: %q", s)
+			}
+			tables++
+		}
+	}
+	if triggers != 15 || tables != 5 {
+		t.Errorf("%d triggers and %d tables, want 15 and 5", triggers, tables)
 	}
 }
 
