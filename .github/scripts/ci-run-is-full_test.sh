@@ -94,4 +94,5 @@ then echo "ok    ci-expected-shards.txt matches the ci.yml matrix"; else echo "F
 rel="$here/../workflows/release.yml"
 if grep -qF 'runs "$SHA" '"'"'event=push&status=success'"'"'' "$rel"; then echo "ok    release guard's first query is event=push"; else echo "FAIL  release guard's first query lacks event=push"; fail=1; fi
 if grep -qF 'git show "$p1:.github/scripts/ci-expected-shards.txt"' "$rel" && grep -qF 'git show "$p1:.github/scripts/ci-run-is-full.sh"' "$rel"; then echo "ok    release guard reads the list and the check from the base commit"; else echo "FAIL  release guard does not read the list/check from the base commit"; fail=1; fi
+if grep -qF 'git show "$p1:.github/scripts/ci-run-matches-merge.sh"' "$rel" && grep -qF 'bash "$mch" "$REPO" "$id" "$BRANCH" "$p2" "$subject"' "$rel"; then echo "ok    release guard checks the PR run's identity and base with the base commit's script"; else echo "FAIL  release guard does not check the PR run's identity and base"; fail=1; fi
 exit $fail

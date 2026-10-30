@@ -8,7 +8,7 @@ mkdir "$d/bin"
 cat >"$d/bin/gh" <<'GH'
 #!/usr/bin/env bash
 case "$*" in
-  *"repos/o/r/actions/runs/"*) id="${*#*actions/runs/}"; id="${id%% *}"; cat "$FIXTURES/$id.json" ;;
+  *"repos/o/r/actions/runs/"*) a="$*"; id="${a#*actions/runs/}"; cat "$FIXTURES/${id%% *}.json" ;;
   "api repos/o/r --jq .id") echo 100 ;;
   *) exit 1 ;;
 esac
@@ -24,6 +24,7 @@ run otherbase pull_request $P2 "$(pr 7 $P2 release/1 100)"
 run otherrepo pull_request $P2 "$(pr 7 $P2 master 999)"
 run othernum pull_request $P2 "$(pr 8 $P2 master 100)"
 run otherhead pull_request $P2 "$(pr 7 cccc master 100)"
+run otherrun pull_request cccc "$(pr 7 $P2 master 100)"
 run push push $P2 "$(pr 7 $P2 master 100)"
 run emptyprs pull_request $P2 '[]'
 printf '{"id":1,"event":"pull_request","head_sha":"%s"}\n' $P2 >"$d/nokey.json"
@@ -42,6 +43,7 @@ t "the same head in a PR with another base branch is rejected" otherbase "$S" 1
 t "a PR with another base repository is rejected" otherrepo "$S" 1
 t "a PR number differing from the merge subject is rejected" othernum "$S" 1
 t "a PR whose head is not the second parent is rejected" otherhead "$S" 1
+t "a run whose head_sha is not the second parent is rejected" otherrun "$S" 1
 t "a non pull_request event is rejected" push "$S" 1
 t "empty pull_requests is rejected" emptyprs "$S" 1
 t "missing pull_requests is rejected" nokey "$S" 1

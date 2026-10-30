@@ -69,15 +69,22 @@ jobs:
             # from the PR's own tree: a PR that dropped matrix cells would
             # otherwise also have dropped them from the list. If $p1 has no
             # copy (the first merge that introduces them) nothing is proof.
-            exp="$RUNNER_TEMP/ci-expected-shards.txt" chk="$RUNNER_TEMP/ci-run-is-full.sh"
-            if ! { git show "$p1:.github/scripts/ci-expected-shards.txt" >"$exp" && git show "$p1:.github/scripts/ci-run-is-full.sh" >"$chk"; } 2>/dev/null; then
+            exp="$RUNNER_TEMP/ci-expected-shards.txt" chk="$RUNNER_TEMP/ci-run-is-full.sh" mch="$RUNNER_TEMP/ci-run-matches-merge.sh"
+            subject=$(git log -1 --format=%s "$SHA")
+            if ! { git show "$p1:.github/scripts/ci-expected-shards.txt" >"$exp" && git show "$p1:.github/scripts/ci-run-is-full.sh" >"$chk" && git show "$p1:.github/scripts/ci-run-matches-merge.sh" >"$mch"; } 2>/dev/null; then
               echo "no PR-run proof rules on $p1: the tests run here"; pr=""
             fi
             if [ -n "$pr" ] && [ -n "$landed" ]; then
               # A PR run counts as proof only if it was a FULL run: path trimming can
               # skip jobs, and a trimmed green run proves nothing about this commit.
               # A trimmed or unreadable run falls through to running the tests here.
+              # It must also be the run of THIS pull request against THIS branch
+              # (ci-run-matches-merge.sh): two PRs can share a head and target
+              # different bases, and the other PR's run tested another merge tree.
               for id in $(runs "$p2" 'event=pull_request&status=success' ".workflow_runs[] | select(.created_at > \"$landed\") | .id"); do
+                if ! bash "$mch" "$REPO" "$id" "$BRANCH" "$p2" "$subject"; then
+                  echo "PR run $id is not the run of this merge (PR/base mismatch): not proof"; continue
+                fi
                 if bash "$chk" "$REPO" "$id" "$exp"; then full=$id; break; fi
                 echo "PR run $id was trimmed or unreadable: not proof"
               done
