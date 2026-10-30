@@ -21,13 +21,14 @@ type Commitment struct {
 // Total is the money committed: spent + held + children.
 func (c Commitment) Total() float64 { return c.Spent + c.Held + c.Children }
 
-// Left is what is still free under the budget, never below 0. bounded is false when the session has no
+// Left is what is still free under the budget, never below 0. A budget above MaxBudgetUSD (a legacy row; none is
+// accepted now) counts as MaxBudgetUSD, so that reserve-all grants all that remains of the clamped budget. bounded is false when the session has no
 // budget, in which case there is no limit and left is 0.
 func (c Commitment) Left() (left float64, bounded bool) {
 	if c.Budget <= 0 {
 		return 0, false
 	}
-	if l := c.Budget - c.Total(); l > 0 {
+	if l := min(c.Budget, MaxBudgetUSD) - c.Total(); l > 0 {
 		return l, true
 	}
 	return 0, true
@@ -102,8 +103,8 @@ func (s *Store) commitWalk(ctx context.Context, x dbx, profileID string, id int6
 			return c, err
 		}
 		hold := kc.Total()
-		if k.open && k.budget > hold {
-			hold = k.budget
+		if k.open && min(k.budget, MaxBudgetUSD) > hold {
+			hold = min(k.budget, MaxBudgetUSD)
 		}
 		c.Children += hold
 	}

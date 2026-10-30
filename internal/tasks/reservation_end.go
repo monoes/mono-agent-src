@@ -77,6 +77,15 @@ func (s *Store) chargeReservation(ctx context.Context, x dbx, r Reservation, del
 	if delta <= 0 {
 		return nil
 	}
+	// The cost must land in the spend whole: refuse (the caller's transaction rolls back and the row stays as it
+	// was) when the sum would pass MaxBudgetUSD or the cost is below what the spend can add.
+	var spent float64
+	if err := x.QueryRowContext(ctx, `SELECT spent_usd FROM task_sessions WHERE id = ?`, r.SessionID).Scan(&spent); err != nil {
+		return sessionLookup(err, r.SessionID)
+	}
+	if sum := spent + delta; sum > MaxBudgetUSD || sum <= spent {
+		return limit("session #%d has spent $%.4f: a cost of $%.6f cannot be recorded exactly (the spend stays below $%.0f)", r.SessionID, spent, delta, MaxBudgetUSD)
+	}
 	return s.applySpend(ctx, x, r.SessionID, delta, fmt.Sprintf("(reservation #%d of %s, %s)", r.ID, r.WorkerRef, how), Actor{Kind: Agent, Name: r.WorkerRef})
 }
 

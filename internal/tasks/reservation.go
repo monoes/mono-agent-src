@@ -19,8 +19,10 @@ const (
 	ReservationGrace = time.Minute
 
 	minReservationUSD = 0.01
-	// MaxBudgetUSD is the largest budget or cost the store takes: an overflow guard, not a policy.
-	MaxBudgetUSD      = 1e15
+	// MaxBudgetUSD is the largest budget, amount, cost or total spend the store takes. Below it a cent is still
+	// exact in a float64 (the spacing of values near 1e12 is about 1.2e-4), so no cost vanishes when added.
+	// A session whose budget was set higher before the guard existed is treated as having a budget of exactly this.
+	MaxBudgetUSD      = 1e12
 	maxOwnerIDBytes   = 128
 	maxWorkerRefBytes = 256
 	maxEndNoteBytes   = 1024
@@ -136,7 +138,7 @@ func (s *Store) Reserve(ctx context.Context, profileID string, sessionID int64, 
 		amount, bounded := want, want > 0
 		if left, budgeted := c.Left(); budgeted {
 			if want == 0 || want > left {
-				want = min(left, MaxBudgetUSD)
+				want = left
 			}
 			if want+budgetEps < minReservationUSD {
 				return limit("session #%d has $%.4f left of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", sessionID, left, c.Budget, c.Spent, c.Held, c.Children)

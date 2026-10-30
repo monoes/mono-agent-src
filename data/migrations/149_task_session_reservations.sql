@@ -11,8 +11,9 @@
 --
 -- Rows are not deleted by hand: a direct DELETE is refused while the session of the row exists, in every state (ended
 -- rows are the audit trail). A session or profile delete cascades, which is the intended way for the money to
--- come back (the worker's next heartbeat then finds no row and stops). The amount columns are capped at 1e15,
--- an overflow guard that the store also holds every budget, amount and cost to (tasks.MaxBudgetUSD).
+-- come back (the worker's next heartbeat then finds no row and stops). The amount columns are capped at 1e12,
+-- the largest amount a cent is still exact in a binary64 (tasks.MaxBudgetUSD, which the store holds every budget,
+-- amount and cost to).
 -- The supported writer is the store API in internal/tasks (owner-fenced functions). The triggers below keep the
 -- shape of a row honest; they are not a defence against an operator who edits charged_usd or state with raw SQL
 -- (which would also have to keep task_sessions.spent_usd in step), and that is out of scope.
@@ -25,9 +26,9 @@ CREATE TABLE IF NOT EXISTS task_session_reservations (
     session_id   INTEGER NOT NULL REFERENCES task_sessions(id) ON DELETE CASCADE,
     worker_ref   TEXT NOT NULL CHECK (typeof(worker_ref) = 'text' AND length(CAST(worker_ref AS BLOB)) BETWEEN 1 AND 256 AND instr(worker_ref, char(0)) = 0),
     owner_id     TEXT NOT NULL CHECK (typeof(owner_id) = 'text' AND length(CAST(owner_id AS BLOB)) BETWEEN 1 AND 128 AND instr(owner_id, char(0)) = 0),
-    amount_usd   REAL NOT NULL CHECK (typeof(amount_usd) IN ('real', 'integer') AND amount_usd >= 0 AND amount_usd <= 1e15),
+    amount_usd   REAL NOT NULL CHECK (typeof(amount_usd) IN ('real', 'integer') AND amount_usd >= 0 AND amount_usd <= 1e12),
     bounded      INTEGER NOT NULL CHECK (bounded IN (0, 1)),
-    charged_usd  REAL NOT NULL DEFAULT 0 CHECK (typeof(charged_usd) IN ('real', 'integer') AND charged_usd >= 0 AND charged_usd <= 1e15),
+    charged_usd  REAL NOT NULL DEFAULT 0 CHECK (typeof(charged_usd) IN ('real', 'integer') AND charged_usd >= 0 AND charged_usd <= 1e12),
     state        TEXT NOT NULL CHECK (state IN ('live', 'settled', 'released', 'expired', 'resolved')),
     lease_until  TEXT NOT NULL CHECK (typeof(lease_until) = 'text' AND length(CAST(lease_until AS BLOB)) = 20 AND instr(lease_until, char(0)) = 0 AND lease_until GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
     heartbeat_at TEXT NOT NULL CHECK (typeof(heartbeat_at) = 'text' AND length(CAST(heartbeat_at AS BLOB)) = 20 AND instr(heartbeat_at, char(0)) = 0 AND heartbeat_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'),
