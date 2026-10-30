@@ -74,7 +74,7 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:  "coder sessions spawn",
-		Short: "A master session creates a child session below itself (needs the session token of a master's turn; limits: max_children, max_depth, spawn rate, access never above the master's and never full, budget carved from the master's)",
+		Short: "A master session creates a child session below itself (needs the session token of a master's turn; limits: max_children, max_depth (default 3, at most 4), 12 live sessions per tree, spawn rate, access never above the master's and never full, budget carved from the master's; a session that leads a task session spawns through the session_spawn tool instead, with a title, kind and reason)",
 		Usage: "monoagentcli [--profile P] coder sessions spawn [--message TEXT] [--access coding|workspace] [--cwd DIR] [--budget-usd N]",
 		Flags: `  --message string     The child's first message
   --access string      coding or workspace, at most the master's (default: the master's, capped at workspace)

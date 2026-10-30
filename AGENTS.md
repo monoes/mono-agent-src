@@ -2720,8 +2720,8 @@ monoagentcli --profile work coder host stop                        # the host on
   read (a database error, not just no stored settings) the cap holds, the send is tried again on the next pass
   and the host logs it at most once an hour per master; a stop or pause on a held chat still runs. The autonomy settings are acted on (below). `max_children` and `max_depth` hold when a child is linked.
 - **Masters and children:** `sessions settings set <conv> --role master`, then `--role child --parent <master>`
-  for each child (the master must be a master with room under its `max_children`; depth is 2; a session with
-  children cannot change role).
+  for each child (the master must be a master with room under its `max_children`; depth is 3 by default, the
+  operator's `max_depth` up to the hard 4; a session with children cannot change role).
 - **Check-ins:** the host looks at each unattended, idle master that has children and queues one short turn
   for it with a digest, when `checkin_minutes` (default 15, 0 = off) have passed since the last look, or when
   a child finished, failed, was paused or went silent (`checkin_triggers`, `silent_minutes`). With
@@ -2815,13 +2815,35 @@ monoagentcli --profile work coder host stop                        # the host on
   `--allow-mutations`). `settings set` through a token may change only `checkin_minutes`, `skip_if_unchanged`,
   `checkin_triggers`, `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias` (`AgentAdjustable`, an
   allowlist; a test fails for a setting in neither list); limits, autonomy, mesh_accept, role, access, unattended
-  and budget are the operator's. A spawn needs a **master** with room under `max_children`, `max_depth` (a
-  master is level 1, a child level 2) and a rate of 6 per 10 minutes; the child runs the master's runtime,
+  and budget are the operator's. A spawn needs a **master** with room under `max_children`, `max_depth` (the
+  working depth, default 3, at most 4; a master is level 1) and a rate of 6 per 10 minutes; the child runs the master's runtime,
   model and folder (or a folder inside it), at most the master's access capped at `workspace` and never `full`
   (an operator raises that), and its `--budget-usd` is carved out of the master's cap (`settings set
   --budget-usd`, operator only; a capped master must give its child a positive amount that fits). Each turn of a capped session runs under what it has left (budget, less what its turns cost, less what it carved for its children) as `--budget-usd`, which is a ceiling for **that turn**; the total holds because the next turn starts with what is left. A turn's cost is the largest total it journaled; a usage event that is present with cost 0 is a reported 0 (a runtime that always reports 0 is trusted at 0; kilo cannot be capped and is refused for capped sessions). Only a turn that started and journaled no usage event at all counts as having spent its whole cap, or its workers' cost if that is more (never both); a cap row of a turn that never started charges nothing. A carve is limited by budget - spent - carved: the running turn's own cap (fixed when it started) is not reserved, so a capped master's turn can spend its cap AND carve up to budget - spent - carved to children during the same turn: exposure per master turn can reach about 2x the budget (chains do not compound); the next turn starts from the true remainder. A send with nothing left (under $0.000001) fails with the reason. Cost comes from the runtimes' own reports (a runtime that reports none counts as $0, and kilo cannot enforce a cap at all). The issuer, not the turn id, is what marks a send as a master's: an issuer-tagged send can never be a mission, counts toward the host-made streak, and a `master-` turn id without an issuer is refused. Everything a master queues for a child except a stop (sends, pause, resume) shares 5 pending slots per child; its stops are counted apart (at most 2 wait per child, and a repeated stop is a no-op). A command a master queues records the master as its issuer and runs only while the target is still that master's child; a master's queued sends (not its pause or resume) expire after 15 minutes. With a token `list`, `settings get` and `command` show only the caller's own tree; without one they need the operator (an agent that lost or dropped the variable reads nothing). A master's message is **not a person's send**: its turn
   id starts with `master-`, it can carry no mission confirmation, and, like `checkin-`, it counts toward the
   host-made turns in a row (`checkin_limit`) after which the child waits for a person.
+- **A tree of sessions: `session_spawn` for a lead.** Sessions form a tree to a hard maximum of 4 levels
+  (`coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth`); the working depth is each tree's `max_depth` setting
+  (default 3, operator-only to raise to 4), and a child takes its parent's. A child has room for children (its
+  `max_children` and `max_concurrent` are the parent's, at most the defaults) only while it sits below the working depth.
+  Per tree: at most 12 live sessions below the root. A stopped or paused session takes its descendants down at any
+  depth (`treecascade.go`, every host tick, with its own turn id `tree-cascade`: it lifts only a pause it made itself,
+  never one made by the mission pass or a person; a stop is final). A lead (a session with an open task session of its
+  own, selected by `coderhost.LeadSessionSQL`) spawns through the MCP tool `session_spawn` (or the conductor's
+  `mission_session_spawn`; a plain spawn by such a session is refused) with a required `title`, `kind`
+  (`direction|research|task`) and `reason` (`parallel|long_running|isolation|different_access_or_model|context_overflow`),
+  optional `task_ids`, `budget_usd` (the host-side carve of the child's conversation, from the lead's own cap), `access`.
+  `runtime` and `model` may only repeat the lead's own: the child runs the runtime, model and provider of the session that
+  starts it. It creates the child coder session and a named task session below the lead's, through the task store's
+  `CreateSession` (so its ceilings, including a closed or archived ancestor, apply), with no budget of its own and at
+  most 25 tasks; a failure of the second removes the first. The lead's task session must be running. Spawn advisory
+  (`coderhost.AdviseSpawn`, a pure function): a request whose scope is small (at most 3 open tasks of size `s` or smaller
+  read from `task_ids`, one writer, no parallel branch) is refused once with "doable in this session" (code `advice`);
+  the repeat with a reason that applies is accepted. The one refusal is remembered in `coder_spawn_advice` (migration 144).
+  Every refusal is a decisions-ledger row of the model; the accepting row (`scope_growth`, master) is written only once the
+  spawn is made. A `research` session runs `scoped`. Task children of a mission (the launcher) additionally need the
+  operator-only switch `coder.mission_children_enabled`; sessions started by `session_spawn` are not mission task children
+  and do not go through Reserve or that switch.
 - **Reading questions and decisions.** `sessions questions list` and `sessions decisions list|show` need the
   operator's terminal or a session token. Under a token they show only the caller's own session and its
   descendants (any other session is refused with one text), and the text a model wrote (question, options,
@@ -2871,7 +2893,7 @@ monoagentcli --profile work coder host stop                        # the host on
      `--budget-usd 1` (refused: it does not fit); `coder sessions status <master-conv>` shows carved and left; a
      capped turn runs with `--budget-usd` equal to what is left; a runtime that reports no cost counts as 0
      (kilo is refused for a capped session).
-  2. *Spawn limits:* a child that tries `spawn` is refused (it is not a master; depth is 2); a master past
+  2. *Spawn limits:* a child that tries `spawn` is refused (it is at the working depth, so it has no room for children; depth is 3 by default); a master past
      `max_children` is refused; the 7th spawn within 10 minutes is refused; `--access full` is not accepted
      (`coding|workspace` only) and a child is never above its master's access.
   3. *`answer-` turns:* `coder sessions questions list <conv>`, then `coder sessions questions answer <conv> <id>
