@@ -10,33 +10,39 @@ import (
 
 // TestSessionTreeCeilingProperty is a seeded model check of one rule: a session never exceeds the
 // minimum of its whole ancestor chain. THE INVARIANT, checked after every operation on every session
-// of the seed's profile: an OPEN session (draft, running or paused, not archived) has an access level
-// no higher, and a max_tasks and a max_depth no larger, than the lowest value of the same field over
-// ALL its ancestors, closed, stopped and archived ones included (the chain is walked to the root, not
-// one level up); and when some ancestor has a budget, the open session's budget is at most the smallest
-// nonzero ancestor budget, and above 0 unless it is a draft (a draft may still hold 0, and approving it
-// is then refused). As a second check on stored data, every session, open or not, archived or not, holds
-// an access level, task cap, depth cap and nonzero budget within that same minimum. The minimum is
-// computed by the test itself from the rows it reads back (floorOf), not by the code under test, and a
-// create, update or approve that the test knows would pass it must be refused (checked at once, and
-// again by the invariant). THE OPERATIONS are drawn at random from eight equal slots: lower (the operator
-// updates one or two limits of a random session, to values at or below its own), raise (the same with any
-// values, so often above its ancestors'), stop, archive (each tried on a random session; the store may
-// refuse, for a session in the wrong state or with open sessions below it), create a child as the
-// operator (below a random session, or at top level one time in ten, asking at random for access, caps
-// and budget or leaving each unset), create a child as an agent bound to a random session (below that
-// session, asking at most for a task cap), and approve (two slots; tried on a random session, which
-// only a draft below another session and holding a task can pass). A created session gets one task if
-// it takes one. Each seed starts from one top-level session with random limits and runs 60 operations
-// on a profile of its own; there are 200 seeds (1 to 200); trees reach at most 4 levels (the store's
-// HardMaxSessionDepth) and the test stops creating at 14 sessions, so stopped and archived links appear
-// in the middle of chains. A failure prints the seed and the full operation log. The test also fails if
-// any operation kind never succeeds, or no refusal of a raise, a create or an approve ever happens, in
-// the 200 seeds. OUT OF SCOPE: concurrent or interleaved writers (each operation runs alone, to its end),
-// spend and the sum of sibling budgets (not part of this PR: a budget is held session by session to the
-// minimum, never summed), the GUI and the CLI wrappers (this runs on the store), and a hand-edited parent
-// cycle or corrupt row (the tree here is built only through the store; the cycle fails closed, with a test
-// of its own in session_ceiling_test.go).
+// the seed has created: a session that has an ancestor holds an access level no higher, and a max_tasks
+// and a max_depth no larger, than the lowest value of the same field over ALL its ancestors, closed,
+// stopped and archived ones included (the chain is walked to the top, not one level up), and, when some
+// ancestor has a budget, a budget at most the smallest nonzero ancestor budget. This applies to every such
+// session, open (draft, running or paused) or not, archived or not; the top-level sessions are not checked.
+// One further rule is limited to open sessions that are not drafts: under an ancestor with a budget they
+// hold a budget above 0 (a draft may still hold 0, and approving it is then refused). The minimum is
+// computed by the test itself from the rows it reads back (floorOf, which walks the parents from the
+// session's parent up to the top, at most 20 steps), not by the code under test. A create or an update
+// that asks for more than that minimum on some field (an update may also ask for budget 0 under an ancestor
+// budget) must be refused (any error counts), and so must an
+// approve of a draft that has no budget of its own under an ancestor budget; each is checked at once, and
+// the invariant runs again after it. An approve is not checked against the other limits: a draft built
+// through the store is always within them (the approve-time check on a hand-edited row is tested in
+// session_approve_ceiling_test.go). THE OPERATIONS are drawn at random from eight equal slots: lower (the
+// operator updates one or two limits of a random session, to values at or below its own, except that a
+// session with no budget may be given any budget), raise (the same with any values, so often above its
+// ancestors'), stop, archive (each tried on a random session; the store may refuse, for a session in the
+// wrong state or with open sessions below it), create a child as the operator (below a random session, or
+// at top level one time in ten, asking at random for access, caps and budget or leaving each unset),
+// create a child as an agent bound to a random session (below that session, asking at most for a task
+// cap), and approve (two slots; tried on a random session, which only a draft below another session and
+// holding a task can pass). A created session gets one task if it takes one. Each seed starts from one
+// top-level session with random limits and runs 60 operations on a profile of its own; there are 200
+// seeds (1 to 200); trees reach at most 4 levels (the store's HardMaxSessionDepth) and the test stops
+// creating at 14 sessions, so stopped and archived links appear in the middle of chains. A failure
+// prints the seed and the full operation log. The test also fails if any operation kind never succeeds,
+// or no refused update above the minimum, no refused create above it and no refused approve for want of a
+// budget ever happens, in the 200 seeds. OUT OF SCOPE: concurrent or interleaved writers (each operation
+// runs alone, to its end), spend and the sum of sibling budgets (not part of this PR: a budget is held
+// session by session to the minimum, never summed), the GUI and the CLI wrappers (this runs on the
+// store), and a hand-edited parent cycle or corrupt row (the tree here is built only through the store;
+// the cycle fails closed, with a test of its own in session_ceiling_test.go).
 func TestSessionTreeCeilingProperty(t *testing.T) {
 	s, db, _ := newTestStore(t)
 	done := map[string]int{}
