@@ -137,7 +137,15 @@ func (s *Store) SessionNext(ctx context.Context, profileID string, sessionID int
 // agent's hold on one; a task whose dependencies are not all done, an epic and a blocked
 // task are refused.
 func (s *Store) SessionClaim(ctx context.Context, profileID string, sessionID, id int64, actor Actor, lease time.Duration) (Task, error) {
+	t, _, err := s.SessionClaimNumbered(ctx, profileID, sessionID, id, actor, lease)
+	return t, err
+}
+
+// SessionClaimNumbered is SessionClaim that also returns the claim's own number: how many claim events the task has,
+// counted in the transaction that wrote this one. A worker records it as the number it started under (WorkerRetired).
+func (s *Store) SessionClaimNumbered(ctx context.Context, profileID string, sessionID, id int64, actor Actor, lease time.Duration) (Task, int, error) {
 	var out Task
+	var number int
 	_, err := s.claimIn(ctx, profileID, sessionID, id, actor, lease, func(x dbx) error {
 		se, err := s.sessionTx(ctx, x, profileID, sessionID)
 		if err != nil {
@@ -165,16 +173,16 @@ func (s *Store) SessionClaim(ctx context.Context, profileID string, sessionID, i
 			return sessionNotReady("task #%d waits for %d tasks that are neither done nor verified", id, waiting)
 		}
 		return nil
-	})
+	}, &number)
 	if err != nil {
-		return Task{}, err
+		return Task{}, 0, err
 	}
 	err = s.snapshot(ctx, func(x dbx) error {
 		var err error
 		out, err = s.sessionTaskTx(ctx, x, profileID, id)
 		return err
 	})
-	return out, err
+	return out, number, err
 }
 
 // SessionComment is Comment on a task of the session.

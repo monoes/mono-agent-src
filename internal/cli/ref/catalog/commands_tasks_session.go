@@ -88,6 +88,13 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session close 3 --note \"reviewed\""},
 	},
 	{
+		Name:     "task session retire-worker",
+		Short:    "Retire the idle worker of a mission task so the lead cannot message it; the task's evidence is kept (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session retire-worker SESSION TASK [--note TEXT]",
+		Flags:    "  --note string   Why it is retired (kept in the session's history)",
+		Examples: []string{"monoagentcli --profile work task session retire-worker 3 12 --note \"its context is stale\""},
+	},
+	{
 		Name:     "task session archive",
 		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only)",
 		Usage:    "monoagentcli [--profile P] task session archive ID",

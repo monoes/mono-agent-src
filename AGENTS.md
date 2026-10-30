@@ -1718,7 +1718,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session close`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session retire-worker`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -1873,6 +1873,39 @@ Worker and verifier briefs fence foreign text in a per-brief random delimiter
 in all, whichever route starts them. A mission closes only if the integration check's
 verdict is newer than every other task's last hand-back, verdict or merge; a plan's
 integration check depends on every non-check task, and tasks added later make it wait.
+
+**Retiring a mission worker (`task session retire-worker SESSION TASK [--note TEXT]`, operator only).** The lead's
+`org_clear_worker` and `org_compact_worker` refuse a worker bound to a mission task, because its context is part of the
+task's evidence. The operator can end such a worker once it is idle: the lead can then no longer message it, its stored
+session is dropped (a later turn does not load it), and its report and the task's comments, artifacts, commit references
+and result are untouched. The verb checks the operator before it reads its arguments (an agent, a token or a binding
+process gets exit 3, `operator_only`; no MCP tool exposes it). In ONE transaction it judges the worker idle (the task is
+not claimed and no mission token of that session and task is live: a running worker holds the claim and a live token, so
+it is refused with `not_ready`), writes a `worker_retired` event to the session's history (actor, task and note), and
+ends the stored worker rows linked to the task (`ai_chat_org_workers.mission_session` / `mission_task`, migration 147;
+rows from before it have no link and are not reached). The event records how many claim events the task has
+(`task #12 (claims: 3)`; a claim, a renewal of one and a takeover of an expired lease each count), and every worker carries the claim
+number it started under: the claim returns its own number, counted in the transaction that wrote it, so nothing that
+happens afterwards can change it (it is known before the worker waits for a slot or mints a token; stored with it: `ai_chat_org_workers.mission_claims`, in a later turn's veteran too). A worker whose
+number is unknown counts as retired when its task was ever retired. A retirement made at claim N retires the workers
+numbered N or less, so a worker that takes the task afterwards is not retired and a later claim does not undo an earlier
+worker's retirement; a worker's hand-off stored after the retirement is stored already retired (a delayed older worker too: a later
+retirement covers it). A retired stored worker is not given back to the lead but still takes its id out of the sequence (seeded
+from every stored id of the conversation, not only the latest ones a turn loads), so a new worker does not reuse it; a row stays retired only against a late save of the same worker (the same task, a claim
+number no higher). A second retire changes
+nothing and says so. A conductor that is
+live learns from the store, not from the CLI process: before it resumes a mission worker it asks, and each look at the
+session (`missionTick`) retires the idle workers the operator retired, dropping what they kept to be resumed from; a
+worker that is running is never touched. A worker run in this turn cannot be resumed past a retirement even
+when the retirement lands between the lead's follow-up check and the run: a run mints its mission token first and asks the
+store afterwards, and the store refuses to retire while a token of the task is live, so of the two one comes first in
+the database. A worker loaded from an earlier turn keeps its task link (it runs as an unbound agent, which cannot change the
+task) and is checked the same way; its follow-up has no token, so a retirement committed in the very instant of its check can
+still let that one unbound run start (the residual; it cannot touch the task). Stored workers with no link to a task (saved before migration
+147, or not mission workers) cannot be matched: the verb counts the ones of the session's conversation that still hold a
+session (`unmatched_stored_workers`) and says so, instead of reporting them retired; `stored_workers_ended` counts only the
+rows it changed. A task running as a child coder session (#1130, off by default) is stopped with
+`coder sessions stop` and is not touched by this verb.
 
 **Missions in the host (unattended).** Since the coder host (below) every coder turn, a mission's
 included, is a host turn, so a mission no longer ends with the app: the lead's conductor, its workers and

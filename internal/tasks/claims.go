@@ -156,12 +156,15 @@ func (s *Store) Next(ctx context.Context, profileID string, actor Actor, claim b
 // Claim takes a Ready task for an agent, or a task whose claim has gone stale, or renews the lease of a
 // task the agent holds already; never one that another agent holds, nor one the operator works on.
 func (s *Store) Claim(ctx context.Context, profileID string, id int64, actor Actor, lease time.Duration) (Task, error) {
-	return s.claimIn(ctx, profileID, 0, id, actor, lease, nil)
+	return s.claimIn(ctx, profileID, 0, id, actor, lease, nil, nil)
 }
 
 // claimIn is Claim on the board of session (0 for the personal board): the task must be of
 // that board, and pre, when there is one, may refuse the claim in the same transaction.
-func (s *Store) claimIn(ctx context.Context, profileID string, session, id int64, actor Actor, lease time.Duration, pre func(x dbx) error) (Task, error) {
+//
+// number, when it is not nil, receives how many claim events the task has after this claim, counted in the same
+// transaction that wrote it (claimCount): the claim's own number, which nothing that happens afterwards can change.
+func (s *Store) claimIn(ctx context.Context, profileID string, session, id int64, actor Actor, lease time.Duration, pre func(x dbx) error, number *int) (Task, error) {
 	if err := needName(actor); err != nil {
 		return Task{}, err
 	}
@@ -190,6 +193,13 @@ func (s *Store) claimIn(ctx context.Context, profileID string, session, id int64
 		}
 		if err := s.bumpScope(ctx, x, profileID, session); err != nil {
 			return err
+		}
+		if number != nil {
+			n, err := s.claimCount(ctx, x, id)
+			if err != nil {
+				return err
+			}
+			*number = n
 		}
 		out = t
 		return nil
