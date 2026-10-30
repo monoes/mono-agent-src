@@ -1210,6 +1210,10 @@ export function PersonItemDeny(arg1, arg2) {
   return window['go']['main']['App']['PersonItemDeny'](arg1, arg2);
 }
 
+export function PersonItemShow(arg1) {
+  return window['go']['main']['App']['PersonItemShow'](arg1);
+}
+
 export function PersonItemsList() {
   return window['go']['main']['App']['PersonItemsList']();
 }
