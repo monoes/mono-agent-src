@@ -366,6 +366,8 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		// cap) closes (void) and stays as the lead's record, so it can never be granted.
 		`DELETE FROM coder_budget_requests WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
 		`UPDATE coder_budget_requests SET status = 'void', answered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE target_conversation_id = ?1 AND profile_id = ?2 AND status = 'open'`,
+		// The spawn advisory's remembered refusal belongs to the lead that was refused.
+		`DELETE FROM coder_spawn_advice WHERE spawner = ?1 AND profile_id = ?2`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
 		// The answers its questions were given.

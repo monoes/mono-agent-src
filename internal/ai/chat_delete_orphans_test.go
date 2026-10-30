@@ -47,10 +47,12 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 	conversationAliases := map[string]bool{
 		"coder_session_spawns.parent": true,
 		"coder_session_spawns.child":  true,
+		"coder_spawn_advice.spawner":  true,
 	}
 	decided := map[string]string{
 		"coder_session_spawns.parent":                    "deleted with the parent's spawn log",
 		"coder_session_spawns.child":                     "kept on purpose: removing it would hand the master its spawn-rate slot back",
+		"coder_spawn_advice.spawner":                     "deleted: the one remembered refusal belonged to that lead",
 		"agent_tokens.bound_conversation":                "revoked with the delete; none can be issued for a conversation that is gone",
 		"ai_budget_reservations.conversation_id":         "open: held until the spend is synced",
 		"ai_chat_answers.conversation_id":                "deleted",
@@ -75,7 +77,7 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		"coder_sessions.parent_conversation_id":          "children detached to solo",
 		"task_sessions.conversation_id":                  "open: a mission session of the deleted lead keeps running",
 	}
-	rows, err := db.Query(`SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND (p.name LIKE '%conversation%' OR m.name || '.' || p.name IN ('coder_session_spawns.parent', 'coder_session_spawns.child'))`)
+	rows, err := db.Query(`SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND (p.name LIKE '%conversation%' OR m.name || '.' || p.name IN ('coder_session_spawns.parent', 'coder_session_spawns.child', 'coder_spawn_advice.spawner'))`)
 	if err != nil {
 		t.Fatal(err)
 	}
