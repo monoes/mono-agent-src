@@ -171,7 +171,7 @@ agents work inside the session only: they add follow-ups, claim, comment, finish
 split, attach artifacts and verify, and nothing outside it. A verifier marks a
 task verified; closing it to Done stays yours unless you turned on auto-close.
 
-Only you approve, resume, close, set the budget, the limits, the access level and
+Only you approve, resume, close, retire a mission's worker, set the budget, the limits, the access level and
 auto-close, and archive. A mission's lead only proposes the close. Pausing and stopping are open to agents; stop releases
 every claim. Add tasks with task add --session N --acceptance TEXT. See: monoagentcli ref tasks`,
 	}
@@ -197,6 +197,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 			}),
 		d.newSessionArchiveCmd(),
 		d.newSessionCloseCmd(),
+		d.newSessionRetireWorkerCmd(),
 		d.newSessionBudgetCmd(),
 	)
 	for _, sub := range cmd.Commands() {

@@ -1189,6 +1189,7 @@ processes a coder turn left running, by pid. A pid can be reused, and what a pro
   process now: the record is stale and is dropped.
 
 What cannot be stopped is reported, and a delete keeps the conversation (exit 5, `survivors_remain`).
+`chat history delete --abandon-processes --confirm "leave them running"` is the way out for a conversation that cannot be deleted because a process cannot be stopped (for instance a record from before the turn's marker was recorded, or a platform with no process handles): it is the operator's alone, signals nothing, lists what it leaves running, and the rest of the delete (tokens, rows, a mission it leads) is as usual.
 Only `chat history delete` and the access lowering do this. Other callers of the store's delete (the
 coder host's cleanup of a spawn that could not start) remove the rows and stop nothing.
 Residual: a process of the same user that carries a copy of this turn's marker is treated as the turn's.

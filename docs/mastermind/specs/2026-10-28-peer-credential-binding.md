@@ -601,6 +601,19 @@ Until the seam exists nothing in #1098 changes; with the flag off the minter beh
     the tree; the launch fails visibly.
 18. **Commit succeeds, registration fails**: inert row, worker killed, revocation written.
 19. **Selective token-row tampering, revocation deletion, expiry edit**: MAC and live registry.
+20. **Relay through an in-tree accomplice.** The attacker's out-of-tree verifier dials a path of its
+    own choosing (it can point the socket path anywhere in its own mount namespace) where a relay
+    forwards the request to the genuine service. The service answers about the **relay's**
+    identity, the answer is validly MAC'd for the verifier's own nonce, and the verifier accepts
+    it. This only yields an allow if the relay is itself a descendant of the bound worker, so it
+    is the delegation limitation of section 1 (an in-tree process acting for an outsider), not a
+    new capability: a relay outside the tree is denied by the walk, and the directory checks of
+    section 8 cannot help here because the attacker controls the verifier's view of the path. The
+    only mitigation is the host-mediated decision of section 4 (the host performs the protected
+    operation for the connection's own peer, so no allow is handed to the caller's process to
+    use); until a given operation is host-mediated its protection is stated as delegable by any
+    in-tree process. Tests: a relay in the tree is allowed and that outcome is documented as the
+    limitation; a relay outside the tree is denied.
 
 ## 11. Test plan (no desktop keychain)
 
@@ -658,6 +671,9 @@ scratch `HOME`, never the real database, and the same fake vault-key source the 
   assert any continuity of older history.
 - **Migration:** a legacy row verifies unchanged; deleting the v2 binding row of a v2-prefixed
   token denies; a v1 MAC cannot validate a v2 row.
+- **Relay (attack 20):** a relay process started by the registered worker forwards a request from
+  an outsider and the answer is allow (documented limitation); the same relay started outside the
+  tree gets deny.
 - **Socket creation:** a symlinked leaf, a wrong-mode directory, a foreign-owned directory, an
   abstract name: the host refuses to start; a replaced socket yields a deny.
 

@@ -62,7 +62,7 @@ WHO MAY DO WHAT
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
-  agents deny, session approve, session resume, session close, session archive, session archive --cascade, session budget,
+  agents deny, session approve, session resume, session close, session retire-worker, session archive, session archive --cascade, session budget,
   undepend, os install and os uninstall are the operator's: they answer an agent
   with exit 3 and the code operator_only (board and approve unless delegated, see
   below). board shows the Inbox, so an agent uses "task list". os install and
@@ -265,7 +265,7 @@ JSON
     {"profile","task"}                  edit, move, comment, claim, finish, release, next, verify, depend, undepend
     {"profile","created","task"}        add
     {"profile","task","events"}         show
-    {"profile","session"}               session new, session approve, session pause, session resume, session stop, session close, session archive, session budget
+    {"profile","session"}               session new, session approve, session pause, session resume, session stop, session close, session retire-worker, session archive, session budget
     {"profile","sessions"}              session list
     [session...]                        session tree (roots, each with "children"; a session also has parent_session_id, kind, depth, approval_basis)
     {"profile","session","events"}      session show

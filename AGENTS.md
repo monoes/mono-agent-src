@@ -290,7 +290,7 @@ The desktop app does everything through these commands; they are equally usable 
   - `chat history list|show|create|turns|turn|events|delete|finish|reconcile`, scoped to the profile named by `--profile` (`reconcile` sweeps every profile).
   - `chat history create --runtime R [--model M] [--workflow W] [--mode coder --cwd DIR|--coder-root|--new-workspace]` makes a conversation (coder mode: see "Coder mode" below), `chat history turns <conv> [--cursor] [--limit]` pages its turns, and `chat history events <conv> <turn> [--after-seq N] [--limit N]` returns the events with the turn's status.
   - `chat --conversation <conv> --turn <id> [--instance <app-id>] [--tools monoagent[,runs]] -- <message>` runs one turn and journals it itself. It takes the runtime, model and session from the conversation. Stdout is an admission line, then each committed event as NDJSON. A repeated turn id never runs twice. `--prompt-stdin` (instead of `-- <message>`) reads the prompt from stdin. `--tools monoagent:read` is a mode of its own, never combined with `runs`, `--canvas` or other members: only `list_workflows`, `get_workflow`, `list_node_types`, `propose_task` (writes nothing: the side panel shows the proposed task as a card, and only the person's click sends it, as `task.add` kind `chat`) `propose_recording` (starts nothing: the card starts the side panel's recorder only on the person's click, and the automation is saved only by the Record section's Save) and `propose_vault_save` (saves nothing: it names an item on the page or the selection, and the side panel fetches it and sends `vault.save` only on the person's click, if it is on the page they are on), no Bash, and the turn counts as carrying untrusted web-page text. It is the only mode the browser extension's side-panel chat (`chat.send`, `chat.stop`, `chat.events` over the extension bridge) starts, with the message on stdin; see SECURITY.md, "The extension's side-panel chat".
-  - `chat history delete` refuses a conversation with an active turn (exit 3). Otherwise it first stops the processes the conversation's turns left running (the same rule as lowering the access, see SECURITY.md: the process is pinned (a pidfd on Linux; none, or Windows: not stopped), carries the marker of the turn's own process tree that the host read from the runtime when the turn started, and still is the recorded one; a record whose pid now belongs to another process, shown by the start time recorded with it, is stale and is dropped, nothing signalled; anything else is a survivor) and lists them under `stopped`; one it cannot stop keeps the conversation: nothing is deleted, `survivors` lists it, exit 5 (`survivors_remain`). Deleting a conversation that leads a mission session that is still open (draft, running or paused), or whose turns left processes running (the delete stops them), is the operator's (exit 3, `operator_only` for an agent, checked before the first signal, so nothing is stopped); the operator's delete stops that session and those processes with it. `chat history finish <conv> <turn> --status S` records the end of a turn whose process was killed; it does nothing if the turn already finished. `chat history reconcile --except-owner <app-id>` marks turns left active as interrupted, at app startup.
+  - `chat history delete` refuses a conversation with an active turn (exit 3). Otherwise it first stops the processes the conversation's turns left running (the same rule as lowering the access, see SECURITY.md: the process is pinned (a pidfd on Linux; none, or Windows: not stopped), carries the marker of the turn's own process tree that the host read from the runtime when the turn started, and still is the recorded one; a record whose pid now belongs to another process, shown by the start time recorded with it, is stale and is dropped, nothing signalled; anything else is a survivor) and lists them under `stopped`; one it cannot stop keeps the conversation: nothing is deleted, `survivors` lists it, exit 5 (`survivors_remain`). Deleting a conversation that leads a mission session that is still open (draft, running or paused), or whose turns left processes running (the delete stops them), is the operator's (exit 3, `operator_only` for an agent, checked before the first signal, so nothing is stopped); the operator's delete stops that session and those processes with it. `--abandon-processes --confirm "leave them running"` deletes the conversation without stopping those processes (exit 5 otherwise, when one cannot be stopped): nothing is signalled and what is left running is listed under `abandoned`; it is the operator's alone (exit 3, `operator_only` for an agent, the chat or a workflow), and without the words nothing is deleted and `would_abandon` lists what would be left. `chat history finish <conv> <turn> --status S` records the end of a turn whose process was killed; it does nothing if the turn already finished. `chat history reconcile --except-owner <app-id>` marks turns left active as interrupted, at app startup.
   - `chat history transcript <history-id>` reads the legacy transcript that plain `chat --history-id` still writes.
 - **monoes.me library:** `library status [--offline]|login|logout|list|show|install|publish|update|installed` (see [monoes.me library](#monoesme-library)). All reads need the monoes.me sign-in: without one they exit 4 with `"login_required": true`. `library login|logout|status` are aliases of `account login|logout|status`. `library login` streams `{"kind":"url","url"}` on stderr with `--json` and waits for the browser; the app kills it to cancel.
 - **Updates:** `update --check [--current <version>]` reports a newer release without downloading; `update --app <exe>` updates the desktop app, verified against SHA256SUMS.
@@ -1718,7 +1718,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session close`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session retire-worker`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -1873,6 +1873,39 @@ Worker and verifier briefs fence foreign text in a per-brief random delimiter
 in all, whichever route starts them. A mission closes only if the integration check's
 verdict is newer than every other task's last hand-back, verdict or merge; a plan's
 integration check depends on every non-check task, and tasks added later make it wait.
+
+**Retiring a mission worker (`task session retire-worker SESSION TASK [--note TEXT]`, operator only).** The lead's
+`org_clear_worker` and `org_compact_worker` refuse a worker bound to a mission task, because its context is part of the
+task's evidence. The operator can end such a worker once it is idle: the lead can then no longer message it, its stored
+session is dropped (a later turn does not load it), and its report and the task's comments, artifacts, commit references
+and result are untouched. The verb checks the operator before it reads its arguments (an agent, a token or a binding
+process gets exit 3, `operator_only`; no MCP tool exposes it). In ONE transaction it judges the worker idle (the task is
+not claimed and no mission token of that session and task is live: a running worker holds the claim and a live token, so
+it is refused with `not_ready`), writes a `worker_retired` event to the session's history (actor, task and note), and
+ends the stored worker rows linked to the task (`ai_chat_org_workers.mission_session` / `mission_task`, migration 147;
+rows from before it have no link and are not reached). The event records how many claim events the task has
+(`task #12 (claims: 3)`; a claim, a renewal of one and a takeover of an expired lease each count), and every worker carries the claim
+number it started under: the claim returns its own number, counted in the transaction that wrote it, so nothing that
+happens afterwards can change it (it is known before the worker waits for a slot or mints a token; stored with it: `ai_chat_org_workers.mission_claims`, in a later turn's veteran too). A worker whose
+number is unknown counts as retired when its task was ever retired. A retirement made at claim N retires the workers
+numbered N or less, so a worker that takes the task afterwards is not retired and a later claim does not undo an earlier
+worker's retirement; a worker's hand-off stored after the retirement is stored already retired (a delayed older worker too: a later
+retirement covers it). A retired stored worker is not given back to the lead but still takes its id out of the sequence (seeded
+from every stored id of the conversation, not only the latest ones a turn loads), so a new worker does not reuse it; a row stays retired only against a late save of the same worker (the same task, a claim
+number no higher). A second retire changes
+nothing and says so. A conductor that is
+live learns from the store, not from the CLI process: before it resumes a mission worker it asks, and each look at the
+session (`missionTick`) retires the idle workers the operator retired, dropping what they kept to be resumed from; a
+worker that is running is never touched. A worker run in this turn cannot be resumed past a retirement even
+when the retirement lands between the lead's follow-up check and the run: a run mints its mission token first and asks the
+store afterwards, and the store refuses to retire while a token of the task is live, so of the two one comes first in
+the database. A worker loaded from an earlier turn keeps its task link (it runs as an unbound agent, which cannot change the
+task) and is checked the same way; its follow-up has no token, so a retirement committed in the very instant of its check can
+still let that one unbound run start (the residual; it cannot touch the task). Stored workers with no link to a task (saved before migration
+147, or not mission workers) cannot be matched: the verb counts the ones of the session's conversation that still hold a
+session (`unmatched_stored_workers`) and says so, instead of reporting them retired; `stored_workers_ended` counts only the
+rows it changed. A task running as a child coder session (#1130, off by default) is stopped with
+`coder sessions stop` and is not touched by this verb.
 
 **Missions in the host (unattended).** Since the coder host (below) every coder turn, a mission's
 included, is a host turn, so a mission no longer ends with the app: the lead's conductor, its workers and
