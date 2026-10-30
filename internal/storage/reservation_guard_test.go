@@ -136,9 +136,12 @@ func TestReservationLiveRowCannotCarryAnEndTime(t *testing.T) {
 	endRes(t, db, id, "released")
 }
 
-// A budget above the old amount cap is a valid amount.
+// The guard is 1e12, where a cent is still representable.
 func TestReservationAmountsUpToTheOverflowGuardAreAccepted(t *testing.T) {
 	db := resDB(t).DB
-	mustRes(t, db, map[string]any{"amount_usd": 2e12})
-	mustRes(t, db, map[string]any{"amount_usd": 1e15})
+	mustRes(t, db, map[string]any{"amount_usd": 1e12})
+	_, err := insertRes(db, "INSERT", map[string]any{"amount_usd": 2e12})
+	wantRefused(t, "an amount above the guard", err)
+	_, err = insertRes(db, "INSERT", map[string]any{"amount_usd": 1e12 + 1})
+	wantRefused(t, "an amount just above the guard", err)
 }
