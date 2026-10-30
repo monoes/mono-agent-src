@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
 )
 
 // crashed runs fn and reports whether it panicked: the injected crash between the task session and the ledger write.

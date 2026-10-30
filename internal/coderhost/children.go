@@ -82,8 +82,8 @@ type SpawnRequest struct {
 	Cwd       string  // a folder inside the parent's (default: the parent's)
 	BudgetUSD float64 // carved out of the parent's remaining budget (0 = no cap of its own, only when the parent has none)
 	Scoped    bool    // the child runs scoped (the sandboxed assistant: no folder, read only); a research session
-	Runtime   string  // another runtime than the parent's ("" = the parent's); the model and provider then are not inherited
-	Model     string  // another model ("" = the parent's, or the runtime's default when Runtime is set)
+	Runtime   string  // only the parent's own runtime ("" = the parent's): another one is refused (childRuntime)
+	Model     string  // only the parent's own model ("" = the parent's): another one is refused; the provider is inherited
 }
 
 // Spawned is the new child.
@@ -429,11 +429,12 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 			return Spawned{}, err
 		}
 	}
-	if err := s.takeSpawnSlot(c.ProfileID, c.ConversationID); err != nil {
-		return Spawned{}, err
-	}
 	runtimeID, providerID, model, err := childRuntime(pconv, req)
 	if err != nil {
+		return Spawned{}, err
+	}
+	// Only a request that passed its validation uses a slot of the rate limit (a refused runtime does not).
+	if err := s.takeSpawnSlot(c.ProfileID, c.ConversationID); err != nil {
 		return Spawned{}, err
 	}
 	conv, err := store.CreateConversationAccess(c.ProfileID, pconv.Backend, pconv.WorkflowContext, runtimeID, providerID, model, access, cwd, pconv.Effort)
