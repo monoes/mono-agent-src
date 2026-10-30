@@ -91,4 +91,6 @@ B0 spec and independent security review of the charter and Stop. B1 charter + en
 - **D3 Defaults: depth 4, concurrency 30, both chosen by the operator in the charter.** The code ceiling for depth is an operator sanity limit (assumed 12; say if you want another). Concurrency 30 is a **cap**, not a promise: the resource governor (section 2.5) runs fewer when the machine is loaded, because 30 simultaneous agents on this machine reproduces the load that crashed it earlier. Width beyond 30 queues.
 - **D4 Part A (agent purposes) ships first and alone**, as its own PRs, before any doomsday work.
 
-Still open: none that block Part A. For Part B: the depth sanity ceiling above, and whether the verifier's "different model" rule may fall back to the same model when only one validated model exists (assumed: it may, and the ledger records that it did).
+Still open: none that block Part A. For Part B: the depth sanity ceiling above.
+
+Changed in review (2026-10-30): the "different model than the author" rule is an independence rule, so it is **not** silently relaxed. When no other validated model is available it refuses the spawn, unless the purpose's fallback is `any` (the operator's explicit permission), in which case it falls back to the author's own model and records that it did. This replaces the earlier assumption that it could always fall back.
