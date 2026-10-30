@@ -2863,6 +2863,17 @@ unauthenticated and returns the server version.
   not a determined key holder, and keep the OS user's own files out of reach (a
   dedicated user, as above).
 
+**Binding service availability (peer-credential binding).** The service that will answer
+"is this caller inside the bound worker's tree" limits what one local process can use of it: a cap on
+connections and a connection rate for each connecting process, a shared rate, a request deadline, and
+the rule that a newcomer with fewer connections may take an idle slot from the process holding the
+most (never one whose request has begun). A process that floods the service is held to its own share
+and cannot deny the others. This is availability, not authorization, and it fails closed: a refused
+verification is a deny. Residual: many processes of the same user can still add up to the service's
+total limits (each gets its own share), and processes are told apart by pid, so a pid recycled within
+about a second of its predecessor inherits that predecessor's used-up allowance and may be refused for
+that moment (tracked in #1182: key by pid and start time).
+
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,
 covered by the classes above.
