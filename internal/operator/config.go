@@ -46,7 +46,10 @@ import "strings"
 //     `agent purposes set|reset`, read through `agent purposes list`): a
 //     write by anything else would change which models run. Their values are also hidden from `config get`,
 //     `config list` and whatever else shows rows to a non-operator
-//     (HiddenConfig).
+//     (HiddenConfig). file-cleanup/ holds the lists of files a deleted
+//     conversation's turns left, which `chat history delete` writes in its own
+//     transaction and runs after the commit (and `chat history reconcile` after a
+//     crash); a row written by anything else would name files to remove.
 //
 // Not reserved: the social actions' selector configs. Their names are
 // free-form (<platform>_<action>[_context]), the engine writes them itself
@@ -72,6 +75,7 @@ var reservedConfigs = []string{
 var ReservedConfigPrefixes = []string{
 	"coder-mission-confirm/",
 	"agent_purposes.",
+	"file-cleanup/",
 }
 
 // ReservedConfig reports whether name is a reserved config row, in any case

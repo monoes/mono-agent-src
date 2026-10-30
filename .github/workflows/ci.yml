@@ -397,7 +397,8 @@ jobs:
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     strategy:
-      fail-fast: false
+      # On PR runs one failing shard cancels its queued and running siblings (the author fixes, then re-runs the failed jobs). Push runs (master, release) keep every shard running: a cancelled required check there blocks the merge and the release proof.
+      fail-fast: ${{ github.event_name == 'pull_request' }}
       matrix:
         tags: [default, nosocial]
         # TEMPORARY: for tags=default the single `rest` cell is split into

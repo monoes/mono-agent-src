@@ -710,11 +710,11 @@ func TestDeleteGuardIgnoresAPlainBoardDraftLinkedToTheChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	if err := deleteGuard("default", c.ID, nil)(ctx, conn); err != nil {
+	if err := deleteGuard("default", c.ID, nil, nil, logScan{})(ctx, conn); err != nil {
 		t.Fatalf("a plain board draft held the delete: %v", err)
 	}
 	r.leadSession(t, c.ID) // the real mission does
-	if err := deleteGuard("default", c.ID, nil)(ctx, conn); !errors.Is(err, errSessionOpened) {
+	if err := deleteGuard("default", c.ID, nil, nil, logScan{})(ctx, conn); !errors.Is(err, errSessionOpened) {
 		t.Fatalf("the open mission did not hold the delete: %v", err)
 	}
 }

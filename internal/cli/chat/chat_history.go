@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -330,6 +331,17 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 			// delete itself re-reads the record inside its write transaction, where no turn can be
 			// recorded, and gives way if one appeared since: then the new ones are stopped too.
 			var stopped []int
+			// The key that signs the cleanup row is had before the transaction (it can need the database).
+			var cleanupKey []byte
+			if db, err := cfg.OpenDB(); err == nil {
+				var kerr error
+				cleanupKey, kerr = deriveKeyWithin(cmd.Context(), db.DB, profileID)
+				if kerr != nil {
+					// Not fatal: the delete goes on, and the files it would have cleaned up stay.
+					warnOnStderr("the conversation's files will be left in place: %v", kerr)
+				}
+				db.Close()
+			}
 			missions := 0
 			// Whatever ends the delete after something was stopped says so: the conversation is kept,
 			// but the processes and missions stopped before are not coming back.
@@ -391,18 +403,32 @@ func newChatHistoryDeleteCmd(cfg *Deps) *cobra.Command {
 						return partial(err)
 					}
 				}
+				// The identity of the turns' log files is read here, outside the transaction.
+				scan := statLogs(cfg, store, profileID, args[0])
 				beforeGuardedDelete()
-				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen))
-				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened)) && attempt < 3 {
+				err = store.DeleteConversationGuarded(args[0], profileID, deleteGuard(profileID, args[0], seen, cleanupKey, scan))
+				if (errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened) || errors.Is(err, errTurnsChanged)) && attempt < 3 {
 					continue
 				}
-				if errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened) {
+				if errors.Is(err, errBackgroundRecorded) || errors.Is(err, errSessionOpened) || errors.Is(err, errTurnsChanged) {
 					return clicore.InvalidInput("the conversation keeps recording processes its turns leave running, so it was not deleted (%d process(es) and %d mission(s) were stopped so far): try again once it is quiet", len(stopped), missions)
 				}
 				if err != nil {
 					return partial(chatStoreErr(err))
 				}
 				break
+			}
+			// The delete committed: the files its turns left are removed now (the list was kept in the same
+			// transaction, so if this process dies here `chat history reconcile` finishes the job).
+			if !skipFileCleanup {
+				if db, err := cfg.OpenDB(); err != nil {
+					warnOnStderr("could not clean up the conversation's files: %v", err)
+				} else {
+					if err := runCleanups(cmd.Context(), db.DB, filepath.Join(hostDir(cfg), "turns"), cleanupConvPrefix(profileID, args[0]), true, warnOnStderr); err != nil {
+						warnOnStderr("could not clean up the conversation's files: %v", err)
+					}
+					db.Close()
+				}
 			}
 			stop := backgroundStop{Stopped: stopped}
 			if cfg.JSONOutput() {
@@ -559,7 +585,7 @@ var errBackgroundRecorded = errors.New("a background-process record appeared whi
 // by the caller; then it revokes the mission tokens the conversation's runs minted (owner
 // dynorg.ConversationOwner, with or without a run suffix), so they end with it whether or not a later
 // conductor would have swept them. Both are undone with the delete if it is rolled back.
-func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool) func(context.Context, *sql.Conn) error {
+func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRef]bool, cleanupKey []byte, scan logScan) func(context.Context, *sql.Conn) error {
 	return func(ctx context.Context, conn *sql.Conn) error {
 		if err := noNewRecords(ctx, conn, profileID, conversationID, seen); err != nil {
 			return err
@@ -578,7 +604,9 @@ func deleteGuard(profileID, conversationID string, seen map[chatevents.ProcessRe
 		if err != nil {
 			return fmt.Errorf("revoking the conversation's mission tokens: %w", err)
 		}
-		return nil
+		// Last: list the files its turns left on disk, from the database, and keep the list as a row in
+		// the same transaction (no file is touched here). It is run after the commit.
+		return recordCleanup(ctx, conn, profileID, conversationID, cleanupKey, scan)
 	}
 }
 

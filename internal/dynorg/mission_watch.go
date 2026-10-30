@@ -222,6 +222,12 @@ func (c *Conductor) missionReconcile(ctx context.Context, sid int64) {
 		if t.Claim == nil || !isMissionName(t.Claim.By, sid) || c.taskWorker(t.ID) != nil {
 			continue
 		}
+		c.msched.mu.Lock()
+		starting := c.msched.pending[t.ID]
+		c.msched.mu.Unlock()
+		if starting {
+			continue // the scheduler holds the claim for a start in progress: it owns the task right now
+		}
 		if c.reconcileChild(ctx, mc, sid, t) {
 			continue // a session of its own holds it
 		}
