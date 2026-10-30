@@ -1,0 +1,18 @@
+# Job names a CI run must contain, all concluded success, before release.yml
+# accepts a pull request's run as proof that the root module's tests passed
+# (.github/scripts/ci-run-is-full.sh). One name per line; "Test shard" jobs must
+# also have run their Test step. Other jobs (extension, account, nosocial,
+# wails) may be skipped by the path rules and are ignored.
+# ci-run-is-full_test.sh checks this list against the matrix in ci.yml, and
+# release.yml reads it from the commit the pull request was merged INTO, so a
+# pull request cannot shrink its own proof.
+Build & test (default)
+Test shard (default r0)
+Test shard (default r1)
+Test shard (default r2)
+Test shard (default r3)
+Test shard (default 0)
+Test shard (default 1)
+Test shard (default 2)
+Test shard (default 3)
+Test agentbox (hosted)
