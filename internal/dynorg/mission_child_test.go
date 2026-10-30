@@ -306,6 +306,38 @@ func TestUnsettledChildRetryIsAWaitNotAFailure(t *testing.T) {
 	}
 }
 
+// While the scheduler holds the transient claim of a start (msched.pending), a watcher pass must not
+// settle the task from an earlier ended child row: that would count a second failure and release the claim.
+func TestReconcileLeavesATaskWhoseClaimIsPending(t *testing.T) {
+	r, fs := childRig(t, "all", rigOpts{})
+	a := r.add(spec{title: "a", files: "a.go"})
+	r.approve()
+	r.next(r.c)
+	r.c.msched.mu.Lock()
+	r.c.msched.init()
+	r.c.msched.pending[a.ID] = true
+	before := r.c.msched.failures[a.ID]
+	r.c.msched.mu.Unlock()
+	fs.end(a.ID, "expired", "")
+	fs.mu.Lock()
+	fs.rows[a.ID].state = "ended"
+	fs.mu.Unlock()
+	held := r.task(a.ID)
+	if held.Status != tasks.StatusInProgress || held.Claim == nil {
+		t.Fatalf("setup: task %+v", held)
+	}
+	r.c.missionReconcile(context.Background(), r.sid)
+	r.c.msched.mu.Lock()
+	after := r.c.msched.failures[a.ID]
+	r.c.msched.mu.Unlock()
+	if after != before {
+		t.Fatalf("failures %d -> %d while the claim was pending", before, after)
+	}
+	if tk := r.task(a.ID); tk.Status != tasks.StatusInProgress || tk.Claim == nil {
+		t.Fatalf("claim released while pending: %+v", tk)
+	}
+}
+
 func TestRuleModeFollowUpsBoundedByTheCeiling(t *testing.T) {
 	r, fs := childRig(t, "all", rigOpts{conv: "conv-1"})
 	lead := r.conductorFor(Limits{MaxAgents: 5, MaxConcurrent: 3}, r.leadOf("conv-1"))
