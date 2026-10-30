@@ -110,6 +110,9 @@ func reservationText(what, v string, max int) error {
 func toMicros(usd float64) int64 { return int64(math.Round(usd * 1e6)) }
 func fromMicros(m int64) float64 { return float64(m) / 1e6 }
 
+// floorMicros is x in whole micro-dollars rounded down, with a guard against float noise just under a grid point.
+func floorMicros(usd float64) int64 { return int64(math.Floor(usd*1e6 + 1e-3)) }
+
 // reservationAmount holds an amount to finite and within [0, MaxBudgetUSD].
 func reservationAmount(what string, usd float64) error {
 	if !finite(usd) || usd < 0 || usd > MaxBudgetUSD {
@@ -143,13 +146,14 @@ func (s *Store) Reserve(ctx context.Context, profileID string, sessionID int64, 
 			return err
 		}
 		amount, bounded := fromMicros(toMicros(want)), want > 0
-		if left, budgeted := c.Left(); budgeted {
-			grant := toMicros(want)
-			if lm := toMicros(left); want == 0 || grant > lm {
-				grant = lm
-				if fromMicros(grant) > left+budgetEps {
-					grant-- // rounded up past what is left
-				}
+		if leftM, budgeted := c.leftMicros(); budgeted {
+			left, _ := c.Left()
+			// Whole micro-dollars, on every branch: the grant is the smaller of the rounded want (all that is left
+			// when want is 0) and the remainder FLOORED, so it never exceeds what is really left, even when the
+			// remainder is off the grid (a legacy row).
+			grant := leftM
+			if want > 0 {
+				grant = min(toMicros(want), grant)
 			}
 			if fromMicros(grant)+budgetEps < minReservationUSD {
 				return limit("session #%d has $%.4f left of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", sessionID, left, c.Budget, c.Spent, c.Held, c.Children)

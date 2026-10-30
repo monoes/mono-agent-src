@@ -34,6 +34,17 @@ func (c Commitment) Left() (left float64, bounded bool) {
 	return 0, true
 }
 
+// leftMicros is Left in whole micro-dollars for a grant: the budget (clamped to MaxBudgetUSD) rounded DOWN, less
+// the committed money rounded to the grid. Done in integers so that float noise in the difference of two large
+// numbers (the spacing near 1e9 is 1.2e-7) cannot shave a micro-dollar off a remainder that is exact in decimal,
+// and a remainder is never rounded up past what is really left.
+func (c Commitment) leftMicros() (left int64, bounded bool) {
+	if c.Budget <= 0 {
+		return 0, false
+	}
+	return max(floorMicros(min(c.Budget, MaxBudgetUSD))-toMicros(c.Total()), 0), true
+}
+
 // Commitment reads the commitment of a session in one snapshot.
 func (s *Store) Commitment(ctx context.Context, profileID string, sessionID int64) (Commitment, error) {
 	var c Commitment

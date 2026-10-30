@@ -290,7 +290,7 @@ func TestGrantsNeverExceedAnOffGridBudget(t *testing.T) {
 				continue
 			}
 			total += r.AmountUSD
-			if total > budget+1e-9 {
+			if total > budget+1e-9+budget*4.5e-16 { // a float64 spacing or two is representation, not money
 				t.Fatalf("budget %v: granted %v in total (want %v)", budget, total, want)
 			}
 		}
