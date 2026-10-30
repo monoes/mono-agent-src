@@ -83,6 +83,86 @@ func TestOrgWorkersRoundTrip(t *testing.T) {
 	}
 }
 
+// A mission worker's row remembers the task it worked, and a retired row stays retired: a later
+// save of the same worker (a late hand-off of an old run) cannot give it its session back.
+func TestOrgWorkerKeepsItsMissionLinkAndStaysRetired(t *testing.T) {
+	db := openTestDB(t)
+	s, err := NewAIStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := s.CreateConversationMode("default", "agent", "general", "claude", "", "", ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := OrgWorker{AgentID: "w1", TurnID: "t1", Runtime: "claude", SessionID: "sess-1", Report: "the report", Outcome: "done", MissionSession: 7, MissionTask: 42}
+	if err := s.SaveOrgWorker("default", conv.ID, w); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListOrgWorkers("default", conv.ID, 0)
+	if err != nil || len(got) != 1 || got[0].MissionSession != 7 || got[0].MissionTask != 42 {
+		t.Fatalf("the link is not stored: %+v %v", got, err)
+	}
+	// The retirement is a direct update (tasks.RetireWorker); the report stays.
+	if _, err := db.Exec(`UPDATE ai_chat_org_workers SET session_id = '', outcome = ? WHERE conversation_id = ? AND agent_id = 'w1'`, OrgWorkerRetired, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.TurnID, w.SessionID, w.Outcome = "t2", "sess-2", "done"
+	if err := s.SaveOrgWorker("default", conv.ID, w); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.ListOrgWorkers("default", conv.ID, 0)
+	if len(got) != 1 || got[0].Outcome != OrgWorkerRetired || got[0].SessionID != "" || got[0].Report != "the report" {
+		t.Fatalf("a retired worker was revived: %+v", got)
+	}
+}
+
+// A new worker that took a retired worker's id (a higher claim number, or another task) is saved as itself: only a late
+// save of the retired worker (the same task, a claim number no higher) stays retired.
+func TestANewWorkerOverARetiredRowIsNotClamped(t *testing.T) {
+	db := openTestDB(t)
+	s, err := NewAIStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := s.CreateConversationMode("default", "agent", "general", "claude", "", "", ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := OrgWorker{AgentID: "w1", TurnID: "t1", Runtime: "claude", SessionID: "sess-1", Report: "old", Outcome: "done", MissionSession: 7, MissionTask: 42, MissionClaims: 1}
+	if err := s.SaveOrgWorker("default", conv.ID, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE ai_chat_org_workers SET session_id = '', outcome = ? WHERE conversation_id = ?`, OrgWorkerRetired, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	state := func() OrgWorker {
+		t.Helper()
+		ws, err := s.ListOrgWorkers("default", conv.ID, 0)
+		if err != nil || len(ws) != 1 {
+			t.Fatalf("workers: %+v %v", ws, err)
+		}
+		return ws[0]
+	}
+	// A later save of the old worker stays retired.
+	late := old
+	late.TurnID, late.SessionID = "t2", "sess-9"
+	if err := s.SaveOrgWorker("default", conv.ID, late); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got.Outcome != OrgWorkerRetired || got.SessionID != "" {
+		t.Fatalf("a late save of the retired worker revived it: %+v", got)
+	}
+	// A new worker with the same id, a higher claim number, is saved as itself.
+	fresh := OrgWorker{AgentID: "w1", TurnID: "t3", Runtime: "claude", SessionID: "sess-new", Report: "new", Outcome: "done", MissionSession: 7, MissionTask: 42, MissionClaims: 2}
+	if err := s.SaveOrgWorker("default", conv.ID, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got.Outcome != "done" || got.SessionID != "sess-new" || got.MissionClaims != 2 {
+		t.Fatalf("a new worker over a retired row was clamped: %+v", got)
+	}
+}
+
 // The purpose record of a kept worker comes back as saved, and a row written
 // before migration 145 reads back with neither (an unmapped veteran).
 func TestOrgWorkersKeepTheirPurposeRecord(t *testing.T) {
@@ -95,7 +175,7 @@ func TestOrgWorkersKeepTheirPurposeRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveOrgWorker("default", conv.ID, OrgWorker{AgentID: "w1", TurnID: "t1", Runtime: "claude", Builtin: true, Purposes: "debugging,coding"}); err != nil {
+	if err := s.SaveOrgWorker("default", conv.ID, OrgWorker{AgentID: "w1", TurnID: "t1", Runtime: "claude", Builtin: true, Purposes: "debugging,coding", MissionSession: 7, MissionTask: 42, MissionClaims: 3}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO ai_chat_org_workers (profile_id, conversation_id, agent_id, turn_id, role, access, runtime, updated_at)
@@ -107,7 +187,7 @@ func TestOrgWorkersKeepTheirPurposeRecord(t *testing.T) {
 		t.Fatalf("list = %+v, %v", all, err)
 	}
 	by := map[string]OrgWorker{all[0].AgentID: all[0], all[1].AgentID: all[1]}
-	if w := by["w1"]; !w.Builtin || w.Purposes != "debugging,coding" {
+	if w := by["w1"]; !w.Builtin || w.Purposes != "debugging,coding" || w.MissionSession != 7 || w.MissionTask != 42 || w.MissionClaims != 3 {
 		t.Errorf("saved record read back as %+v", w)
 	}
 	if w := by["w2"]; w.Builtin || w.Purposes != "" {

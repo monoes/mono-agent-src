@@ -71,6 +71,7 @@ func (c *Conductor) missionTick(mc *MissionRun) {
 			c.renewLeadLeases(c.ctx, mc, sid)
 			c.cutOverlong(mc, sid)
 		}
+		c.noteRetirements(mc, sid)
 		c.missionReconcile(c.ctx, sid)
 	}
 }
