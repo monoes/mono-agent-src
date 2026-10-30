@@ -62,7 +62,7 @@ WHO MAY DO WHAT
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
-  agents deny, session approve, session resume, session close, session retire-worker, session archive, session budget,
+  agents deny, session approve, session resume, session close, session retire-worker, session archive, session archive --cascade, session budget,
   undepend, os install and os uninstall are the operator's: they answer an agent
   with exit 3 and the code operator_only (board and approve unless delegated, see
   below). board shows the Inbox, so an agent uses "task list". os install and
@@ -105,11 +105,11 @@ WHO MAY DO WHAT
   running session), claim, comment, finish and release by task id, add follow-ups (Ready
   at once; the session's max tasks is the bound), split a task that has not begun,
   depend, artifact, and verify. An agent may also run session new, session list, session show,
-  session plan, session pause and session stop (stop releases every claim; only the operator resumes). It may not set
+  session rename (its own sessions), session tree, session plan, session pause and session stop (stop releases every claim; only the operator resumes). It may not set
   the budget, the limits, the access level or auto-close: that is session budget ID --usd N
   --max-tasks N --max-depth N --max-retries N --access LEVEL --auto-close on|off --spend N --note TEXT
   (session new takes --budget-usd), the operator's. session new takes an optional --client-id KEY
-  (idempotency, per profile, up to 64 letters, digits, - or _); an agent may pass --conversation only for its own chat (verified by its session token). A repeated key returns the existing session
+  (idempotency, per profile, up to 64 letters, digits, - or _); session new takes --parent ID and --kind (board, mission, research, direction, task): sessions form a tree of up to 4 levels, a child never has more access, budget or caps than its parent, an agent starts one only below a session it works in, and an agent cannot name a budget (the operator sets it; approving a child that has none under a parent with a budget is refused); session rename ID TITLE (the operator: any; an agent: one it started) and session tree [--json] (array of roots with children) are new; session archive ID is refused while draft, running or paused sessions are below the session (any depth; the error lists their ids and titles); session archive ID --cascade (the operator only, an agent never) stops the running and paused ones among them (their claims are released), then archives the whole subtree in one write, the deepest first, each with an archived event that names the session archived, and prints {"profile","session","archived":[ids]}; finished (done, stopped, failed) sessions below it are archived with it without --cascade; a child's budget is not returned to the parent; a cycle or too deep a tree is refused and nothing is archived; an agent may pass --conversation only for its own chat (verified by its session token). A repeated key returns the existing session
   (exit 0, deduped true) and creates none; a longer or garbled key is invalid_input. A worker or verifier bound to a task may not
   pause or stop the session. finish and artifact by an agent are refused while the session is
   paused or stopped (a comment is not). Progress n/m (counts.done, counts.total) leaves epics out:
@@ -267,6 +267,7 @@ JSON
     {"profile","task","events"}         show
     {"profile","session"}               session new, session approve, session pause, session resume, session stop, session close, session retire-worker, session archive, session budget
     {"profile","sessions"}              session list
+    [session...]                        session tree (roots, each with "children"; a session also has parent_session_id, kind, depth, approval_basis)
     {"profile","session","events"}      session show
     {"profile","session","tasks"}       session plan
     {"profile","session","task"}        next --session

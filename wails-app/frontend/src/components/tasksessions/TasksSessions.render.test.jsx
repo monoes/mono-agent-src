@@ -65,11 +65,12 @@ describe('Tasks with sessions', () => {
     expect(sess.board).not.toHaveBeenCalled()
   })
 
-  it('shows no switcher when there are no sessions', async () => {
+  it('shows only Personal and New session when there are no sessions', async () => {
     listed = []
     mount()
     expect(await screen.findByText('Task 1')).toBeInTheDocument()
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'New session' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
