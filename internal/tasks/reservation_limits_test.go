@@ -230,3 +230,69 @@ func TestSettleAcrossProfilesChangesNothing(t *testing.T) {
 		t.Fatalf("changed: %+v", after)
 	}
 }
+
+// The grant is computed in whole micro-dollars and never rounds up past what is left: the remainder of an
+// off-grid budget is floored, on every branch (a named want and want 0).
+func TestReserveNeverGrantsMoreThanIsLeft(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 0.0100006)
+	r, err := s.Reserve(bg, "default", id, "a", "w", 0.0100007)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.AmountUSD != 0.01 {
+		t.Fatalf("granted %v of a budget of 0.0100006, want 0.01", r.AmountUSD)
+	}
+	for name, c := range map[string]struct{ budget, want, grant float64 }{
+		"all of an off-grid remainder": {0.0100006, 0, 0.01},
+		"all of 5.0000009":             {5.0000009, 0, 5},
+		"a want rounding up past it":   {5.0000004, 5.0000006, 5},
+		"a want below it":              {5.0000009, 2.5, 2.5},
+	} {
+		id := rsession(t, s, db, c.budget)
+		r, err := s.Reserve(bg, "default", id, "a", "w", c.want)
+		if err != nil || r.AmountUSD != c.grant {
+			t.Errorf("%s: granted %v (%v), want %v", name, r.AmountUSD, err, c.grant)
+		}
+	}
+	id = rsession(t, s, db, 0.0099999)
+	if _, err := s.Reserve(bg, "default", id, "a", "w", 0); !errors.Is(err, ErrLimit) {
+		t.Fatalf("below the minimum grant: %v", err)
+	}
+}
+
+// For random off-grid budgets and wants, what is granted in total never exceeds the budget.
+func TestGrantsNeverExceedAnOffGridBudget(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	rng := rand.New(rand.NewSource(7))
+	for i := 0; i < 45; i++ { // a profile holds at most 50 open sessions
+		budget := math.Round(rng.Float64()*1e9*1e7) / 1e7 // 7 decimals: off the micro-dollar grid
+		if i%3 == 0 {
+			budget = math.Round(rng.Float64()*50*1e7) / 1e7
+		}
+		budget = math.Max(budget, 0.01)
+		id := rsession(t, s, db, budget)
+		var total float64
+		for k := 0; k < 8; k++ {
+			want := 0.0
+			if rng.Intn(3) > 0 {
+				want = math.Round(rng.Float64()*budget*1e7) / 1e7
+			}
+			if k == 0 && i%2 == 0 { // a want within a couple of micro-dollars of the whole budget
+				want = math.Round((budget+(rng.Float64()-0.5)*4e-6)*1e7) / 1e7
+				want = math.Max(want, 0.0100000)
+			}
+			r, err := s.Reserve(bg, "default", id, "o", "w", want)
+			if err != nil {
+				if !errors.Is(err, ErrLimit) {
+					t.Fatalf("budget %v want %v: %v", budget, want, err)
+				}
+				continue
+			}
+			total += r.AmountUSD
+			if total > budget+1e-9 {
+				t.Fatalf("budget %v: granted %v in total (want %v)", budget, total, want)
+			}
+		}
+	}
+}
