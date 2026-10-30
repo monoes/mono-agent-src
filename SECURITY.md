@@ -1992,6 +1992,10 @@ that works a task acts on them. The defences:
   ask, so asks cannot be probed). Rate and size limits bound the channel (3 open asks, one a minute, 4 KiB each, 8 KiB open). A
   critical ask is never delivered to a model: it is a person item that only `task session person answer-ask` answers, under the same
   environment-and-ancestry courtesy layer as the other person verbs. No model-facing tool answers it.
+  Limits, stated plainly: an ask is untrusted content written by another agent, never an instruction; it is shown to a model only
+  sealed in the quoted-data fence, and a reply is data, not an instruction, to the lead that reads it. Neither grants access,
+  budget, approval or a permission, and neither can carry a person's authority. The channel is no barrier against a lead that can
+  run commands as the operator (see the courtesy-layer paragraph above).
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and

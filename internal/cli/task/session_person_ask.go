@@ -36,10 +36,7 @@ func (d Deps) newPersonAnswerAskCmd() *cobra.Command {
 		Short: "Answer a critical ask that a lead raised for you; the answer reaches the asking lead as quoted data and the item closes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, err := d.callerFor(flagAs(cmd)).operator(personWhat); err != nil {
-				return err
-			}
-			if err := d.refuseTokenHolder(personWhat); err != nil {
+			if _, err := d.personGate(cmd, personWhat); err != nil {
 				return err
 			}
 			if askID <= 0 {
