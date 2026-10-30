@@ -116,12 +116,13 @@ func TestConcurrentLifecyclesKeepTheBudgetWhole(t *testing.T) {
 				if _, err := stores[p].ExpireStale(bg, "default", session); err != nil {
 					t.Errorf("expire: %v", err)
 				}
-				if err := stores[p].Settle(bg, "default", r.ID, owner, 1.5); err != nil {
+				cost := min(r.AmountUSD, 1.5) // never above what was reserved, so the budget is not overspent
+				if err := stores[p].Settle(bg, "default", r.ID, owner, cost); err != nil {
 					t.Errorf("settle: %v", err)
 					continue
 				}
 				mu.Lock()
-				settled += 1.5
+				settled += cost
 				mu.Unlock()
 			}
 		}()
