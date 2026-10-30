@@ -167,11 +167,19 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 		s.recordSpawn(c, title, req, facts, AdviceRefuse, adv.Why)
 		return SessionSpawned{}, ErrSpawnAdvice
 	}
-	// The acceptance is a master row nothing rotates out, so it is written only once every check of the spawn (access,
-	// runtime, model, folder, the limits, the carve, the task session) has passed, in the last step before the first
-	// message. A failed write there undoes the spawn, so an acceptance that cannot be recorded is still not made.
+	// The spawn is not one operation: the conversation, its link and carve, the task session and then the acceptance row
+	// are separate writes. An INTENT row (spawn_intent.go) is written first and ends, in one transaction with the
+	// acceptance row, only when everything is in place; a crash in between leaves the intent for the host's sweep, and
+	// until then a repeat of the same request is refused. The acceptance is a master row nothing rotates out, so it is
+	// written only once every check of the spawn (access, runtime, model, folder, the limits, the carve, the task
+	// session) has passed, in the last step before the first message. A failed write undoes the spawn.
+	intent := spawnIntent{profile: profile, spawner: c.ConversationID, hash: hash}
+	if err := s.openSpawnIntent(profile, c.ConversationID, hash); err != nil {
+		return SessionSpawned{}, err
+	}
 	var made tasks.Session
 	out, err := s.spawnWith(c, SpawnRequest{Scoped: req.Kind == tasks.SessionKindResearch, BudgetUSD: budget, Access: req.Access, Runtime: req.Runtime, Model: req.Model}, spawnHooks{
+		onCreated: func(conv string) error { return s.setIntentChild(intent, conv) },
 		beforeMessage: func(conv string) error {
 			var err error
 			made, err = ts.CreateSession(ctx, profile, tasks.SessionInput{Title: title, Goal: req.Goal, ConversationID: conv, ParentSessionID: sid, Kind: req.Kind,
@@ -180,14 +188,21 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 			if err != nil {
 				return err
 			}
-			if err := s.recordSpawn(c, title, req, facts, AdviceAccept, adv.Why); err != nil {
-				_, _ = ts.StopSession(ctx, profile, made.ID, leadActor(c.ConversationID, made.ID, conv)) // as the child session: the lead cannot see it; the undo deletes the conversation
+			if s.afterSpawnSessionCreated != nil {
+				s.afterSpawnSessionCreated()
+			}
+			if err := s.finishSpawn(c, title, req, facts, adv.Why, hash); err != nil {
 				return fmt.Errorf("the spawn was not recorded in the decisions ledger, so it was not made: %w", err)
 			}
 			return nil
 		},
 	})
 	if err != nil {
+		// The undo of spawnWith deleted the conversation; the rest (the draft task session, the intent) is ended here, and
+		// when that fails too the intent stays, so the sweep finishes it and a repeat is refused until then.
+		if cerr := s.endSpawnNow(ctx, intent); cerr != nil {
+			err = fmt.Errorf("%w (cleanup unfinished, the host will retry: %v)", err, cerr)
+		}
 		s.recordSpawn(c, title, req, facts, AdviceRefuse, "not made: "+err.Error())
 		return SessionSpawned{}, err
 	}

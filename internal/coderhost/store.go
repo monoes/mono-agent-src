@@ -116,6 +116,8 @@ type Store struct {
 	beforeReserveTx func()
 	// afterReserveReads runs inside Reserve's transaction, after its reads and before the reserving statement.
 	afterReserveReads func()
+	// afterSpawnSessionCreated runs in SpawnSession between the task session's creation and the ledger write (tests only: a crash there).
+	afterSpawnSessionCreated func()
 	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
 	afterChildCreated func()
 	// beforeCleanupDelete runs in abandonSpawn right before the conversation's delete (tests only).
