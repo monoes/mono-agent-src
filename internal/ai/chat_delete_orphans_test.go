@@ -70,6 +70,7 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		"coder_session_person_items.conversation_id":     "deleted",
 		"coder_session_questions.conversation_id":        "deleted",
 		"coder_session_tokens.conversation_id":           "deleted",
+		"coder_session_tokens_v2.conversation_id":        "kept on purpose: insert-only rows leave only after expiry plus 7 days; inert once the conversation is gone (authorization is the host's live registry, revoked in the delete's transaction when the binding is wired in)",
 		"coder_session_turn_caps.conversation_id":        "deleted",
 		"coder_sessions.conversation_id":                 "deleted",
 		"coder_sessions.parent_conversation_id":          "children detached to solo",

@@ -42,6 +42,20 @@ var derivedScope = []scopeEntry{
 	{Table: "settings", Where: `key = 'task_agent_access:' || @p OR key LIKE 'jev.' || replace(replace(replace(@p, '\', '\\'), '%', '\%'), '_', '\_') || '.%' ESCAPE '\'`},
 }
 
+// retainedOnDelete are tables with a profile_id column whose rows a profile delete leaves in place, each
+// with the reason. The peer-credential binding tables (migration 148) are insert-only and can be removed
+// only after a retention window (their triggers have no exempt operation, by design), so deleting the
+// profile does not remove them. They hold no secret (hashes, MACs, a pid and a start stamp), a token in
+// them is inert once the profile is gone (authorization is the host's live registry, which the profile
+// delete revokes), and the retention sweep removes them once their expiry plus the window has passed.
+var retainedOnDelete = map[string]string{
+	"agent_tokens_v2":         "insert-only; removed by the retention sweep after expiry plus 7 days",
+	"coder_session_tokens_v2": "insert-only; removed by the retention sweep after expiry plus 7 days",
+	"process_bindings":        "insert-only; removed by the retention sweep after expiry plus 7 days",
+	"token_revocations_v2":    "insert-only; removed by the retention sweep once its token is long expired",
+	"procbind_host":           "append-only log; the newest row is never removable, older ones by the retention sweep",
+}
+
 // profileScope lists, for the database q reads, every table with rows of the
 // profile: tables with a profile_id column, the tables that hang under them
 // through ON DELETE CASCADE (so they are counted too), and derivedScope. The
@@ -60,7 +74,7 @@ func profileScope(ctx context.Context, q scopeQuerier) ([]scopeEntry, error) {
 	seen := map[string]bool{}
 	var queue []scopeEntry
 	for _, n := range names {
-		if hasColumn(ctx, q, n, "profile_id") {
+		if hasColumn(ctx, q, n, "profile_id") && retainedOnDelete[n] == "" {
 			e := scopeEntry{Table: n, Where: `profile_id = @p`}
 			queue = append(queue, e)
 			seen[n] = true

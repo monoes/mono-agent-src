@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 
@@ -202,7 +203,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 			continue
 		}
 		for _, col := range []string{"profile_id", "workflow_id", "execution_id", "parent_execution_id", "child_execution_id", "profile_key"} {
-			if hasColumn(ctx, db.DB, tbl, col) && notProfileOwned[tbl] == "" {
+			if hasColumn(ctx, db.DB, tbl, col) && notProfileOwned[tbl] == "" && retainedOnDelete[tbl] == "" {
 				t.Errorf("table %s has a %s column but no delete rule covers it: add it to derivedScope (or to notProfileOwned with a reason)", tbl, col)
 			}
 		}
@@ -315,6 +316,48 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	}
 	if _, err := keyring.Get("monoagent-vault", "kek-"+id); err != keyring.ErrNotFound {
 		t.Errorf("the profile's vault key was left in the keychain: %v", err)
+	}
+}
+
+// The peer-credential binding tables are insert-only, so a profile delete cannot remove their rows (and
+// must not fail because of them): it succeeds and leaves them for the retention sweep.
+func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp := time.Now().UTC().Add(time.Hour).Format("2006-01-02T15:04:05.000Z")
+	for _, q := range []string{
+		`INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('m1', ?, 'h1', 'c', ?, 2, 'm')`,
+		`INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s1', ?, 'h2', 'c', 't', 'c', ?, 2, 'm')`,
+		`INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('m1', ?, 's', 'peercred', 1, 's', 'g', 2, 'c', ?, 'm')`,
+		`INSERT INTO token_revocations_v2 (token_id, profile_id, reason, created_at, mac) VALUES ('m1', ?, 'r', ?, 'm')`,
+		`INSERT INTO procbind_host (profile_id, seq, generation, started_at, mac) VALUES (?, 1, 'g', ?, 'm')`,
+	} {
+		if _, err := db.DB.Exec(q, id, exp); err != nil {
+			t.Fatalf("seeding: %v", err)
+		}
+	}
+	db.Close()
+	if _, err := runProfileCmd(t, dbPath, "delete", id, "--yes-delete-profile", "doomed"); err != nil {
+		t.Fatalf("the delete failed because of insert-only rows: %v", err)
+	}
+	db, err = storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for tbl := range retainedOnDelete {
+		var n int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM "`+tbl+`" WHERE profile_id = ?`, id).Scan(&n); err != nil || n != 1 {
+			t.Errorf("%s: %d row(s) after the profile delete, want the 1 retained (%v)", tbl, n, err)
+		}
+	}
+	var gone int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM profiles WHERE id = ?`, id).Scan(&gone); err != nil || gone != 0 {
+		t.Errorf("the profile itself is still there: %d %v", gone, err)
 	}
 }
 
