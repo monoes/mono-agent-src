@@ -1,13 +1,15 @@
-# Peer-credential binding: phase 3 and 4 wiring (design note, revision 2)
+# Peer-credential binding: phase 3 and 4 wiring (design note, revision 3)
 
 Issue #1100. Builds on the approved design (`2026-10-28-peer-credential-binding.md`, merged as #1115) and on
 what is on master: the encoding and keyed answer (#1138), the pidfd walk (#1139), the service and client
 (#1166), the socket directory and fair sharing (#1188 when merged), and the five insert-only tables (#1178,
 migration 148). Nothing of it is called yet. This note says how it is wired in, in which order, and what each
 piece may and may not do. **Critical class: authority/tokens/credentials, spawn, delete.** Every piece below is
-reviewed. Revision 2 changes the order of the pieces, adds the creation/revoke serialisation, the restart and
+reviewed. Revision 2 changed the order of the pieces and added the creation/revoke serialisation, the restart and
 downgrade rules, the typed pipe frame, the in-flight rule of the service, the placement of the revocation, and
-the verifier text (reviews by codex and r2 of revision 1).
+the verifier text. Revision 3 makes recovery identify and **prove the stop of** an old turn (identity from the
+binding row, the whole process group, escalation, then settle), adds a **runtime** readiness check, and carries
+the reviewers' precisions (graceful stop, mission accounting, the frame reader, the byte-identical legacy path).
 
 ## 1. What the launcher does today (checked on master)
 
@@ -65,6 +67,15 @@ reverted alone**, and so that the setting does not exist until everything it nee
 Each step is tested with the setting forced on in a test build where the step has a setting-visible effect
 (steps 3 to 5), including the intermediate states: the setter refuses before step 5, and a host started with the
 internal constant true in step 3 or 4 issues nothing.
+
+**The setter alone is not a gate.** A setting turned on by a later build persists across a revert or a
+downgrade to a build whose `IssuanceReady` is false, and that build never calls the setter again. So the host
+also checks readiness **at every start**: if `security.peercred_binding` is on and the build lacks any of the
+launch ordering, the verifier families or the revocation parity (`procbind.IssuanceReady` false, or a
+prerequisite of the platform missing), the host **starts no turn at all** (not a legacy turn: that would be a
+weaker mode the operator did not choose), says why in its log and in `doctor`, and tells the operator to turn the
+setting off or update. Test: a database with the setting on, a build with `IssuanceReady` false, the host
+refuses to start turns and reports it.
 
 ## 4. The pieces
 
@@ -137,7 +148,11 @@ never a weaker mode. `coder host status` is operator-only and shows counts and s
 4. **one write transaction (`BEGIN IMMEDIATE`)** that (a) **re-reads the authoritative session and turn state**
    (the session row exists and its current turn is this turn; for a child, its attempt is current) and aborts if
    it is not, and (b) inserts the v2 token and binding rows;
-5. `Activate`, then write the frame and close the write end;
+5. read the entries' **revocation rows** (cheap), `Activate`, then write the frame and close the write end. The
+   selector of a revoke made by the host process finds the pending entry, but a delete run by the CLI or the app
+   commits first and calls `Drop` afterwards, so `Activate` can still succeed in between: the token delivered then
+   is dead anyway, because every verification reads the committed revocation row (design section 7), and the read
+   here refuses the common case before delivery;
 6. the turn reads the frame, then sets its environment for its own shells and tools.
 Any failure before step 5 kills the turn through the pidfd, unregisters the entries and, if rows were inserted,
 revokes them: nothing was delivered. The pidfd stored by `os/exec` is the caller's: the registry takes its own
@@ -158,23 +173,60 @@ one-shot value consumed exactly as today. Tests: an ordinary turn, a mission-con
 turn. The turn reads with a 10 second deadline and requires EOF; the host commits (step 4) before writing, so
 under database contention the turn can fail visibly and the launch is retried with a bounded count.
 
+*Reader selection (never by sniffing).* The legacy mission pipe reader reads a newline-terminated token with a
+2 second timeout (`StashMissionToken`, `MissionFDEnv`). The typed frame needs its own reader, a 10 second deadline
+and a required EOF, and the turn picks the reader by a **distinct marker environment variable** set only by a
+setting-on launch, never by looking at the bytes, so a legacy token can never be parsed as a frame or the reverse.
+With the setting off the launch path, the pipe and the environment are **byte-identical to today** (a test
+compares them).
+
 *Normative rule:* the chat process reads the frame **before any flag parsing, config load, account check or
 database open**. `main` already stashes the mission pipe first; the stash must now treat a missing, short or
 malformed frame as a fatal error (today it discards errors). A test runs the built binary with a poisoned
 configuration path (a FIFO whose opening is recorded) and a pipe that never delivers a frame: the process exits
 non-zero at the deadline and the FIFO was never opened.
 
-*Restart and downgrade (fixes revision 1).* Every turn records durably whether it is a v2 turn: the
-presence of its row in `coder_session_tokens_v2` for the turn. On **every** host start, with the setting on
-**or off**, the host stops each v2 turn of the previous generation it finds: `pidfd_open(pid)`, compare the start
-stamp **through the pidfd**, `pidfd_send_signal`, then mark the turn interrupted, revoke its v2 rows and settle as
-`Recover` already settles a gone turn (no replay: the person's next message starts a fresh turn). A v2 turn is
-never adopted, so a restart with the setting off does not resurrect it under the legacy path. Legacy turns that
-are running when the setting is turned on are left running and adopted as today; new turns are v2. The product
-wording (restart interrupts running workers when the setting is on) is in the setting's help text, the
-settings pane and SECURITY.md. A fake-crash test proves **one live turn per conversation** across: host crash
-between each launch step, restart with the setting on, restart with it off, and a crash before the turn
-identity is recorded.
+*Identity of a turn for recovery.* The worker's identity is recorded **before delivery**: the binding row
+committed in step 4 carries `worker_pid`, `worker_stamp` and `host_generation`. Recovery takes the identity from
+that row, **not** from `coder_sessions.turn_pid`/`turn_stamp`, which the host saves only after the launcher
+returns (`Host.Tick`): a crash after the frame was delivered and before that write would leave them empty and the
+orphan unidentified. The rule is: a binding row of an older `host_generation` whose turn is still running is an
+orphan to stop. A crash after step 4 and before delivery leaves a turn that gets EOF and exits at its 10 second
+deadline; recovery stops it too if it is still there.
+
+*Restart and downgrade.* A turn is a v2 turn if its row exists in `coder_session_tokens_v2` (durable). On
+**every** host start, with the setting on **or off**, the host stops each v2 turn of the previous generation. It
+never adopts one (so a restart with the setting off cannot resurrect it under the legacy path), and legacy turns
+running when the setting is turned on stay legacy and are adopted as today. `Host.Recover` settles a turn whose
+`Adopt` failed as gone **without stopping it or replaying the prompt**; for v2 turns the stop below happens first.
+
+*Stopping a turn, and proving it stopped* (before the session is settled and before any new turn may start):
+1. `pidfd_open(worker_pid)`, poll alive, read the start stamp, poll alive again (the design's liveness rule),
+   compare the stamp with the binding row. A mismatch, or a pidfd that polled dead, means no signal is sent.
+2. The turn is a session and process-group leader (`Setsid`), so `SIGTERM` goes to the **whole group**
+   (`kill(-pgid)`), not only the leader. A process id is not reused while it names a live process group, so
+   the group id stays valid after the leader exits as long as any member lives.
+3. Wait for the leader to exit by polling the pidfd, up to a bounded grace (the turn flushes its events and
+   exits); then `SIGKILL` the group. Wait again.
+4. Settle only when the leader has exited **and** the group is empty (`kill(-pgid, 0)` reports no such group); if
+   that does not happen within a bound, the session is **not** settled and a new turn is not started: the host
+   reports it (`doctor`) and retries at the next pass. A signal that was sent is not an exit.
+5. Members that left the session (a daemonised helper) are outside the group: they are the stray reconciliation
+   the host already does by the tree marker, which signals a process only when its identity is pinned and
+   otherwise reports it; stated as a limit.
+A **clean** host shutdown stops (or drains) the v2 turns first, **then** revokes, instead of leaving them
+running with dead tokens until the next start.
+
+*What an interruption keeps and how it is accounted.* An interrupted turn keeps the user message and every event
+written before the stop, and its spend stays counted (a test). The conversation shows that the turn was
+interrupted by a restart, with a way to continue (the wording is the operator's). An interrupted **mission
+child settles as `interrupted`, not as a failed attempt**, so restarts cannot exhaust the retry count, and the
+mission pass can launch it again (a test).
+
+*Tests (fake crash).* **One live turn per conversation** across: a crash between each launch step, after delivery
+and before `TurnPID` is saved, restart with the setting on, restart with it off, and a crash before the turn
+identity is recorded. And: **a turn that ignores `SIGTERM` and has a child process** is killed (leader and child
+gone) before the session is settled and before the next turn starts.
 
 *The setting.* `security.peercred_binding` is added to the reserved, operator-only settings (the same list
 `TestStorageSaveConfigGuardsReservedRows` guards) with a test that a non-operator write is refused; its setter
@@ -200,7 +252,7 @@ shipped.
 K1 `doctor` reports a delete blocked by a failed `RevokeTx`. K2 `coder host status` is operator-only and
 shows no secret. K3 descriptors are counted in tests (pidfd per turn, pipe ends). K4 the frame's total length
 bounds all entries within `PIPE_BUF`. K5 the launch retry after a late commit is bounded. K6 a sweep trigger
-refusal never fails a host start. K7 each PR states whether the setting-on intermediate states were tested.
+refusal never fails a host start. K7 each PR states whether the setting-on intermediate states were tested. K8 the grace and the bounds of the stop and of the launch retry are named constants with tests, not literals.
 
 ## 7. Open items
 
