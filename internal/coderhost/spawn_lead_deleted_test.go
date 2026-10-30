@@ -270,3 +270,104 @@ func TestSweepOrphansJudgesTheMasterInTheChildsOwnProfileOnly(t *testing.T) {
 		t.Fatalf("the live child's parent changed: %+v", x)
 	}
 }
+
+// missionRowFixture is an orphaned child session (its parent has no session row) in profile "p", and a
+// helper that inserts one mission row in a chosen profile and state naming it. The row's lead conversation
+// exists in its own profile, so the sweep's earlier statements leave the row as it is.
+type missionRowFixture struct {
+	st   *Store
+	kid  string
+	lead map[string]string // profile -> a conversation that exists there
+}
+
+func newMissionRowFixture(t *testing.T) *missionRowFixture {
+	t.Helper()
+	st := newStoreT(t)
+	a, _ := ai.NewAIStore(st.db)
+	mk := func(profile string) string {
+		c, err := a.CreateConversationAccess(profile, "agent", "", "claude", "", "m1", "workspace", t.TempDir(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.EnsureSession(profile, c.ID); err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+	f := &missionRowFixture{st: st, kid: mk("p"), lead: map[string]string{"p": mk("p"), "q": mk("q")}}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = 'no-such-master' WHERE profile_id = 'p' AND conversation_id = ?`, f.kid); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func (f *missionRowFixture) addRow(t *testing.T, profile, state, child, pending string) {
+	t.Helper()
+	if _, err := f.st.db.Exec(`INSERT INTO coder_mission_children (profile_id, session_id, task_id, lead_conversation_id, child_conversation_id, pending_conversation_id, origin, state, created_at, updated_at)
+		VALUES (?, 1, 1, ?, ?, ?, 'lead', ?, 'x', 'x')`, profile, f.lead[profile], child, pending, state); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *missionRowFixture) role(t *testing.T) string {
+	t.Helper()
+	if _, err := f.st.SweepOrphans(); err != nil {
+		t.Fatal(err)
+	}
+	x, ok, _ := f.st.GetSession("p", f.kid)
+	if !ok {
+		t.Fatal("the child session is gone")
+	}
+	return string(x.Role)
+}
+
+// Both live states, by either column, keep the child a child.
+func TestSweepOrphansKeepsAChildAMissionRowInTheSameProfileNames(t *testing.T) {
+	for _, state := range []string{"spawning", "spawned"} {
+		for _, byPending := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/pending=%v", state, byPending), func(t *testing.T) {
+				f := newMissionRowFixture(t)
+				if byPending {
+					f.addRow(t, "p", state, "", f.kid)
+				} else {
+					f.addRow(t, "p", state, f.kid, "")
+				}
+				if r := f.role(t); r != "child" {
+					t.Fatalf("role = %s, want child", r)
+				}
+			})
+		}
+	}
+}
+
+// A live row of another profile that names the same conversation id says nothing about this profile's child.
+func TestSweepOrphansIgnoresALiveMissionRowOfAnotherProfile(t *testing.T) {
+	for _, state := range []string{"spawning", "spawned"} {
+		t.Run(state, func(t *testing.T) {
+			f := newMissionRowFixture(t)
+			f.addRow(t, "q", state, "", f.kid)
+			if r := f.role(t); r != "solo" {
+				t.Fatalf("role = %s, want solo", r)
+			}
+		})
+	}
+}
+
+// A row that is not live (marked, or in any terminal state) does not keep the child a child.
+func TestSweepOrphansIgnoresAMissionRowThatIsNotLive(t *testing.T) {
+	for _, state := range []string{"marked", "ended", "failed", "gone", "released"} {
+		for _, byPending := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/pending=%v", state, byPending), func(t *testing.T) {
+				f := newMissionRowFixture(t)
+				if byPending {
+					f.addRow(t, "p", state, "", f.kid)
+				} else {
+					f.addRow(t, "p", state, f.kid, "")
+				}
+				if r := f.role(t); r != "solo" {
+					t.Fatalf("role = %s, want solo", r)
+				}
+			})
+		}
+	}
+}
