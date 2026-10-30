@@ -150,7 +150,7 @@ func TestSettleRefusesBadCosts(t *testing.T) {
 	s, db, _ := newTestStore(t)
 	id := rsession(t, s, db, 10)
 	r := rreserve(t, s, id, "a", 4)
-	for _, v := range []float64{math.NaN(), math.Inf(1), -1, 1e13} {
+	for _, v := range []float64{math.NaN(), math.Inf(1), -1, 1e16} {
 		if err := s.Settle(bg, "default", r.ID, "a", v); !errors.Is(err, ErrInvalid) {
 			t.Errorf("cost %v: %v", v, err)
 		}

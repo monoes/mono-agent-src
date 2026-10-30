@@ -143,7 +143,7 @@ func TestReserveRefusesBadInput(t *testing.T) {
 		"+Inf":         {"o", "w", math.Inf(1)},
 		"-Inf":         {"o", "w", math.Inf(-1)},
 		"negative":     {"o", "w", -1},
-		"huge":         {"o", "w", 1e13},
+		"huge":         {"o", "w", 1e16},
 		"empty owner":  {"", "w", 1},
 		"NUL owner":    {"a\x00b", "w", 1},
 		"long owner":   {strings.Repeat("o", 129), "w", 1},

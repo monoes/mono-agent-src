@@ -138,7 +138,7 @@ func TestReservationTriggersSurviveEveryMigration(t *testing.T) {
 	}
 	sort.Strings(got)
 	var want []string
-	for _, s := range []string{"no_replace", "generation", "starts_live", "pinned", "state", "terminal", "grow", "expired_frozen"} {
+	for _, s := range []string{"no_replace", "generation", "starts_live", "pinned", "state", "terminal", "grow", "expired_frozen", "no_delete", "profile_tie", "auto_id_only", "ended_live"} {
 		want = append(want, "trg_"+resTable+"_"+s)
 	}
 	sort.Strings(want)
@@ -147,7 +147,7 @@ func TestReservationTriggersSurviveEveryMigration(t *testing.T) {
 	}
 }
 
-func TestReservationMigrationSplitsIntoEightWholeTriggers(t *testing.T) {
+func TestReservationMigrationSplitsIntoTwelveWholeTriggers(t *testing.T) {
 	raw, err := data.MigrationsFS.ReadFile("migrations/149_task_session_reservations.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -168,8 +168,8 @@ func TestReservationMigrationSplitsIntoEightWholeTriggers(t *testing.T) {
 			tables++
 		}
 	}
-	if triggers != 8 || tables != 1 {
-		t.Errorf("%d triggers and %d tables, want 8 and 1", triggers, tables)
+	if triggers != 12 || tables != 1 {
+		t.Errorf("%d triggers and %d tables, want 12 and 1", triggers, tables)
 	}
 }
 
@@ -229,7 +229,8 @@ func TestReservationTextAndAmountColumnsAreChecked(t *testing.T) {
 		"worker too long":    {"worker_ref": long},
 		"end note NUL":       {"end_note": "a\x00b"},
 		"negative amount":    {"amount_usd": -0.01},
-		"huge amount":        {"amount_usd": 1e13},
+		"huge amount":        {"amount_usd": 1e16},
+		"huge charged":       {"charged_usd": 1e16},
 		"infinite amount":    {"amount_usd": inf()},
 		"negative charged":   {"charged_usd": -1},
 		"bad state":          {"state": "nope"},
@@ -284,11 +285,12 @@ func TestReservationRowsCannotBeReplacedByAnyForm(t *testing.T) {
 	check("INSERT OR IGNORE", err)
 }
 
-// A generation is never reused, not even by an explicit id after the row was removed.
+// A generation is never reused, not even by an explicit id after the row's session was removed.
 func TestReservationGenerationIsNeverReused(t *testing.T) {
 	db := resDB(t).DB
-	a := mustRes(t, db, nil)
-	if _, err := db.Exec(`DELETE FROM `+resTable+` WHERE id = ?`, a); err != nil {
+	mustSession2(t, db)
+	a := mustRes(t, db, map[string]any{"session_id": 2})
+	if _, err := db.Exec(`DELETE FROM task_sessions WHERE id = 2`); err != nil {
 		t.Fatal(err)
 	}
 	_, err := insertRes(db, "INSERT", map[string]any{"id": a})

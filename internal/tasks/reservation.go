@@ -20,6 +20,8 @@ const (
 
 	minReservationUSD = 0.01
 	maxReservationUSD = 1e12
+	// MaxBudgetUSD is the largest budget or cost the store takes: an overflow guard, not a policy.
+	MaxBudgetUSD      = 1e15
 	maxOwnerIDBytes   = 128
 	maxWorkerRefBytes = 256
 	maxEndNoteBytes   = 1024
