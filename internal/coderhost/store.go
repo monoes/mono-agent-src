@@ -513,21 +513,24 @@ func (s *Store) SetRole(profileID, conversationID, role, parent string) error {
 		if err != nil {
 			return err
 		}
-		if !ok || p.Role != "master" || p.State == StateStopped {
+		if !ok || (p.Role != "master" && p.Role != "child") || p.State == StateStopped {
 			return errors.New("the master must be a running master session of this profile")
 		}
 		ps, err := s.GetSettings(profileID, parent)
 		if err != nil {
 			return err
 		}
-		if ps.MaxDepth < 2 {
+		if p.Role == "child" && ps.MaxChildren == 0 {
+			return errors.New("the master must be a running master session of this profile")
+		}
+		if lvl, ok := s.level(profileID, parent); !ok || lvl+1 > min(ps.MaxDepth, MaxSessionDepth) {
 			return errors.New("the master's max_depth does not allow children")
 		}
 		res, err := s.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = ?, updated_at = ?
 			WHERE profile_id = ? AND conversation_id = ?
 			AND NOT EXISTS (SELECT 1 FROM coder_sessions k WHERE k.profile_id = ? AND k.parent_conversation_id = ?)
 			AND (SELECT COUNT(*) FROM coder_sessions sib WHERE sib.profile_id = ? AND sib.parent_conversation_id = ? AND sib.conversation_id != ? AND sib.state != 'stopped') < ?
-			AND EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = ? AND m.conversation_id = ? AND m.role = 'master' AND m.parent_conversation_id = '' AND m.state != 'stopped')`,
+			AND EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = ? AND m.conversation_id = ? AND m.role IN ('master', 'child') AND m.state != 'stopped')`,
 			parent, s.stamp(), profileID, conversationID,
 			profileID, conversationID,
 			profileID, parent, conversationID, ps.MaxChildren,
@@ -664,15 +667,15 @@ func (s *Store) hostTurnSet(profileID, conversationID string) map[string]bool {
 // so a person's pause queued after the pass looked is not followed by a resume queued behind its back. The INSERT also
 // holds the dedup (one pending cascade resume) and the control cap Enqueue applies, so concurrent passes or hosts
 // cannot race the pass's own pre-check.
-func (s *Store) enqueueCascadeResume(profileID, conv string) (bool, error) {
+func (s *Store) enqueueCascadeResume(profileID, conv, turnID string) (bool, error) {
 	now := s.stamp()
 	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
 		SELECT ?, ?, 'resume', ?, '', '[]', 'pending', 0, ?, ?, ''
 		WHERE NOT `+personPauseLive+`
 		AND NOT EXISTS (SELECT 1 FROM coder_session_commands d WHERE d.profile_id = ? AND d.conversation_id = ? AND d.kind = 'resume' AND d.status = 'pending' AND d.issuer = '' AND d.turn_id = ?)
 		AND (SELECT COUNT(*) FROM coder_session_commands k WHERE k.profile_id = ? AND k.conversation_id = ? AND k.status = 'pending' AND k.kind != 'send') < ?`,
-		profileID, conv, cascadeTurn, now, now, profileID, conv, cascadeTurn, int64(math.MaxInt64), cascadeTurn, int64(math.MaxInt64),
-		profileID, conv, cascadeTurn, profileID, conv, MaxPendingPerChat)
+		profileID, conv, turnID, now, now, profileID, conv, turnID, int64(math.MaxInt64), turnID, int64(math.MaxInt64),
+		profileID, conv, turnID, profileID, conv, MaxPendingPerChat)
 	if err != nil {
 		return false, err
 	}

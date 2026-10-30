@@ -69,8 +69,8 @@ func TestSpawnInheritsTheParentsRuntimeFolderAndLinksTheChild(t *testing.T) {
 	if cmd.Kind != KindSend || !strings.HasPrefix(cmd.TurnID, MasterTurnPrefix) || cmd.WantsMission {
 		t.Fatalf("first message = %+v", cmd)
 	}
-	if s, _ := st.GetSettings("p", out.ConversationID); s.MaxChildren != 0 {
-		t.Fatalf("a child does not make children: %+v", s)
+	if s, _ := st.GetSettings("p", out.ConversationID); s.MaxChildren != 4 || s.MaxDepth != 3 {
+		t.Fatalf("a child at level 2 of a depth-3 tree may have children, within its parent's depth: %+v", s)
 	}
 }
 
@@ -180,11 +180,14 @@ func TestSpawnLimits(t *testing.T) {
 		if _, err := st.Spawn(m, SpawnRequest{}); !errors.Is(err, ErrLimit) {
 			t.Fatalf("max_depth 1: %v", err)
 		}
-		// a child is not a master, and even a master placed under another would pass the depth limit of 2
+		// with a working depth of 2 a child is at the limit: it has no room for children
 		m2, _ := master(t, st, "coding")
+		s2, _ := st.GetSettings("p", m2.ConversationID)
+		s2.MaxDepth = 2
+		st.SaveSettings("p", m2.ConversationID, s2)
 		kid := spawn(t, st, m2)
 		if _, err := st.Spawn(asChild(kid), SpawnRequest{}); err == nil {
-			t.Fatal("a child spawned a child")
+			t.Fatal("a child at the working depth spawned a child")
 		}
 		st.db.Exec(`UPDATE coder_sessions SET role = 'master' WHERE conversation_id = ?`, kid) // a damaged tree: still level 2
 		if _, err := st.Spawn(asChild(kid), SpawnRequest{}); !errors.Is(err, ErrLimit) {
