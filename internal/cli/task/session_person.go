@@ -68,11 +68,8 @@ func (d Deps) newPersonInboxCmd() *cobra.Command {
 		Short: "List the items that wait for you, oldest first, with why a plan is giant work",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("list the person items")
+			actor, err := d.personGate(cmd, "list the person items")
 			if err != nil {
-				return err
-			}
-			if err := d.refuseTokenHolder("list the person items"); err != nil {
 				return err
 			}
 			return d.withTasks(cmd, func(ctx context.Context, store *tasks.Store, p tasks.Profile) error {
@@ -144,11 +141,8 @@ func (d Deps) personAnswer(use, short string, wordsFlag, wordsHelp string, run f
 		Use:   use,
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator(personWhat)
+			actor, err := d.personGate(cmd, personWhat)
 			if err != nil {
-				return err
-			}
-			if err := d.refuseTokenHolder(personWhat); err != nil {
 				return err
 			}
 			if len(args) != 1 {
