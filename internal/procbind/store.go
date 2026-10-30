@@ -3,6 +3,7 @@ package procbind
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -31,7 +32,29 @@ var (
 	ErrRowNotFound = errors.New("procbind: no such row")
 	ErrRowTampered = errors.New("procbind: the row does not carry a genuine signature")
 	ErrBadSelector = errors.New("procbind: the revocation selector is not allowed")
+	ErrIDInUse     = errors.New("procbind: the token id is already used by the other family of tokens")
 )
+
+// NewTokenID is a new token id: 128 random bits as lowercase hex. A token id is unique across both families
+// (mission and session) and all profiles; that holds because ids are random, and the inserts below refuse an id
+// the other family already holds.
+func NewTokenID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("procbind: token id: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// idTaken says whether a token with this id exists in the table. Call it inside the write transaction of the insert.
+func idTaken(ctx context.Context, x DBTX, table, id string) (bool, error) {
+	var one int
+	err := x.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE id = ?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
 
 const (
 	rowVersion = 2
@@ -97,6 +120,11 @@ func InsertMissionToken(ctx context.Context, x DBTX, key []byte, r MissionTokenR
 	if err != nil {
 		return err
 	}
+	if taken, err := idTaken(ctx, x, "coder_session_tokens_v2", r.ID); err != nil {
+		return err
+	} else if taken {
+		return ErrIDInUse
+	}
 	_, err = x.ExecContext(ctx, `INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, mission_owner, mission_session, mission_task, mission_role, mission_actor, created_at, expires_at, version, mac)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, r.ProfileID, r.TokenHash, r.Owner, r.Session, r.Task, r.Role, r.Actor, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
 	return err
@@ -150,6 +178,11 @@ func InsertSessionToken(ctx context.Context, x DBTX, key []byte, r SessionTokenR
 	mac, err := rowMAC(key, "session-token", r.fields()...)
 	if err != nil {
 		return err
+	}
+	if taken, err := idTaken(ctx, x, "agent_tokens_v2", r.ID); err != nil {
+		return err
+	} else if taken {
+		return ErrIDInUse
 	}
 	_, err = x.ExecContext(ctx, `INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, r.ProfileID, r.TokenHash, r.ConversationID, r.TurnID, ts(r.CreatedAt), ts(r.ExpiresAt), rowVersion, mac)
@@ -380,8 +413,8 @@ func checkSelector(s Selector) error {
 	if s.Kind != "" && s.Kind != KindMission && s.Kind != KindSession {
 		return fmt.Errorf("%w: unknown kind %q", ErrBadSelector, s.Kind)
 	}
-	if !s.Generation.IsZero() {
-		return fmt.Errorf("%w: a generation names a registry entry, not a stored row", ErrBadSelector)
+	if !s.Generation.IsZero() || !s.Expires.IsZero() {
+		return fmt.Errorf("%w: a generation or an expiry restricts a registry entry, not a stored row", ErrBadSelector)
 	}
 	if (s.Session != "" || s.Turn != "") && s.Kind == KindMission {
 		return fmt.Errorf("%w: a session or a turn selects session tokens, not mission tokens", ErrBadSelector)
@@ -404,6 +437,7 @@ type target struct {
 	kind    Kind
 	id      string
 	profile string
+	expires time.Time
 }
 
 func collect(ctx context.Context, q DBTX, kind Kind, query string, args ...any) ([]target, error) {
@@ -415,8 +449,13 @@ func collect(ctx context.Context, q DBTX, kind Kind, query string, args ...any) 
 	var out []target
 	for rows.Next() {
 		t := target{kind: kind}
-		if err := rows.Scan(&t.id, &t.profile); err != nil {
+		var exp string
+		if err := rows.Scan(&t.id, &t.profile, &exp); err != nil {
 			return nil, err
+		}
+		var err error
+		if t.expires, err = parseTS(exp); err != nil {
+			return nil, ErrRowTampered
 		}
 		out = append(out, t)
 	}
@@ -428,7 +467,7 @@ func collect(ctx context.Context, q DBTX, kind Kind, query string, args ...any) 
 // it with the legacy change it belongs to, so both happen or neither does: a failure here is returned and the
 // caller rolls its own change back (decision K1).
 //
-// keyFor gives the row key of a profile; it is called only for a profile that has something to revoke, and once
+// keyFor gives the row key of a profile (the bytes are copied, so it may return a reused buffer); it is called only for a profile that has something to revoke, and once
 // for each, before any row is written. It must not write to this database or wait on this transaction's connection.
 // The caller uses a write transaction that takes the write lock at its start (BEGIN IMMEDIATE): the revocation is
 // then serialised with every other writer, a second revoke of the same token finds the first one's row and skips
@@ -444,7 +483,7 @@ func RevokeTx(ctx context.Context, x DBTX, keyFor func(profile string) ([]byte, 
 	}
 	var targets []target
 	if sel.Session == "" && sel.Turn == "" && (sel.Kind == "" || sel.Kind == KindMission) {
-		found, err := collect(ctx, x, KindMission, `SELECT id, profile_id FROM agent_tokens_v2 t
+		found, err := collect(ctx, x, KindMission, `SELECT id, profile_id, expires_at FROM agent_tokens_v2 t
 			WHERE (?1 = '' OR profile_id = ?1) AND (?2 = '' OR id = ?2)
 			  AND (?3 = '' OR mission_owner = ?3 OR substr(mission_owner, 1, length(?3) + 1) = ?3 || '/')
 			  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'mission' AND r.token_id = t.id)
@@ -456,7 +495,7 @@ func RevokeTx(ctx context.Context, x DBTX, keyFor func(profile string) ([]byte, 
 		targets = append(targets, found...)
 	}
 	if sel.Owner == "" && (sel.Kind == "" || sel.Kind == KindSession) {
-		found, err := collect(ctx, x, KindSession, `SELECT id, profile_id FROM coder_session_tokens_v2 t
+		found, err := collect(ctx, x, KindSession, `SELECT id, profile_id, expires_at FROM coder_session_tokens_v2 t
 			WHERE (?1 = '' OR profile_id = ?1) AND (?2 = '' OR id = ?2) AND (?3 = '' OR conversation_id = ?3) AND (?4 = '' OR turn_id = ?4)
 			  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'session' AND r.token_id = t.id)
 			ORDER BY id`,
@@ -480,14 +519,14 @@ func RevokeTx(ctx context.Context, x DBTX, keyFor func(profile string) ([]byte, 
 		if len(key) < MinKeyLen {
 			return nil, fmt.Errorf("procbind: the row key of profile %q is too short", t.profile)
 		}
-		keys[t.profile] = key
+		keys[t.profile] = append([]byte(nil), key...) // a callback may reuse one buffer for every profile
 	}
 	var refs []TokenRef
 	for _, t := range targets {
 		if err := InsertRevocation(ctx, x, keys[t.profile], RevocationRow{Kind: t.kind, TokenID: t.id, ProfileID: t.profile, Reason: reason, CreatedAt: now}); err != nil {
 			return nil, err
 		}
-		refs = append(refs, TokenRef{Kind: t.kind, TokenID: t.id, Profile: t.profile})
+		refs = append(refs, TokenRef{Kind: t.kind, TokenID: t.id, Profile: t.profile, Expires: t.expires})
 	}
 	return refs, nil
 }
@@ -502,7 +541,7 @@ func Drop(b *Binder, refs []TokenRef) int {
 	}
 	n := 0
 	for _, r := range refs {
-		n += len(b.Revoke(Selector{Profile: r.Profile, Kind: r.Kind, TokenID: r.TokenID}))
+		n += len(b.Revoke(Selector{Profile: r.Profile, Kind: r.Kind, TokenID: r.TokenID, Generation: r.Generation, Expires: r.Expires}))
 	}
 	return n
 }

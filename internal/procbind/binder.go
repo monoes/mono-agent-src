@@ -57,11 +57,15 @@ type EntrySpec struct {
 	Expires time.Time
 }
 
-// TokenRef names one token.
+// TokenRef names one token. Generation (a registry registration) and Expires (the token's end, which a stored
+// row knows) say WHICH token of that id it is, so an operation delivered late cannot act on a newer token that
+// reuses the id; either, when set, must match the entry.
 type TokenRef struct {
-	Kind    Kind
-	TokenID string
-	Profile string
+	Kind       Kind
+	TokenID    string
+	Profile    string
+	Generation Generation
+	Expires    time.Time
 }
 
 // Selector picks entries to revoke. Profile is required, and at least one of TokenID, Owner, Session or All;
@@ -78,6 +82,9 @@ type Selector struct {
 	// Generation, when not zero, restricts the selector to one registration of the token id; it is not a
 	// criterion by itself.
 	Generation Generation
+	// Expires, when not zero, restricts the selector to entries whose token ends at that instant (compared to the
+	// millisecond, the precision a stored row keeps). Like Generation, it is not a criterion by itself.
+	Expires time.Time
 }
 
 func (s Selector) matches(e *entry) bool {
@@ -91,6 +98,9 @@ func (s Selector) matches(e *entry) bool {
 		return false
 	}
 	if !s.Generation.IsZero() && e.gen != s.Generation {
+		return false
+	}
+	if !s.Expires.IsZero() && !s.Expires.Truncate(time.Millisecond).Equal(e.spec.Expires.Truncate(time.Millisecond)) {
 		return false
 	}
 	if s.TokenID != "" && e.spec.TokenID != s.TokenID {
@@ -306,7 +316,7 @@ func (b *Binder) Revoke(sel Selector) []TokenRef {
 	for _, e := range b.entries {
 		if e.state != stateRevoked && sel.matches(e) {
 			e.revoke()
-			out = append(out, TokenRef{Kind: e.spec.Kind, TokenID: e.spec.TokenID, Profile: e.spec.Profile})
+			out = append(out, TokenRef{Kind: e.spec.Kind, TokenID: e.spec.TokenID, Profile: e.spec.Profile, Generation: e.gen, Expires: e.spec.Expires})
 			if h := e.release(); h != nil {
 				toClose = append(toClose, h)
 			}

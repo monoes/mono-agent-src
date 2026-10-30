@@ -39,6 +39,7 @@ func TestSelectorsThatWouldSelectNothingSilentlyAreRefused(t *testing.T) {
 		"a turn with the mission kind":    {Profile: "p1", TokenID: "m1", Turn: "t", Kind: KindMission},
 		"a turn without its session":      {Profile: "p1", All: true, Turn: "t"},
 		"a registry generation":           {Profile: "p1", All: true, Generation: Generation{1, 1}},
+		"a registry expiry":               {Profile: "p1", All: true, Expires: t0},
 	} {
 		if refs, err := RevokeTx(ctx, db, keyFor(nil), sel, "x", t0); !errors.Is(err, ErrBadSelector) || refs != nil {
 			t.Errorf("%s: %v %v", name, refs, err)

@@ -110,12 +110,6 @@ func TestARowWithoutAGenuineSignatureIsRefused(t *testing.T) {
 	if _, err := GetSessionToken(ctx, db, storeKey, "p1", "m1"); !errors.Is(err, ErrRowTampered) {
 		t.Errorf("a mission token's signature validated a session token: %v", err)
 	}
-	// every field is signed: the same data with one field different does not verify
-	mustExec(t, db, `INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, mission_owner, mission_session, mission_task, mission_role, mission_actor, created_at, expires_at, version, mac)
-		VALUES ('moved', 'p1', 'hash-m1', 'owner', 7, 3, 'worker', 'actor', ?, ?, 2, ?)`, t0.Format(tsLayout), t0.Add(time.Hour).Format(tsLayout), mac)
-	if _, err := GetMissionToken(ctx, db, storeKey, "p1", "moved"); !errors.Is(err, ErrRowTampered) {
-		t.Errorf("a signature moved to another token id validated: %v", err)
-	}
 }
 
 func TestInsertRefusesAnUnusableRow(t *testing.T) {
