@@ -37,7 +37,21 @@ const (
 // refusal. Any other failure is an *aitaskError as with historyCLI, so callers that tell an active turn
 // by its message keep working.
 func (a *App) historyDelete(id string) deleteAnswer {
-	full, err := a.scopedArgs("chat", "history", "delete", id)
+	return a.historyDeleteWith(id)
+}
+
+// abandonWords are the operator's confirmation the CLI asks for before it deletes a chat without stopping the
+// processes its turns left running.
+const abandonWords = "leave them running"
+
+// historyDeleteAbandoning is historyDelete for a person who has been shown what is left running and chose to
+// delete anyway: nothing is stopped, the CLI lists what stays running.
+func (a *App) historyDeleteAbandoning(id string) deleteAnswer {
+	return a.historyDeleteWith(id, "--abandon-processes", "--confirm", abandonWords)
+}
+
+func (a *App) historyDeleteWith(id string, extra ...string) deleteAnswer {
+	full, err := a.scopedArgs(append([]string{"chat", "history", "delete", id}, extra...)...)
 	if err != nil {
 		return deleteAnswer{Err: err}
 	}

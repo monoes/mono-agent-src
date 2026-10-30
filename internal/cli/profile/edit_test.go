@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 
@@ -202,7 +203,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 			continue
 		}
 		for _, col := range []string{"profile_id", "workflow_id", "execution_id", "parent_execution_id", "child_execution_id", "profile_key"} {
-			if hasColumn(ctx, db.DB, tbl, col) && notProfileOwned[tbl] == "" {
+			if hasColumn(ctx, db.DB, tbl, col) && notProfileOwned[tbl] == "" && retainedOnDelete[tbl] == "" {
 				t.Errorf("table %s has a %s column but no delete rule covers it: add it to derivedScope (or to notProfileOwned with a reason)", tbl, col)
 			}
 		}
@@ -323,6 +324,91 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	}
 	if _, err := keyring.Get("monoagent-vault", "kek-"+id); err != keyring.ErrNotFound {
 		t.Errorf("the profile's vault key was left in the keychain: %v", err)
+	}
+}
+
+// The peer-credential binding tables are insert-only, so a profile delete cannot remove their rows (and
+// must not fail because of them): it succeeds and leaves them for the retention sweep.
+func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp := time.Now().UTC().Add(time.Hour).Format("2006-01-02T15:04:05.000Z")
+	for _, q := range []string{
+		`INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('m1', ?, 'h1', '2026-10-30T00:00:00.000Z', ?, 2, 'm')`,
+		`INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s1', ?, 'h2', 'c', 't', '2026-10-30T00:00:00.000Z', ?, 2, 'm')`,
+		`INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('m1', ?, 's', 'peercred', 1, 's', 'g', 2, '2026-10-30T00:00:00.000Z', ?, 'm')`,
+		`INSERT INTO token_revocations_v2 (token_kind, token_id, profile_id, reason, created_at, mac) VALUES ('mission', 'm1', ?, 'r', ?, 'm')`,
+		`INSERT INTO procbind_host (profile_id, seq, generation, started_at, mac) VALUES (?, 1, 'g', ?, 'm')`,
+	} {
+		if _, err := db.DB.Exec(q, id, exp); err != nil {
+			t.Fatalf("seeding: %v", err)
+		}
+	}
+	db.Close()
+	keptOf := func(out string) map[string]int {
+		var res profileImpact
+		if err := json.Unmarshal([]byte(out), &res); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+		got := map[string]int{}
+		for _, k := range res.KeptUntilRetention {
+			got[k.Table] = k.Rows
+		}
+		return got
+	}
+	noteOf := func(out string) string {
+		var res profileImpact
+		_ = json.Unmarshal([]byte(out), &res)
+		return res.KeptNote
+	}
+	checkNote := func(what, note string) {
+		for _, want := range []string{"newest host-start row", "permanently", "retention sweep", "does not exist yet"} {
+			if !strings.Contains(note, want) {
+				t.Errorf("%s: the note %q lacks %q", what, note, want)
+			}
+		}
+		if strings.Contains(note, "all of them") {
+			t.Errorf("%s: the note claims every row is removed: %q", what, note)
+		}
+	}
+	checkKept := func(what string, got map[string]int) {
+		for tbl := range retainedOnDelete {
+			if got[tbl] != 1 {
+				t.Errorf("%s does not say that %s keeps 1 row (kept: %v)", what, tbl, got)
+			}
+		}
+	}
+	// the summary and the delete's own output both say which rows stay, and why they do
+	sum, err := runCaptured(t, dbPath, "delete", id, "--summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkKept("delete --summary", keptOf(sum))
+	checkNote("delete --summary", noteOf(sum))
+	out, err := runCaptured(t, dbPath, "delete", id, "--yes-delete-profile", "doomed")
+	if err != nil {
+		t.Fatalf("the delete failed because of insert-only rows: %v", err)
+	}
+	checkKept("the delete output", keptOf(out))
+	checkNote("the delete output", noteOf(out))
+	db, err = storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for tbl := range retainedOnDelete {
+		var n int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM "`+tbl+`" WHERE profile_id = ?`, id).Scan(&n); err != nil || n != 1 {
+			t.Errorf("%s: %d row(s) after the profile delete, want the 1 retained (%v)", tbl, n, err)
+		}
+	}
+	var gone int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM profiles WHERE id = ?`, id).Scan(&gone); err != nil || gone != 0 {
+		t.Errorf("the profile itself is still there: %d %v", gone, err)
 	}
 }
 

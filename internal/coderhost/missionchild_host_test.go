@@ -213,6 +213,11 @@ func TestTaskChildStartCarriesNoMissionToken(t *testing.T) {
 func TestChildCannotSpawn(t *testing.T) {
 	st := newStoreT(t)
 	m, _ := master(t, st, "workspace")
+	ms, _ := st.GetSettings("p", m.ConversationID)
+	ms.MaxDepth = 2 // the working depth: a child of this master is at it and has no room for children
+	if err := st.SaveSettings("p", m.ConversationID, ms); err != nil {
+		t.Fatal(err)
+	}
 	child := spawn(t, st, m) // a child session of a master
 	se, _ := missionFor(t, st, child, true)
 	ids := taskIDs(t, st, se.ID)

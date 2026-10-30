@@ -47,10 +47,16 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 	conversationAliases := map[string]bool{
 		"coder_session_spawns.parent": true,
 		"coder_session_spawns.child":  true,
+		"coder_spawn_advice.spawner":  true,
+		"coder_spawn_intents.spawner": true,
+		"coder_spawn_intents.child":   true,
 	}
 	decided := map[string]string{
 		"coder_session_spawns.parent":                    "deleted with the parent's spawn log",
 		"coder_session_spawns.child":                     "kept on purpose: removing it would hand the master its spawn-rate slot back",
+		"coder_spawn_advice.spawner":                     "deleted: the one remembered refusal belonged to that lead",
+		"coder_spawn_intents.spawner":                    "open: an unfinished spawn's row stays so the host's sweep still ends the child it made, then drops the row",
+		"coder_spawn_intents.child":                      "open: the same row; the sweep stops the draft task session of a child that is already gone",
 		"agent_tokens.bound_conversation":                "revoked with the delete; none can be issued for a conversation that is gone",
 		"ai_budget_reservations.conversation_id":         "open: held until the spend is synced",
 		"ai_chat_answers.conversation_id":                "deleted",
@@ -70,12 +76,13 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		"coder_session_person_items.conversation_id":     "deleted",
 		"coder_session_questions.conversation_id":        "deleted",
 		"coder_session_tokens.conversation_id":           "deleted",
+		"coder_session_tokens_v2.conversation_id":        "kept on purpose: insert-only rows leave only after expiry plus 7 days; inert once the conversation is gone (authorization is the host's live registry, revoked in the delete's transaction when the binding is wired in)",
 		"coder_session_turn_caps.conversation_id":        "deleted",
 		"coder_sessions.conversation_id":                 "deleted",
 		"coder_sessions.parent_conversation_id":          "children detached to solo",
 		"task_sessions.conversation_id":                  "open: a mission session of the deleted lead keeps running",
 	}
-	rows, err := db.Query(`SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND (p.name LIKE '%conversation%' OR m.name || '.' || p.name IN ('coder_session_spawns.parent', 'coder_session_spawns.child'))`)
+	rows, err := db.Query(`SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND (p.name LIKE '%conversation%' OR m.name || '.' || p.name IN ('coder_session_spawns.parent', 'coder_session_spawns.child', 'coder_spawn_advice.spawner', 'coder_spawn_intents.spawner', 'coder_spawn_intents.child'))`)
 	if err != nil {
 		t.Fatal(err)
 	}
