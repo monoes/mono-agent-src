@@ -1,6 +1,8 @@
 package procbind
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"strings"
 	"sync"
@@ -30,10 +32,15 @@ var (
 	ErrExpired    = errors.New("procbind: the token has already expired")
 )
 
-// Generation numbers a registration. A token id may be registered again after the old token expired, so a delayed
-// notification about the old worker (its exit, a late activate or revoke) must not touch the new entry: the
-// operations that act on one entry carry the generation Register returned and ignore any other.
-type Generation uint64
+// Generation names one registration. A token id may be registered again after the old token expired, so a
+// delayed notification about the old worker (its exit, a late activate or revoke) must not touch the new entry:
+// the operations that act on one entry carry the generation Register returned and ignore any other. It is a
+// random epoch of the Binder that made it plus that Binder's counter, so a generation from one Binder never
+// matches an entry of another (a delayed operation can outlive a host restart). The zero value names nothing.
+type Generation struct{ Epoch, N uint64 }
+
+// IsZero says whether g names no registration.
+func (g Generation) IsZero() bool { return g == Generation{} }
 
 // EntrySpec is what is registered for one token.
 type EntrySpec struct {
@@ -83,7 +90,7 @@ func (s Selector) matches(e *entry) bool {
 	if s.Kind != "" && e.spec.Kind != s.Kind {
 		return false
 	}
-	if s.Generation != 0 && e.gen != s.Generation {
+	if !s.Generation.IsZero() && e.gen != s.Generation {
 		return false
 	}
 	if s.TokenID != "" && e.spec.TokenID != s.TokenID {
@@ -139,7 +146,8 @@ type Binder struct {
 	entries   map[entryKey]*entry
 	closed    bool
 	lastPrune time.Time
-	nextGen   Generation
+	epoch     uint64
+	nextN     uint64
 }
 
 // entryKey: a token id is unique within a profile, not across profiles.
@@ -159,7 +167,15 @@ func NewBinderWithTimer(now func() time.Time, after func(d time.Duration, f func
 	if after == nil {
 		after = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 	}
-	return &Binder{now: now, after: after, entries: map[entryKey]*entry{}}
+	var raw [8]byte
+	epoch := uint64(time.Now().UnixNano()) // only if the system's randomness fails
+	if _, err := rand.Read(raw[:]); err == nil {
+		epoch = binary.BigEndian.Uint64(raw[:])
+	}
+	if epoch == 0 {
+		epoch = 1
+	}
+	return &Binder{now: now, after: after, entries: map[entryKey]*entry{}, epoch: epoch}
 }
 
 // expire is the entry's timer: it ends an entry whose token has expired, closes its handle unless a lease still
@@ -167,11 +183,17 @@ func NewBinderWithTimer(now func() time.Time, after func(d time.Duration, f func
 func (b *Binder) expire(k entryKey, e *entry) {
 	var h Handle
 	b.mu.Lock()
-	if b.entries[k] == e && !b.now().Before(e.spec.Expires) {
-		e.revoke()
-		h = e.release()
-		if e.closed {
-			delete(b.entries, k)
+	if b.entries[k] == e && e.state != stateRevoked {
+		if left := e.spec.Expires.Sub(b.now()); left > 0 {
+			// the timer fired early (the wall clock stepped back): arm it again for what is left, so the
+			// entry does not wait for some other call to notice that it has expired
+			e.stop = b.after(left, func() { b.expire(k, e) })
+		} else {
+			e.revoke()
+			h = e.release()
+			if e.closed {
+				delete(b.entries, k)
+			}
 		}
 	}
 	b.mu.Unlock()
@@ -223,29 +245,29 @@ func (b *Binder) pruneLocked(toClose *[]Handle) {
 // It returns the registration's generation, which Activate, Reap and a generation-restricted selector must carry.
 func (b *Binder) Register(s EntrySpec, h Handle) (Generation, error) {
 	if h == nil || s.TokenID == "" || s.Profile == "" || s.Scope == "" || (s.Kind != KindMission && s.Kind != KindSession) || s.Expires.IsZero() {
-		return 0, errors.New("procbind: an entry needs a token id, a kind, a profile, a scope, an expiry and a handle")
+		return Generation{}, errors.New("procbind: an entry needs a token id, a kind, a profile, a scope, an expiry and a handle")
 	}
 	var toClose []Handle
 	defer func() { closeAll(toClose) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
-		return 0, ErrClosed
+		return Generation{}, ErrClosed
 	}
 	b.pruneLocked(&toClose)
 	d := s.Expires.Sub(b.now())
 	if d <= 0 {
-		return 0, ErrExpired
+		return Generation{}, ErrExpired
 	}
 	k := entryKey{s.Profile, s.TokenID}
 	if e, ok := b.entries[k]; ok {
 		if e.state == stateRevoked {
-			return 0, ErrRevoked
+			return Generation{}, ErrRevoked
 		}
-		return 0, ErrDuplicate
+		return Generation{}, ErrDuplicate
 	}
-	b.nextGen++
-	e := &entry{spec: s, gen: b.nextGen, h: h, state: statePending}
+	b.nextN++
+	e := &entry{spec: s, gen: Generation{b.epoch, b.nextN}, h: h, state: statePending}
 	e.stop = b.after(d, func() { b.expire(k, e) })
 	b.entries[k] = e
 	return e.gen, nil
@@ -260,7 +282,7 @@ func (b *Binder) Activate(profile, tokenID string, gen Generation) error {
 		return ErrClosed
 	}
 	e, ok := b.entries[entryKey{profile, tokenID}]
-	if !ok || gen == 0 {
+	if !ok || gen.IsZero() {
 		return ErrUnknown
 	}
 	if e.gen != gen {

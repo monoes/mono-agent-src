@@ -40,7 +40,7 @@ func genOf(b *Binder, profile, id string) Generation {
 	if e := b.entries[entryKey{profile, id}]; e != nil {
 		return e.gen
 	}
-	return 0
+	return Generation{}
 }
 
 func newTestBinder() (*Binder, *bclock) {
@@ -597,8 +597,11 @@ func (ts *timers) fireAll() {
 	ts.mu.Lock()
 	fns := append([]func(){}, ts.fns...)
 	ts.mu.Unlock()
-	for _, f := range fns {
+	for i, f := range fns {
 		if f != nil {
+			ts.mu.Lock()
+			ts.fns[i] = nil // a timer fires once; a re-armed one is a new entry in the list
+			ts.mu.Unlock()
 			f()
 		}
 	}
@@ -697,8 +700,8 @@ func TestADelayedOperationOnAnOldRegistrationDoesNotTouchTheNewOne(t *testing.T)
 		t.Errorf("a revoke of the current registration: %v", got)
 	}
 	// generation 0 is not a wildcard for the single-entry operations
-	b.Reap("p1", "t1", 0)
-	if err := b.Activate("p1", "t1", 0); err == nil {
+	b.Reap("p1", "t1", Generation{})
+	if err := b.Activate("p1", "t1", Generation{}); err == nil {
 		t.Error("activating with generation 0 succeeded")
 	}
 }
@@ -734,5 +737,61 @@ func TestAStaleExpiryTimerDoesNotTouchTheNewRegistration(t *testing.T) {
 		t.Error("a stale timer removed the new entry")
 	} else {
 		l.Release()
+	}
+}
+
+// If the clock stepped backward the timer fires before the expiry: it must be armed again for what is left, and
+// the entry must still be ended when the clock does reach the expiry, with nothing else calling the binder.
+func TestAnEarlyTimerIsRearmedForTheRemainingTime(t *testing.T) {
+	clk := &bclock{t: time.Unix(2_000_000, 0)}
+	ts := &timers{}
+	b := NewBinderWithTimer(clk.now, ts.after)
+	h := activate(t, b, spec("t1")) // expires an hour after the start
+	clk.add(-30 * time.Minute)      // the wall clock steps back
+	ts.fireAll()                    // the timer fires early
+	if h.timesClosed() != 0 {
+		t.Fatal("an early timer ended a live entry")
+	}
+	if l, ok := b.Acquire("t1", "p1", "session:7"); !ok {
+		t.Fatal("the entry stopped answering after an early timer")
+	} else {
+		l.Release()
+	}
+	clk.add(30*time.Minute + 2*time.Hour) // now well past the expiry
+	ts.fireAll()                          // the re-armed timer
+	if h.timesClosed() != 1 {
+		t.Fatalf("the re-armed timer never closed the handle of the expired token (closed %d times)", h.timesClosed())
+	}
+}
+
+// Generations are unique across Binders: an operation of an old Binder delivered to a replacement Binder that
+// has the same profile and token id is stale, not a match.
+func TestAGenerationOfAnotherBinderIsStale(t *testing.T) {
+	oldB, _ := newTestBinder()
+	newB, _ := newTestBinder()
+	oldGen, err := oldB.Register(spec("t1"), &cHandle{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &cHandle{}
+	newGen, err := newB.Register(spec("t1"), h) // the same counter value, the same profile and id
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldGen == newGen || oldGen.IsZero() || newGen.IsZero() {
+		t.Fatalf("generations of two binders collide or are zero: %+v %+v", oldGen, newGen)
+	}
+	if err := newB.Activate("p1", "t1", oldGen); !errors.Is(err, ErrStale) {
+		t.Errorf("an old binder's activate was accepted by the new one: %v", err)
+	}
+	newB.Reap("p1", "t1", oldGen)
+	if got := newB.Revoke(Selector{Profile: "p1", TokenID: "t1", Generation: oldGen}); len(got) != 0 {
+		t.Errorf("an old binder's revoke reached the new one: %v", got)
+	}
+	if h.timesClosed() != 0 {
+		t.Fatal("an operation of an old binder closed the new binder's handle")
+	}
+	if err := newB.Activate("p1", "t1", newGen); err != nil {
+		t.Errorf("the new binder's own generation was refused: %v", err)
 	}
 }
