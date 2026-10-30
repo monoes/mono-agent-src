@@ -3,10 +3,13 @@ package procbind
 import (
 	"testing"
 
+	"github.com/zalando/go-keyring"
+
 	"github.com/monoes/mono-agent/internal/testhome"
 )
 
-// Tests never touch the real ~/.monoagent (the package reaches neither the vault nor the keychain).
+// Tests never touch the real ~/.monoagent or the OS keychain (the keyring is a mock).
 func TestMain(m *testing.M) {
+	keyring.MockInit()
 	testhome.Main(m)
 }
