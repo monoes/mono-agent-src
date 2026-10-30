@@ -1,4 +1,4 @@
-# Peer-credential binding: phase 3 and 4 wiring (design note, revision 3)
+# Peer-credential binding: phase 3 and 4 wiring (design note, revision 4)
 
 Issue #1100. Builds on the approved design (`2026-10-28-peer-credential-binding.md`, merged as #1115) and on
 what is on master: the encoding and keyed answer (#1138), the pidfd walk (#1139), the service and client
@@ -7,9 +7,10 @@ migration 148). Nothing of it is called yet. This note says how it is wired in, 
 piece may and may not do. **Critical class: authority/tokens/credentials, spawn, delete.** Every piece below is
 reviewed. Revision 2 changed the order of the pieces and added the creation/revoke serialisation, the restart and
 downgrade rules, the typed pipe frame, the in-flight rule of the service, the placement of the revocation, and
-the verifier text. Revision 3 makes recovery identify and **prove the stop of** an old turn (identity from the
-binding row, the whole process group, escalation, then settle), adds a **runtime** readiness check, and carries
-the reviewers' precisions (graceful stop, mission accounting, the frame reader, the byte-identical legacy path).
+the verifier text. Revision 3 made recovery identify an old turn from the binding row, added a **runtime** readiness check and
+carried the reviewers' precisions (graceful stop, mission accounting, the frame reader, the byte-identical legacy
+path). Revision 4 **simplifies**: recovery stops only what it can pin (the turn's leader, by its own pidfd) and
+never signals a process group; and turning the setting **off** is always allowed.
 
 ## 1. What the launcher does today (checked on master)
 
@@ -74,8 +75,11 @@ also checks readiness **at every start**: if `security.peercred_binding` is on a
 launch ordering, the verifier families or the revocation parity (`procbind.IssuanceReady` false, or a
 prerequisite of the platform missing), the host **starts no turn at all** (not a legacy turn: that would be a
 weaker mode the operator did not choose), says why in its log and in `doctor`, and tells the operator to turn the
-setting off or update. Test: a database with the setting on, a build with `IssuanceReady` false, the host
-refuses to start turns and reports it.
+setting off or update. **The way out is never gated:** turning the setting **off** is always allowed,
+whatever the readiness or the platform, through the operator-only config path for reserved settings
+(`monoagentcli config set security.peercred_binding off`; the app shows the same control); only **enabling** is
+gated. Test, the downgraded build: the setting is on and the build is unready, so the host starts no turn and
+reports it; `config set security.peercred_binding off` succeeds; the host then resumes starting (legacy) turns.
 
 ## 4. The pieces
 
@@ -200,20 +204,22 @@ never adopts one (so a restart with the setting off cannot resurrect it under th
 running when the setting is turned on stay legacy and are adopted as today. `Host.Recover` settles a turn whose
 `Adopt` failed as gone **without stopping it or replaying the prompt**; for v2 turns the stop below happens first.
 
-*Stopping a turn, and proving it stopped* (before the session is settled and before any new turn may start):
+*Stopping a turn: only what can be pinned.* Recovery stops **the turn's leader, by its own pidfd**, and nothing
+else; it sends **no signal to any process group** (a group id can be reused between the last check and the signal,
+and a leader that is already gone leaves nothing to pin):
 1. `pidfd_open(worker_pid)`, poll alive, read the start stamp, poll alive again (the design's liveness rule),
    compare the stamp with the binding row. A mismatch, or a pidfd that polled dead, means no signal is sent.
-2. The turn is a session and process-group leader (`Setsid`), so `SIGTERM` goes to the **whole group**
-   (`kill(-pgid)`), not only the leader. A process id is not reused while it names a live process group, so
-   the group id stays valid after the leader exits as long as any member lives.
-3. Wait for the leader to exit by polling the pidfd, up to a bounded grace (the turn flushes its events and
-   exits); then `SIGKILL` the group. Wait again.
-4. Settle only when the leader has exited **and** the group is empty (`kill(-pgid, 0)` reports no such group); if
-   that does not happen within a bound, the session is **not** settled and a new turn is not started: the host
-   reports it (`doctor`) and retries at the next pass. A signal that was sent is not an exit.
-5. Members that left the session (a daemonised helper) are outside the group: they are the stray reconciliation
-   the host already does by the tree marker, which signals a process only when its identity is pinned and
-   otherwise reports it; stated as a limit.
+2. `pidfd_send_signal(SIGTERM)` to the leader through that pidfd; wait for the pidfd to become readable (the
+   leader exited) within a bounded grace (the turn flushes its events and exits); if it has not, send `SIGKILL`
+   through the same pidfd and wait again. A signal that was sent is not an exit: only the pidfd polling readable
+   is.
+3. The session is settled **when the leader has exited**. If the leader was already gone before recovery (its
+   pidfd cannot be opened or polls dead), there is nothing to signal and the session is settled at once.
+4. Whatever else of the turn is still running (tool children, a runtime process) is **not** killed by group or
+   session id. It is the existing marker-based stray reconciliation, which signals a process only when its
+   identity is pinned and otherwise **reports** it (`doctor`). A leader-gone, child-alive state therefore settles
+   normally and shows the stray; this is a stated limit, and the same rule as strays elsewhere (reported, not
+   killed, when unidentified). There is no `kill(-pgid)` anywhere in recovery.
 A **clean** host shutdown stops (or drains) the v2 turns first, **then** revokes, instead of leaving them
 running with dead tokens until the next start.
 
@@ -225,12 +231,14 @@ mission pass can launch it again (a test).
 
 *Tests (fake crash).* **One live turn per conversation** across: a crash between each launch step, after delivery
 and before `TurnPID` is saved, restart with the setting on, restart with it off, and a crash before the turn
-identity is recorded. And: **a turn that ignores `SIGTERM` and has a child process** is killed (leader and child
-gone) before the session is settled and before the next turn starts.
+identity is recorded. And: **a leader that ignores `SIGTERM`** is killed by `SIGKILL` through its pidfd and the
+session settles only after the pidfd is readable; **a leader gone before restart with a child still alive**
+settles, the stray is reported, and **no signal is sent to any group** (the test asserts it).
 
 *The setting.* `security.peercred_binding` is added to the reserved, operator-only settings (the same list
-`TestStorageSaveConfigGuardsReservedRows` guards) with a test that a non-operator write is refused; its setter
-refuses unless `procbind.IssuanceReady` and the platform check pass; macOS and Windows refuse it.
+`TestStorageSaveConfigGuardsReservedRows` guards) with a test that a non-operator write is refused. Its setter
+refuses to **enable** unless `procbind.IssuanceReady` and the platform check pass (macOS and Windows refuse to
+enable it); it never refuses to turn it **off**.
 
 **3e. Retention sweep.** The `DELETE` of v2 rows past retention at host start and in `SweepMissions`; a trigger
 refusal is logged and skipped and never fails the host start; `profile delete` stops saying the sweep is not
