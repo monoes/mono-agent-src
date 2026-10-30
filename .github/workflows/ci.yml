@@ -241,6 +241,8 @@ jobs:
         run: bash .github/scripts/workflow-guard_test.sh
       - name: Test the release guard's full-run check
         run: bash .github/scripts/ci-run-is-full_test.sh
+      - name: Test the release guard's PR-run identity check
+        run: bash .github/scripts/ci-run-matches-merge_test.sh
       - name: Test the release guard
         run: bash scripts/check-release-tags-test.sh
       - name: Test the rollout guard

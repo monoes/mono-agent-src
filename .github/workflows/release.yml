@@ -61,7 +61,7 @@ jobs:
           if [ -n "$(runs "$SHA" 'event=push&status=success' '.workflow_runs[].id')" ]; then
             echo "CI passed on $SHA"; passed=true
           elif p1=$(git rev-parse -q --verify "$SHA^1") && p2=$(git rev-parse -q --verify "$SHA^2"); then
-            pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq ".[] | select(.merge_commit_sha == \"$SHA\" and .base.ref == \"$BRANCH\" and .head.sha == \"$p2\") | .number" || true)
+            pr="" rules=1
             landed=$(runs "$p1" event=push '[.workflow_runs[].created_at] | min // empty')
             full=""
             # The proof rules (which job names make a run FULL, and the check
@@ -72,20 +72,22 @@ jobs:
             exp="$RUNNER_TEMP/ci-expected-shards.txt" chk="$RUNNER_TEMP/ci-run-is-full.sh" mch="$RUNNER_TEMP/ci-run-matches-merge.sh"
             subject=$(git log -1 --format=%s "$SHA")
             if ! { git show "$p1:.github/scripts/ci-expected-shards.txt" >"$exp" && git show "$p1:.github/scripts/ci-run-is-full.sh" >"$chk" && git show "$p1:.github/scripts/ci-run-matches-merge.sh" >"$mch"; } 2>/dev/null; then
-              echo "no PR-run proof rules on $p1: the tests run here"; pr=""
+              echo "no PR-run proof rules on $p1: the tests run here"; rules=""
             fi
-            if [ -n "$pr" ] && [ -n "$landed" ]; then
+            if [ -n "$rules" ] && [ -n "$landed" ]; then
               # A PR run counts as proof only if it was a FULL run: path trimming can
               # skip jobs, and a trimmed green run proves nothing about this commit.
               # A trimmed or unreadable run falls through to running the tests here.
               # It must also be the run of THIS pull request against THIS branch
-              # (ci-run-matches-merge.sh): two PRs can share a head and target
-              # different bases, and the other PR's run tested another merge tree.
+              # (ci-run-matches-merge.sh, which takes the merged PR's number from the
+              # commits/SHA/pulls API, not from the editable subject): two PRs can
+              # share a head and target different bases, and the other PR's run
+              # tested another merge tree.
               for id in $(runs "$p2" 'event=pull_request&status=success' ".workflow_runs[] | select(.created_at > \"$landed\") | .id"); do
-                if ! bash "$mch" "$REPO" "$id" "$BRANCH" "$p2" "$subject"; then
+                if ! num=$(bash "$mch" "$REPO" "$id" "$BRANCH" "$p2" "$subject" "$SHA"); then
                   echo "PR run $id is not the run of this merge (PR/base mismatch): not proof"; continue
                 fi
-                if bash "$chk" "$REPO" "$id" "$exp"; then full=$id; break; fi
+                if bash "$chk" "$REPO" "$id" "$exp"; then full=$id; pr=$num; break; fi
                 echo "PR run $id was trimmed or unreadable: not proof"
               done
             fi

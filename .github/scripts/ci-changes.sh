@@ -107,11 +107,21 @@ fallback_code_root() {
 # build's tests. Anything else counts as included: a shared package, an
 # untagged file, the nosocial stub, a deleted file we cannot inspect, an
 # expression with || or parentheses (`!nosocial && linux || nosocial` IS built
-# with the tag), and the old `// +build` style.
+# with the tag), the old `// +build` style, and the text `//go:build` anywhere
+# but the file header (raw strings, comments after the package clause).
 excluded_from_nosocial() {
   local line tag='!?[A-Za-z0-9_.]+'
   [[ "$1" == *.go ]] && [ -f "$root/$1" ] || return 1
-  line="$(grep -m1 '^//go:build' "$root/$1")" || return 1
+  # Only the file header counts (as for the Go tool): scanning stops at the
+  # `package` clause, block comments are skipped, and the line must start at
+  # column 0. The same text in a raw string or comment later is not a constraint.
+  line="$(awk '
+    inblk { if (index($0, "*/")) inblk = 0; next }
+    /^\/\*/ { if (!index($0, "*/")) inblk = 1; next }
+    /^package / { exit }
+    /^\/\/go:build/ { print; exit }
+  ' "$root/$1")"
+  [ -n "$line" ] || return 1
   line="${line%"${line##*[![:space:]]}"}"
   [[ "$line" =~ ^//go:build\ (${tag}\ \&\&\ )*\!nosocial(\ \&\&\ ${tag})*$ ]]
 }

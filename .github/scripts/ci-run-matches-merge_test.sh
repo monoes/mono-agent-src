@@ -41,7 +41,7 @@ printf '{"id":1,"event":"pull_request","head_sha":"%s","pull_requests":[{"number
 fail=0
 t() { # name run subject want
   local got=1
-  PATH="$d/bin:$PATH" bash "$here/ci-run-matches-merge.sh" o/r "$2" master $P2 "$3" $M && got=0
+  PATH="$d/bin:$PATH" bash "$here/ci-run-matches-merge.sh" o/r "$2" master $P2 "$3" $M >/dev/null && got=0
   if [ "$got" = "$4" ]; then echo "ok    $1"; else echo "FAIL  $1 (exit $got, want $4)"; fail=1; fi
 }
 S='Merge pull request #7 from fork/branch'
@@ -86,8 +86,8 @@ t "failing commit-to-PR API call is rejected" good "$S" 1
 pulls "$(good_cp)"
 # No second parent (squash/rebase landing): the release never calls this script (it only runs
 # for a commit with ^2); an empty P2 or SHA must still be rejected here.
-got=1; PATH="$d/bin:$PATH" bash "$here/ci-run-matches-merge.sh" o/r good master "" "$S" $M && got=0
+got=1; PATH="$d/bin:$PATH" bash "$here/ci-run-matches-merge.sh" o/r good master "" "$S" $M >/dev/null && got=0
 if [ "$got" = 1 ]; then echo "ok    empty second parent is rejected"; else echo "FAIL  empty second parent"; fail=1; fi
-got=1; PATH="$d/bin:$PATH" bash "$here/ci-run-matches-merge.sh" o/r good master $P2 "$S" "" && got=0
+got=1; PATH="$d/bin:$PATH" bash "$here/ci-run-matches-merge.sh" o/r good master $P2 "$S" "" >/dev/null && got=0
 if [ "$got" = 1 ]; then echo "ok    empty merge sha is rejected"; else echo "FAIL  empty merge sha"; fail=1; fi
 exit $fail
