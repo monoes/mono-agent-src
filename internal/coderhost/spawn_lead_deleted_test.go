@@ -3,6 +3,7 @@ package coderhost
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -168,5 +169,104 @@ func TestSweepOrphansDemotesAChildWhoseMasterIsGone(t *testing.T) {
 	}
 	if y, _, _ := st.GetSession("p", kid2); y.Role != "child" || y.Parent != m2.ConversationID {
 		t.Fatalf("live child = %+v", y)
+	}
+}
+
+// A child whose lead has no session row but whose conversation and mission are still there is a live mission
+// child: the sweep leaves it a child, so its carve keeps holding the mission's budget.
+func TestSweepOrphansKeepsALiveMissionChildWhoseLeadSessionRowIsMissing(t *testing.T) {
+	f := newMC(t, true)
+	if _, err := f.st.db.Exec(`UPDATE task_sessions SET budget_usd = 10 WHERE id = ?`, f.se.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.addTasks(t, 1)
+	kid := f.linkedChild(t, 4)
+	lead := f.lead.ConversationID
+	f.st.db.Exec("DEL"+"ETE FROM coder_sessions WHERE conversation_id = ?", lead)
+	if _, err := f.st.SweepOrphans(); err != nil {
+		t.Fatal(err)
+	}
+	x, ok, _ := f.st.GetSession("p", kid)
+	if !ok || x.Role != "child" || x.Parent != lead {
+		t.Fatalf("live mission child = %+v (found %v), want it left a child of its lead", x, ok)
+	}
+	// the lead's session comes back; the first child's carve still holds the budget
+	if _, err := f.st.EnsureSession("p", lead); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetRole("p", lead, "master", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[1], MarkOptions{BudgetUSD: 7}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[1]); !errors.Is(err, ErrChildrenFull) {
+		t.Fatalf("a second child was admitted against budget the first child's carve holds: %v", err)
+	}
+}
+
+// When the lead's conversation is gone too, the mission rows go with it and the child is a solo session.
+func TestSweepOrphansDemotesAMissionChildWhoseLeadConversationIsGone(t *testing.T) {
+	f := newMC(t, true)
+	kid := f.linkedChild(t, 0)
+	lead := f.lead.ConversationID
+	f.st.db.Exec("DEL"+"ETE FROM coder_sessions WHERE conversation_id = ?", lead)
+	f.st.db.Exec("DEL"+"ETE FROM ai_chat_conversations WHERE id = ?", lead)
+	if _, err := f.st.SweepOrphans(); err != nil {
+		t.Fatal(err)
+	}
+	if x, ok, _ := f.st.GetSession("p", kid); !ok || x.Role != "solo" || x.Parent != "" {
+		t.Fatalf("child = %+v (found %v), want solo", x, ok)
+	}
+}
+
+// Only a child with no master in its own profile is demoted: a master of the same conversation id in another
+// profile does not count, and no other row is touched.
+func TestSweepOrphansJudgesTheMasterInTheChildsOwnProfileOnly(t *testing.T) {
+	st := newStoreT(t)
+	a, _ := ai.NewAIStore(st.db)
+	mk := func(profile string) string {
+		c, err := a.CreateConversationAccess(profile, "agent", "", "claude", "", "m1", "workspace", t.TempDir(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.EnsureSession(profile, c.ID); err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+	orphan := mk("p")
+	foreign := mk("q")
+	if err := st.SetRole("q", foreign, "master", ""); err != nil {
+		t.Fatal(err)
+	}
+	// the child of p names a conversation that is a master only in q
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = ? WHERE profile_id = 'p' AND conversation_id = ?`, foreign, orphan); err != nil {
+		t.Fatal(err)
+	}
+	solo := mk("p")
+	m, _ := master(t, st, "workspace")
+	kid := spawn(t, st, m)
+	if _, err := st.SweepOrphans(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][3]string{ // profile/conversation -> role, parent
+		"p/" + orphan:           {"p", orphan, "solo"},
+		"q/" + foreign:          {"q", foreign, "master"},
+		"p/" + solo:             {"p", solo, "solo"},
+		"p/" + m.ConversationID: {"p", m.ConversationID, "master"},
+		"p/" + kid:              {"p", kid, "child"},
+	}
+	for k, w := range want {
+		x, ok, _ := st.GetSession(w[0], w[1])
+		if !ok || string(x.Role) != w[2] {
+			t.Fatalf("%s = %+v (found %v), want role %s", k, x, ok, w[2])
+		}
+	}
+	if x, _, _ := st.GetSession("p", orphan); x.Parent != "" {
+		t.Fatalf("the demoted child kept a parent: %+v", x)
+	}
+	if x, _, _ := st.GetSession("p", kid); x.Parent != m.ConversationID {
+		t.Fatalf("the live child's parent changed: %+v", x)
 	}
 }
