@@ -41,6 +41,8 @@ type profileImpact struct {
 	// tables (see retainedOnDelete) that only a retention sweep can remove, once their expiry plus the
 	// window has passed. That sweep is a later change: until it exists they stay.
 	KeptUntilRetention []profileTable `json:"kept_until_retention,omitempty"`
+	// KeptNote says why they stay and for how long.
+	KeptNote string `json:"kept_note,omitempty"`
 	// FolderKept says the profile's folder on disk is never deleted.
 	FolderKept bool `json:"folder_kept"`
 	// Backup is the database snapshot taken before a delete ("" for --summary).
@@ -265,6 +267,9 @@ func (d Deps) newProfileDeleteCmd() *cobra.Command {
 				impact.Warnings = append(impact.Warnings, "could not count the rows kept after the delete: "+kerr.Error())
 			} else {
 				impact.KeptUntilRetention = kept
+				if len(kept) > 0 {
+					impact.KeptNote = keptNote
+				}
 			}
 			// After the commit: files and the keychain are not part of the transaction.
 			for _, name := range wfFiles {
@@ -330,6 +335,9 @@ func (d Deps) printDeleteSummary(ctx context.Context, db *sql.DB, p *profileJSON
 	impact := profileImpact{Profile: *p, Tables: tables, FolderKept: true}
 	if kept, err := retainedRows(ctx, db, p.ID); err == nil {
 		impact.KeptUntilRetention = kept
+		if len(kept) > 0 {
+			impact.KeptNote = keptNote
+		}
 	}
 	if d.JSONOutput() {
 		return printJSON(impact)

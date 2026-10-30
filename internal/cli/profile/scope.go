@@ -53,7 +53,7 @@ var retainedOnDelete = map[string]string{
 	"coder_session_tokens_v2": "insert-only; removed by the retention sweep after expiry plus 7 days",
 	"process_bindings":        "insert-only; removed by the retention sweep after expiry plus 7 days",
 	"token_revocations_v2":    "insert-only; removed by the retention sweep once its token is long expired",
-	"procbind_host":           "append-only log; the newest row is never removable, older ones by the retention sweep",
+	"procbind_host":           "append-only log; each profile's newest row is never removable (kept permanently), older ones only by the retention sweep",
 }
 
 // retainedRows counts the profile's rows in the tables a delete leaves in place (retainedOnDelete).
@@ -71,12 +71,15 @@ func retainedRows(ctx context.Context, q scopeQuerier, id string) ([]profileTabl
 	return countScope(ctx, q, scope, id)
 }
 
+// keptNote says what stays after a delete and for how long.
+const keptNote = "insert-only binding records; they hold no secret and are inert once the profile is gone. Most stay until a retention sweep removes them after their expiry plus 7 days (that retention sweep does not exist yet, so for now they stay); the profile's newest host-start row can never be removed, so it is kept permanently."
+
 // printKept says which rows a delete leaves in place and why, so nobody expects them to be gone.
 func printKept(kept []profileTable) {
 	if len(kept) == 0 {
 		return
 	}
-	fmt.Println("Kept (insert-only binding records; they hold no secret and are inert once the profile is gone, and stay until a retention sweep removes them after their expiry plus 7 days; that sweep does not exist yet):")
+	fmt.Println("Kept: " + keptNote)
 	for _, t := range kept {
 		fmt.Printf("  %-32s %d\n", t.Table, t.Rows)
 	}

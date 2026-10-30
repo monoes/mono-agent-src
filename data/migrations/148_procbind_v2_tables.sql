@@ -9,7 +9,9 @@
 -- exempt table or operation. The retention window is fixed in the triggers; a DELETE of a row inside it
 -- fails, with or without the vault key (a writer who drops the triggers is the database-writer case the
 -- design excludes). Timestamps are the same text form as agent_tokens (2006-01-02T15:04:05.000Z), so
--- they compare as strings; a CHECK holds every one of them to exactly that form, so retention can read them.
+-- they compare as strings; a CHECK holds every one of them to exactly that form (text, 24 bytes, the pattern),
+-- so retention can read them. The byte length is taken on a BLOB cast because SQLite's length() and GLOB
+-- stop at an embedded NUL.
 
 CREATE TABLE IF NOT EXISTS agent_tokens_v2 (
     id               TEXT PRIMARY KEY,
@@ -20,8 +22,8 @@ CREATE TABLE IF NOT EXISTS agent_tokens_v2 (
     mission_task     INTEGER NOT NULL DEFAULT 0,
     mission_role     TEXT NOT NULL DEFAULT '',
     mission_actor    TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
-    expires_at       TEXT NOT NULL CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    created_at       TEXT NOT NULL CHECK (typeof(created_at) = 'text' AND length(CAST(created_at AS BLOB)) = 24 AND created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    expires_at       TEXT NOT NULL CHECK (typeof(expires_at) = 'text' AND length(CAST(expires_at AS BLOB)) = 24 AND expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     version          INTEGER NOT NULL,
     mac              TEXT NOT NULL
 );
@@ -33,8 +35,8 @@ CREATE TABLE IF NOT EXISTS coder_session_tokens_v2 (
     token_hash       TEXT NOT NULL UNIQUE,
     conversation_id  TEXT NOT NULL,
     turn_id          TEXT NOT NULL,
-    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
-    expires_at       TEXT NOT NULL CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    created_at       TEXT NOT NULL CHECK (typeof(created_at) = 'text' AND length(CAST(created_at AS BLOB)) = 24 AND created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    expires_at       TEXT NOT NULL CHECK (typeof(expires_at) = 'text' AND length(CAST(expires_at AS BLOB)) = 24 AND expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     version          INTEGER NOT NULL,
     mac              TEXT NOT NULL
 );
@@ -50,8 +52,8 @@ CREATE TABLE IF NOT EXISTS process_bindings (
     worker_stamp     TEXT NOT NULL,
     host_generation  TEXT NOT NULL,
     version          INTEGER NOT NULL,
-    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
-    expires_at       TEXT NOT NULL CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    created_at       TEXT NOT NULL CHECK (typeof(created_at) = 'text' AND length(CAST(created_at AS BLOB)) = 24 AND created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    expires_at       TEXT NOT NULL CHECK (typeof(expires_at) = 'text' AND length(CAST(expires_at AS BLOB)) = 24 AND expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     mac              TEXT NOT NULL
 );
 
@@ -61,7 +63,7 @@ CREATE TABLE IF NOT EXISTS token_revocations_v2 (
     token_id         TEXT NOT NULL,
     profile_id       TEXT NOT NULL,
     reason           TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    created_at       TEXT NOT NULL CHECK (typeof(created_at) = 'text' AND length(CAST(created_at AS BLOB)) = 24 AND created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     mac              TEXT NOT NULL,
     PRIMARY KEY (token_kind, token_id)
 );
@@ -72,7 +74,7 @@ CREATE TABLE IF NOT EXISTS procbind_host (
     profile_id       TEXT NOT NULL,
     seq              INTEGER NOT NULL,
     generation       TEXT NOT NULL,
-    started_at       TEXT NOT NULL CHECK (started_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    started_at       TEXT NOT NULL CHECK (typeof(started_at) = 'text' AND length(CAST(started_at AS BLOB)) = 24 AND started_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     mac              TEXT NOT NULL,
     PRIMARY KEY (profile_id, seq)
 );
@@ -113,7 +115,7 @@ WHEN COALESCE(
 BEGIN SELECT RAISE(ABORT, 'procbind: the row is within its retention window'); END;
 
 -- A host row: only one a newer row of the same profile supersedes, and only past the window. The newest
--- row is never removable.
+-- row of a profile is never removable, not even after the profile is gone.
 CREATE TRIGGER IF NOT EXISTS trg_procbind_host_retention BEFORE DELETE ON procbind_host
 WHEN OLD.started_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')
   OR NOT EXISTS (SELECT 1 FROM procbind_host WHERE profile_id = OLD.profile_id AND seq > OLD.seq)

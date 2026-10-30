@@ -322,33 +322,41 @@ func TestNoInsertConflictClauseReplacesARow(t *testing.T) {
 
 // Retention compares timestamps as text, so a column that retention reads must hold exactly the
 // stored form: anything else (empty, short, another layout) is refused at INSERT.
+// lit renders text as an SQL string literal; an embedded NUL goes through char(0), as a statement cannot carry one.
+func lit(s string) string {
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(s, "'", "''"), "\x00", "' || char(0) || '") + "'"
+}
+
 func TestMalformedTimestampsAreRefused(t *testing.T) {
 	bad := []string{"", "x", "2026-10-30", "2026-10-30T00:00:00Z", "2026-10-30T00:00:00.000", "2026-10-30t00:00:00.000Z",
-		"2026-10-30T00:00:00.000Z ", " 2026-10-30T00:00:00.000Z", "2026-10-30T00:00:00.0000Z", "ab26-10-30T00:00:00.000Z", "2026-10-30T00:00:00.00aZ"}
+		"2026-10-30T00:00:00.000Z ", " 2026-10-30T00:00:00.000Z", "2026-10-30T00:00:00.0000Z", "ab26-10-30T00:00:00.000Z", "2026-10-30T00:00:00.00aZ",
+		// SQLite's GLOB stops at an embedded NUL, so these match the pattern as far as it looks
+		"2026-10-30T00:00:00.000Z\x00junk", "2026-10-30T00:00:00.000Z\x00", "2026-10-30T00:00:00.000Z" + strings.Repeat("0", 40),
+		"2026-10-30T00:00:00.000Z\x00" + strings.Repeat("9", 40), "\x002026-10-30T00:00:00.000Z"}
 	forms := map[string]func(ts string) string{
 		"agent_tokens_v2.created_at": func(ts string) string {
-			return "INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('a', 'p1', 'h', '" + ts + "', '" + okTS + "', 2, 'm')"
+			return "INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('a', 'p1', 'h', " + lit(ts) + ", '" + okTS + "', 2, 'm')"
 		},
 		"agent_tokens_v2.expires_at": func(ts string) string {
-			return "INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('a', 'p1', 'h', '" + okTS + "', '" + ts + "', 2, 'm')"
+			return "INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('a', 'p1', 'h', '" + okTS + "', " + lit(ts) + ", 2, 'm')"
 		},
 		"coder_session_tokens_v2.created_at": func(ts string) string {
-			return "INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s', 'p1', 'h', 'c', 't', '" + ts + "', '" + okTS + "', 2, 'm')"
+			return "INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s', 'p1', 'h', 'c', 't', " + lit(ts) + ", '" + okTS + "', 2, 'm')"
 		},
 		"coder_session_tokens_v2.expires_at": func(ts string) string {
-			return "INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s', 'p1', 'h', 'c', 't', '" + okTS + "', '" + ts + "', 2, 'm')"
+			return "INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s', 'p1', 'h', 'c', 't', '" + okTS + "', " + lit(ts) + ", 2, 'm')"
 		},
 		"process_bindings.created_at": func(ts string) string {
-			return "INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('b', 'p1', 's', 'peercred', 1, 's', 'g', 2, '" + ts + "', '" + okTS + "', 'm')"
+			return "INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('b', 'p1', 's', 'peercred', 1, 's', 'g', 2, " + lit(ts) + ", '" + okTS + "', 'm')"
 		},
 		"process_bindings.expires_at": func(ts string) string {
-			return "INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('b', 'p1', 's', 'peercred', 1, 's', 'g', 2, '" + okTS + "', '" + ts + "', 'm')"
+			return "INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('b', 'p1', 's', 'peercred', 1, 's', 'g', 2, '" + okTS + "', " + lit(ts) + ", 'm')"
 		},
 		"token_revocations_v2.created_at": func(ts string) string {
-			return "INSERT INTO token_revocations_v2 (token_kind, token_id, profile_id, reason, created_at, mac) VALUES ('mission', 'r', 'p1', '', '" + ts + "', 'm')"
+			return "INSERT INTO token_revocations_v2 (token_kind, token_id, profile_id, reason, created_at, mac) VALUES ('mission', 'r', 'p1', '', " + lit(ts) + ", 'm')"
 		},
 		"procbind_host.started_at": func(ts string) string {
-			return "INSERT INTO procbind_host (profile_id, seq, generation, started_at, mac) VALUES ('p1', 1, 'g', '" + ts + "', 'm')"
+			return "INSERT INTO procbind_host (profile_id, seq, generation, started_at, mac) VALUES ('p1', 1, 'g', " + lit(ts) + ", 'm')"
 		},
 	}
 	db := newDB(t)

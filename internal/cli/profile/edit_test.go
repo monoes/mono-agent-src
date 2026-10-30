@@ -352,6 +352,21 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 		}
 		return got
 	}
+	noteOf := func(out string) string {
+		var res profileImpact
+		_ = json.Unmarshal([]byte(out), &res)
+		return res.KeptNote
+	}
+	checkNote := func(what, note string) {
+		for _, want := range []string{"newest host-start row", "permanently", "retention sweep", "does not exist yet"} {
+			if !strings.Contains(note, want) {
+				t.Errorf("%s: the note %q lacks %q", what, note, want)
+			}
+		}
+		if strings.Contains(note, "all of them") {
+			t.Errorf("%s: the note claims every row is removed: %q", what, note)
+		}
+	}
 	checkKept := func(what string, got map[string]int) {
 		for tbl := range retainedOnDelete {
 			if got[tbl] != 1 {
@@ -365,11 +380,13 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkKept("delete --summary", keptOf(sum))
+	checkNote("delete --summary", noteOf(sum))
 	out, err := runCaptured(t, dbPath, "delete", id, "--yes-delete-profile", "doomed")
 	if err != nil {
 		t.Fatalf("the delete failed because of insert-only rows: %v", err)
 	}
 	checkKept("the delete output", keptOf(out))
+	checkNote("the delete output", noteOf(out))
 	db, err = storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
