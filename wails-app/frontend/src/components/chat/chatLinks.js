@@ -2,6 +2,14 @@
 // every URL and path is untrusted: the checks here decide what is offered,
 // and the Go side (app_open.go) checks again before touching the disk.
 
+// isUserGesture: a click really made by the user. Events a script dispatches
+// (el.click(), dispatchEvent) have isTrusted false; a native button's
+// Enter/Space produces a trusted click. Defence in depth: the renderer has no
+// path for a message to run script, but nothing that touches the disk or the
+// browser should act on a synthetic event. A seam for tests (jsdom events are
+// never trusted).
+export function isUserGesture(e) { return !!e && e.isTrusted === true }
+
 // classifyUrl: only an absolute http(s) URL without credentials is openable.
 // Returns { ok, url, host } — host is the real target, for the tooltip.
 export function classifyUrl(href) {

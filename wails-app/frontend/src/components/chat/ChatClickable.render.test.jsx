@@ -9,6 +9,10 @@ vi.mock('../../services/api.js', () => ({
   api: { openURL: vi.fn(), classifyChatPath: vi.fn(), resolveChatPath: vi.fn(), revealChatPath: vi.fn(), readChatMarkdown: vi.fn() },
   notify: vi.fn(),
 }))
+// jsdom never marks an event trusted, so the gate is a seam: true for the
+// ordinary tests (a stand-in for the user), false in the synthetic-event ones.
+vi.mock('./chatLinks.js', async (orig) => ({ ...(await orig()), isUserGesture: vi.fn(() => true) }))
+import { isUserGesture } from './chatLinks.js'
 import { api, notify } from '../../services/api.js'
 import { ChatMarkdown } from './ChatMarkdown.jsx'
 import { clearChatPathCache } from './ChatPathChip.jsx'
@@ -28,7 +32,7 @@ beforeEach(() => {
   api.resolveChatPath.mockImplementation(async (_c, token) => files[token] || { kind: 'missing' })
   api.revealChatPath.mockResolvedValue(undefined)
 })
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); vi.clearAllMocks(); isUserGesture.mockImplementation(() => true) })
 
 // a click on the neutral chip is the user's deliberate act that checks the disk
 const click = async (name, init) => { fireEvent.click(await screen.findByRole('button', { name }), init) }
@@ -328,5 +332,32 @@ describe('bounds', () => {
     document.body.focus()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
     expect(dialog.contains(document.activeElement)).toBe(true)
+  })
+})
+
+describe('events a script dispatched (isTrusted false)', () => {
+  it('make no lookup, reveal, preview or URL open', async () => {
+    mount('[a](https://example.com/) and `docs/plan.md` and `~/projects/x`')
+    const chip = await screen.findByRole('button', { name: 'docs/plan.md' })
+    const dir = await screen.findByRole('button', { name: '~/projects/x' })
+    isUserGesture.mockImplementation(() => false)
+    fireEvent.click(chip); fireEvent.click(dir); fireEvent.click(screen.getByRole('link', { name: 'a' }))
+    fireEvent(screen.getByRole('link', { name: 'a' }), new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
+    fireEvent.keyDown(chip, { key: 'Enter' }); fireEvent.keyDown(chip, { key: ' ' })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(api.resolveChatPath).not.toHaveBeenCalled()
+    expect(api.revealChatPath).not.toHaveBeenCalled()
+    expect(api.readChatMarkdown).not.toHaveBeenCalled()
+    expect(api.openURL).not.toHaveBeenCalled()
+  })
+
+  it('also ignore the folder button and the preview Reveal button once a path is known', async () => {
+    mount('`docs/plan.md`')
+    fireEvent.click(await screen.findByRole('button', { name: 'docs/plan.md' }))
+    const folder = await screen.findByRole('button', { name: /Show plan\.md in the file manager/ })
+    isUserGesture.mockImplementation(() => false)
+    fireEvent.click(folder)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(api.revealChatPath).not.toHaveBeenCalled()
   })
 })

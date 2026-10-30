@@ -20,13 +20,16 @@ func (f fakeInfo) ModTime() time.Time { return time.Time{} }
 func (f fakeInfo) IsDir() bool        { return f.m == 0 }
 func (f fakeInfo) Sys() any           { return nil }
 
-func TestLinuxNetworkFSMagicList(t *testing.T) {
+func TestLinuxNetworkFSMagicListAndItsKnownLimits(t *testing.T) {
 	for _, m := range []uint32{0x6969, 0x517B, 0xFF534D42, 0xFE534D42, 0x5346414F, 0x00C36400, 0x01021997} {
 		if !isLinuxNetworkFSMagic(m) {
 			t.Errorf("%#x is a network filesystem", m)
 		}
 	}
-	// ext4, tmpfs, btrfs, xfs, overlayfs and FUSE stay allowed
+	// Documents the limit of a best-effort check: ext4, tmpfs, btrfs, xfs stay
+	// allowed, and so do overlayfs (0x794C7630, which hides an NFS lower
+	// layer) and FUSE (0x65735546, sshfs/rclone): those network backings are
+	// NOT detected.
 	for _, m := range []uint32{0xEF53, 0x01021994, 0x9123683E, 0x58465342, 0x794C7630, 0x65735546} {
 		if isLinuxNetworkFSMagic(m) {
 			t.Errorf("%#x is not a network filesystem", m)

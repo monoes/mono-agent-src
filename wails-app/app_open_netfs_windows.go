@@ -14,7 +14,9 @@ var procGetDriveTypeW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetDriveType
 func windowsLinkGuard(p string) error { return walkChatLinks(p, chatLstat, chatReadlink) }
 
 // onNetworkFilesystem: the drive of p is a network (mapped) drive.
-// GetDriveTypeW is called with the volume root and reads no path.
+// GetDriveTypeW is called with the volume root and reads no path. Best effort:
+// the drive type of the RESOLVED path, so it stops the use of a network result,
+// not the contact; walkChatLinks is what tries to prevent contact.
 func onNetworkFilesystem(p string) bool {
 	v := filepath.VolumeName(p)
 	if len(v) != 2 || v[1] != ':' {

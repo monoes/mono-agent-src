@@ -46,7 +46,10 @@ var (
 // refused when it is on a network volume or filesystem (networkVolume,
 // chatOnNetworkFS). Both are best effort: a relative link that leads on
 // through further links is not walked, and a network mount that reports a
-// local filesystem type is not recognised.
+// local filesystem type is not recognised (an overlayfs over an NFS lower
+// layer, a FUSE mount). The refusal after the lookup is the statfs (or drive)
+// type of the RESOLVED path: it prevents use of a network result, not
+// contact; only the Windows link walk tries to prevent contact.
 
 var chatPreviewExts = map[string]bool{".md": true, ".markdown": true, ".txt": true}
 

@@ -4,7 +4,7 @@ import { FolderOpen } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { WorkspaceImageContext } from './ChatAttachments.jsx'
 import { ChatFilePreview } from './ChatFilePreview.jsx'
-import { splitLine } from './chatLinks.js'
+import { isUserGesture, splitLine } from './chatLinks.js'
 
 // A path a chat message names. At render it is only a neutral "path" chip:
 // ClassifyChatPath judges its spelling and makes no filesystem call, because
@@ -58,8 +58,11 @@ export function ChatPathChip({ token, fromText = false }) {
   }, [conversationId, token])
 
   const reveal = () => Promise.resolve(api.revealChatPath(conversationId, token)).catch((e) => notify('reveal', t('chatLinks.revealFailed', { message: e?.message || String(e) })))
+  // Every handler ignores an event a script dispatched, before any call.
+  const revealClick = (e) => { if (!isUserGesture(e)) return; reveal() }
   const check = () => lookup(conversationId, token, !!info).then((i) => { setInfo(i); return i })
   const clickUnchecked = (e) => {
+    if (!isUserGesture(e)) return
     check().then((i) => {
       if (i.kind === 'missing') return
       if (i.kind === 'file' && i.previewable && !e.ctrlKey && !e.metaKey) setOpen(true)
@@ -79,23 +82,23 @@ export function ChatPathChip({ token, fromText = false }) {
   const { line } = splitLine(token)
   const where = line ? ` (${t('chatLinks.line', { line })})` : ''
   if (info.kind === 'dir') {
-    return <button type="button" style={link} onClick={reveal} title={`${t('chatLinks.openFolder')}: ${info.path || token}`}>{token}</button>
+    return <button type="button" style={link} onClick={revealClick} title={`${t('chatLinks.openFolder')}: ${info.path || token}`}>{token}</button>
   }
   const previewable = !!info.previewable
   const label = token.split(/[\\/]/).pop()
   return (
     <span style={{ whiteSpace: 'nowrap' }}>
       <button type="button" style={link} title={`${previewable ? t('chatLinks.previewHint') : t('chatLinks.revealHint')}: ${info.path || token}${where}`}
-        onClick={(e) => { if (!previewable || e.ctrlKey || e.metaKey) reveal(); else setOpen(true) }}>
+        onClick={(e) => { if (!isUserGesture(e)) return; if (!previewable || e.ctrlKey || e.metaKey) reveal(); else setOpen(true) }}>
         {token}
       </button>
       {previewable && (
-        <button type="button" style={{ ...link, textDecoration: 'none', marginLeft: 3, verticalAlign: 'middle' }} onClick={reveal}
+        <button type="button" style={{ ...link, textDecoration: 'none', marginLeft: 3, verticalAlign: 'middle' }} onClick={revealClick}
           aria-label={t('chatLinks.revealNamed', { name: label })} title={t('chatLinks.revealHint')}>
           <FolderOpen size={10} />
         </button>
       )}
-      {open && <ChatFilePreview conversationId={conversationId} token={token} label={info.path || token} onReveal={reveal} onClose={() => setOpen(false)} />}
+      {open && <ChatFilePreview conversationId={conversationId} token={token} label={info.path || token} onReveal={revealClick} onClose={() => setOpen(false)} />}
     </span>
   )
 }

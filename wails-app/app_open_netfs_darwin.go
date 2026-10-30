@@ -23,6 +23,9 @@ var statfsName = func(p string) (string, error) {
 func windowsLinkGuard(string) error { return nil }
 
 // onNetworkFilesystem: p (already resolved) is on nfs, smbfs, afpfs or webdav.
+// Best effort: it is the statfs type of the resolved path (macFUSE and other
+// filesystems hiding a network backing are not detected), and it stops the
+// use of a network result, not the contact.
 func onNetworkFilesystem(p string) bool {
 	n, err := statfsName(p)
 	return err == nil && isDarwinNetworkFSName(n)

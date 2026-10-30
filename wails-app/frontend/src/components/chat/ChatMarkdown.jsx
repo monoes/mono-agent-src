@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ImageOff, Copy, Check } from 'lucide-react'
 import { api } from '../../services/api.js'
-import { classifyUrl, disguisedHost, codeLooksLikePath, remarkChatPaths } from './chatLinks.js'
+import { classifyUrl, isUserGesture, disguisedHost, codeLooksLikePath, remarkChatPaths } from './chatLinks.js'
 import { copyToClipboard } from './toolCardUtils.js'
 import { ChatPathChip } from './ChatPathChip.jsx'
 import ErrorBoundary from '../ErrorBoundary.jsx'
@@ -52,7 +52,7 @@ function MdLink({ href, children }) {
   }
   const text = nodeText(children).trim()
   const fake = disguisedHost(text, href)
-  const go = (e) => { e.preventDefault(); openApproved(href) }
+  const go = (e) => { e.preventDefault(); if (!isUserGesture(e)) return; openApproved(href) }
   // Whatever the text says, the destination host is shown beside it unless
   // the text is the URL itself.
   const showHost = text !== href && text !== c.url
@@ -109,7 +109,7 @@ function makeComponents(noPaths) {
         <ImageOff size={11} />
         {alt || 'image'}
         {isAllowedURL(src) && (
-          <a href={src} title={`Open in browser: ${src}`} onClick={(e) => { e.preventDefault(); openApproved(src) }} style={{ color: '#00b4d8' }}>open</a>
+          <a href={src} title={`Open in browser: ${src}`} onClick={(e) => { e.preventDefault(); if (!isUserGesture(e)) return; openApproved(src) }} style={{ color: '#00b4d8' }}>open</a>
         )}
       </span>
     ),

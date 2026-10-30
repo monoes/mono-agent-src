@@ -26,6 +26,14 @@ var (
 	chatReadlink = os.Readlink
 )
 
+// Network detection is BEST EFFORT. It is the statfs type (or the drive type)
+// of the RESOLVED path, so an overlayfs (whatever its lower layer is: an NFS
+// lower layer reports overlay), a FUSE mount (sshfs, rclone) and any other
+// filesystem that hides what backs it are NOT detected. The check also runs
+// after the path was resolved, so it prevents USE of a network result
+// (preview, reveal) and not the contact itself; only the Windows link walk
+// (walkChatLinks) tries to prevent contact.
+
 // linuxNetworkFSMagic are statfs f_type values of network filesystems: NFS,
 // SMB, CIFS, SMB2, AFS, kAFS, Ceph, 9p, Coda and NCP. FUSE (0x65735546) is
 // deliberately not listed: it is also sshfs, rclone and many local

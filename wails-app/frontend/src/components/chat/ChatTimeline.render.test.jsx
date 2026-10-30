@@ -4,6 +4,8 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 
 vi.mock('../../services/api.js', () => ({ api: { openURL: vi.fn() } }))
+// jsdom events are never trusted; stand in for the user's own click.
+vi.mock('./chatLinks.js', async (orig) => ({ ...(await orig()), isUserGesture: () => true }))
 import { api } from '../../services/api.js'
 
 import { ChatTimeline } from './ChatTimeline.jsx'
