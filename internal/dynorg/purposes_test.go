@@ -262,8 +262,15 @@ func TestDifferentFromAuthor(t *testing.T) {
 	if _, err := two.Staff(context.Background(), SpawnRequest{Brief: reviewBrief, AuthorModel: "claude/opus", Runtime: "claude", Model: "opus"}); err == nil || !strings.Contains(err.Error(), "different model") {
 		t.Errorf("naming the author's model: %v", err)
 	}
-	// One validated model: it falls back to it and says so.
+	// One validated model: refused, unless the operator allowed the fallback
+	// (TestDifferentFromAuthorRefusesWithoutTheFallback), then it says so.
+	fb := diff
+	fb.Fallback = agentpurposes.FallbackAny
 	one := &Staffer{Roster: []Model{opus}, Lead: opus, Purposes: map[string]agentpurposes.Setting{"review": diff}}
+	if _, err := one.Staff(context.Background(), SpawnRequest{Brief: reviewBrief}); err == nil {
+		t.Error("one model: the author's own model reviewed its work")
+	}
+	one.Purposes["review"] = fb
 	st := staff(t, one, SpawnRequest{Brief: reviewBrief})
 	if st.Model.Key() != "claude/opus" || !strings.Contains(why(st), "different-from-author fell back") {
 		t.Errorf("one model: %s: %s", st.Model.Key(), why(st))
@@ -528,5 +535,66 @@ func TestAStaleModelIsNotTheFallbackOfAnyCaller(t *testing.T) {
 	c.AddVeterans([]Veteran{{ID: "w1", Role: "Coder", Access: ProfileCoding, Runtime: "claude", Model: "opus", Session: "s1", Cwd: "/w", Report: "r1", Builtin: true, Purposes: "coding"}})
 	if _, err := c.Message(context.Background(), "w1", "more"); err == nil || len(ex.calls) != 0 {
 		t.Errorf("a stale veteran ran under a restriction: err=%v calls=%d", err, len(ex.calls))
+	}
+}
+
+// Two restricted purposes with nothing in common leave a library role no
+// model (fail closed); the error names both purposes and says what to do.
+func TestNoneInCommonIsActionable(t *testing.T) {
+	lib := fakeLibrary{agents: map[string][3]string{"custom-agent": {"body", "Custom", "mystery-kind"}}}
+	s := &Staffer{Roster: []Model{opus, haiku, gpt}, Lead: opus, Library: lib, Purposes: map[string]agentpurposes.Setting{
+		"coding": set("any", "claude/haiku"), "review": set("any", "codex/gpt-5.5")}}
+	_, err := s.Staff(context.Background(), SpawnRequest{Brief: codeBrief, Role: "custom-agent"})
+	if err == nil {
+		t.Fatal("disjoint restricted sets staffed a library role")
+	}
+	for _, want := range []string{"coding", "review", "none in common", "built-in role", "agent purposes"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error lacks %q: %v", want, err)
+		}
+	}
+}
+
+// A different-from-author rule is not silently dropped when only the author's
+// own model is available; the operator's Fallback any is what permits it.
+func TestDifferentFromAuthorRefusesWithoutTheFallback(t *testing.T) {
+	diff := set("any", "claude/opus")
+	diff.DifferentFromAuthor = true
+	one := &Staffer{Roster: []Model{opus}, Lead: opus, Purposes: map[string]agentpurposes.Setting{"review": diff}}
+	_, err := one.Staff(context.Background(), SpawnRequest{Brief: reviewBrief})
+	if err == nil || !strings.Contains(err.Error(), "review") || !strings.Contains(err.Error(), "different") {
+		t.Errorf("the author's own model reviewed its work: %v", err)
+	}
+	if _, err := one.Staff(context.Background(), SpawnRequest{Brief: reviewBrief, Runtime: "claude", Model: "opus"}); err == nil {
+		t.Error("naming the author's own model got around the rule")
+	}
+	if _, _, err := VerifierFor(one, opus); err != nil {
+		t.Fatal(err) // the choice is made by VerifierFor; the refusal is at staffing
+	}
+	diff.Fallback = agentpurposes.FallbackAny
+	one.Purposes["review"] = diff
+	st := staff(t, one, SpawnRequest{Brief: reviewBrief})
+	if st.Model.Key() != "claude/opus" || !strings.Contains(why(st), "different-from-author fell back") {
+		t.Errorf("fallback any: %s: %s", st.Model.Key(), why(st))
+	}
+}
+
+// A model with no known price (CostUSD 0) is the most expensive, not the
+// cheapest, under the cheapest rule; with every price unknown the stated
+// order decides.
+func TestCheapestTreatsAnUnknownPriceAsTheMostExpensive(t *testing.T) {
+	unpriced := haiku
+	unpriced.CostUSD = 0
+	pick := func(roster []Model, pairs ...string) string {
+		s := &Staffer{Roster: roster, Lead: opus, Purposes: map[string]agentpurposes.Setting{"coding": set("cheapest", pairs...)}}
+		return staff(t, s, SpawnRequest{Brief: codeBrief}).Model.Key()
+	}
+	if got := pick([]Model{opus, unpriced}, "claude/haiku", "claude/opus"); got != "claude/opus" {
+		t.Errorf("an unpriced model won the cheapest rule: %s", got)
+	}
+	unpricedGPT := gpt
+	unpricedGPT.CostUSD = 0
+	if got := pick([]Model{unpriced, unpricedGPT}, "codex/gpt-5.5", "claude/haiku"); got != "codex/gpt-5.5" {
+		t.Errorf("all unpriced: %s, want the stated order", got)
 	}
 }

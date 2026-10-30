@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -125,7 +126,11 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 			pol.label = limits[0]
 		}
 		if len(inter) == 0 {
-			return nil, fmt.Errorf("purpose %s: the models the operator chose for these have none in common, so no model may run this worker; ask the operator to change the sets in Settings", pol.label)
+			use := "ask the operator to reconcile the sets with `agent purposes`"
+			if !st.Builtin {
+				use = "use a built-in role (limited only by its own purpose) or " + use
+			}
+			return nil, fmt.Errorf("purpose %s: the models the operator chose for these have none in common, so no model may run this worker; %s", pol.label, use)
 		}
 		pol.set.Pairs, pol.limited = inter, true
 		in := slices.DeleteFunc(slices.Clone(*eligible), func(m Model) bool { return m.Stale || !pol.set.Has(m.Runtime, modelID(m)) })
@@ -151,9 +156,11 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 			if len(others) > 0 {
 				*eligible = others
 				pol.notes = append(pol.notes, "purpose "+pol.label+": a different model than the author "+pol.author)
-			} else {
+			} else if fallbackAny {
 				pol.notes = append(pol.notes, "purpose "+pol.label+": only one validated model can run this, so it is the author's own "+pol.author+" (different-from-author fell back)")
 				pol.author = ""
+			} else {
+				return nil, fmt.Errorf("purpose %s: the operator wants a different model than the author %s, and no other validated model can run this worker; ask the operator to add a model with `agent purposes` or to allow the fallback (--fallback any)", pol.label, pol.author)
 			}
 		}
 	}
@@ -183,12 +190,7 @@ func (p *purposePolicy) pick(eligible, bad []Model) (Model, bool) {
 	}
 	switch p.rule {
 	case agentpurposes.RuleOrder:
-		for _, pair := range p.set.Pairs {
-			if i := slices.IndexFunc(eligible, func(m Model) bool { return m.Key() == pair.Key() }); i >= 0 {
-				return eligible[i], true
-			}
-		}
-		return eligible[0], true
+		return p.firstStated(eligible), true
 	case agentpurposes.RuleCheapest:
 		fits := slices.DeleteFunc(slices.Clone(eligible), func(m Model) bool {
 			return slices.ContainsFunc(bad, func(b Model) bool { return b.Key() == m.Key() })
@@ -196,15 +198,39 @@ func (p *purposePolicy) pick(eligible, bad []Model) (Model, bool) {
 		if len(fits) == 0 {
 			fits = eligible
 		}
+		// An unknown price (CostUSD 0) is the most expensive; when every price is
+		// unknown the stated order decides.
+		if !slices.ContainsFunc(fits, func(m Model) bool { return m.CostUSD > 0 }) {
+			return p.firstStated(fits), true
+		}
 		best := fits[0]
 		for _, m := range fits[1:] {
-			if m.CostUSD < best.CostUSD || m.CostUSD == best.CostUSD && m.LatencyMs < best.LatencyMs {
+			if costRank(m) < costRank(best) || costRank(m) == costRank(best) && m.LatencyMs < best.LatencyMs {
 				best = m
 			}
 		}
 		return best, true
 	}
 	return Model{}, false
+}
+
+// firstStated is the candidate that comes first in the operator's stated
+// order, else the first candidate.
+func (p *purposePolicy) firstStated(candidates []Model) Model {
+	for _, pair := range p.set.Pairs {
+		if i := slices.IndexFunc(candidates, func(m Model) bool { return m.Key() == pair.Key() }); i >= 0 {
+			return candidates[i]
+		}
+	}
+	return candidates[0]
+}
+
+// costRank orders models by price, an unknown price (0) last.
+func costRank(m Model) float64 {
+	if m.CostUSD <= 0 {
+		return math.Inf(1)
+	}
+	return m.CostUSD
 }
 
 // permits is whether the operator's set for purpose (all: the sets read for
