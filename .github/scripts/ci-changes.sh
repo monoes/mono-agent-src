@@ -113,13 +113,29 @@ excluded_from_nosocial() {
   local line tag='!?[A-Za-z0-9_.]+'
   [[ "$1" == *.go ]] && [ -f "$root/$1" ] || return 1
   # Only the file header counts (as for the Go tool): scanning stops at the
-  # `package` clause, block comments are skipped, and the line must start at
-  # column 0. The same text in a raw string or comment later is not a constraint.
+  # `package` clause (any whitespace after it, after optional comments, even a
+  # block comment closed on the same line), block comments are skipped, and the
+  # constraint line must start at column 0. The same text in a raw string or comment later is not a constraint.
   line="$(awk '
-    inblk { if (index($0, "*/")) inblk = 0; next }
-    /^\/\*/ { if (!index($0, "*/")) inblk = 1; next }
-    /^package / { exit }
-    /^\/\/go:build/ { print; exit }
+    {
+      s = $0
+      if (inblk) {
+        i = index(s, "*/")
+        if (!i) next
+        s = substr(s, i + 2)
+        inblk = 0
+      } else if (s ~ /^\/\//) {
+        if (s ~ /^\/\/go:build/) { print; exit }
+        next
+      }
+      while (s ~ /^[ \t]*\/\*/) {
+        sub(/^[ \t]*\/\*/, "", s)
+        i = index(s, "*/")
+        if (!i) { inblk = 1; next }
+        s = substr(s, i + 2)
+      }
+      if (s ~ /^[ \t]*package([ \t\r]|$)/) exit
+    }
   ' "$root/$1")"
   [ -n "$line" ] || return 1
   line="${line%"${line##*[![:space:]]}"}"
