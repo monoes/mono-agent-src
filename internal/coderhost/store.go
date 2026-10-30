@@ -118,6 +118,8 @@ type Store struct {
 	afterReserveReads func()
 	// afterSpawnSessionCreated runs in SpawnSession between the task session's creation and the ledger write (tests only: a crash there).
 	afterSpawnSessionCreated func()
+	// afterSweepRead runs in SweepSpawnIntents between its read of the due intents and its claims (tests only).
+	afterSweepRead func()
 	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
 	afterChildCreated func()
 	// beforeCleanupDelete runs in abandonSpawn right before the conversation's delete (tests only).

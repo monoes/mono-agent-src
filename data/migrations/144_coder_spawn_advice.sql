@@ -13,15 +13,20 @@ CREATE TABLE IF NOT EXISTS coder_spawn_advice (
 );
 
 -- The spawn intent: written before a spawn creates anything and dropped, in one transaction with the acceptance row of
--- the decisions ledger, when the spawn is complete. A row that outlives its lease belongs to a spawn that crashed (or
--- whose cleanup failed): the host's sweep removes the child session and its draft task session and drops the row. While
--- a row exists the same request (spawner and scope hash) is refused, so a crash cannot be followed by a second child.
+-- the decisions ledger, when the spawn is complete. At most ONE intent exists per spawner (the key), whatever the
+-- request, so a lead cannot pile up unresolved spawns. state is 'pending' while the spawn runs and 'sweeping' once the
+-- host's sweep has claimed it; generation names the claim: the spawn is created with one, the sweep's claim bumps it,
+-- and every write of the spawn (the child, the finish) carries its own, so an old spawn can never touch the claim of
+-- the sweep or a replacement intent. A pending row that outlives its lease belongs to a spawn that crashed (or whose
+-- cleanup failed): the sweep claims it, removes the child session and its draft task session, and drops the row.
 -- child is the conversation the spawn made, set once it is linked below the spawner. Additive only.
 CREATE TABLE IF NOT EXISTS coder_spawn_intents (
     profile_id TEXT NOT NULL,
     spawner    TEXT NOT NULL,
     scope_hash TEXT NOT NULL,
     child      TEXT NOT NULL DEFAULT '',
+    state      TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'sweeping')),
+    generation INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
-    PRIMARY KEY (profile_id, spawner, scope_hash)
+    PRIMARY KEY (profile_id, spawner)
 );

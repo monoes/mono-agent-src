@@ -168,13 +168,13 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 		return SessionSpawned{}, ErrSpawnAdvice
 	}
 	// The spawn is not one operation: the conversation, its link and carve, the task session and then the acceptance row
-	// are separate writes. An INTENT row (spawn_intent.go) is written first and ends, in one transaction with the
+	// are separate writes. An INTENT row (spawn_intent.go, one per lead) is written first and ends, in one transaction with the
 	// acceptance row, only when everything is in place; a crash in between leaves the intent for the host's sweep, and
-	// until then a repeat of the same request is refused. The acceptance is a master row nothing rotates out, so it is
+	// until then any further spawn of the same lead is refused. The acceptance is a master row nothing rotates out, so it is
 	// written only once every check of the spawn (access, runtime, model, folder, the limits, the carve, the task
 	// session) has passed, in the last step before the first message. A failed write undoes the spawn.
-	intent := spawnIntent{profile: profile, spawner: c.ConversationID, hash: hash}
-	if err := s.openSpawnIntent(profile, c.ConversationID, hash); err != nil {
+	intent, err := s.openSpawnIntent(profile, c.ConversationID, hash)
+	if err != nil {
 		return SessionSpawned{}, err
 	}
 	var made tasks.Session
@@ -191,7 +191,7 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 			if s.afterSpawnSessionCreated != nil {
 				s.afterSpawnSessionCreated()
 			}
-			if err := s.finishSpawn(c, title, req, facts, adv.Why, hash); err != nil {
+			if err := s.finishSpawn(c, title, req, facts, adv.Why, intent); err != nil {
 				return fmt.Errorf("the spawn was not recorded in the decisions ledger, so it was not made: %w", err)
 			}
 			return nil

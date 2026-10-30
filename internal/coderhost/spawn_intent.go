@@ -1,23 +1,25 @@
 package coderhost
 
 import (
-	"context"
-	"database/sql"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"time"
-
-	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // The spawn intent (coder_spawn_intents, migration 144). A session_spawn makes several things in separate
 // operations: the conversation, its link and carve, the task session, and then the acceptance row of the decisions
 // ledger. A process that dies in between must not leave a child nobody was told about. So the spawn writes an INTENT
-// row first (one row per spawner and request, so a second spawn of the same request is refused while it exists) and
-// ends it, in one transaction with the acceptance row, only when everything is in place. A row that outlives its
-// lease belongs to a spawn that crashed or whose cleanup failed: the host's sweep (Tick) removes the pair it made.
+// row first (one row per spawner, so a second spawn of that lead is refused while it exists) and ends it, in one
+// transaction with the acceptance row, only when everything is in place. A row that outlives its lease belongs to a
+// spawn that crashed or whose cleanup failed: the host's sweep (Tick) removes the pair it made.
+//
+// Who owns an intent is decided by its generation, never by a read. The spawn is created with one; the sweep (and a
+// spawn that undoes itself) CLAIMS the row with a single guarded UPDATE that sets state='sweeping' and bumps the
+// generation, and acts only if that UPDATE changed one row. The spawn's own writes (its child, its finish) are
+// guarded by its generation and state='pending', so after a claim the spawn can no longer finish and the sweep can no
+// longer claim a spawn that has finished. Only one intent exists per spawner, whatever the request.
 //
 // The sweep always REMOVES a draft pair and never completes it: the lead never learned the child's id and the
 // first message was not sent (it is queued after the intent ends), so a completed child would be an idle session
@@ -26,187 +28,115 @@ import (
 // is left alone and gets its acceptance row, so an approved session is never torn down.
 
 // SpawnIntentLease is how long an intent may stay before the sweep treats its spawn as dead. A spawn takes
-// milliseconds; the lease only has to be longer than the slowest one.
-const SpawnIntentLease = 2 * time.Minute
+// milliseconds; the lease only has to be longer than the slowest one. An intent whose child is still unnamed
+// (the spawn has not created the conversation yet, or died just after) waits SpawnCreateLeases leases: dropping it
+// early could leave a conversation the intent never learned of, so the longer wait is the simple safe choice
+// (the alternative, searching for fresh child sessions of the spawner with no task session, would guess).
+const (
+	SpawnIntentLease  = 2 * time.Minute
+	SpawnCreateLeases = 3
+)
 
-// spawnIntentsPerSweep bounds the work of one Tick.
-const spawnIntentsPerSweep = 20
+// ErrSpawnPending refuses a spawn while an earlier spawn of this lead has not finished (or been cleaned up).
+var ErrSpawnPending = fmt.Errorf("%w: an earlier spawn of yours is unfinished (it may have been interrupted); it is cleaned up within a few minutes, then repeat the request", ErrLimit)
 
-// ErrSpawnPending refuses a spawn of a request whose earlier spawn has not finished (or been cleaned up).
-var ErrSpawnPending = fmt.Errorf("%w: an earlier spawn of this same request is unfinished (it may have been interrupted); it is cleaned up within a few minutes, then repeat the request", ErrLimit)
-
-// errIntentGone: the spawn's intent was ended by the host's sweep before the spawn finished.
+// errIntentGone: the spawn's intent was claimed by the host's sweep (or removed) before the spawn finished.
 var errIntentGone = errors.New("the spawn's intent was ended by the host's sweep before the spawn finished")
 
-// finishSpawn is the end of an accepted spawn: the acceptance row and the end of the intent, in ONE transaction, so
-// either the ledger holds the acceptance and nothing is pending, or the intent is still there for the sweep. It
-// refuses when the intent is gone (the sweep removed the pair), which makes the spawn undo itself.
-func (s *Store) finishSpawn(c Caller, title string, req SessionSpawnRequest, f SpawnFacts, why, hash string) error {
+type spawnIntent struct {
+	profile, spawner, hash, child string
+	gen                           int64
+}
+
+// newGeneration is the unpredictable first generation of an intent: a replacement intent for the same spawner never
+// carries the number of the one it replaced, so a late write of the old spawn cannot match it.
+func newGeneration() (int64, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return 0, err
+	}
+	return int64(binary.BigEndian.Uint64(b[:])>>2) + 1, nil
+}
+
+// finishSpawn is the end of an accepted spawn: the end of the intent and the acceptance row, in ONE transaction.
+// It succeeds only while the row still has this spawn's generation and is pending; otherwise the sweep has claimed
+// it, nothing is written to the ledger and the spawn undoes itself.
+func (s *Store) finishSpawn(c Caller, title string, req SessionSpawnRequest, f SpawnFacts, why string, in spawnIntent) error {
+	return s.completeIntent(c, title, req, f, why, in, "pending")
+}
+
+// completeIntent ends the intent in the given state (pending: the spawn's own finish; sweeping: the sweep adopting
+// an approved pair) and writes the acceptance row, both or neither.
+func (s *Store) completeIntent(c Caller, title string, req SessionSpawnRequest, f SpawnFacts, why string, in spawnIntent, state string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
-	if _, err := s.recordIn(tx, spawnEntry(c, title, req, f, AdviceAccept, why)); err != nil {
-		return err
-	}
-	res, err := tx.Exec(`DELETE FROM coder_spawn_intents WHERE profile_id = ? AND spawner = ? AND scope_hash = ?`, c.ProfileID, c.ConversationID, hash)
+	res, err := tx.Exec(`DELETE FROM coder_spawn_intents WHERE profile_id = ? AND spawner = ? AND generation = ? AND state = ?`, in.profile, in.spawner, in.gen, state)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return errIntentGone
 	}
+	if _, err := s.recordIn(tx, spawnEntry(c, title, req, f, AdviceAccept, why)); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
-type spawnIntent struct{ profile, spawner, hash, child string }
+// openSpawnIntent writes the intent and returns it with its generation; any intent of this spawner that exists
+// already refuses the spawn.
+func (s *Store) openSpawnIntent(profile, spawner, hash string) (spawnIntent, error) {
+	gen, err := newGeneration()
+	if err != nil {
+		return spawnIntent{}, err
+	}
+	res, err := s.db.Exec(`INSERT OR IGNORE INTO coder_spawn_intents (profile_id, spawner, scope_hash, child, state, generation, created_at) VALUES (?, ?, ?, '', 'pending', ?, ?)`, profile, spawner, hash, gen, s.stamp())
+	if err != nil {
+		return spawnIntent{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return spawnIntent{}, ErrSpawnPending
+	}
+	return spawnIntent{profile: profile, spawner: spawner, hash: hash, gen: gen}, nil
+}
 
-// openSpawnIntent writes the intent; one that exists already refuses the spawn.
-func (s *Store) openSpawnIntent(profile, spawner, hash string) error {
-	res, err := s.db.Exec(`INSERT OR IGNORE INTO coder_spawn_intents (profile_id, spawner, scope_hash, child, created_at) VALUES (?, ?, ?, '', ?)`, profile, spawner, hash, s.stamp())
+// setIntentChild names the conversation the spawn made, once it is linked below the spawner. It fails when the row
+// is no longer this spawn's pending intent, which makes the spawn undo itself.
+func (s *Store) setIntentChild(in spawnIntent, child string) error {
+	res, err := s.db.Exec(`UPDATE coder_spawn_intents SET child = ? WHERE profile_id = ? AND spawner = ? AND generation = ? AND state = 'pending'`, child, in.profile, in.spawner, in.gen)
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrSpawnPending
+	if n, _ := res.RowsAffected(); n != 1 {
+		return errIntentGone
 	}
 	return nil
 }
 
-// setIntentChild names the conversation the spawn made, once it is linked below the spawner.
-func (s *Store) setIntentChild(in spawnIntent, child string) error {
-	_, err := s.db.Exec(`UPDATE coder_spawn_intents SET child = ? WHERE profile_id = ? AND spawner = ? AND scope_hash = ?`, child, in.profile, in.spawner, in.hash)
-	return err
-}
-
-func (s *Store) readIntent(in spawnIntent) (spawnIntent, bool, error) {
-	err := s.db.QueryRow(`SELECT child FROM coder_spawn_intents WHERE profile_id = ? AND spawner = ? AND scope_hash = ?`, in.profile, in.spawner, in.hash).Scan(&in.child)
+// claimIntent takes the row with one guarded UPDATE: it must have the generation the caller saw and be claimable
+// (pending and past its lease; or already sweeping, which is a retry of an unfinished cleanup). ok is false when
+// somebody else changed or ended the row. The returned intent carries the new generation and the child as it is now.
+func (s *Store) claimIntent(in spawnIntent, leaseCut, createCut string) (spawnIntent, bool, error) {
+	res, err := s.db.Exec(`UPDATE coder_spawn_intents SET state = 'sweeping', generation = generation + 1
+		WHERE profile_id = ? AND spawner = ? AND scope_hash = ? AND generation = ?
+		AND ((state = 'pending' AND created_at < ? AND (child != '' OR created_at < ?)) OR state = 'sweeping')`,
+		in.profile, in.spawner, in.hash, in.gen, leaseCut, createCut)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return in, false, nil
-		}
 		return in, false, err
 	}
-	return in, true, nil
+	if n, _ := res.RowsAffected(); n != 1 {
+		return in, false, nil
+	}
+	in.gen++
+	err = s.db.QueryRow(`SELECT child FROM coder_spawn_intents WHERE profile_id = ? AND spawner = ? AND generation = ?`, in.profile, in.spawner, in.gen).Scan(&in.child)
+	return in, err == nil, err
 }
 
-// SweepSpawnIntents ends the spawns whose intent is older than the lease: at most limit of them per call, each
-// scoped to its own profile, an unreadable or failing one left for the next pass. It returns how many it ended.
-func (s *Store) SweepSpawnIntents(ctx context.Context, limit int) (int, error) {
-	cutoff := s.now().UTC().Add(-SpawnIntentLease).Format(timeLayout)
-	rows, err := s.db.Query(`SELECT profile_id, spawner, scope_hash, child FROM coder_spawn_intents WHERE created_at < ? ORDER BY created_at LIMIT ?`, cutoff, limit)
-	if err != nil {
-		return 0, err
-	}
-	var due []spawnIntent
-	for rows.Next() {
-		var in spawnIntent
-		if err := rows.Scan(&in.profile, &in.spawner, &in.hash, &in.child); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		due = append(due, in)
-	}
-	rows.Close()
-	ended := 0
-	var first error
-	for _, in := range due {
-		if err := s.endSpawn(ctx, in); err != nil {
-			if first == nil {
-				first = fmt.Errorf("ending the unfinished spawn of %s: %w", in.spawner, err)
-			}
-			continue
-		}
-		ended++
-	}
-	return ended, first
-}
-
-// endSpawn removes what an unfinished spawn made and drops its intent. Every step is idempotent and the intent
-// goes last, so a failure anywhere leaves it for the next pass. The conversation is deleted only while it is still
-// the child of this spawner (a corrupt or reused value cannot name another chat).
-func (s *Store) endSpawn(ctx context.Context, in spawnIntent) error {
-	if in.child != "" {
-		adopted, err := s.stopDraftPair(ctx, in)
-		if err != nil {
-			return err
-		}
-		if adopted {
-			return s.dropIntent(in) // the operator approved it: it stays, with its acceptance row
-		}
-		if x, ok, err := s.GetSession(in.profile, in.child); err != nil {
-			return err
-		} else if ok && x.Role == "child" && x.Parent == in.spawner {
-			if err := s.deleteIfNotOwnedByAnother(in.profile, 0, 0, 0, in.child); err != nil && !errors.Is(err, ai.ErrConversationNotFound) {
-				return err
-			}
-		}
-	}
-	return s.dropIntent(in)
-}
-
-// endSpawnNow is endSpawn for a spawn that failed in this process: it reads the intent's child as written so far.
-func (s *Store) endSpawnNow(ctx context.Context, in spawnIntent) error {
-	cur, ok, err := s.readIntent(in)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil // already ended
-	}
-	return s.endSpawn(ctx, cur)
-}
-
+// dropIntent ends a claimed intent (the generation is the claim's).
 func (s *Store) dropIntent(in spawnIntent) error {
-	_, err := s.db.Exec(`DELETE FROM coder_spawn_intents WHERE profile_id = ? AND spawner = ? AND scope_hash = ?`, in.profile, in.spawner, in.hash)
+	_, err := s.db.Exec(`DELETE FROM coder_spawn_intents WHERE profile_id = ? AND spawner = ? AND generation = ?`, in.profile, in.spawner, in.gen)
 	return err
-}
-
-// stopDraftPair stops the draft task session(s) the spawn created for the child conversation (a task session of the
-// spawner's own session, linked to the child). A session no longer draft was approved by the operator: it is left
-// running and gets the acceptance row that was missing (adopted = true).
-func (s *Store) stopDraftPair(ctx context.Context, in spawnIntent) (adopted bool, err error) {
-	rows, err := s.db.Query(`SELECT id, state, title, kind FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = ''
-		AND parent_session_id IN (SELECT id FROM task_sessions WHERE profile_id = ? AND conversation_id = ?)`, in.profile, in.child, in.profile, in.spawner)
-	if err != nil {
-		return false, err
-	}
-	type pair struct {
-		id                 int64
-		state, title, kind string
-	}
-	var found []pair
-	for rows.Next() {
-		var p pair
-		if err := rows.Scan(&p.id, &p.state, &p.title, &p.kind); err != nil {
-			rows.Close()
-			return false, err
-		}
-		found = append(found, p)
-	}
-	rows.Close()
-	ts := tasks.NewStore(s.db)
-	for _, p := range found {
-		switch tasks.SessionState(p.state) {
-		case tasks.SessionDraft:
-			if _, err := ts.StopSession(ctx, in.profile, p.id, leadActor(in.spawner, p.id, in.child)); err != nil {
-				return false, fmt.Errorf("stopping the draft task session #%d: %w", p.id, err)
-			}
-		case tasks.SessionRunning, tasks.SessionPaused:
-			c := Caller{ProfileID: in.profile, ConversationID: in.spawner}
-			if err := s.finishSpawn(c, p.title, SessionSpawnRequest{Kind: p.kind, Reason: "recovered"}, SpawnFacts{}, "the host's sweep found the pair approved after an interrupted spawn", in.hash); err != nil && !errors.Is(err, errIntentGone) {
-				return false, err
-			}
-			adopted = true
-		}
-	}
-	return adopted, nil
-}
-
-// sweepSpawnIntents is the host's pass: it runs on every Tick, bounded, and never stops the tick.
-func (h *Host) sweepSpawnIntents() {
-	if _, err := h.Store.SweepSpawnIntents(context.Background(), spawnIntentsPerSweep); err != nil {
-		log.Printf("coder host: spawn intent sweep: %v", err)
-	}
 }
