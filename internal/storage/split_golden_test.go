@@ -125,7 +125,7 @@ func TestTriggerMigrationSplitsIntoStatementsSQLiteAccepts(t *testing.T) {
 	}
 }
 
-// The peer-credential tables (148) carry ten triggers, each split whole and ending in its END, with the
+// The peer-credential tables (148) carry fifteen triggers, each split whole and ending in its END, with the
 // WHEN conditions (a subquery, EXISTS, quoted strftime arguments) left inside the statement.
 func TestProcbindMigrationTriggersSplitWhole(t *testing.T) {
 	raw, err := data.MigrationsFS.ReadFile("migrations/148_procbind_v2_tables.sql")
@@ -148,8 +148,8 @@ func TestProcbindMigrationTriggersSplitWhole(t *testing.T) {
 			tables++
 		}
 	}
-	if triggers != 10 || tables != 5 {
-		t.Errorf("%d triggers and %d tables, want 10 and 5", triggers, tables)
+	if triggers != 15 || tables != 5 {
+		t.Errorf("%d triggers and %d tables, want 15 and 5", triggers, tables)
 	}
 }
 

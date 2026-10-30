@@ -2907,3 +2907,13 @@ unauthenticated and returns the server version.
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,
 covered by the classes above.
+
+**Peer-credential binding records (storage only).** Migration 148 adds insert-only tables for a
+future process binding anchored in kernel peer credentials (design:
+`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). Nothing uses them yet. Their rows
+cannot be updated, and can be deleted only once their expiry is more than 7 days past; no operation
+is exempt. A profile delete therefore leaves the profile's rows in those tables in place (its output
+lists them): they hold hashes, MACs, a pid and a start stamp and no secret, and they are inert once
+the profile is gone. The retention sweep that removes them later does not exist yet, so until it
+ships they persist. A writer of the database who drops the triggers is the same-user database writer
+this document already treats as out of scope.

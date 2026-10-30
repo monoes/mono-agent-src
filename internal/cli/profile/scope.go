@@ -56,6 +56,32 @@ var retainedOnDelete = map[string]string{
 	"procbind_host":           "append-only log; the newest row is never removable, older ones by the retention sweep",
 }
 
+// retainedRows counts the profile's rows in the tables a delete leaves in place (retainedOnDelete).
+func retainedRows(ctx context.Context, q scopeQuerier, id string) ([]profileTable, error) {
+	var scope []scopeEntry
+	for tbl := range retainedOnDelete {
+		var n int
+		if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n > 0 { // a database from before the migration has no such table
+			scope = append(scope, scopeEntry{Table: tbl, Where: `profile_id = @p`})
+		}
+	}
+	return countScope(ctx, q, scope, id)
+}
+
+// printKept says which rows a delete leaves in place and why, so nobody expects them to be gone.
+func printKept(kept []profileTable) {
+	if len(kept) == 0 {
+		return
+	}
+	fmt.Println("Kept (insert-only binding records; they hold no secret and are inert once the profile is gone, and stay until a retention sweep removes them after their expiry plus 7 days; that sweep does not exist yet):")
+	for _, t := range kept {
+		fmt.Printf("  %-32s %d\n", t.Table, t.Rows)
+	}
+}
+
 // profileScope lists, for the database q reads, every table with rows of the
 // profile: tables with a profile_id column, the tables that hang under them
 // through ON DELETE CASCADE (so they are counted too), and derivedScope. The

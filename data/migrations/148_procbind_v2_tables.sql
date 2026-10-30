@@ -9,7 +9,7 @@
 -- exempt table or operation. The retention window is fixed in the triggers; a DELETE of a row inside it
 -- fails, with or without the vault key (a writer who drops the triggers is the database-writer case the
 -- design excludes). Timestamps are the same text form as agent_tokens (2006-01-02T15:04:05.000Z), so
--- they compare as strings.
+-- they compare as strings; a CHECK holds every one of them to exactly that form, so retention can read them.
 
 CREATE TABLE IF NOT EXISTS agent_tokens_v2 (
     id               TEXT PRIMARY KEY,
@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS agent_tokens_v2 (
     mission_task     INTEGER NOT NULL DEFAULT 0,
     mission_role     TEXT NOT NULL DEFAULT '',
     mission_actor    TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL,
-    expires_at       TEXT NOT NULL,
+    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    expires_at       TEXT NOT NULL CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     version          INTEGER NOT NULL,
     mac              TEXT NOT NULL
 );
@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS coder_session_tokens_v2 (
     token_hash       TEXT NOT NULL UNIQUE,
     conversation_id  TEXT NOT NULL,
     turn_id          TEXT NOT NULL,
-    created_at       TEXT NOT NULL,
-    expires_at       TEXT NOT NULL,
+    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    expires_at       TEXT NOT NULL CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     version          INTEGER NOT NULL,
     mac              TEXT NOT NULL
 );
@@ -50,18 +50,20 @@ CREATE TABLE IF NOT EXISTS process_bindings (
     worker_stamp     TEXT NOT NULL,
     host_generation  TEXT NOT NULL,
     version          INTEGER NOT NULL,
-    created_at       TEXT NOT NULL,
-    expires_at       TEXT NOT NULL,
+    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    expires_at       TEXT NOT NULL CHECK (expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     mac              TEXT NOT NULL
 );
 
 -- A revocation follows the token it revokes and is kept until that token is long expired.
 CREATE TABLE IF NOT EXISTS token_revocations_v2 (
-    token_id         TEXT PRIMARY KEY,
+    token_kind       TEXT NOT NULL CHECK (token_kind IN ('mission', 'session')),
+    token_id         TEXT NOT NULL,
     profile_id       TEXT NOT NULL,
     reason           TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL,
-    mac              TEXT NOT NULL
+    created_at       TEXT NOT NULL CHECK (created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
+    mac              TEXT NOT NULL,
+    PRIMARY KEY (token_kind, token_id)
 );
 
 -- Host starts: one row per start, the highest seq of a profile is the current generation. It protects the
@@ -70,7 +72,7 @@ CREATE TABLE IF NOT EXISTS procbind_host (
     profile_id       TEXT NOT NULL,
     seq              INTEGER NOT NULL,
     generation       TEXT NOT NULL,
-    started_at       TEXT NOT NULL,
+    started_at       TEXT NOT NULL CHECK (started_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'),
     mac              TEXT NOT NULL,
     PRIMARY KEY (profile_id, seq)
 );
@@ -98,12 +100,15 @@ CREATE TRIGGER IF NOT EXISTS trg_process_bindings_retention BEFORE DELETE ON pro
 WHEN OLD.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')
 BEGIN SELECT RAISE(ABORT, 'procbind: the row is within its retention window'); END;
 
--- A revocation: removable when the token it revokes (either kind) expired more than 7 days ago; with no
--- token row left, when the revocation itself is more than 7 days old.
+-- A revocation: removable when the token of ITS kind expired more than 7 days ago (a mission token and a
+-- session token may share an id, so the kind picks the table); with no token row left, when the
+-- revocation itself is more than 7 days old.
 CREATE TRIGGER IF NOT EXISTS trg_token_revocations_v2_retention BEFORE DELETE ON token_revocations_v2
 WHEN COALESCE(
-        (SELECT expires_at FROM agent_tokens_v2 WHERE id = OLD.token_id),
-        (SELECT expires_at FROM coder_session_tokens_v2 WHERE id = OLD.token_id),
+        CASE OLD.token_kind
+            WHEN 'mission' THEN (SELECT expires_at FROM agent_tokens_v2 WHERE id = OLD.token_id)
+            ELSE (SELECT expires_at FROM coder_session_tokens_v2 WHERE id = OLD.token_id)
+        END,
         OLD.created_at) > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')
 BEGIN SELECT RAISE(ABORT, 'procbind: the row is within its retention window'); END;
 
@@ -113,3 +118,22 @@ CREATE TRIGGER IF NOT EXISTS trg_procbind_host_retention BEFORE DELETE ON procbi
 WHEN OLD.started_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')
   OR NOT EXISTS (SELECT 1 FROM procbind_host WHERE profile_id = OLD.profile_id AND seq > OLD.seq)
 BEGIN SELECT RAISE(ABORT, 'procbind: the row is the newest or within its retention window'); END;
+
+-- REPLACE, INSERT OR REPLACE and an upsert replace a row without firing the DELETE or UPDATE triggers above
+-- (recursive triggers are off), so an insert whose key already exists is refused outright, whatever its
+-- conflict clause.
+CREATE TRIGGER IF NOT EXISTS trg_agent_tokens_v2_no_replace BEFORE INSERT ON agent_tokens_v2
+WHEN EXISTS (SELECT 1 FROM agent_tokens_v2 WHERE id = NEW.id OR token_hash = NEW.token_hash)
+BEGIN SELECT RAISE(ABORT, 'procbind: rows are insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_coder_session_tokens_v2_no_replace BEFORE INSERT ON coder_session_tokens_v2
+WHEN EXISTS (SELECT 1 FROM coder_session_tokens_v2 WHERE id = NEW.id OR token_hash = NEW.token_hash)
+BEGIN SELECT RAISE(ABORT, 'procbind: rows are insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_process_bindings_no_replace BEFORE INSERT ON process_bindings
+WHEN EXISTS (SELECT 1 FROM process_bindings WHERE token_id = NEW.token_id)
+BEGIN SELECT RAISE(ABORT, 'procbind: rows are insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_token_revocations_v2_no_replace BEFORE INSERT ON token_revocations_v2
+WHEN EXISTS (SELECT 1 FROM token_revocations_v2 WHERE token_kind = NEW.token_kind AND token_id = NEW.token_id)
+BEGIN SELECT RAISE(ABORT, 'procbind: rows are insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_procbind_host_no_replace BEFORE INSERT ON procbind_host
+WHEN EXISTS (SELECT 1 FROM procbind_host WHERE profile_id = NEW.profile_id AND seq = NEW.seq)
+BEGIN SELECT RAISE(ABORT, 'procbind: rows are insert-only'); END;

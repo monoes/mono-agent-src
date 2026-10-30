@@ -330,10 +330,10 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	}
 	exp := time.Now().UTC().Add(time.Hour).Format("2006-01-02T15:04:05.000Z")
 	for _, q := range []string{
-		`INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('m1', ?, 'h1', 'c', ?, 2, 'm')`,
-		`INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s1', ?, 'h2', 'c', 't', 'c', ?, 2, 'm')`,
-		`INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('m1', ?, 's', 'peercred', 1, 's', 'g', 2, 'c', ?, 'm')`,
-		`INSERT INTO token_revocations_v2 (token_id, profile_id, reason, created_at, mac) VALUES ('m1', ?, 'r', ?, 'm')`,
+		`INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('m1', ?, 'h1', '2026-10-30T00:00:00.000Z', ?, 2, 'm')`,
+		`INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s1', ?, 'h2', 'c', 't', '2026-10-30T00:00:00.000Z', ?, 2, 'm')`,
+		`INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('m1', ?, 's', 'peercred', 1, 's', 'g', 2, '2026-10-30T00:00:00.000Z', ?, 'm')`,
+		`INSERT INTO token_revocations_v2 (token_kind, token_id, profile_id, reason, created_at, mac) VALUES ('mission', 'm1', ?, 'r', ?, 'm')`,
 		`INSERT INTO procbind_host (profile_id, seq, generation, started_at, mac) VALUES (?, 1, 'g', ?, 'm')`,
 	} {
 		if _, err := db.DB.Exec(q, id, exp); err != nil {
@@ -341,9 +341,35 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 		}
 	}
 	db.Close()
-	if _, err := runProfileCmd(t, dbPath, "delete", id, "--yes-delete-profile", "doomed"); err != nil {
+	keptOf := func(out string) map[string]int {
+		var res profileImpact
+		if err := json.Unmarshal([]byte(out), &res); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+		got := map[string]int{}
+		for _, k := range res.KeptUntilRetention {
+			got[k.Table] = k.Rows
+		}
+		return got
+	}
+	checkKept := func(what string, got map[string]int) {
+		for tbl := range retainedOnDelete {
+			if got[tbl] != 1 {
+				t.Errorf("%s does not say that %s keeps 1 row (kept: %v)", what, tbl, got)
+			}
+		}
+	}
+	// the summary and the delete's own output both say which rows stay, and why they do
+	sum, err := runCaptured(t, dbPath, "delete", id, "--summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkKept("delete --summary", keptOf(sum))
+	out, err := runCaptured(t, dbPath, "delete", id, "--yes-delete-profile", "doomed")
+	if err != nil {
 		t.Fatalf("the delete failed because of insert-only rows: %v", err)
 	}
+	checkKept("the delete output", keptOf(out))
 	db, err = storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
