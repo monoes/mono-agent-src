@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"syscall"
@@ -129,18 +130,11 @@ func (s *Server) Serve(l unixAcceptor) error {
 			_ = c.Close()
 			continue
 		}
-		// the peer's own share is checked first, so a flooder spends its own allowance and not the shared rate
-		cs, why := s.track.admit(pid, c)
+		// the peer's own share is checked first, so a flooder spends its own allowance and not the shared
+		// rate; the shared token is taken inside admit, before any other connection is touched
+		cs, why := s.track.admit(pid, c, s.takeRateToken)
 		if cs == nil {
 			s.logf("procbind: refused a connection of pid %d: %s", pid, why)
-			_ = c.Close()
-			continue
-		}
-		select {
-		case <-s.bucket:
-		default:
-			s.logf("procbind: connection rate exceeded")
-			s.track.release(cs)
 			_ = c.Close()
 			continue
 		}
@@ -148,6 +142,16 @@ func (s *Server) Serve(l unixAcceptor) error {
 			defer s.track.release(cs)
 			s.serve(c, cs)
 		}()
+	}
+}
+
+// takeRateToken takes one token of the shared connection rate, if there is one.
+func (s *Server) takeRateToken() bool {
+	select {
+	case <-s.bucket:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -168,10 +172,11 @@ func peerPID(c *net.UnixConn) (int, error) {
 	return int(cred.Pid), nil
 }
 
-// connState is one tracked connection; idle until its request has been read.
+// connState is one tracked connection; idle until the first byte of its request has arrived.
 type connState struct {
 	c       *net.UnixConn
 	pid     int
+	seq     uint64 // admission order, for choosing the oldest idle connection
 	idle    bool
 	removed bool
 }
@@ -187,70 +192,110 @@ type peerState struct {
 // peer with the most. A process that floods the service is held to its share (and its idle connections
 // are the first to go) instead of denying everyone else.
 type tracker struct {
-	mu      sync.Mutex
-	max     int
-	perPeer int
-	perRate int
-	total   int
-	peers   map[int]*peerState
+	mu       sync.Mutex
+	max      int
+	perPeer  int
+	perRate  int
+	total    int
+	seq      uint64
+	peers    map[int]*peerState
+	lastPrun time.Time
+	now      func() time.Time // time.Now unless a test supplies a clock
 }
 
-func (t *tracker) admit(pid int, c *net.UnixConn) (*connState, string) {
+func (t *tracker) clock() time.Time {
+	if t.now != nil {
+		return t.now()
+	}
+	return time.Now()
+}
+
+// maxPeerRecords bounds the peer table. Peers with a connection are at most max (one connection each at
+// least); the rest are idle records kept only until their allowance has refilled.
+func maxPeerRecords(t *tracker) int { return t.max + 1024 }
+
+// admit decides one new connection of the peer pid. The peer's own rate and cap are checked first. If
+// every slot is taken, a victim is chosen but NOT yet touched; only when the shared rate token
+// (takeGlobal) has been taken is the victim closed and the newcomer admitted, so a refused newcomer
+// never costs another connection its slot.
+func (t *tracker) admit(pid int, c *net.UnixConn, takeGlobal func() bool) (*connState, string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	now := t.clock()
+	t.prune(now)
 	p := t.peers[pid]
-	if p == nil {
-		p = &peerState{tokens: float64(t.perRate), last: time.Now()}
-		t.peers[pid] = p
+	isNew := p == nil
+	if isNew {
+		p = &peerState{tokens: float64(t.perRate), last: now}
 	}
-	now := time.Now()
-	p.tokens += now.Sub(p.last).Seconds() * float64(t.perRate)
-	if p.tokens > float64(t.perRate) {
-		p.tokens = float64(t.perRate)
+	tokens := p.tokens + now.Sub(p.last).Seconds()*float64(t.perRate)
+	if tokens > float64(t.perRate) {
+		tokens = float64(t.perRate)
 	}
-	p.last = now
-	if p.tokens < 1 {
-		t.dropIfEmpty(pid, p)
+	if tokens < 1 {
 		return nil, "peer connection rate exceeded"
 	}
 	if len(p.conns) >= t.perPeer {
 		return nil, "peer connection limit reached"
 	}
-	if t.total >= t.max && !t.evictFromHeaviest(len(p.conns)) {
-		t.dropIfEmpty(pid, p)
-		return nil, "no free slot"
+	var victim *connState
+	var victimPeer *peerState
+	var victimPID int
+	if t.total >= t.max {
+		if victim, victimPeer, victimPID = t.pickVictim(len(p.conns)); victim == nil {
+			return nil, "no free slot"
+		}
 	}
-	p.tokens--
-	cs := &connState{c: c, pid: pid, idle: true}
+	if !takeGlobal() {
+		return nil, "connection rate exceeded"
+	}
+	if victim != nil {
+		t.remove(victimPeer, victim)
+		_ = victimPID
+		_ = victim.c.Close() // its handler sees a closed connection and ends
+	}
+	if isNew {
+		if len(t.peers) >= maxPeerRecords(t) {
+			t.dropOldestEmpty()
+		}
+		t.peers[pid] = p
+	}
+	p.tokens, p.last = tokens-1, now
+	t.seq++
+	cs := &connState{c: c, pid: pid, seq: t.seq, idle: true}
 	p.conns = append(p.conns, cs)
 	t.total++
 	return cs, ""
 }
 
-// evictFromHeaviest closes one idle connection of the peer holding the most, provided that peer holds
-// more than the newcomer does (mine); it reports whether a slot was freed.
-func (t *tracker) evictFromHeaviest(mine int) bool {
-	var heavy *peerState
-	var heavyPID int
+// pickVictim chooses the connection to take when every slot is busy: among the peers that hold more
+// connections than the newcomer (mine) and have an idle one, the peer with the most; among equals the one
+// whose oldest idle connection is the oldest. The choice does not depend on map order.
+func (t *tracker) pickVictim(mine int) (*connState, *peerState, int) {
+	var best *connState
+	var bestPeer *peerState
+	bestPID, bestN := 0, 0
 	for pid, p := range t.peers {
-		if heavy == nil || len(p.conns) > len(heavy.conns) {
-			heavy, heavyPID = p, pid
+		if len(p.conns) <= mine {
+			continue
+		}
+		var oldest *connState
+		for _, cs := range p.conns {
+			if cs.idle && (oldest == nil || cs.seq < oldest.seq) {
+				oldest = cs
+			}
+		}
+		if oldest == nil {
+			continue
+		}
+		if best == nil || len(p.conns) > bestN || (len(p.conns) == bestN && oldest.seq < best.seq) {
+			best, bestPeer, bestPID, bestN = oldest, p, pid, len(p.conns)
 		}
 	}
-	if heavy == nil || len(heavy.conns) <= mine {
-		return false
-	}
-	for _, cs := range heavy.conns {
-		if cs.idle {
-			t.remove(heavyPID, heavy, cs)
-			_ = cs.c.Close() // its handler sees a closed connection and ends
-			return true
-		}
-	}
-	return false
+	return best, bestPeer, bestPID
 }
 
-func (t *tracker) remove(pid int, p *peerState, cs *connState) {
+func (t *tracker) remove(p *peerState, cs *connState) {
 	if cs.removed {
 		return
 	}
@@ -262,14 +307,33 @@ func (t *tracker) remove(pid int, p *peerState, cs *connState) {
 		}
 	}
 	t.total--
-	t.dropIfEmpty(pid, p)
 }
 
-// dropIfEmpty forgets a peer with no connection and a full allowance, so the table does not grow with
-// every pid that ever connected.
-func (t *tracker) dropIfEmpty(pid int, p *peerState) {
-	if len(p.conns) == 0 && p.tokens >= float64(t.perRate) {
-		delete(t.peers, pid)
+// prune forgets peers with no connection whose allowance has had time to refill (a full burst takes
+// perRate/perRate = 1 s), at most once a second; a reused pid then starts from a full allowance.
+func (t *tracker) prune(now time.Time) {
+	if now.Sub(t.lastPrun) < time.Second && len(t.peers) < maxPeerRecords(t) {
+		return
+	}
+	t.lastPrun = now
+	for pid, p := range t.peers {
+		if len(p.conns) == 0 && now.Sub(p.last) >= time.Second {
+			delete(t.peers, pid)
+		}
+	}
+}
+
+// dropOldestEmpty makes room in a full table by forgetting the idle record seen longest ago.
+func (t *tracker) dropOldestEmpty() {
+	oldestPID, found := 0, false
+	var oldest time.Time
+	for pid, p := range t.peers {
+		if len(p.conns) == 0 && (!found || p.last.Before(oldest)) {
+			oldestPID, oldest, found = pid, p.last, true
+		}
+	}
+	if found {
+		delete(t.peers, oldestPID)
 	}
 }
 
@@ -277,18 +341,45 @@ func (t *tracker) release(cs *connState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if p := t.peers[cs.pid]; p != nil {
-		t.remove(cs.pid, p, cs)
+		t.remove(p, cs)
 	}
 }
 
-// busy marks a connection whose request has been read: it is working, not waiting, and is not evicted.
-func (t *tracker) busy(cs *connState) {
+// busy marks a connection whose request has begun to arrive: it is working, not waiting, and is not
+// evicted. It reports false if the connection was already taken, so the handler stops instead of
+// answering on a closed connection.
+func (t *tracker) busy(cs *connState) bool {
 	if cs == nil {
-		return
+		return true
 	}
 	t.mu.Lock()
+	defer t.mu.Unlock()
+	if cs.removed {
+		return false
+	}
 	cs.idle = false
-	t.mu.Unlock()
+	return true
+}
+
+var errEvicted = errors.New("procbind: the connection was taken for another peer")
+
+// busyReader marks its connection busy, atomically with the first byte read, and fails if the
+// connection had been taken before that.
+type busyReader struct {
+	r      io.Reader
+	mark   func() bool
+	marked bool
+}
+
+func (b *busyReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	if n > 0 && !b.marked {
+		b.marked = true
+		if !b.mark() {
+			return 0, errEvicted
+		}
+	}
+	return n, err
 }
 
 // noFDReader reads from a unix connection and refuses ancillary data: a file descriptor passed to
@@ -438,11 +529,14 @@ func (s *Server) serve(c *net.UnixConn, cs *connState) {
 		_ = c.SetReadDeadline(d) // a verifier that does not send its request promptly is dropped
 	}
 	var req wireRequest
-	if err := readFrame(noFDReader{c}, &req); err != nil {
+	var in io.Reader = noFDReader{c}
+	if cs != nil { // from the first byte on, the connection is working and cannot be taken
+		in = &busyReader{r: in, mark: func() bool { return s.track.busy(cs) }}
+	}
+	if err := readFrame(in, &req); err != nil {
 		s.logf("procbind: request: %v", err)
 		return
 	}
-	s.track.busy(cs)
 	nv, err := hex.DecodeString(req.NV)
 	if req.V != protoVersion || err != nil || len(nv) != NonceLen ||
 		subtle.ConstantTimeCompare([]byte(req.NS), []byte(nsHex)) != 1 ||
