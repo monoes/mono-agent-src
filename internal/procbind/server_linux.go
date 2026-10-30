@@ -41,10 +41,16 @@ type Server struct {
 	// Rate is the connections accepted per second (and the burst); 100 by default. An excess
 	// connection is closed without a hello.
 	Rate int
+	// MaxPerPeer is how many connections one peer process may hold at once (4 by default), and
+	// PerPeerRate the connections per second (and burst) one peer process may open (10 by default).
+	// A same-uid process that floods the service is held to its own share instead of taking every
+	// slot and the whole rate, which would make every other verification fail closed.
+	MaxPerPeer  int
+	PerPeerRate int
 
 	once   sync.Once
-	sem    chan struct{}
 	bucket chan struct{}
+	track  tracker
 	// peerOf reads the other end's credentials; tests replace it to stand in for a peer the
 	// service cannot see. It is the real kernel lookup otherwise.
 	peerOf func(*net.UnixConn) (unix.Ucred, int, error)
@@ -117,24 +123,172 @@ func (s *Server) Serve(l unixAcceptor) error {
 			continue
 		}
 		backoff = 0
-		select {
-		case <-s.bucket:
-		default:
-			s.logf("procbind: connection rate exceeded")
+		pid, err := peerPID(c)
+		if err != nil {
+			s.logf("procbind: peer credentials: %v", err)
+			_ = c.Close()
+			continue
+		}
+		// the peer's own share is checked first, so a flooder spends its own allowance and not the shared rate
+		cs, why := s.track.admit(pid, c)
+		if cs == nil {
+			s.logf("procbind: refused a connection of pid %d: %s", pid, why)
 			_ = c.Close()
 			continue
 		}
 		select {
-		case s.sem <- struct{}{}:
-			go func() {
-				defer func() { <-s.sem }()
-				s.ServeConn(c)
-			}()
+		case <-s.bucket:
 		default:
-			s.logf("procbind: too many connections")
+			s.logf("procbind: connection rate exceeded")
+			s.track.release(cs)
 			_ = c.Close()
+			continue
+		}
+		go func() {
+			defer s.track.release(cs)
+			s.serve(c, cs)
+		}()
+	}
+}
+
+// peerPID is the pid the kernel reports for the other end, read before anything else is done for it.
+func peerPID(c *net.UnixConn) (int, error) {
+	rc, err := c.SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	var cred *unix.Ucred
+	var cerr error
+	if err := rc.Control(func(fd uintptr) { cred, cerr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) }); err != nil {
+		return 0, err
+	}
+	if cerr != nil {
+		return 0, cerr
+	}
+	return int(cred.Pid), nil
+}
+
+// connState is one tracked connection; idle until its request has been read.
+type connState struct {
+	c       *net.UnixConn
+	pid     int
+	idle    bool
+	removed bool
+}
+
+type peerState struct {
+	conns  []*connState
+	tokens float64
+	last   time.Time
+}
+
+// tracker keeps the connections of each peer process: a cap per peer, a connection rate per peer, and,
+// when every slot is taken, the right of a peer with fewer connections to take an idle slot from the
+// peer with the most. A process that floods the service is held to its share (and its idle connections
+// are the first to go) instead of denying everyone else.
+type tracker struct {
+	mu      sync.Mutex
+	max     int
+	perPeer int
+	perRate int
+	total   int
+	peers   map[int]*peerState
+}
+
+func (t *tracker) admit(pid int, c *net.UnixConn) (*connState, string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	p := t.peers[pid]
+	if p == nil {
+		p = &peerState{tokens: float64(t.perRate), last: time.Now()}
+		t.peers[pid] = p
+	}
+	now := time.Now()
+	p.tokens += now.Sub(p.last).Seconds() * float64(t.perRate)
+	if p.tokens > float64(t.perRate) {
+		p.tokens = float64(t.perRate)
+	}
+	p.last = now
+	if p.tokens < 1 {
+		t.dropIfEmpty(pid, p)
+		return nil, "peer connection rate exceeded"
+	}
+	if len(p.conns) >= t.perPeer {
+		return nil, "peer connection limit reached"
+	}
+	if t.total >= t.max && !t.evictFromHeaviest(len(p.conns)) {
+		t.dropIfEmpty(pid, p)
+		return nil, "no free slot"
+	}
+	p.tokens--
+	cs := &connState{c: c, pid: pid, idle: true}
+	p.conns = append(p.conns, cs)
+	t.total++
+	return cs, ""
+}
+
+// evictFromHeaviest closes one idle connection of the peer holding the most, provided that peer holds
+// more than the newcomer does (mine); it reports whether a slot was freed.
+func (t *tracker) evictFromHeaviest(mine int) bool {
+	var heavy *peerState
+	var heavyPID int
+	for pid, p := range t.peers {
+		if heavy == nil || len(p.conns) > len(heavy.conns) {
+			heavy, heavyPID = p, pid
 		}
 	}
+	if heavy == nil || len(heavy.conns) <= mine {
+		return false
+	}
+	for _, cs := range heavy.conns {
+		if cs.idle {
+			t.remove(heavyPID, heavy, cs)
+			_ = cs.c.Close() // its handler sees a closed connection and ends
+			return true
+		}
+	}
+	return false
+}
+
+func (t *tracker) remove(pid int, p *peerState, cs *connState) {
+	if cs.removed {
+		return
+	}
+	cs.removed = true
+	for i, x := range p.conns {
+		if x == cs {
+			p.conns = append(p.conns[:i], p.conns[i+1:]...)
+			break
+		}
+	}
+	t.total--
+	t.dropIfEmpty(pid, p)
+}
+
+// dropIfEmpty forgets a peer with no connection and a full allowance, so the table does not grow with
+// every pid that ever connected.
+func (t *tracker) dropIfEmpty(pid int, p *peerState) {
+	if len(p.conns) == 0 && p.tokens >= float64(t.perRate) {
+		delete(t.peers, pid)
+	}
+}
+
+func (t *tracker) release(cs *connState) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if p := t.peers[cs.pid]; p != nil {
+		t.remove(cs.pid, p, cs)
+	}
+}
+
+// busy marks a connection whose request has been read: it is working, not waiting, and is not evicted.
+func (t *tracker) busy(cs *connState) {
+	if cs == nil {
+		return
+	}
+	t.mu.Lock()
+	cs.idle = false
+	t.mu.Unlock()
 }
 
 // noFDReader reads from a unix connection and refuses ancillary data: a file descriptor passed to
@@ -203,8 +357,15 @@ func (s *Server) init() {
 		if r <= 0 {
 			r = 100
 		}
-		s.sem = make(chan struct{}, n)
 		s.bucket = make(chan struct{}, r)
+		per, perRate := s.MaxPerPeer, s.PerPeerRate
+		if per <= 0 {
+			per = 4
+		}
+		if perRate <= 0 {
+			perRate = 10
+		}
+		s.track = tracker{max: n, perPeer: per, perRate: perRate, peers: map[int]*peerState{}}
 		for i := 0; i < r; i++ {
 			s.bucket <- struct{}{}
 		}
@@ -228,7 +389,10 @@ func (s *Server) timeout() time.Duration {
 // ServeConn handles one connection and closes it. A connection that cannot be served (a peer of
 // another uid, one the service cannot see, a malformed or slow request, a passed descriptor) is
 // closed without an answer, which the verifier reads as not answered, a deny.
-func (s *Server) ServeConn(c *net.UnixConn) {
+func (s *Server) ServeConn(c *net.UnixConn) { s.serve(c, nil) }
+
+// serve is ServeConn with the connection's tracking state, when it has one (Serve gives it one).
+func (s *Server) serve(c *net.UnixConn, cs *connState) {
 	s.init()
 	defer c.Close()
 	// a failure inside the registry or the walk ends this connection, never the host process
@@ -278,6 +442,7 @@ func (s *Server) ServeConn(c *net.UnixConn) {
 		s.logf("procbind: request: %v", err)
 		return
 	}
+	s.track.busy(cs)
 	nv, err := hex.DecodeString(req.NV)
 	if req.V != protoVersion || err != nil || len(nv) != NonceLen ||
 		subtle.ConstantTimeCompare([]byte(req.NS), []byte(nsHex)) != 1 ||
