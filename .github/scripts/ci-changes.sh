@@ -151,6 +151,15 @@ while IFS= read -r f || [ -n "$f" ]; do
       all=1
       continue
       ;;
+    # Root-module tests read these wails-app files (guards that walk the repository's
+    # Go files, the app manifest, shared JSON fixtures), so they are Go changes too.
+    wails-app/*.go | wails-app/wails.json | wails-app/*/__fixtures__/*)
+      code=1
+      go=1
+      wails=1
+      nosocial=1
+      continue
+      ;;
     wails-app/*)
       code=1
       wails=1
