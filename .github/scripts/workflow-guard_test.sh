@@ -2,6 +2,12 @@
 # Static guard for the public repository, as an ALLOWLIST over the parsed YAML:
 #  - no workflow may trigger on pull_request_target or workflow_run, in any form
 #    (string, list or mapping under `on:`);
+#  - the sanctioned routing expression reaches vars.CI_RUNNER ONLY for a pull_request
+#    event whose head repository is this repository (push, tags, dispatch, schedule
+#    and release runs are hosted: the release guard accepts a green push run as proof);
+#  - in a job that can route to CI_RUNNER, every actions/setup-go step sets
+#    `cache: ${{ runner.environment == 'github-hosted' }}` (or false): a persistent
+#    runner keeps its module cache, and restoring the archive onto it only fails noisily;
 #  - every job's runs-on must be exactly the sanctioned routing expression, or
 #    one of ubuntu-latest / windows-latest / macos-latest, or ${{ matrix.os }}
 #    where every matrix os value is one of those hosted labels.
@@ -39,8 +45,9 @@ def _mapping(loader, node, deep=False):
             seen.add(k.value)
     return yaml.SafeLoader.construct_mapping(loader, node, deep)
 Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
-SANCTIONED = ("${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) "
+SANCTIONED = ("${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) "
               "&& vars.CI_RUNNER) || '\"ubuntu-latest\"') }}")
+SETUP_GO_CACHE = "${{ runner.environment == 'github-hosted' }}"
 HOSTED = {"ubuntu-latest", "windows-latest", "macos-latest"}
 BAD_TRIGGERS = {"pull_request_target", "workflow_run"}
 bad = 0
@@ -70,7 +77,14 @@ for f in files:
                 continue  # local reusable workflow: the callee's runs-on is checked in its own file
             fail(f, f"job {name}: `uses: {u}` is not a local ./ reusable workflow"); continue
         ro = job.get("runs-on")
-        if ro == SANCTIONED or (isinstance(ro, str) and ro in HOSTED):
+        if ro == SANCTIONED:
+            for i, st in enumerate(job.get("steps") or []):
+                if str(st.get("uses", "")).startswith("actions/setup-go@"):
+                    c = (st.get("with") or {}).get("cache")
+                    if c is not False and c != SETUP_GO_CACHE:
+                        fail(f, f"job {name}: step {i} setup-go cache is {c!r}, want {SETUP_GO_CACHE!r} (CI_RUNNER-routable job)")
+            continue
+        if isinstance(ro, str) and ro in HOSTED:
             continue
         if ro == "${{ matrix.os }}":
             m = (job.get("strategy") or {}).get("matrix") or {}
@@ -93,7 +107,7 @@ fi
 # Mutation fixtures: each must be rejected.
 d="$(mktemp -d)"
 trap 'find "$d" -mindepth 1 -delete; rmdir "$d"' EXIT
-sanctioned="\${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
+sanctioned="\${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
 mutant() { # NAME ON-BLOCK RUNS-ON-BLOCK [EXTRA-JOB-LINES]
   local m="$d/$1"
   mkdir -p "$m"
@@ -118,6 +132,10 @@ mutant on-block-list       $'\n  - push\n  - pull_request_target' ' ubuntu-lates
 mutant on-target-mapping   $'\n  pull_request_target:'    ' ubuntu-latest'
 mutant matrix-custom-os    ' push'                          ' ${{ matrix.os }}' $'    strategy:\n      matrix:\n        os: [ubuntu-latest, monoes-local]\n'
 mutant matrix-no-os        ' push'                          ' ${{ matrix.os }}' $'    strategy:\n      matrix:\n        x: [1]\n'
+# A non-pull_request run must never reach CI_RUNNER (the release guard accepts a green push run).
+mutant routes-push-old-expr    ' push'                          " \${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
+mutant routes-push-or-true     ' push'                          " \${{ fromJSON(((github.event_name == 'pull_request' || github.event_name == 'push') && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
+mutant routes-no-event-test    ' push'                          " \${{ fromJSON((github.event.pull_request.head.repo.full_name == github.repository && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
 mutant pinned-label        ' push'                          ' ubuntu-22.04'
 
 # Job-level `uses:` (a reusable workflow call): only a LOCAL callee is allowed (it is
@@ -139,6 +157,18 @@ rawmutant duplicate-runs-on        $'on: [push]\njobs:\n  a:\n    runs-on: monoe
 rawmutant duplicate-runs-on-rev    $'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    runs-on: monoes-local\n    steps:\n      - run: true' reject
 rawmutant merge-key                $'on: [push]\njobs:\n  a:\n    <<: {runs-on: monoes-local}\n    runs-on: ubuntu-latest\n    steps:\n      - run: true' reject
 rawmutant yaml-tag                 $'on: [push]\njobs:\n  a:\n    runs-on: !!str monoes-local\n    steps:\n      - run: true' reject
+
+# setup-go in a CI_RUNNER-routable job must not restore the build cache on a persistent runner.
+sg_job() { # NAME WITH-BLOCK WANT
+  rawmutant "$1" "$(printf 'on: [pull_request]\njobs:\n  a:\n    runs-on: %s\n    steps:\n      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e\n%s' "$sanctioned" "$2")" "$3"
+}
+sg_job setup-go-no-cache-key    $'        with:\n          go-version-file: go.mod' reject
+sg_job setup-go-no-with         '' reject
+sg_job setup-go-cache-true      $'        with:\n          cache: true' reject
+sg_job setup-go-cache-string    $'        with:\n          cache: "true"' reject
+sg_job setup-go-cache-hosted    $'        with:\n          cache: ${{ runner.environment == '"'"'github-hosted'"'"' }}' accept
+sg_job setup-go-cache-false     $'        with:\n          cache: false' accept
+rawmutant setup-go-hosted-job-keeps-cache $'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e' accept
 
 # Every .github/scripts/*_test.sh must be run by ci.yml, so a test cannot silently drop out of CI.
 unreferenced() { # SCRIPTS_DIR CI_YML -> prints each *_test.sh the workflow never names

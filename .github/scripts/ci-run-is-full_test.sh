@@ -84,6 +84,8 @@ def name(c):
     return tmpl.replace("${{ matrix.tags }}", c["tags"]).replace("${{ matrix.shard }}", c["shard"])
 want = {name(c) for c in cells if c["tags"] == "default"}
 want.add(wf["jobs"]["test"]["name"])
+# internal/agentbox needs a real host root and nested bwrap, so it runs in its own hosted job, not in a shard
+want.add(wf["jobs"]["agentbox-test"]["name"])
 got = {l.strip() for l in open(sys.argv[2]) if l.strip() and not l.lstrip().startswith("#")}
 if want != got:
     print("missing from the list:", sorted(want - got)); print("not in ci.yml:", sorted(got - want)); sys.exit(1)
