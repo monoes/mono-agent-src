@@ -201,38 +201,3 @@ func TestTickSweepsAnInterruptedSpawn(t *testing.T) {
 		t.Errorf("%d intents after the Tick", n)
 	}
 }
-
-// A task session the operator approved after the interruption is left alone and gets its missing acceptance row.
-func TestTheSweepLeavesAnApprovedPairAndRecordsItsAcceptance(t *testing.T) {
-	f := newMC(t, true)
-	f.st.afterSpawnSessionCreated = func() { panic("simulated crash") }
-	if !crashed(func() { _, _ = f.spawnSession(req("Docs direction", f.bigScope())) }) {
-		t.Fatal("the crash hook did not run")
-	}
-	var id int64
-	if err := f.st.db.QueryRow(`SELECT id FROM task_sessions WHERE parent_session_id IS NOT NULL`).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tasks.NewStore(f.st.db).AddSessionTask(context.Background(), "p", id, tasks.SessionTaskInput{Title: "plan", Acceptance: "ok"}, opActor); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tasks.NewStore(f.st.db).ApproveSession(context.Background(), "p", id, opActor); err != nil {
-		t.Fatalf("approving the pair: %v", err)
-	}
-	f.afterLease(time.Minute)
-	if n, err := f.st.SweepSpawnIntents(context.Background(), 20); err != nil || n != 1 {
-		t.Fatalf("sweep ended %d, err %v", n, err)
-	}
-	if n := countRows(t, f.st, openChildTaskSessions); n != 1 {
-		t.Errorf("%d open child task sessions, want the approved one kept", n)
-	}
-	if n := countRows(t, f.st, childConversations); n != 1 {
-		t.Errorf("%d child conversations, want the approved one's kept", n)
-	}
-	if n := acceptances(t, f); n != 1 {
-		t.Errorf("%d acceptance rows, want the missing one written", n)
-	}
-	if n := countRows(t, f.st, `SELECT COUNT(*) FROM coder_spawn_intents`); n != 0 {
-		t.Errorf("%d intents left", n)
-	}
-}

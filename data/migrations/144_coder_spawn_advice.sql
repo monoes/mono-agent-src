@@ -19,14 +19,20 @@ CREATE TABLE IF NOT EXISTS coder_spawn_advice (
 -- and every write of the spawn (the child, the finish) carries its own, so an old spawn can never touch the claim of
 -- the sweep or a replacement intent. A pending row that outlives its lease belongs to a spawn that crashed (or whose
 -- cleanup failed): the sweep claims it, removes the child session and its draft task session, and drops the row.
+-- A claim stamps claimed_at and counts in attempts: a claimed row is claimed again only after a lease that doubles with
+-- every attempt, and after 5 attempts, or as soon as the child's task session is no longer a draft (the operator
+-- approved it), the row becomes 'needs-operator': nothing is touched any more and the lead stays blocked until a person
+-- looks at it.
 -- child is the conversation the spawn made, set once it is linked below the spawner. Additive only.
 CREATE TABLE IF NOT EXISTS coder_spawn_intents (
     profile_id TEXT NOT NULL,
     spawner    TEXT NOT NULL,
     scope_hash TEXT NOT NULL,
     child      TEXT NOT NULL DEFAULT '',
-    state      TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'sweeping')),
+    state      TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'sweeping', 'needs-operator')),
     generation INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
+    claimed_at TEXT NOT NULL DEFAULT '',
+    attempts   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (profile_id, spawner)
 );

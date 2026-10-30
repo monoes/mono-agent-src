@@ -179,6 +179,7 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 	}
 	var made tasks.Session
 	out, err := s.spawnWith(c, SpawnRequest{Scoped: req.Kind == tasks.SessionKindResearch, BudgetUSD: budget, Access: req.Access, Runtime: req.Runtime, Model: req.Model}, spawnHooks{
+		keep:      draftOnlyGuard(profile), // the undo never deletes a conversation whose task session the operator approved
 		onCreated: func(conv string) error { return s.setIntentChild(intent, conv) },
 		beforeMessage: func(conv string) error {
 			var err error

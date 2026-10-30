@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -385,6 +386,10 @@ type spawnHooks struct {
 	// The reservation the spawn runs for (a mission task); zero for an ordinary spawn. The spawn's own undo
 	// leaves a conversation that any other row owns (see deleteIfNotOwnedByAnother).
 	sessionID, taskID, generation int64
+
+	// keep, when set, joins the undo's delete guard (it runs in the delete's own transaction): the conversation stays
+	// when it returns false.
+	keep func(ctx context.Context, c *sql.Conn, conversationID string) (bool, error)
 }
 
 // spawnWith is Spawn with hooks; every limit of Spawn applies to every caller.
@@ -441,7 +446,13 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	if err != nil {
 		return Spawned{}, err
 	}
-	undo := func() { _ = s.deleteIfNotOwnedByAnother(c.ProfileID, hk.sessionID, hk.taskID, hk.generation, conv.ID) }
+	undo := func() {
+		var extra func(context.Context, *sql.Conn) (bool, error)
+		if hk.keep != nil {
+			extra = func(ctx context.Context, c2 *sql.Conn) (bool, error) { return hk.keep(ctx, c2, conv.ID) }
+		}
+		_ = s.deleteIfNotOwnedByAnotherAnd(c.ProfileID, hk.sessionID, hk.taskID, hk.generation, conv.ID, extra)
+	}
 	if _, err := s.EnsureSession(c.ProfileID, conv.ID); err != nil {
 		undo()
 		return Spawned{}, err
