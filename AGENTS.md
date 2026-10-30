@@ -2855,7 +2855,7 @@ monoagentcli --profile work coder host stop                        # the host on
   `--allow-mutations`). `settings set` through a token may change only `checkin_minutes`, `skip_if_unchanged`,
   `checkin_triggers`, `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias` (`AgentAdjustable`, an
   allowlist; a test fails for a setting in neither list); limits, autonomy, mesh_accept, role, access, unattended
-  and budget are the operator's. A spawn needs a **master** with room under `max_children`, `max_depth` (the
+  and budget are the operator's. A spawn needs a **master**, or a child with room (`max_children` above 0: a child below the working depth gets one), under `max_children`, `max_depth` (the
   working depth, default 3, at most 4; a master is level 1) and a rate of 6 per 10 minutes; the child runs the master's runtime,
   model and folder (or a folder inside it), at most the master's access capped at `workspace` and never `full`
   (an operator raises that), and its `--budget-usd` is carved out of the master's cap (`settings set
@@ -2876,17 +2876,19 @@ monoagentcli --profile work coder host stop                        # the host on
   `runtime` and `model` may only repeat the lead's own: the child runs the runtime, model and provider of the session that
   starts it. It creates the child coder session and a named task session below the lead's, through the task store's
   `CreateSession` (so its ceilings, including a closed or archived ancestor, apply), with no budget of its own and at
-  most 25 tasks; a failure of the second removes the first. The lead's task session must be running. Spawn advisory
+  most 25 tasks (the new chat's budget cap is computed from the lead's task session, not from the lead's chat: the request may ask for at most 40% of what that session has left, 20% of it when the request names none, and it is refused when nothing is left, `childShare`; a lead whose session has no budget gets what it asked for); a failure of the second removes the first. The lead's task session must be running. Spawn advisory
   (`coderhost.AdviseSpawn`, a pure function): a request whose scope is small (at most 3 open tasks of size `s` or smaller
   read from `task_ids`, one writer, no parallel branch) is refused once with "doable in this session" (code `advice`);
   the repeat with a reason that applies is accepted. The one refusal is remembered in `coder_spawn_advice` (migration 144).
-  Every refusal is a decisions-ledger row of the model; the accepting row (`scope_growth`, master) is written only once the
-  spawn is made. A `research` session runs `scoped`. Task children of a mission (the launcher) additionally need the
+  A refusal for a limit (`limit`), the advisory refusal, and a spawn that failed after it started ("not made") are each a
+  decisions-ledger row of the model; refusals of the gate, of the input (title, kind, reason, task ids), of a session that is
+  not running and of a share the lead cannot afford are returned to the lead and leave no row. The accepting row
+  (`scope_growth`, master) is written only once the spawn is made. A `research` session runs `scoped`. Task children of a mission (the launcher) additionally need the
   operator-only switch `coder.mission_children_enabled`; sessions started by `session_spawn` are not mission task children
   and do not go through Reserve or that switch.
   A `session_spawn` is not one write: an intent row (`coder_spawn_intents`, migration 144) is written first and ends in
   one transaction with the acceptance row; the host's sweep (every Tick, bounded, per profile) removes the child and its
-  draft task session of an intent older than the lease (2 minutes), and while an intent exists the same request is refused. A task session no longer a draft is never touched: the intent becomes `needs-operator` (logged, still blocking that lead). The operator lists the held intents with `coder sessions spawn-intents list` (it also shows the generation) and ends one with `resolve SPAWNER --generation N (--keep | --discard) --confirm "resolve spawn intent"`: operator only (the gate runs before anything is read or opened), only a `needs-operator` row at that generation; `--keep` writes one acceptance row and leaves the child and its task session, `--discard` removes a draft pair the way the sweep does and refuses an approved or running one. `doctor` warns while one is held. A claimed row is re-claimed only after a lease that doubles per attempt (2 minutes first), and 5 failed cleanups also end in `needs-operator`. An orphan child whose crash fell between creating and naming it is not guessed (see SECURITY.md).
+  draft task session of an intent older than the lease (2 minutes), and while an intent exists every `session_spawn` of that lead is refused, not only the same request. An intent whose child is already named is ended after the lease (2 minutes, doubling per attempt); one with no child yet (the spawn died before naming it) waits 3 leases, about 6 minutes, because the child may still be created. A task session no longer a draft is never touched: the intent becomes `needs-operator` (logged, still blocking that lead). The operator lists the held intents with `coder sessions spawn-intents list` (it also shows the generation) and ends one with `resolve SPAWNER --generation N (--keep | --discard) --confirm "resolve spawn intent"`: operator only (the gate runs before anything is read or opened), only a `needs-operator` row at that generation; `--keep` writes one acceptance row and leaves the child and its task session, `--discard` removes a draft pair the way the sweep does and refuses an approved or running one. `doctor` warns while one is held. A claimed row is re-claimed only after a lease that doubles per attempt (2 minutes first), and 5 failed cleanups also end in `needs-operator`. An orphan child whose crash fell between creating and naming it is not guessed (see SECURITY.md).
   Spawn churn has no cumulative cap: the bound is the per-master rate limit (6 per 10 minutes) and the per-tree live cap (12).
 - **Reading questions and decisions.** `sessions questions list` and `sessions decisions list|show` need the
   operator's terminal or a session token. Under a token they show only the caller's own session and its
@@ -2937,7 +2939,7 @@ monoagentcli --profile work coder host stop                        # the host on
      `--budget-usd 1` (refused: it does not fit); `coder sessions status <master-conv>` shows carved and left; a
      capped turn runs with `--budget-usd` equal to what is left; a runtime that reports no cost counts as 0
      (kilo is refused for a capped session).
-  2. *Spawn limits:* a child that tries `spawn` is refused (it is at the working depth, so it has no room for children; depth is 3 by default); a master past
+  2. *Spawn limits:* a child at the working depth that tries `spawn` is refused (it has no room for children; at the default depth 3 that is a level-3 child, while a level-2 child gets `max_children` 4 and may spawn); a master past
      `max_children` is refused; the 7th spawn within 10 minutes is refused; `--access full` is not accepted
      (`coding|workspace` only) and a child is never above its master's access.
   3. *`answer-` turns:* `coder sessions questions list <conv>`, then `coder sessions questions answer <conv> <id>
