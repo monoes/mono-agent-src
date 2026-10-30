@@ -48,7 +48,7 @@ func TestSessionTreeCeilingProperty(t *testing.T) {
 	done := map[string]int{}
 	for seed := int64(1); seed <= 200; seed++ {
 		profile := addProfile(t, db, fmt.Sprintf("seed%d", seed))
-		runCeilingSeed(t, s, profile, seed, done)
+		runCeilingSeed(t, s, profile, seed, done, false)
 	}
 	for _, op := range []string{"lower", "raise", "stop", "archive", "create-operator", "create-agent", "approve"} {
 		if done[op] == 0 {
@@ -93,13 +93,29 @@ func floorOf(byID map[int64]Session, parent int64) ceilingFloor {
 	return f
 }
 
-func runCeilingSeed(t *testing.T, s *Store, profile string, seed int64, done map[string]int) {
+func runCeilingSeed(t *testing.T, s *Store, profile string, seed int64, done map[string]int, strict bool) {
 	rng := rand.New(rand.NewSource(seed))
 	var log []string
 	var ids []int64
+	hasTask := map[int64]bool{} // sessions on which AddSessionTask succeeded (the model's own record)
 	fail := func(step int, format string, a ...any) {
 		t.Helper()
 		t.Fatalf("seed %d, after op %d: %s\nop log:\n  %s", seed, step, fmt.Sprintf(format, a...), strings.Join(log, "\n  "))
+	}
+	// exact, in strict mode, holds the store to the model's verdict on an operation: a legal one is
+	// accepted and an illegal one refused.
+	exact := func(step int, kind, op string, legal bool, err error) {
+		switch {
+		case !strict:
+		case legal && err != nil:
+			fail(step, "%s was refused but is legal by the model: %v", op, err)
+		case !legal && err == nil:
+			fail(step, "%s was accepted but is illegal by the model", op)
+		case legal:
+			done["legal-"+kind]++
+		default:
+			done["illegal-"+kind]++
+		}
 	}
 	read := func() map[int64]Session {
 		m := map[int64]Session{}
@@ -162,6 +178,7 @@ func runCeilingSeed(t *testing.T, s *Store, profile string, seed int64, done map
 			over := se.ParentSessionID != 0 && updateOver(u, f)
 			_, err := s.UpdateSession(bg, profile, se.ID, u, human)
 			log = append(log, fmt.Sprintf("%s #%d %s -> err=%v", name, se.ID, showUpdate(u), err))
+			exact(step, "update", name+" #"+fmt.Sprint(se.ID), !over, err)
 			switch {
 			case over && err == nil:
 				fail(step, "update of #%d %s was accepted above its ancestors' minimum %+v", se.ID, showUpdate(u), f)
@@ -173,12 +190,14 @@ func runCeilingSeed(t *testing.T, s *Store, profile string, seed int64, done map
 		case 2:
 			_, err := s.StopSession(bg, profile, se.ID, human)
 			log = append(log, fmt.Sprintf("stop #%d -> err=%v", se.ID, err))
+			exact(step, "stop", fmt.Sprint("stop #", se.ID), isOpen(se.State) && !se.Archived, err)
 			if err == nil {
 				done["stop"]++
 			}
 		case 3:
 			_, err := s.ArchiveSession(bg, profile, se.ID, human)
 			log = append(log, fmt.Sprintf("archive #%d -> err=%v", se.ID, err))
+			exact(step, "archive", fmt.Sprint("archive #", se.ID), archivable(m, se), err)
 			if err == nil {
 				done["archive"]++
 			}
@@ -214,6 +233,7 @@ func runCeilingSeed(t *testing.T, s *Store, profile string, seed int64, done map
 			over := in.ParentSessionID != 0 && createOver(in, f)
 			got, err := s.CreateSession(bg, profile, in, actor)
 			log = append(log, fmt.Sprintf("create (%v) %+v -> err=%v", actor.Kind, in, err))
+			exact(step, "create", fmt.Sprintf("create (%v) %+v", actor.Kind, in), !over && mayCreateBelow(m, in.ParentSessionID, actor), err)
 			switch {
 			case over && err == nil:
 				fail(step, "create %+v was accepted above its ancestors' minimum %+v", in, f)
@@ -223,13 +243,18 @@ func runCeilingSeed(t *testing.T, s *Store, profile string, seed int64, done map
 				ids = append(ids, got.ID)
 				done[map[int]string{4: "create-operator", 5: "create-agent"}[kind]]++
 				// a session may refuse the task (its cap); approving it is then refused for want of one
-				_, _ = s.AddSessionTask(bg, profile, got.ID, SessionTaskInput{Title: "t", Acceptance: "done when t"}, human)
+				if _, err := s.AddSessionTask(bg, profile, got.ID, SessionTaskInput{Title: "t", Acceptance: "done when t"}, human); err == nil {
+					hasTask[got.ID] = true
+				}
 			}
 		default: // approve
 			f := floorOf(m, se.ParentSessionID)
 			want := se.State == SessionDraft && !se.Archived && se.ParentSessionID != 0 && se.BudgetUSD <= 0 && f.budget > 0
 			_, err := s.ApproveSession(bg, profile, se.ID, human)
 			log = append(log, fmt.Sprintf("approve #%d (%s, $%.0f) -> err=%v", se.ID, se.State, se.BudgetUSD, err))
+			legal := se.State == SessionDraft && !se.Archived && hasTask[se.ID] &&
+				(se.ParentSessionID == 0 || !storedOver(se, f) && (se.BudgetUSD > 0 || f.budget == 0))
+			exact(step, "approve", fmt.Sprint("approve #", se.ID), legal, err)
 			switch {
 			case want && err == nil:
 				fail(step, "approve of #%d with no budget was accepted under an ancestor budget of $%.0f", se.ID, f.budget)
@@ -241,6 +266,57 @@ func runCeilingSeed(t *testing.T, s *Store, profile string, seed int64, done map
 		}
 		checkCeilings(t, read(), func(format string, a ...any) { fail(step, format, a...) })
 	}
+}
+
+// archivable: a plain archive needs a session that is not archived, not running or paused, with no
+// open (draft, running or paused, not archived) session anywhere below it.
+func archivable(m map[int64]Session, se Session) bool {
+	if se.Archived || se.State == SessionRunning || se.State == SessionPaused {
+		return false
+	}
+	for _, k := range m {
+		for p, n := k.ParentSessionID, 0; p != 0 && n < 20; n++ {
+			if p == se.ID {
+				if !k.Archived && isOpen(k.State) {
+					return false
+				}
+				break
+			}
+			p = m[p].ParentSessionID
+		}
+	}
+	return true
+}
+
+// mayCreateBelow: apart from the limits, a session is started below a parent that is open (not
+// archived; draft, running or paused) and at level 3 or higher in the tree (the new one is at most
+// level 4), and a bound agent adds at most MaxOpenChildren open children to one parent. A top-level
+// session by the operator is always legal here.
+func mayCreateBelow(m map[int64]Session, parent int64, actor Actor) bool {
+	if parent == 0 {
+		return actor.Kind == Human
+	}
+	par := m[parent]
+	level := 0
+	for p := parent; p != 0 && level < 20; p = m[p].ParentSessionID {
+		level++
+	}
+	if par.Archived || !isOpen(par.State) || level >= HardMaxSessionDepth {
+		return false
+	}
+	kids := 0
+	for _, k := range m {
+		if k.ParentSessionID == parent && !k.Archived && isOpen(k.State) {
+			kids++
+		}
+	}
+	return actor.Kind == Human || kids < MaxOpenChildren
+}
+
+// storedOver: a session's own stored limits are above a floor (the check an approval makes).
+func storedOver(se Session, f ceilingFloor) bool {
+	return slices.Index(ceilLevels, se.AccessLevel) > f.level || se.MaxTasks > f.tasks || se.MaxDepth > f.depth ||
+		f.budget > 0 && se.BudgetUSD > f.budget
 }
 
 func updateOver(u SessionUpdate, f ceilingFloor) bool {
@@ -297,6 +373,39 @@ func checkCeilings(t *testing.T, m map[int64]Session, fail func(string, ...any))
 			fail("#%d (%s, open=%t) has budget $%.0f above its ancestors' minimum $%.0f", se.ID, se.State, open, se.BudgetUSD, f.budget)
 		case f.budget > 0 && open && se.State != SessionDraft && se.BudgetUSD <= 0:
 			fail("#%d (%s) runs with no budget under an ancestor budget of $%.0f", se.ID, se.State, f.budget)
+		}
+	}
+}
+
+// TestSessionTreeLegalOpsAreAcceptedProperty is the other half of TestSessionTreeCeilingProperty, on the
+// same generator and the same seeds (it runs runCeilingSeed in strict mode, so the diff is small and the
+// two halves cannot drift apart). THE INVARIANT: an operation that the test's model decides is LEGAL is
+// ACCEPTED by the store, and one the model decides is illegal is refused. The model decides BEFORE each
+// operation, from the rows read back, with floorOf and its own state rules. LEGAL means: an update by the
+// operator is legal when none of its fields is above the minimum over the whole ancestor chain (and a
+// budget of 0 is not asked under an ancestor budget); a create is legal when it is within that minimum
+// and the parent is open and not archived, is at level 3 or above, and, for a bound agent, has fewer than
+// MaxOpenChildren open children (an operator's top-level create is always legal); a stop is legal on a
+// draft, running or paused session that is not archived; an archive is legal on a session that is not
+// archived, not running or paused, and has no open session below it; an approve is legal on a draft,
+// not archived, that holds a task and, when it has a parent, whose stored limits are within the minimum and
+// that has a budget unless no ancestor has one. Seeds 1 to 200, 60 operations each, the same eight slots.
+// The test also fails if, in the 200 seeds, a legal and an illegal operation of each of these five kinds
+// (update, create, stop, archive, approve) never both happen. OUT OF SCOPE: the operations the generator
+// does not draw (rename, cascade archive, pause, resume, close, spend; none changes a limit or a parent), a
+// bound agent's other refusals (a task token, another session), and concurrent writers.
+func TestSessionTreeLegalOpsAreAcceptedProperty(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	done := map[string]int{}
+	for seed := int64(1); seed <= 200; seed++ {
+		profile := addProfile(t, db, fmt.Sprintf("legal%d", seed))
+		runCeilingSeed(t, s, profile, seed, done, true)
+	}
+	for _, kind := range []string{"update", "create", "stop", "archive", "approve"} {
+		for _, side := range []string{"legal-", "illegal-"} {
+			if done[side+kind] == 0 {
+				t.Errorf("no %s%s operation happened in 200 seeds: the test does not exercise it", side, kind)
+			}
 		}
 	}
 }
