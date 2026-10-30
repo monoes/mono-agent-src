@@ -795,3 +795,34 @@ func TestAGenerationOfAnotherBinderIsStale(t *testing.T) {
 		t.Errorf("the new binder's own generation was refused: %v", err)
 	}
 }
+
+// The expiry callback acts only on the entry it was armed for. A callback for an entry that is no longer the
+// registered one (same id, newer generation), even one that still looks live and expired, must neither close the
+// replacement's handle nor remove the replacement from the table.
+func TestExpiryCallbackIgnoresAnEntryThatWasReplaced(t *testing.T) {
+	b, clk := newTestBinder()
+	newH := &cHandle{}
+	newGen, err := b.Register(spec("t1"), newH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Activate("p1", "t1", newGen); err != nil {
+		t.Fatal(err)
+	}
+	// an entry for the same id that the table does not hold: not revoked, with its own handle, and expired
+	staleH := &cHandle{}
+	stale := &entry{spec: spec("t1"), gen: Generation{b.epoch, newGen.N + 100}, h: staleH, state: stateActive, closed: false}
+	stale.spec.Expires = clk.now().Add(-time.Hour)
+	b.expire(entryKey{"p1", "t1"}, stale)
+	if newH.timesClosed() != 0 {
+		t.Fatal("the callback of a replaced entry closed the replacement's handle")
+	}
+	if staleH.timesClosed() != 0 {
+		t.Fatal("the callback acted on an entry the table does not hold")
+	}
+	if l, ok := b.Acquire("t1", "p1", "session:7"); !ok {
+		t.Fatal("the callback of a replaced entry removed the replacement")
+	} else {
+		l.Release()
+	}
+}
