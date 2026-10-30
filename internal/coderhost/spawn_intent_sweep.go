@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -27,8 +28,8 @@ func (s *Store) SweepSpawnIntents(ctx context.Context, limit int) (int, error) {
 	leaseCut := now.Add(-SpawnIntentLease).Format(timeLayout)
 	createCut := now.Add(-SpawnCreateLeases * SpawnIntentLease).Format(timeLayout)
 	rows, err := s.db.Query(`SELECT profile_id, spawner, scope_hash, generation, attempts FROM coder_spawn_intents
-		WHERE (state = 'pending' AND created_at < ? AND (child != '' OR created_at < ?)) OR (state = 'sweeping' AND claimed_at < ?) ORDER BY created_at LIMIT ?`,
-		leaseCut, createCut, s.sweepCut(0), limit)
+		WHERE (state = 'pending' AND created_at < ? AND (child != '' OR created_at < ?)) OR (state = 'sweeping' AND (`+s.backedOffLeases()+`)) ORDER BY created_at LIMIT ?`,
+		leaseCut, createCut, limit)
 	if err != nil {
 		return 0, err
 	}
@@ -88,6 +89,9 @@ func (s *Store) endSpawn(ctx context.Context, in spawnIntent) error {
 		if x, ok, err := s.GetSession(in.profile, in.child); err != nil {
 			return err
 		} else if ok && x.Role == "child" && x.Parent == in.spawner {
+			if s.beforeSweepDelete != nil {
+				s.beforeSweepDelete()
+			}
 			err := s.deleteIfNotOwnedByAnotherAnd(in.profile, 0, 0, 0, in.child, func(ctx context.Context, c *sql.Conn) (bool, error) {
 				var mine, notDraft int
 				err := c.QueryRowContext(ctx, `SELECT
@@ -204,4 +208,21 @@ func (h *Host) sweepSpawnIntents() {
 	if _, err := h.Store.SweepSpawnIntents(context.Background(), spawnIntentsPerSweep); err != nil {
 		log.Printf("coder host: spawn intent sweep: %v", err)
 	}
+}
+
+// backedOffLeases is the SQL condition "this sweeping row's own lease has run out", the lease claimIntent applies
+// (sweepCut): it is part of the candidate read, so rows still inside their back-off cannot fill the pass.
+func (s *Store) backedOffLeases() string {
+	var parts []string
+	for a := int64(0); a <= SpawnSweepAttempts; a++ {
+		cond := fmt.Sprintf("attempts = %d", a+1)
+		switch a {
+		case 0:
+			cond = "attempts <= 1"
+		case SpawnSweepAttempts:
+			cond = fmt.Sprintf("attempts >= %d", a+1)
+		}
+		parts = append(parts, fmt.Sprintf("(%s AND claimed_at < '%s')", cond, s.sweepCut(a+1)))
+	}
+	return strings.Join(parts, " OR ")
 }

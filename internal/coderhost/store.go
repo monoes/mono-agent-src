@@ -120,6 +120,8 @@ type Store struct {
 	afterSpawnSessionCreated func()
 	// afterSweepRead runs in SweepSpawnIntents between its read of the due intents and its claims (tests only).
 	afterSweepRead func()
+	// beforeSweepDelete runs in endSpawn between its checks and the guarded delete transaction (tests only).
+	beforeSweepDelete func()
 	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
 	afterChildCreated func()
 	// beforeCleanupDelete runs in abandonSpawn right before the conversation's delete (tests only).
