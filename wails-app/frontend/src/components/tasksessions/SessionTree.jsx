@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
-import { progress, sessionTree, spendParts, visibleRows } from '../../lib/taskSessionModel.js'
+import { SESSION_PAGE, capSessionRows, progress, sessionTree, spendParts, visibleRows } from '../../lib/taskSessionModel.js'
 
 // The strip as a collapsible tree (treeview pattern) once some session has a
 // parent: Personal first, then each root with its children indented. Up and
@@ -19,7 +19,9 @@ export default function SessionTree({ sessions, selectedId, onSelect, ui }) {
   const keep = ui || own
   const [collapsed, setCollapsed] = useState(() => keep.current.collapsed)
   const [focusId, setFocusId] = useState(undefined) // undefined: follow the selection; null: Personal
-  const rows = useMemo(() => visibleRows(sessionTree(sessions), collapsed), [sessions, collapsed])
+  const [limit, setLimit] = useState(SESSION_PAGE)
+  const all = useMemo(() => visibleRows(sessionTree(sessions), collapsed), [sessions, collapsed])
+  const { kept: rows, hidden } = capSessionRows(all, limit, selectedId, (r) => r.session.id)
   const ids = [null, ...rows.map(r => r.session.id)]
   const current = ids.includes(focusId) ? focusId : (ids.includes(selectedId) ? selectedId : null)
   const move = (id) => {
@@ -91,9 +93,16 @@ export default function SessionTree({ sessions, selectedId, onSelect, ui }) {
     )
   }
   return (
-    <ul role="tree" aria-label={t('tasks.session.switcher')} className="ts-tree">
-      {item(null)}
-      {rows.map(item)}
-    </ul>
+    <>
+      <ul role="tree" aria-label={t('tasks.session.switcher')} className="ts-tree">
+        {item(null)}
+        {rows.map(item)}
+      </ul>
+      {hidden > 0 && (
+        <button type="button" className="btn btn-ghost btn-sm tb-more" onClick={() => setLimit(l => l + SESSION_PAGE)}>
+          {t('tasks.session.sessionsShowMore', { count: Math.min(SESSION_PAGE, hidden), left: hidden })}
+        </button>
+      )}
+    </>
   )
 }

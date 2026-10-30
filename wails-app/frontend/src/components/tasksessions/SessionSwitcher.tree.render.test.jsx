@@ -155,3 +155,33 @@ describe('list error', () => {
     expect(screen.getByRole('tab', { name: 'Personal' })).toBeInTheDocument()
   })
 })
+
+describe('a long list of sessions renders a bounded number of tabs and rows', () => {
+  const many = (n, extra = () => ({})) => Array.from({ length: n }, (_, i) => mk(i + 1, extra(i + 1)))
+
+  it('draws the first 100 tabs of 1000, then 100 more on request', () => {
+    setup({ sessions: many(1000) })
+    expect(screen.getAllByRole('tab')).toHaveLength(101) // Personal + 100
+    fireEvent.click(screen.getByRole('button', { name: /Show 100 more sessions \(900 left\)/ }))
+    expect(screen.getAllByRole('tab')).toHaveLength(201)
+  })
+
+  it('keeps the chosen session on screen even when it is past the first page', () => {
+    setup({ sessions: many(1000), selectedId: 500 })
+    expect(screen.getAllByRole('tab')).toHaveLength(501)
+    expect(screen.getByRole('tab', { name: /Mission 500/ })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('a list within the page shows every tab and no control', () => {
+    setup({ sessions: many(100) })
+    expect(screen.getAllByRole('tab')).toHaveLength(101)
+    expect(screen.queryByRole('button', { name: /more sessions/ })).toBeNull()
+  })
+
+  it('bounds the tree the same way', () => {
+    setup({ sessions: many(1000, (id) => (id > 1 ? { parent_session_id: 1 } : {})) })
+    expect(screen.getAllByRole('treeitem')).toHaveLength(101)
+    fireEvent.click(screen.getByRole('button', { name: /Show 100 more sessions/ }))
+    expect(screen.getAllByRole('treeitem')).toHaveLength(201)
+  })
+})
