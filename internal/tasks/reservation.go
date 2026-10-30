@@ -18,11 +18,12 @@ const (
 	ReservationLease = 2 * time.Minute
 	ReservationGrace = time.Minute
 
+	// MaxBudgetUSD is the largest budget, amount, cost or total spend the store takes ($1 billion). Money here is a
+	// whole number of micro-dollars (see toMicros); at this size a float64 still holds every micro-dollar (the
+	// spacing of values near 1e9 is 1.2e-7), so adding a cost can neither lose it nor create one. A session whose
+	// budget was set higher before the guard existed is treated as having a budget of exactly this.
+	MaxBudgetUSD      = 1e9
 	minReservationUSD = 0.01
-	// MaxBudgetUSD is the largest budget, amount, cost or total spend the store takes. Below it a cent is still
-	// exact in a float64 (the spacing of values near 1e12 is about 1.2e-4), so no cost vanishes when added.
-	// A session whose budget was set higher before the guard existed is treated as having a budget of exactly this.
-	MaxBudgetUSD      = 1e12
 	maxOwnerIDBytes   = 128
 	maxWorkerRefBytes = 256
 	maxEndNoteBytes   = 1024
@@ -103,6 +104,12 @@ func reservationText(what, v string, max int) error {
 	return nil
 }
 
+// The money quantum is a micro-dollar. Every cost and reserved amount is rounded to it first (a cost under half
+// a quantum is a zero charge, never a refusal), and that rounded value is what a reservation records and what
+// the session's spend grows by.
+func toMicros(usd float64) int64 { return int64(math.Round(usd * 1e6)) }
+func fromMicros(m int64) float64 { return float64(m) / 1e6 }
+
 // reservationAmount holds an amount to finite and within [0, MaxBudgetUSD].
 func reservationAmount(what string, usd float64) error {
 	if !finite(usd) || usd < 0 || usd > MaxBudgetUSD {
@@ -135,15 +142,19 @@ func (s *Store) Reserve(ctx context.Context, profileID string, sessionID int64, 
 		if err != nil {
 			return err
 		}
-		amount, bounded := want, want > 0
+		amount, bounded := fromMicros(toMicros(want)), want > 0
 		if left, budgeted := c.Left(); budgeted {
-			if want == 0 || want > left {
-				want = left
+			grant := toMicros(want)
+			if lm := toMicros(left); want == 0 || grant > lm {
+				grant = lm
+				if fromMicros(grant) > left+budgetEps {
+					grant-- // rounded up past what is left
+				}
 			}
-			if want+budgetEps < minReservationUSD {
+			if fromMicros(grant)+budgetEps < minReservationUSD {
 				return limit("session #%d has $%.4f left of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", sessionID, left, c.Budget, c.Spent, c.Held, c.Children)
 			}
-			amount, bounded = want, true
+			amount, bounded = fromMicros(grant), true
 		}
 		now := s.stamp()
 		res, err := x.ExecContext(ctx, `INSERT INTO task_session_reservations (profile_id, session_id, worker_ref, owner_id, amount_usd, bounded, state, lease_until, heartbeat_at, created_at)

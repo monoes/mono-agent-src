@@ -55,38 +55,43 @@ func (s *Store) Settle(ctx context.Context, profileID string, id int64, ownerID 
 		if err != nil {
 			return err
 		}
-		if actual+budgetEps < r.ChargedUSD {
-			return invalid("the cost $%.4f is below the $%.4f already charged", actual, r.ChargedUSD)
+		cm, was := toMicros(actual), toMicros(r.ChargedUSD)
+		if cm < was {
+			return invalid("the cost $%.6f is below the $%.6f already charged", actual, r.ChargedUSD)
 		}
-		actual = max(actual, r.ChargedUSD)
 		res, err := x.ExecContext(ctx, `UPDATE task_session_reservations SET state = 'settled', charged_usd = ?, ended_at = ?
-			WHERE id = ? AND owner_id = ? AND profile_id = ? AND state = 'live'`, actual, s.stamp(), id, ownerID, profileID)
+			WHERE id = ? AND owner_id = ? AND profile_id = ? AND state = 'live'`, fromMicros(cm), s.stamp(), id, ownerID, profileID)
 		if err != nil {
 			return fmt.Errorf("tasks: settling reservation #%d: %w", id, err)
 		}
 		if err := oneRow(res, id); err != nil {
 			return err
 		}
-		return s.chargeReservation(ctx, x, r, actual-r.ChargedUSD, "settled")
+		return s.chargeReservation(ctx, x, r, cm-was, "settled")
 	})
 	return err
 }
 
-// chargeReservation records delta of a reservation's cost into the session's spend (nothing when none).
-func (s *Store) chargeReservation(ctx context.Context, x dbx, r Reservation, delta float64, how string) error {
+// chargeReservation adds delta micro-dollars of a reservation's cost to the session's spend (nothing when none).
+// The spend is kept as a whole number of micro-dollars, so the add is exact: the new spend is the old one (rounded
+// to the quantum) plus delta, and it is refused (the caller's transaction rolls back and the row stays as it was)
+// when that would pass MaxBudgetUSD. A legacy spend above MaxBudgetUSD therefore refuses every positive cost.
+func (s *Store) chargeReservation(ctx context.Context, x dbx, r Reservation, delta int64, how string) error {
 	if delta <= 0 {
 		return nil
 	}
-	// The cost must land in the spend whole: refuse (the caller's transaction rolls back and the row stays as it
-	// was) when the sum would pass MaxBudgetUSD or the cost is below what the spend can add.
 	var spent float64
 	if err := x.QueryRowContext(ctx, `SELECT spent_usd FROM task_sessions WHERE id = ?`, r.SessionID).Scan(&spent); err != nil {
 		return sessionLookup(err, r.SessionID)
 	}
-	if sum := spent + delta; sum > MaxBudgetUSD || sum <= spent {
-		return limit("session #%d has spent $%.4f: a cost of $%.6f cannot be recorded exactly (the spend stays below $%.0f)", r.SessionID, spent, delta, MaxBudgetUSD)
+	if spent > MaxBudgetUSD || toMicros(spent)+delta > toMicros(MaxBudgetUSD) {
+		return limit("session #%d has spent $%.6f: a cost of $%.6f would take the spend past $%.0f, the most the store records", r.SessionID, spent, fromMicros(delta), MaxBudgetUSD)
 	}
-	return s.applySpend(ctx, x, r.SessionID, delta, fmt.Sprintf("(reservation #%d of %s, %s)", r.ID, r.WorkerRef, how), Actor{Kind: Agent, Name: r.WorkerRef})
+	next := fromMicros(toMicros(spent) + delta)
+	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET spent_usd = ? WHERE id = ?`, next, r.SessionID); err != nil {
+		return fmt.Errorf("tasks: recording spend of session #%d: %w", r.SessionID, err)
+	}
+	return s.sessionEvent(ctx, x, r.SessionID, Actor{Kind: Agent, Name: r.WorkerRef}, "spend", fmt.Sprintf("$%.6f (reservation #%d of %s, %s)", fromMicros(delta), r.ID, r.WorkerRef, how))
 }
 
 // ReleaseReservation gives back what the owner's live reservation holds, charging nothing more than was
@@ -174,19 +179,19 @@ func (s *Store) ResolveReservation(ctx context.Context, profileID string, id int
 		if err != nil {
 			return err
 		}
-		if charged+budgetEps < r.ChargedUSD {
-			return invalid("the cost $%.4f is below the $%.4f already charged", charged, r.ChargedUSD)
+		cm, was := toMicros(charged), toMicros(r.ChargedUSD)
+		if cm < was {
+			return invalid("the cost $%.6f is below the $%.6f already charged", charged, r.ChargedUSD)
 		}
-		charged = max(charged, r.ChargedUSD)
 		res, err := x.ExecContext(ctx, `UPDATE task_session_reservations SET state = 'resolved', charged_usd = ?, ended_at = ?, end_note = ?
-			WHERE id = ? AND profile_id = ? AND state = 'expired'`, charged, s.stamp(), cutBytes(cleanText(note), maxEndNoteBytes), id, profileID)
+			WHERE id = ? AND profile_id = ? AND state = 'expired'`, fromMicros(cm), s.stamp(), cutBytes(cleanText(note), maxEndNoteBytes), id, profileID)
 		if err != nil {
 			return fmt.Errorf("tasks: resolving reservation #%d: %w", id, err)
 		}
 		if n, _ := res.RowsAffected(); n != 1 {
 			return notReady("reservation #%d is %s: only an expired reservation is resolved", id, r.State)
 		}
-		return s.chargeReservation(ctx, x, r, charged-r.ChargedUSD, "resolved")
+		return s.chargeReservation(ctx, x, r, cm-was, "resolved")
 	})
 	return err
 }
