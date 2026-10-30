@@ -2,8 +2,11 @@ package applypark
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
+	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/applications"
 )
 
@@ -48,6 +51,9 @@ func Sweep(ctx context.Context, store Store, apps *applications.Store, live []Li
 			continue
 		}
 		if open[t.TabID] {
+			if err := parkIfTaskEnded(ctx, store, t); err != nil {
+				return res, err
+			}
 			continue
 		}
 		if err := store.SetState(ctx, t.ApplicationID, StateLost, ""); err != nil {
@@ -59,6 +65,28 @@ func Sweep(ctx context.Context, store Store, apps *applications.Store, live []Li
 		res.Lost = append(res.Lost, t.ApplicationID)
 	}
 	return res, nil
+}
+
+// parkIfTaskEnded gives an `active` tab back to the person when the task that held it is over (cancelled with
+// its conversation's delete, failed, or done without parking it): nothing else would, the guard refusing every
+// other process and a resume taking only parked or lost tabs. A task with no row (the placeholder a resume
+// writes before its task exists) or in another profile is not judged.
+func parkIfTaskEnded(ctx context.Context, store Store, t Tab) error {
+	if t.State != StateActive || t.TaskID == "" {
+		return nil
+	}
+	var status string
+	err := store.DB.QueryRowContext(ctx, `SELECT status FROM ai_tasks WHERE id = ? AND profile_id = ?`, t.TaskID, store.Profile).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !aitask.Terminal(status) {
+		return nil
+	}
+	return store.SetState(ctx, t.ApplicationID, StateParked, "")
 }
 
 // markReopen turns the application into needs_you with ReopenNote, keeping its

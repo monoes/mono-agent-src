@@ -281,6 +281,39 @@ func TestSweepMarksLostTabsAndClosesOverOnes(t *testing.T) {
 	_ = db
 }
 
+// A tab held `active` by a task that ended (the delete of its conversation cancels it) goes back to the person
+// as parked; a task still going, and the placeholder a resume writes before its task exists, are left alone.
+func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
+	db, st, apps := fixture(t)
+	ended := parkedApp(t, st, apps, 7)
+	running := parkedApp(t, st, apps, 8)
+	pending := parkedApp(t, st, apps, 9)
+	other := parkedApp(t, st, apps, 10)
+	task := func(id, prof, status string) {
+		if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+			VALUES (?, ?, 'apply', 'c1', ?, 'g', '', 'x', 'x')`, id, prof, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task("t-ended", profile, "cancelled")
+	task("t-running", profile, "running")
+	task("t-other", "someone-else", "cancelled") // another profile's task id does not count
+	for app, tk := range map[string]string{ended: "t-ended", running: "t-running", pending: "resume-pending", other: "t-other"} {
+		if err := st.SetState(bg, app, StateActive, tk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tabs := []LiveTab{live(7, "https://jobs.example/a"), live(8, "https://jobs.example/b"), live(9, "https://jobs.example/c"), live(10, "https://jobs.example/d")}
+	if _, err := Sweep(bg, st, apps, tabs); err != nil {
+		t.Fatal(err)
+	}
+	for app, want := range map[string]State{ended: StateParked, running: StateActive, pending: StateActive, other: StateActive} {
+		if tab, _ := st.Get(bg, app); tab.State != want {
+			t.Errorf("%s: state %s, want %s", app, tab.State, want)
+		}
+	}
+}
+
 // fakeRunner stands in for the application commands.
 type fakeRunner struct {
 	mu        sync.Mutex
