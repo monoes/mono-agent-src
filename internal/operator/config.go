@@ -41,7 +41,10 @@ import "strings"
 //     prefix. coder-mission-confirm/ holds the operator's per-send mission
 //     confirmations, which the coder host and its chat turns accept as proof
 //     that the person asked for a mission; a write by anything else would be
-//     a forged confirmation. Their values are also hidden from `config get`,
+//     a forged confirmation. agent_purposes. holds the operator's choice of
+//     which models each kind of agent work may use (internal/agentpurposes;
+//     `agent purposes set|reset`, read through `agent purposes list`): a
+//     write by anything else would change which models run. Their values are also hidden from `config get`,
 //     `config list` and whatever else shows rows to a non-operator
 //     (HiddenConfig). file-cleanup/ holds the lists of files a deleted
 //     conversation's turns left, which `chat history delete` writes in its own
@@ -71,6 +74,7 @@ var reservedConfigs = []string{
 // starts with one (in any case, with spaces before it) is reserved.
 var ReservedConfigPrefixes = []string{
 	"coder-mission-confirm/",
+	"agent_purposes.",
 	"file-cleanup/",
 }
 

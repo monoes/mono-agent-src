@@ -3052,6 +3052,52 @@ login (and its bill) is what the turn uses.
   record** column (`track_record` in JSON) is its score per role
   category from real dynamic-org workers (see "Dynamic org"). The roster is machine-wide,
   not per profile, and the AI agents page shows it with live validation.
+- **Agent purposes: which validated models each kind of work may use.**
+  `monoagentcli --profile P agent purposes list|set|reset` (`--json`). A purpose
+  (`coding`, `debugging`, `research`, `deep-research`, `planning`, `strategy`,
+  `review`, `testing`, `security-audit`, `writing`, `data`, `automation`,
+  `browsing`, `design`, `triage`, `judging`, `orchestrating`, `translation`) maps
+  to the role categories of the dynamic org. `set` replaces one purpose's whole
+  setting: `--pair RUNTIME:MODEL` (repeatable, each a roster pair with status ok;
+  an unvalidated pair is refused), `--rule any|order|cheapest`, `--effort`,
+  `--different-from-author on|off`, `--fallback any|none`, `--budget-share PCT`
+  (recorded only). A purpose with nothing chosen (`isDefault`) uses every
+  validated model, as before. When one is chosen, a dynamic org's `org_spawn`
+  draws the worker's model from it in code. The worker's purpose comes from its
+  role's category (every built-in category maps to a default purpose and the
+  few it allows); a `purpose` the lead names can only narrow: it must be one the
+  category allows (else refused, with the list) and the model must then be in
+  both sets. A role whose category maps to nothing (a custom or library role)
+  is limited by every purpose that has a set chosen, the intersection of them;
+  with nothing in common the spawn fails (closed, on purpose: two disjoint
+  restricted purposes make every library-role spawn fail; the error names the
+  purposes and says to use a built-in role or reconcile the sets). Only the built-in roles map to a
+  purpose: a role from the library, monomind or a file in the chat folder (a
+  worker can write one) is held to every chosen set whatever category it
+  claims, and a purpose named for it is ignored; the app roles whose work spans
+  two purposes (browser operator, security reviewer, task manager) are held to
+  both. A veteran (a worker kept from an earlier turn) is rechecked against the
+  current sets on every follow-up, and refused when its model is no longer
+  allowed (a veteran kept by an older build counts as unmapped); a worker
+  staffed earlier in the same turn is rechecked the same way. A stale model
+  is never staffed under a chosen set, even with `--fallback any`, and a
+  verifier is never a model the review set leaves out. The sets are read again at each spawn
+  and at the verifier's model choice, so a change made during a turn applies to
+  the next spawn, and a set that can't be read refuses the spawn. A model the
+  lead names outside the set, a stale pair, or an unknown purpose id is refused; an empty
+  or unavailable set fails the spawn with the reason unless `--fallback any`;
+  with `--different-from-author on` a checking worker runs on another model than
+  the one that produced the work; with no other validated model the spawn is
+  refused (an independence rule is never dropped silently) unless the purpose's
+  `--fallback any` allows the author's own model, and then the worker's `why`
+  says so. `--rule cheapest` treats a model with no known price as the most
+  expensive. `list` is open to agents and prints the
+  purposes, each pair's status (`ok`, `stale`, `failed`, `unvalidated`) and the
+  roster; it computes status from the stored results without a scan. `set` and
+  `reset` are the user's own (exit 3, `operator_only`). The choice lives in the
+  profile's `agent_purposes.<profile>.<purpose>` config rows, which are reserved
+  (`config set` refuses them); a row that can't be read counts as the default and
+  `list` says so on stderr.
 - **Automatic re-validation (off by default; it spends money).**
   `monoagentcli agent roster auto-revalidate on|off|status` (#230). When on,
   the daemon re-checks **stale** roster models (never failed or untested

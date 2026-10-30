@@ -15,7 +15,7 @@ func TestTheUsersOwnCommandsSaySoInTheirHelp(t *testing.T) {
 		{"api", "config", "set"}, {"api", "config", "unset"},
 		{"api", "key", "create"}, {"api", "key", "update"}, {"api", "key", "revoke"},
 		{"jev", "enable"}, {"jev", "key", "set"}, {"jev", "key", "adopt"}, {"jev", "key", "remove"},
-		{"org", "teardown-profile"},
+		{"org", "teardown-profile"}, {"agent", "purposes", "set"}, {"agent", "purposes", "reset"},
 		{"extension", "bind"}, {"extension", "unbind"}, {"extension", "assign"}, {"extension", "reset"},
 		{"extension", "autopair"}, {"extension", "approve"}, {"extension", "deny"},
 	} {

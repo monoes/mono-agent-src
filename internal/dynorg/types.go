@@ -10,6 +10,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
@@ -119,6 +120,16 @@ type SpawnRequest struct {
 	Files      []string `json:"files,omitempty"`
 	NeedsWrite *bool    `json:"needs_write,omitempty"`
 	Wait       bool     `json:"wait,omitempty"`
+	// Purpose may only narrow the work (internal/agentpurposes): the purpose
+	// whose model set limits the worker comes from the role's category, and a
+	// named one must be a purpose that category allows, with both sets then
+	// applying. It never widens: see Staffer.staffPurpose.
+	Purpose string `json:"purpose,omitempty"`
+	// AuthorModel is the model ("runtime/model") that produced the work this
+	// worker checks, for a purpose set to a different model than the author.
+	// Set by the code that knows (the verifier path), never by the lead's JSON;
+	// left empty it is taken to be the lead's own model.
+	AuthorModel string `json:"-"`
 	// AllowSpawn gives the worker org_spawn, org_wait and org_message for
 	// sub-workers of its own (#230); only the lead may set it.
 	AllowSpawn bool `json:"allow_spawn,omitempty"`
@@ -146,13 +157,18 @@ type Staff struct {
 	Role      string  // the title shown on the stage ("Code Reviewer")
 	AgentType string  // monomind agent id, or a built-in role id
 	Category  string  // the agent's category (engineering, testing, …)
+	Builtin   bool    // the role is one of the built-in tables (roles.go, roles_app.go); set only by setBuiltin
 	AgentBody string  // the agent definition's instructions
 	Skills    []Skill // skills given to the worker
 	Model     Model   // the runtime and model it runs on
 	Effort    string
-	Access    string   // an access profile
-	Fallbacks []Model  // next models to try if Model can't run
-	Why       []string // who chose what, for agent.spawned.why
+	Access    string                           // an access profile
+	Purpose   string                           // the purpose whose model set limited the choice ("" = none)
+	also      []string                         // purposes besides the category's whose sets hold a built-in role too
+	sides     []string                         // every purpose whose set limits the worker (Purpose first)
+	loaded    map[string]agentpurposes.Setting // the sets read for this decision
+	Fallbacks []Model                          // next models to try if Model can't run
+	Why       []string                         // who chose what, for agent.spawned.why
 	PickConf  *float64
 	JevConf   *float64
 }

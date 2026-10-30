@@ -88,6 +88,8 @@ func testDeps(dbPath string, jsonOut bool) Deps {
 			return nil
 		},
 		StdinIsTerminal: func() bool { return false },
+		ProfileID:       func() string { return "p1" },
+		Refusal:         func() string { return "" }, // the operator
 	}
 }
 
