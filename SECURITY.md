@@ -2152,7 +2152,11 @@ compares against (the code that knows it supplies it). Which set applies follows
 category allows, and the sets then intersect; only the built-in roles map to a purpose (a
 role file in the chat folder, which a worker can write, is held to every set the user chose whatever
 category it claims), and a veteran worker from an earlier turn is rechecked against the current sets on
-every follow-up. The sets are read again at each spawn and at the verifier's model choice, and a set that
+every follow-up (so is a worker staffed earlier in the same turn). With
+`different-from-author` on, a checking worker with no other validated model is refused, not run on the
+author's own model, unless the operator's `fallback any` allows it (this replaces the earlier plan's
+same-model fallback). A library role is held to every restricted set, so two disjoint restricted
+sets fail every library-role spawn (closed; use a built-in role or reconcile the sets). The sets are read again at each spawn and at the verifier's model choice, and a set that
 cannot be read refuses the spawn. What it does not stop: a same-user process can still edit the
 database directly, as for every setting here.
 
