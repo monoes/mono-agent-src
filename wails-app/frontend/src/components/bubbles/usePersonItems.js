@@ -25,10 +25,29 @@ export function notifyPersonItems(count, title, body) {
   try { new Notification(title, { body: body(count), tag: 'person-item' }) } catch { /* sandboxed webview */ }
 }
 
+const sameGuard = (a, b) => (a?.rev ?? 0) === (b?.rev ?? 0) && (a?.digest ?? '') === (b?.digest ?? '')
+
+// freezeShown folds a fresh list into what the person was shown. An item first seen is shown as
+// it is. An item already shown keeps the rev, digest and content it was shown with: a newer plan
+// goes to `latest` and the item is marked `changed`, so the guard an approval carries is never
+// swapped under the person. Only review() (a fresh explicit act) adopts the newer plan.
+export function freezeShown(shown, fresh) {
+  const next = new Map()
+  for (const it of fresh) {
+    const was = shown.get(it.id)
+    if (!was || was.sessionId !== it.sessionId) next.set(it.id, { ...it, changed: false, latest: null })
+    else if (was.changed || !sameGuard(was, it)) next.set(it.id, { ...was, changed: true, latest: it })
+    else next.set(it.id, { ...it, changed: false, latest: null })
+  }
+  return next
+}
+
 // usePersonItems reads the items that wait for the person every few seconds while the window
 // is visible, and says so when a new one appears: a chime (if the operator's notifySound is on,
 // at most one per five seconds, never twice for one item) and a desktop notification.
-// answer(verb, item, text) runs the CLI verb and reads the list again at once.
+// answer(verb, item, text) runs the CLI verb and reads the list again at once. Approve carries the
+// rev and digest the person was shown (never the newest) and is refused while the item is marked
+// changed; review(id) shows the newer plan and freezes its rev and digest.
 //   alerts { title, body(count) }: the notification's words, so the hook holds no copy.
 export function usePersonItems({ enabled = true, alerts = null, play = playChime, now = Date.now } = {}) {
   const [items, setItems] = useState([])
@@ -37,6 +56,7 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
   const seenRef = useRef(null)
   const lastChime = useRef(0)
   const epoch = useRef(0)
+  const shownRef = useRef(new Map())
   const alertsRef = useRef(alerts)
   alertsRef.current = alerts
 
@@ -56,7 +76,8 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
       const a = alertsRef.current
       if (a) notifyPersonItems(plan.fresh.length, a.title, a.body)
     }
-    setItems(res.items)
+    shownRef.current = freezeShown(shownRef.current, res.items)
+    setItems([...shownRef.current.values()])
     setLoaded(true)
   }, [play, now])
 
@@ -68,9 +89,18 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
   }, [enabled, refresh, visible])
   useVisibleCatchUp(refresh)
 
+  const review = useCallback(id => {
+    const was = shownRef.current.get(id)
+    if (!was?.changed || !was.latest) return
+    shownRef.current = new Map(shownRef.current).set(id, { ...was.latest, changed: false, latest: null })
+    setItems([...shownRef.current.values()])
+  }, [])
+
   const answer = useCallback(async (verb, item, text = '') => {
     const id = item?.sessionId
-    const res = verb === 'approve' ? await personItemsApi.approve(id, item?.rev ?? 0, item?.digest ?? '')
+    const shown = shownRef.current.get(item?.id) ?? item
+    if (verb === 'approve' && shown?.changed) return { error: 'the plan changed since it was shown', code: 'plan_changed' }
+    const res = verb === 'approve' ? await personItemsApi.approve(id, shown?.rev ?? 0, shown?.digest ?? '')
       : verb === 'deny' ? await personItemsApi.deny(id, text)
         : verb === 'ask' ? await personItemsApi.ask(id, text)
           : { error: 'unknown answer' }
@@ -78,5 +108,5 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
     return res
   }, [refresh])
 
-  return { items, loaded, refresh, answer }
+  return { items, loaded, refresh, answer, review }
 }

@@ -90,7 +90,7 @@ describe('usePersonItems', () => {
   })
 
   it('a refused approval of a moved plan reads the list again', async () => {
-    api.list.mockResolvedValue(listOf(1))
+    api.list.mockResolvedValue({ items: [{ ...item(1), rev: 4, digest: 'dd' }] })
     const { result } = await mount()
     api.list.mockClear()
     api.approve.mockResolvedValueOnce({ error: 'changed', code: 'plan_changed' })
@@ -101,7 +101,7 @@ describe('usePersonItems', () => {
   })
 
   it('answer runs the verb for the session and reads the list again', async () => {
-    api.list.mockResolvedValue(listOf(1))
+    api.list.mockResolvedValue({ items: [{ ...item(1), rev: 4, digest: 'dd' }] })
     const { result } = await mount()
     api.list.mockClear()
     await act(async () => { await result.current.answer('deny', item(1), 'no') })
@@ -111,5 +111,58 @@ describe('usePersonItems', () => {
     expect(api.list).toHaveBeenCalled()
     const bad = await result.current.answer('nope', item(1))
     expect(bad.error).toBeTruthy()
+  })
+
+  // The guard the person was shown stays with the card they act on: a poll that brings a newer
+  // plan must not swap it, or the approval would cover words they never read.
+  describe('the frozen plan guard', () => {
+    const plan = (rev, digest, title) => ({ ...item(1), rev, digest, tasks: [{ id: 5, title }] })
+
+    it('never approves with a newer revision and digest than the ones shown', async () => {
+      api.list.mockResolvedValue({ items: [plan(4, 'old', 'port the importer')] })
+      const { result } = await mount()
+      api.list.mockResolvedValue({ items: [plan(5, 'new', 'send the payroll file out')] })
+      await act(async () => { await result.current.refresh() })
+      // the card re-renders with whatever the hook now holds, then the person clicks
+      await act(async () => { await result.current.answer('approve', result.current.items[0]) })
+      expect(api.approve).not.toHaveBeenCalledWith(10, 5, 'new')
+    })
+
+    it('a changed plan is refused on the client: nothing reaches the server with the old guard either', async () => {
+      api.list.mockResolvedValue({ items: [plan(4, 'old', 'port the importer')] })
+      const { result } = await mount()
+      api.list.mockResolvedValue({ items: [plan(5, 'new', 'send the payroll file out')] })
+      await act(async () => { await result.current.refresh() })
+      const res = await result.current.answer('approve', result.current.items[0])
+      expect(res.code).toBe('plan_changed')
+      expect(api.approve).not.toHaveBeenCalled()
+    })
+
+    it('keeps the shown content, marks the item changed and refuses to approve until reviewed', async () => {
+      api.list.mockResolvedValue({ items: [plan(4, 'old', 'port the importer')] })
+      const { result } = await mount()
+      api.list.mockResolvedValue({ items: [plan(5, 'new', 'send the payroll file out')] })
+      await act(async () => { await result.current.refresh() })
+      const it = result.current.items[0]
+      expect(it.changed).toBe(true)
+      expect(it.tasks[0].title).toBe('port the importer')
+      api.approve.mockClear()
+      const res = await result.current.answer('approve', it)
+      expect(res.code).toBe('plan_changed')
+      expect(api.approve).not.toHaveBeenCalled()
+    })
+
+    it('review freezes the new pair and its content, and approve then carries it', async () => {
+      api.list.mockResolvedValue({ items: [plan(4, 'old', 'port the importer')] })
+      const { result } = await mount()
+      api.list.mockResolvedValue({ items: [plan(5, 'new', 'send the payroll file out')] })
+      await act(async () => { await result.current.refresh() })
+      act(() => { result.current.review(1) })
+      const it = result.current.items[0]
+      expect(it.changed).toBe(false)
+      expect(it.tasks[0].title).toBe('send the payroll file out')
+      await act(async () => { await result.current.answer('approve', it) })
+      expect(api.approve).toHaveBeenCalledWith(10, 5, 'new')
+    })
   })
 })

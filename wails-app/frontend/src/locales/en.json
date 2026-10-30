@@ -2275,6 +2275,11 @@
     "copied": "Copied"
   },
   "personItem": {
+    "planTasks": "What you approve",
+    "acceptance": "Done when",
+    "dependsOn": "After {{ids}}",
+    "changedNotice": "The plan changed since you opened it. Approve is off until you review the new plan.",
+    "reviewNew": "Review the new plan",
     "planChanged": "The plan changed after you opened it, so nothing was approved. The card has reloaded: review it again.",
     "notifyTitle": "Needs you",
     "notifyBody_one": "{{count}} item is waiting for you",

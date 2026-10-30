@@ -23,8 +23,9 @@ export function MuteToggle() {
 // PersonItemCard is the answer card of a giant plan that waits for the person (item kind
 // plan_approval): what it is, why it needs the person, and the three answers. Approve is one
 // press; Deny and Ask more open a text box. onAnswer(verb, item, text) resolves to the CLI's
-// document or { error }; the card shows a refusal where it was asked and keeps the typed text.
-export function PersonItemCard({ item, onAnswer, onOpenAgent = null, showMute = true }) {
+// document or { error }. The card shows the tasks the digest covers; when the plan moved since it was
+// shown it says so, blocks Approve and offers onReview(item) to show (and guard) the new plan. The card shows a refusal where it was asked and keeps the typed text.
+export function PersonItemCard({ item, onAnswer, onReview = null, onOpenAgent = null, showMute = true }) {
   const { t } = useTranslation()
   const [mode, setMode] = useState(null) // null | 'deny' | 'ask'
   const [text, setText] = useState('')
@@ -36,6 +37,7 @@ export function PersonItemCard({ item, onAnswer, onOpenAgent = null, showMute = 
   const opener = useRef('')
   const title = item.title || `#${item.sessionId}`
   const reasons = item.reasons || []
+  const tasks = item.tasks || []
   const pct = budgetSharePercent(item)
 
   // The box takes focus when it opens; closing it hands focus back to the button that opened it.
@@ -75,6 +77,25 @@ export function PersonItemCard({ item, onAnswer, onOpenAgent = null, showMute = 
         <div><dt>{t('personItem.budget')}</dt><dd>{item.budgetUsd > 0 ? `${money(item.budgetUsd)}${pct ? ` · ${t('personItem.share', { pct })}` : ''}` : t('personItem.noBudget')}</dd></div>
         {item.access && <div><dt>{t('personItem.access')}</dt><dd>{item.access}</dd></div>}
       </dl>
+      {tasks.length > 0 && (
+        <div className="pi-plan">
+          <div className="pi-why-head">{t('personItem.planTasks')}</div>
+          <ol>{tasks.map(tk => (
+            <li key={tk.id}>
+              <strong>{tk.title}</strong>
+              {tk.notes && <div className="pi-task-line">{tk.notes}</div>}
+              {tk.acceptance && <div className="pi-task-line">{t('personItem.acceptance')}: {tk.acceptance}</div>}
+              {tk.dependsOn?.length > 0 && <div className="pi-task-line">{t('personItem.dependsOn', { ids: tk.dependsOn.map(n => `#${n}`).join(', ') })}</div>}
+            </li>
+          ))}</ol>
+        </div>
+      )}
+      {item.changed && (
+        <div className="pi-note pi-changed" role="status">
+          {t('personItem.changedNotice')}{' '}
+          {onReview && <button type="button" className="btn btn-primary btn-sm" onClick={() => onReview(item)}>{t('personItem.reviewNew')}</button>}
+        </div>
+      )}
       {mode && (
         <label className="pi-field">
           <span>{mode === 'deny' ? t('personItem.denyLabel') : t('personItem.askLabel')}</span>
@@ -88,7 +109,7 @@ export function PersonItemCard({ item, onAnswer, onOpenAgent = null, showMute = 
       <div className="pi-actions">
         {!mode && (
           <>
-            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => send('approve')}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy || !!item.changed} onClick={() => send('approve')}>
               {busy ? <Loader size={11} className="spin" aria-hidden="true" /> : <Check size={11} aria-hidden="true" />} {t('personItem.approve')}
             </button>
             <button type="button" className="btn btn-ghost btn-sm" disabled={busy} ref={el => { buttons.current.deny = el }} onClick={() => open('deny')}>

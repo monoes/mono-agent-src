@@ -25,25 +25,45 @@ const personWhat = "answer a person item"
 // personItemView is one open item as the person sees it. A plan_approval item carries the session
 // and why it is giant; any other kind carries what the item row itself holds.
 type personItemView struct {
-	ID               int64    `json:"id"`
-	Kind             string   `json:"kind"`
-	CreatedAt        string   `json:"createdAt"`
-	LeadConversation string   `json:"leadConversationId"`
-	SessionID        int64    `json:"sessionId,omitempty"`
-	Conversation     string   `json:"conversationId,omitempty"` // the chat of the session itself: the agent's pane
-	Title            string   `json:"title,omitempty"`
-	Goal             string   `json:"goal,omitempty"`
-	State            string   `json:"state,omitempty"`
-	Reasons          []string `json:"reasons,omitempty"`
-	TaskCount        int      `json:"taskCount,omitempty"`
-	Rev              int64    `json:"rev,omitempty"`    // the plan revision the person read: approve passes it back
-	Digest           string   `json:"digest,omitempty"` // a hash of the plan's content, passed back with --digest
-	MaxTasks         int      `json:"maxTasks,omitempty"`
-	BudgetUSD        float64  `json:"budgetUsd,omitempty"`
-	BudgetShare      float64  `json:"budgetShare,omitempty"`
-	Access           string   `json:"access,omitempty"`
-	Depth            int      `json:"depth,omitempty"`
-	RefID            int64    `json:"refId,omitempty"`
+	ID               int64            `json:"id"`
+	Kind             string           `json:"kind"`
+	CreatedAt        string           `json:"createdAt"`
+	LeadConversation string           `json:"leadConversationId"`
+	SessionID        int64            `json:"sessionId,omitempty"`
+	Conversation     string           `json:"conversationId,omitempty"` // the chat of the session itself: the agent's pane
+	Title            string           `json:"title,omitempty"`
+	Goal             string           `json:"goal,omitempty"`
+	State            string           `json:"state,omitempty"`
+	Reasons          []string         `json:"reasons,omitempty"`
+	TaskCount        int              `json:"taskCount,omitempty"`
+	Rev              int64            `json:"rev,omitempty"`    // the plan revision the person read: approve passes it back
+	Digest           string           `json:"digest,omitempty"` // a hash of the plan's content, passed back with --digest
+	Tasks            []personTaskView `json:"tasks,omitempty"`  // the plan's words the digest covers (notes and acceptance cut), so the person reads what they approve
+	MaxTasks         int              `json:"maxTasks,omitempty"`
+	BudgetUSD        float64          `json:"budgetUsd,omitempty"`
+	BudgetShare      float64          `json:"budgetShare,omitempty"`
+	Access           string           `json:"access,omitempty"`
+	Depth            int              `json:"depth,omitempty"`
+	RefID            int64            `json:"refId,omitempty"`
+}
+
+// personTaskView is one task of the plan; long notes and acceptance are cut for the card.
+type personTaskView struct {
+	ID         int64   `json:"id"`
+	Title      string  `json:"title"`
+	Notes      string  `json:"notes,omitempty"`
+	Acceptance string  `json:"acceptance,omitempty"`
+	DependsOn  []int64 `json:"dependsOn,omitempty"`
+}
+
+const personTaskCut = 400
+
+func personTasks(ts []tasks.PlanTask) []personTaskView {
+	out := make([]personTaskView, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, personTaskView{ID: t.ID, Title: taskCut(t.Title, personTaskCut), Notes: taskCut(t.Notes, personTaskCut), Acceptance: taskCut(t.Acceptance, personTaskCut), DependsOn: t.DependsOn})
+	}
+	return out
 }
 
 func (d Deps) newSessionPersonCmd() *cobra.Command {
@@ -125,7 +145,7 @@ func (d Deps) personView(ctx context.Context, store *tasks.Store, p tasks.Profil
 	}
 	v.Conversation, v.Title, v.Goal, v.State = se.ConversationID, se.Title, se.Goal, string(se.State)
 	v.MaxTasks, v.Access, v.Depth = se.MaxTasks, se.AccessLevel, se.Depth
-	v.Rev, v.Digest = pv.Rev, pv.Digest
+	v.Rev, v.Digest, v.Tasks = pv.Rev, pv.Digest, personTasks(pv.Tasks)
 	if f, err := store.GiantFactsOf(ctx, p.ID, it.RefID, actor); err == nil {
 		v.Reasons, v.TaskCount, v.BudgetUSD, v.BudgetShare = f.Reasons, f.TaskCount, f.BudgetUSD, f.BudgetShare
 	}

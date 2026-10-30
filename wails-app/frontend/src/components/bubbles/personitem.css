@@ -78,3 +78,7 @@
   .pi-tray-btn[data-fresh="true"]::after { animation: none !important; opacity: 0.6; transform: none; }
   .pi-card, .pi-mute { transition: none !important; }
 }
+
+.pi-plan ol { margin: 4px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; }
+.pi-task-line { font-size: 11px; opacity: 0.8; white-space: pre-wrap; }
+.pi-changed { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

@@ -23,7 +23,7 @@ func TestSessionWithPlanReadsTheSessionAndItsPlanTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if se.Title != "plan" || pv != want || pv.TaskCount != 1 || pv.Rev != se.Rev {
+	if se.Title != "plan" || pv.Rev != want.Rev || pv.Digest != want.Digest || len(pv.Tasks) != 1 || pv.TaskCount != 1 || pv.Rev != se.Rev {
 		t.Fatalf("session %+v, plan %+v, want %+v", se, pv, want)
 	}
 	if _, _, err := s.SessionWithPlan(bg, "default", p.ID, Actor{Kind: Agent, Name: "lead", Session: p.ID}); !errors.Is(err, ErrOperatorOnly) {

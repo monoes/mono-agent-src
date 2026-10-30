@@ -2233,6 +2233,11 @@
     "copied": "Copiado"
   },
   "personItem": {
+    "planTasks": "Lo que apruebas",
+    "acceptance": "Terminado cuando",
+    "dependsOn": "Después de {{ids}}",
+    "changedNotice": "El plan cambió desde que lo abriste. Aprobar queda desactivado hasta que revises el nuevo plan.",
+    "reviewNew": "Revisar el nuevo plan",
     "planChanged": "El plan cambió después de abrirlo, así que no se aprobó nada. La tarjeta se recargó: revísala de nuevo.",
     "notifyTitle": "Te necesita",
     "notifyBody_one": "{{count}} elemento te espera",

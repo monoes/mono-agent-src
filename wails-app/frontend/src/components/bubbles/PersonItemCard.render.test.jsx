@@ -120,4 +120,31 @@ describe('PersonItemCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Open this agent/ }))
     expect(onOpenAgent).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'c7' }))
   })
+
+  it('shows the tasks the person approves: titles, notes, acceptance and dependencies', () => {
+    const tasks = [
+      { id: 11, title: 'Port the reader', notes: 'keep the retry loop', acceptance: 'passes: reader tests' },
+      { id: 12, title: 'Port the writer', dependsOn: [11] },
+    ]
+    render(<PersonItemCard item={item({ tasks })} onAnswer={vi.fn()} />)
+    const card = screen.getByRole('group', { name: /Port the importer/ })
+    expect(card).toHaveTextContent('Port the reader')
+    expect(card).toHaveTextContent('keep the retry loop')
+    expect(card).toHaveTextContent('passes: reader tests')
+    expect(card).toHaveTextContent('Port the writer')
+    expect(card).toHaveTextContent('#11')
+  })
+
+  it('a changed plan shows a marker and blocks approve until the person asks to review the new plan', () => {
+    const onAnswer = vi.fn()
+    const onReview = vi.fn()
+    render(<PersonItemCard item={item({ rev: 3, digest: 'abc', changed: true })} onAnswer={onAnswer} onReview={onReview} />)
+    expect(screen.getByRole('status')).toHaveTextContent(/plan changed/i)
+    const approve = screen.getByRole('button', { name: /Approve/ })
+    expect(approve).toBeDisabled()
+    fireEvent.click(approve)
+    expect(onAnswer).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /Review the new plan/ }))
+    expect(onReview).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }))
+  })
 })

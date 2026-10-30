@@ -91,3 +91,30 @@ func TestPersonDenyAndAskNeedNoRev(t *testing.T) {
 	mustTaskJSON(t, db, "default", &struct{}{}, "", "session", "person", "ask", id(big), "--text", "why")
 	mustTaskJSON(t, db, "default", &struct{}{}, "", "session", "person", "deny", id(big), "--note", "no")
 }
+
+// The inbox carries the plan's words the digest covers, so the card can show what the person approves.
+func TestPersonInboxCarriesTheTasksOfThePlan(t *testing.T) {
+	t.Parallel()
+	db, _, big := giantWithItem(t)
+	sessionAdd(t, db, big, "port the importer")
+	var v struct {
+		Items []struct {
+			TaskCount int `json:"taskCount"`
+			Tasks     []struct {
+				ID    int64  `json:"id"`
+				Title string `json:"title"`
+			} `json:"tasks"`
+		} `json:"items"`
+	}
+	mustTaskJSON(t, db, "default", &v, "", "session", "person", "inbox")
+	if len(v.Items) != 1 || len(v.Items[0].Tasks) == 0 || len(v.Items[0].Tasks) != v.Items[0].TaskCount {
+		t.Fatalf("the inbox must list every task of the plan: %+v", v.Items)
+	}
+	found := false
+	for _, tk := range v.Items[0].Tasks {
+		found = found || tk.Title == "port the importer"
+	}
+	if !found {
+		t.Fatalf("the added task's title is missing: %+v", v.Items[0].Tasks)
+	}
+}

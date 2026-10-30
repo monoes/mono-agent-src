@@ -26,6 +26,16 @@ type PlanView struct {
 	Rev       int64
 	Digest    string
 	TaskCount int
+	Tasks     []PlanTask // the words the digest covers, read in the same snapshot
+}
+
+// PlanTask is one task of the plan as the person reads it.
+type PlanTask struct {
+	ID         int64
+	Title      string
+	Notes      string
+	Acceptance string
+	DependsOn  []int64
 }
 
 func planChanged(id int64, why string) error {
@@ -96,6 +106,7 @@ func (s *Store) planViewTx(ctx context.Context, x dbx, se Session) (PlanView, er
 	if err := rows.Err(); err != nil {
 		return PlanView{}, err
 	}
+	view := make([]PlanTask, 0, len(ts))
 	h := sha256.New()
 	field := func(v any) { fmt.Fprintf(h, "%d:%v|", len(fmt.Sprint(v)), v) } // length-prefixed: no field runs into the next
 	field(se.Title)
@@ -116,8 +127,9 @@ func (s *Store) planViewTx(ctx context.Context, x dbx, se Session) (PlanView, er
 		field(t.SuggestedExecutor)
 		field(deps)
 		field(events[t.ID])
+		view = append(view, PlanTask{ID: t.ID, Title: t.Title, Notes: t.Notes, Acceptance: t.Acceptance, DependsOn: deps})
 	}
-	return PlanView{Rev: se.Rev, Digest: hex.EncodeToString(h.Sum(nil)), TaskCount: len(ts)}, nil
+	return PlanView{Rev: se.Rev, Digest: hex.EncodeToString(h.Sum(nil)), TaskCount: len(ts), Tasks: view}, nil
 }
 
 // checkPlanGuard runs inside the approval's write transaction, so no write can slip between the
