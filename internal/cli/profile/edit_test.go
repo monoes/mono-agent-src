@@ -167,6 +167,9 @@ var seedOverrides = map[string]map[string]any{
 	"coder_session_decisions": {"made_by": "model"},
 	"coder_mission_children":  {"origin": "lead", "state": "marked"},
 	"coder_budget_requests":   {"target": "lead", "status": "open"},
+	// 149: a live reservation, with stamps in the one text form its CHECK accepts. Deleting the profile (or its
+	// session) removes the row, which is how a reservation's money comes back; there is no rule to retain it.
+	"task_session_reservations": {"state": "live", "lease_until": "2026-10-05T12:00:00Z", "heartbeat_at": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z", "bounded": 1},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a

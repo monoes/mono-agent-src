@@ -82,7 +82,7 @@ func TestSplitterLeavesEveryExistingMigrationUnchanged(t *testing.T) {
 		}
 	}
 	sort.Strings(withTriggers)
-	if want := []string{"migrations/143_coder_budget_requests.sql", "migrations/148_procbind_v2_tables.sql"}; !reflect.DeepEqual(withTriggers, want) {
+	if want := []string{"migrations/143_coder_budget_requests.sql", "migrations/148_procbind_v2_tables.sql", "migrations/149_task_session_reservations.sql"}; !reflect.DeepEqual(withTriggers, want) {
 		t.Fatalf("migrations with triggers = %v, want %v: a new trigger migration needs this list and its split checked", withTriggers, want)
 	}
 }
