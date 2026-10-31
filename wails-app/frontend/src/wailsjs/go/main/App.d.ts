@@ -72,6 +72,12 @@ export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:s
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function AgentPurposeReset(arg1:string):Promise<string>;
+
+export function AgentPurposeSet(arg1:string,arg2:Array<string>,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:number):Promise<string>;
+
+export function AgentPurposesList():Promise<string>;
+
 export function AgentRoster():Promise<string>;
 
 export function AgentRosterAdd(arg1:string,arg2:string):Promise<string>;
@@ -601,6 +607,18 @@ export function InstallExtension():Promise<main.ExtensionInfo>;
 
 export function PauseOrgAutonomy(arg1:string,arg2:string):Promise<string>;
 
+export function PersonItemAnswerAsk(arg1:number,arg2:string):Promise<string>;
+
+export function PersonItemApprove(arg1:number,arg2:number,arg3:string):Promise<string>;
+
+export function PersonItemAsk(arg1:number,arg2:string):Promise<string>;
+
+export function PersonItemDeny(arg1:number,arg2:string):Promise<string>;
+
+export function PersonItemShow(arg1:number):Promise<string>;
+
+export function PersonItemsList():Promise<string>;
+
 export function PickCoderFolder():Promise<string>;
 
 export function PlatformNames():Promise<Record<string, string>>;
@@ -805,6 +823,8 @@ export function TaskMove(arg1:number,arg2:string,arg3:string,arg4:number):Promis
 export function TaskPulse():Promise<Record<string, any>>;
 
 export function TaskSessionApprove(arg1:number):Promise<string>;
+
+export function TaskSessionApproveAt(arg1:number,arg2:number):Promise<string>;
 
 export function TaskSessionArchive(arg1:number):Promise<string>;
 

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/agentroster"
 )
 
@@ -53,6 +54,14 @@ type Staffer struct {
 	// profile. A lead that asks for it is refused; one staffing picked is
 	// lowered to coding.
 	NoAppAccess bool
+	// Purposes is the operator's model set per purpose id (internal/agentpurposes);
+	// a purpose absent or with no pair chosen uses every ready model.
+	Purposes map[string]agentpurposes.Setting
+	// PurposesFn, when set, replaces Purposes: it reads the operator's sets
+	// afresh at every spawn decision (and the verifier's model choice), so a
+	// change made mid-turn applies to the next one, and an error fails the
+	// decision closed. The chat wires it to the database.
+	PurposesFn func() (map[string]agentpurposes.Setting, error)
 }
 
 // appAccess reports coder.appAccess for this turn (a nil Staffer: on).
@@ -85,6 +94,9 @@ func (s *Staffer) Staff(ctx context.Context, req SpawnRequest) (Staff, error) {
 		return st, fmt.Errorf("brief is required: say what the worker should do")
 	}
 	if err := s.staffRole(ctx, req, &st); err != nil {
+		return st, err
+	}
+	if err := s.staffPurpose(req, &st); err != nil {
 		return st, err
 	}
 	if req.Access != "" {
@@ -176,6 +188,10 @@ func (s *Staffer) staffModel(ctx context.Context, req SpawnRequest, st *Staff) e
 			eligible = append(eligible, m)
 		}
 	}
+	pol, err := s.limitToPurpose(req, st, &eligible)
+	if err != nil {
+		return err
+	}
 	eligible, bad := s.rankByQuality(eligible, st.Category)
 	if req.Runtime != "" || req.Model != "" {
 		i := slices.IndexFunc(s.Roster, func(m Model) bool {
@@ -185,12 +201,16 @@ func (s *Staffer) staffModel(ctx context.Context, req SpawnRequest, st *Staff) e
 			return fmt.Errorf("%s is not a ready model; ready models: %s", strings.Trim(req.Runtime+"/"+req.Model, "/"), keys(eligible))
 		}
 		m := s.Roster[i]
+		if err := pol.checkNamed(m, eligible); err != nil {
+			return err
+		}
 		if !m.fits(st.Access) {
 			return fmt.Errorf("%s can't run a %s worker (it has no %s access); use one of: %s", m.Key(), st.Access, accessNeed(st.Access), keys(eligible))
 		}
 		st.Model = m
 		st.Fallbacks = without(eligible, m)
 		st.Why = append(st.Why, "lead chose the model")
+		st.Why = append(st.Why, pol.notes...)
 		return nil
 	}
 	if len(eligible) == 0 {
@@ -198,6 +218,13 @@ func (s *Staffer) staffModel(ctx context.Context, req SpawnRequest, st *Staff) e
 	}
 	if s.ModelPicker == PickerLead {
 		return fmt.Errorf("choose a model for this worker (runtime and model); ready models: %s", keys(eligible))
+	}
+	st.Why = append(st.Why, pol.notes...)
+	if m, ok := pol.pick(eligible, bad); ok {
+		st.Model = m
+		st.Fallbacks = without(eligible, m)
+		st.Why = append(st.Why, "model by the operator's "+pol.rule+" rule for "+st.Purpose)
+		return nil
 	}
 	if s.Chooser != nil && len(eligible) > 1 {
 		opts := map[string]string{}
@@ -252,6 +279,11 @@ func (s *Staffer) staffEffort(ctx context.Context, req SpawnRequest, st *Staff) 
 		return nil
 	}
 	if len(levels) == 0 {
+		return nil
+	}
+	if e := st.loaded[st.Purpose].Effort; e != "" && st.Purpose != "" && slices.Contains(levels, e) {
+		st.Effort = e
+		st.Why = append(st.Why, "effort set for "+st.Purpose)
 		return nil
 	}
 	if s.Chooser == nil {

@@ -85,7 +85,7 @@ func sessionTools() []tool {
 				"If you lead a mission or a direction (a running task session of your own) the child is also a named task session below yours, and title, kind (direction, research or task) and reason are required: " +
 				"reason is parallel, long_running, isolation, different_access_or_model or context_overflow. A small piece of work (at most 3 open tasks of size s or smaller, one writer, no parallel branch) is refused once " +
 				"with \"doable in this session\"; run it here, or repeat the call with a reason that applies. task_ids names the tasks of your session the new session takes, which is how the size of the work is read. " +
-				"Every spawn and refusal is written to your decisions ledger. Returns also {taskSessionId, kind, title, depth}.",
+				"A limit refusal, the doable-in-this-session refusal and a spawn that failed are written to your decisions ledger; other refusals are only returned to you. The new session's budget is at most 40% of what your own session has left (20% when you name none; refused when nothing is left). Returns also {taskSessionId, kind, title, depth}.",
 			schema: objSchema(map[string]interface{}{
 				"message":    strParam("The child's first message (a lead: the goal)"),
 				"access":     strParam("coding or workspace, at most your own (default: yours, capped at workspace)"),

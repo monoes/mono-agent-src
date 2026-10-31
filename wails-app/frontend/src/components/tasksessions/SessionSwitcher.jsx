@@ -5,7 +5,7 @@ import StateChip from './StateChip.jsx'
 import SessionNew from './SessionNew.jsx'
 import SessionRename from './SessionRename.jsx'
 import SessionTree from './SessionTree.jsx'
-import { hasSessionTree, progress, spendParts } from '../../lib/taskSessionModel.js'
+import { SESSION_PAGE, capSessionRows, hasSessionTree, progress, spendParts } from '../../lib/taskSessionModel.js'
 
 // Personal (today's board) and each session as a tab: state chip, progress,
 // spend against the budget. Left and Right move between tabs (roving focus).
@@ -17,6 +17,7 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
   const { t } = useTranslation()
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const [limit, setLimit] = useState(SESSION_PAGE)
   const newBtn = useRef(null)
   const renameBtn = useRef(null)
   // A form that closes without choosing anything gives the focus back to its button.
@@ -26,7 +27,8 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
   useEffect(() => {
     document.querySelector('[data-ts-tab][aria-selected="true"], [data-ts-row][aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [selectedId, sessions.length])
-  const ids = [null, ...sessions.map(s => s.id)]
+  const capped = capSessionRows(sessions, limit, selectedId)
+  const ids = [null, ...capped.kept.map(s => s.id)]
   const onKey = (e, id) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
     if (!step) return
@@ -48,7 +50,7 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
   const tabs = nested ? <SessionTree sessions={sessions} selectedId={selectedId} onSelect={onSelect} ui={treeUi} /> : (
     <div role="tablist" aria-label={t('tasks.session.switcher')} className="ts-tabs">
       {tab(null, <span className="ts-tab-title">{t('tasks.session.personal')}</span>, null)}
-      {sessions.map(s => {
+      {capped.kept.map(s => {
         const { spent, budget } = spendParts(s)
         return tab(s.id, <span className="ts-tab-title" title={s.title}>{s.title}</span>, (
           <span className="ts-tab-meta">
@@ -60,6 +62,11 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
           </span>
         ))
       })}
+      {capped.hidden > 0 && (
+        <button type="button" className="btn btn-ghost btn-sm tb-more" onClick={() => setLimit(l => l + SESSION_PAGE)}>
+          {t('tasks.session.sessionsShowMore', { count: Math.min(SESSION_PAGE, capped.hidden), left: capped.hidden })}
+        </button>
+      )}
     </div>
   )
   return (

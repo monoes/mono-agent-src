@@ -92,14 +92,27 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = w
 	defer func() { os.Stdout = orig }()
 
+	// Drain the pipe while fn runs: a writer that fills the pipe buffer (64 KiB,
+	// or one page when the runner's user has exhausted its pipe quota) would
+	// otherwise block forever before the read below starts.
+	type result struct {
+		out []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, err := io.ReadAll(r)
+		done <- result{out, err}
+	}()
+
 	fn()
 
 	if err := w.Close(); err != nil {
 		t.Fatalf("closing pipe writer: %v", err)
 	}
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("reading captured stdout: %v", err)
+	res := <-done
+	if res.err != nil {
+		t.Fatalf("reading captured stdout: %v", res.err)
 	}
-	return string(out)
+	return string(res.out)
 }

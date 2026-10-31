@@ -2,11 +2,13 @@ package dynorg
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
@@ -341,5 +343,164 @@ func TestRefusedFollowUpCreatesNoWorktree(t *testing.T) {
 		if tried || tree != "" {
 			t.Errorf("%s: treeDone %v, worktree %q", id, tried, tree)
 		}
+	}
+}
+
+// keptCoder runs a built-in coder to the end under no operator sets and
+// returns the veteran the conversation keeps of it.
+func keptCoder(t *testing.T) Veteran {
+	t.Helper()
+	kept := &keptWorkers{}
+	c, _ := newVeteranConductor(t, &treeExec{}, "/w", treeLimits, kept)
+	if _, err := c.Spawn(context.Background(), SpawnRequest{Brief: "fix it", Role: "coder", Wait: true}); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	return kept.byID["w1"]
+}
+
+func veteranTurn(t *testing.T, ex *treeExec, fn func() (map[string]agentpurposes.Setting, error)) *Conductor {
+	t.Helper()
+	c := New(context.Background(), Config{Cwd: "/w", Limits: treeLimits, ReadAccess: true, Exec: ex.exec, Emit: &recEmitter{},
+		Staffer: &Staffer{Roster: []Model{treeModel, openModel}, Lead: treeModel, PurposesFn: fn}})
+	t.Cleanup(c.Close)
+	return c
+}
+
+func sets(m map[string]agentpurposes.Setting) func() (map[string]agentpurposes.Setting, error) {
+	return func() (map[string]agentpurposes.Setting, error) { return m, nil }
+}
+
+// A veteran is rechecked against the operator's CURRENT sets at each
+// follow-up, not just for readiness: narrowing a set after the veteran was
+// staffed refuses it, and the reason names the purpose and `agent purposes`.
+func TestAVeteranIsRecheckedAgainstTheCurrentPurposeSets(t *testing.T) {
+	v := keptCoder(t)
+	if !v.Builtin || v.Purposes != "coding" {
+		t.Errorf("the veteran kept no purpose data: %+v", v)
+	}
+	narrow := func(pair string) map[string]agentpurposes.Setting {
+		return map[string]agentpurposes.Setting{"coding": set("any", pair)}
+	}
+	ex := &treeExec{}
+	c := veteranTurn(t, ex, sets(narrow("codex/x"))) // the veteran runs on claude/opus
+	c.AddVeterans([]Veteran{v})
+	_, err := c.Message(context.Background(), "w1", "more")
+	if err == nil || !strings.Contains(err.Error(), "coding") || !strings.Contains(err.Error(), "agent purposes") {
+		t.Errorf("a veteran outside the narrowed set was messaged: %v", err)
+	}
+	if len(ex.calls) != 0 {
+		t.Errorf("it ran: %+v", ex.calls)
+	}
+	// The set is read again at every follow-up: widened back, it runs.
+	cur := narrow("codex/x")
+	c = veteranTurn(t, ex, func() (map[string]agentpurposes.Setting, error) { return cur, nil })
+	c.AddVeterans([]Veteran{v})
+	if _, err := c.Message(context.Background(), "w1", "more"); err == nil {
+		t.Error("refused veteran ran")
+	}
+	cur = narrow("claude/opus")
+	if _, err := c.Message(context.Background(), "w1", "more"); err != nil {
+		t.Errorf("a veteran whose model is still in the set was refused: %v", err)
+	}
+	c.Wait(context.Background(), nil, 0)
+}
+
+// An unreadable setting or an unreadable purpose record refuses the
+// follow-up: nothing is read as unrestricted.
+func TestAVeteranFollowUpFailsClosed(t *testing.T) {
+	v := keptCoder(t)
+	open := sets(map[string]agentpurposes.Setting{})
+	bad := v
+	bad.Purposes = "coding,not-a-purpose"
+	for name, tc := range map[string]struct {
+		v  Veteran
+		fn func() (map[string]agentpurposes.Setting, error)
+	}{
+		"settings unreadable":    {v, func() (map[string]agentpurposes.Setting, error) { return nil, errors.New("corrupt row") }},
+		"purpose record corrupt": {bad, open},
+	} {
+		ex := &treeExec{}
+		c := veteranTurn(t, ex, tc.fn)
+		c.AddVeterans([]Veteran{tc.v})
+		if _, err := c.Message(context.Background(), "w1", "more"); err == nil {
+			t.Errorf("%s: the follow-up ran", name)
+		}
+		if len(ex.calls) != 0 {
+			t.Errorf("%s: it ran: %+v", name, ex.calls)
+		}
+	}
+}
+
+// A veteran kept by an older build has no purpose data: it is unmapped, so
+// every purpose the operator restricted applies to it.
+func TestAVeteranWithoutPurposeDataIsUnmapped(t *testing.T) {
+	old := keptCoder(t)
+	old.Builtin, old.Purposes = false, ""
+	restrictResearch := sets(map[string]agentpurposes.Setting{"research": set("any", "codex/x")})
+	c := veteranTurn(t, &treeExec{}, restrictResearch)
+	c.AddVeterans([]Veteran{old})
+	if _, err := c.Message(context.Background(), "w1", "more"); err == nil || !strings.Contains(err.Error(), "research") {
+		t.Errorf("an old veteran escaped a restricted set it never had a purpose for: %v", err)
+	}
+	c = veteranTurn(t, &treeExec{}, sets(nil))
+	c.AddVeterans([]Veteran{old})
+	if _, err := c.Message(context.Background(), "w1", "more"); err != nil {
+		t.Errorf("nothing restricted, yet an old veteran was refused: %v", err)
+	}
+	c.Wait(context.Background(), nil, 0)
+}
+
+// A worker staffed earlier in THIS turn is rechecked at its follow-up like a
+// veteran: the operator narrows a set (or its row turns corrupt) after the
+// first run, and the worker is refused although it never left the turn.
+func TestASameTurnWorkerIsRecheckedAtItsFollowUp(t *testing.T) {
+	for _, name := range []string{"narrowed after the first run", "corrupt after the first run", "model still in the set"} {
+		cur := sets(nil)
+		ex := &treeExec{}
+		c := veteranTurn(t, ex, func() (map[string]agentpurposes.Setting, error) { return cur() })
+		if _, err := c.Spawn(context.Background(), SpawnRequest{Brief: "fix it", Role: "coder", Wait: true}); err != nil {
+			t.Fatal(err)
+		}
+		c.mu.Lock()
+		ran, other := c.workers["w1"].model.Key(), openModel.Key()
+		if ran == other {
+			other = treeModel.Key()
+		}
+		c.mu.Unlock()
+		refused := true
+		switch name {
+		case "narrowed after the first run":
+			cur = sets(map[string]agentpurposes.Setting{"coding": set("any", other)})
+		case "corrupt after the first run":
+			cur = func() (map[string]agentpurposes.Setting, error) { return nil, errors.New("corrupt row") }
+		default:
+			cur, refused = sets(map[string]agentpurposes.Setting{"coding": set("any", ran)}), false
+		}
+		n := len(ex.calls)
+		_, err := c.Message(context.Background(), "w1", "more")
+		c.Wait(context.Background(), nil, 0)
+		switch {
+		case refused && (err == nil || len(ex.calls) != n):
+			t.Errorf("%s: same-turn worker ran outside the current sets: err=%v calls %d->%d", name, err, n, len(ex.calls))
+		case !refused && (err != nil || len(ex.calls) != n+1):
+			t.Errorf("%s: a worker still inside its set was refused: err=%v calls %d->%d", name, err, n, len(ex.calls))
+		}
+	}
+}
+
+// A same-turn worker whose purpose record names an unknown id is refused.
+func TestASameTurnWorkerWithAnUnknownPurposeIsRefused(t *testing.T) {
+	ex := &treeExec{}
+	c := veteranTurn(t, ex, sets(nil))
+	if _, err := c.Spawn(context.Background(), SpawnRequest{Brief: "fix it", Role: "coder", Wait: true}); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	c.workers["w1"].staff.sides = []string{"not-a-purpose"}
+	c.mu.Unlock()
+	n := len(ex.calls)
+	if _, err := c.Message(context.Background(), "w1", "more"); err == nil || len(ex.calls) != n {
+		t.Errorf("unknown purpose id ran: err=%v calls %d->%d", err, n, len(ex.calls))
 	}
 }

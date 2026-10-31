@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,13 +46,19 @@ func runChatJSON(t *testing.T, dbPath string, args ...string) (string, error) {
 		t.Fatal(err)
 	}
 	realStdout := os.Stdout
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stdout = w
 	cmd.SetOut(w)
 	execErr := cmd.Execute()
 	os.Stdout = realStdout
 	w.Close()
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	buf := bytes.NewBuffer(<-drained)
 	return buf.String(), execErr
 }
 
@@ -121,12 +128,18 @@ func TestJournaledTurnWithoutMonomindCarriesCode(t *testing.T) {
 	cmd.SetArgs([]string{"--conversation", conv.ID, "--turn", "t-nomm", "--", "hi"})
 	r, w, _ := os.Pipe()
 	realStdout := os.Stdout
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stdout = w
 	err := cmd.Execute()
 	os.Stdout = realStdout
 	w.Close()
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	buf := bytes.NewBuffer(<-drained)
 	if !monomind.IsNotFound(err) {
 		t.Fatalf("err = %v, want monomind not found", err)
 	}

@@ -14,4 +14,11 @@ describe('bubble dock beside the task drawer', () => {
     const bubble = px(/\n\.bubble\s*\{[^}]*?width:\s*(\d+)px/)
     expect(reserve).toBeGreaterThanOrEqual(offset + bubble)
   })
+  it('keeps an orbit (about 100px more) clear of the drawer, the inbox and an expanded pane, and drops it from a full-width pane', () => {
+    expect(css).toMatch(/\.bubble-dock\.right \.has-orbit\) \.tb-drawer \{ margin-right: 150px/)
+    expect(css).toMatch(/\.bubble-dock\.right\) \.hil-body \{ padding-right: 76px/)
+    expect(css).toMatch(/\.bubble-dock\.right \.has-orbit\) \.hil-body \{ padding-right: 150px/)
+    expect(css).toMatch(/\.bubble-dock\.right \.has-orbit\) \.bubble-overlay:not\(\.narrow\) \{ width: min\(1080px, calc\(100vw - 300px\)\)/)
+    expect(css).toMatch(/\.bubble-overlay\.narrow\) \.bubble-dock \.orbit-arc \{ display: none/)
+  })
 })

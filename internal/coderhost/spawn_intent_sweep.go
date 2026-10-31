@@ -25,11 +25,11 @@ var errHeld = errors.New("the spawn was held for the operator")
 // got there first, or one still inside its lease) is never undone from a stale read. It returns how many it ended.
 func (s *Store) SweepSpawnIntents(ctx context.Context, limit int) (int, error) {
 	now := s.now().UTC()
-	leaseCut := now.Add(-SpawnIntentLease).Format(timeLayout)
-	createCut := now.Add(-SpawnCreateLeases * SpawnIntentLease).Format(timeLayout)
+	leaseCut := now.Add(-SpawnIntentLease)
+	createCut := now.Add(-SpawnCreateLeases * SpawnIntentLease)
 	rows, err := s.db.Query(`SELECT profile_id, spawner, scope_hash, generation, attempts FROM coder_spawn_intents
-		WHERE (state = 'pending' AND created_at < ? AND (child != '' OR created_at < ?)) OR (state = 'sweeping' AND (`+s.backedOffLeases()+`)) ORDER BY created_at LIMIT ?`,
-		leaseCut, createCut, limit)
+		WHERE (state = 'pending' AND `+tsLapsed("created_at", leaseCut)+` AND (child != '' OR `+tsLapsed("created_at", createCut)+`)) OR (state = 'sweeping' AND (`+s.backedOffLeases()+`)) ORDER BY created_at LIMIT ?`,
+		limit)
 	if err != nil {
 		return 0, err
 	}
@@ -222,7 +222,7 @@ func (s *Store) backedOffLeases() string {
 		case SpawnSweepAttempts:
 			cond = fmt.Sprintf("attempts >= %d", a+1)
 		}
-		parts = append(parts, fmt.Sprintf("(%s AND claimed_at < '%s')", cond, s.sweepCut(a+1)))
+		parts = append(parts, "("+cond+" AND "+tsLapsed("claimed_at", s.sweepCut(a+1))+")")
 	}
 	return strings.Join(parts, " OR ")
 }

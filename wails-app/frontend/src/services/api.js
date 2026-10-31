@@ -202,6 +202,13 @@ export const api = {
   // Automatic re-validation (#230): `agent roster auto-revalidate status|on|off --json`.
   agentRosterAutoRevalidate:    () => GoApp.AgentRosterAutoRevalidate().then(parseRosterJSON).catch(e => ({ error: String(e) })),
   setAgentRosterAutoRevalidate: on => GoApp.SetAgentRosterAutoRevalidate(!!on).then(parseRosterJSON).catch(e => ({ error: String(e) })),
+  // Agent purposes (#1150): `agent purposes list|set|reset --json`. Errors,
+  // including the CLI's {error, code} refusals, come back as objects.
+  agentPurposes:      () => GoApp.AgentPurposesList().then(parseRosterJSON).catch(e => ({ error: String(e) })),
+  // pairs: ["runtime:model", ...]; effort '' and budgetShare 0 mean none.
+  agentPurposeSet:    (id, pairs, rule, effort, differentFromAuthor, fallback, budgetShare) =>
+    GoApp.AgentPurposeSet(id, pairs, rule, effort || '', !!differentFromAuthor, fallback, Number(budgetShare) || 0).then(parseRosterJSON).catch(e => ({ error: String(e) })),
+  agentPurposeReset:  id => GoApp.AgentPurposeReset(id).then(parseRosterJSON).catch(e => ({ error: String(e) })),
   // New chat bindings (interactive-agent-chat plan §"Proposed Wails
   // bindings"). Every call goes through parseStreamResult: a synchronous
   // {"error":...} shape

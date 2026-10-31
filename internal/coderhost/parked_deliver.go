@@ -52,7 +52,7 @@ func answerTurnID(origin string) string {
 
 // answerGated says whether a turn id is an answer note from a master or a default.
 func answerGated(turnID string) bool {
-	return strings.HasPrefix(turnID, AnswerPrefix+answerFromMaster+"-") || strings.HasPrefix(turnID, AnswerPrefix+answerFromDefault+"-")
+	return strings.HasPrefix(turnID, AnswerPrefix+answerFromMaster+"-") || strings.HasPrefix(turnID, AnswerPrefix+answerFromDefault+"-") || askGated(turnID)
 }
 
 // quote cleans somebody else's text for the fence and says whether it was cut.
@@ -114,14 +114,14 @@ func (s *Store) deliver(q Question) (Command, error) {
 
 // pruneClosedQuestions keeps a conversation's newest MaxClosedQuestions closed
 // rows. Open ones are never pruned, nor are closed ones whose note is not queued
-// yet (command_id 0) until MaxSendAge has passed.
+// yet (command_id 0) until MaxSendAge has passed, nor any whose answered_at is unreadable.
 func (s *Store) pruneClosedQuestions(profileID, conversationID string) {
-	old := s.now().Add(-MaxSendAge).UTC().Format(timeLayout)
-	const prunable = `status != 'open' AND (command_id != 0 OR answered_at < ?)`
+	old := s.now().Add(-MaxSendAge)
+	prunable := `status != 'open' AND ` + tsOK("answered_at") + ` AND (command_id != 0 OR ` + tsOlderThan("answered_at", old) + `)`
 	defer s.dropStaleItems(profileID, conversationID)
 	_, _ = s.db.Exec(`DELETE FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` AND id NOT IN
 		(SELECT id FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` ORDER BY id DESC LIMIT ?)`,
-		profileID, conversationID, old, profileID, conversationID, old, MaxClosedQuestions)
+		profileID, conversationID, profileID, conversationID, MaxClosedQuestions)
 }
 
 func (s *Store) dropQuestion(id int64) {
@@ -155,8 +155,8 @@ func (s *Store) scanQuestions(query string, args ...any) ([]Question, error) {
 // redeliver queues the note again for questions that were closed but never got
 // a command (the host or CLI died between the two steps).
 func (s *Store) redeliver() error {
-	cut := s.now().Add(-redeliverAfter).UTC().Format(timeLayout)
-	lost, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status != 'open' AND command_id = 0 AND answered_at != '' AND answered_at < ? ORDER BY id LIMIT ?`, cut, pendingBatch)
+	cut := s.now().Add(-redeliverAfter)
+	lost, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status != 'open' AND command_id = 0 AND answered_at != '' AND `+tsOlderThan("answered_at", cut)+` ORDER BY id LIMIT ?`, pendingBatch)
 	if err != nil {
 		return err
 	}
@@ -296,12 +296,12 @@ func (s *Store) ReopenFailedAnswers() {
 // defaults it applied.
 func (s *Store) ApplyDefaults() (int, error) {
 	errs := []error{s.redeliver()}
-	cut := s.now().Add(-ParkTimeout).UTC().Format(timeLayout)
+	cut := s.now().Add(-ParkTimeout)
 	applied, last := 0, int64(0)
 	cache := map[string]*passCtx{}
 	for {
 		// Paged by id so that questions the policy keeps parked cannot hide the ones behind them.
-		page, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status = 'open' AND default_answer != '' AND created_at < ? AND id > ? ORDER BY id LIMIT ?`, cut, last, pendingBatch)
+		page, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status = 'open' AND default_answer != '' AND `+tsOlderThan("created_at", cut)+` AND id > ? ORDER BY id LIMIT ?`, last, pendingBatch)
 		if err != nil {
 			return applied, errors.Join(append(errs, err)...)
 		}

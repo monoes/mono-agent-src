@@ -148,3 +148,15 @@ export function visibleRows(roots, collapsed) {
   roots.forEach(r => walk(r, null))
   return rows
 }
+
+// SESSION_PAGE is how many session tabs (or tree rows) the strip draws at first, and how many more each
+// "show more" adds.
+export const SESSION_PAGE = 100
+
+// capSessionRows keeps the first `limit` of items, and enough more to include the one with id keepId (the
+// chosen session is always on screen): {kept, hidden}.
+export function capSessionRows(items, limit, keepId, idOf = (x) => x.id) {
+  const at = keepId == null ? -1 : items.findIndex(x => idOf(x) === keepId)
+  const end = Math.max(limit, at + 1)
+  return { kept: items.slice(0, end), hidden: Math.max(items.length - end, 0) }
+}
