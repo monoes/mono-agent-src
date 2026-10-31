@@ -45,6 +45,8 @@ type execLauncher struct {
 	// environment, a typed frame over a pipe, the token bound to the process before anything is delivered. Nil is the
 	// launch exactly as it was.
 	bound *boundLaunch
+	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
+	afterExitRevoke func()
 }
 
 // hostID is what makes a host-owned name safe to put in a file name and a flag.
@@ -246,6 +248,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
 		os.Remove(promptPath)   // before done closes: whoever sees the turn end sees no prompt left
+		if l.afterExitRevoke != nil {
+			l.afterExitRevoke()
+		}
 		close(t.done)
 	}()
 	launched = true // the wait goroutine above revokes the child's token from here on

@@ -48,8 +48,9 @@ type boundLaunch struct {
 	// revocation read of step 5.
 	beforeMint func()
 	afterMint  func()
-	// afterKill is a test seam: it runs right after the leader was signalled on a failed delivery.
-	afterKill func()
+	// beforeKill and afterKill are test seams: they run just before and right after the leader is signalled on a failed delivery.
+	beforeKill func()
+	afterKill  func()
 }
 
 // newBoundLaunch is the one way a launcher gets a bound launch: it also points the stores that end tokens at the same
@@ -114,6 +115,9 @@ func (d *boundDelivery) start(cmd *exec.Cmd) error {
 func (d *boundDelivery) setOnKill(f func()) { d.onKill = f }
 
 func (d *boundDelivery) kill() {
+	if d.b != nil && d.b.beforeKill != nil {
+		d.b.beforeKill()
+	}
 	if d.onKill != nil {
 		d.onKill() // before the signal: the exit it causes must find the turn already marked as being stopped
 	}
