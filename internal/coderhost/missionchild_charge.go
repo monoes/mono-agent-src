@@ -47,7 +47,7 @@ import (
 const chargeKind = "charge"
 
 // unresolvedKind is the audit row of a child whose cost nobody knows. Its note is "<conversation> $<left> ...": while
-// it has no charge row, missionBudgetRefusal holds the whole remainder of the mission's budget (lostChildSQL).
+// it has no charge row, missionBudgetRefusal holds the whole remainder of the mission's budget (the view v_mission_child_held).
 const unresolvedKind = "unresolved"
 
 // chargeBatch bounds the rows one pass of the sweep settles: a backlog is worked off over several passes.
