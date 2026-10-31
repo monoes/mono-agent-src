@@ -76,7 +76,7 @@ func (d Deps) newSessionReservationListCmd() *cobra.Command {
 				return nil
 			}
 			for _, r := range out {
-				fmt.Fprintf(w, "#%d  %-8s %s of %s charged, %s held  %s\n", r.ID, r.State, money(r.ChargedUSD), money(r.AmountUSD), money(r.HeldUSD), taskCut(r.Worker, 60))
+				fmt.Fprintf(w, "#%d  %-8s $%.6f of $%.6f charged, $%.6f held  %s\n", r.ID, r.State, r.ChargedUSD, r.AmountUSD, r.HeldUSD, taskCut(r.Worker, 60))
 			}
 			return nil
 		})
@@ -94,17 +94,15 @@ func (d Deps) newSessionReservationResolveCmd() *cobra.Command {
 			if math.IsNaN(usd) || math.IsInf(usd, 0) || usd < 0 || usd > tasks.MaxBudgetUSD {
 				return d.InvalidInput("--usd is an amount in dollars from 0 to %.0f", tasks.MaxBudgetUSD)
 			}
-			// A live row whose lease lapsed past the grace is presumed dead: sweep it so it can be resolved.
-			if _, err := store.ExpireStale(cmd.Context(), p.ID, 0); err != nil {
-				return d.reservationErr(err)
-			}
-			if err := store.ResolveReservation(cmd.Context(), p.ID, id, usd, note, actor); err != nil {
+			// A live row whose lease lapsed past the grace is presumed dead: it alone is expired, in the resolve's own write.
+			total, err := store.ResolveLapsedReservation(cmd.Context(), p.ID, id, usd, note, actor)
+			if err != nil {
 				return d.reservationErr(err)
 			}
 			if d.JSONOutput() {
-				return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "reservation": id, "state": tasks.ReservationResolved, "charged_usd": usd})
+				return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "reservation": id, "state": tasks.ReservationResolved, "charged_usd": total})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Resolved reservation #%d: %s charged in total.\n", id, money(usd))
+			fmt.Fprintf(cmd.OutOrStdout(), "Resolved reservation #%d: $%.6f charged in total.\n", id, total)
 			return nil
 		})
 	cmd.Flags().Float64Var(&usd, "usd", 0, "What the reservation cost in total, in dollars (not below what it already charged; 0 charges nothing more)")

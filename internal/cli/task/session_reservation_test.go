@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -187,5 +188,94 @@ func TestSessionReservationResolveIsTheOperatorsAlone(t *testing.T) {
 	}
 	if r := reservationList(t, db, session).Reservations[0]; r.State == "resolved" || r.ChargedUSD != 0 {
 		t.Fatalf("an agent changed the row: %+v", r)
+	}
+}
+
+// The CLI's own gate refuses an agent before it reads the argument or opens the database: the database here is
+// a path that cannot be opened, so only a gate that runs first answers operator_only.
+func TestSessionReservationResolveGateRunsBeforeTheStore(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "no", "such", "dir", "x.db")
+	for name, ctx := range opsAgentContexts {
+		t.Run(name, func(t *testing.T) {
+			args := append([]string{"session", "reservation", "resolve", "1", "--usd", "1"}, ctx(t)...)
+			out, _, err := runTask(t, missing, "default", true, "", args...)
+			var doc struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal([]byte(out), &doc); exitCode(err) != 3 || doc.Code != "operator_only" {
+				t.Fatalf("exit %d, code %q\n%s", exitCode(err), doc.Code, out)
+			}
+		})
+	}
+}
+
+func reservationStates(t *testing.T, db string, sessions ...int64) []string {
+	t.Helper()
+	var out []string
+	for _, s := range sessions {
+		for _, r := range reservationList(t, db, s).Reservations {
+			out = append(out, r.State)
+		}
+	}
+	return out
+}
+
+// A resolve that is refused expires nothing else, and a resolve that works expires only its own row.
+func TestSessionReservationResolveTouchesOnlyItsOwnRow(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	other, _ := reservedSession(t, db, true) // an unrelated worker whose lease lapsed
+	session, live := reservedSession(t, db, false)
+	_, done := reservedSession(t, db, true)
+	mustTaskJSON(t, db, "default", &struct{}{}, "", "session", "reservation", "resolve", id(done), "--usd", "1")
+
+	for _, args := range [][]string{
+		{id(live), "--usd", "1"},    // live inside its lease
+		{id(done), "--usd", "1"},    // already resolved
+		{"9999", "--usd", "1"},      // unknown
+		{id(done), "--usd", "-1"},   // invalid amount
+		{id(live), "--usd", "Inf"},  // invalid amount
+		{id(done), "--usd", "1e12"}, // invalid amount
+	} {
+		if _, _, err := runTask(t, db, "default", true, "", append([]string{"session", "reservation", "resolve"}, args...)...); err == nil {
+			t.Fatalf("resolve %v worked", args)
+		}
+	}
+	if _, _, err := runTask(t, db, "no-such", true, "", "session", "reservation", "resolve", id(done), "--usd", "1"); err == nil {
+		t.Fatal("another profile resolved it")
+	}
+	if st := reservationStates(t, db, other, session); len(st) != 2 || st[0] != "live" || st[1] != "live" {
+		t.Fatalf("a refused resolve expired an unrelated row: %v", st)
+	}
+
+	lapsed := reservationList(t, db, other).Reservations[0].ID
+	mustTaskJSON(t, db, "default", &struct{}{}, "", "session", "reservation", "resolve", id(lapsed), "--usd", "0")
+	if st := reservationStates(t, db, session); st[0] != "live" {
+		t.Fatalf("a good resolve touched another row: %v", st)
+	}
+}
+
+// The figure reported is the one stored, on the micro-dollar grid.
+func TestSessionReservationResolveReportsTheStoredFigure(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	for _, c := range []struct {
+		in   string
+		want float64
+	}{{"0.0000004", 0}, {"0.0000006", 0.000001}} {
+		session, rid := reservedSession(t, db, true)
+		var res struct {
+			ChargedUSD float64 `json:"charged_usd"`
+		}
+		mustTaskJSON(t, db, "default", &res, "", "session", "reservation", "resolve", id(rid), "--usd", c.in)
+		if r := reservationList(t, db, session).Reservations[0]; res.ChargedUSD != c.want || r.ChargedUSD != c.want {
+			t.Fatalf("--usd %s: reported %v, stored %v, want %v", c.in, res.ChargedUSD, r.ChargedUSD, c.want)
+		}
+	}
+	_, rid := reservedSession(t, db, true)
+	text, _, err := runTask(t, db, "default", false, "", "session", "reservation", "resolve", id(rid), "--usd", "0.000123")
+	if err != nil || !strings.Contains(text, "$0.000123") {
+		t.Fatalf("text = %q, %v", text, err)
 	}
 }
