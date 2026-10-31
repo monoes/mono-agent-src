@@ -251,6 +251,11 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 			return err
 		}
 	}
+	if u.BudgetUSD != nil {
+		if err := s.budgetFloor(ctx, x, se, budget); err != nil {
+			return err
+		}
+	}
 	on := 0
 	if auto {
 		on = 1
@@ -332,25 +337,9 @@ func (s *Store) AddSessionSpend(ctx context.Context, profileID string, id int64,
 	if !finite(usd) || usd <= 0 {
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
-	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		if err := spendInRange(se, usd); err != nil {
-			return err
-		}
-		return s.applySpend(ctx, x, id, usd, note, actor)
+	return s.sessionWriteIf(ctx, profileID, id, func(x dbx, se Session) (bool, error) {
+		return toMicros(usd) != 0, s.applySpend(ctx, x, id, usd, note, actor)
 	})
-}
-
-// MaxSpendUSD bounds one recorded amount and a session's total: a figure beyond it is a typo or an overflow in
-// the making (1e308 + 1e308 is +Inf, which no budget arithmetic or JSON can carry), never a real bill.
-const MaxSpendUSD = 1e9
-
-// spendInRange refuses, before anything is written, an amount or a resulting total outside (0, MaxSpendUSD].
-func spendInRange(se Session, usd float64) error {
-	total := se.SpentUSD + usd
-	if usd > MaxSpendUSD || !finite(total) || total > MaxSpendUSD {
-		return invalid("spend of $%g would take session #%d to $%g, beyond the supported $%g", usd, se.ID, total, MaxSpendUSD)
-	}
-	return nil
 }
 
 // Tx is the transaction AddSessionSpendWith hands its callback: the one the spend is written in.
@@ -369,22 +358,40 @@ func (s *Store) AddSessionSpendWith(ctx context.Context, profileID string, id in
 	if !finite(usd) || usd <= 0 {
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
-	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		if err := spendInRange(se, usd); err != nil {
-			return err
-		}
+	return s.sessionWriteIf(ctx, profileID, id, func(x dbx, se Session) (bool, error) {
 		if err := s.applySpend(ctx, x, id, usd, note, actor); err != nil {
-			return err
+			return false, err
 		}
-		return also(ctx, x)
+		return toMicros(usd) != 0, also(ctx, x)
 	})
 }
 
+// applySpend adds an operator's amount to the session's spend through the micro-dollar grid, the same one the
+// reservations use: next = spent + usd, each rounded to whole micro-dollars, so spent stays a multiple of 1e-6
+// (a legacy total off the grid snaps to the nearest micro-dollar on this write). An amount under half a micro-dollar
+// is a zero charge: nothing is written and no event is recorded. A total (or one amount) beyond MaxBudgetUSD is
+// refused before anything is written: a figure past it is a typo or an overflow in the making, never a real
+// bill. Spending past the session's own budget is not refused; it is recorded as it happened.
 func (s *Store) applySpend(ctx context.Context, x dbx, id int64, usd float64, note string, actor Actor) error {
-	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET spent_usd = spent_usd + ? WHERE id = ?`, usd, id); err != nil {
+	if !finite(usd) || usd > MaxBudgetUSD {
+		return limit("spend of $%g is beyond the supported $%g: check the figure", usd, MaxBudgetUSD)
+	}
+	m := toMicros(usd)
+	if m == 0 {
+		return nil
+	}
+	var spent float64
+	if err := x.QueryRowContext(ctx, `SELECT spent_usd FROM task_sessions WHERE id = ?`, id).Scan(&spent); err != nil {
+		return sessionLookup(err, id)
+	}
+	next := fromMicros(toMicros(spent) + m)
+	if next > MaxBudgetUSD {
+		return limit("spend of $%g would take session #%d to $%g, beyond the supported $%g", usd, id, next, MaxBudgetUSD)
+	}
+	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET spent_usd = ? WHERE id = ?`, next, id); err != nil {
 		return fmt.Errorf("tasks: recording spend of session #%d: %w", id, err)
 	}
-	return s.sessionEvent(ctx, x, id, actor, "spend", fmt.Sprintf("$%.4f %s", usd, note))
+	return s.sessionEvent(ctx, x, id, actor, "spend", fmt.Sprintf("$%.6f %s", fromMicros(m), note))
 }
 
 // overBudget refuses work on a session that has spent its budget (0: none set).

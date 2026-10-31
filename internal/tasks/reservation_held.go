@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -18,9 +19,14 @@ func ReservationHeld(ctx context.Context, q Queryer, profileID string, sessionID
 	return toMicros(held), nil
 }
 
+// reservationReader is the read half of dbx: a caller that only holds a read view (a profile-delete check) can pass it.
+type reservationReader interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 // LiveReservations lists the reservations of a profile that are still live: state live and not lapsed by more
 // than ReservationGrace (a row past that is presumed dead and is swept by ExpireStale). Oldest first.
-func (s *Store) LiveReservations(ctx context.Context, q Queryer, profileID string) ([]Reservation, error) {
+func (s *Store) LiveReservations(ctx context.Context, q reservationReader, profileID string) ([]Reservation, error) {
 	cutoff := s.now().UTC().Add(-ReservationGrace).Format(timeFmt)
 	rows, err := q.QueryContext(ctx, `SELECT `+reservationCols+` FROM task_session_reservations
 		WHERE profile_id = ? AND state = 'live' AND lease_until >= ? ORDER BY id`, profileID, cutoff)

@@ -19,6 +19,10 @@ func isOpen(st SessionState) bool {
 
 const openChildStates = `('draft','running','paused')`
 
+// openSessionSQL is the one SQL spelling of an open session (isOpenSession in SQL): not archived, and draft, running or
+// paused. Every count of open sessions uses it.
+const openSessionSQL = `archived_at = '' AND state IN ` + openChildStates
+
 // checkChildFence bounds the number of open children an agent starts below one parent by
 // MaxOpenChildren (the operator is not held to it).
 func (s *Store) checkChildFence(ctx context.Context, x dbx, par Session, actor Actor) error {
@@ -26,7 +30,7 @@ func (s *Store) checkChildFence(ctx context.Context, x dbx, par Session, actor A
 		return nil
 	}
 	var kids int
-	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id = ? AND archived_at = '' AND state IN `+openChildStates, par.ID).Scan(&kids); err != nil {
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE parent_session_id = ? AND `+openSessionSQL, par.ID).Scan(&kids); err != nil {
 		return fmt.Errorf("tasks: counting the children of session #%d: %w", par.ID, err)
 	}
 	if kids >= MaxOpenChildren {

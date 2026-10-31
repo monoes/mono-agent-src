@@ -1779,7 +1779,7 @@ that works a task acts on them. The defences:
   child has none; the operator's budget for a child is above 0 and at most the parent's, 0 is refused under a parent
   that has a budget, and approving a child with no budget under such a parent is refused until the operator sets
   one. Each child is checked on its own: the sum of the children's budgets and a roll-up of their spend are not
-  accounted in this change. An agent starts at most 12 open children below
+  accounted in this change (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9; until the next change a parent's budget can still be set below the sum of its children's budgets). An agent starts at most 12 open children below
   one parent; lowering a parent clamps every session below it, open or closed, at any depth). No session is started below an archived or closed one. A session can never exceed the minimum of its whole ancestor chain, closed and archived ancestors included (access, `max_tasks`, `max_depth` and the smallest nonzero budget): the store computes that ceiling when the session is created, updated or approved, and does not trust a stored limit of a closed session in between. An agent creates a session only below one it works in, and a
   `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
@@ -1972,6 +1972,11 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **Mission directions (K).** The operator's `mission_directions` (0 to 6, 0 or unset is 3, operator-only) caps the direction sessions
+  an agent keeps open below one session. `tasks.Store.CreateSession` checks it in the insert transaction, on every agent
+  direction-creation path, and refuses the new one when K are open, so two creators racing for the last place are not both kept;
+  an archived, stopped, done or failed direction frees its place; settings that cannot be read fail closed; the setting follows
+  the lead down the tree. Tests: `sessionspawn_directions_test.go`.
 - **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
   sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
   without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),
@@ -2253,9 +2258,76 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   mission task children: they do not go through `Reserve` or the operator's `coder.mission_children_enabled` switch.
   Not covered: the quality of a model's reason for a spawn, and anything a same-user process can do.
 - **Not covered.** Anything a same-user process can do (read the database, the keychain, `/proc/<pid>/environ`
-  of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
-  child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder
-  sessions").
+  of a turn until it exits). Mission leads and task sessions run in the host; a task gets a coder session of its own
+  only when the operator turned task child sessions on and the lead marked it, otherwise its work is done by
+  the conductor's workers (AGENTS.md, "Persistent coder sessions"; not verified live).
+
+## Missions: summary of the trust boundaries
+
+One page for the mission and session-tree series (AGENTS.md, "Missions and the session tree: how it fits together", has the map and
+the who-may-do-what table; the sections above and below hold the detail). Its numbers are held to the code by
+`TestSecurityMdMissionSummaryMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). Text about the research/directions groups 2
+and 3 is marked; it describes review branches that are not on master.
+
+**The authority matrix.** Who can cause what, by the strongest actor that can:
+
+| Authority | Held only by | What stops the others |
+|---|---|---|
+| Confirm a mission; switch Mission on or off | the operator (`send --mission`, `settings set --mission`) | operator check in the CLI; a signed one-use record under the reserved `coder-mission-confirm/` prefix; no host-made turn (`checkin-`, `answer-`, `master-`, `ask-`) carries or infers one |
+| Approve a session (draft to running) | the operator; the lead of the **parent** for a non-giant child when the operator set `agent_approval = lead` and a ceiling | verified coder-session token (`internal/cli/task/approver.go`); the store refuses a root, own, peer, other-mission, worker and verifier callers |
+| Approve giant work (over 25 tasks, more access than the parent, beyond the working depth, over 40% of the parent's budget or the ceiling, or no budget and no ceiling) | the person (`task session person approve`) | an agent is refused and a `plan_approval` person item is raised: no timeout, no default, no model answer |
+| Close a session, set budgets, caps, access, auto-close; archive; resume; `undepend`; `retire-worker` | the operator | `operator_only` (exit 3) |
+| Spawn a session (`session_spawn`), mark a task for a child session | the lead (a running task session, verified session token, no task binding) | workers, verifiers and helpers are refused; the advisory cannot be skipped by a plain spawn |
+| Verify a task | the operator, or an agent that did not do it | a worker never verifies its own; the lead never verifies; a verifier's token reaches only its one task |
+| Close the mission | the operator | `mission_finish` only proposes (`ready_to_close`) |
+| Budget requests, spawn intents, mission-children switch and caps, agent purposes | the operator | `operator_only`; the rows are reserved config (`coder.mission_children_enabled`, `agent_purposes.`), which `config set` refuses and `config get` hides from agents |
+| Raise K (`mission_directions`) | the operator | operator-only setting, absent from `AgentAdjustable` |
+
+**The courtesy layer.** What tells an operator from an agent in the CLI is the process: an agent marker, the variables
+`MONOAGENT_SESSION_TOKEN`, `MONOAGENT_TASK_BINDING`, `MONOAGENT_TASK_SESSION`, `MONOAGENT_TASK_ID`, and whether the process sits inside the
+process tree of a running coder turn. A token is bound to its turn's (or worker's) process by pid and start stamp where `/proc` can be
+read (Linux, runtime `claude` only; others unverified and unbound). **This is a courtesy layer between agents of one user, not a
+sandbox.** An agent with a shell that clears its environment and leaves the process tree is treated as the operator by the CLI; a
+same-user process can also read the database, the vault, `/proc/<pid>/environ` of a turn, and write its own rows. The tests pin each
+refusal; they do not prove that no bypass exists. Everything below is a bound on a model that behaves as a model, not on a user
+account that has been taken over. Off Linux, whoever can read a mission token can use it for its task until the run ends.
+
+**Untrusted content.** Text another agent wrote is data, never an instruction: goals, acceptance criteria, task comments, results,
+failure notes, evidence, questions, asks and replies, reports of child sessions, spawn titles, theses and evidence references
+(**groups 2 and 3**), and everything the orbit shows. It reaches a model only inside a per-brief random fence (`<<<DATA-xxxxxxxx`
+... `DATA-xxxxxxxx>>>`) or the quoted-data fence of an ask, cleaned to one line where it is short, and reaches tools and the CLI in
+fields named `*_untrusted`. A host-made turn (`checkin-`, `answer-`, `master-`, `ask-`) can carry none of a mission confirmation, a plan
+approval or a close. The check-in digest holds the host's own counts and state words, never a title, goal or task text (**the
+re-evaluation line of group 3 follows the same rule**).
+
+**Timestamps.** Coder tables hold TEXT timestamps in RFC3339Nano, whose zero-fraction spelling does not sort lexically. Every
+comparison of such a column goes through the helpers in `internal/coderhost/timecmp.go`, chosen by what the match does: `tsExpired` and
+`tsLive` for a deadline, `tsLapsed` for a limit that revokes (an unparsable value counts as lapsed, so power is taken away),
+`tsInWindow` for a rate window that is counted against a cap (an unparsable value counts as inside, so a bad row only tightens the
+cap), and `tsOlderThan` for an age that deletes or grants (an unparsable value is never selected). A bare `<` on such a column is a
+bug; `timecmp_sites_test.go` and `timecmp_sites2_test.go` pin each site.
+
+**Settings.** Coder settings are written only through `Store.UpdateSettings`: one `BEGIN IMMEDIATE` read-modify-write of a patch,
+validated before it is stored, so two writers of different keys both survive and a stale copy cannot restore an operator-only value
+(the Mission lock and an off write are atomic with the check of open sessions). `coderhost.OperatorOnly` lists what only the operator
+changes; `coderhost.AgentAdjustable` is an allowlist, so a setting added later is the operator's until named there. A session never
+exceeds the minimum of its ancestor chain (access, budget, `max_tasks`, `max_depth`), the tree is at most 4 levels
+(`tasks.HardMaxSessionDepth`), an agent starts at most 12 open children below a parent, and one tree holds at most 12 live sessions.
+Budgets in a tree are the operator's; a lead's `budget_usd` is a carve from its own host cap, not a task-session budget.
+
+**Delete guards.** `chat history delete` of a conversation refuses an active turn, one that leads an open (draft, running or paused)
+mission session, and one with unrecorded background processes, all rechecked inside the delete's write transaction
+(`deleteGuard`, `internal/cli/chat/chat_history.go`); it revokes the conversation's mission tokens in that transaction, records
+the child sessions' spend before the usage is erased (`coderspend.Snapshot`) so the money stays held until the host charges it, and
+removes the asks and the spawn advice the chat owned. `profile delete` is refused while a live worker reservation exists.
+
+**Not verified live.** None of the following has been run against real agent runtimes, real accounts or the desktop app:
+a mission end to end with real workers and verifiers; task child sessions (the launcher, the child's task token, the budget
+carve and settlement); `session_spawn` in a real tree to depth 4; agent approval of a child by a real lead; the ask channel between
+real leads; whether a runtime passes `MONOAGENT_TASK_BINDING` on to its shells and tool servers, and process binding for any runtime
+but `claude`; process binding off Linux; the orbit and the simple agent pane in the running app; the `needs-operator` spawn-intent
+recovery after a real crash. **Groups 2 and 3:** the ranking, the evaluation record, the phases prompt and the re-evaluation line are
+tested with fakes only; that a reviewer runs on another model is a prompt, not code.
 
 ## Which models an agent may run on (agent purposes)
 
@@ -3017,9 +3089,15 @@ the rule that a newcomer with fewer connections may take an idle slot from the p
 most (never one whose request has begun). A process that floods the service is held to its own share
 and cannot deny the others. This is availability, not authorization, and it fails closed: a refused
 verification is a deny. Residual: many processes of the same user can still add up to the service's
-total limits (each gets its own share), and processes are told apart by pid, so a pid recycled within
-about a second of its predecessor inherits that predecessor's used-up allowance and may be refused for
-that moment (tracked in #1182: key by pid and start time).
+total limits (each gets its own share). Processes are told apart by pid, start time and, on a kernel
+that numbers its process file descriptors with unique 64-bit ids (Linux 6.9 and later, 64-bit builds), the
+inode number of the peer's pidfd, which names one process incarnation and is never reused. They are read once at accept from the kernel's
+credentials and the pinned process (a process that cannot be pinned, or is reaped while its start time is
+read, is closed without an answer), so a pid recycled within the refill window is a different peer with a
+full allowance; the table of peers and the shared limits are unchanged. Residual: on an older kernel, or a 32-bit one (which
+reuses its small pidfd inode numbers), the start time has a resolution of 10 ms, so a pid recycled within the same tick as its predecessor looks the
+same and is held to the predecessor's allowance for that moment; it fails closed (a deny) and is
+availability only.
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,
@@ -3031,7 +3109,13 @@ future process binding anchored in kernel peer credentials (design:
 cannot be updated, and can be deleted only once their expiry is more than 7 days past; no operation
 is exempt. A profile delete therefore leaves the profile's rows in those tables in place (its output
 lists them): they hold hashes, MACs, a pid and a start stamp and no secret, and they are inert once
-the profile is gone. Most of them leave only through a retention sweep (after their expiry plus 7
-days) that does not exist yet, so until it ships they persist; the newest host-start row of a profile
-can never be removed, not even after the profile is gone, so that row is kept permanently. A writer of the database who drops the triggers is the same-user database writer
+the profile is gone. They leave only through the retention sweep (`procbind.PurgeRetained`): it removes
+exactly the rows the triggers allow, once their expiry (a revocation: its token's expiry, or its own age if the
+token row is gone) is more than 7 days past, and a host-start row only when a newer one exists and it is more
+than 7 days old. It reads no key (a deleted profile's rows go too), decides what is old by the database's clock
+alone (a skewed clock of the process cannot remove a row early) and works in bounded batches. It runs, at most
+once an hour, at the end of the mission-token sweep (a conductor starting or resuming, a conversation delete),
+and an error only logs: rows past their window can outlast it until the next sweep. The newest host-start row
+of a profile can never be removed, not even after the profile is gone, so that row is kept permanently (one
+small row per profile ever created). A writer of the database who drops the triggers is the same-user database writer
 this document already treats as out of scope.
