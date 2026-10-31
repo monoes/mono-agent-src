@@ -8,7 +8,35 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+// crossTimestampTick returns once the filesystem the test runs on stamps a new file with a later time than
+// before: a change made after it then gets a time the earlier stamps cannot share. The stamps compare times,
+// and a filesystem with coarse timestamps (a shared VM's, whole seconds) gives two changes made within one tick
+// the same time, which says nothing about the guard; the guard's own rule for such a filesystem is Untrusted.
+func crossTimestampTick(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	mtime := func(name string) time.Time {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st.ModTime()
+	}
+	first := mtime("probe")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if !mtime("probe").Equal(first) {
+			return
+		}
+	}
+	t.Skip("this filesystem's timestamps do not advance within 5s")
+}
 
 // fakeSigner signs whatever is on disk when called, as `monomind org sign
 // --yes` does; before runs first (to simulate a concurrent writer).
@@ -496,6 +524,7 @@ func TestStampSeesADirectorySwap(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		crossTimestampTick(t) // the swap below must land in a later tick than the stamp above
 		dir := filepath.Join(root, rel)
 		aside := dir + ".real"
 		// Move the real folder away, put a copy in its place (what
@@ -623,6 +652,7 @@ func TestUntrustedFilesystems(t *testing.T) {
 func TestOnlyDirTimesMoved(t *testing.T) {
 	root, _ := instructionsOrg(t)
 	a, _ := StampDefinition(root, "growth")
+	crossTimestampTick(t)
 	if err := os.WriteFile(filepath.Join(root, ".monomind", "orgs", "busy.json.tmp"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
