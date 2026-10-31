@@ -1953,9 +1953,10 @@ app or CLI turn is alive") is reversed by decision S1 of the host plan. What did
 session (`task session approve`), closes tasks to Done, and confirms a mission (`coder sessions send --mission`);
 no host-made turn (`checkin-`, `answer-`, `master-`, a default taken after a timeout) carries or infers a
 confirmation, a plan approval or a close, and a draft session starts no worker for any lead turn. A task's work
-is still done by the conductor's workers, in the lead's turn: **the host does not start a child coder session
-per task yet** (the conductor and the lead's tools exist, but the launcher cannot yet confine a child to its task, so
-the conductor never spawns one; see "Mission child sessions: the conductor and the lead's tools"). A lead that wants a goal with its own schedule uses the master verbs on its own conversation (`coder
+is done by the conductor's workers, in the lead's turn, unless the operator turned on task child sessions
+(`coder sessions mission-children enable`, off by default) and the lead marked the task: then the host starts a coder session
+of its own for it, confined by a task-bound token (built, not verified in a live run; see "Mission child sessions: the
+conductor and the lead's tools" and "the operator's switch"). A lead that wants a goal with its own schedule uses the master verbs on its own conversation (`coder
 sessions spawn`, below): one child per goal, not per task. When a master of children also has an open task
 session, each check-in digest carries one line with the session's state and its counts (done of total, in
 review, verified, blocked): numbers and a state word, never a title, goal or task text. A mission's lead
@@ -2746,6 +2747,160 @@ only the locations it names are hidden: credentials kept elsewhere (backup
 copies, other mounts, a different config directory) remain readable. A
 stricter design would build the filesystem from an explicit list of system
 directories and give the turn a controlled outbound path; it is not built.
+
+### Missions and the session tree: how it fits together
+
+A map of the mission and session-tree series. It names the pieces and where they live; the paragraphs under "Task sessions" (Task
+board), "Missions", "Mission child sessions" and "Persistent coder sessions" hold the detail. Numbers below are held to the code by
+`TestAgentsMdMissionMapMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). Parts marked **(research/directions groups 2 and
+3, not on master)** describe the review branches `review/rd-directions-cap` (group 1, PR #1217), `review/rd-evaluation-v4` (group 2)
+and `review/rd-prompts-digest-v4` (group 3); drop or adjust them if those do not land. Nothing here is verified in a live run.
+
+**What a mission is.** A coder chat whose lead works a task session: a plan of tasks with acceptance criteria, workers that do them,
+verifiers that check them, a final "Integration check" task, and a close that only the operator performs. The plan and the board
+live in the database (`internal/tasks`, tables `task_sessions` and `tasks`); the lead's conductor, its workers and verifiers
+(`internal/dynorg`: `conductor*.go`, `mission_*.go`) run inside the coder host's turn (`internal/coderhost`, `internal/cli/chat`).
+`mission_finish` only proposes the close. The lead never approves, verifies or closes.
+
+**The Mission toggle** (`coder sessions settings set CONV --mission on|off`, `coderhost.Settings.Mission`, operator only). On, every turn
+of that chat is a confirmed mission and the lead gets the mission tools. It needs coding access or more (`dynorg.MissionAccess`). It
+is locked on while the chat has an open (draft, running or paused) session of kind `mission`. It does **not** stop anything: turning it
+off does not stop a running mission (`task session stop|close ID` does), and `send --mission` (a per-turn confirmation under a signed
+record in the reserved `coder-mission-confirm/` config prefix) is a separate authority the switch does not guard. The switch and
+every other setting are written only through `Store.UpdateSettings` (one `BEGIN IMMEDIATE` read-modify-write of a patch, validated
+before it is stored), so a stale copy cannot put an operator-only value back.
+
+**The session tree** (`internal/tasks/session_tree.go`, `session_children.go`, `session_state.go`; migration 142). A task session may
+sit below another of the same profile.
+
+- Kinds (`tasks.SessionKinds`): `board` (plain), `mission`, `research`, `direction`, `task`. `helper` is not a kind: it is the name of
+  the task-less processes a conductor starts (below).
+- Depth: a hard maximum of 4 levels, the root being level 1 (`tasks.HardMaxSessionDepth`; `coderhost.MaxSessionDepth` is the same
+  number). The working depth is the coder setting `max_depth` (default 3, operator-only to raise to 4; `coderhost.DefaultSettings`).
+  A session at the working depth cannot spawn. It is not the task session's own `max_depth` (`task session new --max-depth`, default 3),
+  which limits the nesting of tasks inside one session.
+- Width: an agent starts at most 12 open (draft, running or paused) children below one parent (`tasks.MaxOpenChildren`; the operator is
+  not held to it), and one tree holds at most 12 live (not stopped) sessions below its root (`coderhost.MaxLiveSessionsPerTree`). A
+  spawn is also rate-limited to 6 per 10 minutes per master (`coderhost.SpawnRateMax`, `SpawnRateWindow`).
+- Ceilings: a child never has more access, budget, `max_tasks` or `max_depth` than its parent, and a session never exceeds the minimum
+  of its whole ancestor chain, closed ancestors included; it is checked when it is created, updated or approved, and the operator
+  lowering a parent clamps everything below it. A cycle or a tree deeper than 4 fails closed.
+- Budgets in a tree are the operator's: an agent cannot name or change one (an agent's child has none; a spawned conversation's carve
+  comes from the lead's own host cap, at most 40% of what the lead's session has left). Spend is metered per session in whole
+  micro-dollars; a child's cost reaches the mission's meter once when its row ends (`tasks.Store.AddSessionSpendWith`).
+- Approval is the parent's, never the session's own (below).
+- Archive: refused while open sessions are below; `--cascade` is operator only.
+
+**`session_spawn`, the advisory and spawn intents** (`internal/coderhost/sessionspawn*.go`, `children*.go`; MCP in
+`internal/mcp/session_tools.go`; migration 144). A lead (a session with an open task session of its own, `coderhost.LeadSessionSQL`,
+with a verified session token and no task binding) spawns a child with `session_spawn{title, kind direction|research|task,
+reason parallel|long_running|isolation|different_access_or_model|context_overflow, task_ids?, budget_usd?, access?}`. The child runs the
+lead's runtime, model and folder, at most the lead's access capped at `workspace` and never `full`; a `research` child runs `scoped`.
+The advisory (`coderhost.AdviseSpawn`, a pure function) refuses a small request once ("doable in this session"); the repeat with a
+reason that applies passes. A spawn is not one write: an intent row (`coder_spawn_intents`) is written first, the host's sweep ends
+an intent after a lease (2 minutes), and while one exists every `session_spawn` of that lead is refused. A held row shows up as
+`needs-operator` and `doctor` warns. The operator lists and ends them: `coder sessions spawn-intents list`, `resolve SPAWNER
+--generation N (--keep | --discard) --confirm "resolve spawn intent"`. Spawned sessions are not mission task children: they do not go
+through `Reserve` or the `coder.mission_children_enabled` switch. Mission **task** children (one coder session per marked task) are
+a separate, older path: off until the operator runs `coder sessions mission-children enable`, then only for marked tasks; the lead's
+policy is bounded by the operator's `mission-children set` caps. Both are built and not verified live.
+
+**Agent approval** (`internal/tasks/session_approval.go`, `internal/cli/task/approver.go`, `internal/coderhost/approval_source.go`;
+migration 142). By default the operator approves every session. With the operator-only settings `agent_approval = lead`
+and `approval_ceiling_usd` above 0 (`lead` is refused without a ceiling), the lead of a session's parent may run `task session approve`
+for a child; `approval_basis` then reads `lead`. The lead is its verified coder-session token, never a label. The store refuses a root,
+a session the caller leads or sits in, a peer's or another mission's session, and a worker or verifier. **Giant work is never
+approved by an agent** (`tasks.GiantMaxTasks` 25 tasks or `max_tasks`, access above the parent's, a level beyond the working depth,
+a budget over `tasks.GiantBudgetShare` 40% of the parent's or above the ceiling, or no budget and no ceiling): the agent is told only
+that the person decides, and a person item `plan_approval` is raised (no timeout, no default, no model or matrix answer). The
+operator's verbs are `task session person inbox|full|approve|deny|ask|answer-ask`: `full ID` shows the whole plan of one item and changes
+nothing; `approve ID --rev N [--digest HASH]` records `approval_basis = person` and is refused with `plan_changed` when the plan moved
+after it was read (the same `--rev` guard on a plain `session approve` records `operator`).
+
+**The ask channel** (`internal/coderhost/ask_ancestor.go`, `ask_reply.go`; MCP `internal/mcp/ask_ancestor_tool.go`,
+`ask_reply_tool.go`; migration 146). `session_ask_ancestor` (lead only) asks a proper ancestor above its parent; `session_reply_ask`
+(only the lead the ask is addressed to) answers. Both carry sealed quoted data as host-made `ask-q-` / `ask-r-` turns that can never
+carry a confirmation or approval. Limits: 3 open asks per asker, one a minute, 4 KiB each (8 KiB open), 6 open per ancestor, a normal
+ask expires after 6 hours (`MaxOpenAsks`, `AskInterval`, `MaxAskBytes`, `MaxOpenAsksPerTarget`, `AskTTL`). A **critical** ask reaches no
+model: it raises a person item `ancestor_question` that only `task session person answer-ask --ask ID --text T` answers.
+
+**Agent purposes** (`internal/agentpurposes`, `internal/cli/agent/purposes.go`; migration 145 links a worker to its purpose). `agent purposes list|set|reset` limit which validated
+runtime:model pairs each kind of work may use; `set` and `reset` are operator only, and the rows live under the reserved config prefix
+`agent_purposes.` (`operator.ReservedConfigPrefixes`: `config set` refuses it and `config get` hides it from agents).
+
+**Research and directions (research/directions groups 1-3, not on master).**
+- Group 1 (`review/rd-directions-cap`): `mission_directions` is K, how many direction sessions a lead keeps open at once, range 1 to 6,
+  unset or 0 means 3, operator-only, never agent-adjustable. The check runs inside `session_spawn` after the insert, in the insert's
+  transaction (`internal/tasks/session_direction_cap.go`, `internal/coderhost/sessionspawn_directions.go`), so racing spawns cannot
+  pass it. A spawned child inherits K only when its own row has none.
+- Group 2 (`review/rd-evaluation-v4`): the lead-only tools `mission_evaluate` and `mission_reevaluate` rank candidate directions in code
+  (`internal/dynorg/mission_rank.go`, `mission_evaluate.go`, `mission_reeval.go`): weighted success/cost/risk/effort scores, ties to the
+  lower risk, then the lower cost; at most 20 candidates; `k` may not exceed K. They write a size-capped `mission_evaluation` record to
+  the session history and return a reviewer brief with thesis and evidence fenced. A drop or merge is a proposal. They spawn, approve,
+  stop and fund nothing.
+- Group 3 (`review/rd-prompts-digest-v4`): the mission prompt gains the phases UNDERSTAND, RESEARCH, EVALUATE, DIRECT, RUN, CONVERGE
+  (`internal/dynorg/mission_prompt_phases.go`), and the check-in digest gains the line "Consider mission_reevaluate: ..." built from the
+  host's own counts only (`internal/coderhost/checkin_reeval.go`).
+
+**The orbit and the simple agent pane** (`wails-app/frontend/src/components/bubbles/`: `OrbitRing.jsx`, `useSessionOrbit.js`,
+`lib/sessionOrbit.js`). A coder chat that leads a task session shows its direct child sessions as circles (at most 8 drawn, the rest one
+"+N" chip) around its bubble and around the disc in the simple agent pane's header, from `task session list` read every 15 seconds.
+It has no authority: the header buttons run the operator's own `task session pause|resume|stop`; approval, budgets, archive and rename
+are not there.
+
+**Who may do what.** "Lead" is the in-process actor of the mission tools and the conductor: a process that holds a verified coder-session
+token and no task binding. "Worker" and "verifier" hold a task-bound mission token (`internal/agenttokens/mission.go`, role `worker`
+or `verifier`) for one task. "Helper" is any task-less process the conductor starts (reviewer, researcher): it has
+neither token (the conductor blanks `MONOAGENT_SESSION_TOKEN` and `MONOAGENT_TASK_BINDING` for it) and is an ordinary agent. "Model" is
+a model's own answer or default through autonomy (`answer-`, `checkin-`, `master-` host-made turns). An empty cell is "no".
+
+| Act | Operator | Lead | Lead of the parent | Worker | Verifier | Helper | Model |
+|---|---|---|---|---|---|---|---|
+| Confirm a mission, switch the Mission toggle | yes | | | | | | |
+| Plan, add or split tasks, assign, report, `mission_finish` (mission tools) | plans with the `task` verbs | its own session | | | | | |
+| Approve a draft session | yes | | a non-giant child, if `agent_approval=lead` | | | | |
+| Approve giant work (`person approve`) | yes | | | | | | |
+| Close a session, set budget, caps, access, auto-close; archive; resume; `undepend` | yes | | | | | | |
+| `session_spawn`, `mission_child_mark`, `mission_child_ceiling` | | yes (within operator caps) | | | | | |
+| Settings: limits, autonomy, `agent_approval`, `max_depth`, `mission` | yes | | | | | | |
+| Settings: `checkin_*`, `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias` | yes | its descendants | its descendants | | | | |
+| Claim, comment, finish, release a task | yes | | | its one task | its one task (comment) | | |
+| Verify a task | yes | never (`mission_verify` starts a verifier) | | never its own | its one task | | |
+| Close a task to Done (or `auto_close_verified`, which the operator sets) | yes | | | | | | |
+| Ask an ancestor / answer an ask | answers `answer-ask` | asks; replies if addressed | replies if addressed | | | | |
+| File a budget request | | yes | | | | | |
+| Grant or decline a budget request, `mission-children` verbs, `spawn-intents`, `retire-worker`, `agent purposes set|reset`, `person` verbs | yes | | | | | | |
+| Settle a gap with text (autonomy `park`, `record`, answers) | yes | | | | | | text only |
+
+A model's answer is only text: it can never confirm a mission, approve a plan, close, resolve a gate or change a setting, access or
+budget (`coderhost/autonomy_noapproval_test.go`, `autonomy_guard_test.go`).
+Operator-only coder settings (`coderhost.OperatorOnly`): `checkin_limit`, `autonomy_preset`, `autonomy_classes`, `max_children`,
+`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, and `mission_directions` (group 1, not
+on master). Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
+`silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias`. A test fails for a setting in neither list.
+Operator-only verbs that are not settings: `task session person inbox|full|approve|deny|ask|answer-ask`, `task session retire-worker`,
+`coder sessions spawn-intents list|resolve`, `coder sessions mission-children enable|disable|set|list|resolve-charge`,
+`coder sessions budget list|grant|decline` and `agent purposes set|reset`.
+What separates "operator" from "agent" in the CLI is the process environment and ancestry (SECURITY.md, "Missions: summary of the
+trust boundaries"): a courtesy layer, not a sandbox.
+
+**Where each piece is guarded.**
+
+| Piece | Code | Test |
+|---|---|---|
+| Depth 4, ceilings, cycles | `tasks/session_tree.go`, `session_children.go` | `cli/task/session_tree_operator_test.go` (`TestSessionDepthFiveIsRefused`) |
+| 12 open children | `tasks/session_children.go` | `tasks/session_children_test.go` |
+| 12 live per tree, rate, working depth | `coderhost/children.go` | `coderhost/children_depth_test.go`, `sessionspawn_test.go` |
+| Operator-only settings, agent allowlist | `coderhost/settings.go` | `settings_test.go`, `children_test.go` (`TestToolsNeverChangeOperatorOnlySettings`) |
+| Mission toggle and its lock | `coderhost/settings.go`, `cli/chat/coder_sessions_settings.go` | `settings_update_test.go` |
+| Agent approval, giant work | `tasks/session_approval.go`, `cli/task/approver.go` | `cli/task/approver_test.go`, `session_person_test.go` |
+| Ask channel | `coderhost/ask_ancestor.go` | `coderhost/ask_ancestor_test.go`, `mcp/ask_ancestor_tool_test.go` |
+| Spawn intents | `coderhost/spawn_intent*.go` | `coderhost/spawn_intent_operator_test.go` |
+| Mission tokens and binding | `agenttokens/mission*.go`, `taskbind` | `agenttokens/mission_test.go`, `taskbind/taskbind_test.go` |
+| Autonomy never approves | `coderhost/autonomy*.go` | `autonomy_noapproval_test.go`, `autonomy_guard_test.go` |
+| Timestamp comparisons | `coderhost/timecmp.go` | `timecmp*_test.go` |
+| Delete guards | `cli/chat/chat_history.go` (`deleteGuard`) | `cli/chat/chat_delete_*_test.go` |
+| This section | | `cmd/monoagentcli/docs_missions_test.go` |
 
 ### Persistent coder sessions (`coder host`, `coder sessions`)
 
