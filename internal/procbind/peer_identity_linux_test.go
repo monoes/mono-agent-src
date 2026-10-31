@@ -227,3 +227,23 @@ func TestServeKeysThePerPeerRateByIdentity(t *testing.T) {
 		t.Error("a new process with the same pid was refused with its predecessor's allowance")
 	}
 }
+
+// The command name in /proc/<pid>/stat may hold spaces and parentheses (even a fake "(x) S 1 2"), and the
+// start time is still the 22nd field, counted from the LAST closing parenthesis.
+func TestParseStartTimeSurvivesAHostileCommandName(t *testing.T) {
+	rest := " S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 %d 20 21"
+	line := func(comm string, start string) []byte {
+		return []byte("123 (" + comm + ")" + strings.Replace(rest, "%d", start, 1))
+	}
+	for _, comm := range []string{"sleep", "a b c", "x) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 999 20 21 (y", "((", ")", "a)(b"} {
+		got, err := parseStartTime(line(comm, "424242"))
+		if err != nil || got != 424242 {
+			t.Errorf("comm %q: start = %d, %v, want 424242", comm, got, err)
+		}
+	}
+	for _, bad := range []string{"", "no parenthesis", "1 (x) S 1 2", "1 (x) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 notanumber 20"} {
+		if _, err := parseStartTime([]byte(bad)); err == nil {
+			t.Errorf("%q gave a start time", bad)
+		}
+	}
+}

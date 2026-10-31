@@ -185,7 +185,12 @@ func readStartTime(pid int) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// the command name (field 2) is in parentheses and may hold spaces: count from the last ')'
+	return parseStartTime(b)
+}
+
+// parseStartTime reads field 22 of a /proc/<pid>/stat line.
+func parseStartTime(b []byte) (uint64, error) {
+	// the command name (field 2) is in parentheses and may hold spaces and parentheses: count from the last ')'
 	i := bytes.LastIndexByte(b, ')')
 	if i < 0 {
 		return 0, errors.New("procbind: malformed stat")
