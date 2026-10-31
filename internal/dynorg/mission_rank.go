@@ -38,7 +38,13 @@ const (
 	HardMaxDirections = 6
 	maxScore          = 10
 	maxWeight         = 100
-	tieEpsilon        = 1e-9
+	// scoreUnit is the grain of a weighted score: scores are compared in whole millionths, so that "tied" is one
+	// equivalence relation (the same millionth) and not a distance that chains (A near B near C but not A near C).
+	scoreUnit = 1e6
+	// Byte caps, checked before any text is normalized or converted to runes: a rune is at most 4 bytes.
+	maxTitleBytes  = MaxTitleChars * 4
+	maxThesisBytes = MaxThesisChars * 4
+	maxRefBytes    = MaxRefChars * 4
 )
 
 // DirCandidate is one direction the lead considers.
@@ -74,6 +80,22 @@ func ValidateCandidates(cs []DirCandidate) error {
 	}
 	seen := map[string]bool{}
 	for i, c := range cs {
+		// sizes in bytes first: nothing below touches a string that is not already bounded
+		switch {
+		case len(c.Title) > maxTitleBytes:
+			return fmt.Errorf("candidate %d needs a title of at most %d characters (it is over %d bytes)", i+1, MaxTitleChars, maxTitleBytes)
+		case len(c.Thesis) > maxThesisBytes:
+			return fmt.Errorf("candidate %d: the thesis is over %d characters (%d bytes)", i+1, MaxThesisChars, maxThesisBytes)
+		case len(c.MergeWith) > maxTitleBytes:
+			return fmt.Errorf("candidate %d: merge_with is over %d bytes", i+1, maxTitleBytes)
+		case len(c.Evidence) > MaxEvidenceRefs:
+			return fmt.Errorf("candidate %d: at most %d evidence references", i+1, MaxEvidenceRefs)
+		}
+		for _, r := range c.Evidence {
+			if len(r) > maxRefBytes {
+				return fmt.Errorf("candidate %d: an evidence reference is over %d characters (%d bytes)", i+1, MaxRefChars, maxRefBytes)
+			}
+		}
 		key := titleKey(c.Title)
 		switch {
 		case key == "" || len([]rune(c.Title)) > MaxTitleChars:
@@ -82,8 +104,6 @@ func ValidateCandidates(cs []DirCandidate) error {
 			return fmt.Errorf("candidate %q is listed twice", oneLine(c.Title))
 		case len([]rune(c.Thesis)) > MaxThesisChars:
 			return fmt.Errorf("candidate %q: the thesis is over %d characters", oneLine(c.Title), MaxThesisChars)
-		case len(c.Evidence) > MaxEvidenceRefs:
-			return fmt.Errorf("candidate %q: at most %d evidence references", oneLine(c.Title), MaxEvidenceRefs)
 		}
 		seen[key] = true
 		for _, r := range c.Evidence {
@@ -133,7 +153,7 @@ func ValidateWeights(w map[string]float64) (map[string]float64, error) {
 	return out, nil
 }
 
-// Rank orders validated candidates by weighted score, best first. A tie (within 1e-9) goes to the lower risk, then the
+// Rank orders validated candidates by weighted score, best first. A tie (the same score to a millionth) goes to the lower risk, then the
 // lower cost, then the candidate stated first. The first k are marked picked.
 func Rank(cs []DirCandidate, w map[string]float64, k int) []Ranked {
 	sum := 0.0
@@ -141,21 +161,32 @@ func Rank(cs []DirCandidate, w map[string]float64, k int) []Ranked {
 		sum += w[c]
 	}
 	out := make([]Ranked, len(cs))
+	micro := make([]int64, len(cs)) // the score in whole millionths, by candidate; carried through the sort by position
+	order := make([]int, len(cs))
 	for i, c := range cs {
 		s := w[CritSuccess]*c.Scores[CritSuccess] + w[CritCost]*(maxScore-c.Scores[CritCost]) +
 			w[CritRisk]*(maxScore-c.Scores[CritRisk]) + w[CritEffort]*(maxScore-c.Scores[CritEffort])
 		out[i] = Ranked{Title: c.Title, Score: s / sum, Risk: c.Scores[CritRisk], Cost: c.Scores[CritCost]}
+		micro[i] = int64(math.Round(out[i].Score * scoreUnit))
+		order[i] = i
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if math.Abs(a.Score-b.Score) > tieEpsilon {
-			return a.Score > b.Score
+	// Tied means the same millionth; the comparison is then a lexicographic one on (score, risk, cost), a strict weak
+	// order whatever the input order, and the candidate stated first wins what is left (the stable sort).
+	sort.SliceStable(order, func(x, y int) bool {
+		i, j := order[x], order[y]
+		if micro[i] != micro[j] {
+			return micro[i] > micro[j]
 		}
-		if a.Risk != b.Risk {
-			return a.Risk < b.Risk
+		if out[i].Risk != out[j].Risk {
+			return out[i].Risk < out[j].Risk
 		}
-		return a.Cost < b.Cost
+		return out[i].Cost < out[j].Cost
 	})
+	sorted := make([]Ranked, len(out))
+	for pos, i := range order {
+		sorted[pos] = out[i]
+	}
+	out = sorted
 	for i := range out {
 		out[i].Rank = i + 1
 		out[i].Picked = i < k

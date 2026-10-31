@@ -37,7 +37,7 @@ func TestMissionEvaluationRecordIsWholeForEscapableTitles(t *testing.T) {
 	}
 	var cur []map[string]any
 	for i := 14; i < 20; i++ {
-		cur = append(cur, map[string]any{"title": cs[i]["title"], "session_id": i})
+		cur = append(cur, map[string]any{"title": cs[i]["title"], "session_id": r.direction(fmt.Sprint(cs[i]["title"])).ID})
 	}
 	v, err := r.evaluate(c, ToolMissionReevaluate, evalArgs(map[string]any{"reason": strings.Repeat("<", 100), "current": cur, "k": 6,
 		"reviewer": map[string]string{"verdict": "agree", "note": strings.Repeat("<", 60), "runtime": strings.Repeat("<", 60), "model": strings.Repeat("<", 60)}}, cs))

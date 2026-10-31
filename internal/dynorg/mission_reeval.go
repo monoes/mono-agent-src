@@ -20,10 +20,11 @@ type CurrentDirection struct {
 
 // Decision is one proposal of a re-evaluation.
 type Decision struct {
-	Action    string `json:"action"`
-	Title     string `json:"title"`
-	SessionID int64  `json:"session_id,omitempty"`
-	Into      string `json:"into,omitempty"` // merge: the direction that takes its work
+	Action        string `json:"action"`
+	Title         string `json:"title"`
+	SessionID     int64  `json:"session_id,omitempty"`
+	Into          string `json:"into,omitempty"` // merge: the direction that takes its work
+	IntoSessionID int64  `json:"into_session_id,omitempty"`
 }
 
 // Reevaluate ranks the candidates (the running directions among them, scored again) and says, against the best k that
@@ -104,7 +105,7 @@ func Reevaluate(cs []DirCandidate, w map[string]float64, k int, current []Curren
 		}
 		title := byKey[key].Title
 		if into, folded := finalOf(key); folded && desired[into] {
-			out = append(out, Decision{Action: ActMerge, Title: title, SessionID: d.SessionID, Into: byKey[into].Title})
+			out = append(out, Decision{Action: ActMerge, Title: title, SessionID: d.SessionID, Into: byKey[into].Title, IntoSessionID: live[into].SessionID})
 			continue
 		}
 		out = append(out, Decision{Action: ActDrop, Title: title, SessionID: d.SessionID})

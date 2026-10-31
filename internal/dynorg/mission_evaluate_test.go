@@ -298,7 +298,8 @@ func TestReevaluateDecisions(t *testing.T) {
 	r, c := evalRig(t, 3)
 	cands := candidatesJSON(5) // dir 0 best ... dir 4 worst
 	cands[1]["merge_with"] = "dir 0"
-	cur := []map[string]any{{"title": "dir 1", "session_id": 11}, {"title": "dir 3", "session_id": 13}, {"title": "dir 2", "session_id": 12}}
+	d1, d3, d2 := r.direction("dir 1"), r.direction("dir 3"), r.direction("dir 2")
+	cur := []map[string]any{{"title": "dir 1", "session_id": d1.ID}, {"title": "dir 3", "session_id": d3.ID}, {"title": "dir 2", "session_id": d2.ID}}
 	v, err := r.evaluate(c, ToolMissionReevaluate, evalArgs(map[string]any{"reason": "dir 4 finished", "current": cur}, cands))
 	if err != nil {
 		t.Fatal(err)
@@ -315,7 +316,7 @@ func TestReevaluateDecisions(t *testing.T) {
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("decisions %v, want %v", got, want)
 	}
-	if n := r.sessionNotes(); len(n) != 1 || !strings.Contains(n[0], "merge:dir 1") || !strings.Contains(n[0], "dir 4 finished") {
+	if n := r.sessionNotes(); len(n) != 1 || !strings.Contains(n[0], `"a":"merge"`) || !strings.Contains(n[0], "dir 4 finished") {
 		t.Fatalf("record %v", n)
 	}
 	for name, args := range map[string]string{
@@ -351,7 +352,7 @@ func TestReevaluateKeepsADirectionThatStillRanksInTheTopK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Decision{{ActKeep, "a", 5, ""}, {ActAdd, "b", 0, ""}, {ActDrop, "c", 7, ""}}
+	want := []Decision{{Action: ActKeep, Title: "a", SessionID: 5}, {Action: ActAdd, Title: "b"}, {Action: ActDrop, Title: "c", SessionID: 7}}
 	if fmt.Sprint(ds) != fmt.Sprint(want) {
 		t.Fatalf("%+v, want %+v", ds, want)
 	}

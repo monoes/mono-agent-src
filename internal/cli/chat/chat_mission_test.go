@@ -177,3 +177,46 @@ func TestMissionConfigCarriesTheOperatorsDirectionCount(t *testing.T) {
 		t.Fatalf("another conversation got it: %+v", m)
 	}
 }
+
+// K is the operator's CURRENT setting: the lead's reader follows a change made after the turn began, and an
+// unreadable setting is an error, never the default.
+func TestMissionConfigReadsTheCurrentDirectionCountAndFailsOnAnUnreadableOne(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	st := coderhost.NewStore(db)
+	save := func(doc string) {
+		t.Helper()
+		set, _, err := coderhost.DefaultSettings().Apply([]byte(doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SaveSettings("default", "c1", set); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(`{"mission_directions":3}`)
+	m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true})
+	if m == nil || m.DirectionsK == nil {
+		t.Fatalf("the lead has no live reader of K: %+v", m)
+	}
+	if k, err := m.DirectionsK(ctx, nil); err != nil || k != 3 {
+		t.Fatalf("k %d %v", k, err)
+	}
+	save(`{"mission_directions":1}`) // lowered while the turn runs
+	if k, err := m.DirectionsK(ctx, nil); err != nil || k != 1 {
+		t.Fatalf("after the change: k %d %v", k, err)
+	}
+	if k, err := m.DirectionsK(ctx, db); err != nil || k != 1 {
+		t.Fatalf("through a given connection: k %d %v", k, err)
+	}
+	save(`{"mission_directions":0}`) // explicit 0: the default
+	if k, err := m.DirectionsK(ctx, nil); err != nil || k != 3 {
+		t.Fatalf("explicit 0: k %d %v", k, err)
+	}
+	if _, err := db.Exec(`UPDATE coder_sessions SET settings = '{not json' WHERE profile_id = 'default' AND conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	if k, err := m.DirectionsK(ctx, nil); err == nil {
+		t.Fatalf("an unreadable setting gave k=%d", k)
+	}
+}

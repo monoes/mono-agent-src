@@ -141,7 +141,7 @@ func TestMissionOfDirectionsFromResearchToConvergence(t *testing.T) {
 	}
 	// every decision is in the history, in order
 	notes := r.sessionNotes()
-	if len(notes) != 3 || !strings.Contains(notes[2], "drop:") {
+	if len(notes) != 3 || !strings.Contains(notes[2], `"a":"drop"`) {
 		t.Fatalf("%d records: %v", len(notes), notes)
 	}
 	var rec map[string]any

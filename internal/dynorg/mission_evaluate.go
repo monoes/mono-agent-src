@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -25,6 +26,11 @@ const (
 	evaluationNote = "mission_evaluation "
 	// recordTitleChars shortens titles in the record so that a full list fits one session event (8 KiB).
 	recordTitleChars = 50
+	// Bounds on what one call may carry, in bytes, checked before any text is normalized (a rune is at most 4 bytes).
+	maxEvaluateArgBytes  = 512 << 10
+	maxReviewerNameBytes = 100
+	maxReviewerNoteBytes = 8000
+	maxReasonBytes       = 300 * 4
 )
 
 // Reviewer is what a reviewer on another model said about the scoring.
@@ -60,12 +66,24 @@ func missionEvaluateSpecs() []monomind.ToolSpec {
 	}
 }
 
-// maxDirections is the operator's K: the setting, default 3, never above 6.
-func (m *MissionConfig) maxDirections() int {
-	if m == nil || m.MaxDirections <= 0 {
-		return DefaultDirections
+// currentK is the operator's K now: the live reader when the chat set one (its error is the evaluation's: an unreadable
+// setting is not replaced by the default), else the number the lead was configured with; unset or 0 is the default of 3,
+// never above 6. x is the connection of the transaction the answer must hold in, nil outside one.
+func (m *MissionConfig) currentK(ctx context.Context, x tasks.Queryer) (int, error) {
+	if m == nil {
+		return DefaultDirections, nil
 	}
-	return min(m.MaxDirections, HardMaxDirections)
+	k := m.MaxDirections
+	if m.DirectionsK != nil {
+		var err error
+		if k, err = m.DirectionsK(ctx, x); err != nil {
+			return 0, fmt.Errorf("the operator's mission_directions could not be read, so nothing was evaluated: %w", err)
+		}
+	}
+	if k <= 0 {
+		return DefaultDirections, nil
+	}
+	return min(k, HardMaxDirections), nil
 }
 
 // EvaluateView is mission_evaluate's result.
@@ -90,9 +108,15 @@ type ReviewAsk struct {
 }
 
 func (c *Conductor) handleMissionEvaluate(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	if len(args) > maxEvaluateArgBytes {
+		return "", fmt.Errorf("the arguments are %d bytes: at most %d; send fewer or shorter candidates", len(args), maxEvaluateArgBytes)
+	}
 	var a evaluateArgs
 	if err := json.Unmarshal(orEmpty(args), &a); err != nil {
 		return "", fmt.Errorf("bad arguments: %v", err)
+	}
+	if err := a.checkSizes(); err != nil {
+		return "", err
 	}
 	mc, err := c.missions()
 	if err != nil {
@@ -114,7 +138,10 @@ func (c *Conductor) handleMissionEvaluate(ctx context.Context, name string, args
 	if err != nil {
 		return "", err
 	}
-	maxK := m.maxDirections()
+	maxK, err := m.currentK(ctx, nil)
+	if err != nil {
+		return "", err
+	}
 	k := maxK
 	if a.K != nil {
 		k = *a.K
@@ -130,6 +157,9 @@ func (c *Conductor) handleMissionEvaluate(ctx context.Context, name string, args
 	if re {
 		if strings.TrimSpace(a.Reason) == "" || len([]rune(a.Reason)) > 300 {
 			return "", fmt.Errorf("reason is required, at most 300 characters")
+		}
+		if err := c.checkCurrent(ctx, mc, m, sid, a.Current); err != nil {
+			return "", err
 		}
 		view.Ranking, view.Decisions, err = Reevaluate(a.Candidates, w, k, a.Current)
 		if err != nil {
@@ -152,12 +182,96 @@ func (c *Conductor) handleMissionEvaluate(ctx context.Context, name string, args
 	if err != nil {
 		return "", fmt.Errorf("the evaluation was not recorded, so it does not stand: %w", err)
 	}
-	if err := mc.Store.AddSessionEvent(ctx, mc.ProfileID, sid, tasks.EventNote, note, missionActor()); err != nil {
+	// K is read again in the record's own transaction: the evaluation stands only if no more was picked than the
+	// operator allows at the moment it is written.
+	stillWithinK := func(ctx context.Context, x tasks.Queryer) error {
+		cur, err := m.currentK(ctx, x)
+		if err != nil {
+			return err
+		}
+		if view.K > cur {
+			return fmt.Errorf("the operator lowered mission_directions to %d while this evaluation ran (it picked %d); evaluate again", cur, view.K)
+		}
+		return nil
+	}
+	if err := mc.Store.AddSessionEventChecked(ctx, mc.ProfileID, sid, tasks.EventNote, note, missionActor(), stillWithinK); err != nil {
 		return "", fmt.Errorf("the evaluation was not recorded, so it does not stand: %w", err)
 	}
 	view.Recorded = true
 	view.Next = evaluateNext(re, view)
 	return marshal(view)
+}
+
+// checkSizes bounds the text fields in bytes, before anything normalizes them.
+func (a evaluateArgs) checkSizes() error {
+	if len(a.Reason) > maxReasonBytes {
+		return fmt.Errorf("reason is required, at most 300 characters")
+	}
+	if len(a.Current) > HardMaxDirections {
+		return fmt.Errorf("at most %d current directions", HardMaxDirections)
+	}
+	for _, d := range a.Current {
+		if len(d.Title) > maxTitleBytes {
+			return fmt.Errorf("a current direction's title is over %d bytes", maxTitleBytes)
+		}
+	}
+	if r := a.Reviewer; r != nil {
+		switch {
+		case len(r.Runtime) > maxReviewerNameBytes || len(r.Model) > maxReviewerNameBytes:
+			return fmt.Errorf("reviewer.runtime and reviewer.model are at most %d bytes", maxReviewerNameBytes)
+		case len(r.Note) > maxReviewerNoteBytes:
+			return fmt.Errorf("reviewer.note is at most %d bytes", maxReviewerNoteBytes)
+		case len(r.Verdict) > maxReviewerNameBytes:
+			return fmt.Errorf("reviewer.verdict is agree or adjust")
+		}
+	}
+	return nil
+}
+
+// checkCurrent refuses a re-evaluation whose "current" directions are not the lead's own open ones. The lead states a
+// title and a session id for each; the title is matched against the candidates, so the id is checked here against the
+// store: it must be a direction session below THIS mission, open (draft, running or paused, not archived), titled as
+// stated, and named once. A merge target is a candidate the lead scored (Reevaluate checks it names another one); when
+// it is itself a running direction it is one of these and so has passed the same checks.
+func (c *Conductor) checkCurrent(ctx context.Context, mc *MissionRun, m *MissionConfig, mission int64, current []CurrentDirection) error {
+	if len(current) == 0 {
+		return nil
+	}
+	actor := missionActor()
+	if m != nil {
+		actor = m.actor(0)
+	}
+	list, err := mc.Store.ListSessions(ctx, mc.ProfileID, tasks.SessionFilter{}, actor)
+	if err != nil {
+		return fmt.Errorf("the sessions of this mission could not be read, so the current directions were not checked: %w", err)
+	}
+	byID := make(map[int64]tasks.Session, len(list))
+	for _, se := range list {
+		byID[se.ID] = se
+	}
+	seen := map[int64]bool{}
+	for _, d := range current {
+		title := oneLine(d.Title)
+		se, ok := byID[d.SessionID]
+		switch {
+		case d.SessionID <= 0:
+			return fmt.Errorf("current direction %q needs session_id: the number of its direction session", title)
+		case seen[d.SessionID]:
+			return fmt.Errorf("session #%d is listed twice among the current directions", d.SessionID)
+		case !ok:
+			return fmt.Errorf("session #%d (current direction %q) is not an open session of this profile", d.SessionID, title)
+		case se.Kind != tasks.SessionKindDirection:
+			return fmt.Errorf("session #%d (current direction %q) is a %s session, not a direction", d.SessionID, title, se.Kind)
+		case se.ParentSessionID != mission:
+			return fmt.Errorf("session #%d (current direction %q) is not a direction of this mission", d.SessionID, title)
+		case se.State != tasks.SessionDraft && se.State != tasks.SessionRunning && se.State != tasks.SessionPaused:
+			return fmt.Errorf("session #%d (current direction %q) is %s: only open directions are current", d.SessionID, title, se.State)
+		case titleKey(se.Title) != titleKey(d.Title):
+			return fmt.Errorf("session #%d is titled %q, not %q: pass the title it has among the candidates", d.SessionID, oneLine(se.Title), title)
+		}
+		seen[d.SessionID] = true
+	}
+	return nil
 }
 
 func evaluateNext(re bool, v EvaluateView) string {
@@ -172,18 +286,22 @@ func evaluateNext(re bool, v EvaluateView) string {
 }
 
 // evaluationRecord is the note written to the mission's history: titles are shortened, theses and evidence stay out, so
-// that twenty candidates fit one event. It must fit the event whole (the store cuts what is over the limit, which would
-// leave invalid JSON): when the full form does not, the record is shrunk in the fixed order of recordShrinks and says so
-// in its "shrunk" field; when nothing fits, it is an error and the evaluation is not recorded.
+// that twenty candidates fit one session event. It must fit the event whole (the store cuts what is over the limit,
+// which would leave invalid JSON): when the full form does not, the record is shrunk in the fixed order of
+// recordShrinks and says so in its "shrunk" field; when nothing fits, it is an error and the evaluation is not recorded.
+//
+// Identity is never what is cut. Titles may collide once shortened, so every candidate row carries its rank, and every
+// decision names its candidate by that rank (r), its session (id) and, for a merge, the rank (into) and session (iid)
+// of the direction that takes the work. The cuts go to titles and optional text, and the last form has no titles at all.
 func evaluationRecord(tool string, a evaluateArgs, v EvaluateView) (string, error) {
 	return evaluationRecordWithin(tasks.MaxCommentBytes, tool, a, v)
 }
 
-// recordShrinks is the order of the cuts: shorter titles first, then the optional text, then the shortest titles.
+// recordShrinks is the order of the cuts: shorter titles first, then the optional text, then the titles themselves.
 var recordShrinks = []struct {
 	titleChars int
-	optional   bool // keep the reviewer's runtime, model and note, the reason and the decisions' titles
-}{{recordTitleChars, true}, {24, true}, {12, true}, {12, false}, {6, false}}
+	optional   bool // keep the reviewer's runtime, model and note and the reason
+}{{recordTitleChars, true}, {24, true}, {12, true}, {12, false}, {6, false}, {0, false}}
 
 func evaluationRecordWithin(limit int, tool string, a evaluateArgs, v EvaluateView) (string, error) {
 	for i, sh := range recordShrinks {
@@ -198,41 +316,69 @@ func evaluationRecordWithin(limit int, tool string, a evaluateArgs, v EvaluateVi
 	return "", fmt.Errorf("the record of this evaluation is over %d bytes even when shrunk", limit)
 }
 
+// recordWindow is how much of a text the record looks at to make titleChars characters of it: the cut is made on bytes
+// first, so the work does not depend on how long the text is.
+func recordWindow(titleChars int) int { return titleChars * 16 }
+
+// shortText is at most n characters of s with its white space folded, looking at no more than a window of its bytes.
+func shortText(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if w := recordWindow(n); len(s) > w {
+		s = s[:w]
+		for len(s) > 0 && !utf8.RuneStart(s[len(s)-1]) {
+			s = s[:len(s)-1]
+		}
+	}
+	r := []rune(oneLine(s))
+	if len(r) > n {
+		r = r[:n]
+	}
+	return string(r)
+}
+
 func buildEvaluationRecord(tool string, a evaluateArgs, v EvaluateView, titleChars int, optional bool, shrunk int) (string, error) {
 	type row struct {
-		T string    `json:"t"`
+		T string    `json:"t,omitempty"`
 		S []float64 `json:"s"` // success, cost, risk, effort
 		R int       `json:"rank"`
 		P bool      `json:"pick,omitempty"`
 	}
-	short := func(s string) string {
-		r := []rune(oneLine(s))
-		if len(r) > titleChars {
-			r = r[:titleChars]
-		}
-		return string(r)
+	type decision struct {
+		A    string `json:"a"`
+		R    int    `json:"r"` // the candidate's rank in "candidates"
+		T    string `json:"t,omitempty"`
+		ID   int64  `json:"id,omitempty"`   // its session
+		Into int    `json:"into,omitempty"` // merge: the rank of the direction that takes the work
+		IID  int64  `json:"iid,omitempty"`  // and its session
 	}
+	short := func(s string) string { return shortText(s, titleChars) }
 	scores := map[string][]float64{}
 	for _, c := range a.Candidates {
 		scores[titleKey(c.Title)] = []float64{c.Scores[CritSuccess], c.Scores[CritCost], c.Scores[CritRisk], c.Scores[CritEffort]}
 	}
 	rows := make([]row, len(v.Ranking))
+	rankOf := map[string]int{}
 	for i, r := range v.Ranking {
 		rows[i] = row{T: short(r.Title), S: scores[titleKey(r.Title)], R: r.Rank, P: r.Picked}
+		rankOf[titleKey(r.Title)] = r.Rank
 	}
 	rec := map[string]any{"tool": tool, "k": v.K, "weights": v.Weights, "candidates": rows}
 	if shrunk > 0 {
 		rec["shrunk"] = shrunk
 	}
 	if len(v.Decisions) > 0 {
-		ds := make([]string, len(v.Decisions))
+		ds := make([]decision, len(v.Decisions))
 		for i, d := range v.Decisions {
-			ds[i] = d.Action + ":" + short(d.Title)
+			ds[i] = decision{A: d.Action, R: rankOf[titleKey(d.Title)], T: short(d.Title), ID: d.SessionID, IID: d.IntoSessionID}
+			if d.Into != "" {
+				ds[i].Into = rankOf[titleKey(d.Into)]
+			}
 		}
+		rec["decisions"] = ds
 		if optional {
-			rec["reason"], rec["decisions"] = short(a.Reason), ds
-		} else {
-			rec["decisions"] = len(ds)
+			rec["reason"] = shortText(a.Reason, recordTitleChars*2)
 		}
 	}
 	if a.Reviewer != nil {
@@ -251,8 +397,9 @@ func buildEvaluationRecord(tool string, a evaluateArgs, v EvaluateView, titleCha
 	return evaluationNote + strings.TrimSuffix(b.String(), "\n"), nil
 }
 
-// BuildEvaluationBrief is the brief for the reviewer of the scoring: the ranking by code, and every candidate's thesis
-// and evidence references inside a fence, since the lead wrote them from reports that came from the web.
+// BuildEvaluationBrief is the brief for the reviewer of the scoring: the ranking by code, and every candidate's title,
+// thesis and evidence references inside a fence, since the lead wrote them from reports that came from the web. Outside
+// the fences there are only our own words and numbers (the rank, the scores, the weights).
 func BuildEvaluationBrief(cs []DirCandidate, ranked []Ranked, w map[string]float64) string {
 	f := newFence()
 	var b strings.Builder
@@ -265,9 +412,9 @@ func BuildEvaluationBrief(cs []DirCandidate, ranked []Ranked, w map[string]float
 	}
 	for _, r := range ranked {
 		c := byKey[titleKey(r.Title)]
-		fmt.Fprintf(&b, "#%d %s (weighted %.2f)\n  success %g, cost %g, risk %g, effort %g\n", r.Rank, oneLine(c.Title),
+		fmt.Fprintf(&b, "Candidate #%d (weighted %.2f)\n  success %g, cost %g, risk %g, effort %g\n", r.Rank,
 			r.Score, c.Scores[CritSuccess], c.Scores[CritCost], c.Scores[CritRisk], c.Scores[CritEffort])
-		b.WriteString("  thesis and evidence:\n" + f.wrap(c.Thesis+"\n"+strings.Join(c.Evidence, "\n")) + "\n")
+		b.WriteString("  title, thesis and evidence:\n" + f.wrap("Title: "+oneLine(c.Title)+"\n"+c.Thesis+"\n"+strings.Join(c.Evidence, "\n")) + "\n")
 	}
 	return b.String()
 }
