@@ -375,7 +375,7 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 		return res.KeptNote
 	}
 	checkNote := func(what, note string) {
-		for _, want := range []string{"newest host-start row", "permanently", "retention sweep", "does not exist yet"} {
+		for _, want := range []string{"newest host-start row", "permanently", "retention sweep", "mission-token sweep"} {
 			if !strings.Contains(note, want) {
 				t.Errorf("%s: the note %q lacks %q", what, note, want)
 			}
@@ -428,11 +428,15 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	}
 }
 
-// The retention sweep does not exist yet: no reason given for keeping a row may say it removes them as if it did.
-func TestRetainedReasonsDoNotClaimASweepThatDoesNotExist(t *testing.T) {
+// The retention sweep exists (procbind.PurgeRetained), but it runs with the mission-token sweep and never removes a
+// profile's newest host row: no reason may promise more than that.
+func TestRetainedReasonsSayWhenTheSweepRunsAndWhatItKeeps(t *testing.T) {
 	for tbl, why := range retainedOnDelete {
-		if strings.Contains(why, "retention sweep") && !strings.Contains(why, "not shipped yet") {
-			t.Errorf("%s: %q names the retention sweep without saying it is not shipped yet", tbl, why)
+		if strings.Contains(why, "not shipped") || strings.Contains(why, "does not exist") {
+			t.Errorf("%s: %q says the sweep does not exist", tbl, why)
+		}
+		if tbl != "procbind_host" && !strings.Contains(why, "mission-token sweep") {
+			t.Errorf("%s: %q does not say when the sweep runs", tbl, why)
 		}
 	}
 	if !strings.Contains(retainedOnDelete["procbind_host"], "kept permanently") {
