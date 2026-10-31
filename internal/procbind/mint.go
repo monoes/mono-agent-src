@@ -74,7 +74,7 @@ func MintTx(ctx context.Context, db *sql.DB, key []byte, r MintRequest) error {
 	}()
 	if r.Check != nil {
 		if err := r.Check(ctx, conn); err != nil {
-			return fmt.Errorf("%w: %v", ErrMintRefused, err)
+			return fmt.Errorf("%w: %w", ErrMintRefused, err)
 		}
 	}
 	seen := map[string]bool{}
