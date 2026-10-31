@@ -152,7 +152,7 @@ func (d Deps) fillStart(cmd *cobra.Command, id, runtime string) error {
 		return err
 	}
 	if err := d.linkTask(ctx, store, id, task); err != nil {
-		return fmt.Errorf("task %s started but could not be linked to the application: %w", task.ID, err)
+		return &startedTaskError{ID: task.ID, Err: fmt.Errorf("task %s started but could not be linked to the application: %w", task.ID, err)}
 	}
 	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": task.ID, "conversationId": task.ConversationID, "status": task.Status})
 }
@@ -205,6 +205,16 @@ type wrongTaskError struct{ Got, Want string }
 func (e *wrongTaskError) Error() string {
 	return fmt.Sprintf("aitask submit made task %s, not the %s asked for", e.Got, e.Want)
 }
+
+// startedTaskError: submit made task ID, then a later step failed. The task exists and is the caller's own, so a
+// caller that undoes the start cancels it.
+type startedTaskError struct {
+	ID  string
+	Err error
+}
+
+func (e *startedTaskError) Error() string { return e.Err.Error() }
+func (e *startedTaskError) Unwrap() error { return e.Err }
 
 // fillTaskIDKey carries the id a fill's task must take (a resume holds the tab under it before the task exists).
 type fillTaskIDKey struct{}

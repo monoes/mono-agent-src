@@ -203,8 +203,12 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 		// Also for a lost tab: a submit that answered with another task made one that must not keep running.
 		var owned []string
 		var wrong *wrongTaskError
+		var started *startedTaskError
 		if errors.As(err, &wrong) {
 			owned = append(owned, wrong.Got)
+		}
+		if errors.As(err, &started) {
+			owned = append(owned, started.ID)
 		}
 		return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, owned, err)
 	}
