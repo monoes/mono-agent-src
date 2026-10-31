@@ -41,6 +41,10 @@ type execLauncher struct {
 	// child mints a mission child's task token for its turn and binds it to the turn's process (nil: none; see
 	// coder_host_childtoken.go).
 	child *childTokenMinter
+	// bound, when set, launches turns with peer-credential binding (coder_host_bound_linux.go): no token in the
+	// environment, a typed frame over a pipe, the token bound to the process before anything is delivered. Nil is the
+	// launch exactly as it was.
+	bound *boundLaunch
 }
 
 // hostID is what makes a host-owned name safe to put in a file name and a flag.
@@ -172,6 +176,19 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// the mission confirmation goes over an inherited pipe the child reads once and closes, so it
 	// is never in any environment block.
 	cmd.Env = turnEnv(os.Environ())
+	var bd *boundDelivery
+	if l.bound != nil {
+		if ct != nil {
+			os.Remove(promptPath)
+			return nil, errors.New("a mission child's turn cannot be launched with peer-credential binding yet")
+		}
+		if bd, err = l.bound.attach(cmd, pipe); err != nil {
+			os.Remove(promptPath)
+			return nil, fmt.Errorf("could not prepare the credential pipe: %w", err)
+		}
+		defer bd.close()
+		pipe = "" // the mission confirmation travels in the frame
+	}
 	if pipe != "" {
 		closeToken, terr := coderhost.AttachMissionToken(cmd, pipe)
 		if terr != nil {
@@ -180,7 +197,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 		defer closeToken() // the host keeps no copy of the read end, started or not
 	}
-	if l.tokens != nil {
+	if l.tokens != nil && bd == nil {
 		tok, err := l.tokens(profileID, conversationID, turnID)
 		if err != nil {
 			os.Remove(promptPath)
@@ -190,7 +207,11 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	cmd.Dir = filepath.Dir(l.logDir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
-	if err := clicore.DetachStart(cmd); err != nil {
+	startProcess := func() error { return clicore.DetachStart(cmd) }
+	if bd != nil {
+		startProcess = func() error { return bd.start(cmd) }
+	}
+	if err := startProcess(); err != nil {
 		os.Remove(promptPath)
 		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
 			err = errors.Join(err, rerr)
@@ -231,7 +252,12 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			return nil, err
 		}
 	}
-	if l.bind != nil {
+	if bd != nil {
+		if err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) }); err != nil {
+			t.stopAndWait()
+			return nil, err
+		}
+	} else if l.bind != nil {
 		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {
 			// the host runs inside a session's turn: no token is bound, so the master tools refuse in this turn
 			if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
@@ -547,7 +573,7 @@ func isHostInstance(owner string) bool { return strings.HasPrefix(owner, "host-"
 
 // turnEnv is the environment a turn starts with: the host's without any session token or mission-handoff marker.
 func turnEnv(env []string) []string {
-	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionFDEnv, agenttokens.EnvMissionToken)
+	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionFDEnv, coderhost.CredFDEnv, agenttokens.EnvMissionToken)
 }
 
 // withoutEnv returns env without the named variables.
