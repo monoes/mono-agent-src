@@ -3,51 +3,83 @@ package chat
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
-type killLog struct {
-	mu   sync.Mutex
-	pids []int
+type sigLog struct {
+	mu    sync.Mutex
+	terms int
+	kills int
 }
 
-func (k *killLog) kill(pid int) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.pids = append(k.pids, pid)
-	return nil
+func (s *sigLog) term(int) error { s.mu.Lock(); s.terms++; s.mu.Unlock(); return nil }
+func (s *sigLog) kill(int) error { s.mu.Lock(); s.kills++; s.mu.Unlock(); return nil }
+func (s *sigLog) n() (int, int)  { s.mu.Lock(); defer s.mu.Unlock(); return s.terms, s.kills }
+
+func newSigTurn(s *sigLog) *execTurn {
+	return &execTurn{pid: 4242, done: make(chan struct{}), term: s.term, kill: s.kill}
 }
 
-func (k *killLog) n() int {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	return len(k.pids)
+// Where the leader cannot be held (no pidfd/waitid support: macOS, Windows) a stop behaves exactly as it always did,
+// whenever it comes: the group is terminated, and once the leader is reaped the stragglers are killed.
+func TestAStopWhereTheLeaderIsNotHeldSignalsTheGroupAsItAlwaysDid(t *testing.T) {
+	var s sigLog
+	turn := newSigTurn(&s) // held stays false: the waiter never settled
+	turn.Stop()
+	if terms, _ := s.n(); terms != 1 {
+		t.Fatalf("the group was terminated %d times, want 1", terms)
+	}
+	close(turn.done) // the leader was reaped
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, kills := s.n(); kills == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stragglers of the group were not killed once the leader was reaped")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
-// The group of a stopped turn is killed by number only while its leader is still unreaped; once the leader has been
-// settled, no later kill by number may happen (the number may name an unrelated group by then).
-func TestAStoppedTurnsGroupIsKilledOnlyWhileTheLeaderIsHeld(t *testing.T) {
-	var k killLog
-	held := &execTurn{pid: 4242, done: make(chan struct{})}
-	held.stopping = true
-	held.killGroupIfHeld(k.kill)
-	if k.n() != 1 {
-		t.Fatalf("a held leader's group was not killed at the end of the grace: %v", k.pids)
+// Where the leader is held, the stragglers die with its exit before the reap, and nothing is signalled by number after.
+func TestAHeldLeadersGroupIsSignalledOnlyBeforeTheReap(t *testing.T) {
+	var s sigLog
+	stopped := newSigTurn(&s)
+	stopped.Stop() // while the leader still runs
+	stopped.settle()
+	stopped.killGroupIfHeld() // the grace period ends after the exit: nothing more
+	if terms, kills := s.n(); terms != 1 || kills != 1 {
+		t.Fatalf("stopped before the exit: %d terminations, %d kills, want 1 and 1", terms, kills)
 	}
 
-	k = killLog{}
-	gone := &execTurn{pid: 4242, done: make(chan struct{})}
-	gone.settle(k.kill) // the leader exited, Stop was never asked for: nothing to kill
-	gone.killGroupIfHeld(k.kill)
-	if k.n() != 0 {
-		t.Fatalf("a group was killed after the leader's exit without a stop: %v", k.pids)
+	s = sigLog{}
+	late := newSigTurn(&s)
+	late.settle() // the leader exited, nobody stopped it
+	late.Stop()   // a stop after the exit signals nothing by number
+	late.killGroupIfHeld()
+	if terms, kills := s.n(); terms != 0 || kills != 0 {
+		t.Fatalf("stopped after the exit: %d terminations, %d kills, want none", terms, kills)
 	}
 
-	k = killLog{}
-	stopped := &execTurn{pid: 4242, done: make(chan struct{})}
-	stopped.stopping = true
-	stopped.settle(k.kill) // exit seen while still unreaped: the stragglers go with it, once
-	stopped.killGroupIfHeld(k.kill)
-	if k.n() != 1 {
-		t.Fatalf("a stopped turn's group was killed %d times, want exactly 1 (before the reap): %v", k.n(), k.pids)
+	s = sigLog{}
+	slow := newSigTurn(&s)
+	slow.held = true
+	slow.Stop()
+	slow.killGroupIfHeld() // the grace period ended with the leader still unreaped
+	if _, kills := s.n(); kills != 1 {
+		t.Fatalf("grace expiry with the leader unreaped: %d kills, want 1", kills)
+	}
+}
+
+// A failed bound delivery kills the leader itself; the exit that follows must take the group with it even though Stop
+// has not been called yet.
+func TestAKilledLeadersGroupGoesWithItWhenTheLauncherMarkedTheStopFirst(t *testing.T) {
+	var s sigLog
+	turn := newSigTurn(&s)
+	turn.markStopping()
+	turn.settle()
+	if _, kills := s.n(); kills != 1 {
+		t.Fatalf("the group was killed %d times when the marked leader exited, want 1", kills)
 	}
 }

@@ -234,8 +234,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{})}
 	go func() {
-		awaitExitNoReap(t.pid) // the leader is dead but unreaped: its group is still this turn's to signal
-		t.settle(killGroup)
+		if awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
+			t.settle()
+		}
 		t.err = cmd.Wait()
 		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
 		// revoke is retried; a revoke that still fails is reported as the turn's error.
@@ -258,6 +259,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 	}
 	if bd != nil {
+		bd.setOnKill(t.markStopping)
 		if err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) }); err != nil {
 			t.stopAndWait()
 			return nil, err
@@ -411,27 +413,64 @@ type execTurn struct {
 	once  sync.Once
 
 	mu       sync.Mutex
-	stopping bool // Stop was asked for
-	gone     bool // the leader has exited (about to be, or already, reaped): the group is never signalled by number again
+	stopping bool // Stop was asked for (or the launcher is about to kill the leader itself)
+	held     bool // the leader's exit is observed without reaping it (Linux), so the group can be killed before the reap
+	gone     bool // held, and the leader has exited: the group is never signalled by number again
+
+	term, kill func(pid int) error // the group signals; nil is terminateGroup / killGroup
 }
 
-// settle runs once the leader has exited and before it is reaped: whatever of a stopped turn's group ignored the
-// SIGTERM goes with it, while the pid still cannot name anything else. After it no group kill by number happens.
-func (t *execTurn) settle(kill func(int) error) {
+func (t *execTurn) terminateGrp() error {
+	if t.term != nil {
+		return t.term(t.pid)
+	}
+	return terminateGroup(t.pid)
+}
+
+func (t *execTurn) killGrp() error {
+	if t.kill != nil {
+		return t.kill(t.pid)
+	}
+	return killGroup(t.pid)
+}
+
+// settle runs on a platform that holds the leader (awaitExitNoReap), once it has exited and before it is reaped:
+// whatever of a stopped turn's group ignored the SIGTERM goes with it, while the pid still cannot name anything else.
+// After it no group signal by number happens.
+func (t *execTurn) settle() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.gone = true
+	t.held, t.gone = true, true
 	if t.stopping {
-		_ = kill(t.pid)
+		_ = t.killGrp()
 	}
 }
 
-// killGroupIfHeld kills the group at the end of the grace period, only while the leader has not been reaped.
-func (t *execTurn) killGroupIfHeld(kill func(int) error) {
+// markStopping records that the turn is being given up on before its leader is killed by other means (the launcher's
+// pidfd kill on a failed bound delivery), so the exit that follows kills the group too. Descendants that left the group
+// (a setsid of their own) are outside it either way.
+func (t *execTurn) markStopping() {
+	t.mu.Lock()
+	t.stopping = true
+	t.mu.Unlock()
+}
+
+// afterDone is what the stop goroutine does once the leader has been reaped: where the leader was not held, the
+// stragglers of the group are killed now, as they always were; where it was held they were killed before the reap.
+func (t *execTurn) afterDone() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.held {
+		_ = t.killGrp()
+	}
+}
+
+// killGroupIfHeld kills the group at the end of the grace period, unless the leader has been reaped (held) already.
+func (t *execTurn) killGroupIfHeld() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.gone {
-		_ = kill(t.pid)
+		_ = t.killGrp()
 	}
 }
 
@@ -443,15 +482,16 @@ func (t *execTurn) Stop() {
 		t.mu.Lock()
 		t.stopping = true
 		if !t.gone {
-			_ = terminateGroup(t.pid) // t is this process's child, and unreaped while gone is false: its pid is still its own
+			_ = t.terminateGrp() // t is this process's child, and unreaped while gone is false: its pid is still its own
 		}
 		t.mu.Unlock()
 		grace := hostTurnGrace // read here: the goroutine below can outlive a test that swaps it
 		go func() {
 			select {
 			case <-t.done:
+				t.afterDone()
 			case <-time.After(grace):
-				t.killGroupIfHeld(killGroup)
+				t.killGroupIfHeld()
 			}
 		}()
 	})
