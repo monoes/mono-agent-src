@@ -42,6 +42,9 @@ type hostInfo struct {
 	// ChildTokens says this host mints a mission child's task token (coder_host_childtoken.go). A host without it
 	// (one built earlier) is not one a lead may hand a child session to.
 	ChildTokens bool `json:"childTokens,omitempty"`
+	// Binding is the peer-credential binding services the host runs, per profile: counts and states only (never a
+	// token, hash, generation or key). `coder host status` shows it to the operator and to no one else.
+	Binding []coderhost.BindingStatus `json:"binding,omitempty"`
 }
 
 func hostDir(cfg *Deps) string {
@@ -220,8 +223,16 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			// the services' state is republished into the host info file when it changes
+			published := make(chan struct{})
+			go func() {
+				defer close(published)
+				publishBindingStatus(ctx, &info, infoPath, binding)
+			}()
 			logf("coder host %s started (pid %d)", info.Instance, info.PID)
 			err = h.Run(ctx)
+			stop()
+			<-published // no write of the info file after the deferred remove
 			logf("coder host stopped; running turns keep going")
 			return err
 		},
@@ -234,8 +245,44 @@ func hostStatus(cfg *Deps) map[string]any {
 	st := map[string]any{"running": hostRunning(cfg)}
 	if info, ok := readHostInfo(cfg); ok && st["running"] == true {
 		st["pid"], st["instance"], st["startedAt"] = info.PID, info.Instance, info.StartedAt
+		// the binding services' state is the operator's: an agent is not told what is registered
+		if len(info.Binding) > 0 && cfg.RequireOperator != nil && cfg.RequireOperator("see the binding services of the coder host") == nil {
+			st["binding"] = info.Binding
+		}
 	}
 	return st
+}
+
+// bindingPublishEvery is how often the binding services' state is compared with what was last published.
+var bindingPublishEvery = 2 * time.Second
+
+// publishBindingStatus rewrites the host info file (atomically) whenever the binding services' state changes, until
+// ctx is done.
+func publishBindingStatus(ctx context.Context, info *hostInfo, infoPath string, binding *coderhost.BindingHost) {
+	last := ""
+	t := time.NewTicker(bindingPublishEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		now := binding.Status()
+		cur, _ := json.Marshal(now)
+		if string(cur) == last || (last == "" && len(now) == 0) {
+			continue
+		}
+		last = string(cur)
+		info.Binding = now
+		raw, err := json.Marshal(info)
+		if err != nil {
+			continue
+		}
+		if os.WriteFile(infoPath+".tmp", raw, 0o600) == nil {
+			_ = os.Rename(infoPath+".tmp", infoPath)
+		}
+	}
 }
 
 func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
@@ -250,6 +297,11 @@ func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
 			}
 			if st["running"] == true {
 				fmt.Fprintf(cmd.OutOrStdout(), "running  pid %v  since %v\n", st["pid"], st["startedAt"])
+				if b, ok := st["binding"].([]coderhost.BindingStatus); ok {
+					for _, x := range b {
+						fmt.Fprintf(cmd.OutOrStdout(), "binding service  profile %s  running %v  start %d  registrations: %d pending, %d active, %d revoked\n", x.Profile, x.Running, x.Start, x.Pending, x.Active, x.Revoked)
+					}
+				}
 			} else {
 				fmt.Fprintln(cmd.OutOrStdout(), "not running")
 			}
