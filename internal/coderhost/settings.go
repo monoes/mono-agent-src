@@ -45,6 +45,10 @@ type Settings struct {
 	AgentApproval      string  `json:"agent_approval"`
 	ApprovalCeilingUSD float64 `json:"approval_ceiling_usd"`
 
+	// MissionDirections is K: how many directions a mission lead keeps and may have open at once (1 to 6; 0 is the
+	// default of 3). Operator-only; session_spawn enforces it (sessionspawn_directions.go).
+	MissionDirections int `json:"mission_directions"`
+
 	// Mesh: whether other monomind agents see this session and who may message it.
 	MeshVisible bool   `json:"mesh_visible"`
 	MeshAlias   string `json:"mesh_alias"` // "" = a name made from the project and start time
@@ -78,7 +82,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "mission_directions"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
@@ -164,6 +168,9 @@ func (s Settings) Validate() error {
 		return err
 	}
 	if err := within("max_depth", s.MaxDepth, 1, MaxSessionDepth); err != nil { // the hard limit of the design (tasks.HardMaxSessionDepth)
+		return err
+	}
+	if err := within("mission_directions", s.MissionDirections, 0, hardMissionDirections); err != nil {
 		return err
 	}
 	if !oneOf(s.AgentApproval, AgentApprovals) {
