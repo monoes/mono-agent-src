@@ -351,15 +351,16 @@ adding idempotent (the same key adds nothing a second time).`,
 			if sf.stray(cmd) {
 				return d.InvalidInput("--acceptance, --depends-on, --parent, --kind and --executor are for a session task: add --session N")
 			}
-			caller := d.callerFor(flagAs(cmd))
 			// What needs neither the database nor the text is refused first, so that
 			// a refused call never waits for standard input. The store enforces
-			// these rules too; answering here says what to do instead.
+			// these rules too; answering here says what to do instead. The gate comes
+			// before callerFor, which may open the database to look up a mission binding.
 			if ready {
-				if _, err := caller.operator("add a task straight to Ready"); err != nil {
+				if _, err := d.personGate(cmd, "add a task straight to Ready"); err != nil {
 					return err
 				}
 			}
+			caller := d.callerFor(flagAs(cmd))
 			actor := d.author(caller)
 			if source == tasks.SourceOS {
 				if actor.Kind == tasks.Agent {
