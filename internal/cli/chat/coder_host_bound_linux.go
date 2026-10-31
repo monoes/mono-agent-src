@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -168,7 +169,7 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 	if err != nil {
 		return undo(fmt.Errorf("could not get the row key: %w", err))
 	}
-	err = procbind.MintTx(ctx, b.db, key, procbind.MintRequest{
+	req := procbind.MintRequest{
 		Profile: profile, WorkerPID: pid, WorkerStamp: stamp, HostGeneration: generation, Now: now,
 		Tokens: []procbind.MintToken{{Kind: procbind.KindSession, ID: id, Hash: hash, Scope: scope, Expires: expires, ConversationID: conv, TurnID: turn}},
 		Check: func(ctx context.Context, x procbind.DBTX) error {
@@ -181,9 +182,18 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 			}
 			return nil
 		},
-	})
-	if err != nil {
-		return undo(fmt.Errorf("could not bind the turn's token: %w", err))
+	}
+	if err := validateMint(req, key, profile); err != nil {
+		return undo(err)
+	}
+	if err = procbind.MintTx(ctx, b.db, key, req); err != nil {
+		// an error does not prove that nothing was written (a commit can fail after it was applied): the token is ended
+		// by its own id, so a row that did land is revoked and cannot be accepted
+		err = fmt.Errorf("could not bind the turn's token: %w", err)
+		if rerr := b.revokeByID(ctx, profile, procbind.KindSession, id); rerr != nil {
+			err = errors.Join(err, rerr)
+		}
+		return undo(err)
 	}
 	minted = true
 	if b.afterMint != nil {
@@ -213,4 +223,32 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 		return undo(fmt.Errorf("could not hand the credentials to the turn: %w", werr))
 	}
 	return nil
+}
+
+// validateMint is the caller's check of what MintTx does not look at: the request names the profile whose key signs the
+// rows, every token's scope belongs to its kind, and it ends after the mint.
+func validateMint(req procbind.MintRequest, key []byte, profile string) error {
+	if len(key) == 0 || req.Profile != profile {
+		return errors.New("the mint does not name the profile whose key signs it")
+	}
+	for _, t := range req.Tokens {
+		want := "session:"
+		if t.Kind == procbind.KindMission {
+			want = "mission:"
+		}
+		if !strings.HasPrefix(t.Scope, want) {
+			return fmt.Errorf("the scope of a %s token is not a %s scope", t.Kind, t.Kind)
+		}
+		if !t.Expires.After(req.Now) {
+			return errors.New("the token would already be expired")
+		}
+	}
+	return nil
+}
+
+// revokeByID ends one v2 token by its id (and its live registration), whether or not its mint is known to have landed.
+func (b *boundLaunch) revokeByID(ctx context.Context, profile string, kind procbind.Kind, id string) error {
+	sel := procbind.Selector{Profile: profile, Kind: kind, TokenID: id}
+	return procbind.Revoker{DB: b.db, Binder: b.binder}.Run(ctx, []procbind.Kind{kind}, procbind.Scope{Profile: profile, TokenID: id},
+		func(*sql.Conn) ([]procbind.Selector, error) { return []procbind.Selector{sel}, nil })
 }
