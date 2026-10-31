@@ -308,6 +308,11 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 		if open >= MaxOpenSessions {
 			return limit("this profile already has %d sessions that are not archived: archive some first", MaxOpenSessions)
 		}
+		if in.BeforeInsert != nil {
+			if err := in.BeforeInsert(ctx, x); err != nil {
+				return err
+			}
+		}
 		budget := in.BudgetUSD
 		var parent any
 		if in.ParentSessionID != 0 {

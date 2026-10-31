@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -128,5 +129,29 @@ func TestSessionConversationValidationAcceptsHostCoderConversations(t *testing.T
 	}
 	if _, err := st.CreateSession(ctx, "other-profile", tasks.SessionInput{Title: "M3", ConversationID: conv.ID}, op); err == nil {
 		t.Fatal("another profile's conversation was accepted")
+	}
+}
+
+func TestMissionConfigTheOperatorsToggleConfirmsFromTheFirstTurn(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	cs := coderhost.NewStore(db)
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}); m == nil || m.Planning() {
+		t.Fatalf("toggle off: %+v", m)
+	}
+	s, _ := cs.GetSettings("default", "c1")
+	s.Mission = true
+	if err := cs.SaveSettings("default", "c1", s); err != nil {
+		t.Fatal(err)
+	}
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}); m == nil || !m.Planning() {
+		t.Errorf("toggle on, no session: %+v", m)
+	}
+	if m := missionConfig(ctx, db, "default", "c2", coderTurn{access: "coding"}); m == nil || m.Planning() {
+		t.Errorf("another conversation confirmed: %+v", m)
+	}
+	// the access floor still holds with the toggle on
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "scoped"}); m != nil {
+		t.Errorf("scoped access got a mission setup: %+v", m)
 	}
 }

@@ -30,7 +30,7 @@ var approvalWriters = []string{
 	"Approve", "ApproveSession", "ApprovedBy", "DecideSubmitItem", "DecideSiteItem", "HoldUpload", "HoldFill", "Hold",
 	"Confirmed", "MissionConfig", "MissionAccess",
 	// operator-only settings, access and budget raises, tree shape
-	"SaveSettings", "SetUnattended", "SetBudget", "carveBudget", "SetRole", "Spawn", "SetChild", "OperatorOnly", "capAccess", "childAccess",
+	"SaveSettings", "UpdateSettings", "SetUnattended", "SetBudget", "carveBudget", "SetRole", "Spawn", "SetChild", "OperatorOnly", "capAccess", "childAccess",
 	"SetCommand", // ending or re-marking a command is the host loop's
 }
 

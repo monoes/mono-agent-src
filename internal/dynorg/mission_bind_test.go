@@ -1,7 +1,9 @@
 package dynorg
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -181,4 +183,28 @@ func TestMissionWorkerExecWithoutSessionBudgetIsNotCapped(t *testing.T) {
 		t.Fatalf("a session with no budget caps nothing, got %v", got)
 	}
 	r.ex.release(a.ID)
+}
+
+// A refusal of MissionConfig.BeforeCreate (the chat's Mission toggle was turned off) stops mission_plan with
+// nothing created, and the same plan goes through once the hook allows it.
+func TestMissionPlanIsRefusedByTheCreationRecheck(t *testing.T) {
+	r := newRig(t, rigOpts{conv: "conv-other"})
+	c := r.conductorFor(Limits{MaxAgents: 5, MaxConcurrent: 3}, r.leadOf("conv-1"))
+	allow := false
+	c.Mission().BeforeCreate = func(context.Context, tasks.Queryer) error {
+		if !allow {
+			return errors.New("the toggle is off")
+		}
+		return nil
+	}
+	if _, err := call(t, c, ToolMissionPlan, goodPlan()); err == nil || !strings.Contains(err.Error(), "the toggle is off") {
+		t.Fatalf("plan with the recheck refusing: %v", err)
+	}
+	if id, err := c.Mission().OpenSessionID(tbg); err != nil || id != 0 {
+		t.Fatalf("a refused plan left session %d (%v)", id, err)
+	}
+	allow = true
+	if _, err := call(t, c, ToolMissionPlan, goodPlan()); err != nil {
+		t.Fatal(err)
+	}
 }
