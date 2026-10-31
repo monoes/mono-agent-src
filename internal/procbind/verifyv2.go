@@ -141,6 +141,13 @@ func (c V2Check) Verify(ctx context.Context, kind Kind, secret string) (V2Result
 	if verdict != VerdictAllow {
 		return res, c.deny("the service denied the caller")
 	}
+	// What is NOT read again, and why. Token and binding rows cannot be deleted or changed while they matter: the v2
+	// tables are insert-only (an UPDATE aborts) and a DELETE aborts inside the row's retention window, 7 days past its
+	// own expiry, which the expiry check below already covers; no production code deletes them. So the only way a live
+	// token stops being valid between the checks and here is a revocation row (read below) or its expiry (read below).
+	// A host start that supersedes the generation after the answer does not undo it: the answer was authentic for the
+	// generation this call read, and the next verification reads the newest host row again.
+	//
 	// The answer is the authorization boundary. A revocation commits before the service drops its live entry, so one
 	// that landed after the checks above and before this answer still gets an authentic allow: read the revocation and
 	// the expiry again now that the answer is in.
