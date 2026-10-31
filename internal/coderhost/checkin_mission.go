@@ -35,10 +35,13 @@ type missionFact struct {
 	// Directions of the mission, research reports finished and the share of the budget the tree spent (numbers
 	// from the host's rows; omitted when there are none, so an older digest still compares equal), and the
 	// re-evaluation reasons found at this look (never stored).
-	Dirs         []dirFact `json:"dirs,omitempty"`
-	ResearchDone int       `json:"researchDone,omitempty"`
-	SpentPct     int       `json:"spentPct,omitempty"`
-	Reeval       []string  `json:"-"`
+	Dirs []dirFact `json:"dirs,omitempty"`
+	// ResearchIDs are the finished, unarchived research reports; ResearchSeen every one ever seen done (newest
+	// maxMarkIDs), so that an archive plus a finish is not a count of zero and an unarchive is not new.
+	ResearchIDs  []int64  `json:"researchIds,omitempty"`
+	ResearchSeen []int64  `json:"researchSeen,omitempty"`
+	SpentPct     int      `json:"spentPct,omitempty"`
+	Reeval       []string `json:"-"`
 }
 
 var (
@@ -117,7 +120,7 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 		return nil, false
 	}
 	f.ChildRun, f.ChildQueued, f.ChildFailed = cc.Live, cc.Queued, cc.Failed
-	if f.Dirs, f.ResearchDone, f.SpentPct, err = h.directionFacts(id); err != nil {
+	if f.Dirs, f.ResearchIDs, f.SpentPct, err = h.directionFacts(id); err != nil {
 		return nil, false
 	}
 	if on, err := h.Store.MissionChildrenEnabled(); err != nil {
