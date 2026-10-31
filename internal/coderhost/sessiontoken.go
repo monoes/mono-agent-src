@@ -84,14 +84,29 @@ var ErrVaultKey = fmt.Errorf("%w (the vault key is unavailable)", ErrSessionToke
 // shell), so it must not bind session tokens: every turn it started would be a descendant of that one.
 var ErrHostInsideTurn = errors.New("coder host: the host runs inside a coder session's turn; start it from a terminal")
 
-// HostInsideTurn says whether this process is a descendant of a bound session turn.
+// HostInsideTurn says whether this process is a descendant of a bound session turn: of the process a live legacy
+// session token names, or of the worker of a live v2 binding (a bound turn writes only v2 rows).
 func (s *Store) HostInsideTurn() bool {
 	chain, _ := callerChain()
 	in := map[int]bool{}
 	for _, p := range chain {
 		in[p] = true
 	}
-	rows, err := s.db.Query(`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND ` + tsLive("expires_at", s.now()))
+	for _, q := range []string{
+		`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND ` + tsLive("expires_at", s.now()),
+		// the v2 bindings of tokens that are not revoked; rows are read unverified, since a forged one can only make the host refuse
+		`SELECT b.worker_pid, b.worker_stamp FROM process_bindings b WHERE b.worker_pid > 1 AND ` + tsLive("b.expires_at", s.now()) +
+			` AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_id = b.token_id)`,
+	} {
+		if s.chainHits(q, in) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) chainHits(query string, in map[int]bool) bool {
+	rows, err := s.db.Query(query)
 	if err != nil {
 		return false
 	}
