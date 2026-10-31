@@ -354,3 +354,30 @@ func TestRevokeByIDEndsOnlyThatToken(t *testing.T) {
 		t.Error("another turn's token was revoked")
 	}
 }
+
+// The bound token is minted after the process exists. If the leader dies after the exit goroutine's revoke and before
+// the mint commits, the committed token and its registration must still end: nothing live is left for a dead worker.
+func TestALeaderThatDiesBeforeTheMintCommitsLeavesNoLiveToken(t *testing.T) {
+	r := newBoundRig(t, "")
+	r.l.bound.beforeMint = func() {
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(r.waitFile(r.pidfile))))
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+			t.Error(err)
+		}
+		if !r.gone(pid) {
+			t.Error("the leader did not die")
+		}
+		time.Sleep(600 * time.Millisecond) // the exit goroutine reaps it and revokes, all before the mint commits
+	}
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil && turn != nil {
+		_ = turn.Wait()
+	}
+	var live int
+	if err := r.db.DB.QueryRow(`SELECT COUNT(*) FROM coder_session_tokens_v2 t WHERE NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'session' AND r.token_id = t.id)`).Scan(&live); err != nil || live != 0 {
+		t.Errorf("%d unrevoked v2 token(s) for a dead worker (%v)", live, err)
+	}
+	if st := r.binder.Stats(); st.Active != 0 || st.Pending != 0 {
+		t.Errorf("live registrations remain for a dead worker: %+v", st)
+	}
+}

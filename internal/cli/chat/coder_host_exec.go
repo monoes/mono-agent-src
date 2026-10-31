@@ -264,6 +264,19 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			t.stopAndWait()
 			return nil, err
 		}
+		select {
+		case <-t.done:
+			// The leader ended before this point. The exit goroutine's revoke may have run before the mint committed
+			// (the bound token is minted after the process exists), which would leave a live token and registration
+			// for a dead worker: end them again now. If done is still open the goroutine's revoke has yet to run, and
+			// it runs after the commit.
+			rerr := l.revokeSession(profileID, conversationID)
+			l.child.revokeToken(ct)
+			if rerr != nil {
+				return nil, errors.Join(errors.New("the turn ended while its credentials were being delivered"), rerr)
+			}
+		default:
+		}
 	} else if l.bind != nil {
 		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {
 			// the host runs inside a session's turn: no token is bound, so the master tools refuse in this turn
