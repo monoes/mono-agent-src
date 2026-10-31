@@ -5,8 +5,18 @@ import "fmt"
 // missionPhases is the part of the lead's mission prompt for goals that are bigger than one plan of tasks
 // (docs/mastermind/plans/2026-10-28-mission-research-directions.md, section 4): research, evaluate, direct, run,
 // converge. The numbered task steps that follow it are unchanged and carry out any one plan of tasks.
+// promptK is the K the prompt names: the number the lead was configured with at the start of the turn (unset or 0 is the
+// default of 3, never above 6). mission_evaluate itself reads the operator's CURRENT setting, so a later change is
+// enforced there; the prompt only tells the lead roughly what to expect.
+func promptK(m *MissionConfig) int {
+	if m == nil || m.MaxDirections <= 0 {
+		return DefaultDirections
+	}
+	return min(m.MaxDirections, HardMaxDirections)
+}
+
 func missionPhases(m *MissionConfig) string {
-	k := m.maxDirections()
+	k := promptK(m)
 	return "Phases of a mission: UNDERSTAND -> RESEARCH -> EVALUATE -> DIRECT -> RUN -> CONVERGE. " +
 		"Do not spawn when one session can do the work. A goal that one plan of tasks can carry (the usual mission) skips RESEARCH, EVALUATE and DIRECT: UNDERSTAND, then plan and run its tasks yourself with the numbered task steps below. " +
 		"A goal with several plausible approaches, or one you cannot judge without looking things up, uses all six.\n" +
