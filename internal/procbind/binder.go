@@ -96,6 +96,9 @@ func (s Selector) matches(e *entry) bool {
 	if s.TokenID == "" && s.Owner == "" && s.Session == "" && !s.All {
 		return false
 	}
+	if s.ExactOwner && s.Owner == "" { // an exact owner needs an owner: it must not widen into "all"
+		return false
+	}
 	if s.Kind != "" && e.spec.Kind != s.Kind {
 		return false
 	}

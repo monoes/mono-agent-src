@@ -126,7 +126,24 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 		return 0, nil
 	}
 	n := 0
-	err := s.revokeBoth(ctx, procbind.Selector{Owner: owner, ExactOwner: true}, func(conn *sql.Conn) error {
+	legacy := map[string]bool{}
+	refs, err := s.revokeBothRefs(ctx, procbind.Selector{Owner: owner, ExactOwner: true}, func(conn *sql.Conn) error {
+		rows, err := conn.QueryContext(ctx, `SELECT id FROM agent_tokens WHERE mission_owner = ? AND revoked_at IS NULL`, owner)
+		if err != nil {
+			return fmt.Errorf("listing mission tokens: %w", err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			legacy[id] = true
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 		res, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE mission_owner = ? AND revoked_at IS NULL`,
 			s.now().UTC().Format(timeFmt), owner)
 		if err != nil {
@@ -138,6 +155,11 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 	})
 	if err != nil {
 		return 0, err
+	}
+	for _, r := range refs { // a bound run holds only a v2 token: it counts too (a twin of a legacy token does not count twice)
+		if !legacy[r.TokenID] {
+			n++
+		}
 	}
 	return n, nil
 }

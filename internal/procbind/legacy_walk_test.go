@@ -89,7 +89,7 @@ var reviewedLegacyOnly = map[string]string{
 //   - the string sits in a function literal that is the callback of procbind.Revoker.Run (a composite literal of
 //     that type, or a call of a method named revoker()), and that callback really returns selectors: some return
 //     has a first result other than nil, and none is `return nil, nil`;
-//   - the string sits in a function literal passed to a call of revokeBoth or revokeSessionTokens whose arguments
+//   - the string sits in a function literal passed to a call of revokeBoth (or revokeBothRefs) or revokeSessionTokens whose arguments
 //     include a non-empty procbind.Selector literal;
 //   - or the declaration calls procbind.RevokeTx with a selector that is a non-empty literal or a variable.
 func scan(t *testing.T, path string, src []byte) (bad []string, annotated map[string]string, sites int) {
@@ -191,10 +191,10 @@ func revokedByEnclosingCall(stack []ast.Node, pb, revokers map[string]bool) bool
 		if !isArg {
 			return false
 		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Run" && isRevokerValue(sel.X, pb, revokers) {
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Run" || sel.Sel.Name == "RunRefs") && isRevokerValue(sel.X, pb, revokers) {
 			return callbackReturnsSelectors(fl)
 		}
-		if name := calleeName(call.Fun); name == "revokeBoth" || name == "revokeSessionTokens" {
+		if name := calleeName(call.Fun); name == "revokeBoth" || name == "revokeBothRefs" || name == "revokeSessionTokens" {
 			for _, a := range call.Args {
 				if cl, ok := a.(*ast.CompositeLit); ok && isSelectorType(cl.Type, pb) && len(cl.Elts) > 0 {
 					return true
