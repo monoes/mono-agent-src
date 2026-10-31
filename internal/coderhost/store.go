@@ -13,6 +13,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // State is where a session stands. A paused session starts no new turn; one
@@ -110,6 +112,8 @@ type Session struct {
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// binder, when set, has its live entries ended after a session-token revocation commits (revoke_v2.go).
+	binder *procbind.Binder
 	// afterPolicyRead lets a test act between SetPolicy's read and its write.
 	afterPolicyRead func()
 	// beforeReserveTx lets a test act between Reserve's checks and the transaction that reserves.
@@ -385,6 +389,11 @@ func (s *Store) SweepOrphans() (int, error) {
 	total := 0
 	// The records of the mission sends that go are revoked once they are gone.
 	defer s.revokeCommands(s.pendingMissionIDs(`NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`))
+	n, err := s.sweepOrphanTokens()
+	if err != nil {
+		return total, err
+	}
+	total += n
 	for _, q := range []string{
 		`DELETE FROM coder_session_commands WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`,
 		`DELETE FROM coder_sessions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_sessions.conversation_id AND c.profile_id = coder_sessions.profile_id)`,
@@ -393,7 +402,6 @@ func (s *Store) SweepOrphans() (int, error) {
 		`DELETE FROM coder_session_person_items WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_person_items.conversation_id AND c.profile_id = coder_session_person_items.profile_id)`,
 		`DELETE FROM coder_session_turn_caps WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_turn_caps.conversation_id AND c.profile_id = coder_session_turn_caps.profile_id)`,
 		`DELETE FROM coder_session_host_turns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_host_turns.conversation_id AND c.profile_id = coder_session_host_turns.profile_id)`,
-		`DELETE FROM coder_session_tokens WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_tokens.conversation_id AND c.profile_id = coder_session_tokens.profile_id)`,
 		`DELETE FROM coder_session_spawns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_spawns.parent AND c.profile_id = coder_session_spawns.profile_id)`,
 		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state IN ('spawning', 'spawned') AND child_conversation_id <> '' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.child_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
 		`DELETE FROM coder_mission_events WHERE session_id IN (SELECT p.session_id FROM coder_mission_policy p WHERE p.profile_id = coder_mission_events.profile_id AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = p.lead_conversation_id AND c.profile_id = p.profile_id))`,

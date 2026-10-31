@@ -31,9 +31,11 @@ type execLauncher struct {
 	bin, dbPath, instance, logDir string
 	logf                          func(string, ...any)
 	// tokens mints the session token a turn gets in its environment (nil: none), and revoke drops
-	// a session's tokens when its turn ends.
+	// a session's tokens when its turn ends; an error means a token may still be live (revokeSession retries it, then reports it).
 	tokens func(profileID, conversationID, turnID string) (string, error)
-	revoke func(profileID, conversationID string)
+	revoke func(profileID, conversationID string) error
+	// revokeBackoff is the first wait between revoke attempts (zero: 200 ms; tests shorten it).
+	revokeBackoff time.Duration
 	// bind names the turn's process for its token, right after the turn starts.
 	bind func(profileID, conversationID, turnID string, pid int, stamp string) error
 	// child mints a mission child's task token for its turn and binds it to the turn's process (nil: none; see
@@ -46,6 +48,30 @@ var hostID = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
 // hostTurnGrace is how long a stopped turn gets to end before it is killed.
 var hostTurnGrace = 15 * time.Second
+
+// revokeSession ends the session's tokens, trying a few times: a failure leaves a live token after its turn.
+func (l *execLauncher) revokeSession(profileID, conversationID string) error {
+	if l.revoke == nil {
+		return nil
+	}
+	backoff := l.revokeBackoff
+	if backoff <= 0 {
+		backoff = 200 * time.Millisecond
+	}
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if err = l.revoke(profileID, conversationID); err == nil {
+			return nil
+		}
+		if l.logf != nil {
+			l.logf("WARNING: ending the session token of %s failed (attempt %d): %v", conversationID, attempt+1, err)
+		}
+		if attempt < 3 {
+			time.Sleep(backoff << attempt)
+		}
+	}
+	return fmt.Errorf("the session token of %s could not be ended: %w", conversationID, err)
+}
 
 func (l *execLauncher) args(profileID string, rest ...string) []string {
 	return append([]string{"--db-path", l.dbPath, "--profile", profileID, "--json"}, rest...)
@@ -166,8 +192,8 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
 	if err := clicore.DetachStart(cmd); err != nil {
 		os.Remove(promptPath)
-		if l.revoke != nil {
-			l.revoke(profileID, conversationID)
+		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
+			err = errors.Join(err, rerr)
 		}
 		return nil, err
 	}
@@ -185,8 +211,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{})}
 	go func() {
 		t.err = cmd.Wait()
-		if l.revoke != nil {
-			l.revoke(profileID, conversationID) // before done closes: a session that sees its turn end has no token left
+		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
+		// revoke is retried; a revoke that still fails is reported as the turn's error.
+		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
+			t.err = errors.Join(t.err, rerr)
 		}
 		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
 		os.Remove(promptPath)   // before done closes: whoever sees the turn end sees no prompt left
@@ -206,8 +234,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	if l.bind != nil {
 		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {
 			// the host runs inside a session's turn: no token is bound, so the master tools refuse in this turn
-			if l.revoke != nil {
-				l.revoke(profileID, conversationID)
+			if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
+				t.stopAndWait()
+				return nil, rerr
 			}
 			if l.logf != nil {
 				l.logf("WARNING: %v; turn %s runs without a usable session token", err, turnID)
