@@ -88,3 +88,26 @@ func (s *Store) CountSessionEvents(ctx context.Context, profileID string, sessio
 	})
 	return n, err
 }
+
+// OpenDirectionsTx lists the open (draft, running or paused, not archived) direction sessions directly below a mission,
+// read on the connection of a transaction a check hook runs in, so the answer holds at the moment of the write.
+func (s *Store) OpenDirectionsTx(ctx context.Context, x Queryer, profileID string, mission int64) ([]Session, error) {
+	rows, err := x.QueryContext(ctx, `SELECT `+sessionCols+` FROM task_sessions WHERE profile_id = ? AND parent_session_id = ? AND kind = ?
+		AND state IN (?, ?, ?) AND archived_at = '' ORDER BY id`, profileID, mission, SessionKindDirection, SessionDraft, SessionRunning, SessionPaused)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: reading the open directions: %w", err)
+	}
+	defer rows.Close()
+	var out []Session
+	for rows.Next() {
+		se, err := s.scanSession(rows)
+		if err != nil {
+			return nil, fmt.Errorf("tasks: reading the open directions: %w", err)
+		}
+		out = append(out, se)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("tasks: reading the open directions: %w", err)
+	}
+	return out, nil
+}

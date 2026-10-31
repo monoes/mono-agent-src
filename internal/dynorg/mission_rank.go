@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // The ranking of candidate directions (docs/mastermind/plans/2026-10-28-mission-research-directions.md, section 4,
@@ -30,7 +32,7 @@ var DefaultWeights = map[string]float64{CritSuccess: 3, CritCost: 1, CritRisk: 1
 const (
 	MaxCandidates   = 20
 	MaxEvidenceRefs = 10
-	MaxTitleChars   = 120
+	MaxTitleChars   = tasks.MaxTitleRunes // a direction's title is a session title: a candidate may be as long
 	MaxThesisChars  = 1000
 	MaxRefChars     = 200
 	// DefaultDirections is K when the operator sets none; HardMaxDirections is the most the operator can set.
@@ -156,10 +158,21 @@ func ValidateWeights(w map[string]float64) (map[string]float64, error) {
 // Rank orders validated candidates by weighted score, best first. A tie (the same score to a millionth) goes to the lower risk, then the
 // lower cost, then the candidate stated first. The first k are marked picked.
 func Rank(cs []DirCandidate, w map[string]float64, k int) []Ranked {
+	// The weights are divided by the largest first, so that only their proportions count: tiny valid weights (5e-324)
+	// would otherwise make the products collapse (1 and 1.4 times 5e-324 are the same float) and a tie would go to risk.
+	top := 0.0
+	for _, c := range Criteria {
+		top = max(top, w[c])
+	}
+	wn := map[string]float64{}
 	sum := 0.0
 	for _, c := range Criteria {
-		sum += w[c]
+		if top > 0 {
+			wn[c] = w[c] / top
+		}
+		sum += wn[c]
 	}
+	w = wn
 	out := make([]Ranked, len(cs))
 	micro := make([]int64, len(cs)) // the score in whole millionths, by candidate; carried through the sort by position
 	order := make([]int, len(cs))

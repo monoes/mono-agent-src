@@ -158,7 +158,8 @@ func (c *Conductor) handleMissionEvaluate(ctx context.Context, name string, args
 		if strings.TrimSpace(a.Reason) == "" || len([]rune(a.Reason)) > 300 {
 			return "", fmt.Errorf("reason is required, at most 300 characters")
 		}
-		if err := c.checkCurrent(ctx, mc, m, sid, a.Current); err != nil {
+		a.Current, err = c.checkCurrent(ctx, mc, m, sid, a.Current)
+		if err != nil {
 			return "", err
 		}
 		view.Ranking, view.Decisions, err = Reevaluate(a.Candidates, w, k, a.Current)
@@ -192,7 +193,13 @@ func (c *Conductor) handleMissionEvaluate(ctx context.Context, name string, args
 		if view.K > cur {
 			return fmt.Errorf("the operator lowered mission_directions to %d while this evaluation ran (it picked %d); evaluate again", cur, view.K)
 		}
+		if re {
+			return currentStillHolds(ctx, mc.Store, x, mc.ProfileID, sid, a.Current)
+		}
 		return nil
+	}
+	if c.beforeRecord != nil {
+		c.beforeRecord()
 	}
 	if err := mc.Store.AddSessionEventChecked(ctx, mc.ProfileID, sid, tasks.EventNote, note, missionActor(), stillWithinK); err != nil {
 		return "", fmt.Errorf("the evaluation was not recorded, so it does not stand: %w", err)
@@ -228,48 +235,115 @@ func (a evaluateArgs) checkSizes() error {
 	return nil
 }
 
-// checkCurrent refuses a re-evaluation whose "current" directions are not the lead's own open ones. The lead states a
-// title and a session id for each; the title is matched against the candidates, so the id is checked here against the
-// store: it must be a direction session below THIS mission, open (draft, running or paused, not archived), titled as
-// stated, and named once. A merge target is a candidate the lead scored (Reevaluate checks it names another one); when
-// it is itself a running direction it is one of these and so has passed the same checks.
-func (c *Conductor) checkCurrent(ctx context.Context, mc *MissionRun, m *MissionConfig, mission int64, current []CurrentDirection) error {
-	if len(current) == 0 {
-		return nil
-	}
+// checkCurrent refuses a re-evaluation whose "current" directions are not the lead's own open ones, and returns them
+// with the titles the sessions HAVE. The session id is the identity: it must be a direction session below THIS mission,
+// open (draft, running or paused, not archived) and named once. The title the lead states is a label only: a label that
+// differs from the stored title is not a refusal (the stored title is used from here on, so a title the candidate cap
+// let through can always be matched), unless it is the title of ANOTHER open direction, which is a swapped id. The list
+// must also be complete: an open direction of this mission that is left out is refused by id (a direction the lead
+// forgot would be recorded as an add, or get no decision at all). An empty list is right when none is open.
+// A merge target is a candidate the lead scored (Reevaluate checks it names another one); when it is itself a running
+// direction it is one of these and so has passed the same checks.
+func (c *Conductor) checkCurrent(ctx context.Context, mc *MissionRun, m *MissionConfig, mission int64, current []CurrentDirection) ([]CurrentDirection, error) {
 	actor := missionActor()
 	if m != nil {
 		actor = m.actor(0)
 	}
 	list, err := mc.Store.ListSessions(ctx, mc.ProfileID, tasks.SessionFilter{}, actor)
 	if err != nil {
-		return fmt.Errorf("the sessions of this mission could not be read, so the current directions were not checked: %w", err)
+		return nil, fmt.Errorf("the sessions of this mission could not be read, so the current directions were not checked: %w", err)
 	}
 	byID := make(map[int64]tasks.Session, len(list))
+	var open []tasks.Session
 	for _, se := range list {
 		byID[se.ID] = se
+		if isOpenDirectionOf(se, mission) {
+			open = append(open, se)
+		}
+	}
+	openTitle := map[string]int64{}
+	for _, se := range open {
+		openTitle[titleKey(se.Title)] = se.ID
 	}
 	seen := map[int64]bool{}
+	out := make([]CurrentDirection, 0, len(current))
 	for _, d := range current {
 		title := oneLine(d.Title)
 		se, ok := byID[d.SessionID]
 		switch {
 		case d.SessionID <= 0:
-			return fmt.Errorf("current direction %q needs session_id: the number of its direction session", title)
+			return nil, fmt.Errorf("current direction %q needs session_id: the number of its direction session", title)
 		case seen[d.SessionID]:
-			return fmt.Errorf("session #%d is listed twice among the current directions", d.SessionID)
+			return nil, fmt.Errorf("session #%d is listed twice among the current directions", d.SessionID)
 		case !ok:
-			return fmt.Errorf("session #%d (current direction %q) is not an open session of this profile", d.SessionID, title)
+			return nil, fmt.Errorf("session #%d (current direction %q) is not an open session of this profile", d.SessionID, title)
 		case se.Kind != tasks.SessionKindDirection:
-			return fmt.Errorf("session #%d (current direction %q) is a %s session, not a direction", d.SessionID, title, se.Kind)
+			return nil, fmt.Errorf("session #%d (current direction %q) is a %s session, not a direction", d.SessionID, title, se.Kind)
 		case se.ParentSessionID != mission:
-			return fmt.Errorf("session #%d (current direction %q) is not a direction of this mission", d.SessionID, title)
+			return nil, fmt.Errorf("session #%d (current direction %q) is not a direction of this mission", d.SessionID, title)
 		case se.State != tasks.SessionDraft && se.State != tasks.SessionRunning && se.State != tasks.SessionPaused:
-			return fmt.Errorf("session #%d (current direction %q) is %s: only open directions are current", d.SessionID, title, se.State)
-		case titleKey(se.Title) != titleKey(d.Title):
-			return fmt.Errorf("session #%d is titled %q, not %q: pass the title it has among the candidates", d.SessionID, oneLine(se.Title), title)
+			return nil, fmt.Errorf("session #%d (current direction %q) is %s: only open directions are current", d.SessionID, title, se.State)
+		case se.Archived:
+			return nil, fmt.Errorf("session #%d (current direction %q) is not an open session of this profile", d.SessionID, title)
+		}
+		if other, taken := openTitle[titleKey(d.Title)]; taken && other != d.SessionID {
+			return nil, fmt.Errorf("session #%d is titled %q, not %q (that is session #%d): pass each direction with its own session id", d.SessionID, oneLine(se.Title), title, other)
 		}
 		seen[d.SessionID] = true
+		out = append(out, CurrentDirection{Title: se.Title, SessionID: d.SessionID})
+	}
+	if err := missingOpen(open, seen); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func isOpenDirectionOf(se tasks.Session, mission int64) bool {
+	return se.Kind == tasks.SessionKindDirection && se.ParentSessionID == mission && !se.Archived &&
+		(se.State == tasks.SessionDraft || se.State == tasks.SessionRunning || se.State == tasks.SessionPaused)
+}
+
+// missingOpen refuses a current list that leaves out an open direction, naming the ids.
+func missingOpen(open []tasks.Session, listed map[int64]bool) error {
+	var missing []string
+	for _, se := range open {
+		if !listed[se.ID] {
+			missing = append(missing, fmt.Sprintf("#%d (%q)", se.ID, shortText(se.Title, recordTitleChars)))
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("current must list every open direction of this mission; left out: %s", strings.Join(missing, ", "))
+}
+
+// currentStillHolds is checkCurrent again, on the connection of the record's own transaction: the directions the
+// evaluation was made for must still be exactly the mission's open directions, each with the title it was resolved to.
+// A direction stopped, archived, retitled or started since the list was read makes the evaluation stale: nothing is written.
+func currentStillHolds(ctx context.Context, store *tasks.Store, x tasks.Queryer, profileID string, mission int64, current []CurrentDirection) error {
+	open, err := store.OpenDirectionsTx(ctx, x, profileID, mission)
+	if err != nil {
+		return err
+	}
+	listed := map[int64]bool{}
+	for _, d := range current {
+		listed[d.SessionID] = true
+	}
+	titleOf := map[int64]string{}
+	for _, se := range open {
+		titleOf[se.ID] = se.Title
+	}
+	for _, d := range current {
+		t, ok := titleOf[d.SessionID]
+		if !ok {
+			return fmt.Errorf("direction #%d is no longer an open direction of this mission (stopped or archived while this evaluation ran); evaluate again", d.SessionID)
+		}
+		if titleKey(t) != titleKey(d.Title) {
+			return fmt.Errorf("direction #%d was retitled while this evaluation ran; evaluate again", d.SessionID)
+		}
+	}
+	if err := missingOpen(open, listed); err != nil {
+		return fmt.Errorf("a direction was opened while this evaluation ran (%w); evaluate again", err)
 	}
 	return nil
 }
