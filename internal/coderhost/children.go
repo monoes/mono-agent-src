@@ -488,19 +488,12 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	cs := childSettings(ps, childLevel)
 	// The child's starting settings replace its document, but not the operator's Mission toggle, which a
 	// writer that got to the child since SetRole (the child is already in its master's tree) may have set.
-	// The parent's K is inherited only into a row that holds no mission_directions of its own: one the operator
-	// committed since SetRole (even 0) stays, and the check reads the fresh row in this very transaction.
-	if _, err := s.UpdateSettings(c.ProfileID, conv.ID, func(ctx context.Context, tx *sql.Conn, cur Settings) (Settings, error) {
+	// The parent's K is inherited only while the fresh row holds no mission_directions of its own: one the
+	// operator committed since SetRole (even 0) stays. cur is read in this very transaction, and no other
+	// writer makes the field set (it is a pointer, absent until someone chooses it).
+	if _, err := s.UpdateSettings(c.ProfileID, conv.ID, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
 		cs.Mission = cur.Mission
-		var raw string
-		if err := tx.QueryRowContext(ctx, `SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, c.ProfileID, conv.ID).Scan(&raw); err != nil {
-			return Settings{}, err
-		}
-		explicit, err := hasMissionDirectionsKey(raw)
-		if err != nil {
-			return Settings{}, err
-		}
-		if explicit {
+		if cur.MissionDirections != nil {
 			cs.MissionDirections = cur.MissionDirections
 		}
 		return cs, nil

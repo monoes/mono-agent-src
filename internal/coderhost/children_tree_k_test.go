@@ -13,7 +13,7 @@ func spawnWithOperatorK(t *testing.T, parentK int, write func(st *Store, child s
 	st := newStoreT(t)
 	c, _ := master(t, st, "coding")
 	if _, err := st.UpdateSettings("p", c.ConversationID, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
-		cur.MissionDirections = parentK
+		setMD(&cur, parentK)
 		return cur, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func spawnWithOperatorK(t *testing.T, parentK int, write func(st *Store, child s
 func setK(k int) func(*Store, string) {
 	return func(st *Store, child string) {
 		if _, err := st.UpdateSettings("p", child, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
-			cur.MissionDirections = k
+			setMD(&cur, k)
 			return cur, nil
 		}); err != nil {
 			panic(err)
@@ -46,19 +46,19 @@ func setK(k int) func(*Store, string) {
 }
 
 func TestSpawnInitKeepsAnOperatorKCommittedSinceSetRole(t *testing.T) {
-	if got := spawnWithOperatorK(t, 6, setK(1)).MissionDirections; got != 1 {
-		t.Fatalf("child set to 1 ends at %d: the init overwrote the operator's K", got)
+	if got, ok := mdOf(spawnWithOperatorK(t, 6, setK(1))); !ok || got != 1 {
+		t.Fatalf("child set to 1 ends at (%d, set=%v): the init overwrote the operator's K", got, ok)
 	}
 }
 
 func TestSpawnInitKeepsAnExplicitZeroK(t *testing.T) {
-	if got := spawnWithOperatorK(t, 6, setK(0)).MissionDirections; got != 0 {
-		t.Fatalf("an explicit 0 ends at %d, want 0 (explicit, not absent)", got)
+	if got, ok := mdOf(spawnWithOperatorK(t, 6, setK(0))); !ok || got != 0 {
+		t.Fatalf("an explicit 0 ends at (%d, set=%v), want an explicit 0", got, ok)
 	}
 }
 
 func TestSpawnInitInheritsTheParentsKWhenTheChildHasNone(t *testing.T) {
-	if got := spawnWithOperatorK(t, 5, nil).MissionDirections; got != 5 {
-		t.Fatalf("child K = %d, want the parent's 5", got)
+	if got, ok := mdOf(spawnWithOperatorK(t, 5, nil)); !ok || got != 5 {
+		t.Fatalf("child K = (%d, set=%v), want the parent's 5", got, ok)
 	}
 }

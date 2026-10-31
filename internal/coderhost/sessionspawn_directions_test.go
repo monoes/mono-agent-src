@@ -14,7 +14,7 @@ import (
 func (f *mcFix) setDirections(t *testing.T, conv string, k int) {
 	t.Helper()
 	if _, err := f.st.UpdateSettings("p", conv, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
-		cur.MissionDirections = k
+		setMD(&cur, k)
 		cur.MaxChildren = 12
 		return cur, nil
 	}); err != nil {
@@ -37,8 +37,8 @@ func TestMissionDirectionsIsTheOperatorsAndBoundedTo6(t *testing.T) {
 		t.Fatal("mission_directions must be operator-only")
 	}
 	d := DefaultSettings()
-	if d.MissionDirections != 0 {
-		t.Fatalf("0 means the default of 3: %d", d.MissionDirections)
+	if d.MissionDirections != nil || d.EffectiveMissionDirections() != 3 {
+		t.Fatalf("unset means the default of 3: %v", d.MissionDirections)
 	}
 	for _, k := range []string{"1", "3", "6"} {
 		got, changed, err := d.Apply([]byte(`{"mission_directions":` + k + `}`))
@@ -102,9 +102,9 @@ func TestConcurrentDirectionSpawnsNeverPassTheCap(t *testing.T) {
 
 func TestADirectionLeadKeepsTheOperatorsMissionDirections(t *testing.T) {
 	parent := DefaultSettings()
-	parent.MissionDirections = 5
+	setMD(&parent, 5)
 	for _, lvl := range []int{1, 2, 4} {
-		if got := childSettings(parent, lvl).MissionDirections; got != 5 {
+		if got, ok := mdOf(childSettings(parent, lvl)); !ok || got != 5 {
 			t.Fatalf("level %d child has mission_directions %d, want 5", lvl, got)
 		}
 	}

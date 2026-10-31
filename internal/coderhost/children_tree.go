@@ -1,7 +1,6 @@
 package coderhost
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/monoes/mono-agent/internal/ai"
@@ -30,7 +29,7 @@ func childRuntime(parent ai.Conversation, req SpawnRequest) (runtimeID, provider
 func childSettings(parent Settings, childLevel int) Settings {
 	cs := DefaultSettings()
 	cs.MaxDepth = parent.MaxDepth
-	cs.MissionDirections = parent.MissionDirections // the operator's K holds all the way down the tree
+	cs.MissionDirections = cloneInt(parent.MissionDirections) // the operator's K holds all the way down the tree
 	if childLevel >= min(parent.MaxDepth, MaxSessionDepth) {
 		cs.MaxChildren = 0
 		return cs
@@ -38,20 +37,6 @@ func childSettings(parent Settings, childLevel int) Settings {
 	cs.MaxChildren = min(cs.MaxChildren, parent.MaxChildren)
 	cs.MaxConcurrent = min(cs.MaxConcurrent, parent.MaxConcurrent)
 	return cs
-}
-
-// hasMissionDirectionsKey says whether a stored settings document names mission_directions at all (an explicit 0
-// counts), as opposed to a row nobody has written settings to.
-func hasMissionDirectionsKey(raw string) (bool, error) {
-	if raw == "" {
-		return false, nil
-	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
-		return false, fmt.Errorf("coder host: the stored settings are not readable: %w", err)
-	}
-	_, ok := doc["mission_directions"]
-	return ok, nil
 }
 
 // liveInTree counts the sessions that are not stopped in the tree the conversation sits in, its root included:
