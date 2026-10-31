@@ -289,7 +289,7 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 	ctx := context.Background()
 
 	// The row keys of the v2 tokens are derived before the write transaction (deriving may write).
-	keyFor, err := procbind.Revoker{DB: s.db}.Keys(ctx, []procbind.Kind{procbind.KindSession, procbind.KindMission})
+	keyFor, err := procbind.Revoker{DB: s.db}.Keys(ctx, []procbind.Kind{procbind.KindSession, procbind.KindMission}, procbind.Scope{Profile: profileID, Session: id, Owner: ConversationOwner(profileID, id)})
 	if err != nil {
 		return fmt.Errorf("delete conversation: %w", err)
 	}

@@ -24,7 +24,7 @@ var sessionKinds = []procbind.Kind{procbind.KindSession}
 // revokeSessionTokens deletes the session's legacy tokens and revokes its v2 tokens.
 func (s *Store) revokeSessionTokens(profileID, conversationID string) error {
 	ctx := context.Background()
-	return s.revoker().Run(ctx, sessionKinds, func(conn *sql.Conn) ([]procbind.Selector, error) {
+	return s.revoker().Run(ctx, sessionKinds, procbind.Scope{Profile: profileID, Session: conversationID}, func(conn *sql.Conn) ([]procbind.Selector, error) {
 		if _, err := conn.ExecContext(ctx, `DELETE FROM coder_session_tokens WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID); err != nil {
 			return nil, err
 		}
@@ -38,7 +38,7 @@ func (s *Store) revokeSessionTokens(profileID, conversationID string) error {
 func (s *Store) sweepOrphanTokens() (int, error) {
 	ctx := context.Background()
 	n := 0
-	err := s.revoker().Run(ctx, sessionKinds, func(conn *sql.Conn) ([]procbind.Selector, error) {
+	err := s.revoker().Run(ctx, sessionKinds, procbind.Scope{Orphans: true}, func(conn *sql.Conn) ([]procbind.Selector, error) {
 		var sels []procbind.Selector
 		for _, q := range []string{
 			`SELECT DISTINCT profile_id, conversation_id FROM coder_session_tokens t WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = t.conversation_id AND c.profile_id = t.profile_id)`,

@@ -67,3 +67,40 @@ func TestDeleteProfileRollsBackWhenTheV2RevocationFails(t *testing.T) {
 		t.Errorf("the profile is gone (%d, %v)", n, err)
 	}
 }
+
+// Deleting a second profile does not bring the first deleted profile's vault key back: its retained v2 token rows
+// are not the second delete's business.
+func TestDeletingAnotherProfileDoesNotRecreateADeletedProfilesKey(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	first := createTestProfile(t, dbPath, "first")
+	second := createTestProfile(t, dbPath, "second")
+	db, _ := v2ProfileTokens(t, dbPath, first)
+	ctx := context.Background()
+	key, err := procbind.RowKey(ctx, db.DB, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := procbind.InsertMissionToken(ctx, db.DB, key, procbind.MissionTokenRow{ID: "v2-second", ProfileID: second, TokenHash: "h", Owner: "o", Session: 7, Task: 3, Role: "worker", Actor: "a", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := deleteProfile(ctx, db.DB, first); err != nil {
+		t.Fatal(err)
+	}
+	rows := func(p string) int {
+		var n int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM vault_keys WHERE profile_id = ?`, p).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if rows(first) != 0 {
+		t.Skip("the profile delete leaves the key row here; nothing to recreate")
+	}
+	if _, err := deleteProfile(ctx, db.DB, second); err != nil {
+		t.Fatalf("deleting the second profile: %v", err)
+	}
+	if rows(first) != 0 {
+		t.Error("deleting another profile brought the first deleted profile's vault key back")
+	}
+}

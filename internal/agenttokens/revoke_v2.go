@@ -25,6 +25,7 @@ func (s *Store) SetBinder(b *procbind.Binder) { s.binder = b }
 // revokeBoth runs legacy and the v2 revocation of sel in one transaction.
 func (s *Store) revokeBoth(ctx context.Context, sel procbind.Selector, legacy func(conn *sql.Conn) error) error {
 	sel.Kind = procbind.KindMission
-	return procbind.Revoker{DB: s.db, Binder: s.binder, Now: s.now}.Run(ctx, []procbind.Kind{procbind.KindMission},
+	scope := procbind.Scope{Profile: sel.Profile, TokenID: sel.TokenID, Owner: sel.Owner}
+	return procbind.Revoker{DB: s.db, Binder: s.binder, Now: s.now}.Run(ctx, []procbind.Kind{procbind.KindMission}, scope,
 		func(conn *sql.Conn) ([]procbind.Selector, error) { return []procbind.Selector{sel}, legacy(conn) })
 }

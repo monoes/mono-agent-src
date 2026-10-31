@@ -377,7 +377,7 @@ func refuseRunning(ctx context.Context, q scopeQuerier, id string) error {
 func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, error) {
 	// The row keys of the profile's v2 tokens are derived before the transaction (deriving may write, and the
 	// profile's data key goes with it).
-	keyFor, err := procbind.Revoker{DB: db}.Keys(ctx, []procbind.Kind{procbind.KindMission, procbind.KindSession})
+	keyFor, err := procbind.Revoker{DB: db}.Keys(ctx, []procbind.Kind{procbind.KindMission, procbind.KindSession}, procbind.Scope{Profile: id})
 	if err != nil {
 		return nil, fmt.Errorf("delete profile: %w", err)
 	}

@@ -19,17 +19,26 @@ type Revoker struct {
 	Now    func() time.Time
 }
 
+// Scope narrows which profiles' row keys a revocation derives: only those holding a not-yet-revoked v2 token the
+// call can reach. A zero field does not narrow. Profile, TokenID, Owner (the owner and owner/...; mission tokens)
+// and Session (a conversation; session tokens) mirror the Selectors the legacy callback returns; Orphans reaches
+// the session tokens whose conversation no longer exists (the orphan sweep).
+type Scope struct {
+	Profile, TokenID, Owner, Session string
+	Orphans                          bool
+}
+
 // Run opens a BEGIN IMMEDIATE transaction on a dedicated connection, calls legacy with it, and revokes in the
 // same transaction the v2 tokens of each selector legacy returns (each names its Kind). It commits, then
 // drops the live entries.
 //
-// The row key of every profile that holds a v2 token of one of kinds is derived BEFORE the transaction:
-// deriving a key may write the database, which must not happen inside the write transaction. A profile that
-// gains its first v2 token between that read and the transaction has no key there, and the revocation fails
-// closed: the caller retries. The 3c mint of a v2 token must therefore not interleave with a revoke-all of
-// the same profile (or take the same key function first).
-func (r Revoker) Run(ctx context.Context, kinds []Kind, legacy func(conn *sql.Conn) ([]Selector, error)) error {
-	keyFor, err := r.Keys(ctx, kinds)
+// The row key of each profile that holds a not-yet-revoked v2 token within scope is derived BEFORE the
+// transaction (Keys): deriving a key may write the database, which must not happen inside the write
+// transaction. A profile that gains its first v2 token between that read and the transaction has no key there,
+// and the revocation fails closed: the caller retries. The 3c mint of a v2 token must therefore not interleave
+// with a revoke-all of the same profile (or take the same key function first).
+func (r Revoker) Run(ctx context.Context, kinds []Kind, scope Scope, legacy func(conn *sql.Conn) ([]Selector, error)) error {
+	keyFor, err := r.Keys(ctx, kinds, scope)
 	if err != nil {
 		return err
 	}
@@ -74,32 +83,21 @@ func (r Revoker) Run(ctx context.Context, kinds []Kind, legacy func(conn *sql.Co
 	return nil
 }
 
-// Keys derives the row key of every profile that holds a v2 token of one of kinds and returns the key function
-// RevokeTx takes (a profile it did not derive has no key: the revocation fails closed). It is for a caller that
-// runs its own write transaction: call it BEFORE the transaction begins, because deriving a key may write the
-// database.
-func (r Revoker) Keys(ctx context.Context, kinds []Kind) (func(profile string) ([]byte, error), error) {
-	keys, err := r.keys(ctx, kinds)
-	if err != nil {
-		return nil, err
-	}
-	return func(profile string) ([]byte, error) {
-		if k, ok := keys[profile]; ok {
-			return k, nil
-		}
-		return nil, errors.New("no row key was derived for this profile")
-	}, nil
-}
-
-func (r Revoker) keys(ctx context.Context, kinds []Kind) (map[string][]byte, error) {
+// Keys derives the row key of every profile that holds a not-yet-revoked v2 token of one of kinds within scope,
+// and returns the key function RevokeTx takes. It is for a caller that runs its own write transaction: call it
+// BEFORE the transaction begins, because deriving a key may write the database.
+//
+// It never creates a key. A profile without a vault key row (a deleted profile: its retained token rows are
+// signed under a key that no longer exists, so they verify nowhere and are inert) gets ErrNoRowKey, which
+// RevokeTx reads as "nothing to revoke here"; so a later delete cannot bring a deleted profile's key back, and
+// a delete does not depend on the keys of profiles it does not touch. A profile whose key row exists but cannot
+// be read is an error (fail closed). A profile that is not in the answer fails closed too.
+func (r Revoker) Keys(ctx context.Context, kinds []Kind, scope Scope) (func(profile string) ([]byte, error), error) {
 	seen := map[string]bool{}
 	var profiles []string
 	for _, k := range kinds {
-		table := "agent_tokens_v2"
-		if k == KindSession {
-			table = "coder_session_tokens_v2"
-		}
-		rows, err := r.DB.QueryContext(ctx, `SELECT DISTINCT profile_id FROM `+table)
+		q, args := scopeQuery(k, scope)
+		rows, err := r.DB.QueryContext(ctx, q, args...)
 		if err != nil {
 			return nil, fmt.Errorf("listing v2 token profiles: %w", err)
 		}
@@ -120,14 +118,51 @@ func (r Revoker) keys(ctx context.Context, kinds []Kind) (map[string][]byte, err
 		}
 	}
 	keys := map[string][]byte{}
+	noKey := map[string]bool{}
 	for _, p := range profiles {
+		var one int
+		switch err := r.DB.QueryRowContext(ctx, `SELECT 1 FROM vault_keys WHERE profile_id = ?`, p).Scan(&one); {
+		case errors.Is(err, sql.ErrNoRows):
+			noKey[p] = true
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("looking up the vault key of a profile: %w", err)
+		}
 		key, err := RowKey(ctx, r.DB, p)
 		if err != nil {
 			return nil, fmt.Errorf("deriving the v2 row key: %w", err)
 		}
 		keys[p] = key
 	}
-	return keys, nil
+	return func(profile string) ([]byte, error) {
+		if k, ok := keys[profile]; ok {
+			return k, nil
+		}
+		if noKey[profile] {
+			return nil, ErrNoRowKey
+		}
+		return nil, errors.New("no row key was derived for this profile")
+	}, nil
+}
+
+// scopeQuery lists the profiles holding a not-yet-revoked v2 token of kind k within scope.
+func scopeQuery(k Kind, sc Scope) (string, []any) {
+	if k == KindSession {
+		orphans := 0
+		if sc.Orphans {
+			orphans = 1
+		}
+		return `SELECT DISTINCT profile_id FROM coder_session_tokens_v2 t
+			WHERE (?1 = '' OR profile_id = ?1) AND (?2 = '' OR id = ?2) AND (?3 = '' OR conversation_id = ?3)
+			  AND (?4 = 0 OR NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = t.conversation_id AND c.profile_id = t.profile_id))
+			  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'session' AND r.token_id = t.id)`,
+			[]any{sc.Profile, sc.TokenID, sc.Session, orphans}
+	}
+	return `SELECT DISTINCT profile_id FROM agent_tokens_v2 t
+		WHERE (?1 = '' OR profile_id = ?1) AND (?2 = '' OR id = ?2)
+		  AND (?3 = '' OR mission_owner = ?3 OR substr(mission_owner, 1, length(?3) + 1) = ?3 || '/')
+		  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'mission' AND r.token_id = t.id)`,
+		[]any{sc.Profile, sc.TokenID, sc.Owner}
 }
 
 // beginImmediate opens the write transaction on conn, retrying only a busy database (nothing has been read
