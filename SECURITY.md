@@ -1972,10 +1972,11 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
-- **Mission directions (K).** The operator's `mission_directions` (1 to 6, default 3, operator-only) caps the direction sessions
-  open below a lead's session. `session_spawn` checks it after the new task session is inserted and undoes the spawn when
-  the count passes K, so two spawns racing for the last place are not both kept; the setting follows the lead down the
-  tree. Tests: `sessionspawn_directions_test.go`.
+- **Mission directions (K).** The operator's `mission_directions` (0 to 6, 0 or unset is 3, operator-only) caps the direction sessions
+  an agent keeps open below one session. `tasks.Store.CreateSession` checks it in the insert transaction, on every agent
+  direction-creation path, and refuses the new one when K are open, so two creators racing for the last place are not both kept;
+  an archived, stopped, done or failed direction frees its place; settings that cannot be read fail closed; the setting follows
+  the lead down the tree. Tests: `sessionspawn_directions_test.go`.
 - **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
   sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
   without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),
@@ -2280,7 +2281,7 @@ and 3 is marked; it describes review branches that are not on master.
 | Verify a task | the operator, or an agent that did not do it | a worker never verifies its own; the lead never verifies; a verifier's token reaches only its one task |
 | Close the mission | the operator | `mission_finish` only proposes (`ready_to_close`) |
 | Budget requests, spawn intents, mission-children switch and caps, agent purposes | the operator | `operator_only`; the rows are reserved config (`coder.mission_children_enabled`, `agent_purposes.`), which `config set` refuses and `config get` hides from agents |
-| Raise K (`mission_directions`) **(group 1, not on master)** | the operator | operator-only setting, absent from `AgentAdjustable` |
+| Raise K (`mission_directions`) | the operator | operator-only setting, absent from `AgentAdjustable` |
 
 **The courtesy layer.** What tells an operator from an agent in the CLI is the process: an agent marker, the variables
 `MONOAGENT_SESSION_TOKEN`, `MONOAGENT_TASK_BINDING`, `MONOAGENT_TASK_SESSION`, `MONOAGENT_TASK_ID`, and whether the process sits inside the

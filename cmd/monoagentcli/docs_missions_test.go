@@ -113,9 +113,16 @@ func TestAgentsMdMissionMapMatchesTheCode(t *testing.T) {
 		t.Errorf("the text lists kinds %v, the code has %v", kinds, tasks.SessionKinds)
 	}
 
-	// settings lists: operator-only is at least the code's list (the group-1 setting may be named before it lands);
-	// agent-adjustable is exactly the code's list
-	pending := map[string]bool{"mission_directions": true}
+	// K (mission_directions): the range and the default in the text are the constants in the code, and K is operator-only
+	if !strings.Contains(sec, fmt.Sprintf("K 0..%d, default %d", tasks.HardMissionDirections, tasks.DefaultMissionDirections)) {
+		t.Errorf("the text must say \"K 0..%d, default %d\" (tasks.HardMissionDirections, tasks.DefaultMissionDirections)",
+			tasks.HardMissionDirections, tasks.DefaultMissionDirections)
+	}
+	if !slices.Contains(coderhost.OperatorOnly, "mission_directions") {
+		t.Errorf("mission_directions must be in coderhost.OperatorOnly")
+	}
+
+	// settings lists: operator-only is exactly the code's list; agent-adjustable is exactly the code's list
 	tags := map[string]bool{}
 	rt := reflect.TypeOf(def)
 	for k := 0; k < rt.NumField(); k++ {
@@ -125,10 +132,10 @@ func TestAgentsMdMissionMapMatchesTheCode(t *testing.T) {
 	inDoc := map[string]bool{}
 	for _, n := range op {
 		inDoc[n] = true
-		if !tags[n] && !pending[n] {
+		if !tags[n] {
 			t.Errorf("the text lists %q as an operator-only setting, which is not a setting", n)
 		}
-		if !slices.Contains(coderhost.OperatorOnly, n) && !pending[n] {
+		if !slices.Contains(coderhost.OperatorOnly, n) {
 			t.Errorf("the text lists %q as operator-only, which the code no longer says", n)
 		}
 	}

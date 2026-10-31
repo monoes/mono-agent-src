@@ -2753,8 +2753,8 @@ directories and give the turn a controlled outbound path; it is not built.
 A map of the mission and session-tree series. It names the pieces and where they live; the paragraphs under "Task sessions" (Task
 board), "Missions", "Mission child sessions" and "Persistent coder sessions" hold the detail. Numbers below are held to the code by
 `TestAgentsMdMissionMapMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). Parts marked **(research/directions groups 2 and
-3, not on master)** describe the review branches `review/rd-directions-cap` (group 1, PR #1217), `review/rd-evaluation-v4` (group 2)
-and `review/rd-prompts-digest-v4` (group 3); drop or adjust them if those do not land. Nothing here is verified in a live run.
+3, not on master)** describe the review branches `review/rd-evaluation-v4` (group 2) and `review/rd-prompts-digest-v4` (group 3); drop
+or adjust them if those do not land. Group 1 (K) is on master. Nothing here is verified in a live run.
 
 **What a mission is.** A coder chat whose lead works a task session: a plan of tasks with acceptance criteria, workers that do them,
 verifiers that check them, a final "Integration check" task, and a close that only the operator performs. The plan and the board
@@ -2828,11 +2828,17 @@ model: it raises a person item `ancestor_question` that only `task session perso
 runtime:model pairs each kind of work may use; `set` and `reset` are operator only, and the rows live under the reserved config prefix
 `agent_purposes.` (`operator.ReservedConfigPrefixes`: `config set` refuses it and `config get` hides it from agents).
 
-**Research and directions (research/directions groups 1-3, not on master).**
-- Group 1 (`review/rd-directions-cap`): `mission_directions` is K, how many direction sessions a lead keeps open at once, range 1 to 6,
-  unset or 0 means 3, operator-only, never agent-adjustable. The check runs inside `session_spawn` after the insert, in the insert's
-  transaction (`internal/tasks/session_direction_cap.go`, `internal/coderhost/sessionspawn_directions.go`), so racing spawns cannot
-  pass it. A spawned child inherits K only when its own row has none.
+**Research and directions (group 1 on master; groups 2 and 3 not on master).**
+- Group 1 (on master): `mission_directions` is K, how many direction sessions an agent keeps open below one session, K 0..6, default 3:
+  the operator sets it with `coder sessions settings set --patch '{"mission_directions":N}'`, `null` resets it to unset, and unset
+  or 0 means 3 (`tasks.DefaultMissionDirections`), with a ceiling of 6 (`tasks.HardMissionDirections`). It is operator-only, never
+  agent-adjustable; `settings get` shows `missionDirections {effective, explicit}`. The cap is enforced in the session-insert
+  transaction of `tasks.Store.CreateSession` (`internal/tasks/session_direction_cap.go`), so it holds on every agent
+  direction-creation path (`session_spawn`, `task session new` by an agent) and racing creators cannot both pass it; the operator's own
+  hand-made direction is not held to it. An open direction is one that is not archived and is draft, running or paused
+  (`openSessionSQL`), so an archived, stopped, done or failed direction frees its slot. A spawned child inherits the parent's K only
+  when its own row has none (`coderhost/children.go`), and the setting follows the lead down the tree. Stored settings that cannot be read
+  fail closed (the spawn is refused). Tests: `tasks/session_direction_cap_test.go`, `coderhost/sessionspawn_directions_test.go`.
 - Group 2 (`review/rd-evaluation-v4`): the lead-only tools `mission_evaluate` and `mission_reevaluate` rank candidate directions in code
   (`internal/dynorg/mission_rank.go`, `mission_evaluate.go`, `mission_reeval.go`): weighted success/cost/risk/effort scores, ties to the
   lower risk, then the lower cost; at most 20 candidates; `k` may not exceed K. They write a size-capped `mission_evaluation` record to
@@ -2875,8 +2881,7 @@ a model's own answer or default through autonomy (`answer-`, `checkin-`, `master
 A model's answer is only text: it can never confirm a mission, approve a plan, close, resolve a gate or change a setting, access or
 budget (`coderhost/autonomy_noapproval_test.go`, `autonomy_guard_test.go`).
 Operator-only coder settings (`coderhost.OperatorOnly`): `checkin_limit`, `autonomy_preset`, `autonomy_classes`, `max_children`,
-`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, and `mission_directions` (group 1, not
-on master). Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
+`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, and `mission_directions`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
 `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias`. A test fails for a setting in neither list.
 Operator-only verbs that are not settings: `task session person inbox|full|approve|deny|ask|answer-ask`, `task session retire-worker`,
 `coder sessions spawn-intents list|resolve`, `coder sessions mission-children enable|disable|set|list|resolve-charge`,
@@ -3070,9 +3075,9 @@ monoagentcli --profile work coder host stop                        # the host on
   --budget-usd`, operator only; a capped master must give its child a positive amount that fits). Each turn of a capped session runs under what it has left (budget, less what its turns cost, less what it carved for its children) as `--budget-usd`, which is a ceiling for **that turn**; the total holds because the next turn starts with what is left. A turn's cost is the largest total it journaled; a usage event that is present with cost 0 is a reported 0 (a runtime that always reports 0 is trusted at 0; kilo cannot be capped and is refused for capped sessions). Only a turn that started and journaled no usage event at all counts as having spent its whole cap, or its workers' cost if that is more (never both); a cap row of a turn that never started charges nothing. A carve is limited by budget - spent - carved: the running turn's own cap (fixed when it started) is not reserved, so a capped master's turn can spend its cap AND carve up to budget - spent - carved to children during the same turn: exposure per master turn can reach about 2x the budget (chains do not compound); the next turn starts from the true remainder. A send with nothing left (under $0.000001) fails with the reason. Cost comes from the runtimes' own reports (a runtime that reports none counts as $0, and kilo cannot enforce a cap at all). The issuer, not the turn id, is what marks a send as a master's: an issuer-tagged send can never be a mission, counts toward the host-made streak, and a `master-` turn id without an issuer is refused. Everything a master queues for a child except a stop (sends, pause, resume) shares 5 pending slots per child; its stops are counted apart (at most 2 wait per child, and a repeated stop is a no-op). A command a master queues records the master as its issuer and runs only while the target is still that master's child; a master's queued sends (not its pause or resume) expire after 15 minutes. With a token `list`, `settings get` and `command` show only the caller's own tree; without one they need the operator (an agent that lost or dropped the variable reads nothing). A master's message is **not a person's send**: its turn
   id starts with `master-`, it can carry no mission confirmation, and, like `checkin-`, it counts toward the
   host-made turns in a row (`checkin_limit`) after which the child waits for a person.
-- **Mission directions.** The operator's `mission_directions` (1 to 6, 0 or unset is 3) is how many direction sessions a lead
-  may have open at once: `session_spawn` refuses the next (`ErrLimit`) inside the spawn, after the insert, so racing spawns
-  cannot pass it; a child session inherits the setting. Operator-only, never agent-adjustable.
+- **Mission directions.** The operator's `mission_directions` (0 to 6, 0 or unset is 3) is how many direction sessions an agent
+  may have open below one session: the next is refused (`ErrLimit`) by `CreateSession` inside the insert transaction, so racing
+  spawns cannot pass it; a child session inherits the setting only when its own row has none. Operator-only, never agent-adjustable.
 - **A tree of sessions: `session_spawn` for a lead.** Sessions form a tree to a hard maximum of 4 levels
   (`coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth`); the working depth is each tree's `max_depth` setting
   (default 3, operator-only to raise to 4), and a child takes its parent's. A child has room for children (its
