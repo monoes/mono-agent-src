@@ -3012,12 +3012,12 @@ most (never one whose request has begun). A process that floods the service is h
 and cannot deny the others. This is availability, not authorization, and it fails closed: a refused
 verification is a deny. Residual: many processes of the same user can still add up to the service's
 total limits (each gets its own share). Processes are told apart by pid, start time and, on a kernel
-that numbers its process file descriptors (Linux 6.9 and later), the inode number of the peer's pidfd,
-which names one process incarnation and is never reused. They are read once at accept from the kernel's
+that numbers its process file descriptors with unique 64-bit ids (Linux 6.9 and later, 64-bit builds), the
+inode number of the peer's pidfd, which names one process incarnation and is never reused. They are read once at accept from the kernel's
 credentials and the pinned process (a process that cannot be pinned, or is reaped while its start time is
 read, is closed without an answer), so a pid recycled within the refill window is a different peer with a
-full allowance; the table of peers and the shared limits are unchanged. Residual: on an older kernel the
-start time has a resolution of 10 ms, so a pid recycled within the same tick as its predecessor looks the
+full allowance; the table of peers and the shared limits are unchanged. Residual: on an older kernel, or a 32-bit one (which
+reuses its small pidfd inode numbers), the start time has a resolution of 10 ms, so a pid recycled within the same tick as its predecessor looks the
 same and is held to the predecessor's allowance for that moment; it fails closed (a deny) and is
 availability only.
 

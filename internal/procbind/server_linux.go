@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -216,14 +217,21 @@ func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (unix.Ucred, int, 
 	return peerKey{pid: pid, start: start, id: pidfdID(pfd)}, nil
 }
 
-// pidfdIDsUnique says whether this kernel gives every process incarnation its own pidfd inode number
-// (pidfs, Linux 6.9 and later). Tests replace it.
+// pidfdIDsUnique says whether this kernel gives every process incarnation its own pidfd inode number: pidfs
+// (Linux 6.9 and later) on a 64-bit build, where the number is a unique 64-bit id. A 32-bit kernel hands out
+// and frees small inode numbers as pidfd inodes come and go, so a number can be reused and names nothing.
+// Tests replace it.
 var pidfdIDsUnique = func() bool {
 	var u unix.Utsname
 	if unix.Uname(&u) != nil {
 		return false
 	}
-	return kernelAtLeast(unix.ByteSliceToString(u.Release[:]), 6, 9)
+	return idsUniqueOn(unix.ByteSliceToString(u.Release[:]), strconv.IntSize)
+}
+
+// idsUniqueOn is the rule behind pidfdIDsUnique for a kernel release and the build's int size in bits.
+func idsUniqueOn(release string, intSize int) bool {
+	return intSize == 64 && kernelAtLeast(release, 6, 9)
 }
 
 // kernelAtLeast reports whether a release string such as "7.2.5-arch1" is at least major.minor.

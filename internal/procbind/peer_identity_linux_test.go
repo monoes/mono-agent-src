@@ -335,3 +335,20 @@ func TestPeerIdentityCarriesThePidfdID(t *testing.T) {
 		t.Errorf("identity id = %d, want %d", key.id, want)
 	}
 }
+
+// Only a 64-bit build on Linux 6.9 or later has pidfd inode numbers that name one incarnation: a 32-bit
+// kernel frees and reuses its small numbers, so no id is taken there.
+func TestPidfdIDsAreUsedOnlyOnA64BitKernelWithPidfs(t *testing.T) {
+	for _, c := range []struct {
+		release string
+		bits    int
+		want    bool
+	}{
+		{"7.2.5-4-omarchy", 64, true}, {"6.9.0", 64, true}, {"6.9.0", 32, false}, {"7.2.5", 32, false},
+		{"6.8.12", 64, false}, {"6.8.12", 32, false}, {"", 64, false},
+	} {
+		if got := idsUniqueOn(c.release, c.bits); got != c.want {
+			t.Errorf("idsUniqueOn(%q, %d) = %v, want %v", c.release, c.bits, got, c.want)
+		}
+	}
+}
