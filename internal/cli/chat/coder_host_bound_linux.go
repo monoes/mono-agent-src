@@ -45,8 +45,9 @@ type boundLaunch struct {
 	binder *procbind.Binder // the registry the host's services answer from
 	// afterMint is a test seam: it runs between the transaction of step 4 and the revocation read of step 5.
 	afterMint func()
-	// afterKill is a test seam: it runs right after the leader was signalled on a failed delivery.
-	afterKill func()
+	// beforeKill and afterKill are test seams: they run just before and right after the leader is signalled on a failed delivery.
+	beforeKill func()
+	afterKill  func()
 }
 
 // boundDelivery is one turn's frame pipe, pidfd and registration.
@@ -96,6 +97,9 @@ func (d *boundDelivery) start(cmd *exec.Cmd) error {
 func (d *boundDelivery) setOnKill(f func()) { d.onKill = f }
 
 func (d *boundDelivery) kill() {
+	if d.b != nil && d.b.beforeKill != nil {
+		d.b.beforeKill()
+	}
 	if d.onKill != nil {
 		d.onKill() // before the signal: the exit it causes must find the turn already marked as being stopped
 	}
