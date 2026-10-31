@@ -139,6 +139,10 @@ func newCoderHostCmd(cfg *Deps) *cobra.Command {
 	return cmd
 }
 
+// hostBuilt is a test seam: it sees the host just built, before it runs, so a test can prove which launcher the
+// production wiring installs.
+var hostBuilt func(h *coderhost.Host)
+
 func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 	var poll time.Duration
 	cmd := &cobra.Command{
@@ -201,16 +205,19 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)
 			h := &coderhost.Host{
 				Store: store, ChildTokens: children,
-				L: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
+				L: &gatedLauncher{db: db.DB, inner: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
 					tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
 						if store.HostInsideTurn() {
 							return coderhost.ErrHostInsideTurn
 						}
 						return store.BindSessionToken(p, c, turn, pid, stamp)
-					}},
+					}}},
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
+			}
+			if hostBuilt != nil {
+				hostBuilt(h)
 			}
 			if meshEnabled() {
 				h.Mesh = &coderhost.HubMesh{StartHub: func(ctx context.Context) error { return startMeshHub(ctx, hostDir(cfg)) }, Logf: logf}
