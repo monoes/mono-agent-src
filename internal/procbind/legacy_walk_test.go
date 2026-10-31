@@ -486,11 +486,12 @@ func TestIssuanceStaysOffUntilTheRevocationGuardsExist(t *testing.T) {
 	}
 }
 
-// rowKeyMintSites are the production files (relative to internal/) that may call RowKey: the mint only. None yet.
+// rowKeyMintSites are the production FUNCTIONS (file relative to internal/, then the function) that may call RowKey:
+// the mint only. None yet. A whole file is never allowed, so a verifier added next to a mint cannot hide in it.
 var rowKeyMintSites = map[string]bool{}
 
-// productionRowKeyCalls lists the non-test files under internal/ that call procbind.RowKey (or, inside procbind,
-// RowKey) other than the definition's own file.
+// productionRowKeyCalls lists, as "file:Function", the functions in non-test files under internal/ that call
+// procbind.RowKey (or, inside procbind, RowKey).
 func productionRowKeyCalls(t *testing.T) []string {
 	t.Helper()
 	var out []string
@@ -506,8 +507,8 @@ func productionRowKeyCalls(t *testing.T) []string {
 			return rerr
 		}
 		rel, _ := filepath.Rel("..", path)
-		if callsRowKey(t, path, src, filepath.ToSlash(rel) == "procbind/answerkey.go") {
-			out = append(out, filepath.ToSlash(rel))
+		for _, fn := range callsRowKey(t, path, src) {
+			out = append(out, filepath.ToSlash(rel)+":"+fn)
 		}
 		return nil
 	})
@@ -517,56 +518,64 @@ func productionRowKeyCalls(t *testing.T) []string {
 	return out
 }
 
-// callsRowKey says whether src calls procbind.RowKey (resolved through its imports), or the bare RowKey in the
-// procbind package; own is the file that defines it.
-func callsRowKey(t *testing.T, path string, src []byte, own bool) bool {
+// callsRowKey returns the names of the functions of src that call procbind.RowKey (resolved through its imports), or
+// the bare RowKey in the procbind package.
+func callsRowKey(t *testing.T, path string, src []byte) []string {
 	t.Helper()
-	if own {
-		return false
-	}
 	f, err := parser.ParseFile(token.NewFileSet(), path, src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pb := procbindNames(f)
-	found := false
-	ast.Inspect(f, func(n ast.Node) bool {
-		c, ok := n.(*ast.CallExpr)
+	var out []string
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
 		if !ok {
+			continue
+		}
+		found := false
+		ast.Inspect(fd, func(n ast.Node) bool {
+			c, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if isPkgCall(c.Fun, pb, "RowKey") {
+				found = true
+			}
+			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "RowKey" && f.Name.Name == "procbind" {
+				found = true
+			}
 			return true
+		})
+		if found {
+			out = append(out, fd.Name.Name)
 		}
-		if isPkgCall(c.Fun, pb, "RowKey") {
-			found = true
-		}
-		if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "RowKey" && f.Name.Name == "procbind" {
-			found = true
-		}
-		return true
-	})
-	return found
+	}
+	return out
 }
 
-// The RowKey detector: a qualified call, an aliased call and a bare call inside procbind are found; RowKeyIfExists,
-// the definition's own file and another package's RowKey are not.
+// The RowKey detector names the calling function: a qualified call, an aliased call and a bare call inside procbind are
+// found, including a probe added next to the definition; RowKeyIfExists and another package's RowKey are not.
 func TestTheRowKeyDetectorFindsOnlyRowKeyCalls(t *testing.T) {
 	cases := map[string]struct {
 		src  string
-		own  bool
-		want bool
+		want string
 	}{
-		"qualified":  {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { procbind.RowKey(ctx, db, p) }\n", false, true},
-		"aliased":    {"package x\nimport pb \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { pb.RowKey(ctx, db, p) }\n", false, true},
-		"inside":     {"package procbind\nfunc f() { RowKey(ctx, db, p) }\n", false, true},
-		"read-only":  {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { procbind.RowKeyIfExists(ctx, db, p) }\n", false, false},
-		"definition": {"package procbind\nfunc f() { RowKey(ctx, db, p) }\n", true, false},
-		"elsewhere":  {"package x\nimport \"example.com/other\"\nfunc f() { other.RowKey(ctx, db, p) }\n", false, false},
+		"qualified": {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { procbind.RowKey(ctx, db, p) }\n", "f"},
+		"aliased":   {"package x\nimport pb \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { pb.RowKey(ctx, db, p) }\n", "f"},
+		"inside":    {"package procbind\nfunc f() { RowKey(ctx, db, p) }\n", "f"},
+		// the definition's own file: the definition does not call RowKey, a probe next to it does
+		"probe beside the definition": {"package procbind\nfunc RowKey(ctx, db, p) { return secrets.DeriveKey(ctx, db, p, purpose) }\nfunc verifierProbe(ctx, db, p) { return RowKey(ctx, db, p) }\n", "verifierProbe"},
+		"definition alone":            {"package procbind\nfunc RowKey(ctx, db, p) { return secrets.DeriveKey(ctx, db, p, purpose) }\n", ""},
+		"read-only":                   {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { procbind.RowKeyIfExists(ctx, db, p) }\n", ""},
+		"elsewhere":                   {"package x\nimport \"example.com/other\"\nfunc f() { other.RowKey(ctx, db, p) }\n", ""},
 	}
 	for name, c := range cases {
-		if got := callsRowKey(t, name+".go", []byte(c.src), c.own); got != c.want {
-			t.Errorf("%s: found=%v, want %v", name, got, c.want)
+		if got := strings.Join(callsRowKey(t, name+".go", []byte(c.src)), ","); got != c.want {
+			t.Errorf("%s: found [%s], want [%s]", name, got, c.want)
 		}
 	}
-	// today no production file calls RowKey outside procbind itself, so turning issuance on would not trip it
+	// today no production function calls RowKey, so turning issuance on would not trip it
 	if sites := productionRowKeyCalls(t); len(sites) != 0 {
 		t.Logf("production RowKey call sites (allowed only for the mint once issuance is on): %v", sites)
 	}
