@@ -277,6 +277,26 @@ func TestV2MissionTokenExpiringBetweenTheChecksAndTheAnswerIsDenied(t *testing.T
 	}
 }
 
+// Dropping either post-answer expiry check is caught: the token and the binding get different expiries, and the clock
+// is moved past only one of them in the window between the checks and the answer.
+func TestV2MissionTokenOrBindingExpiringBetweenTheChecksAndTheAnswerIsDenied(t *testing.T) {
+	r := newV2Rig(t, nil)
+	soon := time.Now().UTC().Add(time.Hour).Truncate(time.Millisecond)
+	late := time.Now().UTC().Add(3 * time.Hour).Truncate(time.Millisecond)
+	for name, secret := range map[string]string{
+		"the token expires first":   r.craft(t, soon, late, true),
+		"the binding expires first": r.craft(t, late, soon, true),
+	} {
+		offset := time.Duration(0)
+		r.s.SetV2Verifier(&procbind.V2Check{Timeout: 3 * time.Second,
+			Now:  func() time.Time { return time.Now().Add(offset) },
+			Dial: func(string) (net.Conn, error) { offset = 2 * time.Hour; return procbind.DialUnix(r.sock) }})
+		if _, err := r.s.VerifyMission(context.Background(), r.profile, secret); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: a token that expired during the verification was accepted: %v", name, err)
+		}
+	}
+}
+
 // The legacy path is untouched: a legacy mission token verifies as before with the v2 verifier set, and the legacy
 // lookup itself does not know a v2 secret.
 func TestLegacyMissionTokenIsUnchangedByTheV2Verifier(t *testing.T) {
