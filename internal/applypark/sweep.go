@@ -3,6 +3,7 @@ package applypark
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/applications"
@@ -10,6 +11,11 @@ import (
 
 // ReopenNote is what the application page shows when its tab is gone.
 const ReopenNote = "Reopen and refill: the browser tab with the filled form was closed."
+
+// ResumeHoldTTL is how long a tab held under a task id with no task behind it is taken to be a resume still
+// starting that task. Older than that, the resume is taken to have died before creating it and Sweep gives the
+// tab back; a resume slower than this finds it so (Store.Holds says).
+const ResumeHoldTTL = 10 * time.Minute
 
 // SweepResult says what a sweep changed.
 type SweepResult struct {
@@ -52,6 +58,9 @@ func Sweep(ctx context.Context, store Store, apps *applications.Store, live []Li
 			if err := parkIfTaskEnded(ctx, store, t); err != nil {
 				return res, err
 			}
+			if err := parkUnstartedResume(ctx, store, t); err != nil {
+				return res, err
+			}
 			continue
 		}
 		if err := store.SetState(ctx, t.ApplicationID, StateLost, ""); err != nil {
@@ -82,6 +91,24 @@ func parkIfTaskEnded(ctx context.Context, store Store, t Tab) error {
 		   AND EXISTS (SELECT 1 FROM ai_tasks k WHERE k.id = application_tabs.task_id AND k.profile_id = ? AND k.status IN (?, ?, ?))`,
 		string(StateParked), now(), t.ApplicationID, string(StateActive), t.TaskID, store.Profile,
 		store.Profile, aitask.StatusComplete, aitask.StatusFailed, aitask.StatusCancelled)
+	return err
+}
+
+// parkUnstartedResume gives the person a tab a resume held under the id of a task it never created: the resume
+// writes the hold before it starts the task, and died in between. One statement, holding only while the tab still
+// is under that id, the hold is older than ResumeHoldTTL and no task has that id; a task created since is the
+// resume's own and is judged like any other.
+func parkUnstartedResume(ctx context.Context, store Store, t Tab) error {
+	if t.State != StateActive || t.TaskID == "" {
+		return nil
+	}
+	cutoff := time.Now().UTC().Add(-ResumeHoldTTL).Format(time.RFC3339)
+	_, err := store.DB.ExecContext(ctx,
+		`UPDATE application_tabs SET state = ?, task_id = '', updated_at = ?
+		 WHERE application_id = ? AND state = ? AND task_id = ? AND updated_at < ?
+		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)
+		   AND NOT EXISTS (SELECT 1 FROM ai_tasks k WHERE k.id = application_tabs.task_id)`,
+		string(StateParked), now(), t.ApplicationID, string(StateActive), t.TaskID, cutoff, store.Profile)
 	return err
 }
 

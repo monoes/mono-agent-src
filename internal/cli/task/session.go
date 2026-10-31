@@ -200,6 +200,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 		d.newSessionCloseCmd(),
 		d.newSessionRetireWorkerCmd(),
 		d.newSessionBudgetCmd(),
+		d.newSessionReservationCmd(),
 	)
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
@@ -489,13 +490,13 @@ func (d Deps) newSessionBudgetCmd() *cobra.Command {
 			}
 			return d.writeSession(cmd, p, se, "Updated")
 		})
-	cmd.Flags().Float64Var(&usd, "usd", 0, "Budget in dollars (0 for none)")
+	cmd.Flags().Float64Var(&usd, "usd", 0, "Budget in dollars (0 for none). A budget below what is already committed is refused: spent + worker reservations + what the sessions below it spent or reserved; pause the session to halt it instead")
 	cmd.Flags().IntVar(&maxTasks, "max-tasks", 0, "Most tasks the session holds")
 	cmd.Flags().IntVar(&maxDepth, "max-depth", 0, "Deepest nesting of tasks")
 	cmd.Flags().IntVar(&maxRetries, "max-retries", 0, "Failed verifications a task may have before it is blocked")
 	cmd.Flags().StringVar(&access, "access", "", "Access level of its workers: scoped, coding, workspace or full")
 	cmd.Flags().StringVar(&autoClose, "auto-close", "", "on: a verifier's pass closes the task to Done; off (the default): only you close it")
-	cmd.Flags().Float64Var(&spend, "spend", 0, "Record this much more spent, in dollars")
+	cmd.Flags().Float64Var(&spend, "spend", 0, "Record this much more spent, in dollars (whole micro-dollars: under half of one records nothing; a total past $1e9 is refused)")
 	cmd.Flags().StringVar(&note, "note", "", "What the spend was for")
 	return cmd
 }

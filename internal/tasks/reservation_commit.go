@@ -16,10 +16,17 @@ type Commitment struct {
 	Spent    float64
 	Held     float64 // the unspent part of its live and expired reservations
 	Children float64 // what its child sessions hold, at any depth
+	// ChildCommitted is what the child sessions have really spoken for, at any depth: their spend and reservations,
+	// without the unspent part of their budgets. It is what lowering this session's budget cannot go below (a
+	// lowered budget clamps the children's allowances, it cannot take back money they spent or reserved).
+	ChildCommitted float64
 }
 
 // Total is the money committed: spent + held + children.
 func (c Commitment) Total() float64 { return c.Spent + c.Held + c.Children }
+
+// Floor is the least a budget can be set to: spent + held + what the children have really spoken for.
+func (c Commitment) Floor() float64 { return c.Spent + c.Held + c.ChildCommitted }
 
 // Left is what is still free under the budget, never below 0. A budget above MaxBudgetUSD (a legacy row; none is
 // accepted now) counts as MaxBudgetUSD, so that reserve-all grants all that remains of the clamped budget. bounded is false when the session has no
@@ -123,6 +130,7 @@ func (s *Store) commitWalkWith(ctx context.Context, x dbx, profileID string, id 
 			hold = min(k.budget, MaxBudgetUSD)
 		}
 		c.Children += hold
+		c.ChildCommitted += kc.Floor()
 	}
 	return c, nil
 }

@@ -62,7 +62,7 @@ WHO MAY DO WHAT
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
-  agents deny, session approve, session resume, session close, session retire-worker, session archive, session archive --cascade, session budget,
+  agents deny, session approve, session resume, session close, session retire-worker, session archive, session archive --cascade, session budget, session reservation resolve,
   session person inbox, session person full, session person approve, session person deny, session person ask,
   session person answer-ask,
   undepend, os install and os uninstall are the operator's: they answer an agent
@@ -107,7 +107,7 @@ WHO MAY DO WHAT
   running session), claim, comment, finish and release by task id, add follow-ups (Ready
   at once; the session's max tasks is the bound), split a task that has not begun,
   depend, artifact, and verify. An agent may also run session new, session list, session show,
-  session rename (its own sessions), session tree, session plan, session pause and session stop (stop releases every claim; only the operator resumes). It may not set
+  session rename (its own sessions), session tree, session plan, session reservation list (its own session), session pause and session stop (stop releases every claim; only the operator resumes). It may not set
   the budget, the limits, the access level or auto-close: that is session budget ID --usd N
   --max-tasks N --max-depth N --max-retries N --access LEVEL --auto-close on|off --spend N --note TEXT
   (session new takes --budget-usd), the operator's. session new takes an optional --client-id KEY
@@ -267,7 +267,7 @@ JSON
     {"profile","task"}                  edit, move, comment, claim, finish, release, next, verify, depend, undepend
     {"profile","created","task"}        add
     {"profile","task","events"}         show
-    {"profile","session"}               session new, session approve, session pause, session resume, session stop, session close, session retire-worker, session archive, session budget
+    {"profile","session"}               session new, session approve, session pause, session resume, session stop, session close, session retire-worker, session archive, session budget, session reservation resolve
     {"profile","sessions"}              session list
     [session...]                        session tree (roots, each with "children"; a session also has parent_session_id, kind, depth, approval_basis)
     {"profile","session","events"}      session show

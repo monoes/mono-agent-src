@@ -314,6 +314,172 @@ func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
 	}
 }
 
+// A resume holds the tab under the id of the task it is about to create. One that died before creating it leaves
+// a tab held under an id no task has; once the hold is older than any resume could take, the sweep gives it back.
+// A task that exists is judged like any other, and a fresh hold is a resume in flight.
+func TestSweepParksATabHeldForATaskThatNeverExisted(t *testing.T) {
+	db, st, apps := fixture(t)
+	dead := parkedApp(t, st, apps, 7)
+	started := parkedApp(t, st, apps, 8)
+	fresh := parkedApp(t, st, apps, 9)
+	legacy := parkedApp(t, st, apps, 10)
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-0000000000000002', ?, 'application-apply', 'c1', 'running', 'g', ?, 'x', 'x')`, profile, started); err != nil {
+		t.Fatal(err)
+	}
+	for app, task := range map[string]string{dead: "at-0000000000000001", started: "at-0000000000000002", fresh: "at-0000000000000003", legacy: "resume-pending"} {
+		if err := st.SetState(bg, app, StateActive, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
+	for _, app := range []string{dead, started, legacy} {
+		if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tabs := []LiveTab{live(7, "https://jobs.example/a"), live(8, "https://jobs.example/b"), live(9, "https://jobs.example/c"), live(10, "https://jobs.example/d")}
+	if _, err := Sweep(bg, st, apps, tabs); err != nil {
+		t.Fatal(err)
+	}
+	for app, want := range map[string]State{dead: StateParked, started: StateActive, fresh: StateActive, legacy: StateParked} {
+		if tab, _ := st.Get(bg, app); tab.State != want {
+			t.Errorf("%s: state %s, want %s", app, tab.State, want)
+		}
+	}
+	// The expired hold's id is cleared: a task that turns up late and finishes before its resume looks is not
+	// taken for the owner of a tab the sweep gave back.
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-0000000000000001', ?, 'application-apply', 'c1', 'complete', 'g', ?, 'x', 'x')`, profile, dead); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := st.Holds(bg, dead, "at-0000000000000001"); ok {
+		t.Fatal("a finished late task is read as the owner of a tab the sweep gave back")
+	}
+}
+
+// The sweep read the tab under an id no task had; before the park the resume created its task, or the tab moved
+// to another resume. The park must leave the tab alone.
+func TestParkUnstartedResumeLeavesATabTheResumeMovedOn(t *testing.T) {
+	db, st, apps := fixture(t)
+	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
+	hold := func(tab int, task string) (string, Tab) {
+		app := parkedApp(t, st, apps, tab)
+		if err := st.SetState(bg, app, StateActive, task); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+			t.Fatal(err)
+		}
+		snap, _ := st.Get(bg, app)
+		return app, *snap
+	}
+	created, snapCreated := hold(7, "at-0000000000000001")
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-0000000000000001', ?, 'application-apply', 'c1', 'queued', 'g', ?, 'x', 'x')`, profile, created); err != nil {
+		t.Fatal(err)
+	}
+	moved, snapMoved := hold(8, "at-0000000000000002")
+	if err := st.SetState(bg, moved, StateActive, "at-0000000000000009"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, moved); err != nil {
+		t.Fatal(err)
+	}
+	for _, snap := range []Tab{snapCreated, snapMoved} {
+		if err := parkUnstartedResume(bg, st, snap); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tab, _ := st.Get(bg, created); tab.State != StateActive {
+		t.Fatalf("a resume's task existed and its tab was parked: %+v", tab)
+	}
+	if tab, _ := st.Get(bg, moved); tab.State != StateActive || tab.TaskID != "at-0000000000000009" {
+		t.Fatalf("the park took a tab another resume holds: %+v", tab)
+	}
+}
+
+// A resume takes the parked tab it read, or nothing: two resumes cannot both hold it, and a stale read does not
+// overwrite what the person did since.
+func TestClaimTakesOnlyTheTabThatWasRead(t *testing.T) {
+	_, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	tab, _ := st.Get(bg, app)
+	if held, err := st.Claim(bg, app, tab.TaskID, "at-1"); err != nil || !held {
+		t.Fatalf("first claim: %v %v", held, err)
+	}
+	if held, _ := st.Claim(bg, app, tab.TaskID, "at-2"); held {
+		t.Fatal("a second resume took a tab the first holds")
+	}
+	if got, _ := st.Get(bg, app); got.TaskID != "at-1" || got.State != StateActive {
+		t.Fatalf("tab = %+v", got)
+	}
+	// The observed id is matched as written, not as a pattern.
+	other := parkedApp(t, st, apps, 8)
+	if err := st.SetState(bg, other, StateParked, "at-x"); err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"%", "at-_", "at-%"} {
+		if held, _ := st.Claim(bg, other, pattern, "at-9"); held {
+			t.Fatalf("observed id %q matched as a pattern", pattern)
+		}
+	}
+	// The person closed the tab after the resume read it as parked.
+	if err := st.SetState(bg, app, StateClosed, ""); err != nil {
+		t.Fatal(err)
+	}
+	if held, _ := st.Claim(bg, app, "at-1", "at-3"); held {
+		t.Fatal("a stale read overwrote a closed tab")
+	}
+}
+
+// A resume that failed gives the tab back only while it still holds it.
+func TestReleaseOnlyWhileTheResumeHoldsTheTab(t *testing.T) {
+	_, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	prev, _ := st.Get(bg, app)
+	if held, _ := st.Claim(bg, app, prev.TaskID, "at-1"); !held {
+		t.Fatal("claim")
+	}
+	if err := st.SetState(bg, app, StateActive, "at-2"); err != nil { // someone else took it since
+		t.Fatal(err)
+	}
+	if ok, err := st.Release(bg, app, "at-1", prev.TaskID); err != nil || ok {
+		t.Fatalf("a late release took a newer owner's tab: %v %v", ok, err)
+	}
+	if ok, _ := st.Release(bg, app, "at-2", prev.TaskID); !ok {
+		t.Fatal("the holder could not give the tab back")
+	}
+	if got, _ := st.Get(bg, app); got.State != StateParked || got.TaskID != prev.TaskID {
+		t.Fatalf("tab = %+v", got)
+	}
+}
+
+// Holds: the tab is the started task's while active under it; parked under it counts only when the task is over.
+func TestHoldsKnowsAGivenBackTab(t *testing.T) {
+	db, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	if err := st.SetState(bg, app, StateActive, "at-1"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := st.Holds(bg, app, "at-1"); !ok {
+		t.Fatal("active under the task")
+	}
+	if err := st.SetState(bg, app, StateParked, ""); err != nil { // a sweep parked it before the task existed
+		t.Fatal(err)
+	}
+	if ok, _ := st.Holds(bg, app, "at-1"); ok {
+		t.Fatal("a tab the sweep gave back is held")
+	}
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-1', ?, 'application-apply', 'c1', 'complete', 'g', ?, 'x', 'x')`, profile, app); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := st.Holds(bg, app, "at-1"); !ok {
+		t.Fatal("the task finished and parked its own tab")
+	}
+}
+
 // Sweep read the tab as active under an ended task; before the park a new task took the tab. The park must not
 // land on the new task's tab, whatever state that task is in.
 func TestParkIfTaskEndedLeavesATabANewTaskTook(t *testing.T) {
@@ -348,17 +514,31 @@ func TestParkIfTaskEndedLeavesATabANewTaskTook(t *testing.T) {
 
 // fakeRunner stands in for the application commands.
 type fakeRunner struct {
-	mu        sync.Mutex
-	st        Store
-	apps      *applications.Store
-	started   []string
-	running   int32
-	maxSeen   int32
-	needsYou  map[string]bool
-	startErr  map[string]error
-	gate      chan struct{} // when set, every Wait blocks until it is closed or fed
-	nextTab   int32
-	submitted chan string // an application the "person" submitted, freeing its slot
+	mu          sync.Mutex
+	st          Store
+	apps        *applications.Store
+	started     []string
+	running     int32
+	maxSeen     int32
+	needsYou    map[string]bool
+	startErr    map[string]error
+	gate        chan struct{} // when set, every Wait blocks until it is closed or fed
+	nextTab     int32
+	submitted   chan string   // an application the "person" submitted, freeing its slot
+	statusDelay time.Duration // how long the queue's status read takes after Finalize returns
+	readMu      sync.Mutex
+	read        map[string]bool // applications whose status the queue has read since Finalize
+	pending     []string        // submissions the person made that Sweep has not applied yet
+}
+
+// statusRead notes that the queue has read id's status after its fill.
+func (f *fakeRunner) statusRead(id string) {
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+	if f.read == nil {
+		f.read = map[string]bool{}
+	}
+	f.read[id] = true
 }
 
 func (f *fakeRunner) Start(_ context.Context, id string) (string, error) {
@@ -406,16 +586,31 @@ func (f *fakeRunner) Sweep(ctx context.Context) error {
 	if f.submitted == nil {
 		return nil
 	}
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+drain:
 	for {
 		select {
 		case id := <-f.submitted:
-			if err := f.apps.SetStatus(ctx, profile, id, applications.StatusApplied, applications.ActorUser, "sent"); err != nil {
-				return err
-			}
+			f.pending = append(f.pending, id)
 		default:
-			return nil
+			break drain
 		}
 	}
+	// The person's submit lands only after the queue has read the status its fill left: a submit that overtook
+	// the read would make the queue see "applied" and report needs_you.
+	var later []string
+	for _, id := range f.pending {
+		if !f.read[id] {
+			later = append(later, id)
+			continue
+		}
+		if err := f.apps.SetStatus(ctx, profile, id, applications.StatusApplied, applications.ActorUser, "sent"); err != nil {
+			return err
+		}
+	}
+	f.pending = later
+	return nil
 }
 
 // person submits each of ids once it is parked (awaiting_submit).
@@ -442,7 +637,9 @@ func queueFixture(t *testing.T, n int) (*fakeRunner, Queue, []string) {
 	r := &fakeRunner{st: st, apps: apps, needsYou: map[string]bool{}, startErr: map[string]error{}}
 	q := Queue{Store: st, Slots: slotsFor(st, "queue-1", 1001), Max: 2, Runner: r, Tick: time.Millisecond,
 		Status: func(ctx context.Context, id string) (string, error) {
+			time.Sleep(r.statusDelay)
 			a, err := apps.Get(ctx, profile, id)
+			r.statusRead(id)
 			return string(a.Status), err
 		}}
 	return r, q, ids
@@ -572,6 +769,30 @@ func TestQueueMovesOnFromNeedsYouAndFailures(t *testing.T) {
 	}
 	if out[1].Error != "coder is off" {
 		t.Errorf("failure reason = %q", out[1].Error)
+	}
+}
+
+// A slow status read after a fill must not change what the queue reports: an application that was filled is
+// parked, even when the person submits the moment it shows as awaiting_submit and the sweep applies it before the
+// queue has read its status.
+func TestQueueReportsParkedWhenTheStatusReadIsSlow(t *testing.T) {
+	r, q, ids := queueFixture(t, 2)
+	q.Max = 1
+	r.statusDelay = 200 * time.Millisecond
+	r.submitted = make(chan string, 8)
+	go person(r, ids)
+	done := make(chan []Outcome, 1)
+	go func() { out, _ := q.Run(bg, ids); done <- out }()
+	var out []Outcome
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the queue never finished")
+	}
+	for _, o := range out {
+		if o.Result != ResultParked {
+			t.Errorf("%s: %s (%s), want parked", o.ApplicationID, o.Result, o.Error)
+		}
 	}
 }
 
@@ -831,4 +1052,44 @@ func (g *gateRunner) Start(ctx context.Context, id string) (string, error) {
 func (g *gateRunner) Finalize(ctx context.Context, id string) error {
 	defer atomic.AddInt32(g.inflight, -1)
 	return g.fakeRunner.Finalize(ctx, id)
+}
+
+// Many resumes read the same parked tab and claim it at once: exactly one holds it, and the tab is that one's alone.
+func TestClaimByManyResumesAtOnceHasOneWinner(t *testing.T) {
+	_, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	read, _ := st.Get(bg, app)
+	const n = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	won := make([]bool, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			won[i], errs[i] = st.Claim(bg, app, read.TaskID, fmt.Sprintf("at-%d", i))
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	winner := -1
+	for i := range won {
+		if errs[i] != nil {
+			t.Fatalf("claim %d: %v", i, errs[i])
+		}
+		if won[i] {
+			if winner >= 0 {
+				t.Fatalf("claims %d and %d both won", winner, i)
+			}
+			winner = i
+		}
+	}
+	if winner < 0 {
+		t.Fatal("no claim won")
+	}
+	if tab, _ := st.Get(bg, app); tab.State != StateActive || tab.TaskID != fmt.Sprintf("at-%d", winner) {
+		t.Fatalf("tab = %+v, want active under claim %d", tab, winner)
+	}
 }
