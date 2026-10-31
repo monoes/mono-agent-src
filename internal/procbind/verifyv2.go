@@ -119,7 +119,7 @@ func (c V2Check) Verify(ctx context.Context, kind Kind, secret string) (V2Result
 	if err != nil {
 		return res, c.deny("no genuine host row: %v", err)
 	}
-	ansKey, err := AnswerKey(ctx, c.DB, profile, host.Generation)
+	ansKey, err := AnswerKeyIfExists(ctx, c.DB, profile, host.Generation)
 	if err != nil {
 		return res, c.deny("answer key: %v", err)
 	}
