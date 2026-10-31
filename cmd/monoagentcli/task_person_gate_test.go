@@ -72,3 +72,36 @@ func TestPersonInboxIsNotRefusedToAnOperator(t *testing.T) {
 		t.Fatalf("an operator's inbox was refused: %v\n%s", err, out)
 	}
 }
+
+// retire-worker is operator-only and goes through the same gate as the person verbs.
+func TestRetireWorkerIsRefusedByTheProductionGate(t *testing.T) {
+	contexts := map[string]func(*testing.T){
+		"agent":         asAgentProcess,
+		"mission-token": func(t *testing.T) { asOperatorProcess(t); t.Setenv(agenttokens.EnvMissionToken, "task-binding") },
+		"session-token": func(t *testing.T) { asOperatorProcess(t); t.Setenv(coderhost.SessionTokenEnv, "session-token") },
+	}
+	for ctxName, setup := range contexts {
+		t.Run(ctxName, func(t *testing.T) {
+			cfg := sendEnv(t)
+			cfg.DBPath = filepath.Join(t.TempDir(), "never-opened.db")
+			setup(t)
+			_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "session", "retire-worker", "1", "1")
+			var coded interface{ JSONErrorFields() map[string]any }
+			if clicore.ExitCodeFor(err) != 3 || !errors.As(err, &coded) || coded.JSONErrorFields()["code"] != "operator_only" {
+				t.Fatalf("retire-worker was not refused as operator_only in %s: %v", ctxName, err)
+			}
+			if _, statErr := os.Stat(cfg.DBPath); statErr == nil {
+				t.Errorf("the database was opened by a refused %s", ctxName)
+			}
+		})
+	}
+}
+
+func TestRetireWorkerIsNotRefusedToAnOperator(t *testing.T) {
+	cfg := sendEnv(t)
+	_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "session", "retire-worker", "1")
+	var coded interface{ JSONErrorFields() map[string]any }
+	if err == nil || (errors.As(err, &coded) && coded.JSONErrorFields()["code"] == "operator_only") {
+		t.Fatalf("an operator should reach the argument check, not the operator gate: %v", err)
+	}
+}
