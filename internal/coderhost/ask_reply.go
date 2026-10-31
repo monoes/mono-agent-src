@@ -88,7 +88,7 @@ func (s *Store) closeAndDeliver(profileID string, id int64, askerConv, question,
 	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
 	res, err := tx.Exec(`UPDATE coder_session_asks SET status = ?, answer = ?, answered_by = ?, answered_at = ? WHERE id = ? AND profile_id = ? AND status = 'open'
 		AND (importance = 'critical' OR created_at >= ?)`,
-		askAnswered, cleanText(reply, maxQuotedAnswer), cleanText(by, 160), s.stamp(), id, profileID, s.now().Add(-AskTTL).UTC().Format(timeLayout))
+		askAnswered, cleanText(reply, maxQuotedAnswer), cleanText(by, 160), s.stamp(), id, profileID, askStamp(s.now().Add(-AskTTL)))
 	if err != nil {
 		return Command{}, err
 	}

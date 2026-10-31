@@ -235,6 +235,13 @@ func (s *Store) AskAncestor(sc CallerScope, profileID string, req AskRequest) (A
 	return out, nil
 }
 
+// askLayout is a FIXED-WIDTH UTC timestamp: created_at is compared as text in SQL, and time.RFC3339Nano drops a
+// zero fraction ("12:00:00Z" sorts after "12:00:00.000000001Z"), which skews every TTL and interval cutoff by up
+// to a second. Every ask timestamp and cutoff goes through askStamp.
+const askLayout = "2006-01-02T15:04:05.000000000Z"
+
+func askStamp(t time.Time) string { return t.UTC().Format(askLayout) }
+
 // publishAsk writes the ask row and what makes it reach its reader (the person item of a critical ask, the
 // sealed send to the ancestor lead of a normal one) in ONE transaction: a crash or a refusal in between leaves
 // no ask at all, never an open ask nobody can see that holds the asker's slot for ever. The command queue is the
@@ -248,7 +255,7 @@ func (s *Store) publishAsk(profileID string, sid int64, askerConv string, target
 		return Asked{}, err
 	}
 	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
-	askRow, err := insertAsk(tx, profileID, sid, askerConv, target, level, imp, question, size, s.stamp(), now)
+	askRow, err := insertAsk(tx, profileID, sid, askerConv, target, level, imp, question, size, askStamp(now), now)
 	if err != nil {
 		return Asked{}, err
 	}
@@ -294,7 +301,7 @@ func insertAsk(x execer, profileID string, asker int64, askerConv string, target
 		profileID, asker, askerConv, target.id, target.conv, level, imp, question, size, stamp,
 		profileID, askerConv, MaxOpenAsks,
 		profileID, askerConv, size, MaxOpenAskBytes,
-		profileID, askerConv, now.Add(-AskInterval).UTC().Format(timeLayout),
+		profileID, askerConv, askStamp(now.Add(-AskInterval)),
 		imp, profileID, target.conv, MaxOpenAsksPerTarget)
 	if err != nil {
 		return 0, err
@@ -316,7 +323,7 @@ func (s *Store) whyAskRefused(profileID, askerConv string, target treeNode, size
 	}
 	var recent int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_asks WHERE profile_id = ? AND asker_conv = ? AND created_at >= ?`,
-		profileID, askerConv, now.Add(-AskInterval).UTC().Format(timeLayout)).Scan(&recent)
+		profileID, askerConv, askStamp(now.Add(-AskInterval))).Scan(&recent)
 	if recent > 0 {
 		return fmt.Errorf("%w: one ask a minute: wait and ask again", ErrAskRate)
 	}
@@ -327,7 +334,7 @@ func (s *Store) whyAskRefused(profileID, askerConv string, target treeNode, size
 // the asker's slots for ever. A critical ask waits for the person and never expires.
 func (s *Store) expireAsks(profileID string, now time.Time) {
 	_, _ = s.db.Exec(`UPDATE coder_session_asks SET status = ? WHERE profile_id = ? AND status = 'open' AND importance = 'normal' AND created_at < ?`,
-		askExpired, profileID, now.Add(-AskTTL).UTC().Format(timeLayout))
+		askExpired, profileID, askStamp(now.Add(-AskTTL)))
 }
 
 func (s *Store) titleOf(profileID string, sid int64) string {
@@ -367,5 +374,5 @@ func (s *Store) GetAsk(profileID string, id int64) (Ask, error) {
 
 // askStale: a normal ask still open after AskTTL is expired. A critical ask waits for the person and never is.
 func (s *Store) askStale(importance, status, createdAt string) bool {
-	return importance == AskNormal && status == askOpen && createdAt < s.now().Add(-AskTTL).UTC().Format(timeLayout)
+	return importance == AskNormal && status == askOpen && createdAt < askStamp(s.now().Add(-AskTTL))
 }
