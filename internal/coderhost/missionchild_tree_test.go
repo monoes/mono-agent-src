@@ -2,8 +2,10 @@ package coderhost
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -229,5 +231,134 @@ func TestOvercommitIsFoundAfterTheStatementTookTheCarve(t *testing.T) {
 	kid := f.childTaskSession(t, f.se.ID, "kid2", 0, "")
 	if why, err := tasks.Overcommitted(context.Background(), ctxQuerier{f.st.db}, "p", kid); err != nil || why == "" {
 		t.Fatalf("an overcommitted ancestor is not seen from its descendant: %q, %v", why, err)
+	}
+}
+
+// spawnLinked spawns a session (coder child plus task session) with a carve of usd under a mission of 10.
+func (f *hostFix) spawnLinked(t *testing.T, usd float64) SessionSpawned {
+	t.Helper()
+	f.setMissionBudget(t, 10)
+	if err := f.st.SetBudget("p", f.lead.ConversationID, 10); err != nil {
+		t.Fatal(err)
+	}
+	r := req("linked", f.bigScope())
+	r.BudgetUSD = usd
+	out, err := f.spawnSession(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func (f *hostFix) setTaskBudget(t *testing.T, id int64, usd float64) {
+	t.Helper()
+	if _, err := f.ts.UpdateSession(context.Background(), "p", id, tasks.SessionUpdate{BudgetUSD: &usd}, opActor); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A raise that the linked child's task budget already covers changes nothing: the child's contribution is the larger
+// of its cap and its task hold, so raising the cap from 2 to 3 under a task budget of 10 adds no commitment.
+func TestACoveredRaiseOfALinkedChildIsAdmitted(t *testing.T) {
+	f := newHostFix(t)
+	out := f.spawnLinked(t, 2)
+	f.setTaskBudget(t, out.TaskSessionID, 10)
+	why, err := f.st.missionBudgetRefusalFor(f.st.db, "p", f.se.ID, f.lead.ConversationID, 1, out.ConversationID)
+	if err != nil || why != "" {
+		t.Fatalf("a raise of 1 covered by the child's task budget of 10: %q, %v", why, err)
+	}
+	// not covered: a task budget of 3 and a cap of 2 raised by 9 passes the mission's 10
+	f.setTaskBudget(t, out.TaskSessionID, 3)
+	why, err = f.st.missionBudgetRefusalFor(f.st.db, "p", f.se.ID, f.lead.ConversationID, 9, out.ConversationID)
+	if err != nil || why == "" {
+		t.Fatalf("a raise to a cap of 11 under a mission of 10 was accepted: %q, %v", why, err)
+	}
+	// a raise of an unlinked child is a new hold, as before
+	why, err = f.st.missionBudgetRefusalFor(f.st.db, "p", f.se.ID, f.lead.ConversationID, 9, "no-such-child")
+	if err != nil || why == "" {
+		t.Fatalf("a raise of 9 on top of 3 and 2 passed: %q, %v", why, err)
+	}
+}
+
+// A sub-cent carve is valid (it is not a worker reservation, which has a $0.01 minimum): in a budgeted tree too.
+func TestASubCentCarveIsAdmittedInABudgetedTree(t *testing.T) {
+	f := newHostFix(t)
+	f.setMissionBudget(t, 0.008) // room for $0.005, none for a worker's $0.01 minimum
+	kid := f.childTaskSession(t, f.se.ID, "kid", 0, "")
+	for _, sid := range []int64{f.se.ID, kid} {
+		if why, err := f.st.missionBudgetRefusal(f.st.db, "p", sid, f.lead.ConversationID, 0.005); err != nil || why != "" {
+			t.Fatalf("a carve of $0.005 on session %d: %q, %v", sid, why, err)
+		}
+	}
+	// the bound still holds at the edge
+	f.wantCarveRefused(t, f.se.ID, 0.009, "past the budget")
+}
+
+// Two task sessions below the mission with the conversation of one coder child are still one child; an archived
+// sibling does not count, and an open one is preferred to a closed one.
+func TestTwoSiblingTaskSessionsOfOneCoderChildCountItsCapOnce(t *testing.T) {
+	f := newHostFix(t)
+	out := f.spawnLinked(t, 2)
+	ctx := context.Background()
+	twin, err := f.ts.CreateSession(ctx, "p", tasks.SessionInput{Title: "twin", ParentSessionID: f.se.ID, ConversationID: out.ConversationID}, opActor)
+	if err != nil {
+		t.Skipf("a second task session cannot share the conversation: %v", err)
+	}
+	c, err := f.ts.Commitment(ctx, "p", f.se.ID)
+	if err != nil || c.Total() != 2 {
+		t.Fatalf("two sibling task sessions of one $2 child: %+v, %v: want 2", c, err)
+	}
+	if _, err := f.ts.ArchiveSession(ctx, "p", twin.ID, opActor); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = f.ts.Commitment(ctx, "p", f.se.ID); err != nil || c.Total() != 2 {
+		t.Fatalf("with one sibling archived: %+v, %v: want 2", c, err)
+	}
+	var linked int
+	if err := f.st.db.QueryRow(`SELECT COUNT(*) FROM v_mission_child_linked WHERE conversation_id = ?`, out.ConversationID).Scan(&linked); err != nil || linked != 1 {
+		t.Fatalf("the link view has %d rows for one coder child, %v", linked, err)
+	}
+}
+
+// The tree-wide check after the statement is part of Reserve and of a grant: undoing it lets a carve through.
+func TestReserveAndGrantRunTheOvercommitCheck(t *testing.T) {
+	f := newHostFix(t)
+	f.setMissionBudget(t, 10)
+	if err := f.st.SetBudget("p", f.lead.ConversationID, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Mark(f.scope(), "p", f.se.ID, f.ids[0], MarkOptions{BudgetUSD: 4}); err != nil {
+		t.Fatal(err)
+	}
+	// something the checks before the statement cannot see appears with the carve in place
+	f.st.afterCarve = func(tx *sql.Tx) {
+		if _, err := tx.Exec(`UPDATE task_sessions SET budget_usd = 0.5 WHERE id = ?`, f.se.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := f.st.Reserve(f.scope(), "p", f.se.ID, f.ids[0]); !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "would be committed") {
+		t.Fatalf("Reserve with the mission over budget after the carve: %v", err)
+	}
+	var state string
+	if err := f.st.db.QueryRow(`SELECT state FROM coder_mission_children WHERE task_id = ?`, f.ids[0]).Scan(&state); err != nil || state != "marked" {
+		t.Fatalf("the refused reservation left the row %q, %v", state, err)
+	}
+	f.st.afterCarve = nil
+
+	g, child := budgetFix(t)
+	g.st.afterCarve = func(tx *sql.Tx) {
+		if _, err := tx.Exec(`UPDATE task_sessions SET budget_usd = 0.5 WHERE id = ?`, g.se.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := g.st.db.Exec(`UPDATE task_sessions SET budget_usd = 20 WHERE id = ?`, g.se.ID); err != nil {
+		t.Fatal(err)
+	}
+	b := g.ask(t, TargetChild, 1)
+	if _, err := g.st.GrantBudget(OperatorScope{}, "p", b.ID, 0); !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "would be committed") {
+		t.Fatalf("a grant with the mission over budget after the raise: %v", err)
+	}
+	if g.capOf(t, child) != 4 {
+		t.Fatalf("the refused grant changed the cap to %v", g.capOf(t, child))
 	}
 }

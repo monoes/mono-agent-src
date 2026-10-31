@@ -143,6 +143,9 @@ func (s *Store) commitWalkWith(ctx context.Context, x dbx, profileID string, id 
 		if err := x.QueryRowContext(ctx, `SELECT COALESCE(MAX(cap_usd), 0) FROM v_mission_child_linked WHERE profile_id = ? AND child_session_id = ?`, profileID, k.id).Scan(&cap); err != nil {
 			return c, fmt.Errorf("tasks: reading the coder cap of session #%d: %w", k.id, err)
 		}
+		if k.id == extra.capSession {
+			cap += extra.capDelta
+		}
 		hold = max(hold, min(cap, MaxBudgetUSD))
 		c.Children += hold
 		c.ChildCommitted += kc.Floor()

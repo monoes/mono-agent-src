@@ -50,13 +50,19 @@ FROM (
 
 -- A linked child: a coder session of the lead that has a task session below the mission with the same conversation.
 -- cap_usd is the coder cap (the same exclusion of an ended, charged child as above); the commitment walk takes, for
--- the child task session, the larger of this and the task session's own hold, so the child counts once.
+-- the child task session, the larger of this and the task session's own hold, so the child counts once. Each coder
+-- child is linked to ONE task session: the lowest id of the open ones (draft, running, paused, not archived), else
+-- the lowest id of the rest, so sibling task sessions that carry the same conversation do not count its cap twice.
 CREATE VIEW IF NOT EXISTS v_mission_child_linked AS
-SELECT k.profile_id AS profile_id, k.id AS child_session_id, s.budget_usd AS cap_usd
+SELECT k.profile_id AS profile_id, ts.id AS session_id, k.id AS child_session_id, k.conversation_id AS conversation_id, s.budget_usd AS cap_usd
 FROM task_sessions k
 JOIN task_sessions ts ON ts.profile_id = k.profile_id AND ts.id = k.parent_session_id AND ts.conversation_id IS NOT NULL AND ts.conversation_id <> ''
 JOIN coder_sessions s ON s.profile_id = k.profile_id AND s.conversation_id = k.conversation_id AND s.parent_conversation_id = ts.conversation_id
 WHERE k.conversation_id IS NOT NULL AND k.conversation_id <> ''
+    AND NOT EXISTS (SELECT 1 FROM task_sessions o WHERE o.profile_id = k.profile_id AND o.parent_session_id = k.parent_session_id
+        AND o.conversation_id = k.conversation_id AND o.id <> k.id
+        AND ((o.archived_at = '' AND o.state IN ('draft', 'running', 'paused')) > (k.archived_at = '' AND k.state IN ('draft', 'running', 'paused'))
+            OR (((o.archived_at = '' AND o.state IN ('draft', 'running', 'paused')) = (k.archived_at = '' AND k.state IN ('draft', 'running', 'paused'))) AND o.id < k.id)))
     AND NOT EXISTS (SELECT 1 FROM coder_mission_children c WHERE c.profile_id = s.profile_id AND c.child_conversation_id = s.conversation_id
         AND c.session_id = ts.id AND c.state IN ('ended', 'failed')
         AND EXISTS (SELECT 1 FROM coder_mission_events e WHERE e.profile_id = c.profile_id AND e.session_id = c.session_id AND e.kind = 'charge'

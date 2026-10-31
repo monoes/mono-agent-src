@@ -883,6 +883,9 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if !won { // the deferred rollback takes the rule row back with it
 		return ChildRow{}, fmt.Errorf("%w: %w: the task is already starting, or the child limit or the budget share was just reached", ErrLimit, ErrChildrenFull)
 	}
+	if s.afterCarve != nil {
+		s.afterCarve(tx)
+	}
 	// The statement that took the carve is not the last word: with the carve in place, the mission and every budgeted
 	// ancestor must still be within their budgets (the whole tree, as tasks counts it), or the reservation is undone.
 	if why, err := tasks.Overcommitted(context.Background(), ctxQuerier{tx}, profileID, sessionID); err != nil {
@@ -906,12 +909,19 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 // lead's live children hold (sessions and reserved rows) plus this carve must fit what the mission has left. A
 // mission without a budget does not refuse here.
 func (s *Store) missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
+	return s.missionBudgetRefusalFor(q, profileID, sessionID, lead, carve, "")
+}
+
+// missionBudgetRefusalFor is missionBudgetRefusal for a raise of the cap of one child (raisedConv, its conversation)
+// when raisedConv is not empty: a child that is also a task session of the mission contributes the larger of its cap
+// and its task hold, so a raise the task hold covers adds nothing.
+func (s *Store) missionBudgetRefusalFor(q querier, profileID string, sessionID int64, lead string, carve float64, raisedConv string) (string, error) {
 	var budget, spent float64
 	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
 		return "", err
 	}
 	if budget <= 0 {
-		return s.admitCarve(q, profileID, sessionID, carve)
+		return s.admitCarve(q, profileID, sessionID, carve, raisedConv)
 	}
 	if carve <= 0 {
 		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
@@ -940,17 +950,23 @@ func (s *Store) missionBudgetRefusal(q querier, profileID string, sessionID int6
 	if held+carve > budget-spent+1e-9 {
 		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil
 	}
-	return s.admitCarve(q, profileID, sessionID, carve)
+	return s.admitCarve(q, profileID, sessionID, carve, raisedConv)
 }
 
 // admitCarve is the rest of the admission: the reservation store's own rule (tasks.AdmitHold), which counts the
 // session's whole commitment (its task-session children at any depth and their workers, not only what the host
 // holds) and every budgeted ancestor, including for a session with no budget of its own.
-func (s *Store) admitCarve(q querier, profileID string, sessionID int64, carve float64) (string, error) {
+func (s *Store) admitCarve(q querier, profileID string, sessionID int64, carve float64, raisedConv string) (string, error) {
 	if carve <= 0 {
 		return "", nil
 	}
-	why, err := tasks.AdmitHold(context.Background(), ctxQuerier{q}, profileID, sessionID, carve)
+	var why string
+	var err error
+	if raisedConv != "" {
+		why, err = tasks.AdmitRaise(context.Background(), ctxQuerier{q}, profileID, sessionID, raisedConv, carve)
+	} else {
+		why, err = tasks.AdmitHold(context.Background(), ctxQuerier{q}, profileID, sessionID, carve)
+	}
 	if err != nil || why == "" {
 		return "", err
 	}
