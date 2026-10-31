@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"os"
 )
 
 // The typed credential frame is how a launched turn receives its credentials over the pipe the host holds: one atomic write,
@@ -42,15 +44,55 @@ var (
 	ErrCredFrame = errors.New("procbind: malformed credential frame")
 )
 
+// Secret is a credential's bytes. It prints as "[redacted]" under every fmt verb (%v %+v %#v %s %q %x %d), as a
+// structured log value and as JSON/text, so a frame or a field of it that reaches a log, an error or a test failure
+// message shows nothing. The bytes are read by converting (string(s), []byte(s)); Zero clears them.
+type Secret []byte
+
+const redacted = "[redacted]"
+
+// Format implements fmt.Formatter: every verb prints the same redaction.
+func (Secret) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, redacted) }
+
+func (Secret) String() string               { return redacted }
+func (Secret) GoString() string             { return redacted }
+func (Secret) LogValue() slog.Value         { return slog.StringValue(redacted) }
+func (Secret) MarshalText() ([]byte, error) { return []byte(redacted), nil }
+func (Secret) MarshalJSON() ([]byte, error) { return []byte(`"` + redacted + `"`), nil }
+
+// Zero overwrites the bytes. Call it when the credential has been handed on.
+func (s Secret) Zero() {
+	for i := range s {
+		s[i] = 0
+	}
+}
+
 // CredFrame is what a turn is handed. A nil value is an entry that is not present; a present entry is never empty.
+// It prints as redacted under every verb. The decoder and the reader hand out copies the caller owns: call Zero when
+// the credentials have been used (the reader's own buffer is zeroed before it returns).
 type CredFrame struct {
-	SessionToken        []byte
-	TaskToken           []byte
-	MissionConfirmation []byte
+	SessionToken        Secret
+	TaskToken           Secret
+	MissionConfirmation Secret
+}
+
+// Format implements fmt.Formatter: a frame prints as redacted whatever the verb, and so does a pointer to one.
+func (CredFrame) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, "CredFrame{"+redacted+"}") }
+
+func (CredFrame) String() string       { return "CredFrame{" + redacted + "}" }
+func (CredFrame) GoString() string     { return "CredFrame{" + redacted + "}" }
+func (CredFrame) LogValue() slog.Value { return slog.StringValue("CredFrame{" + redacted + "}") }
+
+// Zero overwrites every entry and forgets them.
+func (f *CredFrame) Zero() {
+	f.SessionToken.Zero()
+	f.TaskToken.Zero()
+	f.MissionConfirmation.Zero()
+	*f = CredFrame{}
 }
 
 func (f CredFrame) entries() [][2]any {
-	return [][2]any{{CredSessionToken, f.SessionToken}, {CredTaskToken, f.TaskToken}, {CredMissionConfirmation, f.MissionConfirmation}}
+	return [][2]any{{CredSessionToken, []byte(f.SessionToken)}, {CredTaskToken, []byte(f.TaskToken)}, {CredMissionConfirmation, []byte(f.MissionConfirmation)}}
 }
 
 // Encode returns the frame's bytes, or an error if an entry is too long or the frame would exceed MaxFrame. An
@@ -128,7 +170,7 @@ func DecodeCredFrame(b []byte) (CredFrame, error) {
 			return f, fmt.Errorf("%w: repeated or out of order kind", ErrCredFrame)
 		}
 		last = kind
-		v := append([]byte(nil), rest[:n]...)
+		v := Secret(append([]byte(nil), rest[:n]...))
 		switch kind {
 		case CredSessionToken:
 			f.SessionToken = v
@@ -144,14 +186,65 @@ func DecodeCredFrame(b []byte) (CredFrame, error) {
 	return f, nil
 }
 
-// ReadCredFrame reads exactly one frame from r and requires EOF after it. It reads the header first and refuses a declared
-// length that is not plausible before it reads (or allocates) anything more, so a hostile or broken writer cannot make
-// the reader wait for or hold more than MaxFrame bytes. The caller sets the deadline on r (an *os.File pipe takes
-// SetReadDeadline); a read that times out is returned as it is.
+// readClass says what kind of read failure err is, without carrying the reader's own text (which could be anything):
+// a deadline, an end of stream or a truncation stay detectable with errors.Is, everything else is an opaque failure.
+func readClass(err error) error {
+	switch {
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return os.ErrDeadlineExceeded
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return io.ErrUnexpectedEOF
+	case errors.Is(err, io.EOF):
+		return io.EOF
+	case errors.Is(err, io.ErrNoProgress):
+		return io.ErrNoProgress
+	}
+	return errCredRead
+}
+
+var errCredRead = errors.New("the read failed")
+
+// maxEmptyReads is how many reads that return neither data nor an error are tolerated before the stream counts as
+// stuck (io.Reader allows them, and discourages them).
+const maxEmptyReads = 16
+
+// readFull is io.ReadFull that gives up on a reader that keeps returning (0, nil).
+func readFull(r io.Reader, b []byte) error {
+	n, empty := 0, 0
+	for n < len(b) {
+		m, err := r.Read(b[n:])
+		n += m
+		if err != nil {
+			if n >= len(b) {
+				return nil
+			}
+			if err == io.EOF && n > 0 {
+				return io.ErrUnexpectedEOF
+			}
+			return err
+		}
+		if m == 0 {
+			if empty++; empty >= maxEmptyReads {
+				return io.ErrNoProgress
+			}
+		} else {
+			empty = 0
+		}
+	}
+	return nil
+}
+
+// ReadCredFrame reads exactly one frame from r and requires the end of the stream after it. It reads the header first
+// and refuses a declared length that is not plausible before it reads (or allocates) anything more, so a hostile or
+// broken writer cannot make the reader wait for or hold more than MaxFrame bytes. The caller sets the deadline on r (an
+// *os.File pipe takes SetReadDeadline). A failing read is returned wrapped in ErrCredFrame together with its class
+// (os.ErrDeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, io.ErrNoProgress, or an opaque failure), never with the
+// reader's own text. The reader's buffer is zeroed before it returns; the frame returned is a copy the caller owns
+// and zeroes (CredFrame.Zero).
 func ReadCredFrame(r io.Reader) (CredFrame, error) {
 	var hdr [credHeader]byte
-	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return CredFrame{}, fmt.Errorf("%w: header: %v", ErrCredFrame, err)
+	if err := readFull(r, hdr[:]); err != nil {
+		return CredFrame{}, fmt.Errorf("%w: header: %w", ErrCredFrame, readClass(err))
 	}
 	if string(hdr[:4]) != credMagic || hdr[4] != credVersion {
 		return CredFrame{}, fmt.Errorf("%w: wrong magic or version", ErrCredFrame)
@@ -161,13 +254,27 @@ func ReadCredFrame(r io.Reader) (CredFrame, error) {
 		return CredFrame{}, fmt.Errorf("%w: bad length", ErrCredFrame)
 	}
 	buf := make([]byte, total)
+	defer Secret(buf).Zero()
 	copy(buf, hdr[:])
-	if _, err := io.ReadFull(r, buf[credHeader:]); err != nil {
-		return CredFrame{}, fmt.Errorf("%w: body: %v", ErrCredFrame, err)
+	if err := readFull(r, buf[credHeader:]); err != nil {
+		return CredFrame{}, fmt.Errorf("%w: body: %w", ErrCredFrame, readClass(err))
 	}
+	// the end of the stream: a read that returns nothing yet is tried again a bounded number of times
 	var one [1]byte
-	if n, err := r.Read(one[:]); n != 0 || err != io.EOF {
-		return CredFrame{}, fmt.Errorf("%w: trailing data or no end of stream", ErrCredFrame)
+	for empty := 0; ; empty++ {
+		n, err := r.Read(one[:])
+		if n != 0 {
+			return CredFrame{}, fmt.Errorf("%w: trailing data", ErrCredFrame)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return CredFrame{}, fmt.Errorf("%w: the end of the stream: %w", ErrCredFrame, readClass(err))
+		}
+		if empty+1 >= maxEmptyReads {
+			return CredFrame{}, fmt.Errorf("%w: the end of the stream: %w", ErrCredFrame, io.ErrNoProgress)
+		}
 	}
 	return DecodeCredFrame(buf)
 }
