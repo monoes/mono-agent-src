@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -222,12 +223,18 @@ func runChatCmd(t *testing.T, dbPath, monomindBin string, args ...string) (stdou
 		t.Fatalf("os.Pipe: %v", pipeErr)
 	}
 	realStdout := os.Stdout
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stdout = w
 	execErr := cmd.Execute()
 	os.Stdout = realStdout
 	w.Close()
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	buf := bytes.NewBuffer(<-drained)
 	return buf.String(), execErr
 }
 

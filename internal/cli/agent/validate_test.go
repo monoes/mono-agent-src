@@ -250,6 +250,13 @@ func TestValidateEmitterShowsSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	orig := os.Stderr
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stderr = w
 	var out string
 	func() {
@@ -263,7 +270,7 @@ func TestValidateEmitterShowsSignIn(t *testing.T) {
 		})
 	}()
 	w.Close()
-	errOut, _ := io.ReadAll(r)
+	errOut := <-drained
 	if !strings.Contains(string(errOut), "claude isn't signed in, so its model list may be incomplete; sign in with: claude /login") {
 		t.Errorf("stderr = %q", errOut)
 	}
