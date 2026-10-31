@@ -166,18 +166,23 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	if len(events) > 0 {
 		reason = strings.Join(events, ", ")
 	}
-	// Recorded first: if the record cannot be written, nothing is queued, so a write that
-	// keeps failing cannot turn into a check-in every pass.
-	if err := remember(); err != nil {
-		h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
-		return
-	}
 	turn := make([]byte, 8)
 	_, _ = rand.Read(turn)
 	if _, err := h.Store.Enqueue(Command{
 		ProfileID: m.ProfileID, ConversationID: m.ConversationID, Kind: KindSend,
 		TurnID: "checkin-" + hex.EncodeToString(turn), Message: digestText(reason, cur),
 	}); err != nil {
+		h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
+		// Nothing was queued, so the look is not recorded: the changes it found (a re-evaluation reason among them)
+		// are found again at the next look. Only the time moves on, so that a queue that keeps failing is tried
+		// once per interval and not on every pass.
+		if err := h.Store.SaveCheckin(m.ProfileID, m.ConversationID, Checkin{At: nowStr, Snapshot: prev.Snapshot}); err != nil {
+			h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
+		}
+		return
+	}
+	// Recorded only after the check-in is queued, so that a reason is never used up by a check-in that was not sent.
+	if err := remember(); err != nil {
 		h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
 	}
 }

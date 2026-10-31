@@ -195,7 +195,7 @@ func TestTheReevaluationLineIsNumbersOnlyAndNeedsDirections(t *testing.T) {
 		}
 	}
 	// the first look has nothing to compare with: no reasons
-	if got := reevalReasons(nil, &missionFact{Dirs: []dirFact{{ID: 1, State: "done"}}, SpentPct: 95, ResearchDone: 2}); got != nil {
+	if got := reevalReasons(nil, &missionFact{Dirs: []dirFact{{ID: 1, State: "done"}}, SpentPct: 95, ResearchIDs: []int64{1, 2}}); got != nil {
 		t.Fatalf("first look: %v", got)
 	}
 }
