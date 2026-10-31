@@ -246,8 +246,19 @@ while [ ! -e "$d/release" ]; do sleep 0.05; done
 `
 	for name, c := range cases {
 		r := newBoundRig(t, script)
-		// the leader is reaped before the launcher's own stop arrives: only the mark made before the kill can end the group
-		r.l.bound.afterKill = func() { time.Sleep(300 * time.Millisecond) }
+		// the descendant exists before the leader is killed, and the leader is reaped (and its revokes have run) before the
+		// launcher's own stop arrives: only the mark made before the kill can end the group
+		exited := make(chan struct{})
+		var once sync.Once
+		r.l.afterExitRevoke = func() { once.Do(func() { close(exited) }) }
+		r.l.bound.beforeKill = func() { r.waitFile(filepath.Join(r.dir, "descendant")) }
+		r.l.bound.afterKill = func() {
+			select {
+			case <-exited:
+			case <-time.After(30 * time.Second):
+				t.Error("the leader was never reaped")
+			}
+		}
 		c.prepare(r)
 		_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -402,4 +413,33 @@ func TestALeaderThatDiesBeforeTheMintCommitsLeavesNoLiveToken(t *testing.T) {
 	if st := r.binder.Stats(); st.Active != 0 || st.Pending != 0 {
 		t.Errorf("live registrations remain for a dead worker: %+v", st)
 	}
+}
+
+// A turn the bound launcher starts is strict; the ordinary launcher's is not.
+func TestOnlyABoundLaunchMakesAStrictTurn(t *testing.T) {
+	r := newBoundRig(t, "")
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if et, ok := turn.(*execTurn); !ok || !et.strict {
+		t.Fatalf("a bound turn is %#v, want a strict execTurn", turn)
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-monoagentcli")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond, revoke: func(string, string) error { return nil }}
+	plain, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if et, ok := plain.(*execTurn); !ok || et.strict {
+		t.Fatalf("an ordinary turn is %#v, want a non-strict execTurn", plain)
+	}
+	_ = plain.Wait()
 }

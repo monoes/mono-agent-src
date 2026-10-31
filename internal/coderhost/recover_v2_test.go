@@ -287,3 +287,27 @@ func TestTheProductionStopperKnowsTheBootId(t *testing.T) {
 		t.Error("the production stopper does not compare the boot id")
 	}
 }
+
+// The stop of a mission child must not settle a session whose bound leader is held: the leader may still be running, and
+// settling would let a new turn start next to it. Recovery alone ends the hold.
+func TestStoppingAChildDoesNotSettleAHeldBoundTurn(t *testing.T) {
+	h, l, st := newHost(t)
+	v2Turn(t, st, "c1", "t1", 0, "", 4242, "bind-stamp")
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = 'm' WHERE conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopHeld, Cause: "the turn's process did not exit after SIGKILL"}}}
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Held()) != 1 {
+		t.Fatalf("held = %v", h.Held())
+	}
+	h.stopChild("p", "m", "c1")
+	if x := state(t, st, "c1"); x.TurnID != "t1" || x.State != StateRunning {
+		t.Fatalf("the held bound turn was settled by the child's stop: %+v", x)
+	}
+	if len(l.finished) != 0 || len(h.Held()) != 1 {
+		t.Errorf("finished=%v held=%v", l.finished, h.Held())
+	}
+}

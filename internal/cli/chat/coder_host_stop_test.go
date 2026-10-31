@@ -127,3 +127,17 @@ func TestTheTurnEnvironmentDropsTheCredentialMarkers(t *testing.T) {
 		t.Errorf("ordinary variables were dropped: %s", out)
 	}
 }
+
+// A bound turn on a platform that cannot hold its leader (awaitExitNoReap reports false, so settle never runs) is stopped as an
+// ordinary one: the group is terminated and, once the leader is reaped, its stragglers are killed.
+func TestABoundTurnWhoseLeaderCannotBeHeldIsStoppedLikeAnOrdinaryOne(t *testing.T) {
+	var s sigLog
+	turn := newSigTurn(&s, true) // strict, but never settled: held stays false
+	turn.Stop()
+	if terms, _ := s.n(); terms != 1 {
+		t.Fatalf("the group was terminated %d times, want 1", terms)
+	}
+	turn.markReaped()
+	close(turn.done)
+	waitKills(t, &s, 1)
+}
