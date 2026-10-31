@@ -232,9 +232,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{})}
+	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
 	go func() {
-		if awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
+		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
 			t.settle()
 		}
 		t.err = cmd.Wait()
@@ -426,11 +426,18 @@ type execTurn struct {
 	err   error
 	once  sync.Once
 
+	// strict is set for a bound turn only. The ordinary (unbound) launcher stops a turn exactly as it always did: the
+	// group is signalled by number whenever Stop is called, and its stragglers are killed once the leader has been
+	// reaped (the pid-reuse window after the reap is that existing behaviour's). A bound turn is stricter: the leader's
+	// exit is observed without reaping it, its stragglers are killed in that window, and the group is never signalled
+	// by number after the reap.
+	strict bool
+
 	mu       sync.Mutex
 	stopping bool // Stop was asked for (or the launcher is about to kill the leader itself)
-	held     bool // the leader's exit is observed without reaping it (Linux), so the group can be killed before the reap
-	exited   bool // held, and the leader has exited (not yet reaped, when reaped is false)
-	reaped   bool // held, and cmd.Wait has returned: the pid is free, so the group is never signalled by number again
+	held     bool // strict, and the leader's exit is observed without reaping it
+	exited   bool // held, and the leader has exited (not yet reaped, while reaped is false)
+	reaped   bool // held, and cmd.Wait has returned: the pid is free, so the group is not signalled by number again
 
 	term, kill func(pid int) error // the group signals; nil is terminateGroup / killGroup
 }
@@ -449,9 +456,8 @@ func (t *execTurn) killGrp() error {
 	return killGroup(t.pid)
 }
 
-// settle runs on a platform that holds the leader (awaitExitNoReap), once it has exited and before it is reaped:
-// whatever of a stopped turn's group ignored the SIGTERM goes with it, while the pid still cannot name anything else.
-// After it no group signal by number happens.
+// settle runs for a strict turn, once its leader has exited and before it is reaped: whatever of a stopped turn's
+// group ignored the SIGTERM goes with it, while the pid still cannot name anything else.
 func (t *execTurn) settle() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -459,6 +465,14 @@ func (t *execTurn) settle() {
 	if t.stopping {
 		_ = t.killGrp()
 	}
+}
+
+// markReaped records that cmd.Wait returned. For a strict turn whose leader was held, no group signal by number
+// happens after it.
+func (t *execTurn) markReaped() {
+	t.mu.Lock()
+	t.reaped = true
+	t.mu.Unlock()
 }
 
 // markStopping records that the turn is being given up on before its leader is killed by other means (the launcher's
@@ -470,32 +484,26 @@ func (t *execTurn) markStopping() {
 	t.mu.Unlock()
 }
 
-// afterDone is what the stop goroutine does once the leader has been reaped: where the leader was not held, the
-// stragglers of the group are killed now, as they always were; where it was held they were killed before the reap.
+// pinned says whether the group may be signalled by number: always for an ordinary turn (as before), and for a strict
+// one until its held leader is reaped. The caller holds t.mu.
+func (t *execTurn) pinned() bool { return !(t.strict && t.held && t.reaped) }
+
+// afterDone is what the stop goroutine does once the leader has been reaped: the stragglers of the group are killed now,
+// as they always were; a strict turn's were killed before the reap.
 func (t *execTurn) afterDone() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.held {
+	if !(t.strict && t.held) {
 		_ = t.killGrp()
 	}
 }
 
-// markReaped records that cmd.Wait returned. Where the leader is held, no group signal by number happens after it.
-func (t *execTurn) markReaped() {
-	t.mu.Lock()
-	t.reaped = true
-	t.mu.Unlock()
-}
-
-// pinned says whether the group may still be signalled by number: the leader is not held (the platform's old behaviour)
-// or it is held and not yet reaped, so the pid cannot name anything else. The caller holds t.mu.
-func (t *execTurn) pinned() bool { return !(t.held && t.reaped) }
-
-// killGroupIfHeld kills the group at the end of the grace period, unless the leader has been reaped (held) already.
+// killGroupIfHeld kills the group at the end of the grace period (not again after a held leader exited: its
+// stragglers were killed then, or by the Stop that came after).
 func (t *execTurn) killGroupIfHeld() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.pinned() && !t.exited { // an exited leader's stragglers were killed when it exited, or by the Stop that came after
+	if t.pinned() && !t.exited {
 		_ = t.killGrp()
 	}
 }
@@ -508,8 +516,8 @@ func (t *execTurn) Stop() {
 		t.mu.Lock()
 		t.stopping = true
 		if t.pinned() {
-			_ = t.terminateGrp() // t is this process's child, and unreaped while pinned: its pid is still its own
-			if t.exited {        // the leader already ended and is held unreaped: its stragglers go now, as they always did
+			_ = t.terminateGrp() // t is this process's child: its pid is its own until cmd.Wait reaps it
+			if t.exited {        // a strict turn's leader already ended and is held unreaped: its stragglers go now
 				_ = t.killGrp()
 			}
 		}

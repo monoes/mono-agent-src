@@ -1,9 +1,13 @@
 package chat
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
 type sigLog struct {
@@ -16,36 +20,52 @@ func (s *sigLog) term(int) error { s.mu.Lock(); s.terms++; s.mu.Unlock(); return
 func (s *sigLog) kill(int) error { s.mu.Lock(); s.kills++; s.mu.Unlock(); return nil }
 func (s *sigLog) n() (int, int)  { s.mu.Lock(); defer s.mu.Unlock(); return s.terms, s.kills }
 
-func newSigTurn(s *sigLog) *execTurn {
-	return &execTurn{pid: 4242, done: make(chan struct{}), term: s.term, kill: s.kill}
+func newSigTurn(s *sigLog, strict bool) *execTurn {
+	return &execTurn{pid: 4242, done: make(chan struct{}), term: s.term, kill: s.kill, strict: strict}
 }
 
-// Where the leader cannot be held (no pidfd/waitid support: macOS, Windows) a stop behaves exactly as it always did,
-// whenever it comes: the group is terminated, and once the leader is reaped the stragglers are killed.
-func TestAStopWhereTheLeaderIsNotHeldSignalsTheGroupAsItAlwaysDid(t *testing.T) {
-	var s sigLog
-	turn := newSigTurn(&s) // held stays false: the waiter never settled
-	turn.Stop()
-	if terms, _ := s.n(); terms != 1 {
-		t.Fatalf("the group was terminated %d times, want 1", terms)
-	}
-	close(turn.done) // the leader was reaped
+func waitKills(t *testing.T, s *sigLog, want int) {
+	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if _, kills := s.n(); kills == 1 {
-			break
+		if _, kills := s.n(); kills >= want {
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the stragglers of the group were not killed once the leader was reaped")
+			t.Fatalf("the group's stragglers were not killed (kills %d, want %d)", func() int { _, k := s.n(); return k }(), want)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 }
 
-// Where the leader is held, the stragglers die with its exit before the reap, and nothing is signalled by number after.
-func TestAHeldLeadersGroupIsSignalledOnlyBeforeTheReap(t *testing.T) {
+// The ordinary (unbound) turn stops exactly as it always did, on every OS: whenever Stop comes, the group is terminated,
+// and once the leader has been reaped (before or after the Stop) its stragglers are killed.
+func TestAnOrdinaryTurnIsStoppedAsItAlwaysWas(t *testing.T) {
 	var s sigLog
-	stopped := newSigTurn(&s)
+	running := newSigTurn(&s, false)
+	running.Stop()
+	if terms, _ := s.n(); terms != 1 {
+		t.Fatalf("the group was terminated %d times, want 1", terms)
+	}
+	close(running.done) // the leader was reaped
+	waitKills(t, &s, 1)
+
+	s = sigLog{}
+	ended := newSigTurn(&s, false)
+	close(ended.done) // the leader ended and was reaped on its own
+	ended.markReaped()
+	ended.Stop() // a stop after that still signals the group, as the shipped launcher does
+	if terms, _ := s.n(); terms != 1 {
+		t.Fatalf("a stop after the natural end terminated the group %d times, want 1", terms)
+	}
+	waitKills(t, &s, 1)
+}
+
+// A bound (strict) turn: its held leader's group is signalled only before the reap, and a stop between the exit and
+// the reap still ends the stragglers.
+func TestABoundTurnsGroupIsNotSignalledByNumberAfterTheReap(t *testing.T) {
+	var s sigLog
+	stopped := newSigTurn(&s, true)
 	stopped.Stop() // while the leader still runs
 	stopped.settle()
 	stopped.killGroupIfHeld() // the grace period ends after the exit: nothing more
@@ -54,26 +74,27 @@ func TestAHeldLeadersGroupIsSignalledOnlyBeforeTheReap(t *testing.T) {
 	}
 
 	s = sigLog{}
-	late := newSigTurn(&s)
+	late := newSigTurn(&s, true)
 	late.settle() // the leader exited (held, not yet reaped), nobody stopped it
-	late.Stop()   // a stop in that window still ends the stragglers, as it always did
+	late.Stop()   // a stop in that window still ends the stragglers
 	if terms, kills := s.n(); terms != 1 || kills != 1 {
 		t.Fatalf("stopped between the exit and the reap: %d terminations, %d kills, want 1 and 1", terms, kills)
 	}
 
 	s = sigLog{}
-	reaped := newSigTurn(&s)
+	reaped := newSigTurn(&s, true)
 	reaped.settle()
 	reaped.markReaped() // the pid is free now
 	reaped.Stop()
 	reaped.killGroupIfHeld()
+	close(reaped.done)
+	time.Sleep(50 * time.Millisecond)
 	if terms, kills := s.n(); terms != 0 || kills != 0 {
 		t.Fatalf("stopped after the reap: %d terminations, %d kills, want none", terms, kills)
 	}
 
 	s = sigLog{}
-	slow := newSigTurn(&s)
-	slow.held = true
+	slow := newSigTurn(&s, true)
 	slow.Stop()
 	slow.killGroupIfHeld() // the grace period ended with the leader still unreaped
 	if _, kills := s.n(); kills != 1 {
@@ -85,10 +106,24 @@ func TestAHeldLeadersGroupIsSignalledOnlyBeforeTheReap(t *testing.T) {
 // has not been called yet.
 func TestAKilledLeadersGroupGoesWithItWhenTheLauncherMarkedTheStopFirst(t *testing.T) {
 	var s sigLog
-	turn := newSigTurn(&s)
+	turn := newSigTurn(&s, true)
 	turn.markStopping()
 	turn.settle()
 	if _, kills := s.n(); kills != 1 {
 		t.Fatalf("the group was killed %d times when the marked leader exited, want 1", kills)
+	}
+}
+
+// The credential-pipe marker never reaches a turn through the host's own environment.
+func TestTheTurnEnvironmentDropsTheCredentialMarkers(t *testing.T) {
+	in := []string{"PATH=/bin", coderhost.CredFDEnv + "=7", coderhost.MissionFDEnv + "=3", coderhost.SessionTokenEnv + "=mst-x", agenttokens.EnvMissionToken + "=mat-x", "HOME=/h"}
+	out := strings.Join(turnEnv(in), "\n")
+	for _, name := range []string{coderhost.CredFDEnv, coderhost.MissionFDEnv, coderhost.SessionTokenEnv, agenttokens.EnvMissionToken} {
+		if strings.Contains(out, name+"=") {
+			t.Errorf("%s reached the turn's environment", name)
+		}
+	}
+	if !strings.Contains(out, "PATH=/bin") || !strings.Contains(out, "HOME=/h") {
+		t.Errorf("ordinary variables were dropped: %s", out)
 	}
 }
