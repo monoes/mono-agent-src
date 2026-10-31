@@ -2457,5 +2457,19 @@
       "sound": "Sound a chime when something needs me (a plan waiting for approval, or a question from a lead)",
       "hint": "The chime plays at most once every five seconds and never twice for the same item. The notification shows whatever this says."
     }
+  },
+  "missionToggle": {
+    "label": "Mission",
+    "on": "on",
+    "off": "off",
+    "chip": "Mission",
+    "chipOn": "This chat runs as a mission",
+    "hint": "Run this chat as a mission: the lead plans it and works until you close it. The switch governs the missions it starts; a mission you confirm on a single send is separate, and turning this off does not stop a running mission (use stop)",
+    "locked": "This chat is running a mission",
+    "needsAccess": "Missions need coding access or more",
+    "loadFailed": "Could not read the mission setting",
+    "saveFailed": "Could not change the mission setting: {{error}}",
+    "runningSession": "Running a mission (session {{id}})",
+    "unreadable": "Mission state unknown"
   }
 }

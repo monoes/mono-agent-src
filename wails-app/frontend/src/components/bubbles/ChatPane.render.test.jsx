@@ -19,6 +19,7 @@ const { api, chatAccess, scan, listeners } = vi.hoisted(() => ({
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
   scan: vi.fn(),
   api: {
+    getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
     getChatTurns: vi.fn(), getChatEvents: vi.fn(), startChatTurn: vi.fn(), stopChatTurn: vi.fn(), coderStatus: vi.fn(),
     coderWorkspaceList: vi.fn(), coderWorkspaceDefault: vi.fn(), getAgentRuntimeModels: vi.fn(), pickCoderFolder: vi.fn(),
     openPathWithOS: vi.fn(), getProfiles: vi.fn(), listChatConversations: vi.fn(), browserPermissions: vi.fn(), getActiveProfile: vi.fn(),

@@ -2787,6 +2787,21 @@ monoagentcli --profile work coder host stop                        # the host on
   keeps its status. If the count or the master's settings cannot be
   read (a database error, not just no stored settings) the cap holds, the send is tried again on the next pass
   and the host logs it at most once an hour per master; a stop or pause on a held chat still runs. The autonomy settings are acted on (below). `max_children` and `max_depth` hold when a child is linked.
+- **Mission toggle:** `sessions settings set <conv> --mission on|off` (operator only; an agent or a master with a
+  token is refused, `--patch` included) is the per-chat switch for missions, the `mission` setting. On, every turn of
+  the chat, from the first, is a confirmed mission (`missionConfig`), so the lead gets the mission tools and prompt
+  without proposing; `mission_propose` and `send --mission` still work for chats with it off. It needs coding
+  access or more (`dynorg.MissionAccess`; below that the set is refused and `settings get` says `available:false`).
+  While the chat has an open mission session (draft, running or paused; only a session of kind `mission` counts) it
+  stays on: `--mission off` and `--patch '{"mission":false}'` are refused with the session id and the way out
+  (`task session stop|close <id>`; pausing keeps it open), and so is off when the store cannot say whether a mission
+  is open. `settings get` has a `mission` object `{on, locked, sessionId, available, reason}`; an open session reads
+  as on and locked even when the flag was never set. The desktop coder pane header shows the switch (disabled with
+  the reason when locked or below access) and a `Mission` chip while it is on.
+  **What the toggle does not do:** it governs the missions it starts (toggle-confirmed turns). A mission confirmed on a
+  single send (`send --mission`, the operator's per-turn confirmation) is a separate authority with no creation guard on
+  the stored switch, so it can open a mission session while the switch is off; and turning the switch off is not a stop:
+  a running mission, or a confirmed turn still running, keeps going until `task session stop|close <id>`.
 - **Masters and children:** `sessions settings set <conv> --role master`, then `--role child --parent <master>`
   for each child (the master must be a master with room under its `max_children`; depth is 3 by default, the
   operator's `max_depth` up to the hard 4; a session with children cannot change role).

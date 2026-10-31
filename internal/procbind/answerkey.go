@@ -26,6 +26,20 @@ func AnswerKey(ctx context.Context, db *sql.DB, profileID, generation string) ([
 	return secrets.DeriveKey(ctx, db, profileID, answerKeyPurpose+generation)
 }
 
+// RowKeyIfExists is RowKey that never creates a key: a profile with no data key is ErrNoRowKey, and the key is read
+// from the vault row on every call (not from the cache), so a profile deleted in this or another process is seen.
+// Revocation and verification of retained rows use it; only a mint uses RowKey.
+func RowKeyIfExists(ctx context.Context, db *sql.DB, profileID string) ([]byte, error) {
+	if profileID == "" {
+		return nil, errors.New("procbind: a row key needs a profile")
+	}
+	key, err := secrets.DeriveKeyIfExists(ctx, db, profileID, rowKeyPurpose)
+	if errors.Is(err, secrets.ErrNoProfileKey) {
+		return nil, ErrNoRowKey
+	}
+	return key, err
+}
+
 // RowKey is the key the v2 rows (tokens, bindings, revocations, host starts) are signed with, per profile.
 func RowKey(ctx context.Context, db *sql.DB, profileID string) ([]byte, error) {
 	if profileID == "" {

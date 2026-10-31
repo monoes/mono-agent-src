@@ -31,6 +31,9 @@ type dbx interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+// Queryer is dbx for a caller outside the package: the connection of a transaction a hook runs in.
+type Queryer = dbx
+
 func (s *Store) stamp() string { return s.now().UTC().Format(timeFmt) }
 
 // tx runs fn in a BEGIN IMMEDIATE transaction on a connection of its own: the

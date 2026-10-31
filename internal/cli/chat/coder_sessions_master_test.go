@@ -99,6 +99,7 @@ func TestMasterVerbsSpawnAndControlOnlyDescendantsWithTheSessionToken(t *testing
 		{"send", kid, "x", "--mission"}, {"send", kid, "x", "--attach", "/etc/passwd"}, // a master's send is no mission
 		{"settings", "set", kid, "--patch", `{"max_children":9}`}, {"settings", "set", kid, "--patch", `{"mesh_accept":"project"}`}, // operator-only settings
 		{"settings", "set", kid, "--role", "solo"}, {"settings", "set", kid, "--unattended", "false"}, {"settings", "set", kid, "--budget-usd", "5"},
+		{"settings", "set", kid, "--mission", "on"}, {"settings", "set", kid, "--mission", "off"}, {"settings", "set", kid, "--patch", `{"mission":true}`}, {"settings", "set", kid, "--patch", `{"checkin_minutes":5}`, "--mission", "on"}, // the mission toggle is the operator's
 	} {
 		if out, code := runSessionsCLI(t, m.cfg, args...); code == 0 {
 			t.Errorf("%v was allowed: %s", args, out)
@@ -173,7 +174,7 @@ func TestExecLauncherGivesATurnItsOwnSessionTokenOnly(t *testing.T) {
 			asked = append(asked, p+"/"+c+"/"+turn)
 			return "mst-own", nil
 		},
-		revoke: func(p, c string) { revoked++ }}
+		revoke: func(p, c string) error { revoked++; return nil }}
 	turn, err := l.Start("p", "c1", "t1", "hi", nil, "")
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +357,7 @@ func TestAHostInsideASessionTurnStartsTurnsWithoutABoundTokenAndTinyCapsAreRefus
 	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"),
 		logf:   func(f string, a ...any) { mu.Lock(); logs = append(logs, fmt.Sprintf(f, a...)); mu.Unlock() },
 		bind:   func(string, string, string, int, string) error { return coderhost.ErrHostInsideTurn },
-		revoke: func(string, string) { revoked.Add(1) }}
+		revoke: func(string, string) error { revoked.Add(1); return nil }}
 	turn, err := l.Start("p", "c1", "t1", "hi", nil, "")
 	if err != nil {
 		t.Fatalf("the turn must still run: %v", err)

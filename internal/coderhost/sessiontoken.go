@@ -149,8 +149,11 @@ func (s *Store) IssueSessionToken(profileID, conversationID, turnID string) (str
 	}
 	tok := SessionTokenPrefix + base64.RawURLEncoding.EncodeToString(b)
 	now := s.now().UTC()
-	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE (profile_id = ? AND conversation_id = ?) OR `+tsExpired("expires_at", now),
-		profileID, conversationID); err != nil {
+	if err := s.revokeSessionTokens(profileID, conversationID); err != nil {
+		return "", err
+	}
+	// procbind:legacy-only an expired token is denied by its expiry; the v2 rows of expired tokens follow their own retention (3e).
+	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE ` + tsExpired("expires_at", now)); err != nil {
 		return "", err
 	}
 	h, exp := hashToken(tok), now.Add(SessionTokenTTL).Format(timeLayout)
@@ -185,9 +188,16 @@ func (s *Store) BindSessionToken(profileID, conversationID, turnID string, pid i
 	return err
 }
 
-// RevokeSessionTokens drops a session's tokens (its turn ended).
+// RevokeSessionTokens drops a session's tokens (its turn ended). The launcher's seam has no error return, so a
+// failure (the legacy delete and the v2 revocation roll back together) leaves both tokens in place; the next
+// IssueSessionToken of the session replaces them. RevokeSessionTokensErr is the form that reports it.
 func (s *Store) RevokeSessionTokens(profileID, conversationID string) {
-	_, _ = s.db.Exec(`DELETE FROM coder_session_tokens WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID)
+	_ = s.RevokeSessionTokensErr(profileID, conversationID)
+}
+
+// RevokeSessionTokensErr drops a session's tokens, legacy and v2 in one transaction.
+func (s *Store) RevokeSessionTokensErr(profileID, conversationID string) error {
+	return s.revokeSessionTokens(profileID, conversationID)
 }
 
 // VerifySessionToken says who the token names. It fails (ErrSessionToken, with no

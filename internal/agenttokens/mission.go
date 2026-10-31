@@ -3,11 +3,14 @@ package agenttokens
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // A mission token ties one process to what it may act on. A conductor mints one for each
@@ -118,13 +121,21 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 	if owner == "" {
 		return 0, nil
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE mission_owner = ? AND revoked_at IS NULL`,
-		s.now().UTC().Format(timeFmt), owner)
+	n := 0
+	err := s.revokeBoth(ctx, procbind.Selector{Owner: owner}, func(conn *sql.Conn) error {
+		res, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE mission_owner = ? AND revoked_at IS NULL`,
+			s.now().UTC().Format(timeFmt), owner)
+		if err != nil {
+			return fmt.Errorf("revoking mission tokens: %w", err)
+		}
+		c, _ := res.RowsAffected()
+		n = int(c)
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("revoking mission tokens: %w", err)
+		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return n, nil
 }
 
 // SweepMissions is what a conductor does when it starts or resumes. group names the runs of one
@@ -174,4 +185,5 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 	return total, nil
 }
 
+// procbind:legacy-only an expired token is denied by its expiry; the v2 rows of expired tokens follow their own retention (3e).
 const purgeExpiredMissions = `DELETE ` + `FROM agent_tokens WHERE mission_session > 0 AND expires_at IS NOT NULL AND expires_at < ?`
