@@ -3027,7 +3027,7 @@ covered by the classes above.
 
 **Peer-credential binding records (storage only).** Migration 148 adds insert-only tables for a
 future process binding anchored in kernel peer credentials (design:
-`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). Nothing uses them yet. Their rows
+`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). No v2 token or binding is issued into them yet (nothing outside the package inserts one), so the feature is not live; the token revoke paths already read them in their own transaction and would record a revocation for a v2 token. Their rows
 cannot be updated, and can be deleted only once their expiry is more than 7 days past; no operation
 is exempt. A profile delete therefore leaves the profile's rows in those tables in place (its output
 lists them): they hold hashes, MACs, a pid and a start stamp and no secret, and they are inert once
