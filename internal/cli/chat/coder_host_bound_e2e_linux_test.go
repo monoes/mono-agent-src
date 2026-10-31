@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
+	"github.com/zalando/go-keyring"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,13 +102,34 @@ func TestHelperBoundE2E(t *testing.T) {
 		}
 		e2eWrite(files, "tokenid", id)
 		e2eWait(filepath.Join(files, "answerkey"))
+		// the profile's wrapping key lives in the parent's in-memory test keyring: it is handed over through a file
+		if kek, err := os.ReadFile(filepath.Join(files, "kek")); err == nil {
+			_ = keyring.Set("monoagent-vault", "kek-default", strings.TrimSpace(string(kek)))
+		}
+		procbind.ForTestSetIssuance(t, true) // this process stands in for a build that issues bound tokens
 		time.Sleep(200 * time.Millisecond)
 		e2eWrite(files, "self", e2eAsk(sqldb, files, id))
+		// the stores' own verify path (VerifySessionToken -> V2Check -> the service), from the turn itself
+		verify := func(name string) {
+			if _, err := coderhost.NewStore(sqldb).VerifySessionToken(secret); err != nil {
+				e2eWrite(files, name, "deny")
+				return
+			}
+			e2eWrite(files, name, "allow")
+		}
+		verify("storeself")
+		// a descendant of the turn is inside its process tree
+		d := exec.Command(os.Args[0], "-test.run=^TestHelperBoundE2E$", "-test.count=1")
+		d.Env = append(os.Environ(), e2eRole+"=descendant", e2eToken+"="+id)
+		_ = d.Run()
 		e2eWait(filepath.Join(files, "go2"))
 		e2eWrite(files, "after", e2eAsk(sqldb, files, id))
+		verify("storeafter")
 		e2eWait(filepath.Join(files, "release"))
 	case "sibling":
 		e2eWrite(files, "sibling", e2eAsk(nil, files, os.Getenv(e2eToken)))
+	case "descendant":
+		e2eWrite(files, "descendant", e2eAsk(nil, files, os.Getenv(e2eToken)))
 	}
 }
 
@@ -139,7 +162,7 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 	t.Setenv(e2eRole, "turn")
 	t.Setenv(e2eDB, dbPath)
 	t.Setenv(e2eFiles, files)
-	t.Setenv("MONOAGENT_TESTHOME_KEEP", "") // the helper gets a home of its own like any test binary
+	t.Setenv(testhome.KeepHomeEnv, "1") // the helper keeps this test's home
 
 	store := coderhost.NewStore(db.DB)
 	if x, err := store.EnsureSession("default", "c1"); err != nil {
@@ -174,6 +197,11 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	kek, err := keyring.Get("monoagent-vault", "kek-default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e2eWrite(files, "kek", kek)
 	e2eWrite(files, "generation", gen)
 	e2eWrite(files, "answerkey", hex.EncodeToString(key))
 	read := func(name string) string {
@@ -201,6 +229,12 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 	if got := read("sibling"); got != "deny" {
 		t.Fatalf("a sibling asked about the turn's token: %q, want deny", got)
 	}
+	if got := read("descendant"); got != "allow" {
+		t.Fatalf("a descendant of the turn asked about its token: %q, want allow", got)
+	}
+	if got := read("storeself"); got != "allow" {
+		t.Fatalf("the turn through the store's verify path: %q, want allow", got)
+	}
 	// the conversation's tokens are revoked: the registration is gone and the turn's next question is denied
 	if err := store.RevokeSessionTokensErr("default", "c1"); err != nil {
 		t.Fatal(err)
@@ -208,5 +242,8 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 	e2eWrite(files, "go2", "x")
 	if got := read("after"); got != "deny" {
 		t.Fatalf("the turn asked after its token was revoked: %q, want deny", got)
+	}
+	if got := read("storeafter"); got != "deny" {
+		t.Fatalf("the store's verify path after the token was revoked: %q, want deny", got)
 	}
 }
