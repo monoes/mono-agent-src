@@ -214,6 +214,8 @@ func (c *cli) submit() *cobra.Command {
 	f.StringVar(&in.Runtime, "runtime", "", "Agent runtime (default claude; see 'coder status')")
 	f.BoolVar(&in.Unattended, "unattended", false, "Run without a person watching (only for a qa task of a kind that allows it)")
 	f.Float64Var(&budget, "budget-usd", 0, "Spend cap in USD (default: the coder budget); 0 means no spend and is refused, never unlimited")
+	f.StringVar(&in.ID, "task-id", "", "The id the task takes (as made by the caller that already holds a tab under it)")
+	_ = f.MarkHidden("task-id")
 	f.BoolVar(&in.QueueOnly, "queue-only", false, "Create the task but do not start it (aitask start does)")
 	return cmd
 }

@@ -1779,7 +1779,7 @@ that works a task acts on them. The defences:
   child has none; the operator's budget for a child is above 0 and at most the parent's, 0 is refused under a parent
   that has a budget, and approving a child with no budget under such a parent is refused until the operator sets
   one. Each child is checked on its own: the sum of the children's budgets and a roll-up of their spend are not
-  accounted in this change. An agent starts at most 12 open children below
+  accounted in this change (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9; until the next change a parent's budget can still be set below the sum of its children's budgets). An agent starts at most 12 open children below
   one parent; lowering a parent clamps every session below it, open or closed, at any depth). No session is started below an archived or closed one. A session can never exceed the minimum of its whole ancestor chain, closed and archived ancestors included (access, `max_tasks`, `max_depth` and the smallest nonzero budget): the store computes that ceiling when the session is created, updated or approved, and does not trust a stored limit of a closed session in between. An agent creates a session only below one it works in, and a
   `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
@@ -1972,6 +1972,10 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **Mission directions (K).** The operator's `mission_directions` (1 to 6, default 3, operator-only) caps the direction sessions
+  open below a lead's session. `session_spawn` checks it after the new task session is inserted and undoes the spawn when
+  the count passes K, so two spawns racing for the last place are not both kept; the setting follows the lead down the
+  tree. Tests: `sessionspawn_directions_test.go`.
 - **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
   sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
   without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),

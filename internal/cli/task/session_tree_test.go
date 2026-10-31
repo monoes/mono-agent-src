@@ -2,8 +2,12 @@ package task
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/monoes/mono-agent/internal/agenttokens"
 )
 
 type treeSession struct {
@@ -84,5 +88,24 @@ func TestSessionRenameAndTree(t *testing.T) {
 	text, _, err := runTask(t, db, "default", false, "", "session", "tree")
 	if err != nil || !strings.Contains(text, "\n  #"+id(kid.Session.ID)) {
 		t.Fatalf("text tree indents the child: %v\n%s", err, text)
+	}
+}
+
+// `task session new --kind direction` is closed to a process bound to a task (every mission worker is), whatever
+// mission_directions says; the cap itself is held in CreateSession (tasks/session_direction_cap.go) for the agents
+// that may create one. The operator's own terminal is not held to the agent's cap.
+func TestSessionNewDirectionFromABoundProcessIsRefusedAndTheOperatorMay(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	lead := sessionNew(t, db, "Lead", "--conversation", "conv-lead")
+	task := sessionAdd(t, db, lead, "work")
+	var d sessionDoc
+	mustTaskJSON(t, db, "default", &d, "", "session", "approve", id(lead))
+	_, secret := mintToken(t, db, "default", agenttokens.MissionBinding{Session: lead, Task: task, Role: agenttokens.RoleWorker, Actor: "w1"}, time.Hour, time.Time{})
+	setenv(t, agenttokens.EnvMissionToken, secret)
+	failedTaskJSON(t, db, "default", 3, "session", "new", "dir", "--parent", id(lead), "--kind", "direction", "--as", "w1")
+	setenv(t, agenttokens.EnvMissionToken, "")
+	for i := 0; i < 4; i++ {
+		mustTaskJSON(t, db, "default", &d, "", "session", "new", fmt.Sprintf("by hand %d", i), "--parent", id(lead), "--kind", "direction")
 	}
 }
