@@ -235,6 +235,11 @@ func (h *Host) stopChild(profileID, lead, conv string) {
 	}
 	if x.TurnID != "" {
 		h.mu.Lock()
+		_, held := h.held[key(profileID, conv)]
+		if held { // a bound turn whose leader recovery could not confirm gone: recovery settles it, nothing else may
+			h.mu.Unlock()
+			return
+		}
 		live := h.live[key(profileID, conv)] != nil
 		if !live {
 			h.L.Finish(profileID, conv, x.TurnID, "the turn's process is gone and its session is being stopped") // as Recover does
