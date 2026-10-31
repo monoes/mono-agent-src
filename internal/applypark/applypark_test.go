@@ -998,3 +998,43 @@ func (g *gateRunner) Finalize(ctx context.Context, id string) error {
 	defer atomic.AddInt32(g.inflight, -1)
 	return g.fakeRunner.Finalize(ctx, id)
 }
+
+// Many resumes read the same parked tab and claim it at once: exactly one holds it, and the tab is that one's alone.
+func TestClaimByManyResumesAtOnceHasOneWinner(t *testing.T) {
+	_, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	read, _ := st.Get(bg, app)
+	const n = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	won := make([]bool, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			won[i], errs[i] = st.Claim(bg, app, read.TaskID, fmt.Sprintf("at-%d", i))
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	winner := -1
+	for i := range won {
+		if errs[i] != nil {
+			t.Fatalf("claim %d: %v", i, errs[i])
+		}
+		if won[i] {
+			if winner >= 0 {
+				t.Fatalf("claims %d and %d both won", winner, i)
+			}
+			winner = i
+		}
+	}
+	if winner < 0 {
+		t.Fatal("no claim won")
+	}
+	if tab, _ := st.Get(bg, app); tab.State != StateActive || tab.TaskID != fmt.Sprintf("at-%d", winner) {
+		t.Fatalf("tab = %+v, want active under claim %d", tab, winner)
+	}
+}
