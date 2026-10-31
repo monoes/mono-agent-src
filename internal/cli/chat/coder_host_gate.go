@@ -67,6 +67,9 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	if !bool(s.PeercredBinding) {
 		return g.inner, false, nil // off
 	}
+	if g.insideTurn != nil && g.insideTurn() {
+		return nil, false, &bindingRefusal{"the turn was not started: the coder host runs inside a coder session's turn, so every turn it starts would descend from that one; start the host from a terminal"}
+	}
 	// The service is asked to start only when everything else allows it: while this build cannot issue bound
 	// tokens (or the machine cannot run it) nothing is ever started.
 	running := false
@@ -83,16 +86,21 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	if g.bound == nil {
 		return nil, false, &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but this host has no bound launcher: switch it off (coder set --peercred-binding off)"}
 	}
-	if g.insideTurn != nil && g.insideTurn() {
-		return nil, false, &bindingRefusal{"the turn was not started: the coder host runs inside a coder session's turn, so every turn it starts would descend from that one; start the host from a terminal"}
-	}
 	return g.bound, true, nil
 }
 
-// settingIsOnNow reads the setting again, failing closed: a settings object that cannot be read counts as on.
+// settingIsOnNow reads the setting again after a legacy turn's process exists. It is a guard against a flip in between,
+// not a gate: a settings object that cannot be read right now says nothing about a flip, so the healthy turn is left
+// running (the next start reads it again, and refuses if it is unreadable).
 func (g *gatedLauncher) settingIsOnNow() bool {
 	s, err := loadCoderSettings(g.db)
-	return err != nil || bool(s.PeercredBinding)
+	if err != nil {
+		if g.logf != nil {
+			g.logf("coder host: the coder settings could not be read after a turn started; the turn is left running: %v", err)
+		}
+		return false
+	}
+	return bool(s.PeercredBinding)
 }
 
 // launch routes the turn and starts it. A turn that went to the legacy launcher is checked once more after its process

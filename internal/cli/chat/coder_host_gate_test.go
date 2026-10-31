@@ -629,3 +629,36 @@ func TestThePeercredSettingIsNotSwitchedOnWhileATurnRuns(t *testing.T) {
 		t.Fatalf("off with a turn running: exit %d", code)
 	}
 }
+
+// A host that runs inside a coder session's turn is refused before the binding service is started for it.
+func TestTheGateDoesNotStartTheServiceForAHostInsideATurn(t *testing.T) {
+	g, legacy, bound, svc := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.insideTurn = func() bool { return true }
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || svc.ensured != 0 || len(legacy.calls) != 0 || len(bound.calls) != 0 {
+		t.Fatalf("%v (ensured %d, legacy %d, bound %d)", err, svc.ensured, len(legacy.calls), len(bound.calls))
+	}
+}
+
+// The re-check after a legacy turn's process exists is a guard against a flip, not a gate: settings that cannot be read at
+// that moment leave the healthy turn running.
+func TestAHealthyTurnIsNotStoppedBecauseTheSettingsCouldNotBeReadAfterItStarted(t *testing.T) {
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	st := &stopTurn{stopped: make(chan struct{})}
+	legacy.turn = st
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `not json`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	turn, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	if err != nil || turn == nil {
+		t.Fatalf("the healthy turn was refused: %v %v", turn, err)
+	}
+	select {
+	case <-st.stopped:
+		t.Fatal("the healthy turn was stopped")
+	case <-time.After(100 * time.Millisecond):
+	}
+}

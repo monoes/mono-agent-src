@@ -67,10 +67,12 @@ reverted alone**, and so that the setting does not exist until everything it nee
 | 6 | **3e** retention sweep | n/a | n/a |
 
 **Flip checklist (before `procbind.IssuanceReady` becomes true, in the PR that flips it).**
-- Synchronize turn admission with the setting change: a start that has read the setting as off must not launch a legacy
-  turn after the operator has switched it on (today the window between the gate's read and the launch is unreachable
-  because "on" cannot be set while the constant is false; once it can, the read and the launch need one critical section,
-  or the launch re-checks the setting after the process exists and stops the turn if it is on).
+- Turn admission and the setting change (decided): **the setter refuses `on` while any coder turn is running**
+  (a session with a turn in flight: it was admitted unbound and holds legacy tokens, which the stores keep
+  accepting), with a message telling the operator to wait for those turns or stop them. That is the rule; the gate's
+  re-check after a legacy turn's process exists stays as a second guard for the few milliseconds between the setter's
+  check and a start that read the setting as off (such a turn is stopped and refused). A transient failure to read the
+  settings in that re-check leaves the healthy turn running. Both are tested (`coder_host_gate_test.go`).
 - Every writer of the settings is transactional (`updateCoderSettings`), so no concurrent writer can undo the field.
 - The guard walk, the `RowKey` tripwire and the revoke-by-owner callers (3c-3c) have merged.
 
