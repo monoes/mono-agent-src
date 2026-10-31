@@ -49,8 +49,8 @@ func resetStash(t *testing.T) {
 }
 
 var (
-	goodSession = []byte("mst-" + strings.Repeat("a", 43))
-	goodTask    = []byte("mat-" + strings.Repeat("b", 40))
+	goodSession = []byte("mst2-" + strings.Repeat("a", 43))
+	goodTask    = []byte("mat2-" + strings.Repeat("b", 40))
 	goodConfirm = []byte("12." + strings.Repeat("c", 22))
 )
 
@@ -109,6 +109,8 @@ func TestABadFrameIsFatalAndLeavesNothing(t *testing.T) {
 	good := frameOf(t, procbind.CredFrame{SessionToken: goodSession, TaskToken: goodTask})
 	both := frameOf(t, procbind.CredFrame{TaskToken: goodTask, MissionConfirmation: goodConfirm})
 	badSession := frameOf(t, procbind.CredFrame{SessionToken: []byte("not-a-session-token")})
+	legacySession := frameOf(t, procbind.CredFrame{SessionToken: []byte("mst-" + strings.Repeat("a", 43))})
+	legacyTask := frameOf(t, procbind.CredFrame{TaskToken: []byte("mat-" + strings.Repeat("b", 40))})
 	badTask := frameOf(t, procbind.CredFrame{TaskToken: []byte("tok with a space")})
 	badConfirm := frameOf(t, procbind.CredFrame{MissionConfirmation: []byte("no-dot-confirmation")})
 	for name, b := range map[string][]byte{
@@ -119,6 +121,8 @@ func TestABadFrameIsFatalAndLeavesNothing(t *testing.T) {
 		"a legacy token line":     []byte("12." + strings.Repeat("c", 22) + "\n"),
 		"task and confirmation":   both,
 		"a session token of junk": badSession,
+		"a legacy session token":  legacySession,
+		"a legacy task token":     legacyTask,
 		"a task token with space": badTask,
 		"a confirmation not one":  badConfirm,
 	} {

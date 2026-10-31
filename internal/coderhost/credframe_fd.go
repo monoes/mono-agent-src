@@ -88,10 +88,10 @@ func StashCredFrame() error {
 	if fr.TaskToken != nil && fr.MissionConfirmation != nil {
 		return fmt.Errorf("%w: a task token and a mission confirmation together", ErrCredFrameFatal)
 	}
-	if fr.SessionToken != nil && !credText(fr.SessionToken, SessionTokenPrefix, 128) {
+	if fr.SessionToken != nil && !credText(fr.SessionToken, procbind.SessionPrefixV2, 128) {
 		return fmt.Errorf("%w: the session token is not one", ErrCredFrameFatal)
 	}
-	if fr.TaskToken != nil && !credText(fr.TaskToken, TaskTokenPrefix, missionTokenMax-1) {
+	if fr.TaskToken != nil && !credText(fr.TaskToken, procbind.TaskPrefixV2, missionTokenMax-1) {
 		return fmt.Errorf("%w: the task token is not one", ErrCredFrameFatal)
 	}
 	if fr.MissionConfirmation != nil {
