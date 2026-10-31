@@ -96,11 +96,14 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	// The mission is read only when a look is about to be recorded or acted on, after the cheap early
 	// returns; a failed read keeps the last look's value so a transient error does not read as a change.
 	withMission := func() {
+		var was snapshot
+		_ = json.Unmarshal([]byte(prev.Snapshot), &was)
 		mission, ok := h.missionOf(m.ProfileID, m.ConversationID)
 		if !ok {
-			var was snapshot
-			_ = json.Unmarshal([]byte(prev.Snapshot), &was)
 			mission = was.Mission
+		} else if mission != nil {
+			mission.carryStalls(was.Mission)
+			mission.Reeval = reevalReasons(was.Mission, mission)
 		}
 		cur.Mission = mission
 		curJSON, _ = json.Marshal(cur)
@@ -139,7 +142,7 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	}
 	interval := time.Duration(settings.CheckinMinutes) * time.Minute
 	due := settings.CheckinMinutes > 0 && now.Sub(last) >= interval && (!lastFailed || now.Sub(lastTurnEnd) >= interval)
-	changed := string(curJSON) != prev.Snapshot
+	changed := lookChanged(cur, prev.Snapshot)
 
 	switch {
 	case len(events) > 0:
