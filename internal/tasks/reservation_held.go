@@ -2,15 +2,8 @@ package tasks
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 )
-
-// Queryer is what the read helpers need: a *sql.DB or a *sql.Tx.
-type Queryer interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
 
 // ReservationHeld is the money the live and expired reservations of one session keep out of its budget, in whole
 // micro-dollars: the sum of what is left of each row (never below 0), the same expression Commitment uses. It
