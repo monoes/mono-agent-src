@@ -4,7 +4,10 @@
 // recorded or checked. internal/coderhost uses it for its session tokens.
 package procchain
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 const maxAncestors = 64
 
@@ -32,7 +35,7 @@ func InChain(chain []int, pid int, stamp string) bool {
 	}
 	for _, p := range chain {
 		if p == pid {
-			return stamp == "" || Stamp(p) == stamp
+			return stamp == "" || SameStamp(stamp, Stamp(p))
 		}
 	}
 	return false
@@ -48,3 +51,30 @@ func DescendsFrom(pid int, stamp string) bool {
 
 // Stamp identifies a process across pid reuse; "" when it cannot be read or is not supported.
 func Stamp(pid int) string { return procStamp(pid) }
+
+// BootStamp is Stamp with the boot id appended ("start:N@boot-id"), for an identity that must not survive a reboot: a
+// process of a later boot can have the same pid and the same start tick. Where the boot id cannot be read it is Stamp.
+func BootStamp(pid int) string {
+	st := Stamp(pid)
+	if st == "" {
+		return ""
+	}
+	if b := bootID(); b != "" {
+		return st + "@" + b
+	}
+	return st
+}
+
+// SameStamp compares a stored stamp with a current one. The start part must be equal; the boot id is compared only when
+// both sides carry one, so stamps recorded without it (every stamp before BootStamp) keep matching.
+func SameStamp(stored, current string) bool {
+	s0, sb, sHas := strings.Cut(stored, "@")
+	c0, cb, cHas := strings.Cut(current, "@")
+	if s0 != c0 {
+		return false
+	}
+	if sHas && cHas {
+		return sb == cb
+	}
+	return true
+}

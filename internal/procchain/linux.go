@@ -43,3 +43,12 @@ func parentPID(pid int) (int, bool) {
 	}
 	return 0, false
 }
+
+// bootID is the kernel's id of this boot ("" when it cannot be read).
+func bootID() string {
+	b, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
+	return string(bytes.TrimSpace(b))
+}
