@@ -87,7 +87,8 @@ func (r Revoker) Run(ctx context.Context, kinds []Kind, scope Scope, legacy func
 // and returns the key function RevokeTx takes. It is for a caller that runs its own write transaction: call it
 // BEFORE the transaction begins, because deriving a key may write the database.
 //
-// It never creates a key. A profile without a vault key row (a deleted profile: its retained token rows are
+// It never creates a key (RowKeyIfExists reads the vault row, creating nothing, so a profile deleted between the
+// scope query and the read cannot have its key brought back). A profile without a vault key row (a deleted profile: its retained token rows are
 // signed under a key that no longer exists, so they verify nowhere and are inert) gets ErrNoRowKey, which
 // RevokeTx reads as "nothing to revoke here"; so a later delete cannot bring a deleted profile's key back, and
 // a delete does not depend on the keys of profiles it does not touch. A profile whose key row exists but cannot
@@ -120,15 +121,11 @@ func (r Revoker) Keys(ctx context.Context, kinds []Kind, scope Scope) (func(prof
 	keys := map[string][]byte{}
 	noKey := map[string]bool{}
 	for _, p := range profiles {
-		var one int
-		switch err := r.DB.QueryRowContext(ctx, `SELECT 1 FROM vault_keys WHERE profile_id = ?`, p).Scan(&one); {
-		case errors.Is(err, sql.ErrNoRows):
+		key, err := RowKeyIfExists(ctx, r.DB, p)
+		if errors.Is(err, ErrNoRowKey) {
 			noKey[p] = true
 			continue
-		case err != nil:
-			return nil, fmt.Errorf("looking up the vault key of a profile: %w", err)
 		}
-		key, err := RowKey(ctx, r.DB, p)
 		if err != nil {
 			return nil, fmt.Errorf("deriving the v2 row key: %w", err)
 		}

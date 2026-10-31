@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"sync"
@@ -86,6 +87,48 @@ func getOrCreateDEK(ctx context.Context, db *sql.DB, profileID string) ([]byte, 
 	}
 
 	return entry.dek, entry.err
+}
+
+// peekDEK returns profileID's unwrapped DEK without creating anything and without the cache: it reads the
+// vault_keys row, then the wrapping key, and unwraps (no rewrite). No row is ErrNoProfileKey; a row with no
+// usable wrapping key is an error.
+func peekDEK(ctx context.Context, db *sql.DB, profileID string) ([]byte, error) {
+	if profileID == "" {
+		return nil, profiledir.ErrNoProfile
+	}
+	var wrappedDEK, wrappedNonce []byte
+	err := db.QueryRowContext(ctx, `SELECT wrapped_dek, wrapped_nonce FROM vault_keys WHERE profile_id = ?`, profileID).
+		Scan(&wrappedDEK, &wrappedNonce)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoProfileKey
+	}
+	if err != nil {
+		return nil, fmt.Errorf("secrets: reading vault_keys: %w", err)
+	}
+	kek, found, err := peekKEK(profileID)
+	if err != nil {
+		return nil, fmt.Errorf("secrets: reading the wrapping key: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("secrets: the data key of the profile cannot be unwrapped: its wrapping key is missing")
+	}
+	dek, err := unwrapDEK(ctx, db, kek, wrappedDEK, wrappedNonce, profileID, false)
+	if err != nil {
+		return nil, fmt.Errorf("secrets: unwrapping DEK: %w", err)
+	}
+	return dek, nil
+}
+
+// ForgetProfile drops every cached DEK of the profile (any database handle), so the next getOrCreateDEK reads the
+// vault_keys row again instead of returning a key the profile no longer has. A profile delete calls it.
+func ForgetProfile(profileID string) {
+	dekEntriesMu.Lock()
+	for k := range dekEntries {
+		if k.profileID == profileID {
+			delete(dekEntries, k)
+		}
+	}
+	dekEntriesMu.Unlock()
 }
 
 // fetchOrCreateDEK's fast path (KEK and wrapped DEK both already exist) is
