@@ -66,8 +66,8 @@ func (s *Store) MarkTurnCapStarted(profileID, conversationID, turnID string) {
 // turn is never dropped: a slow admission can take longer than a minute, and a second host sharing the
 // database may be the one admitting it.
 func (s *Store) DropUnstartedCaps() {
-	_, _ = s.db.Exec(`DELETE FROM coder_session_turn_caps WHERE started = 0 AND created_at < ?
-		AND NOT EXISTS (SELECT 1 FROM coder_sessions x WHERE x.profile_id = coder_session_turn_caps.profile_id AND x.conversation_id = coder_session_turn_caps.conversation_id AND x.turn_id = coder_session_turn_caps.turn_id)`, s.now().Add(-time.Minute).UTC().Format(timeLayout))
+	_, _ = s.db.Exec(`DELETE FROM coder_session_turn_caps WHERE started = 0 AND ` + tsOlderThan("created_at", s.now().Add(-time.Minute)) + `
+		AND NOT EXISTS (SELECT 1 FROM coder_sessions x WHERE x.profile_id = coder_session_turn_caps.profile_id AND x.conversation_id = coder_session_turn_caps.conversation_id AND x.turn_id = coder_session_turn_caps.turn_id)`)
 }
 
 // DropTurnCap forgets the cap of a turn that did not start.
