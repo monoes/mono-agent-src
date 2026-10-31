@@ -89,6 +89,16 @@ func scanTask(r scanner) (Task, error) {
 }
 
 // NewID is a fresh task id.
+// ValidID says whether id has the shape NewID makes.
+func ValidID(id string) bool {
+	h, ok := strings.CutPrefix(id, "at-")
+	if !ok || len(h) != 16 {
+		return false
+	}
+	_, err := hex.DecodeString(h)
+	return err == nil && h == strings.ToLower(h)
+}
+
 func NewID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
@@ -108,6 +118,13 @@ func (s *Store) Insert(t Task) (Task, error) {
 		t.ID, t.Profile, t.Kind, t.ConversationID, t.Status, t.Goal, t.ApplicationID, t.Access, t.Runtime, un,
 		t.Prompt, t.BudgetUSD, t.Cwd, t.ContextHash, t.CapsHash, now, now)
 	return t, err
+}
+
+// IDTaken says whether any profile has a task with this id (the id is the table's key).
+func (s *Store) IDTaken(id string) (bool, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM ai_tasks WHERE id = ?`, id).Scan(&n)
+	return n > 0, err
 }
 
 // Get returns the profile's task id.

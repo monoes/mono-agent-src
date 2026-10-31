@@ -46,6 +46,7 @@ type mres struct {
 	owner          string
 	amount, charge float64
 	state          string
+	bounded        bool
 }
 
 func (m *mres) held() float64 {
@@ -82,25 +83,30 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 	var rows []*mres
 	owners := []string{"p1", "p2", "p3"}
 
-	var hold func(id int64) (own, total float64)
-	hold = func(id int64) (own, total float64) { // own: reservations held; total: spent + held + children's hold
-		var kids []int64
+	kidsOf := func(id int64) []int64 {
 		switch id {
 		case root:
-			kids = []int64{openKid, kid2, ub2}
+			return []int64{openKid, kid2, ub2}
 		case openKid:
-			kids = []int64{grand}
+			return []int64{grand}
 		case grand:
-			kids = []int64{ub}
+			return []int64{ub}
 		}
-		total = spent[id]
+		return nil
+	}
+	ownHeld := func(id int64) (own float64) {
 		for _, r := range rows {
 			if r.session == id {
 				own += r.held()
 			}
 		}
-		total += own
-		for _, k := range kids {
+		return own
+	}
+	var hold func(id int64) (own, total float64)
+	hold = func(id int64) (own, total float64) { // own: reservations held; total: spent + held + children's hold
+		own = ownHeld(id)
+		total = spent[id] + own
+		for _, k := range kidsOf(id) {
 			_, kt := hold(k)
 			if budget[k] > kt { // every session of the tree is open
 				kt = budget[k]
@@ -108,6 +114,28 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			total += kt
 		}
 		return own, total
+	}
+	var floor func(id int64) float64 // spent + held + what the children have really committed
+	floor = func(id int64) float64 {
+		f := spent[id] + ownHeld(id)
+		for _, k := range kidsOf(id) {
+			f += floor(k)
+		}
+		return f
+	}
+	var unboundedBelow func(id int64) bool
+	unboundedBelow = func(id int64) bool {
+		for _, r := range rows {
+			if r.session == id && !r.bounded && (r.state == ReservationLive || r.state == ReservationExpired) {
+				return true
+			}
+		}
+		for _, k := range kidsOf(id) {
+			if unboundedBelow(k) {
+				return true
+			}
+		}
+		return false
 	}
 	heldAll := func() float64 {
 		sum := 0.0
@@ -165,7 +193,7 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 				}
 				continue
 			}
-			rows = append(rows, &mres{id: r.ID, session: sid, owner: owner, amount: r.AmountUSD, state: ReservationLive})
+			rows = append(rows, &mres{id: r.ID, session: sid, owner: owner, amount: r.AmountUSD, state: ReservationLive, bounded: r.Bounded})
 		case n < 40: // heartbeat by the owner or a stranger
 			r := pick()
 			if r == nil {
@@ -330,6 +358,96 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			}
 			spent[r.session] += charge - r.charge
 			r.charge, r.state = charge, ReservationResolved
+		case n < 95: // the operator sets a budget: a refused floor changes nothing
+			sid := all[rng.Intn(len(all))]
+			b := float64(rng.Intn(60)) / 2 // 0 removes the budget
+			op = fmt.Sprintf("set budget of #%d to %.1f", sid, b)
+			ops = append(ops, op)
+			oldBudget := map[int64]float64{}
+			oldSpent := map[int64]float64{}
+			limits := 0
+			for _, id := range all {
+				oldBudget[id], oldSpent[id] = budget[id], rspent(t, db, id)
+				limits += eventCount(t, s, id, "limits")
+			}
+			floorRefuse := b > 0 && b != budget[sid] && (unboundedBelow(sid) || b+1e-9 < floor(sid))
+			_, err := setBudget(s, sid, b)
+			if err != nil {
+				if strings.Contains(err.Error(), "already committed") && !floorRefuse {
+					fail("%s: refused by the floor, but the model has room: %v", op, err)
+				}
+				if strings.Contains(err.Error(), "no cap, whose cost is unknown") && !(b > 0 && unboundedBelow(sid)) {
+					fail("%s: refused for an uncapped worker the model does not see: %v", op, err)
+				}
+				now := 0
+				for _, id := range all {
+					if got := budgetNow(t, s, id); got != oldBudget[id] || rspent(t, db, id) != oldSpent[id] {
+						fail("%s: refused (%v) but #%d moved to budget %v spent %v", op, err, id, got, rspent(t, db, id))
+					}
+					now += eventCount(t, s, id, "limits")
+				}
+				if now != limits {
+					fail("%s: refused (%v) but wrote limits events", op, err)
+				}
+				continue
+			}
+			if floorRefuse {
+				fail("%s: accepted below the floor", op)
+			}
+			isBelow := func(id int64) bool {
+				for ; id != 0; id = parent[id] {
+					if id == sid {
+						return true
+					}
+				}
+				return false
+			}
+			changed := []int64{sid}
+			for _, id := range all {
+				got := budgetNow(t, s, id)
+				if got != oldBudget[id] && id != sid {
+					// lowering a budget clamps the sessions below it (and gives one with no budget the cap)
+					if !isBelow(id) || b <= 0 || got > b+1e-9 || (oldBudget[id] > 0 && got > oldBudget[id]) {
+						fail("%s: #%d moved from %v to %v", op, id, oldBudget[id], got)
+					}
+					changed = append(changed, id)
+				}
+				budget[id] = got
+			}
+			// the sum of the children's budgets is not checked against the parent's (a later rule), so an
+			// ancestor can end up with more allowed than its budget: that is not an overspend by itself
+			for _, c := range changed {
+				for id := c; id != 0; id = parent[id] {
+					if _, tot := hold(id); budget[id] > 0 && tot > budget[id]+1e-9 {
+						overspent[id] = true
+					}
+				}
+			}
+		case n < 98: // the operator records spend, through the micro-dollar grid
+			sid := all[rng.Intn(len(all))]
+			usd := []float64{4e-7, 6e-7, 1e-6, 0.1234567, float64(rng.Intn(50)) / 10, float64(rng.Intn(50))/10 + 3e-7}[rng.Intn(6)]
+			if usd <= 0 {
+				usd = 2e-7
+			}
+			op = fmt.Sprintf("operator spend %.7f on #%d", usd, sid)
+			ops = append(ops, op)
+			events := eventCount(t, s, sid, "spend")
+			if _, err := s.AddSessionSpend(bg, "default", sid, usd, "n", human); err != nil {
+				fail("%s: %v", op, err)
+			}
+			if m := toMicros(usd); m > 0 {
+				spent[sid] = fromMicros(toMicros(spent[sid]) + m)
+				if eventCount(t, s, sid, "spend") != events+1 {
+					fail("%s: no spend event", op)
+				}
+				for id := sid; id != 0; id = parent[id] {
+					if _, tot := hold(id); budget[id] > 0 && tot > budget[id]+1e-9 {
+						overspent[id] = true
+					}
+				}
+			} else if eventCount(t, s, sid, "spend") != events {
+				fail("%s: a zero charge wrote an event", op)
+			}
 		default: // time passes without a sweep, owners heartbeat
 			op = "tick"
 			ops = append(ops, op)

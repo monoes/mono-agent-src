@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"context"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -26,8 +27,9 @@ func TestAMicroDollarChildIsChargedNotRoundedToNothing(t *testing.T) {
 			t.Fatalf("cost %v: snapshot reads back %v, %v, %v", cost, got, found, err)
 		}
 		f.passes(3)
-		if m := f.missionSpent(t); m != cost {
-			t.Fatalf("cost %v: meter = %v", cost, m)
+		// the session's meter counts whole micro-dollars (an operator amount under half of one is a zero charge)
+		if want := math.Round(cost*1e6) / 1e6; f.missionSpent(t) != want {
+			t.Fatalf("cost %v: meter = %v, want %v", cost, f.missionSpent(t), want)
 		}
 	}
 }
