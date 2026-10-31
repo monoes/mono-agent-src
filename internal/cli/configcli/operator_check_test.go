@@ -77,6 +77,13 @@ func TestConfigRowsUnderAReservedPrefixAreTheOperatorsAlone(t *testing.T) {
 			t.Fatal(perr)
 		}
 		real := os.Stdout
+		// Drain the pipe while the command runs: output larger than the pipe buffer
+		// would otherwise block the writer forever.
+		drained := make(chan []byte, 1)
+		go func() {
+			b, _ := io.ReadAll(r)
+			drained <- b
+		}()
 		os.Stdout = w
 		cmd := NewCommand(d)
 		cmd.SetOut(w)
@@ -86,7 +93,7 @@ func TestConfigRowsUnderAReservedPrefixAreTheOperatorsAlone(t *testing.T) {
 		err := cmd.Execute()
 		os.Stdout = real
 		w.Close()
-		b, _ := io.ReadAll(r)
+		b := <-drained
 		return string(b), err
 	}
 	row := "coder-mission-confirm/default/c1/t1/7"
