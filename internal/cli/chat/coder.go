@@ -71,6 +71,11 @@ type coderSettings struct {
 	// coding-access chat runs inside the agent sandbox (internal/agentbox). Nothing turns it
 	// on; only the operator changes it.
 	Box string `json:"box,omitempty"`
+	// PeercredBinding (security.peercred_binding) asks that a turn's tokens be bound to the turn's process by the
+	// kernel-checked binding service (internal/procbind). Off by default. Only the operator changes it, and it can be
+	// switched on only where procbind.Refusal says nothing: while the build cannot issue bound tokens, switching it on
+	// is refused and, if the setting is on anyway (a hand edit), every turn start is refused (coder_host_gate.go).
+	PeercredBinding bool `json:"peercredBinding,omitempty"`
 }
 
 const (
@@ -353,6 +358,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
+			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s (off by default; it cannot be switched on in this build yet)\n", onOff(st.PeercredBinding))
 			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s (off by default; best-effort hardening, not isolation: the host network is shared and the host root is read-only)\n", st.Box)
 			if !st.Ready {
 				fmt.Fprintf(cmd.OutOrStdout(), "missing monomind capabilities: %v\n", st.MissingCapabilities)

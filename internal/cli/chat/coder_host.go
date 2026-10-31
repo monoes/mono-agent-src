@@ -201,13 +201,13 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)
 			h := &coderhost.Host{
 				Store: store, ChildTokens: children,
-				L: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
+				L: &gatedLauncher{db: db.DB, inner: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
 					tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
 						if store.HostInsideTurn() {
 							return coderhost.ErrHostInsideTurn
 						}
 						return store.BindSessionToken(p, c, turn, pid, stamp)
-					}},
+					}}},
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
