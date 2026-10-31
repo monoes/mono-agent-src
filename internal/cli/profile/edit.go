@@ -367,7 +367,7 @@ func refuseRunning(ctx context.Context, q scopeQuerier, id string) error {
 	if n > 0 {
 		return fmt.Errorf("the profile has %d running or queued workflow execution(s): let them finish or cancel them first with `monoagentcli workflow execution cancel <execution-id>` (an execution left RUNNING by a crashed run also blocks the delete until it is cancelled)", n)
 	}
-	return nil
+	return refuseLiveReservations(ctx, q, id)
 }
 
 // deleteProfile removes everything the profile owns, and then the profile,
@@ -387,6 +387,7 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	if err := refuseRunning(ctx, tx, id); err != nil {
 		return nil, err
 	}
+	afterDeleteCheck()
 	scope, err := profileScope(ctx, tx)
 	if err != nil {
 		return nil, err
