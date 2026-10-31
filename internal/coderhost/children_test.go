@@ -315,6 +315,7 @@ func TestToolsNeverChangeOperatorOnlySettings(t *testing.T) {
 	for _, p := range []string{
 		`{"max_children":9}`, `{"max_depth":1}`, `{"max_concurrent":5}`, `{"checkin_limit":500}`, `{"mesh_accept":"project"}`,
 		`{"autonomy_preset":"decide-and-log"}`, `{"autonomy_classes":{"ambiguity":{"who":"model","fallback":"take_default"}}}`,
+		`{"mission_worker_reservations":true}`, `{"checkin_minutes":5,"mission_worker_reservations":true}`,
 		`{"checkin_minutes":5,"mesh_accept":"none"}`, // a mixed patch is refused whole
 	} {
 		_, _, err := st.SetChild(m, a, []byte(p))
@@ -342,6 +343,20 @@ func TestEverySettingIsClassified(t *testing.T) {
 		if oneOf(name, OperatorOnly) == oneOf(name, AgentAdjustable) {
 			t.Errorf("setting %q must be in exactly one of OperatorOnly and AgentAdjustable", name)
 		}
+	}
+}
+
+// The worker-reservation switch is off until the operator turns it on, and a stored patch reads back.
+func TestMissionWorkerReservationsDefaultOffAndOperatorOnly(t *testing.T) {
+	if DefaultSettings().MissionWorkerReservations {
+		t.Fatal("the live switch of the budget reservations is off by default")
+	}
+	if len(TouchesOperatorOnly([]string{"mission_worker_reservations"})) != 1 || oneOf("mission_worker_reservations", AgentAdjustable) {
+		t.Fatal("the switch is the operator's")
+	}
+	next, keys, err := DefaultSettings().Apply([]byte(`{"mission_worker_reservations":true}`))
+	if err != nil || !next.MissionWorkerReservations || len(keys) != 1 {
+		t.Fatalf("%+v %v %v", next, keys, err)
 	}
 }
 

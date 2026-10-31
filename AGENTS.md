@@ -1906,6 +1906,21 @@ A second call on an unchanged state writes nothing more; work reopened after a p
 gets a new report and card when its integration check settles again. A `close_proposed`
 session event, written after the card, records that the card went out. Each
 mission worker's exec is capped by the session's remaining `budget_usd`.
+**Worker reservations (#1160, the live switch; off by default).** The operator-only conversation setting
+`mission_worker_reservations` (`coder sessions settings set CONVERSATION --patch '{"mission_worker_reservations":true}'`,
+shown by `settings get`; a master or any session token cannot change it, and it is written only through
+`coderhost.Store.UpdateSettings`) makes the mission workers of that conversation take their money from the session
+as a reservation per run (`tasks.Reserve`, owner id: 128 random bits minted per Conductor, never derived from the
+pid) instead of the cap above. It is read at the start of every run; a setting that cannot be read means off, with
+one notice. A run asks for the turn's remaining worker budget, else the smaller of what the session has left and
+$1.00; a grant under $0.01 is the budget refusal. The run's cost is charged into its reservation as it streams
+(`ChargeReservation`, so the session's spend and the reservation's `charged` grow in one write) and settled with the
+final cost when the run ends; a worker's several runs (a fallback model, a retry) each reserve and settle their own,
+and the charge of a run is its cost less what the worker had recorded before it. The reservation is renewed on the
+watch tick a third of its 2-minute lease apart, and lapsed ones are swept (`ExpireStale`). A reservation the store
+no longer holds for the Conductor (expired during a suspend, taken away) stops that worker and posts a notice with
+the run's cost; the money stays held until the operator runs `task session reservation resolve ID --usd N` with
+the notice's total. With the setting off nothing here applies and the cap is as before.
 Worker and verifier briefs fence foreign text in a per-brief random delimiter
 (`<<<DATA-xxxxxxxx` ... `DATA-xxxxxxxx>>>`). One task gets at most 6 workers per turn and 12
 in all, whichever route starts them. A mission closes only if the integration check's
