@@ -380,3 +380,122 @@ func TestWorkerReservationsTwentyWorkers(t *testing.T) {
 		}
 	}
 }
+
+func scriptedConductor(r *missionRig, sx *scripted) *Conductor {
+	c := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 5, MaxConcurrent: 2}, Staffer: &Staffer{Roster: []Model{opus}, Lead: opus},
+		Exec: sx.exec, Emit: r.em, Missions: r.mc, Now: r.clk.now})
+	r.t.Cleanup(c.Close)
+	return c
+}
+
+// A final cost below what was streamed never lowers what is charged, and never costs the next run its charge: a
+// run's charge is its own cost (measured from the worker's cost counter at its start), not the store's spend.
+func TestWorkerReservationLowerFinalDoesNotLoseTheNextCharge(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 100})
+	var on atomic.Bool
+	r.mc.WorkerReservations = func(context.Context) (bool, error) { return on.Load(), nil }
+	sx := &scripted{steps: []step{
+		{stream: []float64{0.4}, final: 0.2},       // old path (setting off): recorded 0.4, counter 0.2
+		{stream: []float64{0.3}, final: 0.3},       // switch to reservations: 0.3 once -> 0.7
+		{stream: []float64{0.5}, final: 0},         // final cost 0: the streamed 0.5 stays charged -> 1.2
+		{stream: []float64{0.3, 0.2}, final: 0.25}, // cost decreasing between streams: peak 0.3 -> 1.5
+		{stream: []float64{0.4}, final: 0.1},       // lower final, then the fallback model's run below
+		{stream: []float64{0.15}, final: 0.15},     // fallback after a lower final -> 1.5+0.4+0.15
+		{final: 0.1},                               // -> 2.15
+	}}
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, c, "w-1")
+	r.approve()
+	want := 0.0
+	for i, cost := range []float64{0.4, 0.3, 0.5, 0.3, 0.4, 0.15, 0.1} {
+		on.Store(i > 0)
+		r.runOnce(c, w, tbg)
+		want += cost
+		if got := r.session().SpentUSD; !spendNear(got, want) {
+			t.Fatalf("after run %d: spent %v, want %v", i+1, got, want)
+		}
+	}
+}
+
+// Flipping the setting off while a worker holds a reservation does not hand its money to another worker, and a
+// run in flight keeps its mode: a flip or an unreadable setting mid-run cannot mix the two paths.
+func TestWorkerReservationSwitchOffKeepsTheHold(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 1})
+	var mode atomic.Int32 // 1 on, 0 off, 2 unreadable
+	mode.Store(1)
+	r.mc.WorkerReservations = func(context.Context) (bool, error) {
+		switch mode.Load() {
+		case 1:
+			return true, nil
+		case 2:
+			return false, fmt.Errorf("db busy")
+		}
+		return false, nil
+	}
+	sx := &scripted{steps: []step{{final: 0.1}, {final: 0.1}, {final: 0.1}}}
+	c := scriptedConductor(r, sx)
+	a, b := directWorker(r, c, "w-a"), directWorker(r, c, "w-b")
+	r.approve()
+	h, err := c.reserveExec(tbg, a, &monomind.ExecOptions{}) // A holds the whole $1
+	if err != nil || h == nil {
+		t.Fatal(err)
+	}
+	for _, m := range []int32{0, 2} {
+		mode.Store(m)
+		if !c.reservationsOn(tbg, r.mc) {
+			t.Fatalf("mode %d mid-run: the mode is latched while a reservation of this run is live", m)
+		}
+	}
+	mode.Store(0)
+	// the old path itself (another Conductor, or the latch gone) sees the hold
+	c2 := scriptedConductor(r, sx)
+	if _, err := c2.execOnce(tbg, b, opus, "doing task", ""); err == nil || !strings.Contains(err.Error(), "budget") || sx.n != 0 {
+		t.Fatalf("B must get nothing while A holds the dollar: %v (runs %d)", err, sx.n)
+	}
+	c.endExecReservation(a, h)
+	if c.reservationsOn(tbg, r.mc) {
+		t.Fatal("with no reservation live the flip applies")
+	}
+}
+
+// A heartbeat that finds its old reservation gone, after the run settled and another began, changes nothing.
+func TestWorkerReservationStaleHandleLossIsIgnored(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 10})
+	sx := &scripted{steps: []step{{final: 0.1}}}
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, c, "w-1")
+	r.approve()
+	h1, err := c.reserveExec(tbg, w, &monomind.ExecOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h1.ran = true
+	c.endExecReservation(w, h1)
+	h2, err := c.reserveExec(tbg, w, &monomind.ExecOptions{}) // the fallback run
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.reservationLost(w, h1) // the delayed heartbeat of run 1 answers
+	if w.task.stopped != "" || w.task.resv != h2 || h2.lost || countNotices(r.em, "mission.reservation_lost") != 0 {
+		t.Fatalf("the new run is untouched: stopped=%q lost=%v notices=%d", w.task.stopped, h2.lost, countNotices(r.em, "mission.reservation_lost"))
+	}
+	c.endExecReservation(w, h2)
+}
+
+// A settle that fails for good tells the operator the reservation id and the way out, also at zero cost.
+func TestWorkerReservationFailedSettleAlwaysNotices(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 10})
+	if _, err := r.db.Exec(`CREATE TRIGGER block_settle BEFORE UPDATE ON task_session_reservations WHEN NEW.state = 'settled'
+		BEGIN SELECT RAISE(ABORT, 'database is busy'); END`); err != nil {
+		t.Fatal(err)
+	}
+	sx := &scripted{steps: []step{{final: 0}}}
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, c, "w-1")
+	r.approve()
+	r.runOnce(c, w, tbg)
+	b, _ := json.Marshal(r.em.find("notice"))
+	if countNotices(r.em, "mission.reservation_lost") != 1 || !strings.Contains(string(b), "reservation resolve 1 --usd 0.000000") {
+		t.Fatalf("no recovery notice: %s", b)
+	}
+}

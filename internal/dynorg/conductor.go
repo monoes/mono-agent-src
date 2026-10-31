@@ -105,6 +105,11 @@ type Conductor struct {
 	ownerID string
 	// resvUsed is set once this Conductor has taken a reservation; the tick sweeps lapsed ones only then.
 	resvUsed atomic.Bool
+	// resvMu guards resvMode and resvLive: the latched mode of the worker reservations and how many reservations of
+	// this Conductor are live (mission_reserve.go).
+	resvMu   sync.Mutex
+	resvMode bool
+	resvLive int
 	// resvNoted: the "setting unreadable" notice went out (once per Conductor).
 	resvNoted atomic.Bool
 }

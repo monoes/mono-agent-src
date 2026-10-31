@@ -47,3 +47,10 @@ func (s *Store) LiveReservations(ctx context.Context, q reservationReader, profi
 	}
 	return out, nil
 }
+
+// SessionReservationHeld is ReservationHeld read on the store's own connection, in USD: what the worker
+// reservations of one session keep out of its budget. A caller that caps a run by "budget - spent" subtracts it.
+func (s *Store) SessionReservationHeld(ctx context.Context, profileID string, sessionID int64) (float64, error) {
+	m, err := ReservationHeld(ctx, s.db, profileID, sessionID)
+	return fromMicros(m), err
+}

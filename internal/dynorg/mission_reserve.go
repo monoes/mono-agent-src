@@ -31,13 +31,20 @@ func newOwnerID() string {
 }
 
 // execReservation is the reservation of one run of a mission worker (a fallback model's run is another one).
-// base is what the worker had already recorded when the run began: a worker's cost is a running total over all its
-// runs, the reservation's is per run, and the difference between the two is this offset. Guarded by the task's
-// spendMu.
+// A worker's cost counter (w.cost + w.liveCost) is a running total over all its runs and the reservation is per run,
+// so the run's own cost is the counter less t0, the counter when the run began. It is never measured from the
+// session's recorded spend: a run whose final cost is below what it streamed leaves the store at the higher figure,
+// and the next run must not inherit that difference. peak is the highest own cost seen, so a lower final never
+// lowers a charge (the store never decreases one). carry is cost the old cap path had not recorded when the run
+// began (the counter above the recorded spend); the reservation takes it over. Guarded by the task's spendMu.
 type execReservation struct {
-	id   int64
-	ref  string
-	base float64
+	id    int64
+	ref   string
+	t0    float64
+	carry float64
+	peak  float64
+	// charged is what the store holds as charged for this reservation, as far as we know.
+	charged float64
 	// lost: the store no longer holds it for us. The run is being stopped and nothing more is charged to it.
 	lost bool
 	// noted is the cost the "lost" notice already named.
@@ -46,11 +53,25 @@ type execReservation struct {
 	ran bool
 }
 
-// reservationsOn reports whether the mission's workers reserve their money. Anything but a clear yes, an
-// unreadable setting included, is no: the old cap applies (and the first time, a notice says why).
+// total is the reservation's cost for a worker counter value: the carried cost plus the highest own cost so far.
+func (h *execReservation) total(counter float64) float64 {
+	h.peak = max(h.peak, counter-h.t0)
+	return h.carry + h.peak
+}
+
+// reservationsOn reports whether the mission's workers reserve their money. The mode is latched for as long as a
+// reservation of this Conductor is live (the setting is read again only when none is), so a flip or an unreadable
+// setting in the middle of a run cannot mix the two paths. Otherwise anything but a clear yes, an unreadable
+// setting included, is no: the old cap applies, which subtracts every reservation's hold (and the first time, a
+// notice says why).
 func (c *Conductor) reservationsOn(ctx context.Context, mc *MissionRun) bool {
 	if mc.WorkerReservations == nil {
 		return false
+	}
+	c.resvMu.Lock()
+	defer c.resvMu.Unlock()
+	if c.resvLive > 0 {
+		return c.resvMode
 	}
 	on, err := mc.WorkerReservations(ctx)
 	if err != nil {
@@ -59,6 +80,7 @@ func (c *Conductor) reservationsOn(ctx context.Context, mc *MissionRun) bool {
 		}
 		return false
 	}
+	c.resvMode = on
 	return on
 }
 
@@ -105,9 +127,15 @@ func (c *Conductor) startExecReservation(ctx context.Context, mc *MissionRun, w 
 		return nil, err
 	}
 	c.resvUsed.Store(true)
+	c.resvMu.Lock()
+	c.resvLive++
+	c.resvMu.Unlock()
 	h := &execReservation{id: r.ID, ref: ref}
+	c.mu.Lock()
+	h.t0 = w.cost + w.liveCost
+	c.mu.Unlock()
 	w.task.spendMu.Lock()
-	h.base = w.task.spent
+	h.carry = max(h.t0-w.task.spent, 0)
 	w.task.resv = h
 	w.task.spendMu.Unlock()
 	c.msched.mu.Lock()
@@ -119,10 +147,10 @@ func (c *Conductor) startExecReservation(ctx context.Context, mc *MissionRun, w 
 	return h, nil
 }
 
-// endExecReservation ends the run's reservation once its cost is in the worker's total: a run that never reached
+// endExecReservation ends the run's reservation once its cost is in the worker's counter: a run that never reached
 // Exec gives its money back; any other settles with the run's real cost (never below what was charged on the
-// way). A settle that cannot be recorded leaves the row to lapse and be resolved by the operator, who is told
-// the number; the cost is then counted as handled so that nothing records it a second time.
+// way). A settle that cannot be recorded leaves the row to lapse and be resolved by the operator, who is always
+// told the id and the number; the cost is then counted as handled so that nothing records it a second time.
 func (c *Conductor) endExecReservation(w *worker, h *execReservation) {
 	mc, err := c.missions()
 	if err != nil {
@@ -130,22 +158,27 @@ func (c *Conductor) endExecReservation(w *worker, h *execReservation) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
 	defer cancel()
+	defer func() {
+		c.resvMu.Lock()
+		c.resvLive--
+		c.resvMu.Unlock()
+	}()
 	w.task.spendMu.Lock()
 	defer w.task.spendMu.Unlock()
 	if w.task.resv == h {
 		w.task.resv = nil
 	}
 	c.mu.Lock()
-	total := w.cost + w.liveCost
+	counter := w.cost + w.liveCost
 	c.mu.Unlock()
-	total = max(total, w.task.spent)
 	if !h.ran {
 		if err = mc.Store.ReleaseReservation(ctx, mc.ProfileID, h.id, c.ownerID); err != nil && !errors.Is(err, tasks.ErrReservationLost) {
 			c.notice("mission.reservation", fmt.Sprintf("Reservation #%d of %s could not be released: %v. It lapses and is resolved with `task session reservation resolve %d --usd 0`.", h.id, h.ref, err, h.id), chatevents.SeverityWarning)
 		}
 		return
 	}
-	actual := total - h.base
+	actual := h.total(counter)
+	w.task.spent = counter // everything up to the counter is now the reservation's
 	if !h.lost {
 		for i := 0; i < settleAttempts; i++ {
 			if err = mc.Store.Settle(ctx, mc.ProfileID, h.id, c.ownerID, actual); err == nil || errors.Is(err, tasks.ErrReservationLost) {
@@ -153,37 +186,36 @@ func (c *Conductor) endExecReservation(w *worker, h *execReservation) {
 			}
 		}
 		if err == nil {
-			w.task.spent = total
 			return
 		}
 	}
 	// Not recorded: the row keeps what is left of it until the operator resolves it.
-	w.task.spent = total
-	if h.lost || actual > h.noted {
-		c.noticeUnrecorded(w, h, actual)
-	}
+	c.noticeUnrecorded(h, actual)
 }
 
 // noticeUnrecorded tells the operator what a reservation cost in total and how to settle it.
-func (c *Conductor) noticeUnrecorded(w *worker, h *execReservation, total float64) {
+func (c *Conductor) noticeUnrecorded(h *execReservation, total float64) {
 	h.noted = total
 	c.notice("mission.reservation_lost", fmt.Sprintf("The budget reservation #%d of %s was not recorded; the run cost $%.6f in total, of which part may not be in the session's spend. "+
 		"Once the reservation has expired, settle it with `task session reservation resolve %d --usd %.6f`.", h.id, h.ref, total, h.id, total), chatevents.SeverityError)
 }
 
-// reservationLost stops the worker whose reservation is gone and tells the operator what it cost so far.
-// The caller does not hold the task's spendMu.
-func (c *Conductor) reservationLost(w *worker, h *execReservation, cost float64) {
+// reservationLost stops the worker whose reservation is gone and tells the operator what it cost so far. A handle
+// that is no longer the worker's current reservation (its run settled and another began while a heartbeat was in
+// flight) is ignored: it must neither stop the new run nor name the wrong row. The caller does not hold the task's
+// spendMu.
+func (c *Conductor) reservationLost(w *worker, h *execReservation) {
+	c.mu.Lock()
+	counter := w.cost + w.liveCost
+	c.mu.Unlock()
 	w.task.spendMu.Lock()
-	first := !h.lost
-	h.lost = true
-	if first {
-		c.noticeUnrecorded(w, h, cost-h.base)
-	}
-	w.task.spendMu.Unlock()
-	if !first {
+	if w.task.resv != h || h.lost {
+		w.task.spendMu.Unlock()
 		return
 	}
+	h.lost = true
+	c.noticeUnrecorded(h, h.total(counter))
+	w.task.spendMu.Unlock()
 	c.msched.mu.Lock()
 	w.task.stopped = "its budget reservation was lost"
 	c.msched.mu.Unlock()
@@ -213,16 +245,8 @@ func (c *Conductor) heartbeat(ctx context.Context, mc *MissionRun, w *worker, no
 		w.task.hbAt = now
 		c.msched.mu.Unlock()
 	case errors.Is(err, tasks.ErrReservationLost):
-		c.reservationLostNow(w, h)
+		c.reservationLost(w, h)
 	}
-}
-
-// reservationLostNow is reservationLost with the cost read from the worker's totals.
-func (c *Conductor) reservationLostNow(w *worker, h *execReservation) {
-	c.mu.Lock()
-	cost := w.cost + w.liveCost
-	c.mu.Unlock()
-	c.reservationLost(w, h, cost)
 }
 
 // expireStale lets the store lapse the reservations whose owners have gone (any process may).
@@ -233,25 +257,31 @@ func (c *Conductor) expireStale(ctx context.Context, mc *MissionRun, sid int64) 
 }
 
 // chargeRun records the cost of a run that holds a reservation into it (and so into the session's spend, in one
-// write) instead of adding it to the session: cost is the worker's running total, the reservation's is that less
-// the run's base. Called with the task's spendMu held, which it releases; it says whether anything was charged.
-func (c *Conductor) chargeRun(ctx context.Context, w *worker, h *execReservation, cost, delta float64) bool {
+// write) instead of adding it to the session. The run's cost is measured from the worker's counter, never from the
+// session's recorded spend. Called with the task's spendMu held, which it releases; it says whether anything was
+// charged.
+func (c *Conductor) chargeRun(ctx context.Context, w *worker, h *execReservation, counter float64) bool {
 	if h.lost {
 		w.task.spendMu.Unlock()
 		return false // being stopped: the final number goes into the notice
 	}
+	total := h.total(counter)
+	if total <= h.charged {
+		w.task.spendMu.Unlock()
+		return false // a lower or equal figure charges nothing and lowers nothing
+	}
 	mc, _ := c.missions()
-	err := mc.Store.ChargeReservation(ctx, mc.ProfileID, h.id, c.ownerID, cost-h.base)
+	err := mc.Store.ChargeReservation(ctx, mc.ProfileID, h.id, c.ownerID, total)
 	if err == nil {
-		w.task.spent = cost
+		h.charged = total
 		w.task.spendMu.Unlock()
 		return true
 	}
 	w.task.spendMu.Unlock()
 	if errors.Is(err, tasks.ErrReservationLost) {
-		c.reservationLost(w, h, cost)
+		c.reservationLost(w, h)
 		return false
 	}
-	c.notice("mission.spend", fmt.Sprintf("The cost of %s ($%.4f) could not be added to the session: %v", w.id, delta, err), chatevents.SeverityWarning)
+	c.notice("mission.spend", fmt.Sprintf("The cost of %s ($%.4f) could not be added to the session: %v", w.id, total-h.charged, err), chatevents.SeverityWarning)
 	return false
 }

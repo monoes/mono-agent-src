@@ -21,5 +21,11 @@ func (c *Conductor) missionExecCap(ctx context.Context, w *worker) (left float64
 	if se.BudgetUSD <= 0 {
 		return 0, false, nil
 	}
-	return se.BudgetUSD - se.SpentUSD, true, nil
+	// Money a worker reservation holds is not for this run, whatever the setting says now: flipping it off while a
+	// reservation is live must not hand the same dollar out again.
+	held, err := mc.Store.SessionReservationHeld(ctx, mc.ProfileID, w.task.session)
+	if err != nil {
+		return 0, false, fmt.Errorf("reading the reservations of session #%d: %w", w.task.session, err)
+	}
+	return se.BudgetUSD - se.SpentUSD - held, true, nil
 }
