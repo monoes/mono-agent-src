@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -339,4 +340,78 @@ func TestTheProductionHostInstallsTheGate(t *testing.T) {
 	}
 	cancel()
 	<-errc
+}
+
+// Valid JSON with another field of the wrong type is a settings object that cannot be read as a whole: the gate
+// refuses, whatever the one field it cares about says.
+func TestTheGateRefusesWhenTheWholeSettingsObjectIsUnreadable(t *testing.T) {
+	for name, raw := range map[string]string{
+		"junk field, binding false": `{"enabled":"junk","peercredBinding":false}`,
+		"junk field, no binding":    `{"maxTurns":"many"}`,
+		"junk field, binding null":  `{"timeout":7,"peercredBinding":null}`,
+	} {
+		g, inner := gateRig(t, raw)
+		if _, err := g.Start("p", "c", "t", "m", nil, ""); err == nil || len(inner.calls) != 0 {
+			t.Errorf("%s: a start went through: %v", name, err)
+		}
+	}
+}
+
+// Two writers of the settings cannot undo each other: each reads and writes inside one write transaction, so a
+// `coder set --box` racing an operator's peer-credential change keeps both. A barrier makes both read before either
+// writes, if the transaction lets them.
+func TestConcurrentSettingsWritersKeepEachOthersChanges(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	for round := 0; round < 10; round++ {
+		var arrived sync.WaitGroup
+		arrived.Add(2)
+		meet := func() { // both readers have read; gives up after a while if the other cannot get that far
+			arrived.Done()
+			done := make(chan struct{})
+			go func() { arrived.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { meet(); s.Box = BoxCompat; return nil })
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { meet(); s.PeercredBinding = true; return nil })
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+		wg.Wait()
+		got, err := loadCoderSettings(db.DB)
+		if err != nil || got.Box != BoxCompat || !bool(got.PeercredBinding) {
+			t.Fatalf("round %d: one writer undid the other: box=%q binding=%v (%v)", round, got.Box, got.PeercredBinding, err)
+		}
+		// reset for the next round
+		if _, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { s.Box, s.PeercredBinding = "", false; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a change that fails leaves the stored settings as they were
+	before, _ := loadCoderSettings(db.DB)
+	if _, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { s.Box = BoxStrict; return errors.New("refused") }); err == nil {
+		t.Fatal("the failing change succeeded")
+	}
+	if after, _ := loadCoderSettings(db.DB); after.Box != before.Box {
+		t.Errorf("a failed change was stored: %q", after.Box)
+	}
 }

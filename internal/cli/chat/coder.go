@@ -2,12 +2,14 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -168,9 +170,19 @@ func onOff(on bool) string {
 	return "off"
 }
 
+// settingsRW is what the settings need of a database, a connection or a transaction.
+type settingsRW interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 func loadCoderSettings(db *sql.DB) (coderSettings, error) {
+	return loadCoderSettingsFrom(context.Background(), db)
+}
+
+func loadCoderSettingsFrom(ctx context.Context, db settingsRW) (coderSettings, error) {
 	var raw string
-	err := db.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
+	err := db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return coderSettings{}.withDefaults(), nil
 	}
@@ -185,6 +197,10 @@ func loadCoderSettings(db *sql.DB) (coderSettings, error) {
 }
 
 func saveCoderSettings(db *sql.DB, s coderSettings) error {
+	return saveCoderSettingsTo(context.Background(), db, s)
+}
+
+func saveCoderSettingsTo(ctx context.Context, db settingsRW, s coderSettings) error {
 	if s.orgWritersDefaulted { // the default is not the operator's choice: keep it unset
 		s.OrgWriters = ""
 	}
@@ -195,7 +211,7 @@ func saveCoderSettings(db *sql.DB, s coderSettings) error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at)
+	_, err = db.ExecContext(ctx, `INSERT INTO configs (name, config_data, created_at, updated_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT(name) DO UPDATE SET config_data = excluded.config_data, updated_at = excluded.updated_at`,
 		coderConfigName, string(b))
@@ -203,6 +219,48 @@ func saveCoderSettings(db *sql.DB, s coderSettings) error {
 		return fmt.Errorf("saving coder settings: %w", err)
 	}
 	return nil
+}
+
+// updateCoderSettings reads the settings, lets change alter them and writes them back inside ONE write transaction
+// (BEGIN IMMEDIATE), so two writers cannot both read the old struct and the second one's save undo the first one's
+// (a concurrent `coder set --box` could otherwise erase an operator's peer-credential setting, and the reverse). It
+// returns the settings as saved; an error from change leaves the stored settings as they were.
+func updateCoderSettings(ctx context.Context, db *sql.DB, change func(s *coderSettings) error) (coderSettings, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return coderSettings{}, err
+	}
+	defer conn.Close()
+	for attempt := 0; ; attempt++ { // only the BEGIN is retried when the database is busy
+		if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err == nil || attempt >= 4 || !strings.Contains(err.Error(), "locked") && !strings.Contains(err.Error(), "BUSY") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond << attempt)
+	}
+	if err != nil {
+		return coderSettings{}, fmt.Errorf("saving coder settings: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
+		}
+	}()
+	s, err := loadCoderSettingsFrom(ctx, conn)
+	if err != nil {
+		return coderSettings{}, err
+	}
+	if err := change(&s); err != nil {
+		return coderSettings{}, err
+	}
+	if err := saveCoderSettingsTo(ctx, conn, s); err != nil {
+		return coderSettings{}, err
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return coderSettings{}, fmt.Errorf("saving coder settings: %w", err)
+	}
+	committed = true
+	return s, nil
 }
 
 // coderStatus is `coder status --json`. Ready and MissingCapabilities are
@@ -354,17 +412,18 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
-			s, err := loadCoderSettings(db.DB)
+			var s coderSettings
+			if change != nil {
+				ctx := cmd.Context()
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				s, err = updateCoderSettings(ctx, db.DB, func(s *coderSettings) error { return change(cmd, s) })
+			} else {
+				s, err = loadCoderSettings(db.DB)
+			}
 			if err != nil {
 				return err
-			}
-			if change != nil {
-				if err := change(cmd, &s); err != nil {
-					return err
-				}
-				if err := saveCoderSettings(db.DB, s); err != nil {
-					return err
-				}
 			}
 			st := currentCoderStatus(cmd, s)
 			if cfg.JSONOutput() {
