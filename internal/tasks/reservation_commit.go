@@ -64,10 +64,12 @@ func (s *Store) Commitment(ctx context.Context, profileID string, sessionID int6
 // commitment once closed or archived. The walk is profile-scoped, visits each session once (a revisit is a
 // cycle of parents) and fails closed on a tree deeper than HardMaxSessionDepth.
 func (s *Store) commitmentTx(ctx context.Context, x dbx, profileID string, id int64) (Commitment, error) {
-	return s.commitWalk(ctx, x, profileID, id, 1, map[int64]bool{id: true})
+	return s.commitWalkWith(ctx, x, profileID, id, 1, map[int64]bool{id: true}, hypo{})
 }
 
-func (s *Store) commitWalk(ctx context.Context, x dbx, profileID string, id int64, depth int, seen map[int64]bool) (Commitment, error) {
+// commitWalkWith is the walk with extra.held counted as held on extra.session, as if a reservation of that size
+// were there: the way to ask what an ancestor would commit if a grant were made below it. The zero hypo adds nothing.
+func (s *Store) commitWalkWith(ctx context.Context, x dbx, profileID string, id int64, depth int, seen map[int64]bool, extra hypo) (Commitment, error) {
 	var c Commitment
 	if err := x.QueryRowContext(ctx, `SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, id).Scan(&c.Budget, &c.Spent); err != nil {
 		return c, sessionLookup(err, id)
@@ -75,6 +77,9 @@ func (s *Store) commitWalk(ctx context.Context, x dbx, profileID string, id int6
 	if err := x.QueryRowContext(ctx, `SELECT COALESCE(SUM(MAX(amount_usd - charged_usd, 0)), 0) FROM task_session_reservations
 		WHERE profile_id = ? AND session_id = ? AND state IN ('live', 'expired')`, profileID, id).Scan(&c.Held); err != nil {
 		return c, fmt.Errorf("tasks: reading the reservations of session #%d: %w", id, err)
+	}
+	if extra.session == id {
+		c.Held += extra.held
 	}
 	type kid struct {
 		id     int64
@@ -109,7 +114,7 @@ func (s *Store) commitWalk(ctx context.Context, x dbx, profileID string, id int6
 			return c, invalid("session #%d is in a cycle of parents", k.id)
 		}
 		seen[k.id] = true
-		kc, err := s.commitWalk(ctx, x, profileID, k.id, depth+1, seen)
+		kc, err := s.commitWalkWith(ctx, x, profileID, k.id, depth+1, seen, extra)
 		if err != nil {
 			return c, err
 		}
