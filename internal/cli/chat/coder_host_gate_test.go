@@ -583,3 +583,49 @@ func TestTheGateRefusesWhenTheServiceCannotBeStartedOrIsNotRunning(t *testing.T)
 		}
 	}
 }
+
+// With issuance on (the test seam) the setter still refuses "on" while a coder turn is running: that turn holds legacy
+// tokens and was admitted unbound. With none running it is accepted; a running turn does not stop "off".
+func TestThePeercredSettingIsNotSwitchedOnWhileATurnRuns(t *testing.T) {
+	if !procbind.PeerPidfdSupported() {
+		t.Skip("the machine cannot run the binding service")
+	}
+	procbind.ForTestSetIssuance(t, true)
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := coderhost.NewStore(db.DB)
+	x, err := st.EnsureSession("default", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = coderhost.StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on")
+	if code != 3 {
+		t.Fatalf("on with a turn running: exit %d: %s", code, out)
+	}
+	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
+		t.Fatalf("the refused setter changed the setting: %s", out)
+	}
+	x.State, x.TurnID = coderhost.StateIdle, ""
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on"); code != 0 {
+		t.Fatalf("on with no turn running: exit %d: %s", code, out)
+	}
+	x.State, x.TurnID = coderhost.StateRunning, "t2"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=off"); code != 0 {
+		t.Fatalf("off with a turn running: exit %d", code)
+	}
+}

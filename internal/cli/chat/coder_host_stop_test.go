@@ -55,11 +55,20 @@ func TestAHeldLeadersGroupIsSignalledOnlyBeforeTheReap(t *testing.T) {
 
 	s = sigLog{}
 	late := newSigTurn(&s)
-	late.settle() // the leader exited, nobody stopped it
-	late.Stop()   // a stop after the exit signals nothing by number
-	late.killGroupIfHeld()
+	late.settle() // the leader exited (held, not yet reaped), nobody stopped it
+	late.Stop()   // a stop in that window still ends the stragglers, as it always did
+	if terms, kills := s.n(); terms != 1 || kills != 1 {
+		t.Fatalf("stopped between the exit and the reap: %d terminations, %d kills, want 1 and 1", terms, kills)
+	}
+
+	s = sigLog{}
+	reaped := newSigTurn(&s)
+	reaped.settle()
+	reaped.markReaped() // the pid is free now
+	reaped.Stop()
+	reaped.killGroupIfHeld()
 	if terms, kills := s.n(); terms != 0 || kills != 0 {
-		t.Fatalf("stopped after the exit: %d terminations, %d kills, want none", terms, kills)
+		t.Fatalf("stopped after the reap: %d terminations, %d kills, want none", terms, kills)
 	}
 
 	s = sigLog{}

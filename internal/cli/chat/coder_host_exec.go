@@ -238,6 +238,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			t.settle()
 		}
 		t.err = cmd.Wait()
+		t.markReaped()
 		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
 		// revoke is retried; a revoke that still fails is reported as the turn's error.
 		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
@@ -428,7 +429,8 @@ type execTurn struct {
 	mu       sync.Mutex
 	stopping bool // Stop was asked for (or the launcher is about to kill the leader itself)
 	held     bool // the leader's exit is observed without reaping it (Linux), so the group can be killed before the reap
-	gone     bool // held, and the leader has exited: the group is never signalled by number again
+	exited   bool // held, and the leader has exited (not yet reaped, when reaped is false)
+	reaped   bool // held, and cmd.Wait has returned: the pid is free, so the group is never signalled by number again
 
 	term, kill func(pid int) error // the group signals; nil is terminateGroup / killGroup
 }
@@ -453,7 +455,7 @@ func (t *execTurn) killGrp() error {
 func (t *execTurn) settle() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.held, t.gone = true, true
+	t.held, t.exited = true, true
 	if t.stopping {
 		_ = t.killGrp()
 	}
@@ -478,11 +480,22 @@ func (t *execTurn) afterDone() {
 	}
 }
 
+// markReaped records that cmd.Wait returned. Where the leader is held, no group signal by number happens after it.
+func (t *execTurn) markReaped() {
+	t.mu.Lock()
+	t.reaped = true
+	t.mu.Unlock()
+}
+
+// pinned says whether the group may still be signalled by number: the leader is not held (the platform's old behaviour)
+// or it is held and not yet reaped, so the pid cannot name anything else. The caller holds t.mu.
+func (t *execTurn) pinned() bool { return !(t.held && t.reaped) }
+
 // killGroupIfHeld kills the group at the end of the grace period, unless the leader has been reaped (held) already.
 func (t *execTurn) killGroupIfHeld() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.gone {
+	if t.pinned() && !t.exited { // an exited leader's stragglers were killed when it exited, or by the Stop that came after
 		_ = t.killGrp()
 	}
 }
@@ -494,8 +507,11 @@ func (t *execTurn) Stop() {
 	t.once.Do(func() {
 		t.mu.Lock()
 		t.stopping = true
-		if !t.gone {
-			_ = t.terminateGrp() // t is this process's child, and unreaped while gone is false: its pid is still its own
+		if t.pinned() {
+			_ = t.terminateGrp() // t is this process's child, and unreaped while pinned: its pid is still its own
+			if t.exited {        // the leader already ended and is held unreaped: its stragglers go now, as they always did
+				_ = t.killGrp()
+			}
 		}
 		t.mu.Unlock()
 		grace := hostTurnGrace // read here: the goroutine below can outlive a test that swaps it
