@@ -67,6 +67,9 @@ func (h *Host) fillDirections(f *missionFact, sessionID int64, was *missionFact)
 	if f.ResearchOpen, err = h.openResearch(sessionID, f.ResearchCur); err != nil {
 		return err
 	}
+	if h.afterOpenSets != nil {
+		h.afterOpenSets() // a test seam: the rows change between the open-set queries and the count queries
+	}
 	if f.OpenCapped {
 		h.logf("coder host: mission session %d has more than %d open sessions; the oldest are not followed", sessionID, MaxOpenSessions)
 	}
@@ -129,14 +132,26 @@ func (h *Host) sinceLastLook(f, was *missionFact) error {
 		}
 		rows.Close()
 	}
-	// Created since the last look and already closed (open ones are in the lists above, with no baseline).
+	// Created since the last look and already closed (open ones are in the lists above, with no baseline). One that
+	// the lists above hold but that closed since they were read is left out: the snapshot keeps it as open, so the next
+	// look finds it by id and announces it then, once.
 	for _, c := range []struct {
 		kind string
 		from int64
 		to   int64
-	}{{"direction", was.DirCur, f.DirCur}, {"research", was.ResearchCur, f.ResearchCur}} {
-		rows, err := db.Query(`SELECT state, COUNT(*) FROM task_sessions WHERE parent_session_id = ? AND kind = ? AND id > ? AND id <= ? AND archived_at = '' AND NOT `+openSessions+` GROUP BY state`,
-			f.Sess, c.kind, c.from, c.to)
+		open map[int64]bool
+	}{{"direction", was.DirCur, f.DirCur, nowDir}, {"research", was.ResearchCur, f.ResearchCur, nowRes}} {
+		args := []any{f.Sess, c.kind, c.from, c.to}
+		skip := ""
+		for id := range c.open {
+			skip += "?,"
+			args = append(args, id)
+		}
+		if skip != "" {
+			skip = " AND id NOT IN (" + strings.TrimSuffix(skip, ",") + ")"
+		}
+		rows, err := db.Query(`SELECT state, COUNT(*) FROM task_sessions WHERE parent_session_id = ? AND kind = ? AND id > ? AND id <= ? AND archived_at = '' AND NOT `+openSessions+skip+` GROUP BY state`,
+			args...)
 		if err != nil {
 			return err
 		}

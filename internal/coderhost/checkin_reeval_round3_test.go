@@ -289,3 +289,23 @@ func TestAStoppedDirectionIsAnnouncedOnce(t *testing.T) {
 		t.Fatalf("announced twice: %q", c.Message)
 	}
 }
+
+// A direction created after the last look and closed between the open-set queries and the count queries is announced
+// once: not by the look that raced it (the snapshot keeps it as open) and again by the next.
+func TestADirectionClosedBetweenTheQueriesIsAnnouncedOnce(t *testing.T) {
+	r := newReevalRig(t)
+	fresh := r.running("direction")
+	r.h.afterOpenSets = func() {
+		r.h.afterOpenSets = nil
+		r.exec(`UPDATE task_sessions SET state = 'done' WHERE id = ?`, fresh)
+	}
+	announced := 0
+	for i := 0; i < 3; i++ {
+		if c := r.pass(); c != nil && strings.Contains(c.Message, "direction(s) finished") {
+			announced++
+		}
+	}
+	if announced != 1 {
+		t.Fatalf("announced %d times, want once", announced)
+	}
+}
