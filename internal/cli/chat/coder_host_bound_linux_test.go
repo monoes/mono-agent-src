@@ -173,7 +173,7 @@ func TestABoundTurnIsLaunchedBoundAndNothingIsInItsEnvironment(t *testing.T) {
 		t.Fatalf("token row: %+v %v", tok, err)
 	}
 	bind, err := procbind.GetBinding(ctx, r.db.DB, key, procbind.KindSession, "default", id)
-	if err != nil || bind.WorkerPID != turn.PID() || bind.WorkerStamp != coderhost.ProcStamp(turn.PID()) || bind.HostGeneration != "gen-1" || bind.Scope != procbind.SessionScope("c1", "t1") {
+	if err != nil || bind.WorkerPID != turn.PID() || bind.WorkerStamp != coderhost.BoundStamp(turn.PID()) || bind.HostGeneration != "gen-1" || bind.Scope != procbind.SessionScope("c1", "t1") {
 		t.Fatalf("binding row: %+v %v (pid %d)", bind, err, turn.PID())
 	}
 	lease, ok := r.binder.Acquire(id, "default", procbind.SessionScope("c1", "t1"))
