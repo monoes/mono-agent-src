@@ -126,11 +126,11 @@ func (s *Store) setIntentChild(in spawnIntent, child string) error {
 // (pending and past its lease; or sweeping, a retry, whose own lease - SpawnSweepLease doubled per attempt - has run
 // out). ok is false when somebody else changed or ended the row. The returned intent carries the new generation, the
 // attempt count and the child as it is now.
-func (s *Store) claimIntent(in spawnIntent, leaseCut, createCut string) (spawnIntent, bool, error) {
+func (s *Store) claimIntent(in spawnIntent, leaseCut, createCut time.Time) (spawnIntent, bool, error) {
 	res, err := s.db.Exec(`UPDATE coder_spawn_intents SET state = 'sweeping', generation = generation + 1, claimed_at = ?, attempts = attempts + 1
 		WHERE profile_id = ? AND spawner = ? AND scope_hash = ? AND generation = ?
-		AND ((state = 'pending' AND created_at < ? AND (child != '' OR created_at < ?)) OR (state = 'sweeping' AND claimed_at < ?))`,
-		s.stamp(), in.profile, in.spawner, in.hash, in.gen, leaseCut, createCut, s.sweepCut(in.attempts))
+		AND ((state = 'pending' AND `+tsLapsed("created_at", leaseCut)+` AND (child != '' OR `+tsLapsed("created_at", createCut)+`)) OR (state = 'sweeping' AND `+tsLapsed("claimed_at", s.sweepCut(in.attempts))+`))`,
+		s.stamp(), in.profile, in.spawner, in.hash, in.gen)
 	if err != nil {
 		return in, false, err
 	}
@@ -143,8 +143,8 @@ func (s *Store) claimIntent(in spawnIntent, leaseCut, createCut string) (spawnIn
 }
 
 // sweepCut is the claimed_at before which a sweeping row that was claimed attempts times may be claimed again.
-func (s *Store) sweepCut(attempts int64) string {
-	return s.now().UTC().Add(-SpawnSweepLease << min(max(attempts-1, 0), SpawnSweepAttempts)).Format(timeLayout)
+func (s *Store) sweepCut(attempts int64) time.Time {
+	return s.now().UTC().Add(-SpawnSweepLease << min(max(attempts-1, 0), SpawnSweepAttempts))
 }
 
 // stillClaimed fences a cleanup step: the claim the step belongs to (its generation) must still be the row's.

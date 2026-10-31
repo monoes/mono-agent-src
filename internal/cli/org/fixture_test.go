@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,18 +142,19 @@ func openTestWorkflowStore(db *storage.Database) *workflow.HybridWorkflowStore {
 // written: the org commands print with fmt.Println.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
-	r, w, err := os.Pipe()
+	// A file, not a pipe: a pipe needs a concurrent reader (output larger than
+	// the pipe buffer would block fn), and a reader goroutine blocked on a real
+	// descriptor stops the fake clock of the synctest bubbles that call this.
+	f, err := os.CreateTemp(t.TempDir(), "stdout")
 	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
+		t.Fatalf("os.CreateTemp: %v", err)
 	}
+	defer f.Close()
 	orig := os.Stdout
-	os.Stdout = w
+	os.Stdout = f
 	defer func() { os.Stdout = orig }()
 	fn()
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	out, err := io.ReadAll(r)
+	out, err := os.ReadFile(f.Name())
 	if err != nil {
 		t.Fatal(err)
 	}

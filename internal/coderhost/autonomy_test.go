@@ -56,7 +56,7 @@ func TestDecideBoundariesHoldForEveryPresetClassAndOverride(t *testing.T) {
 			}
 		}
 	}
-	if checked != 3*6*7*4 {
+	if checked != 3*len(GapClasses)*7*4 {
 		t.Fatalf("checked %d combinations", checked)
 	}
 }

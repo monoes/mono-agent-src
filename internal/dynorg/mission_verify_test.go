@@ -268,18 +268,18 @@ func TestMissionCodeTaskWithoutEvidenceIsGivenBack(t *testing.T) {
 
 func TestVerifierForPrefersAnotherReadyModel(t *testing.T) {
 	s := &Staffer{Roster: []Model{opus, haiku}, Lead: opus}
-	if m, same := VerifierFor(s, haiku); m.Model != "opus" || same {
+	if m, same, _ := VerifierFor(s, haiku); m.Model != "opus" || same {
 		t.Errorf("executor haiku: %+v %v", m, same)
 	}
-	if m, same := VerifierFor(s, opus); m.Model != "haiku" || same {
+	if m, same, _ := VerifierFor(s, opus); m.Model != "haiku" || same {
 		t.Errorf("executor opus: %+v %v", m, same)
 	}
-	if m, same := VerifierFor(s, Model{}); m.Model != "haiku" || same {
+	if m, same, _ := VerifierFor(s, Model{}); m.Model != "haiku" || same {
 		t.Errorf("unknown executor counts as the lead: %+v %v", m, same)
 	}
 	stale := haiku
 	stale.Stale = true
-	if m, same := VerifierFor(&Staffer{Roster: []Model{opus, stale}, Lead: opus}, opus); m.Model != "opus" || !same {
+	if m, same, _ := VerifierFor(&Staffer{Roster: []Model{opus, stale}, Lead: opus}, opus); m.Model != "opus" || !same {
 		t.Errorf("only the executor's model is ready: %+v %v", m, same)
 	}
 }

@@ -167,6 +167,7 @@ var seedOverrides = map[string]map[string]any{
 	"coder_session_decisions": {"made_by": "model"},
 	"coder_mission_children":  {"origin": "lead", "state": "marked"},
 	"coder_budget_requests":   {"target": "lead", "status": "open"},
+	"coder_session_asks":      {"importance": "normal"},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a
@@ -222,8 +223,8 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 		var n int
 		conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+e.Table+`"`).Scan(&n)
 		before[e.Table] = n
-		if e.Table == "settings" || e.Table == "workflow_publications" {
-			continue // publications block the delete (TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen)
+		if e.Table == "settings" || e.Table == "configs" || e.Table == "workflow_publications" {
+			continue // publications block the delete (TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen); settings and configs are seeded by key below
 		}
 		cols, vals := []string{}, []any{}
 		var pkCols int // a lone INTEGER primary key is the rowid; part of a composite one needs a value
@@ -269,6 +270,11 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, name := range []string{"agent_purposes." + id + ".coding", "agent_purposes.someone-else.coding"} {
+		if _, err := conn.ExecContext(ctx, `INSERT INTO configs (name, config_data) VALUES (?, '{}')`, name); err != nil {
+			t.Fatal(err)
+		}
+	}
 	conn.Close()
 	db.Close()
 
@@ -295,7 +301,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	}
 	defer db.Close()
 	for _, e := range scope {
-		if e.Table == "settings" || e.Table == "workflow_publications" {
+		if e.Table == "settings" || e.Table == "configs" || e.Table == "workflow_publications" {
 			continue
 		}
 		var n int
@@ -310,6 +316,9 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	keys, _ = queryStrings(ctx, db.DB, `SELECT key FROM settings WHERE key LIKE 'task_agent_access:%' OR key LIKE 'jev.%'`)
 	if len(keys) != 1 || keys[0] != "jev.someone-else.chat.model" {
 		t.Errorf("settings left after the delete: %v, want only another profile's jev key", keys)
+	}
+	if names, _ := queryStrings(ctx, db.DB, `SELECT name FROM configs WHERE name LIKE 'agent_purposes.%'`); len(names) != 1 || names[0] != "agent_purposes.someone-else.coding" {
+		t.Errorf("agent purpose rows left after the delete: %v, want only another profile's", names)
 	}
 	if _, err := os.Stat(wfFile); !os.IsNotExist(err) {
 		t.Errorf("the profile's workflow file was left behind: %v", err)
@@ -401,6 +410,18 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	var gone int
 	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM profiles WHERE id = ?`, id).Scan(&gone); err != nil || gone != 0 {
 		t.Errorf("the profile itself is still there: %d %v", gone, err)
+	}
+}
+
+// The retention sweep does not exist yet: no reason given for keeping a row may say it removes them as if it did.
+func TestRetainedReasonsDoNotClaimASweepThatDoesNotExist(t *testing.T) {
+	for tbl, why := range retainedOnDelete {
+		if strings.Contains(why, "retention sweep") && !strings.Contains(why, "not shipped yet") {
+			t.Errorf("%s: %q names the retention sweep without saying it is not shipped yet", tbl, why)
+		}
+	}
+	if !strings.Contains(retainedOnDelete["procbind_host"], "kept permanently") {
+		t.Errorf("the host log's newest row is kept permanently, and its reason must say so: %q", retainedOnDelete["procbind_host"])
 	}
 }
 

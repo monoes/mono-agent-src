@@ -90,7 +90,7 @@ func (s *Store) HostInsideTurn() bool {
 	for _, p := range chain {
 		in[p] = true
 	}
-	rows, err := s.db.Query(`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND expires_at >= ?`, s.now().UTC().Format(timeLayout))
+	rows, err := s.db.Query(`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND ` + tsLive("expires_at", s.now()))
 	if err != nil {
 		return false
 	}
@@ -153,7 +153,7 @@ func (s *Store) IssueSessionToken(profileID, conversationID, turnID string) (str
 		return "", err
 	}
 	// procbind:legacy-only an expired token is denied by its expiry; the v2 rows of expired tokens follow their own retention (3e).
-	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE expires_at < ?`, now.Format(timeLayout)); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE ` + tsExpired("expires_at", now)); err != nil {
 		return "", err
 	}
 	h, exp := hashToken(tok), now.Add(SessionTokenTTL).Format(timeLayout)

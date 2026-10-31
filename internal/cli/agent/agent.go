@@ -32,6 +32,7 @@ func (d Deps) newAgentCmd() *cobra.Command {
 		d.newAgentInstallCmd(),
 		d.newAgentValidateCmd(),
 		d.newAgentRosterCmd(),
+		d.newAgentPurposesCmd(),
 	)
 	return cmd
 }

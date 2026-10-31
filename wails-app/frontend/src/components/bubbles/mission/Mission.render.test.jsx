@@ -11,6 +11,7 @@ const { api, chatAccess, sess, nav } = vi.hoisted(() => ({
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
   sess: { list: vi.fn(), show: vi.fn(), plan: vi.fn(), board: vi.fn(), approve: vi.fn(), pause: vi.fn(), resume: vi.fn(), stop: vi.fn(), archive: vi.fn(), close: vi.fn(), budget: vi.fn(), pulse: vi.fn() },
   api: {
+    getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
     getChatTurns: vi.fn(), getChatEvents: vi.fn(), startChatTurn: vi.fn(), confirmMission: vi.fn(), stopChatTurn: vi.fn(), coderStatus: vi.fn(),
     coderWorkspaceList: vi.fn(), getAgentRuntimeModels: vi.fn(), hilList: vi.fn(), getProfiles: vi.fn(),
   },
@@ -123,7 +124,7 @@ describe('plan card', () => {
     expect(card).toHaveTextContent('review round 1')
     const approve = await screen.findByTestId('mission-approve')
     fireEvent.click(approve)
-    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7))
+    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7, 1))
     await waitFor(() => expect(screen.queryByTestId('mission-approve')).toBeNull())
     expect(screen.getByTestId('mission-plan-state')).toHaveTextContent('Running')
     expect(screen.queryByTestId('mission-reject')).toBeNull()

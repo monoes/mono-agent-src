@@ -127,7 +127,7 @@ func TestASweepingRowIsNotReclaimedWithinItsLeaseNorWithAStaleGeneration(t *test
 	f := newMC(t, true)
 	old := f.crashedSpawn(t)
 	f.at(SpawnIntentLease + time.Minute)
-	lc, cc := f.st.now().Add(-SpawnIntentLease).UTC().Format(timeLayout), f.st.now().Add(-SpawnCreateLeases*SpawnIntentLease).UTC().Format(timeLayout)
+	lc, cc := f.st.now().Add(-SpawnIntentLease).UTC(), f.st.now().Add(-SpawnCreateLeases*SpawnIntentLease).UTC()
 	first, ok, err := f.st.claimIntent(old, lc, cc)
 	if err != nil || !ok {
 		t.Fatalf("the first claim: ok=%v err=%v", ok, err)
@@ -136,7 +136,7 @@ func TestASweepingRowIsNotReclaimedWithinItsLeaseNorWithAStaleGeneration(t *test
 		t.Error("a second sweep re-claimed a sweeping row inside its lease")
 	}
 	f.at(SpawnIntentLease + 24*time.Hour) // far past any lease
-	lc = f.st.now().Add(-SpawnIntentLease).UTC().Format(timeLayout)
+	lc = f.st.now().Add(-SpawnIntentLease).UTC()
 	if _, ok, _ := f.st.claimIntent(old, lc, cc); ok {
 		t.Error("a claim with the stale generation succeeded")
 	}
@@ -150,7 +150,7 @@ func TestAFencedCleanupStepWithAStaleGenerationChangesNothing(t *testing.T) {
 	f := newMC(t, true)
 	old := f.crashedSpawn(t)
 	f.afterLease(time.Minute)
-	lc, cc := f.st.now().Add(-SpawnIntentLease).UTC().Format(timeLayout), f.st.now().Add(-SpawnCreateLeases*SpawnIntentLease).UTC().Format(timeLayout)
+	lc, cc := f.st.now().Add(-SpawnIntentLease).UTC(), f.st.now().Add(-SpawnCreateLeases*SpawnIntentLease).UTC()
 	if _, ok, err := f.st.claimIntent(old, lc, cc); err != nil || !ok {
 		t.Fatalf("claim: ok=%v err=%v", ok, err)
 	}
@@ -211,7 +211,7 @@ func TestEndSpawnNowOfASpawnWhoseRowWasClaimedByTheSweepDoesNothing(t *testing.T
 	f := newMC(t, true)
 	old := f.crashedSpawn(t)
 	f.afterLease(time.Minute)
-	lc, cc := f.st.now().Add(-SpawnIntentLease).UTC().Format(timeLayout), f.st.now().Add(-SpawnCreateLeases*SpawnIntentLease).UTC().Format(timeLayout)
+	lc, cc := f.st.now().Add(-SpawnIntentLease).UTC(), f.st.now().Add(-SpawnCreateLeases*SpawnIntentLease).UTC()
 	claimed, ok, err := f.st.claimIntent(old, lc, cc)
 	if err != nil || !ok {
 		t.Fatalf("claim: ok=%v err=%v", ok, err)

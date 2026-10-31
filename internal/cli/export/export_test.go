@@ -31,11 +31,18 @@ func runExport(t *testing.T, dbPath, profile string, jsonOut bool, args ...strin
 		t.Fatal(err)
 	}
 	orig := os.Stdout
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stdout = w
 	runErr := cmd.Execute()
 	os.Stdout = orig
 	w.Close()
-	out, _ := io.ReadAll(r)
+	out := <-drained
 	if runErr != nil {
 		t.Fatalf("export %v: %v", args, runErr)
 	}
