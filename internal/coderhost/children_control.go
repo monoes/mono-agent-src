@@ -1,6 +1,8 @@
 package coderhost
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -53,31 +55,34 @@ func (s *Store) SetChild(c Caller, target string, patch []byte) (Settings, []str
 	if err := s.authorize(c, target); err != nil {
 		return Settings{}, nil, err
 	}
-	cur, err := s.GetSettings(c.ProfileID, target)
-	if err != nil {
-		return Settings{}, nil, err
-	}
-	next, keys, err := cur.Apply(patch)
-	if err != nil {
-		return Settings{}, nil, fmt.Errorf("%w: %v", ErrInvalid, err)
-	}
-	if alias := next.MeshAlias; alias != "" && oneOf("mesh_alias", keys) {
-		if taken, err := s.aliasTaken(c.ProfileID, target, alias); err != nil {
-			return Settings{}, nil, err
-		} else if taken {
-			return Settings{}, nil, fmt.Errorf("%w: mesh_alias %q is already used by another session", ErrInvalid, alias)
+	var keys []string
+	next, err := s.UpdateSettings(c.ProfileID, target, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
+		// cur is the settings as they are inside the write transaction, so a key the patch does not name
+		// (the operator's Mission toggle among them) keeps the value it has now, not the one an earlier read saw.
+		next, k, err := cur.Apply(patch)
+		if err != nil {
+			return Settings{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 		}
-	}
-	var banned []string
-	for _, k := range keys {
-		if !oneOf(k, AgentAdjustable) {
-			banned = append(banned, k)
+		if alias := next.MeshAlias; alias != "" && oneOf("mesh_alias", k) {
+			if taken, err := s.aliasTaken(c.ProfileID, target, alias); err != nil {
+				return Settings{}, err
+			} else if taken {
+				return Settings{}, fmt.Errorf("%w: mesh_alias %q is already used by another session", ErrInvalid, alias)
+			}
 		}
-	}
-	if len(banned) > 0 {
-		return Settings{}, nil, fmt.Errorf("%w: %s can only be changed by the operator", ErrOperatorOnly, strings.Join(banned, ", "))
-	}
-	if err := s.SaveSettings(c.ProfileID, target, next); err != nil {
+		var banned []string
+		for _, key := range k {
+			if !oneOf(key, AgentAdjustable) {
+				banned = append(banned, key)
+			}
+		}
+		if len(banned) > 0 {
+			return Settings{}, fmt.Errorf("%w: %s can only be changed by the operator", ErrOperatorOnly, strings.Join(banned, ", "))
+		}
+		keys = k
+		return next, nil
+	})
+	if err != nil {
 		return Settings{}, nil, err
 	}
 	return next, keys, nil

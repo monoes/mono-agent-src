@@ -272,6 +272,10 @@ export const api = {
     GoApp.GetCoderSessionSettings(conversationID).then(parseStreamResult),
   setCoderSessionSettings: (conversationID, patch, unattended = '') =>
     GoApp.SetCoderSessionSettings(conversationID, patch ? JSON.stringify(patch) : '', unattended).then(parseStreamResult),
+  getChatMissionToggle: (conversationID) =>
+    GoApp.GetChatMissionToggle(conversationID).then(parseStreamResult),
+  setChatMissionToggle: (conversationID, on) =>
+    GoApp.SetChatMissionToggle(conversationID, !!on).then(parseStreamResult),
   coderStopBackground: (conversationID, turnID) =>
     GoApp.CoderStopBackground(conversationID, turnID).then(parseStreamResult),
   // The active profile's own folder, set up for the runtime: {path, profile:{id,name}, source, init}.

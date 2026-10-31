@@ -11,6 +11,7 @@ const { api, chatAccess, listeners, mockConfirm } = vi.hoisted(() => ({
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
   mockConfirm: vi.fn(),
   api: {
+    getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
     getChatTurns: vi.fn(),
     getChatEvents: vi.fn(),
     startChatTurn: vi.fn(),

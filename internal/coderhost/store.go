@@ -6,6 +6,7 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -396,6 +397,13 @@ func (s *Store) EnsureSession(profileID, conversationID string) (Session, error)
 	}
 	x, _, err := s.GetSession(profileID, conversationID)
 	return x, err
+}
+
+// ensureSessionOn is EnsureSession's insert on a connection that is inside a transaction.
+func ensureSessionOn(ctx context.Context, conn *sql.Conn, profileID, conversationID, now string) error {
+	_, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO coder_sessions (profile_id, conversation_id, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+		profileID, conversationID, now, now)
+	return err
 }
 
 // ConversationExists says whether the conversation a command or session names is still there.

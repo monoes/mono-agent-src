@@ -28,17 +28,20 @@ func (b *barrier) wait() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	round := b.round
-	// a caller whose partner made no further statement stops waiting after a while
-	timer := time.AfterFunc(300*time.Millisecond, func() { b.mu.Lock(); b.cond.Broadcast(); b.mu.Unlock() })
+	// a caller whose partner made no further statement stops waiting after a while. The timer sets a flag
+	// under the lock: comparing the clock with a separately computed deadline could find the deadline a few
+	// microseconds away right after the timer fired, and then wait again with no broadcast left to wake it
+	// (the test hung for the whole package timeout on a loaded runner).
+	timedOut := false
+	timer := time.AfterFunc(300*time.Millisecond, func() { b.mu.Lock(); timedOut = true; b.cond.Broadcast(); b.mu.Unlock() })
 	defer timer.Stop()
-	deadline := time.Now().Add(300 * time.Millisecond)
 	b.here++
 	if b.here == b.n {
 		b.here, b.round = 0, b.round+1
 		b.cond.Broadcast()
 		return
 	}
-	for round == b.round && time.Now().Before(deadline) {
+	for round == b.round && !timedOut {
 		b.cond.Wait()
 	}
 	if round == b.round {

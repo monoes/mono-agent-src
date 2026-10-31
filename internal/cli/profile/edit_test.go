@@ -167,7 +167,10 @@ var seedOverrides = map[string]map[string]any{
 	"coder_session_decisions": {"made_by": "model"},
 	"coder_mission_children":  {"origin": "lead", "state": "marked"},
 	"coder_budget_requests":   {"target": "lead", "status": "open"},
-	"coder_session_asks":      {"importance": "normal"},
+	// 149: a live reservation, with stamps in the one text form its CHECK accepts. Deleting the profile (or its
+	// session) removes the row, which is how a reservation's money comes back; there is no rule to retain it.
+	"task_session_reservations": {"session_id": 1, "state": "live", "lease_until": "2026-10-05T12:00:00Z", "heartbeat_at": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z", "bounded": 1},
+	"coder_session_asks":        {"importance": "normal"},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a
@@ -215,6 +218,10 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatal(err)
+	}
+	// a reservation is on a session of its own profile (a trigger holds it), so session 1 is this profile's
+	if _, err := conn.ExecContext(ctx, `INSERT INTO task_sessions (id, profile_id, title, created_by, created_at, updated_at) VALUES (1, ?, 's', 'you', 'x', 'x')`, id); err != nil {
 		t.Fatal(err)
 	}
 	before := map[string]int{}
@@ -265,6 +272,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 			t.Errorf("seeding %s: %v (teach this test to fill it, so the delete is checked for it)", e.Table, err)
 		}
 	}
+	before["task_sessions"]-- // session 1 above is the profile's too, and was counted as already there
 	for _, kv := range [][2]string{{"task_agent_access:" + id, "1"}, {"jev." + id + ".chat.model", "m"}, {"jev.someone-else.chat.model", "keep"}} {
 		if _, err := conn.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`, kv[0], kv[1]); err != nil {
 			t.Fatal(err)
