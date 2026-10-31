@@ -14,8 +14,6 @@ import (
 // The v2 tables of the peer-credential binding design (section 7): rows are insert-only, and a row
 // may be deleted only once it is past retention (7 days after its expiry), with no exempt operation.
 
-const tsLayout = "2006-01-02T15:04:05.000Z"
-
 // okTS and okTS2 are well-formed stored timestamps (the retention rule compares them as text).
 const (
 	okTS  = "2026-10-30T00:00:00.000Z"
