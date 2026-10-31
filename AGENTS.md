@@ -1786,7 +1786,7 @@ TEXT`, then `task add TITLE --session N --acceptance TEXT [--depends-on IDS]
 [--parent ID] [--kind task|epic|check]` (acceptance criteria are required). A
 draft's tasks sit in the inbox column and nothing hands them out until the user
 runs `task session approve N`, which moves them to Ready and sets the session
-running; an agent cannot approve its own plan. Sessions form a tree (migration 142: `task_sessions.parent_session_id`, `kind`, `approval_basis`): `task session new --parent ID --kind K` starts one below another of the profile, at most `tasks.HardMaxSessionDepth` (4) levels, never with more access, budget or caps than its parent (an unset cap takes the parent's; an unset budget stays unset. A budget in a tree is the operator's to set: an agent cannot name one when it starts a session (refused) or change one, so an agent's child has none; the operator's budget for a child is above 0 and at most its parent's, and 0 (no cap) is refused under a parent that has a budget; `task session approve` of a draft child with no budget under a parent that has one is refused until `task session budget ID --usd N` sets it; each child is checked on its own: the sum of the children's budgets is not checked against the parent's, and no spend rolls up from children to parents in this change; an agent starts at most 12 open children below a parent; the operator lowering a parent clamps every session below it, open or closed, at any depth, down, a budget to the lowest budget on the way down session by session, event `clamped`; a session can never exceed the minimum of its whole ancestor chain, closed ancestors included, checked when it is created, updated or approved; a session cannot be started below an archived or closed one), and an agent only below a session it works in, where it may narrow the task cap but never name a budget or set the access level or the depth cap (a `--client-id` hit returns only a session below the same parent and of the same kind); `task session rename ID TITLE` (the operator any; an agent only a draft it started from its own chat) and `task session tree [--json]` read and name them. `task session archive ID` is refused while draft, running or paused sessions are below the session (at any depth; the refusal lists their ids and titles); `--cascade` (the operator only: an agent can neither archive nor pass it) stops the running and paused ones (claims released through the stop path) and archives the whole subtree in one transaction, the deepest first, each with an `archived` event that names the session archived (`Store.ArchiveSessionCascade`, JSON `{"profile","session","archived":[ids]}`); finished sessions below it go with it without the flag; a closed child's spend is not returned to the parent; a cycle or an over-deep tree fails closed and archives nothing. The Sessions UI asks to confirm before it cascades. An agent may link a session (`--conversation`)
+running; an agent cannot approve its own plan (the one exception, agent approval of a child session, is described after this paragraph). Sessions form a tree (migration 142: `task_sessions.parent_session_id`, `kind`, `approval_basis`): `task session new --parent ID --kind K` starts one below another of the profile, at most `tasks.HardMaxSessionDepth` (4) levels, never with more access, budget or caps than its parent (an unset cap takes the parent's; an unset budget stays unset. A budget in a tree is the operator's to set: an agent cannot name one when it starts a session (refused) or change one, so an agent's child has none; the operator's budget for a child is above 0 and at most its parent's, and 0 (no cap) is refused under a parent that has a budget; `task session approve` of a draft child with no budget under a parent that has one is refused until `task session budget ID --usd N` sets it; each child is checked on its own: the sum of the children's budgets is not checked against the parent's, and no spend rolls up from children to parents in this change; an agent starts at most 12 open children below a parent; the operator lowering a parent clamps every session below it, open or closed, at any depth, down, a budget to the lowest budget on the way down session by session, event `clamped`; a session can never exceed the minimum of its whole ancestor chain, closed ancestors included, checked when it is created, updated or approved; a session cannot be started below an archived or closed one), and an agent only below a session it works in, where it may narrow the task cap but never name a budget or set the access level or the depth cap (a `--client-id` hit returns only a session below the same parent and of the same kind); `task session rename ID TITLE` (the operator any; an agent only a draft it started from its own chat) and `task session tree [--json]` read and name them. `task session archive ID` is refused while draft, running or paused sessions are below the session (at any depth; the refusal lists their ids and titles); `--cascade` (the operator only: an agent can neither archive nor pass it) stops the running and paused ones (claims released through the stop path) and archives the whole subtree in one transaction, the deepest first, each with an `archived` event that names the session archived (`Store.ArchiveSessionCascade`, JSON `{"profile","session","archived":[ids]}`); finished sessions below it go with it without the flag; a closed child's spend is not returned to the parent; a cycle or an over-deep tree fails closed and archives nothing. The Sessions UI asks to confirm before it cascades. An agent may link a session (`--conversation`)
 only to its own chat, which it proves with its coder-session token; without one it links none. In a running session an agent uses
 `task next --session N [--claim --as NAME]` (a Ready task whose dependencies are
 all done, never a draft's, a paused session's or an epic), `claim`, `comment`,
@@ -1827,6 +1827,34 @@ and `task_artifact`, with `task_add`, `task_claim`, `task_comment`, `task_finish
 `task_release`, `task_list`, `task_get` and `task_next` taking `session`. Goals and
 acceptance criteria are text an agent wrote: data, not instructions. Design:
 `docs/mastermind/plans/2026-10-25-coder-missions-task-sessions.md`.
+
+**Agent approval of child sessions.** By default the operator approves every session. With the operator-only coder setting
+`agent_approval` set to `lead` (and `approval_ceiling_usd` above 0: `lead` is refused without a ceiling), the lead of a session's
+parent may run `task session approve` for a child below it; `approval_basis` then reads `lead`. The lead is identified by its
+verified coder-session token (`internal/cli/task/approver.go`), never by a label, and is refused for a root session, a session it
+leads or sits in, a peer's or another mission's session, and from a worker or verifier bound to a task. The operator's settings are
+read inside the approval's write transaction. Giant work is never approved by an agent: more than 25 tasks (or a `max_tasks`
+over 25), access above the parent's, a level beyond the working depth (`max_depth`), a budget over 40% of the parent's budget or above
+the ceiling, or no budget and no ceiling anywhere ("no budget set: the person decides"; each session is judged by itself, the
+siblings' budgets are not summed). The agent is told only that the plan needs the person; a person item `plan_approval` is raised for the
+operator (no timeout, no default, no model or matrix answer: it is a hard gap class). The operator's CLI verbs are `task session person
+inbox`, `approve ID --rev N [--digest HASH]`, `deny ID --note T`, `ask ID --text T` and `answer-ask --ask ID --text T` (the upward ask channel, below); they are refused to an agent context, to any
+process that holds an agent token variable, and to a process inside a coder turn's process tree. Only `person approve` records
+`approval_basis = person`; a plain `session approve`, also with `--rev N`, records `operator`. `task session approve ID --rev N` is
+refused with code `plan_changed` when the plan moved since it was read. The GUI shows the open items as an answer card in the agent's pane,
+a tray on the dock and a section of the inbox, with an optional chime (`notifySound`, Settings > Notifications).
+
+**The upward ask channel (migration 146, table `coder_session_asks`).** The lead of a mission session may ask a proper ancestor
+above its parent (the grandparent by default, the root, or an ancestor named by session id) for context; the parent is reached
+with the existing messaging, and approval stays with the parent. MCP tool `session_ask_ancestor` (lead only: the caller is the
+session whose token the process holds, a bound worker or verifier is refused with `not_yours`; no argument names a caller or a
+target outside the session's own ancestors) and `session_reply_ask` (only the lead the ask is addressed to). A normal ask reaches
+the ancestor lead's chat as sealed quoted data with a host-made turn id (`ask-q-`), carrying no authority; the reply
+(`ask-r-`) comes back sealed too, and `session_send` is always an ordinary command, never a reply. Limits: at most 3 open asks per
+asker, one a minute, 4 KiB each, 8 KiB open in total, 6 open per ancestor; a normal ask nobody answers expires after six hours. A
+critical ask reaches no model: it raises a person item `ancestor_question` (no timeout, no default, not in the autonomy matrix)
+that only `task session person answer-ask --ask ID --text T` answers; the answer reaches the asker sealed. Deleting a chat removes
+the asks it made and voids the normal asks addressed to it (`chat_delete_orphans_test.go` decides both conversation columns).
 
 **Missions (a coder chat's lead working a session).** A confirmed mission
 (`monoagentcli coder sessions send --mission CONVERSATION TEXT`, operator only, the UI's
@@ -2743,7 +2771,7 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Settings** (`sessions settings get|set`, JSON in `--patch`, only the named settings change, a name that is
   not a setting is refused): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`, `silent_minutes`,
   `active_hours` (`HH:MM-HH:MM`, local time), `checkin_limit`, `autonomy_preset`, `autonomy_classes`,
-  `max_children`, `max_concurrent`, `max_depth`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
+  `max_children`, `max_concurrent`, `max_depth`, `agent_approval`, `approval_ceiling_usd`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
   are operator-only and the values each allows. `max_concurrent` (1 to 10,
   default 2) is the most children of one master that run a turn at once: a send to a further child, from a person
   or a master, stays pending and starts when a slot frees. Sends keep their order within a chat; across chats
@@ -2855,7 +2883,7 @@ monoagentcli --profile work coder host stop                        # the host on
   `--allow-mutations`). `settings set` through a token may change only `checkin_minutes`, `skip_if_unchanged`,
   `checkin_triggers`, `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias` (`AgentAdjustable`, an
   allowlist; a test fails for a setting in neither list); limits, autonomy, mesh_accept, role, access, unattended
-  and budget are the operator's. A spawn needs a **master** with room under `max_children`, `max_depth` (the
+  and budget are the operator's. A spawn needs a **master**, or a child with room (`max_children` above 0: a child below the working depth gets one), under `max_children`, `max_depth` (the
   working depth, default 3, at most 4; a master is level 1) and a rate of 6 per 10 minutes; the child runs the master's runtime,
   model and folder (or a folder inside it), at most the master's access capped at `workspace` and never `full`
   (an operator raises that), and its `--budget-usd` is carved out of the master's cap (`settings set
@@ -2876,17 +2904,19 @@ monoagentcli --profile work coder host stop                        # the host on
   `runtime` and `model` may only repeat the lead's own: the child runs the runtime, model and provider of the session that
   starts it. It creates the child coder session and a named task session below the lead's, through the task store's
   `CreateSession` (so its ceilings, including a closed or archived ancestor, apply), with no budget of its own and at
-  most 25 tasks; a failure of the second removes the first. The lead's task session must be running. Spawn advisory
+  most 25 tasks (the new chat's budget cap is computed from the lead's task session, not from the lead's chat: the request may ask for at most 40% of what that session has left, 20% of it when the request names none, and it is refused when nothing is left, `childShare`; a lead whose session has no budget gets what it asked for); a failure of the second removes the first. The lead's task session must be running. Spawn advisory
   (`coderhost.AdviseSpawn`, a pure function): a request whose scope is small (at most 3 open tasks of size `s` or smaller
   read from `task_ids`, one writer, no parallel branch) is refused once with "doable in this session" (code `advice`);
   the repeat with a reason that applies is accepted. The one refusal is remembered in `coder_spawn_advice` (migration 144).
-  Every refusal is a decisions-ledger row of the model; the accepting row (`scope_growth`, master) is written only once the
-  spawn is made. A `research` session runs `scoped`. Task children of a mission (the launcher) additionally need the
+  A refusal for a limit (`limit`), the advisory refusal, and a spawn that failed after it started ("not made") are each a
+  decisions-ledger row of the model; refusals of the gate, of the input (title, kind, reason, task ids), of a session that is
+  not running and of a share the lead cannot afford are returned to the lead and leave no row. The accepting row
+  (`scope_growth`, master) is written only once the spawn is made. A `research` session runs `scoped`. Task children of a mission (the launcher) additionally need the
   operator-only switch `coder.mission_children_enabled`; sessions started by `session_spawn` are not mission task children
   and do not go through Reserve or that switch.
   A `session_spawn` is not one write: an intent row (`coder_spawn_intents`, migration 144) is written first and ends in
   one transaction with the acceptance row; the host's sweep (every Tick, bounded, per profile) removes the child and its
-  draft task session of an intent older than the lease (2 minutes), and while an intent exists the same request is refused. A task session no longer a draft is never touched: the intent becomes `needs-operator` (logged, still blocking that lead). The operator lists the held intents with `coder sessions spawn-intents list` (it also shows the generation) and ends one with `resolve SPAWNER --generation N (--keep | --discard) --confirm "resolve spawn intent"`: operator only (the gate runs before anything is read or opened), only a `needs-operator` row at that generation; `--keep` writes one acceptance row and leaves the child and its task session, `--discard` removes a draft pair the way the sweep does and refuses an approved or running one. `doctor` warns while one is held. A claimed row is re-claimed only after a lease that doubles per attempt (2 minutes first), and 5 failed cleanups also end in `needs-operator`. An orphan child whose crash fell between creating and naming it is not guessed (see SECURITY.md).
+  draft task session of an intent older than the lease (2 minutes), and while an intent exists every `session_spawn` of that lead is refused, not only the same request. An intent whose child is already named is ended after the lease (2 minutes, doubling per attempt); one with no child yet (the spawn died before naming it) waits 3 leases, about 6 minutes, because the child may still be created. A task session no longer a draft is never touched: the intent becomes `needs-operator` (logged, still blocking that lead). The operator lists the held intents with `coder sessions spawn-intents list` (it also shows the generation) and ends one with `resolve SPAWNER --generation N (--keep | --discard) --confirm "resolve spawn intent"`: operator only (the gate runs before anything is read or opened), only a `needs-operator` row at that generation; `--keep` writes one acceptance row and leaves the child and its task session, `--discard` removes a draft pair the way the sweep does and refuses an approved or running one. `doctor` warns while one is held. A claimed row is re-claimed only after a lease that doubles per attempt (2 minutes first), and 5 failed cleanups also end in `needs-operator`. An orphan child whose crash fell between creating and naming it is not guessed (see SECURITY.md).
   Spawn churn has no cumulative cap: the bound is the per-master rate limit (6 per 10 minutes) and the per-tree live cap (12).
 - **Reading questions and decisions.** `sessions questions list` and `sessions decisions list|show` need the
   operator's terminal or a session token. Under a token they show only the caller's own session and its
@@ -2937,7 +2967,7 @@ monoagentcli --profile work coder host stop                        # the host on
      `--budget-usd 1` (refused: it does not fit); `coder sessions status <master-conv>` shows carved and left; a
      capped turn runs with `--budget-usd` equal to what is left; a runtime that reports no cost counts as 0
      (kilo is refused for a capped session).
-  2. *Spawn limits:* a child that tries `spawn` is refused (it is at the working depth, so it has no room for children; depth is 3 by default); a master past
+  2. *Spawn limits:* a child at the working depth that tries `spawn` is refused (it has no room for children; at the default depth 3 that is a level-3 child, while a level-2 child gets `max_children` 4 and may spawn); a master past
      `max_children` is refused; the 7th spawn within 10 minutes is refused; `--access full` is not accepted
      (`coding|workspace` only) and a child is never above its master's access.
   3. *`answer-` turns:* `coder sessions questions list <conv>`, then `coder sessions questions answer <conv> <id>
@@ -3052,6 +3082,52 @@ login (and its bill) is what the turn uses.
   record** column (`track_record` in JSON) is its score per role
   category from real dynamic-org workers (see "Dynamic org"). The roster is machine-wide,
   not per profile, and the AI agents page shows it with live validation.
+- **Agent purposes: which validated models each kind of work may use.**
+  `monoagentcli --profile P agent purposes list|set|reset` (`--json`). A purpose
+  (`coding`, `debugging`, `research`, `deep-research`, `planning`, `strategy`,
+  `review`, `testing`, `security-audit`, `writing`, `data`, `automation`,
+  `browsing`, `design`, `triage`, `judging`, `orchestrating`, `translation`) maps
+  to the role categories of the dynamic org. `set` replaces one purpose's whole
+  setting: `--pair RUNTIME:MODEL` (repeatable, each a roster pair with status ok;
+  an unvalidated pair is refused), `--rule any|order|cheapest`, `--effort`,
+  `--different-from-author on|off`, `--fallback any|none`, `--budget-share PCT`
+  (recorded only). A purpose with nothing chosen (`isDefault`) uses every
+  validated model, as before. When one is chosen, a dynamic org's `org_spawn`
+  draws the worker's model from it in code. The worker's purpose comes from its
+  role's category (every built-in category maps to a default purpose and the
+  few it allows); a `purpose` the lead names can only narrow: it must be one the
+  category allows (else refused, with the list) and the model must then be in
+  both sets. A role whose category maps to nothing (a custom or library role)
+  is limited by every purpose that has a set chosen, the intersection of them;
+  with nothing in common the spawn fails (closed, on purpose: two disjoint
+  restricted purposes make every library-role spawn fail; the error names the
+  purposes and says to use a built-in role or reconcile the sets). Only the built-in roles map to a
+  purpose: a role from the library, monomind or a file in the chat folder (a
+  worker can write one) is held to every chosen set whatever category it
+  claims, and a purpose named for it is ignored; the app roles whose work spans
+  two purposes (browser operator, security reviewer, task manager) are held to
+  both. A veteran (a worker kept from an earlier turn) is rechecked against the
+  current sets on every follow-up, and refused when its model is no longer
+  allowed (a veteran kept by an older build counts as unmapped); a worker
+  staffed earlier in the same turn is rechecked the same way. A stale model
+  is never staffed under a chosen set, even with `--fallback any`, and a
+  verifier is never a model the review set leaves out. The sets are read again at each spawn
+  and at the verifier's model choice, so a change made during a turn applies to
+  the next spawn, and a set that can't be read refuses the spawn. A model the
+  lead names outside the set, a stale pair, or an unknown purpose id is refused; an empty
+  or unavailable set fails the spawn with the reason unless `--fallback any`;
+  with `--different-from-author on` a checking worker runs on another model than
+  the one that produced the work; with no other validated model the spawn is
+  refused (an independence rule is never dropped silently) unless the purpose's
+  `--fallback any` allows the author's own model, and then the worker's `why`
+  says so. `--rule cheapest` treats a model with no known price as the most
+  expensive. `list` is open to agents and prints the
+  purposes, each pair's status (`ok`, `stale`, `failed`, `unvalidated`) and the
+  roster; it computes status from the stored results without a scan. `set` and
+  `reset` are the user's own (exit 3, `operator_only`). The choice lives in the
+  profile's `agent_purposes.<profile>.<purpose>` config rows, which are reserved
+  (`config set` refuses them); a row that can't be read counts as the default and
+  `list` says so on stderr.
 - **Automatic re-validation (off by default; it spends money).**
   `monoagentcli agent roster auto-revalidate on|off|status` (#230). When on,
   the daemon re-checks **stale** roster models (never failed or untested

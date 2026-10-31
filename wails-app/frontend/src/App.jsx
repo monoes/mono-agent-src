@@ -8,6 +8,7 @@ import StartupOverlay from './components/StartupOverlay.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import ConfirmHost from './components/ConfirmDialog.jsx'
 import CoderBubbles from './components/bubbles/CoderBubbles.jsx'
+import { PersonItemsProvider, usePersonItemsValue } from './components/bubbles/PersonItemsContext.jsx'
 import { useCoderBubbles } from './components/bubbles/useCoderBubbles.js'
 import { CoderBubbleContext } from './components/bubbles/CoderBubbleContext.jsx'
 import HistoryPanel from './components/history/HistoryPanel.jsx'
@@ -70,6 +71,11 @@ export default function App({ banners = null }) {
   // own when an org asks the person something.
   const onCloseOrgBubble = useOrgBubbleWatch(coderBubbles)
   const { openConversation: openCoderBubble, openDraft: openCoderDraft, openNewChat } = coderBubbles
+  // The items that wait for the person (giant plans): one poll for the circles, panes, dock and inbox.
+  const openPersonAgent = useCallback(item => {
+    if (item?.conversationId) openCoderBubble({ id: item.conversationId, title: item.title || '', lite: true, parentKey: '', sessionId: item.sessionId || 0 })
+  }, [openCoderBubble])
+  const personItems = usePersonItemsValue({ openAgent: openPersonAgent })
   const openCoderChat = useCallback((conv) => {
     if (conv) openCoderBubble(conv)
     else openCoderDraft()
@@ -298,6 +304,7 @@ export default function App({ banners = null }) {
 
   return (
     <CoderBubbleContext.Provider value={coderBubbleContext}>
+    <PersonItemsProvider value={personItems}>
     <div className="app-layout">
       <StartupOverlay />
       <Sidebar
@@ -347,7 +354,7 @@ export default function App({ banners = null }) {
         stats={stats}
         dbConnected={dbConnected}
         hilOpen={globalHilOpen}
-        hilCount={globalHilOpen ? globalHilCount : pendingCount}
+        hilCount={globalHilOpen ? globalHilCount : pendingCount + personItems.items.length}
         onToggleHil={() => setGlobalHilOpen(v => !v)}
         onOpenHealth={() => navigate('settings')}
       />
@@ -359,6 +366,7 @@ export default function App({ banners = null }) {
         <FileViewerModal doc={viewingArtifactDoc} onClose={() => setViewingArtifactDoc(null)} />
       )}
     </div>
+    </PersonItemsProvider>
     </CoderBubbleContext.Provider>
   )
 }

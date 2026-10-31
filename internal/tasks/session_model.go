@@ -88,7 +88,7 @@ type Session struct {
 	ClientID          string        `json:"client_id,omitempty"`
 	ParentSessionID   int64         `json:"parent_session_id,omitempty"` // 0: a top-level session
 	Kind              string        `json:"kind"`
-	ApprovalBasis     string        `json:"approval_basis"`    // operator (other bases arrive with agent approval); empty until approved
+	ApprovalBasis     string        `json:"approval_basis"`    // operator, lead or person; empty until approved
 	Depth             int           `json:"depth"`             // 1 for a top-level session, computed from the chain
 	Deduped           bool          `json:"deduped,omitempty"` // set by CreateSession when the client id matched an existing session
 }

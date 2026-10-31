@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Plus, X, Code2, Network } from 'lucide-react'
 import { folderName } from '../chat/useCoderMode.js'
 import { layoutBubbles, monogram, totalCost, costEstimated } from '../../lib/coderBubbles.js'
+import { PersonItemTray } from './PersonItemViews.jsx'
 import './bubbles.css'
 
 const statusKey = { idle: 'statusIdle', working: 'statusWorking', done: 'statusDone', error: 'statusError', needs: 'statusNeeds' }
@@ -110,6 +111,7 @@ export function BubbleDock({ store, onOpen, onClose, registerEl, canCreate = tru
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); store.setSide(side === 'left' ? 'right' : 'left') }
           }} />
       )}
+      <PersonItemTray />
     </div>
   )
 }

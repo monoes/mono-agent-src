@@ -1967,6 +1967,35 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
+  sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
+  without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),
+  and the store, not the CLI, refuses a root, a session the lead leads or sits in, a peer's or another mission's session, and a worker or
+  verifier. The settings are read inside the write transaction of the approval. An agent never approves giant work (over 25 tasks,
+  more access than the parent, a level beyond the working depth, over 40% of the parent's budget, over the ceiling, or no budget and no
+  ceiling); it is told only that the person decides, and a person item is raised that waits with no timeout, no default and no model
+  or matrix answer (`plan_approval` is a hard class). `task session approve --rev N` and `person approve --rev N` are refused with
+  `plan_changed` when the plan moved after it was read; a denial is atomic. Only `person approve` records `approval_basis = person`.
+  **The split between the operator and an agent in these verbs depends on the process environment and ancestry: it is a courtesy
+  layer, the same class as the token-to-process binding, which also reads the process tree, not a barrier.** The `person` verbs are refused when the environment holds
+  an agent token variable (`MONOAGENT_SESSION_TOKEN`, `MONOAGENT_TASK_BINDING`, `MONOAGENT_TASK_SESSION`, `MONOAGENT_TASK_ID`) and when
+  the process is inside the process tree of a running coder turn (the ancestry check that binds a session token to its turn, applied
+  without a token); a lead with a shell that clears its environment and detaches from its turn's process tree is not stopped by either,
+  and can run `session approve` and the person verbs as the operator. The tests pin each refusal; they do not prove the absence of such
+  a bypass.
+- **The upward ask channel.** `session_ask_ancestor` and `session_reply_ask` carry text between leads of one mission tree and
+  grant nothing: the question and the reply are cleaned, one line, inside a fixed fence that says they are quoted data written by
+  another agent, and they are queued as host-made sends (`ask-` turn ids) that can never carry a mission confirmation or a person's
+  authority. The caller is the lead whose coder-session token the process holds (no task binding); the target is found from the
+  caller's own parent chain in the database, never from input, and only a proper ancestor above the parent is reachable; a
+  reply is accepted only from the lead the ask is addressed to (one answer for an unknown ask, another lead's ask and a critical
+  ask, so asks cannot be probed). Rate and size limits bound the channel (3 open asks, one a minute, 4 KiB each, 8 KiB open). A
+  critical ask is never delivered to a model: it is a person item that only `task session person answer-ask` answers, under the same
+  environment-and-ancestry courtesy layer as the other person verbs. No model-facing tool answers it.
+  Limits, stated plainly: an ask is untrusted content written by another agent, never an instruction; it is shown to a model only
+  sealed in the quoted-data fence, and a reply is data, not an instruction, to the lead that reads it. Neither grants access,
+  budget, approval or a permission, and neither can carry a person's authority. The channel is no barrier against a lead that can
+  run commands as the operator (see the courtesy-layer paragraph above).
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and
@@ -2216,6 +2245,31 @@ injected text and a confused script inside the rules; it is not a sandbox agains
   of a turn until it exits). Mission leads and task sessions run in the host but the host does not yet start a
   child session per task: a task's work is done by the conductor's workers (AGENTS.md, "Persistent coder
   sessions").
+
+## Which models an agent may run on (agent purposes)
+
+The user may limit each kind of agent work (coding, review, research, and so on) to the validated
+runtime and model pairs they choose (`agent purposes set`, AGENTS.md, "Agent purposes"). Authority: it
+decides which models, and so which accounts and spend, a dynamic org's workers run on; with nothing
+chosen a purpose uses every validated model, as before. Who may change it: only the user. `set` and
+`reset` refuse an agent's shell, the chat, a workflow and a master with a session token (exit 3,
+`operator_only`), the settings are reserved config rows that `config set` and `config delete` refuse
+and `config get` hides from them, and the storage layer's write guard refuses the rows to anyone but
+the user. What stops a model from widening it: the spawn path checks the set in code, not in the
+prompt: a lead that names a model outside the set, a stale pair or an unknown purpose is refused, it
+has no tool that edits the set, and it cannot choose the author model that the different-model rule
+compares against (the code that knows it supplies it). Which set applies follows the worker's role
+(its category), not what the lead says: a purpose the lead names can only narrow, to one the role's
+category allows, and the sets then intersect; only the built-in roles map to a purpose (a
+role file in the chat folder, which a worker can write, is held to every set the user chose whatever
+category it claims), and a veteran worker from an earlier turn is rechecked against the current sets on
+every follow-up (so is a worker staffed earlier in the same turn). With
+`different-from-author` on, a checking worker with no other validated model is refused, not run on the
+author's own model, unless the operator's `fallback any` allows it (this replaces the earlier plan's
+same-model fallback). A library role is held to every restricted set, so two disjoint restricted
+sets fail every library-role spawn (closed; use a built-in role or reconcile the sets). The sets are read again at each spawn and at the verifier's model choice, and a set that
+cannot be read refuses the spawn. What it does not stop: a same-user process can still edit the
+database directly, as for every setting here.
 
 ## OpenAI-compatible API surface
 
@@ -2944,6 +2998,17 @@ unauthenticated and returns the server version.
   sandbox on an open directory could. Read `sandboxed` as confining a prompt,
   not a determined key holder, and keep the OS user's own files out of reach (a
   dedicated user, as above).
+
+**Binding service availability (peer-credential binding).** The service that will answer
+"is this caller inside the bound worker's tree" limits what one local process can use of it: a cap on
+connections and a connection rate for each connecting process, a shared rate, a request deadline, and
+the rule that a newcomer with fewer connections may take an idle slot from the process holding the
+most (never one whose request has begun). A process that floods the service is held to its own share
+and cannot deny the others. This is availability, not authorization, and it fails closed: a refused
+verification is a deny. Residual: many processes of the same user can still add up to the service's
+total limits (each gets its own share), and processes are told apart by pid, so a pid recycled within
+about a second of its predecessor inherits that predecessor's used-up allowance and may be refused for
+that moment (tracked in #1182: key by pid and start time).
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,

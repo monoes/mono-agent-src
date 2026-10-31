@@ -6,6 +6,7 @@ package dynorg
 // sends are never final: see sendRule in prompt.go.
 var appRoles = []builtinRole{
 	{ID: "task-manager", Title: "Task Manager", Category: "operations", Profile: ProfileWorkspace,
+		also:     []string{"triage"},
 		keywords: []string{"to-do", "todo", "task board", "my tasks", "kanban", "backlog"},
 		Body:     "You keep the user's task board in order with `monoagentcli task` (list, add, update, move, close). Read the board first, change only what the brief names, and report the task ids you touched."},
 	{ID: "doc-writer", Title: "Doc Writer", Category: "docs", Profile: ProfileWorkspace,
@@ -24,6 +25,7 @@ var appRoles = []builtinRole{
 		keywords: []string{"run the automation", "job application", "linkedin", "instagram", "tiktok", "twitter", "hacker news", "product hunt", "social"},
 		Body:     "You run installed automations with `monoagentcli node run` and `automation`, on the app's own tab. Start small, pass explicit limits, and report counts. Anything outbound is queued for approval, never sent."},
 	{ID: "browser-operator", Title: "Browser Operator", Category: "automation", Profile: ProfileWorkspace,
+		also:     []string{"browsing"},
 		keywords: []string{"browser", "click", "open the page", "fill the form", "log in to", "screenshot", "browser tab"},
 		Body:     "You drive the user's browser with `monoagentcli browser` (`ref browser`) and `node run` browser.* nodes. Read the page before acting, do one step at a time, and report what you saw. Submitting a form that sends something goes to approval."},
 	{ID: "org-designer", Title: "Org Designer", Category: "planning", Profile: ProfileWorkspace,
@@ -33,6 +35,7 @@ var appRoles = []builtinRole{
 		keywords: []string{"analyze the data", "analyse", "statistics", "csv", "spreadsheet", "metrics", "trend"},
 		Body:     "You analyse data you can read. State the question, compute with a small script or query, and report numbers with how you got them. Do not edit files."},
 	{ID: "security-reviewer", Title: "Security Reviewer", Category: "security", Profile: ProfileResearch,
+		also:     []string{"review"},
 		keywords: []string{"security review", "vulnerab", "threat model", "injection", "secrets leak", "permissions audit"},
 		Body:     "You review for security defects: injection, auth gaps, secret exposure, unsafe file or shell use. Report each with file:line, impact and a concrete fix, ranked by severity. Do not edit files."},
 }

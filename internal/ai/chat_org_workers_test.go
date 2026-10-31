@@ -162,3 +162,35 @@ func TestANewWorkerOverARetiredRowIsNotClamped(t *testing.T) {
 		t.Fatalf("a new worker over a retired row was clamped: %+v", got)
 	}
 }
+
+// The purpose record of a kept worker comes back as saved, and a row written
+// before migration 145 reads back with neither (an unmapped veteran).
+func TestOrgWorkersKeepTheirPurposeRecord(t *testing.T) {
+	db := openTestDB(t)
+	s, err := NewAIStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := s.CreateConversationMode("default", "agent", "general", "claude", "", "", ModeCoder, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveOrgWorker("default", conv.ID, OrgWorker{AgentID: "w1", TurnID: "t1", Runtime: "claude", Builtin: true, Purposes: "debugging,coding", MissionSession: 7, MissionTask: 42, MissionClaims: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO ai_chat_org_workers (profile_id, conversation_id, agent_id, turn_id, role, access, runtime, updated_at)
+		VALUES ('default', ?, 'w2', 't0', 'Old', 'coding', 'claude', '2020-01-01T00:00:00.000000000Z')`, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.ListOrgWorkers("default", conv.ID, 0)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("list = %+v, %v", all, err)
+	}
+	by := map[string]OrgWorker{all[0].AgentID: all[0], all[1].AgentID: all[1]}
+	if w := by["w1"]; !w.Builtin || w.Purposes != "debugging,coding" || w.MissionSession != 7 || w.MissionTask != 42 || w.MissionClaims != 3 {
+		t.Errorf("saved record read back as %+v", w)
+	}
+	if w := by["w2"]; w.Builtin || w.Purposes != "" {
+		t.Errorf("a pre-145 row read back as %+v", w)
+	}
+}

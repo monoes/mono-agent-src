@@ -18,6 +18,7 @@ func (j *turnJournal) rememberWorker(v dynorg.Veteran) {
 		AgentID: v.ID, ParentID: v.ParentID, TurnID: j.turnID, Role: v.Role, AgentType: v.AgentType, Category: v.Category,
 		Access: v.Access, Skills: v.Skills, Runtime: v.Runtime, Model: v.Model, Effort: v.Effort, SessionID: v.Session,
 		Cwd: v.Cwd, Report: v.Report, Outcome: v.Outcome, AllowSpawn: v.AllowSpawn,
+		Builtin: v.Builtin, Purposes: v.Purposes,
 		MissionSession: v.MissionSession, MissionTask: v.MissionTask, MissionClaims: v.MissionClaims,
 	})
 	if err != nil {
@@ -43,6 +44,7 @@ func (j *turnJournal) veterans() []dynorg.Veteran {
 			ID: w.AgentID, ParentID: w.ParentID, Role: w.Role, AgentType: w.AgentType, Category: w.Category,
 			Access: w.Access, Skills: w.Skills, Runtime: w.Runtime, Model: w.Model, Effort: w.Effort, Session: w.SessionID,
 			Cwd: w.Cwd, Report: w.Report, Outcome: w.Outcome, AllowSpawn: w.AllowSpawn,
+			Builtin: w.Builtin, Purposes: w.Purposes,
 			MissionSession: w.MissionSession, MissionTask: w.MissionTask, MissionClaims: w.MissionClaims,
 		})
 	}

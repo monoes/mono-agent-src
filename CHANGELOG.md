@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A long list of task sessions renders a bounded strip.** The session tabs and tree draw the first 100 and offer "Show 100 more sessions"; the chosen session is always on screen.
+
 - **The app can delete a chat without stopping the processes it left running.** When a delete is kept because some of those processes are still running, the history panel offers "Delete anyway": it names the processes, asks again, and only then deletes the chat and leaves them running (the CLI's `--abandon-processes`). Nothing is left running without that second confirmation.
 
 - **Deleting a chat that left processes running.** Deleting a chat stops the processes its turns left running, and keeps the chat (exit 5, `survivors_remain`, the processes listed) when one cannot be stopped. That includes any process recorded before the turn's own marker was recorded: it cannot be shown to be the turn's, so it is reported and never signalled. Stop it yourself and delete again; deleting a chat that leads a mission, or has processes left running, is the operator's.

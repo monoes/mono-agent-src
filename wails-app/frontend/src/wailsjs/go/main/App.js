@@ -138,6 +138,18 @@ export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
 
+export function AgentPurposeReset(arg1) {
+  return window['go']['main']['App']['AgentPurposeReset'](arg1);
+}
+
+export function AgentPurposeSet(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['AgentPurposeSet'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
+export function AgentPurposesList() {
+  return window['go']['main']['App']['AgentPurposesList']();
+}
+
 export function AgentRoster() {
   return window['go']['main']['App']['AgentRoster']();
 }
@@ -1198,6 +1210,30 @@ export function PauseOrgAutonomy(arg1, arg2) {
   return window['go']['main']['App']['PauseOrgAutonomy'](arg1, arg2);
 }
 
+export function PersonItemAnswerAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAnswerAsk'](arg1, arg2);
+}
+
+export function PersonItemApprove(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PersonItemApprove'](arg1, arg2, arg3);
+}
+
+export function PersonItemAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAsk'](arg1, arg2);
+}
+
+export function PersonItemDeny(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemDeny'](arg1, arg2);
+}
+
+export function PersonItemShow(arg1) {
+  return window['go']['main']['App']['PersonItemShow'](arg1);
+}
+
+export function PersonItemsList() {
+  return window['go']['main']['App']['PersonItemsList']();
+}
+
 export function PickCoderFolder() {
   return window['go']['main']['App']['PickCoderFolder']();
 }
@@ -1608,6 +1644,10 @@ export function TaskPulse() {
 
 export function TaskSessionApprove(arg1) {
   return window['go']['main']['App']['TaskSessionApprove'](arg1);
+}
+
+export function TaskSessionApproveAt(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionApproveAt'](arg1, arg2);
 }
 
 export function TaskSessionArchive(arg1) {

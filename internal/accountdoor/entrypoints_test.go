@@ -29,6 +29,7 @@ var doors = map[string]string{
 	"internal/httpapi/server.go":          "HTTP API routes: auth wrapper plus accountGate",
 	"internal/openaiapi/register.go":      "/v1 routes, each behind Gateway.auth",
 	"internal/openaiapi/serve.go":         "dedicated /v1 listener and its /health",
+	"internal/procbind/sockdir_linux.go":  "the binding service's unix socket: a 0700 directory of the user, peers of that uid only, and it answers whether a caller may use a bound token; it runs no workflow, calls no gated command and uses no account, so a locked account gains nothing through it; nothing starts it yet",
 	"internal/orgbridge/receiver.go":      "POST /org-endpoint/{id}: Receiver.ServeHTTP gate first",
 	"internal/workflow/webhook_server.go": "webhook listener: WebhookServer.ServeHTTP gate first",
 }
