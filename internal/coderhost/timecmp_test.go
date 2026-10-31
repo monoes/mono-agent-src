@@ -34,7 +34,7 @@ func TestTsBeforeAndNotBeforeAgreeWithTimeForEverySpelling(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for cond, want := range map[string]bool{tsBefore("c", cut): parsed.Before(cut), tsNotBefore("c", cut): !parsed.Before(cut)} {
+				for cond, want := range map[string]bool{tsRawBefore("c", cut): parsed.Before(cut), tsRawNotBefore("c", cut): !parsed.Before(cut)} {
 					var n int
 					if err := st.db.QueryRow(`SELECT COUNT(*) FROM (SELECT ? AS c) WHERE `+cond, stored).Scan(&n); err != nil {
 						t.Fatalf("%s: %v", name, err)
@@ -72,7 +72,7 @@ func TestTsConditionsSelectTheSameRowsFromAMixedTable(t *testing.T) {
 		for _, q := range []struct {
 			cond string
 			want func(time.Time) bool
-		}{{tsBefore("at", cut), func(x time.Time) bool { return x.Before(cut) }}, {tsNotBefore("at", cut), func(x time.Time) bool { return !x.Before(cut) }}} {
+		}{{tsRawBefore("at", cut), func(x time.Time) bool { return x.Before(cut) }}, {tsRawNotBefore("at", cut), func(x time.Time) bool { return !x.Before(cut) }}} {
 			rows, err := st.db.Query(`SELECT id FROM mixed WHERE ` + q.cond)
 			if err != nil {
 				t.Fatal(err)
@@ -93,14 +93,11 @@ func TestTsConditionsSelectTheSameRowsFromAMixedTable(t *testing.T) {
 	}
 }
 
-// The cutoff conditions bound the column itself, so the indexes the queries already used (profile, conversation, ...)
-// are still the access path: the timestamp condition is only a residual filter, as it was with the lexical comparison.
-func TestTsConditionsKeepTheIndexedAccessPath(t *testing.T) {
-	st := newStoreT(t)
-	cond := tsNotBefore("created_at", time.Now())
-	rows, err := st.db.Query(`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND made_by = 'model' AND `+cond, "p", "c")
+func planOf(t *testing.T, st *Store, q string, args ...any) string {
+	t.Helper()
+	rows, err := st.db.Query("EXPLAIN QUERY PLAN "+q, args...)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v: %s", err, q)
 	}
 	defer rows.Close()
 	var plan []string
@@ -110,7 +107,37 @@ func TestTsConditionsKeepTheIndexedAccessPath(t *testing.T) {
 		_ = rows.Scan(&a, &b, &c, &detail)
 		plan = append(plan, detail)
 	}
-	if !strings.Contains(strings.Join(plan, " | "), "idx_coder_session_decisions_conv") {
-		t.Fatalf("plan: %v", plan)
+	return strings.Join(plan, " | ")
+}
+
+// The conditions add residual filters only: for every table a site reads, the plan of the query with the new condition
+// equals the plan of the same query with the lexical comparison it replaced (the extra "unparsable" terms must not push a
+// large table from its index to a scan).
+func TestTsConditionsKeepTheAccessPathOfTheLexicalQueries(t *testing.T) {
+	st := newStoreT(t)
+	now := time.Now()
+	const lex = "'2026-10-31T12:00:00Z'"
+	cases := []struct{ name, prefix, col, neu, old string }{
+		{"decisions count", `SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = 'p' AND conversation_id = 'c' AND made_by = 'model' AND `, "created_at", tsInWindow("created_at", now), "created_at >= " + lex},
+		{"person_items count", `SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = 'p' AND conversation_id = 'c' AND `, "created_at", tsInWindow("created_at", now), "created_at >= " + lex},
+		{"spawns count", `SELECT COUNT(*) FROM coder_session_spawns WHERE profile_id = 'p' AND parent = 'm' AND `, "created_at", tsInWindow("created_at", now), "created_at >= " + lex},
+		{"spawns cleanup", `SELECT 1 FROM coder_session_spawns WHERE profile_id = 'p' AND parent = 'm' AND `, "created_at", tsOlderThan("created_at", now), "created_at < " + lex},
+		{"budget_requests count", `SELECT COUNT(*) FROM coder_budget_requests WHERE profile_id = 'p' AND lead_conversation_id = 'l' AND `, "created_at", tsInWindow("created_at", now), "created_at >= " + lex},
+		{"session_tokens live", `SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND `, "expires_at", tsLive("expires_at", now), "expires_at >= " + lex},
+		{"session_tokens expired", `SELECT 1 FROM coder_session_tokens WHERE (profile_id = 'p' AND conversation_id = 'c') OR `, "expires_at", tsExpired("expires_at", now), "expires_at < " + lex},
+		{"turn_caps drop", `SELECT 1 FROM coder_session_turn_caps WHERE started = 0 AND `, "created_at", tsOlderThan("created_at", now), "created_at < " + lex},
+		{"spawn_intents sweep", `SELECT 1 FROM coder_spawn_intents WHERE state = 'pending' AND `, "created_at", tsLapsed("created_at", now), "created_at < " + lex},
+		{"questions defaults", `SELECT 1 FROM coder_session_questions WHERE status = 'open' AND default_answer != '' AND `, "created_at", tsOlderThan("created_at", now), "created_at < " + lex},
+		{"questions redeliver", `SELECT 1 FROM coder_session_questions WHERE status != 'open' AND command_id = 0 AND answered_at != '' AND `, "answered_at", tsOlderThan("answered_at", now), "answered_at < " + lex},
+		{"commands expire", `SELECT 1 FROM coder_session_commands WHERE kind = 'send' AND status = 'pending' AND `, "created_at", tsLapsed("created_at", now), "created_at < " + lex},
+		{"mission_children stale", `SELECT 1 FROM coder_mission_children WHERE state = 'spawning' AND child_conversation_id = '' AND `, "updated_at", tsOlderThan("updated_at", now), "updated_at < " + lex},
+		{"orphan carves", `SELECT 1 FROM coder_sessions c WHERE c.role = 'child' AND c.budget_usd > 0 AND `, "c.created_at", tsOlderThan("c.created_at", now), "c.created_at < " + lex},
+	}
+	for _, c := range cases {
+		neu, old := planOf(t, st, c.prefix+c.neu), planOf(t, st, c.prefix+c.old)
+		t.Logf("%s\n   old: %s\n   new: %s", c.name, old, neu)
+		if neu != old {
+			t.Errorf("%s: plan changed\n   old: %s\n   new: %s", c.name, old, neu)
+		}
 	}
 }

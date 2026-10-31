@@ -312,9 +312,9 @@ var errCarveNoRoom = errors.New("the carve does not fit in the master's budget")
 func (s *Store) takeSpawnSlot(profileID, parent string) error {
 	now := s.now().UTC()
 	// rows older than the window can no longer count: drop them
-	_, _ = s.db.Exec(`DELETE FROM coder_session_spawns WHERE profile_id = ? AND parent = ? AND `+tsBefore("created_at", now.Add(-SpawnRateWindow)), profileID, parent)
+	_, _ = s.db.Exec(`DELETE FROM coder_session_spawns WHERE profile_id = ? AND parent = ? AND `+tsOlderThan("created_at", now.Add(-SpawnRateWindow)), profileID, parent)
 	res, err := s.db.Exec(`INSERT INTO coder_session_spawns (profile_id, parent, child, created_at)
-		SELECT ?, ?, '', ? WHERE (SELECT COUNT(*) FROM coder_session_spawns WHERE profile_id = ? AND parent = ? AND `+tsNotBefore("created_at", now.Add(-SpawnRateWindow))+`) < ?`,
+		SELECT ?, ?, '', ? WHERE (SELECT COUNT(*) FROM coder_session_spawns WHERE profile_id = ? AND parent = ? AND `+tsInWindow("created_at", now.Add(-SpawnRateWindow))+`) < ?`,
 		profileID, parent, now.Format(timeLayout), profileID, parent, SpawnRateMax)
 	if err != nil {
 		return err

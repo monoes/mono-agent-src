@@ -129,7 +129,7 @@ func (s *Store) setIntentChild(in spawnIntent, child string) error {
 func (s *Store) claimIntent(in spawnIntent, leaseCut, createCut time.Time) (spawnIntent, bool, error) {
 	res, err := s.db.Exec(`UPDATE coder_spawn_intents SET state = 'sweeping', generation = generation + 1, claimed_at = ?, attempts = attempts + 1
 		WHERE profile_id = ? AND spawner = ? AND scope_hash = ? AND generation = ?
-		AND ((state = 'pending' AND `+tsBefore("created_at", leaseCut)+` AND (child != '' OR `+tsBefore("created_at", createCut)+`)) OR (state = 'sweeping' AND `+tsBefore("claimed_at", s.sweepCut(in.attempts))+`))`,
+		AND ((state = 'pending' AND `+tsLapsed("created_at", leaseCut)+` AND (child != '' OR `+tsLapsed("created_at", createCut)+`)) OR (state = 'sweeping' AND `+tsLapsed("claimed_at", s.sweepCut(in.attempts))+`))`,
 		s.stamp(), in.profile, in.spawner, in.hash, in.gen)
 	if err != nil {
 		return in, false, err

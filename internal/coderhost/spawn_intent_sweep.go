@@ -28,7 +28,7 @@ func (s *Store) SweepSpawnIntents(ctx context.Context, limit int) (int, error) {
 	leaseCut := now.Add(-SpawnIntentLease)
 	createCut := now.Add(-SpawnCreateLeases * SpawnIntentLease)
 	rows, err := s.db.Query(`SELECT profile_id, spawner, scope_hash, generation, attempts FROM coder_spawn_intents
-		WHERE (state = 'pending' AND `+tsBefore("created_at", leaseCut)+` AND (child != '' OR `+tsBefore("created_at", createCut)+`)) OR (state = 'sweeping' AND (`+s.backedOffLeases()+`)) ORDER BY created_at LIMIT ?`,
+		WHERE (state = 'pending' AND `+tsLapsed("created_at", leaseCut)+` AND (child != '' OR `+tsLapsed("created_at", createCut)+`)) OR (state = 'sweeping' AND (`+s.backedOffLeases()+`)) ORDER BY created_at LIMIT ?`,
 		limit)
 	if err != nil {
 		return 0, err
@@ -222,7 +222,7 @@ func (s *Store) backedOffLeases() string {
 		case SpawnSweepAttempts:
 			cond = fmt.Sprintf("attempts >= %d", a+1)
 		}
-		parts = append(parts, "("+cond+" AND "+tsBefore("claimed_at", s.sweepCut(a+1))+")")
+		parts = append(parts, "("+cond+" AND "+tsLapsed("claimed_at", s.sweepCut(a+1))+")")
 	}
 	return strings.Join(parts, " OR ")
 }

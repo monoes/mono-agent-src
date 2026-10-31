@@ -151,7 +151,7 @@ func (s *Store) RequestBudget(sc CallerScope, profileID string, sessionID int64,
 	now := s.now().UTC()
 	var perHour, perMission int
 	if err := tx.QueryRow(`SELECT
-		(SELECT COUNT(*) FROM coder_budget_requests WHERE profile_id = ? AND lead_conversation_id = ? AND `+tsNotBefore("created_at", now.Add(-time.Hour))+`),
+		(SELECT COUNT(*) FROM coder_budget_requests WHERE profile_id = ? AND lead_conversation_id = ? AND `+tsInWindow("created_at", now.Add(-time.Hour))+`),
 		(SELECT COUNT(*) FROM coder_budget_requests WHERE profile_id = ? AND session_id = ?)`,
 		profileID, b.LeadConversationID, profileID, sessionID).Scan(&perHour, &perMission); err != nil {
 		return BudgetRequest{}, err
