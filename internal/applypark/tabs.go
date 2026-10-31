@@ -243,6 +243,26 @@ func (s Store) SetState(ctx context.Context, appID string, st State, task string
 	return err
 }
 
+// Rebind moves the tab from the hold a resume put on it to state (and to task, when given), and says whether it
+// did: false means the tab no longer is that resume's (a sweep gave it back after the hold went stale, and
+// the person or another resume may have taken it since), so nothing is written.
+func (s Store) Rebind(ctx context.Context, appID, hold string, st State, task string) (bool, error) {
+	q := `UPDATE application_tabs SET state = ?, updated_at = ?`
+	args := []any{string(st), now()}
+	if task != "" {
+		q += `, task_id = ?`
+		args = append(args, task)
+	}
+	q += ` WHERE application_id = ? AND state = ? AND task_id = ? AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)`
+	args = append(args, appID, string(StateActive), hold, s.Profile)
+	res, err := s.DB.ExecContext(ctx, q, args...)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // DBTX is what *sql.DB and *sql.Tx share.
 type DBTX interface {
 	ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error)

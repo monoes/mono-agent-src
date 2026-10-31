@@ -187,28 +187,36 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	if tab == nil || (tab.State != applypark.StateParked && tab.State != applypark.StateLost) {
 		return d.InvalidInput("application %s has no parked or lost tab: use `application fill start` to fill it", id)
 	}
-	hold := tab.State == applypark.StateParked
-	if hold {
-		if err := tabs.SetState(ctx, id, applypark.StateActive, applypark.ResumePending); err != nil {
+	parked := tab.State == applypark.StateParked
+	var hold string
+	if parked {
+		hold = applypark.NewResumeHold()
+		if err := tabs.SetState(ctx, id, applypark.StateActive, hold); err != nil {
 			return err
 		}
 	}
 	taskID, err := d.startFill(ctx, id, runtime)
 	if err != nil {
-		if hold {
-			_ = tabs.SetState(ctx, id, applypark.StateParked, tab.TaskID)
+		if parked {
+			_, _ = tabs.Rebind(ctx, id, hold, applypark.StateParked, tab.TaskID)
 		}
 		return err
 	}
-	if hold {
-		if err := tabs.SetState(ctx, id, applypark.StateActive, taskID); err != nil {
+	if parked {
+		kept, err := tabs.Rebind(ctx, id, hold, applypark.StateActive, taskID)
+		if err != nil {
 			return err
+		}
+		if !kept {
+			// The hold went stale and the sweep gave the tab back; whoever has it now keeps it.
+			_, _ = (&aitask.Service{Store: &aitask.Store{DB: db.DB, Profile: d.ProfileID()}}).Cancel(taskID)
+			return d.InvalidInput("the resume of application %s took longer than %s and its tab was given back: resume it again", id, applypark.ResumeHoldTTL)
 		}
 	}
 	if err := applypark.ClearObserved(ctx, db.DB, id); err != nil {
 		return err
 	}
-	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": taskID, "tabId": tab.TabID, "tabState": map[bool]string{true: "active", false: "lost"}[hold]})
+	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": taskID, "tabId": tab.TabID, "tabState": map[bool]string{true: "active", false: "lost"}[parked]})
 }
 
 func (d Deps) newFillQueueCmd() *cobra.Command {
