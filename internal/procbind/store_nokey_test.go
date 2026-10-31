@@ -2,8 +2,10 @@ package procbind
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
+	"time"
 )
 
 // A key function that says a profile has no row key (ErrNoRowKey) makes RevokeTx skip that profile's tokens (they
@@ -75,5 +77,61 @@ func TestKeysAreDerivedOnlyWithinTheScope(t *testing.T) {
 	}
 	if _, err := keyOf("p3"); err == nil {
 		t.Error("a profile whose only token is revoked had its key derived")
+	}
+}
+
+// A profile that was keyless when the key function looked but has a key inside the revoking transaction is not
+// skipped: RevokeTx refuses (ErrRowKeyAppeared) and writes nothing.
+func TestRevokeTxDoesNotSkipAProfileThatGotAKey(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	mustInsertMission(t, db, mission("a", "p1", "owner"))
+	if _, err := RowKey(ctx, db, "p1"); err != nil { // the profile now has a key row
+		t.Fatal(err)
+	}
+	stale := func(string) ([]byte, error) { return nil, ErrNoRowKey } // what the snapshot said before it did
+	refs, err := RevokeTx(ctx, db, stale, Selector{Owner: "owner"}, "x", t0)
+	if !errors.Is(err, ErrRowKeyAppeared) || refs != nil {
+		t.Fatalf("a stale keyless answer for a profile with a key: %v %v", refs, err)
+	}
+	if rv, _ := IsRevoked(ctx, db, KindMission, "a"); rv {
+		t.Error("a revocation row was written")
+	}
+}
+
+// The race itself: between the key snapshot and the transaction the profile gets a key and a new token. The run
+// starts over and revokes the new token too, with no error.
+func TestARevocationRevokesATokenOfAProfileThatGotAKeyAfterTheSnapshot(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	mustInsertMission(t, db, mission("old", "p9", "owner")) // signed with the test key; the profile has no data key
+	hooked, calls := 0, 0
+	r := Revoker{DB: db, Now: func() time.Time { return t0 }}
+	r.afterKeys = func() {
+		hooked++
+		if hooked > 1 {
+			return
+		}
+		key, err := RowKey(ctx, db, "p9")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if err := InsertMissionToken(ctx, db, key, mission("new", "p9", "owner")); err != nil {
+			t.Error(err)
+		}
+	}
+	err := r.Run(ctx, []Kind{KindMission}, Scope{Owner: "owner"}, func(conn *sql.Conn) ([]Selector, error) {
+		calls++
+		return []Selector{{Profile: "p9", Owner: "owner", Kind: KindMission}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rv, _ := IsRevoked(ctx, db, KindMission, "new"); !rv {
+		t.Error("the token made after the snapshot was left unrevoked")
+	}
+	if calls != 2 {
+		t.Errorf("the legacy callback ran %d times, want 2 (the first attempt rolled back)", calls)
 	}
 }

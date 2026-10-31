@@ -17,6 +17,8 @@ type Revoker struct {
 	DB     *sql.DB
 	Binder *Binder
 	Now    func() time.Time
+
+	afterKeys func() // a test hook: runs between the key snapshot and the transaction
 }
 
 // Scope narrows which profiles' row keys a revocation derives: only those holding a not-yet-revoked v2 token the
@@ -35,12 +37,26 @@ type Scope struct {
 // The row key of each profile that holds a not-yet-revoked v2 token within scope is derived BEFORE the
 // transaction (Keys): deriving a key may write the database, which must not happen inside the write
 // transaction. A profile that gains its first v2 token between that read and the transaction has no key there,
-// and the revocation fails closed: the caller retries. The 3c mint of a v2 token must therefore not interleave
+// and the revocation fails closed (a profile that was keyless at the snapshot and has a key inside the
+// transaction is ErrRowKeyAppeared; Run then starts over, up to three times). The 3c mint of a v2 token must therefore not interleave
 // with a revoke-all of the same profile (or take the same key function first).
 func (r Revoker) Run(ctx context.Context, kinds []Kind, scope Scope, legacy func(conn *sql.Conn) ([]Selector, error)) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err = r.runOnce(ctx, kinds, scope, legacy); !errors.Is(err, ErrRowKeyAppeared) {
+			return err
+		}
+	}
+	return err
+}
+
+func (r Revoker) runOnce(ctx context.Context, kinds []Kind, scope Scope, legacy func(conn *sql.Conn) ([]Selector, error)) error {
 	keyFor, err := r.Keys(ctx, kinds, scope)
 	if err != nil {
 		return err
+	}
+	if r.afterKeys != nil {
+		r.afterKeys()
 	}
 	conn, err := r.DB.Conn(ctx)
 	if err != nil {
