@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -27,7 +28,7 @@ func (s *Store) budgetFloor(ctx context.Context, x dbx, se Session, budget float
 	if err != nil {
 		return err
 	}
-	if budget*1e6+1e-6 < float64(toMicros(c.Floor())) {
+	if belowFloor(budget, toMicros(c.Floor())) {
 		return limit("budget $%.2f is below the $%.4f already committed on session #%d (spent $%.4f, reservations $%.4f, children $%.4f): "+
 			"raise it to at least that, or pause the session to halt it", budget, c.Floor(), se.ID, c.Spent, c.Held, c.ChildCommitted)
 	}
@@ -73,4 +74,13 @@ func (s *Store) refuseUnboundedBelow(ctx context.Context, x dbx, se Session) err
 	}
 	return limit("session #%d has %d worker reservation(s) with no cap, whose cost is unknown: %s%s. Stop the workers (pause the session), or resolve a lapsed one, then set the budget",
 		se.ID, n, strings.Join(named, ", "), more)
+}
+
+// belowFloor reports whether budget is less than floor whole micro-dollars. The budget is a float, so the product
+// budget*1e6 can land a few ulps off an exact grid point (a budget typed equal to the floor must pass at any
+// supported amount); a shortfall of a fraction of a micro-dollar at small amounts still counts.
+func belowFloor(budget float64, floor int64) bool {
+	b := budget * 1e6
+	noise := 4 * (math.Nextafter(b, math.Inf(1)) - b)
+	return b+noise+1e-6 < float64(floor)
 }

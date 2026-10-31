@@ -202,3 +202,12 @@ func TestSetBudgetFloorIsNotSoftenedByAFractionOfAMicroDollar(t *testing.T) {
 		t.Fatalf("exactly the committed amount is allowed: %v", err)
 	}
 }
+
+func TestSetBudgetEqualToTheCommitmentIsAllowedAtLargeAmounts(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 0)
+	setSpent(t, db, id, 554943471.278773)
+	if _, err := setBudget(s, id, 554943471.278773); err != nil {
+		t.Fatalf("a budget equal to the committed spend: %v", err)
+	}
+}
