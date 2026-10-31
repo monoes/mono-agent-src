@@ -141,5 +141,16 @@ func (c V2Check) Verify(ctx context.Context, kind Kind, secret string) (V2Result
 	if verdict != VerdictAllow {
 		return res, c.deny("the service denied the caller")
 	}
+	// The answer is the authorization boundary. A revocation commits before the service drops its live entry, so one
+	// that landed after the checks above and before this answer still gets an authentic allow: read the revocation and
+	// the expiry again now that the answer is in.
+	if revoked, err := IsRevoked(ctx, c.DB, kind, id); err != nil {
+		return res, fmt.Errorf("procbind: verifying: %w", err)
+	} else if revoked {
+		return res, c.deny("token revoked while it was being verified")
+	}
+	if at := now(); !at.Before(expires) || !at.Before(res.Binding.ExpiresAt) {
+		return res, c.deny("token expired while it was being verified")
+	}
 	return res, nil
 }
