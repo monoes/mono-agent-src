@@ -18,8 +18,9 @@ func (b *boundLaunch) attach(*exec.Cmd, string) (*boundDelivery, error) {
 func (d *boundDelivery) start(*exec.Cmd) error {
 	return errors.New("peer-credential binding needs Linux")
 }
-func (d *boundDelivery) kill()  {}
-func (d *boundDelivery) close() {}
+func (d *boundDelivery) setOnKill(func()) {}
+func (d *boundDelivery) kill()            {}
+func (d *boundDelivery) close()           {}
 func (d *boundDelivery) deliver(string, string, string, int, string, func() error) error {
 	return errors.New("peer-credential binding needs Linux")
 }
