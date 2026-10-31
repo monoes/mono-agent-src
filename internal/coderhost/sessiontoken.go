@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
 
@@ -205,6 +206,9 @@ func (s *Store) RevokeSessionTokensErr(profileID, conversationID string) error {
 // its turn is the session's current turn, and the caller is the turn's process or a
 // descendant of it.
 func (s *Store) VerifySessionToken(tok string) (Caller, error) {
+	if strings.HasPrefix(tok, procbind.SessionPrefixV2) {
+		return s.verifySessionV2(tok)
+	}
 	if !strings.HasPrefix(tok, SessionTokenPrefix) || len(tok) > 128 {
 		return Caller{}, ErrSessionToken
 	}
