@@ -193,9 +193,17 @@ func (d Deps) submitFill(ctx context.Context, in applyfill.Input, sources []aita
 		return t, fmt.Errorf("aitask submit printed no task: %s", strings.TrimSpace(string(out)))
 	}
 	if want, _ := ctx.Value(fillTaskIDKey{}).(string); want != "" && t.ID != want {
-		return t, fmt.Errorf("aitask submit made task %s, not the %s asked for", t.ID, want)
+		return t, &wrongTaskError{Got: t.ID, Want: want}
 	}
 	return t, nil
+}
+
+// wrongTaskError: submit made a task, but not the one with the id asked for. The task exists and is not the
+// caller's to keep: whoever asked cancels it.
+type wrongTaskError struct{ Got, Want string }
+
+func (e *wrongTaskError) Error() string {
+	return fmt.Sprintf("aitask submit made task %s, not the %s asked for", e.Got, e.Want)
 }
 
 // fillTaskIDKey carries the id a fill's task must take (a resume holds the tab under it before the task exists).

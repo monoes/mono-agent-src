@@ -347,6 +347,15 @@ func TestSweepParksATabHeldForATaskThatNeverExisted(t *testing.T) {
 			t.Errorf("%s: state %s, want %s", app, tab.State, want)
 		}
 	}
+	// The expired hold's id is cleared: a task that turns up late and finishes before its resume looks is not
+	// taken for the owner of a tab the sweep gave back.
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-0000000000000001', ?, 'application-apply', 'c1', 'complete', 'g', ?, 'x', 'x')`, profile, dead); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := st.Holds(bg, dead, "at-0000000000000001"); ok {
+		t.Fatal("a finished late task is read as the owner of a tab the sweep gave back")
+	}
 }
 
 // The sweep read the tab under an id no task had; before the park the resume created its task, or the tab moved
@@ -404,6 +413,16 @@ func TestClaimTakesOnlyTheTabThatWasRead(t *testing.T) {
 	}
 	if got, _ := st.Get(bg, app); got.TaskID != "at-1" || got.State != StateActive {
 		t.Fatalf("tab = %+v", got)
+	}
+	// The observed id is matched as written, not as a pattern.
+	other := parkedApp(t, st, apps, 8)
+	if err := st.SetState(bg, other, StateParked, "at-x"); err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"%", "at-_", "at-%"} {
+		if held, _ := st.Claim(bg, other, pattern, "at-9"); held {
+			t.Fatalf("observed id %q matched as a pattern", pattern)
+		}
 	}
 	// The person closed the tab after the resume read it as parked.
 	if err := st.SetState(bg, app, StateClosed, ""); err != nil {

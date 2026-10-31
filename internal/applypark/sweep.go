@@ -104,7 +104,7 @@ func parkUnstartedResume(ctx context.Context, store Store, t Tab) error {
 	}
 	cutoff := time.Now().UTC().Add(-ResumeHoldTTL).Format(time.RFC3339)
 	_, err := store.DB.ExecContext(ctx,
-		`UPDATE application_tabs SET state = ?, updated_at = ?
+		`UPDATE application_tabs SET state = ?, task_id = '', updated_at = ?
 		 WHERE application_id = ? AND state = ? AND task_id = ? AND updated_at < ?
 		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)
 		   AND NOT EXISTS (SELECT 1 FROM ai_tasks k WHERE k.id = application_tabs.task_id)`,

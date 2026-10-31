@@ -190,6 +190,7 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	}
 	parked := tab.State == applypark.StateParked
 	taskID := aitask.NewID()
+	claimedAt := time.Now().UTC().Add(-time.Second) // a task created from here on is this resume's
 	if parked {
 		// The tab is held under the id the task will take, so no placeholder and no second write: the hold becomes
 		// the task's own the moment it exists.
@@ -201,7 +202,7 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	}
 	if _, err := d.startFill(context.WithValue(ctx, fillTaskIDKey{}, taskID), id, runtime); err != nil {
 		if parked {
-			return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, err)
+			return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, claimedAt, err)
 		}
 		return err
 	}
@@ -211,7 +212,7 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 			if err == nil {
 				err = d.InvalidInput("the resume of application %s took longer than %s and its tab was given back: resume it again", id, applypark.ResumeHoldTTL)
 			}
-			return d.giveBack(ctx, db.DB, tabs, id, taskID, "", err)
+			return d.giveBack(ctx, db.DB, tabs, id, taskID, "", claimedAt, err)
 		}
 	}
 	if err := applypark.ClearObserved(ctx, db.DB, id); err != nil {
@@ -226,21 +227,37 @@ func hasCode(err error, code string) bool {
 }
 
 // giveBack undoes a resume that did not get its task running: the tab goes back to parked while it is still held
-// under the resume's task id, and a task that was created anyway is cancelled. cause is what went wrong; an
-// error of the undo itself is reported with it, never dropped.
-func (d Deps) giveBack(ctx context.Context, db *sql.DB, tabs applypark.Store, id, taskID, observed string, cause error) error {
-	var errs []error
-	errs = append(errs, cause)
+// under the resume's task id, and the tasks this resume made are cancelled: the one with its id when it was created
+// since claimedAt (one that is older is somebody else's), and the one submit made instead when it answered with
+// another id. cause is what went wrong; an error of the undo itself is reported with it, never dropped.
+func (d Deps) giveBack(ctx context.Context, db *sql.DB, tabs applypark.Store, id, taskID, observed string, claimedAt time.Time, cause error) error {
+	errs := []error{cause}
 	if _, err := tabs.Release(ctx, id, taskID, observed); err != nil {
 		errs = append(errs, fmt.Errorf("giving the tab back: %w", err))
 	}
 	svc := &aitask.Service{Store: &aitask.Store{DB: db, Profile: d.ProfileID()}}
-	if _, err := svc.Store.Get(taskID); err != nil {
-		if !hasCode(err, aitask.CodeNotFound) {
-			errs = append(errs, fmt.Errorf("task %s could not be looked up to cancel it: %w", taskID, err))
+	cancel := func(tid string, ours func(aitask.Task) bool) {
+		t, err := svc.Store.Get(tid)
+		switch {
+		case hasCode(err, aitask.CodeNotFound):
+			return
+		case err != nil:
+			errs = append(errs, fmt.Errorf("task %s could not be looked up to cancel it: %w", tid, err))
+			return
+		case !ours(t):
+			return
 		}
-	} else if _, err := svc.Cancel(taskID); err != nil && !hasCode(err, aitask.CodeTaskClosed) {
-		errs = append(errs, fmt.Errorf("task %s was started and could not be cancelled: %w", taskID, err))
+		if _, err := svc.Cancel(tid); err != nil && !hasCode(err, aitask.CodeTaskClosed) {
+			errs = append(errs, fmt.Errorf("task %s was started and could not be cancelled: %w", tid, err))
+		}
+	}
+	cancel(taskID, func(t aitask.Task) bool {
+		at, err := time.Parse(time.RFC3339Nano, t.CreatedAt)
+		return err == nil && !at.Before(claimedAt)
+	})
+	var wrong *wrongTaskError
+	if errors.As(cause, &wrong) && wrong.Got != taskID {
+		cancel(wrong.Got, func(aitask.Task) bool { return true })
 	}
 	return errors.Join(errs...)
 }

@@ -120,6 +120,13 @@ func (s *Store) Insert(t Task) (Task, error) {
 	return t, err
 }
 
+// IDTaken says whether any profile has a task with this id (the id is the table's key).
+func (s *Store) IDTaken(id string) (bool, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM ai_tasks WHERE id = ?`, id).Scan(&n)
+	return n > 0, err
+}
+
 // Get returns the profile's task id.
 func (s *Store) Get(id string) (Task, error) {
 	t, err := scanTask(s.DB.QueryRow(`SELECT `+taskColumns+` FROM ai_tasks WHERE id = ? AND profile_id = ?`, id, s.Profile))

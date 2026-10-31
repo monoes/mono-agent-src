@@ -446,3 +446,47 @@ func TestFillResumeHoldsTheTabUnderItsTaskId(t *testing.T) {
 		t.Fatalf("tab = %+v", got)
 	}
 }
+
+// If submit makes a task other than the one asked for, the resume cancels that task too, and giveBack cancels the
+// task with the requested id only when this resume made it: an older one with that id is somebody else's.
+func TestGiveBackCancelsOnlyWhatTheResumeMade(t *testing.T) {
+	dbPath := homeDB(t)
+	withDB(t, dbPath, func(db *sql.DB) {
+		tasks := &aitask.Store{DB: db, Profile: "default"}
+		mk := func(id string) {
+			if _, err := tasks.Insert(aitask.Task{ID: id, Kind: applyfill.Kind, ConversationID: "c-" + id, Status: aitask.StatusRunning, Goal: "g", Access: aitask.AccessWorkspace, BudgetUSD: 1}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		status := func(id string) string {
+			tk, err := tasks.Get(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return tk.Status
+		}
+		d := Deps{ProfileID: func() string { return "default" }}
+		tabs := applypark.Store{DB: db, Profile: "default"}
+		cause := errors.New("boom")
+
+		// An older task with the requested id (not made by this resume) keeps running.
+		mk("at-00000000000000a1")
+		_ = d.giveBack(context.Background(), db, tabs, "app", "at-00000000000000a1", "", time.Now().Add(time.Hour), cause)
+		if s := status("at-00000000000000a1"); s != aitask.StatusRunning {
+			t.Errorf("an older task with the requested id was %s", s)
+		}
+		// One made since the claim, and the different one submit answered with, are cancelled.
+		mk("at-00000000000000a2")
+		mk("at-00000000000000b2")
+		err := d.giveBack(context.Background(), db, tabs, "app", "at-00000000000000a2", "", time.Now().Add(-time.Hour),
+			&wrongTaskError{Got: "at-00000000000000b2", Want: "at-00000000000000a2"})
+		if err == nil {
+			t.Error("the cause was dropped")
+		}
+		for _, id := range []string{"at-00000000000000a2", "at-00000000000000b2"} {
+			if s := status(id); s != aitask.StatusCancelled {
+				t.Errorf("%s is %s, want cancelled", id, s)
+			}
+		}
+	})
+}

@@ -809,3 +809,25 @@ func TestSubmitTakesTheIdItIsGivenAndRefusesOne(t *testing.T) {
 		t.Fatal("NewID makes an id ValidID refuses")
 	}
 }
+
+// A task id already in use is refused before anything is made: no second conversation, and the first task's
+// context folder is not written over.
+func TestSubmitRefusesATaskIdInUseBeforeMakingAnything(t *testing.T) {
+	s, l := newService(t)
+	in := SubmitInput{ID: "at-0123456789abcdef", Kind: "generic", Goal: "first"}
+	first, err := s.Submit(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := l.created
+	in.Goal = "second"
+	if _, err := s.Submit(context.Background(), in); code(err) != CodeInvalidInput {
+		t.Fatalf("a second submit with the same id: %v", err)
+	}
+	if l.created != made {
+		t.Errorf("a refused submit made %d conversation(s)", l.created-made)
+	}
+	if got, err := s.Store.Get(first.ID); err != nil || got.Goal != "first" {
+		t.Fatalf("the first task changed: %+v %v", got, err)
+	}
+}

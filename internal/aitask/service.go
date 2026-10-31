@@ -131,6 +131,15 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	if in.ID != "" {
+		// Before anything is made: a task id already in use must not get a second conversation or have its context
+		// folder written over. The table key still refuses a race past this check.
+		if taken, err := s.Store.IDTaken(in.ID); err != nil {
+			return Task{}, err
+		} else if taken {
+			return Task{}, errf(CodeInvalidInput, "--task-id %s is already a task", in.ID)
+		}
+	}
 	access := in.Access
 	if access == "" {
 		access = kind.DefaultAccess
