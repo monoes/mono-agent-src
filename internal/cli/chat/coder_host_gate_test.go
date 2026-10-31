@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -202,5 +203,29 @@ func TestThePeercredSettingCannotBeSwitchedOnYet(t *testing.T) {
 	}
 	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
 		t.Errorf("off did not clear the setting: %s", out)
+	}
+}
+
+// fakeService counts what the gate asks of the binding service.
+type fakeService struct{ ensured, asked int }
+
+func (f *fakeService) Ensure(_ context.Context, _ string) error { f.ensured++; return nil }
+func (f *fakeService) Running(string) bool                      { f.asked++; return true }
+
+// The service is never started while it is off or while this build cannot issue bound tokens: the gate asks
+// procbind first and only then the service.
+func TestTheGateNeverStartsTheServiceWhileItIsNotAllowed(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	for name, raw := range map[string]string{"off": `{"enabled":true}`, "on": `{"peercredBinding":true}`} {
+		g, _ := gateRig(t, raw)
+		svc := &fakeService{}
+		g.svc = svc
+		_, _ = g.Start("p", "c", "t", "m", nil, "")
+		_, _ = g.StartCapped("p", "c", "t", "m", nil, "", 1)
+		if svc.ensured != 0 || svc.asked != 0 {
+			t.Errorf("%s: the service was asked (%d ensure, %d running)", name, svc.ensured, svc.asked)
+		}
 	}
 }

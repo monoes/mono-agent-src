@@ -21,6 +21,7 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // `coder host`: the process that keeps coder sessions going when the app and
@@ -199,9 +200,11 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			store := coderhost.NewStore(db.DB)
 			children := newChildTokenMinter(db.DB)
 			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)
+			binding := &coderhost.BindingHost{DB: db.DB, Binder: procbind.NewBinder(time.Now), Logf: logf}
+			defer binding.Shutdown() // revokes every registration and closes every socket
 			h := &coderhost.Host{
 				Store: store, ChildTokens: children,
-				L: &gatedLauncher{db: db.DB, inner: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
+				L: &gatedLauncher{db: db.DB, svc: binding, inner: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
 					tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
 						if store.HostInsideTurn() {
 							return coderhost.ErrHostInsideTurn

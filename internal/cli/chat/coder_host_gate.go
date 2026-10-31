@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -17,8 +18,14 @@ import (
 type gatedLauncher struct {
 	inner coderhost.Launcher
 	db    *sql.DB
-	// service says whether the binding service is running (nil: it is not; 3b-2 supplies it).
-	service func() bool
+	// svc is the binding service of the host (nil: there is none, so it is never running).
+	svc bindingService
+}
+
+// bindingService is what the gate asks of the host's binding service.
+type bindingService interface {
+	Ensure(ctx context.Context, profile string) error
+	Running(profile string) bool
 }
 
 // bindingRefusal is a turn start refused by the gate.
@@ -27,7 +34,7 @@ type bindingRefusal struct{ msg string }
 func (e *bindingRefusal) Error() string { return e.msg }
 
 // refusal is nil when the turn may start.
-func (g *gatedLauncher) refusal() error {
+func (g *gatedLauncher) refusal(profile string) error {
 	var raw string
 	err := g.db.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -46,14 +53,22 @@ func (g *gatedLauncher) refusal() error {
 		return nil // off
 	}
 	// anything else (true, or a value that is not a plain false) counts as on
-	if why := procbind.Refusal(g.service != nil && g.service()); why != "" {
+	// The service is asked to start only when everything else allows it: while this build cannot issue bound
+	// tokens (or the machine cannot run it) nothing is ever started.
+	running := false
+	if g.svc != nil && procbind.Refusal(true) == "" {
+		if err := g.svc.Ensure(context.Background(), profile); err == nil {
+			running = g.svc.Running(profile)
+		}
+	}
+	if why := procbind.Refusal(running); why != "" {
 		return &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)"}
 	}
 	return nil
 }
 
 func (g *gatedLauncher) Start(profileID, conversationID, turnID, message string, attachments []string, missionToken string) (coderhost.Turn, error) {
-	if err := g.refusal(); err != nil {
+	if err := g.refusal(profileID); err != nil {
 		return nil, err
 	}
 	return g.inner.Start(profileID, conversationID, turnID, message, attachments, missionToken)
@@ -61,7 +76,7 @@ func (g *gatedLauncher) Start(profileID, conversationID, turnID, message string,
 
 // StartCapped is Start under a spend cap; the inner launcher must offer it (the host asks for it by interface).
 func (g *gatedLauncher) StartCapped(profileID, conversationID, turnID, message string, attachments []string, missionToken string, capUSD float64) (coderhost.Turn, error) {
-	if err := g.refusal(); err != nil {
+	if err := g.refusal(profileID); err != nil {
 		return nil, err
 	}
 	b, ok := g.inner.(coderhost.BudgetLauncher)
