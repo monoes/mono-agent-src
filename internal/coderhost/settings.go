@@ -77,7 +77,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
