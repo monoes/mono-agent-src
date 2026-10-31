@@ -211,6 +211,23 @@ func TestV2SessionTokenRevokedBetweenTheChecksAndTheAnswerIsDenied(t *testing.T)
 	}
 }
 
+// V2Check itself, asked for a session token: it names the session's token row and binding, and the kind matters: the same
+// secret asked for as a mission token is refused.
+func TestV2CheckVerifiesASessionTokenByItsKind(t *testing.T) {
+	r := newSessRig(t, nil)
+	c := procbind.V2Check{DB: r.st.db, Timeout: 3 * time.Second, Dial: func(string) (net.Conn, error) { return procbind.DialUnix(r.sock) }}
+	res, err := c.Verify(t.Context(), procbind.KindSession, r.secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Kind != procbind.KindSession || res.Session.ID != r.id || res.Session.ConversationID != r.conv || res.Session.TurnID != r.turn || res.Binding.Scope != r.scope {
+		t.Fatalf("result = %+v", res)
+	}
+	if _, err := c.Verify(t.Context(), procbind.KindMission, r.secret); !errors.Is(err, procbind.ErrDenied) {
+		t.Fatalf("a session secret asked for as a mission token: %v", err)
+	}
+}
+
 // A legacy session token verifies as before with the v2 verifier set, and the v2 secret is not a legacy one.
 func TestLegacySessionTokenIsUnchangedByTheV2Verifier(t *testing.T) {
 	r := newSessRig(t, nil)
