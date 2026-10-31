@@ -167,3 +167,22 @@ func TestSweepMissionsFindsRunsThatHaveOnlyV2Tokens(t *testing.T) {
 		}
 	}
 }
+
+// RevokeOwner counts the v2 tokens it revoked, a bound run's token being the only one it holds; a v2 twin of a legacy
+// token (the same id) does not count twice.
+func TestRevokeOwnerCountsTheV2OnlyTokens(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	v2Mission(t, s, "v2-only", "default", "run-x")
+	if n, err := s.RevokeOwner(ctx, "run-x"); err != nil || n != 1 {
+		t.Fatalf("revoked %d: %v, want 1", n, err)
+	}
+	tok, _, err := s.CreateMission(ctx, "default", missionB, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2Mission(t, s, tok.ID, "default", missionB.Owner) // the twin
+	if n, err := s.RevokeOwner(ctx, missionB.Owner); err != nil || n != 1 {
+		t.Fatalf("a legacy token with a v2 twin counted %d: %v, want 1", n, err)
+	}
+}
