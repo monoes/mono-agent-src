@@ -298,7 +298,7 @@ func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
 	task("t-ended", profile, "cancelled")
 	task("t-running", profile, "running")
 	task("t-other", "someone-else", "cancelled") // another profile's task id does not count
-	for app, tk := range map[string]string{ended: "t-ended", running: "t-running", pending: ResumePending, other: "t-other"} {
+	for app, tk := range map[string]string{ended: "t-ended", running: "t-running", pending: "resume-pending", other: "t-other"} {
 		if err := st.SetState(bg, app, StateActive, tk); err != nil {
 			t.Fatal(err)
 		}
@@ -314,114 +314,150 @@ func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
 	}
 }
 
-// A resume that died between its two state writes leaves the tab active under its hold with no task behind it.
-// Once the hold is older than any resume could take, the sweep gives the tab back (parked), or, when the resume had
-// started its task, binds the tab to that task. A fresh hold is a resume in flight, and an older task of the
-// application, whatever it is doing, is never taken for the resume's.
-func TestSweepRecoversAStaleResumeHold(t *testing.T) {
+// A resume holds the tab under the id of the task it is about to create. One that died before creating it leaves
+// a tab held under an id no task has; once the hold is older than any resume could take, the sweep gives it back.
+// A task that exists is judged like any other, and a fresh hold is a resume in flight.
+func TestSweepParksATabHeldForATaskThatNeverExisted(t *testing.T) {
 	db, st, apps := fixture(t)
-	nokind := parkedApp(t, st, apps, 7)   // stale; only an older generic task runs
-	older := parkedApp(t, st, apps, 8)    // stale; only a fill task from before the hold runs
-	started := parkedApp(t, st, apps, 9)  // stale; its resume started a fill task after the hold
-	sameSec := parkedApp(t, st, apps, 10) // as started, the task created within the hold's second
-	fresh := parkedApp(t, st, apps, 11)   // a resume in flight
-	holds := map[string]string{}
-	for _, app := range []string{nokind, older, started, sameSec, fresh} {
-		holds[app] = NewResumeHold()
-		if err := st.SetState(bg, app, StateActive, holds[app]); err != nil {
+	dead := parkedApp(t, st, apps, 7)
+	started := parkedApp(t, st, apps, 8)
+	fresh := parkedApp(t, st, apps, 9)
+	legacy := parkedApp(t, st, apps, 10)
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-0000000000000002', ?, 'application-apply', 'c1', 'running', 'g', ?, 'x', 'x')`, profile, started); err != nil {
+		t.Fatal(err)
+	}
+	for app, task := range map[string]string{dead: "at-0000000000000001", started: "at-0000000000000002", fresh: "at-0000000000000003", legacy: "resume-pending"} {
+		if err := st.SetState(bg, app, StateActive, task); err != nil {
 			t.Fatal(err)
 		}
 	}
-	holdAt := time.Now().UTC().Add(-2 * ResumeHoldTTL).Truncate(time.Second)
-	for _, app := range []string{nokind, older, started, sameSec} {
-		if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, holdAt.Format(time.RFC3339), app); err != nil {
+	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
+	for _, app := range []string{dead, started, legacy} {
+		if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
 			t.Fatal(err)
 		}
 	}
-	task := func(id, kind, app string, created time.Time) {
-		if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
-			VALUES (?, ?, ?, 'c1', 'running', 'g', ?, ?, ?)`, id, profile, kind, app, created.Format(time.RFC3339Nano), created.Format(time.RFC3339Nano)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	task("t-generic-old", "generic", nokind, holdAt.Add(-time.Hour))
-	task("t-generic-new", "generic", nokind, holdAt.Add(time.Minute)) // not a fill task: not the resume's
-	task("t-fill-old", FillTaskKind, older, holdAt.Add(-time.Hour))
-	task("t-fill", FillTaskKind, started, holdAt.Add(time.Minute))
-	task("t-fill-same", FillTaskKind, sameSec, holdAt.Add(300*time.Millisecond))
-	tabs := []LiveTab{live(7, "https://jobs.example/a"), live(8, "https://jobs.example/b"), live(9, "https://jobs.example/c"),
-		live(10, "https://jobs.example/d"), live(11, "https://jobs.example/e")}
+	tabs := []LiveTab{live(7, "https://jobs.example/a"), live(8, "https://jobs.example/b"), live(9, "https://jobs.example/c"), live(10, "https://jobs.example/d")}
 	if _, err := Sweep(bg, st, apps, tabs); err != nil {
 		t.Fatal(err)
 	}
-	for app, want := range map[string]struct {
-		state State
-		task  string
-	}{nokind: {StateParked, holds[nokind]}, older: {StateParked, holds[older]}, started: {StateActive, "t-fill"},
-		sameSec: {StateActive, "t-fill-same"}, fresh: {StateActive, holds[fresh]}} {
-		if tab, _ := st.Get(bg, app); tab.State != want.state || tab.TaskID != want.task {
-			t.Errorf("%s: %s under %q, want %s under %q", app, tab.State, tab.TaskID, want.state, want.task)
+	for app, want := range map[string]State{dead: StateParked, started: StateActive, fresh: StateActive, legacy: StateParked} {
+		if tab, _ := st.Get(bg, app); tab.State != want {
+			t.Errorf("%s: state %s, want %s", app, tab.State, want)
 		}
 	}
 }
 
-// A resume slower than the hold's life finds its tab given back: its late rebind changes nothing, whoever has the
-// tab now (the person's park, another resume's hold or task) keeps it.
-func TestRebindLeavesATabThatIsNoLongerTheResumes(t *testing.T) {
-	_, st, apps := fixture(t)
-	app := parkedApp(t, st, apps, 7)
-	hold := NewResumeHold()
-	if err := st.SetState(bg, app, StateActive, hold); err != nil {
+// The sweep read the tab under an id no task had; before the park the resume created its task, or the tab moved
+// to another resume. The park must leave the tab alone.
+func TestParkUnstartedResumeLeavesATabTheResumeMovedOn(t *testing.T) {
+	db, st, apps := fixture(t)
+	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
+	hold := func(tab int, task string) (string, Tab) {
+		app := parkedApp(t, st, apps, tab)
+		if err := st.SetState(bg, app, StateActive, task); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+			t.Fatal(err)
+		}
+		snap, _ := st.Get(bg, app)
+		return app, *snap
+	}
+	created, snapCreated := hold(7, "at-0000000000000001")
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-0000000000000001', ?, 'application-apply', 'c1', 'queued', 'g', ?, 'x', 'x')`, profile, created); err != nil {
 		t.Fatal(err)
 	}
-	if kept, err := st.Rebind(bg, app, hold, StateActive, "t-1"); err != nil || !kept {
-		t.Fatalf("a resume whose hold stands lost its tab: %v %v", kept, err)
-	}
-	// The sweep gave the tab back; another resume took it under its own hold.
-	other := NewResumeHold()
-	if err := st.SetState(bg, app, StateActive, other); err != nil {
+	moved, snapMoved := hold(8, "at-0000000000000002")
+	if err := st.SetState(bg, moved, StateActive, "at-0000000000000009"); err != nil {
 		t.Fatal(err)
 	}
-	if kept, err := st.Rebind(bg, app, hold, StateActive, "t-late"); err != nil || kept {
-		t.Fatalf("a late rebind took a newer owner's tab: %v %v", kept, err)
-	}
-	if tab, _ := st.Get(bg, app); tab.State != StateActive || tab.TaskID != other {
-		t.Fatalf("tab changed: %+v", tab)
-	}
-	// Parked by the sweep: the late error-path park must not touch it either.
-	if err := st.SetState(bg, app, StateParked, ""); err != nil {
+	if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, moved); err != nil {
 		t.Fatal(err)
 	}
-	if kept, _ := st.Rebind(bg, app, hold, StateActive, "t-late"); kept {
-		t.Fatal("a late rebind took a parked tab")
+	for _, snap := range []Tab{snapCreated, snapMoved} {
+		if err := parkUnstartedResume(bg, st, snap); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tab, _ := st.Get(bg, created); tab.State != StateActive {
+		t.Fatalf("a resume's task existed and its tab was parked: %+v", tab)
+	}
+	if tab, _ := st.Get(bg, moved); tab.State != StateActive || tab.TaskID != "at-0000000000000009" {
+		t.Fatalf("the park took a tab another resume holds: %+v", tab)
 	}
 }
 
-// The sweep reads the hold, then the resume finishes and binds its task before the recovery lands: the recovery
-// must leave the tab to that task.
-func TestRecoverStaleResumeLeavesATabTheResumeFinished(t *testing.T) {
+// A resume takes the parked tab it read, or nothing: two resumes cannot both hold it, and a stale read does not
+// overwrite what the person did since.
+func TestClaimTakesOnlyTheTabThatWasRead(t *testing.T) {
+	_, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	tab, _ := st.Get(bg, app)
+	if held, err := st.Claim(bg, app, tab.TaskID, "at-1"); err != nil || !held {
+		t.Fatalf("first claim: %v %v", held, err)
+	}
+	if held, _ := st.Claim(bg, app, tab.TaskID, "at-2"); held {
+		t.Fatal("a second resume took a tab the first holds")
+	}
+	if got, _ := st.Get(bg, app); got.TaskID != "at-1" || got.State != StateActive {
+		t.Fatalf("tab = %+v", got)
+	}
+	// The person closed the tab after the resume read it as parked.
+	if err := st.SetState(bg, app, StateClosed, ""); err != nil {
+		t.Fatal(err)
+	}
+	if held, _ := st.Claim(bg, app, "at-1", "at-3"); held {
+		t.Fatal("a stale read overwrote a closed tab")
+	}
+}
+
+// A resume that failed gives the tab back only while it still holds it.
+func TestReleaseOnlyWhileTheResumeHoldsTheTab(t *testing.T) {
+	_, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	prev, _ := st.Get(bg, app)
+	if held, _ := st.Claim(bg, app, prev.TaskID, "at-1"); !held {
+		t.Fatal("claim")
+	}
+	if err := st.SetState(bg, app, StateActive, "at-2"); err != nil { // someone else took it since
+		t.Fatal(err)
+	}
+	if ok, err := st.Release(bg, app, "at-1", prev.TaskID); err != nil || ok {
+		t.Fatalf("a late release took a newer owner's tab: %v %v", ok, err)
+	}
+	if ok, _ := st.Release(bg, app, "at-2", prev.TaskID); !ok {
+		t.Fatal("the holder could not give the tab back")
+	}
+	if got, _ := st.Get(bg, app); got.State != StateParked || got.TaskID != prev.TaskID {
+		t.Fatalf("tab = %+v", got)
+	}
+}
+
+// Holds: the tab is the started task's while active under it; parked under it counts only when the task is over.
+func TestHoldsKnowsAGivenBackTab(t *testing.T) {
 	db, st, apps := fixture(t)
 	app := parkedApp(t, st, apps, 7)
-	hold := NewResumeHold()
-	if err := st.SetState(bg, app, StateActive, hold); err != nil {
+	if err := st.SetState(bg, app, StateActive, "at-1"); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
-	if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+	if ok, _ := st.Holds(bg, app, "at-1"); !ok {
+		t.Fatal("active under the task")
+	}
+	if err := st.SetState(bg, app, StateParked, ""); err != nil { // a sweep parked it before the task existed
 		t.Fatal(err)
 	}
-	snap, _ := st.Get(bg, app) // what the sweep's read saw
-	if kept, err := st.Rebind(bg, app, hold, StateActive, "t-new"); err != nil || !kept {
-		t.Fatal(kept, err)
+	if ok, _ := st.Holds(bg, app, "at-1"); ok {
+		t.Fatal("a tab the sweep gave back is held")
 	}
-	if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('at-1', ?, 'application-apply', 'c1', 'complete', 'g', ?, 'x', 'x')`, profile, app); err != nil {
 		t.Fatal(err)
 	}
-	if err := recoverStaleResume(bg, st, *snap); err != nil {
-		t.Fatal(err)
-	}
-	if tab, _ := st.Get(bg, app); tab.State != StateActive || tab.TaskID != "t-new" {
-		t.Fatalf("a finished resume's tab was taken: %+v", tab)
+	if ok, _ := st.Holds(bg, app, "at-1"); !ok {
+		t.Fatal("the task finished and parked its own tab")
 	}
 }
 

@@ -793,3 +793,19 @@ func TestKindCeilingAndRegisterGuards(t *testing.T) {
 	}()
 	Register(Kind{Name: "ceiling-below-default", DefaultAccess: AccessWorkspace, MaxAccess: AccessQA})
 }
+
+func TestSubmitTakesTheIdItIsGivenAndRefusesOne(t *testing.T) {
+	s, _ := newService(t)
+	for _, bad := range []string{"x", "at-123", "at-ZZZZZZZZZZZZZZZZ", "at-0123456789ABCDEF"} {
+		if _, err := s.Submit(context.Background(), SubmitInput{ID: bad, Goal: "g"}); code(err) != CodeInvalidInput {
+			t.Errorf("id %q: %v", bad, err)
+		}
+	}
+	task, err := s.Submit(context.Background(), SubmitInput{ID: "at-0123456789abcdef", Kind: "generic", Goal: "g"})
+	if err != nil || task.ID != "at-0123456789abcdef" {
+		t.Fatalf("task = %+v, err = %v", task, err)
+	}
+	if !ValidID(NewID()) {
+		t.Fatal("NewID makes an id ValidID refuses")
+	}
+}

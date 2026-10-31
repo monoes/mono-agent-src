@@ -49,10 +49,13 @@ func (b *browser) install(t *testing.T, dbPath string) {
 	applyfill.Parking = &applyfill.ParkingConfig{Live: read}
 	liveTabs = func(ctx context.Context, d Deps) ([]applypark.LiveTab, error) { return read(ctx, d.ProfileID()) }
 	submitTask = func(_ context.Context, args []string) ([]byte, error) {
-		app := ""
+		app, want := "", aitask.NewID()
 		for i, a := range args {
 			if a == "--application" {
 				app = args[i+1]
+			}
+			if a == "--task-id" {
+				want = args[i+1]
 			}
 		}
 		b.mu.Lock()
@@ -71,7 +74,7 @@ func (b *browser) install(t *testing.T, dbPath string) {
 		}
 		defer db.Close()
 		result := fmt.Sprintf(`{"status":"filled","fields":[{"label":"Email","value":"a@b.example","source":"Facts"}],"tabId":%d,"origin":"https://acme.example"}`, tab)
-		task, err := (&aitask.Store{DB: db.DB, Profile: "default"}).Insert(aitask.Task{ID: aitask.NewID(), Kind: applyfill.Kind,
+		task, err := (&aitask.Store{DB: db.DB, Profile: "default"}).Insert(aitask.Task{ID: want, Kind: applyfill.Kind,
 			ConversationID: fmt.Sprintf("conv-%d", tab), Status: b.status, Goal: "g", ApplicationID: app, Access: aitask.AccessWorkspace, BudgetUSD: 1})
 		if err != nil {
 			return nil, err
@@ -376,5 +379,70 @@ func TestFillResumeNeedsAParkedOrLostTab(t *testing.T) {
 	}
 	if len(b.started) != 0 {
 		t.Fatal("a refused resume started a task")
+	}
+}
+
+// A resume holds the tab under the id its task will take before the task exists, and the task takes that id. If
+// the hold goes stale and the tab is given back first, the resume cancels its task and says so; if the submit
+// fails, the tab goes back to parked.
+func TestFillResumeHoldsTheTabUnderItsTaskId(t *testing.T) {
+	dbPath := homeDB(t)
+	ids := jobs(t, dbPath, 1)
+	b := &browser{}
+	b.install(t, dbPath)
+	if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+		t.Fatalf("queue: %v (%s)", err, out)
+	}
+	tabState := func() (st applypark.Tab) {
+		withDB(t, dbPath, func(db *sql.DB) {
+			tab, err := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+			if err != nil || tab == nil {
+				t.Fatalf("tab: %v %v", tab, err)
+			}
+			st = *tab
+		})
+		return st
+	}
+	before := tabState()
+	realSubmit := submitTask
+
+	// The submit fails: the tab is parked again, under its old task.
+	submitTask = func(ctx context.Context, args []string) ([]byte, error) {
+		if got := tabState(); got.State != applypark.StateActive || got.TaskID != flagValues(args, "--task-id")[0] {
+			t.Errorf("during the submit the tab is %+v, want active under the task id %v", got, flagValues(args, "--task-id"))
+		}
+		return nil, fmt.Errorf("submit exploded")
+	}
+	if _, err := run(t, dbPath, true, "fill", "resume", ids[0]); err == nil || !strings.Contains(err.Error(), "submit exploded") {
+		t.Fatalf("resume = %v", err)
+	}
+	if got := tabState(); got.State != applypark.StateParked || got.TaskID != before.TaskID {
+		t.Fatalf("after a failed resume the tab is %+v, want parked under %s", got, before.TaskID)
+	}
+
+	// The hold went stale: a sweep parked the tab while the submit ran. The task is cancelled, the tab stays with
+	// whoever has it.
+	var taskID string
+	submitTask = func(ctx context.Context, args []string) ([]byte, error) {
+		taskID = flagValues(args, "--task-id")[0]
+		withDB(t, dbPath, func(db *sql.DB) {
+			if err := (applypark.Store{DB: db, Profile: "default"}).SetState(ctx, ids[0], applypark.StateParked, ""); err != nil {
+				t.Fatal(err)
+			}
+		})
+		return realSubmit(ctx, args)
+	}
+	b.status = aitask.StatusRunning
+	if _, err := run(t, dbPath, true, "fill", "resume", ids[0]); err == nil || !strings.Contains(err.Error(), "given back") {
+		t.Fatalf("resume = %v", err)
+	}
+	withDB(t, dbPath, func(db *sql.DB) {
+		task, err := (&aitask.Store{DB: db, Profile: "default"}).Get(taskID)
+		if err != nil || task.Status != aitask.StatusCancelled {
+			t.Fatalf("the task of a resume that lost its tab: %+v %v", task, err)
+		}
+	})
+	if got := tabState(); got.State != applypark.StateParked {
+		t.Fatalf("tab = %+v", got)
 	}
 }

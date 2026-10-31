@@ -89,6 +89,16 @@ func scanTask(r scanner) (Task, error) {
 }
 
 // NewID is a fresh task id.
+// ValidID says whether id has the shape NewID makes.
+func ValidID(id string) bool {
+	h, ok := strings.CutPrefix(id, "at-")
+	if !ok || len(h) != 16 {
+		return false
+	}
+	_, err := hex.DecodeString(h)
+	return err == nil && h == strings.ToLower(h)
+}
+
 func NewID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)

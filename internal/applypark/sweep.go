@@ -2,10 +2,7 @@ package applypark
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/aitask"
@@ -15,29 +12,9 @@ import (
 // ReopenNote is what the application page shows when its tab is gone.
 const ReopenNote = "Reopen and refill: the browser tab with the filled form was closed."
 
-// ResumePending prefixes the task id a resume writes into the tab before its task exists: no task matches it, so
-// nothing can act on the tab while the new task is created. NewResumeHold makes each resume's own.
-const ResumePending = "resume-pending"
-
-// FillTaskKind is the kind of task a resume starts (applyfill.Kind; a test there holds the two together).
-const FillTaskKind = "application-apply"
-
-// NewResumeHold returns the placeholder one resume holds a tab with. It is unique, so a late write by that resume
-// can tell the tab still is its own.
-func NewResumeHold() string {
-	b := make([]byte, 6)
-	_, _ = rand.Read(b)
-	return ResumePending + ":" + hex.EncodeToString(b)
-}
-
-// IsResumeHold says whether a tab's task id is a resume's placeholder, not a task.
-func IsResumeHold(taskID string) bool {
-	return taskID == ResumePending || strings.HasPrefix(taskID, ResumePending+":")
-}
-
-// ResumeHoldTTL is how long a resume hold is taken to be a resume still in flight. Older than that, the resume
-// is taken to have died between its two state writes and Sweep gives the tab back; a resume slower than this
-// loses its tab (Store.Rebind says so).
+// ResumeHoldTTL is how long a tab held under a task id with no task behind it is taken to be a resume still
+// starting that task. Older than that, the resume is taken to have died before creating it and Sweep gives the
+// tab back; a resume slower than this finds it so (Store.Holds says).
 const ResumeHoldTTL = 10 * time.Minute
 
 // SweepResult says what a sweep changed.
@@ -81,7 +58,7 @@ func Sweep(ctx context.Context, store Store, apps *applications.Store, live []Li
 			if err := parkIfTaskEnded(ctx, store, t); err != nil {
 				return res, err
 			}
-			if err := recoverStaleResume(ctx, store, t); err != nil {
+			if err := parkUnstartedResume(ctx, store, t); err != nil {
 				return res, err
 			}
 			continue
@@ -117,26 +94,21 @@ func parkIfTaskEnded(ctx context.Context, store Store, t Tab) error {
 	return err
 }
 
-// recoverStaleResume settles a tab a resume left under its hold past ResumeHoldTTL, in one statement that holds
-// only while the tab still is that stale hold: bound to the task that resume started (an application-fill task of
-// the application created since the hold was written) when there is one, else parked for the person. An older
-// task of the application is not this resume's and is never taken for it.
-func recoverStaleResume(ctx context.Context, store Store, t Tab) error {
-	if t.State != StateActive || !IsResumeHold(t.TaskID) {
+// parkUnstartedResume gives the person a tab a resume held under the id of a task it never created: the resume
+// writes the hold before it starts the task, and died in between. One statement, holding only while the tab still
+// is under that id, the hold is older than ResumeHoldTTL and no task has that id; a task created since is the
+// resume's own and is judged like any other.
+func parkUnstartedResume(ctx context.Context, store Store, t Tab) error {
+	if t.State != StateActive || t.TaskID == "" {
 		return nil
 	}
 	cutoff := time.Now().UTC().Add(-ResumeHoldTTL).Format(time.RFC3339)
-	const started = `SELECT k.id FROM ai_tasks k WHERE k.application_id = application_tabs.application_id AND k.profile_id = ?
-		   AND k.kind = ? AND k.status NOT IN (?, ?, ?) AND julianday(k.created_at) >= julianday(application_tabs.updated_at)
-		 ORDER BY julianday(k.created_at) DESC, k.rowid DESC LIMIT 1`
-	args := []any{store.Profile, FillTaskKind, aitask.StatusComplete, aitask.StatusFailed, aitask.StatusCancelled}
-	all := append(append([]any{}, args...), args...)
-	all = append(all, string(StateActive), string(StateParked), now(), t.ApplicationID, string(StateActive), t.TaskID, cutoff, store.Profile)
 	_, err := store.DB.ExecContext(ctx,
-		`UPDATE application_tabs SET task_id = COALESCE((`+started+`), task_id),
-		   state = CASE WHEN EXISTS (`+started+`) THEN ? ELSE ? END, updated_at = ?
+		`UPDATE application_tabs SET state = ?, updated_at = ?
 		 WHERE application_id = ? AND state = ? AND task_id = ? AND updated_at < ?
-		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)`, all...)
+		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)
+		   AND NOT EXISTS (SELECT 1 FROM ai_tasks k WHERE k.id = application_tabs.task_id)`,
+		string(StateParked), now(), t.ApplicationID, string(StateActive), t.TaskID, cutoff, store.Profile)
 	return err
 }
 

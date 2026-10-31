@@ -178,6 +178,9 @@ func (d Deps) submitFill(ctx context.Context, in applyfill.Input, sources []aita
 	if runtime != "" {
 		args = append(args, "--runtime", runtime)
 	}
+	if id, _ := ctx.Value(fillTaskIDKey{}).(string); id != "" {
+		args = append(args, "--task-id", id)
+	}
 	for _, s := range sources {
 		args = append(args, "--context", s.Class+"="+s.Path)
 	}
@@ -189,8 +192,14 @@ func (d Deps) submitFill(ctx context.Context, in applyfill.Input, sources []aita
 	if err := json.Unmarshal(bytes.TrimSpace(out), &t); err != nil || t.ID == "" {
 		return t, fmt.Errorf("aitask submit printed no task: %s", strings.TrimSpace(string(out)))
 	}
+	if want, _ := ctx.Value(fillTaskIDKey{}).(string); want != "" && t.ID != want {
+		return t, fmt.Errorf("aitask submit made task %s, not the %s asked for", t.ID, want)
+	}
 	return t, nil
 }
+
+// fillTaskIDKey carries the id a fill's task must take (a resume holds the tab under it before the task exists).
+type fillTaskIDKey struct{}
 
 // refusalOf turns the {"error","code"} line a failed submit printed into a
 // coded error (coder_disabled keeps its oneshot fallback), else err.

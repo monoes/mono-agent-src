@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -188,35 +189,60 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 		return d.InvalidInput("application %s has no parked or lost tab: use `application fill start` to fill it", id)
 	}
 	parked := tab.State == applypark.StateParked
-	var hold string
+	taskID := aitask.NewID()
 	if parked {
-		hold = applypark.NewResumeHold()
-		if err := tabs.SetState(ctx, id, applypark.StateActive, hold); err != nil {
+		// The tab is held under the id the task will take, so no placeholder and no second write: the hold becomes
+		// the task's own the moment it exists.
+		if held, err := tabs.Claim(ctx, id, tab.TaskID, taskID); err != nil {
 			return err
+		} else if !held {
+			return d.InvalidInput("application %s's tab changed while it was resumed: look at it again", id)
 		}
 	}
-	taskID, err := d.startFill(ctx, id, runtime)
-	if err != nil {
+	if _, err := d.startFill(context.WithValue(ctx, fillTaskIDKey{}, taskID), id, runtime); err != nil {
 		if parked {
-			_, _ = tabs.Rebind(ctx, id, hold, applypark.StateParked, tab.TaskID)
+			return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, err)
 		}
 		return err
 	}
 	if parked {
-		kept, err := tabs.Rebind(ctx, id, hold, applypark.StateActive, taskID)
-		if err != nil {
-			return err
-		}
-		if !kept {
-			// The hold went stale and the sweep gave the tab back; whoever has it now keeps it.
-			_, _ = (&aitask.Service{Store: &aitask.Store{DB: db.DB, Profile: d.ProfileID()}}).Cancel(taskID)
-			return d.InvalidInput("the resume of application %s took longer than %s and its tab was given back: resume it again", id, applypark.ResumeHoldTTL)
+		if ok, err := tabs.Holds(ctx, id, taskID); err != nil || !ok {
+			// The hold went stale before the task existed and the sweep gave the tab back; whoever has it keeps it.
+			if err == nil {
+				err = d.InvalidInput("the resume of application %s took longer than %s and its tab was given back: resume it again", id, applypark.ResumeHoldTTL)
+			}
+			return d.giveBack(ctx, db.DB, tabs, id, taskID, "", err)
 		}
 	}
 	if err := applypark.ClearObserved(ctx, db.DB, id); err != nil {
 		return err
 	}
 	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": taskID, "tabId": tab.TabID, "tabState": map[bool]string{true: "active", false: "lost"}[parked]})
+}
+
+func hasCode(err error, code string) bool {
+	var e *aitask.Error
+	return errors.As(err, &e) && e.Code == code
+}
+
+// giveBack undoes a resume that did not get its task running: the tab goes back to parked while it is still held
+// under the resume's task id, and a task that was created anyway is cancelled. cause is what went wrong; an
+// error of the undo itself is reported with it, never dropped.
+func (d Deps) giveBack(ctx context.Context, db *sql.DB, tabs applypark.Store, id, taskID, observed string, cause error) error {
+	var errs []error
+	errs = append(errs, cause)
+	if _, err := tabs.Release(ctx, id, taskID, observed); err != nil {
+		errs = append(errs, fmt.Errorf("giving the tab back: %w", err))
+	}
+	svc := &aitask.Service{Store: &aitask.Store{DB: db, Profile: d.ProfileID()}}
+	if _, err := svc.Store.Get(taskID); err != nil {
+		if !hasCode(err, aitask.CodeNotFound) {
+			errs = append(errs, fmt.Errorf("task %s could not be looked up to cancel it: %w", taskID, err))
+		}
+	} else if _, err := svc.Cancel(taskID); err != nil && !hasCode(err, aitask.CodeTaskClosed) {
+		errs = append(errs, fmt.Errorf("task %s was started and could not be cancelled: %w", taskID, err))
+	}
+	return errors.Join(errs...)
 }
 
 func (d Deps) newFillQueueCmd() *cobra.Command {

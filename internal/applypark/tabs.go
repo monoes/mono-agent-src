@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/aitask"
 	"net/url"
 	"strings"
 	"time"
@@ -243,19 +244,46 @@ func (s Store) SetState(ctx context.Context, appID string, st State, task string
 	return err
 }
 
-// Rebind moves the tab from the hold a resume put on it to state (and to task, when given), and says whether it
-// did: false means the tab no longer is that resume's (a sweep gave it back after the hold went stale, and
-// the person or another resume may have taken it since), so nothing is written.
-func (s Store) Rebind(ctx context.Context, appID, hold string, st State, task string) (bool, error) {
-	q := `UPDATE application_tabs SET state = ?, updated_at = ?`
-	args := []any{string(st), now()}
-	if task != "" {
-		q += `, task_id = ?`
-		args = append(args, task)
+// Claim holds a parked tab for a resume under taskID, the id of the task it is about to create, and says whether
+// it did: false means the tab no longer is the parked one under observed (the person, a sweep or another resume
+// changed it since it was read), so nothing is written.
+func (s Store) Claim(ctx context.Context, appID, observed, taskID string) (bool, error) {
+	res, err := s.DB.ExecContext(ctx,
+		`UPDATE application_tabs SET state = ?, task_id = ?, updated_at = ?
+		 WHERE application_id = ? AND state = ? AND COALESCE(task_id, '') = ?
+		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)`,
+		string(StateActive), taskID, now(), appID, string(StateParked), observed, s.Profile)
+	return affected(res, err)
+}
+
+// Release gives a tab held under taskID back as parked (under observed again), and says whether it was still held
+// under taskID; if not, whoever has it now keeps it.
+func (s Store) Release(ctx context.Context, appID, taskID, observed string) (bool, error) {
+	res, err := s.DB.ExecContext(ctx,
+		`UPDATE application_tabs SET state = ?, task_id = CASE WHEN ? = '' THEN task_id ELSE ? END, updated_at = ?
+		 WHERE application_id = ? AND state = ? AND task_id = ?
+		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)`,
+		string(StateParked), observed, observed, now(), appID, string(StateActive), taskID, s.Profile)
+	return affected(res, err)
+}
+
+// Holds says whether the tab is still the one taskID was started for: bound to it, and either active or left
+// by the task itself (its fill is over and parked the tab). A tab a sweep parked before the task existed is not.
+func (s Store) Holds(ctx context.Context, appID, taskID string) (bool, error) {
+	t, err := s.Get(ctx, appID)
+	if err != nil || t == nil || t.TaskID != taskID {
+		return false, err
 	}
-	q += ` WHERE application_id = ? AND state = ? AND task_id = ? AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)`
-	args = append(args, appID, string(StateActive), hold, s.Profile)
-	res, err := s.DB.ExecContext(ctx, q, args...)
+	if t.State == StateActive {
+		return true, nil
+	}
+	var over int
+	err = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_tasks WHERE id = ? AND profile_id = ? AND status IN (?, ?, ?)`,
+		taskID, s.Profile, aitask.StatusComplete, aitask.StatusFailed, aitask.StatusCancelled).Scan(&over)
+	return over > 0, err
+}
+
+func affected(res sql.Result, err error) (bool, error) {
 	if err != nil {
 		return false, err
 	}

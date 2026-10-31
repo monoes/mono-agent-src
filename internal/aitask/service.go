@@ -94,6 +94,9 @@ func (s *Service) holds(id, token string) bool {
 
 // SubmitInput is `aitask submit`.
 type SubmitInput struct {
+	// ID is the id the task takes, for a caller that must name the task before it exists (a tab is held under it);
+	// empty gets a new one. See ValidID.
+	ID            string
 	Kind          string
 	Goal          string
 	Context       []ContextSource
@@ -117,6 +120,8 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 		return Task{}, errf(CodeInvalidInput, "--goal is required")
 	case len(goal) > MaxGoalBytes || !utf8.ValidString(goal):
 		return Task{}, errf(CodeInvalidInput, "--goal must be UTF-8 text of at most %d KB", MaxGoalBytes>>10)
+	case in.ID != "" && !ValidID(in.ID):
+		return Task{}, errf(CodeInvalidInput, "invalid --task-id")
 	case strings.ContainsAny(in.ApplicationID, "\x00\r\n") || len(in.ApplicationID) > 200:
 		return Task{}, errf(CodeInvalidInput, "invalid --application")
 	case !ValidAccess(in.Access):
@@ -150,7 +155,10 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	t := Task{ID: NewID(), Kind: kind.Name, ConversationID: conv.ID, Status: StatusQueued, Goal: goal,
+	if in.ID == "" {
+		in.ID = NewID()
+	}
+	t := Task{ID: in.ID, Kind: kind.Name, ConversationID: conv.ID, Status: StatusQueued, Goal: goal,
 		ApplicationID: in.ApplicationID, Access: access, Runtime: conv.Runtime, Unattended: in.Unattended,
 		BudgetUSD: budget, Profile: s.Store.Profile}
 	files, err := WriteContext(conv.Cwd, t.ID, in.Context, s.Redact)
