@@ -351,6 +351,48 @@ func TestSweepRecoversAStaleResumePlaceholder(t *testing.T) {
 	}
 }
 
+// Sweep read the tab under a stale hold; before the recovery the resume finished and bound its task. The recovery
+// must not park the tab or take it from that task.
+func TestRecoverStaleResumeLeavesATabTheResumeFinished(t *testing.T) {
+	db, st, apps := fixture(t)
+	app := parkedApp(t, st, apps, 7)
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('t-new', ?, 'apply', 'c1', 'running', 'g', ?, 'x', 'x'), ('t-other', ?, 'apply', 'c1', 'running', 'g', ?, 'y', 'y')`, profile, app, profile, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetState(bg, app, StateActive, ResumePending); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
+	if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+		t.Fatal(err)
+	}
+	snap, _ := st.Get(bg, app) // what the sweep's read saw
+	if err := st.SetState(bg, app, StateActive, "t-new"); err != nil {
+		t.Fatal(err)
+	}
+	// Old enough to be stale: only the task check tells it from the hold.
+	if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverStaleResume(bg, st, *snap); err != nil {
+		t.Fatal(err)
+	}
+	if tab, _ := st.Get(bg, app); tab.State != StateActive || tab.TaskID != "t-new" {
+		t.Fatalf("a finished resume's tab was taken: %+v", tab)
+	}
+	// A resume that died and parked-then-resumed again is a fresh hold, not the stale one.
+	if err := st.SetState(bg, app, StateActive, ResumePending); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverStaleResume(bg, st, *snap); err != nil {
+		t.Fatal(err)
+	}
+	if tab, _ := st.Get(bg, app); tab.State != StateActive || tab.TaskID != ResumePending {
+		t.Fatalf("a fresh hold was recovered from a stale read: %+v", tab)
+	}
+}
+
 // Sweep read the tab as active under an ended task; before the park a new task took the tab. The park must not
 // land on the new task's tab, whatever state that task is in.
 func TestParkIfTaskEndedLeavesATabANewTaskTook(t *testing.T) {
