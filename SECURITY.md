@@ -1972,6 +1972,10 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **Mission directions (K).** The operator's `mission_directions` (1 to 6, default 3, operator-only) caps the direction sessions
+  open below a lead's session. `session_spawn` checks it after the new task session is inserted and undoes the spawn when
+  the count passes K, so two spawns racing for the last place are not both kept; the setting follows the lead down the
+  tree. Tests: `sessionspawn_directions_test.go`.
 - **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
   sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
   without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),
