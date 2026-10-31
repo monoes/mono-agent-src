@@ -2753,9 +2753,7 @@ directories and give the turn a controlled outbound path; it is not built.
 
 A map of the mission and session-tree series. It names the pieces and where they live; the paragraphs under "Task sessions" (Task
 board), "Missions", "Mission child sessions" and "Persistent coder sessions" hold the detail. Numbers below are held to the code by
-`TestAgentsMdMissionMapMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). Parts marked **(research/directions groups 2 and
-3, not on master)** describe the review branches `review/rd-evaluation-v4` (group 2) and `review/rd-prompts-digest-v4` (group 3); drop
-or adjust them if those do not land. Group 1 (K) is on master. Nothing here is verified in a live run.
+`TestAgentsMdMissionMapMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). The research/directions part (groups 1 to 3) is on master. Nothing here is verified in a live run.
 
 **What a mission is.** A coder chat whose lead works a task session: a plan of tasks with acceptance criteria, workers that do them,
 verifiers that check them, a final "Integration check" task, and a close that only the operator performs. The plan and the board
@@ -2829,8 +2827,8 @@ model: it raises a person item `ancestor_question` that only `task session perso
 runtime:model pairs each kind of work may use; `set` and `reset` are operator only, and the rows live under the reserved config prefix
 `agent_purposes.` (`operator.ReservedConfigPrefixes`: `config set` refuses it and `config get` hides it from agents).
 
-**Research and directions (group 1 on master; groups 2 and 3 not on master).**
-- Group 1 (on master): `mission_directions` is K, how many direction sessions an agent keeps open below one session, K 0..6, default 3:
+**Research and directions.**
+- Group 1: `mission_directions` is K, how many direction sessions an agent keeps open below one session, K 0..6, default 3:
   the operator sets it with `coder sessions settings set --patch '{"mission_directions":N}'`, `null` resets it to unset, and unset
   or 0 means 3 (`tasks.DefaultMissionDirections`), with a ceiling of 6 (`tasks.HardMissionDirections`). It is operator-only, never
   agent-adjustable; `settings get` shows `missionDirections {effective, explicit}`. The cap is enforced in the session-insert
@@ -2840,14 +2838,33 @@ runtime:model pairs each kind of work may use; `set` and `reset` are operator on
   (`openSessionSQL`), so an archived, stopped, done or failed direction frees its slot. A spawned child inherits the parent's K only
   when its own row has none (`coderhost/children.go`), and the setting follows the lead down the tree. Stored settings that cannot be read
   fail closed (the spawn is refused). Tests: `tasks/session_direction_cap_test.go`, `coderhost/sessionspawn_directions_test.go`.
-- Group 2 (`review/rd-evaluation-v4`): the lead-only tools `mission_evaluate` and `mission_reevaluate` rank candidate directions in code
-  (`internal/dynorg/mission_rank.go`, `mission_evaluate.go`, `mission_reeval.go`): weighted success/cost/risk/effort scores, ties to the
-  lower risk, then the lower cost; at most 20 candidates; `k` may not exceed K. They write a size-capped `mission_evaluation` record to
-  the session history and return a reviewer brief with thesis and evidence fenced. A drop or merge is a proposal. They spawn, approve,
-  stop and fund nothing.
-- Group 3 (`review/rd-prompts-digest-v4`): the mission prompt gains the phases UNDERSTAND, RESEARCH, EVALUATE, DIRECT, RUN, CONVERGE
+- Group 2: the lead-only tools `mission_evaluate` and `mission_reevaluate` rank candidate directions in code
+  (`internal/dynorg/mission_rank.go`, `mission_evaluate.go`, `mission_reeval.go`). A call carries at most 20 candidates
+  (`dynorg.MaxCandidates`) and at most 512 KiB of arguments; each candidate scores success, cost, risk and effort from 0 to 10, and the
+  weights default to success 3, cost 1, risk 1, effort 1 (`dynorg.DefaultWeights`). Only the proportions of the weights count. Scores are
+  compared in whole millionths; a tie in the same millionth goes to the lower risk, then the lower cost, then the candidate stated
+  first. `k` (how many to pick) may not exceed the operator's current K, which is read when the tool runs and again inside the
+  record's transaction. Both tools write a `mission_evaluation` note to the mission session's history (one session event, at most
+  8 KiB, `tasks.MaxCommentBytes`; titles are shortened and then dropped before the record is refused) and return a reviewer brief
+  with thesis and evidence fenced. `mission_reevaluate` also takes `reason` and `current`, the open directions: each is matched by
+  its session id (the title the lead states is a label; the stored title is used), the id must be an open direction of this
+  mission, and a list that leaves out an open direction is refused naming the ids. Its answer is keep, drop, add and merge
+  proposals; a drop or merge stops nothing. Neither tool spawns, approves, stops or funds anything.
+- Group 3: the mission prompt gains the phases UNDERSTAND, RESEARCH, EVALUATE, DIRECT, RUN, CONVERGE
   (`internal/dynorg/mission_prompt_phases.go`), and the check-in digest gains the line "Consider mission_reevaluate: ..." built from the
-  host's own counts only (`internal/coderhost/checkin_reeval.go`).
+  host's own counts only (`internal/coderhost/checkin_reeval.go`): never a title, goal or task text. The line appears when, since the
+  last look, a direction finished; a direction stopped or failed; a direction became paused or a task of it was newly blocked; a running
+  direction showed no progress for 3 check-ins (`coderhost.StalledCheckins`); the tree's spend crossed 80 % of the mission budget
+  (`coderhost.BudgetTriggerPct`); or a research session finished. What a look follows is the open set (the open directions and,
+  apart, the open research sessions, at most `coderhost.MaxOpenSessions` = 200, the newest kept): each session that was open at the
+  last look and is not now is read by id, so its closing is announced once, and sessions created since are found by a cursor
+  per kind; a newly blocked task is a "blocked" history row above the direction's saved cursor. A look that needs a baseline
+  (the first look, another mission, a snapshot from before these fields) only establishes it and makes no line from the open set.
+  The check-in command and the new snapshot are written in one transaction (`Store.EnqueueWithCheckin`), so a reason is never spent by
+  a check-in that was not queued, and never sent twice for want of a baseline.
+- Known limits: two open directions whose titles are the same once case and spacing are folded cannot be re-evaluated, because the
+  candidates must have unique titles (#1232). More than six open directions cannot be re-evaluated, because `current` holds at
+  most `HardMaxDirections` (#1234). Neither case starts, stops or changes anything; the lead has to close a direction first.
 
 **The orbit and the simple agent pane** (`wails-app/frontend/src/components/bubbles/`: `OrbitRing.jsx`, `useSessionOrbit.js`,
 `lib/sessionOrbit.js`). A coder chat that leads a task session shows its direct child sessions as circles (at most 8 drawn, the rest one
