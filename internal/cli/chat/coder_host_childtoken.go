@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/taskbind"
 )
 
@@ -73,6 +74,18 @@ func (m *childTokenMinter) CanMintChildTokens() bool {
 type childToken struct {
 	id, secret, owner string
 	task              coderhost.ChildTask
+	m                 *childTokenMinter // set by prepareBound: the minter that ends this run's tokens by owner
+}
+
+// revokeOwner ends every token of the run (legacy and v2) by its owner.
+func (t *childToken) revokeOwner() error {
+	if t == nil || t.m == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := t.m.tokens.RevokeOwner(ctx, t.owner)
+	return err
 }
 
 // mint gives the conversation's turn its task token. It returns nil, nil for a conversation that is not a mission
@@ -99,6 +112,24 @@ func (m *childTokenMinter) mint(profileID, conversationID, turnID string) (*chil
 		return nil, fmt.Errorf("could not mint the task token of the child: %w", err)
 	}
 	return &childToken{id: tok.ID, secret: secret, owner: owner, task: task}, nil
+}
+
+// prepareBound is mint for a bound launch: the same decision (which task the conversation is the live session of, whether
+// the child may run, the earlier tokens retired), but no legacy token is created. The token is a v2 one the bound
+// launch writes inside its own transaction; the returned childToken has no id or secret, only the owner every v2 token
+// of this run carries, so the launcher's end-of-run revoke by owner (revokeToken) ends it.
+func (m *childTokenMinter) prepareBound(profileID, conversationID, turnID string) (*childToken, error) {
+	task, isChild, err := m.store.ChildTaskOf(profileID, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if !isChild {
+		return nil, nil
+	}
+	if err := m.RevokeChildTokens(profileID, conversationID); err != nil { // one live task token per child
+		return nil, fmt.Errorf("could not retire the earlier task tokens of this child: %w", err)
+	}
+	return &childToken{owner: dynorg.TurnOwner(profileID, conversationID, turnID), task: task, m: m}, nil
 }
 
 // bind names the turn's process for its token and checks that the child is still the attempt the token was minted
@@ -155,7 +186,7 @@ func (m *childTokenMinter) RevokeChildTokens(profileID, conversationID string) e
 // servers. It returns the mission confirmation to use (a task token is never one).
 func childTaskGate(db *sql.DB, profileID, conversationID, piped string) (string, error) {
 	taskToken := ""
-	if strings.HasPrefix(piped, coderhost.TaskTokenPrefix) {
+	if strings.HasPrefix(piped, coderhost.TaskTokenPrefix) || strings.HasPrefix(piped, procbind.TaskPrefixV2) {
 		taskToken, piped = piped, ""
 	}
 	task, isChild, err := coderhost.NewStore(db).ChildTaskOf(profileID, conversationID)

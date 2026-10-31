@@ -149,7 +149,11 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// A mission child's turn gets the task token of its one task, minted here from the host's own child store.
 	var ct *childToken
 	if l.child != nil {
-		if ct, err = l.child.mint(profileID, conversationID, turnID); err != nil {
+		mint := l.child.mint
+		if l.bound != nil {
+			mint = l.child.prepareBound // a bound launch writes the child's v2 token itself
+		}
+		if ct, err = mint(profileID, conversationID, turnID); err != nil {
 			os.Remove(promptPath)
 			return nil, err
 		}
@@ -166,7 +170,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			os.Remove(promptPath)
 			return nil, errors.New("a mission child's turn cannot carry a mission confirmation")
 		}
-		pipe = ct.secret
+		pipe = ct.secret // empty for a bound launch: the task token travels in the frame
 	}
 	cmd := exec.Command(l.bin, l.args(profileID, rest...)...)
 	// The environment is the host's without any token of a session that started the host, plus this
@@ -178,15 +182,14 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	cmd.Env = turnEnv(os.Environ())
 	var bd *boundDelivery
 	if l.bound != nil {
-		if ct != nil {
-			os.Remove(promptPath)
-			return nil, errors.New("a mission child's turn cannot be launched with peer-credential binding yet")
-		}
 		if bd, err = l.bound.attach(cmd, pipe); err != nil {
 			os.Remove(promptPath)
 			return nil, fmt.Errorf("could not prepare the credential pipe: %w", err)
 		}
 		defer bd.close()
+		if ct != nil {
+			bd.child = ct
+		}
 		pipe = "" // the mission confirmation travels in the frame
 	}
 	if pipe != "" {
@@ -246,7 +249,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		t.stopAndWait()
 		return nil, errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped")
 	}
-	if ct != nil {
+	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
 			t.stopAndWait()
 			return nil, err

@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
@@ -42,8 +43,23 @@ type boundLaunch struct {
 	db     *sql.DB
 	host   boundHost
 	binder *procbind.Binder // the registry the host's services answer from
-	// afterMint is a test seam: it runs between the transaction of step 4 and the revocation read of step 5.
-	afterMint func()
+	// beforeMint and afterMint are test seams: they run just before the transaction of step 4 and between it and the
+	// revocation read of step 5.
+	beforeMint func()
+	afterMint  func()
+}
+
+// newBoundLaunch is the one way a launcher gets a bound launch: it also points the stores that end tokens at the same
+// registry (store: the session tokens, child: the task tokens), so every revocation of a token ends its live entry
+// after it commits and no registration outlives its token.
+func newBoundLaunch(db *sql.DB, host boundHost, binder *procbind.Binder, store *coderhost.Store, child *childTokenMinter) *boundLaunch {
+	if store != nil {
+		store.SetBinder(binder)
+	}
+	if child != nil && child.tokens != nil {
+		child.tokens.SetBinder(binder)
+	}
+	return &boundLaunch{db: db, host: host, binder: binder}
 }
 
 // boundDelivery is one turn's frame pipe, pidfd and registration.
@@ -52,6 +68,8 @@ type boundDelivery struct {
 	r, w         *os.File
 	pidfd        int
 	missionToken string
+	// child, when set, is the mission child whose task token this turn also gets (a v2 mission token, owner = the run).
+	child *childToken
 }
 
 // attach prepares cmd for a bound launch: the frame pipe on descriptor 3 and its marker, nothing else.
@@ -102,8 +120,20 @@ func (d *boundDelivery) close() {
 	}
 }
 
-// deliver runs steps 2 to 5 for the turn whose process is pid with start stamp. On error nothing was delivered and the
-// process has been killed; the caller waits for it as for any other turn.
+// boundToken is one token of a launch on its way to the frame.
+type boundToken struct {
+	kind   procbind.Kind
+	id     string
+	secret string
+	scope  string
+	gen    procbind.Generation
+	mint   procbind.MintToken
+	h      procbind.Handle
+}
+
+// deliver runs steps 2 to 5 for the turn whose process is pid with start stamp. A mission child's turn gets a second
+// token, its task token, in the same transaction. On error nothing was delivered and the process has been killed; the
+// caller waits for it as for any other turn.
 func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp string, revoke func() error) error {
 	b := d.b
 	fail := func(err error) error {
@@ -112,56 +142,96 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	dupfd, err := unix.FcntlInt(uintptr(d.pidfd), unix.F_DUPFD_CLOEXEC, 3)
-	if err != nil {
-		return fail(fmt.Errorf("could not hold the turn's pidfd: %w", err))
-	}
-	h := procbind.HandleFromPidfd(dupfd)
-	if !h.Alive() {
-		_ = h.Close()
-		return fail(errors.New("the turn ended before its credentials could be bound"))
-	}
 	generation, ok := b.host.Generation(profile)
 	if !ok {
-		_ = h.Close()
 		return fail(errors.New("the binding service has no generation for this profile"))
 	}
-	secret, hash, err := procbind.NewSecret(procbind.SessionPrefixV2)
-	if err != nil {
-		_ = h.Close()
-		return fail(err)
-	}
-	id, err := procbind.NewTokenID()
-	if err != nil {
-		_ = h.Close()
-		return fail(err)
-	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	expires := now.Add(coderhost.SessionTokenTTL)
-	scope := procbind.SessionScope(conv, turn)
-	binder := b.binder
-	gen, err := binder.Register(procbind.EntrySpec{TokenID: id, Kind: procbind.KindSession, Profile: profile, Scope: scope, Session: conv, Turn: turn, Expires: expires}, h)
-	if err != nil { // the registry closed the handle it was given
-		return fail(fmt.Errorf("could not register the turn's token: %w", err))
+	// what this launch carries: the session token, and for a mission child its task token
+	toks := []*boundToken{{kind: procbind.KindSession, scope: procbind.SessionScope(conv, turn)}}
+	toks[0].mint = procbind.MintToken{Kind: procbind.KindSession, ConversationID: conv, TurnID: turn, Expires: now.Add(coderhost.SessionTokenTTL)}
+	if c := d.child; c != nil {
+		toks = append(toks, &boundToken{kind: procbind.KindMission, scope: procbind.MissionScope(c.task.SessionID, c.task.TaskID)})
+		toks[1].mint = procbind.MintToken{Kind: procbind.KindMission, Owner: c.owner, Role: "worker", Actor: dynorg.MissionWorkerName(c.task.SessionID, c.task.TaskID),
+			Session: c.task.SessionID, Task: c.task.TaskID, Expires: now.Add(childTurnLimit + childTokenMargin)}
 	}
-	minted := false
-	undo := func(err error) error {
-		binder.Reap(profile, id, gen)
+	for _, t := range toks {
+		prefix := procbind.SessionPrefixV2
+		if t.kind == procbind.KindMission {
+			prefix = procbind.TaskPrefixV2
+		}
+		var hash string
+		var err error
+		if t.secret, hash, err = procbind.NewSecret(prefix); err != nil {
+			return fail(err)
+		}
+		if t.id, err = procbind.NewTokenID(); err != nil {
+			return fail(err)
+		}
+		t.mint.ID, t.mint.Hash, t.mint.Scope = t.id, hash, t.scope
+	}
+	zeroSecrets := func() {
+		for _, t := range toks {
+			t.secret = ""
+		}
+	}
+	defer zeroSecrets()
+	binder := b.binder
+	// every entry has a handle of its own: a dup of the pidfd
+	registered := []*boundToken{}
+	undo := func(err error, minted bool) error {
+		for _, t := range registered {
+			binder.Reap(profile, t.id, t.gen)
+		}
 		d.kill()
 		if minted {
 			if rerr := revoke(); rerr != nil {
 				err = errors.Join(err, rerr)
 			}
+			if d.child != nil {
+				if rerr := d.child.revokeOwner(); rerr != nil {
+					err = errors.Join(err, rerr)
+				}
+			}
 		}
 		return err
 	}
+	for _, t := range toks {
+		dupfd, err := unix.FcntlInt(uintptr(d.pidfd), unix.F_DUPFD_CLOEXEC, 3)
+		if err != nil {
+			return undo(fmt.Errorf("could not hold the turn's pidfd: %w", err), false)
+		}
+		h := procbind.HandleFromPidfd(dupfd)
+		if !h.Alive() {
+			_ = h.Close()
+			return undo(errors.New("the turn ended before its credentials could be bound"), false)
+		}
+		spec := procbind.EntrySpec{TokenID: t.id, Kind: t.kind, Profile: profile, Scope: t.scope, Expires: t.mint.Expires}
+		if t.kind == procbind.KindSession {
+			spec.Session, spec.Turn = conv, turn
+		} else {
+			spec.Owner = t.mint.Owner
+		}
+		gen, err := binder.Register(spec, h) // the registry closes the handle it was given on an error
+		if err != nil {
+			return undo(fmt.Errorf("could not register the turn's token: %w", err), false)
+		}
+		t.gen = gen
+		registered = append(registered, t)
+	}
 	key, err := procbind.RowKey(ctx, b.db, profile) // the mint: it may create the profile's key
 	if err != nil {
-		return undo(fmt.Errorf("could not get the row key: %w", err))
+		return undo(fmt.Errorf("could not get the row key: %w", err), false)
+	}
+	if b.beforeMint != nil {
+		b.beforeMint()
+	}
+	mints := make([]procbind.MintToken, len(toks))
+	for i, t := range toks {
+		mints[i] = t.mint
 	}
 	err = procbind.MintTx(ctx, b.db, key, procbind.MintRequest{
-		Profile: profile, WorkerPID: pid, WorkerStamp: stamp, HostGeneration: generation, Now: now,
-		Tokens: []procbind.MintToken{{Kind: procbind.KindSession, ID: id, Hash: hash, Scope: scope, Expires: expires, ConversationID: conv, TurnID: turn}},
+		Profile: profile, WorkerPID: pid, WorkerStamp: stamp, HostGeneration: generation, Now: now, Tokens: mints,
 		Check: func(ctx context.Context, x procbind.DBTX) error {
 			var current string
 			if err := x.QueryRowContext(ctx, `SELECT turn_id FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profile, conv).Scan(&current); err != nil {
@@ -170,30 +240,42 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 			if current != turn {
 				return errors.New("the session's current turn is not this turn")
 			}
+			if c := d.child; c != nil {
+				ok, err := coderhost.ChildAttemptCurrentIn(ctx, x, profile, conv, c.task)
+				if err != nil || !ok {
+					return errors.New("the child ended or was replaced while its turn started")
+				}
+			}
 			return nil
 		},
 	})
 	if err != nil {
-		return undo(fmt.Errorf("could not bind the turn's token: %w", err))
+		return undo(fmt.Errorf("could not bind the turn's token: %w", err), false)
 	}
-	minted = true
 	if b.afterMint != nil {
 		b.afterMint()
 	}
-	if rv, err := procbind.IsRevoked(ctx, b.db, procbind.KindSession, id); err != nil || rv {
-		return undo(errors.New("the turn's token was revoked before it was delivered"))
+	for _, t := range toks {
+		if rv, err := procbind.IsRevoked(ctx, b.db, t.kind, t.id); err != nil || rv {
+			return undo(errors.New("the turn's token was revoked before it was delivered"), true)
+		}
 	}
-	if err := binder.Activate(profile, id, gen); err != nil {
-		return undo(errors.New("the turn's registration ended before it was delivered"))
+	for _, t := range toks {
+		if err := binder.Activate(profile, t.id, t.gen); err != nil {
+			return undo(errors.New("the turn's registration ended before it was delivered"), true)
+		}
 	}
-	frame := procbind.CredFrame{SessionToken: procbind.Secret(secret)}
+	frame := procbind.CredFrame{SessionToken: procbind.Secret(toks[0].secret)}
+	if len(toks) > 1 {
+		frame.TaskToken = procbind.Secret(toks[1].secret)
+	}
 	if d.missionToken != "" {
 		frame.MissionConfirmation = procbind.Secret(d.missionToken)
 	}
 	raw, err := frame.Encode()
 	frame.Zero()
 	if err != nil {
-		return undo(err)
+		return undo(err, true)
 	}
 	_, werr := d.w.Write(raw) // one atomic write: the whole frame is within PIPE_BUF
 	procbind.Secret(raw).Zero()
@@ -201,7 +283,7 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 		werr = cerr
 	}
 	if werr != nil {
-		return undo(fmt.Errorf("could not hand the credentials to the turn: %w", werr))
+		return undo(fmt.Errorf("could not hand the credentials to the turn: %w", werr), true)
 	}
 	return nil
 }
