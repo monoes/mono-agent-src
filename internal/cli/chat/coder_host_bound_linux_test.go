@@ -235,8 +235,18 @@ func TestABoundLaunchThatFailsBeforeDeliveryKillsTheTurnAndLeavesNothing(t *test
 			}
 		}, "revoked before"},
 	}
+	// the turn has a descendant in its process group, which must die with it
+	script := `d=$(dirname "$0")
+echo $$ > "$d/pid"
+sleep 300 &
+echo $! > "$d/descendant"
+cat <&3 > "$d/frame"
+while [ ! -e "$d/release" ]; do sleep 0.05; done
+`
 	for name, c := range cases {
-		r := newBoundRig(t, "")
+		r := newBoundRig(t, script)
+		// the leader is reaped before the launcher's own stop arrives: only the mark made before the kill can end the group
+		r.l.bound.afterKill = func() { time.Sleep(300 * time.Millisecond) }
 		c.prepare(r)
 		_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -247,6 +257,13 @@ func TestABoundLaunchThatFailsBeforeDeliveryKillsTheTurnAndLeavesNothing(t *test
 			pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 			if pid > 0 && !r.gone(pid) {
 				t.Errorf("%s: the turn (pid %d) is still running", name, pid)
+			}
+		}
+		if b, err := os.ReadFile(filepath.Join(r.dir, "descendant")); err == nil {
+			dpid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+			if dpid > 0 && !r.gone(dpid) {
+				_ = syscall.Kill(dpid, syscall.SIGKILL)
+				t.Errorf("%s: the turn's descendant (pid %d) outlived the failed delivery", name, dpid)
 			}
 		}
 		if raw, err := os.ReadFile(r.frame); err == nil && len(raw) > 0 {
@@ -344,7 +361,7 @@ func TestRevokeByIDEndsOnlyThatToken(t *testing.T) {
 		return id
 	}
 	landed, other := mint("t1"), mint("t2")
-	if err := r.l.bound.revokeByID(ctx, "default", procbind.KindSession, landed); err != nil {
+	if err := r.l.bound.revokeByID("default", procbind.KindSession, landed); err != nil {
 		t.Fatal(err)
 	}
 	if rv, _ := procbind.IsRevoked(ctx, r.db.DB, procbind.KindSession, landed); !rv {
