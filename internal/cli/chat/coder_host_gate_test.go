@@ -315,6 +315,7 @@ func TestTheProductionHostInstallsTheGate(t *testing.T) {
 	old := hostBuilt
 	hostBuilt = func(h *coderhost.Host) { builtc <- h }
 	t.Cleanup(func() { hostBuilt = old })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) }) // the host registers its launcher process-wide; later tests expect none
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := newCoderHostRunCmd(cfg)
 	cmd.SetContext(ctx)
