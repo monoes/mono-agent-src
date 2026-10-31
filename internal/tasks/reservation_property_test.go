@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -71,7 +72,10 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 	openKid := rkid(t, s, db, root, 10, "running")
 	kid2 := rkid(t, s, db, root, 8, "running")
 	grand := rkid(t, s, db, openKid, 4, "running") // budgeted: an unbudgeted session under a budgeted one is refused elsewhere
-	all := []int64{root, openKid, kid2, grand}
+	// unbudgeted sessions: ub under grand (level 4) and ub2 under root; only their budgeted ancestors bound them
+	ub := rkid(t, s, db, grand, 0, "running")
+	ub2 := rkid(t, s, db, root, 0, "running")
+	all := []int64{root, openKid, kid2, grand, ub, ub2}
 	budget := map[int64]float64{root: 40, openKid: 10, kid2: 8, grand: 4}
 	spent := map[int64]float64{}
 	overspent := map[int64]bool{}
@@ -83,9 +87,11 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 		var kids []int64
 		switch id {
 		case root:
-			kids = []int64{openKid, kid2}
+			kids = []int64{openKid, kid2, ub2}
 		case openKid:
 			kids = []int64{grand}
+		case grand:
+			kids = []int64{ub}
 		}
 		total = spent[id]
 		for _, r := range rows {
@@ -121,12 +127,15 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			if !near(c.Held, own) || !near(c.Total(), total) || !near(c.Spent, spent[id]) {
 				fail("session #%d: store %+v, model held %v total %v spent %v", id, c, own, total, spent[id])
 			}
+			if g := c.Spent * 1e6; math.Abs(g-math.Round(g)) > 1e-3 {
+				fail("spent %v of #%d is off the micro-dollar grid", c.Spent, id)
+			}
 			if budget[id] > 0 && !overspent[id] && total > budget[id]+1e-9 {
 				fail("I1: session #%d commits %v of a budget of %v", id, total, budget[id])
 			}
 		}
 	}
-	parent := map[int64]int64{openKid: root, kid2: root, grand: openKid}
+	parent := map[int64]int64{openKid: root, kid2: root, grand: openKid, ub: grand, ub2: root}
 	overspend := func(id int64) { // an overspend is recorded where it happened and counts against every ancestor
 		for ; id != 0; id = parent[id] {
 			overspent[id] = true
@@ -178,7 +187,38 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			} else if (r.state == ReservationLive) != (err == nil) {
 				fail("%s: state %s, err %v", op, r.state, err)
 			}
-		case n < 58: // settle, by the owner or a stranger
+		case n < 52: // charge a running total, by the owner or a stranger; it can be lower, equal or above the amount
+			r := pick()
+			if r == nil {
+				continue
+			}
+			who := r.owner
+			stranger := rng.Intn(4) == 0
+			if stranger {
+				who = "stranger"
+			}
+			cum := float64(rng.Intn(60)) / 10
+			op = fmt.Sprintf("charge #%d by %s cumulative %.1f", r.id, who, cum)
+			ops = append(ops, op)
+			before, sp := snapshot(r), rspent(t, db, r.session)
+			err := s.ChargeReservation(bg, "default", r.id, who, cum)
+			if stranger || r.state != ReservationLive {
+				if err == nil || snapshot(r) != before || rspent(t, db, r.session) != sp {
+					fail("I3: %s changed things (%v)", op, err)
+				}
+				continue
+			}
+			if err != nil {
+				fail("%s: %v", op, err)
+			}
+			if cum > r.charge+1e-9 {
+				if cum > r.amount+1e-9 {
+					overspend(r.session)
+				}
+				spent[r.session] += cum - r.charge
+				r.charge = cum
+			}
+		case n < 62: // settle, by the owner or a stranger
 			r := pick()
 			if r == nil {
 				continue
@@ -193,7 +233,7 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			ops = append(ops, op)
 			before, sp := snapshot(r), rspent(t, db, r.session)
 			err := s.Settle(bg, "default", r.id, who, actual)
-			if stranger || r.state != ReservationLive {
+			if stranger || r.state != ReservationLive || actual < r.charge-1e-9 {
 				if err == nil || snapshot(r) != before || rspent(t, db, r.session) != sp {
 					fail("I3: %s changed things (%v)", op, err)
 				}
@@ -205,9 +245,9 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			if actual > r.amount+1e-9 {
 				overspend(r.session)
 			}
-			spent[r.session] += actual
+			spent[r.session] += actual - r.charge
 			r.charge, r.state = actual, ReservationSettled
-		case n < 66: // release, by the owner or a stranger
+		case n < 70: // release, by the owner or a stranger
 			r := pick()
 			if r == nil {
 				continue
@@ -231,7 +271,7 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 				fail("%s: %v", op, err)
 			}
 			r.state = ReservationReleased
-		case n < 80: // crash: some owners stop heartbeating, time passes, a sweep runs
+		case n < 82: // crash: some owners stop heartbeating, time passes, a sweep runs
 			dead := owners[rng.Intn(len(owners))]
 			op = fmt.Sprintf("crash %s then sweep", dead)
 			ops = append(ops, op)
@@ -276,7 +316,7 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			op = fmt.Sprintf("resolve #%d charge %.1f", r.id, charge)
 			ops = append(ops, op)
 			err := s.ResolveReservation(bg, "default", r.id, charge, "note", human)
-			if r.state != ReservationExpired {
+			if r.state != ReservationExpired || charge < r.charge-1e-9 {
 				if err == nil {
 					fail("%s: resolved a %s row", op, r.state)
 				}
@@ -288,7 +328,7 @@ func runReservationModel(t *testing.T, seed int64, steps int) {
 			if charge > r.held()+1e-9 {
 				overspend(r.session)
 			}
-			spent[r.session] += charge
+			spent[r.session] += charge - r.charge
 			r.charge, r.state = charge, ReservationResolved
 		default: // time passes without a sweep, owners heartbeat
 			op = "tick"

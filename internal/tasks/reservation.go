@@ -145,20 +145,9 @@ func (s *Store) Reserve(ctx context.Context, profileID string, sessionID int64, 
 		if err != nil {
 			return err
 		}
-		amount, bounded := fromMicros(toMicros(want)), want > 0
-		if leftM, budgeted := c.leftMicros(); budgeted {
-			left, _ := c.Left()
-			// Whole micro-dollars, on every branch: the grant is the smaller of the rounded want (all that is left
-			// when want is 0) and the remainder FLOORED, so it never exceeds what is really left, even when the
-			// remainder is off the grid (a legacy row).
-			grant := leftM
-			if want > 0 {
-				grant = min(toMicros(want), grant)
-			}
-			if fromMicros(grant)+budgetEps < minReservationUSD {
-				return limit("session #%d has $%.4f left of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", sessionID, left, c.Budget, c.Spent, c.Held, c.Children)
-			}
-			amount, bounded = fromMicros(grant), true
+		amount, bounded, err := s.grantFor(ctx, x, profileID, sessionID, want, c)
+		if err != nil {
+			return err
 		}
 		now := s.stamp()
 		res, err := x.ExecContext(ctx, `INSERT INTO task_session_reservations (profile_id, session_id, worker_ref, owner_id, amount_usd, bounded, state, lease_until, heartbeat_at, created_at)

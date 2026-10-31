@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 // rchain makes descendants under root one below the other, all running; budgets[i] is the i-th one's budget (0: none).
@@ -227,7 +228,7 @@ func TestReservationHeldSumsLiveAndExpiredRowsInMicroDollars(t *testing.T) {
 		t.Fatalf("%d, %v", got, err)
 	}
 	// an expired row keeps holding
-	clk.advance(ReservationLease + ReservationGrace + 1)
+	clk.advance(ReservationLease + ReservationGrace + time.Second)
 	if _, err := s.ExpireStale(bg, "default", sid); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +256,7 @@ func TestLiveReservationsListsOnlyTheProfilesRowsNotLapsedPastGrace(t *testing.T
 	sid := rsession(t, s, db, 0)
 	old := rreserve(t, s, sid, "old", 1)
 	gone := rreserve(t, s, sid, "gone", 1)
-	clk.advance(ReservationLease + ReservationGrace + 1)
+	clk.advance(ReservationLease + ReservationGrace + time.Second)
 	fresh := rreserve(t, s, sid, "fresh", 2)
 	if err := s.ChargeReservation(bg, "default", fresh.ID, "fresh", 0.5); err != nil {
 		t.Fatal(err)
