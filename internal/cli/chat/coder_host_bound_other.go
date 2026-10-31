@@ -10,7 +10,9 @@ import (
 // boundLaunch is never set off Linux: peer-credential binding needs it.
 type boundLaunch struct{}
 
-type boundDelivery struct{}
+type boundDelivery struct {
+	child *childToken // set by start() for a mission child; unused off Linux
+}
 
 func (b *boundLaunch) attach(*exec.Cmd, string) (*boundDelivery, error) {
 	return nil, errors.New("peer-credential binding needs Linux")
