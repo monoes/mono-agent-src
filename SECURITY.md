@@ -1977,6 +1977,12 @@ that works a task acts on them. The defences:
   direction-creation path, and refuses the new one when K are open, so two creators racing for the last place are not both kept;
   an archived, stopped, done or failed direction frees its place; settings that cannot be read fail closed; the setting follows
   the lead down the tree. Tests: `sessionspawn_directions_test.go`.
+- **Evaluating directions.** `mission_evaluate` and `mission_reevaluate` are the lead's alone (a worker is refused every tool but
+  three). They rank in code and write a size-capped record to the mission's history, which is data, never an instruction; they
+  grant nothing (no spawn, approval, stop, access or budget), and a drop is a proposal. The reviewer brief carries every thesis
+  and evidence reference, which came from research that read the web, inside a fence. `k` cannot pass the operator's
+  `mission_directions`. That the brief asks for a reviewer on another model is prompt-only. Tests: `mission_evaluate_test.go`,
+  `mission_evaluate_record_test.go`, `mission_rank_test.go`.
 - **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
   sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
   without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),

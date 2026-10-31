@@ -3079,6 +3079,15 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Mission directions.** The operator's `mission_directions` (0 to 6, 0 or unset is 3) is how many direction sessions an agent
   may have open below one session: the next is refused (`ErrLimit`) by `CreateSession` inside the insert transaction, so racing
   spawns cannot pass it; a child session inherits the setting only when its own row has none. Operator-only, never agent-adjustable.
+- **Evaluating directions (`mission_evaluate`, `mission_reevaluate`).** Two lead-only mission tools (offered with the other
+  mission tools once the session exists, refused to a worker) take candidate directions (`title`, `thesis`, `evidence`, `scores`
+  success/cost/risk/effort 0 to 10, optional `merge_with`), optional `weights` (default 3/1/1/1) and `k`, and rank them in code:
+  weighted score, ties to the lower risk, then the lower cost, then the order stated; NaN, Inf, negative or over-10 numbers, more
+  than 20 candidates and duplicate titles are refused. `k` may not exceed `mission_directions`. Each call writes a
+  `mission_evaluation {json}` note to the mission session's history (an inputs-and-picks record that is shrunk, or the call is
+  refused, when it would not fit one session event; never cut) and returns the picks plus a brief for a reviewer on another model
+  (thesis and evidence inside a fence). `mission_reevaluate` also takes `reason` and `current` and returns keep, drop, add and merge
+  decisions; a drop or merge only proposes. Nothing in either tool spawns, approves, stops or funds.
 - **A tree of sessions: `session_spawn` for a lead.** Sessions form a tree to a hard maximum of 4 levels
   (`coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth`); the working depth is each tree's `max_depth` setting
   (default 3, operator-only to raise to 4), and a child takes its parent's. A child has room for children (its
