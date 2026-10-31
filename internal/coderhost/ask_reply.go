@@ -3,6 +3,7 @@ package coderhost
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -58,8 +59,8 @@ func replyText(id int64, question, from, reply string) string {
 
 // stillAbove says whether the ancestor session is still above the asker (above its parent) and still led by conv.
 // A session that cannot be read is an error, never an answer: the caller refuses.
-func (s *Store) stillAbove(profileID string, asker, ancestor int64, conv string) (bool, error) {
-	anc, err := s.ancestorsOf(profileID, asker)
+func stillAbove(q querier, profileID string, asker, ancestor int64, conv string) (bool, error) {
+	anc, err := ancestorsOn(q, profileID, asker)
 	if err != nil {
 		return false, err
 	}
@@ -71,24 +72,49 @@ func (s *Store) stillAbove(profileID string, asker, ancestor int64, conv string)
 	return false, nil
 }
 
-// closeAndDeliver closes the open ask (so two answers cannot both win) and queues the sealed reply to the asker.
-// If the reply cannot be queued the ask is opened again.
-func (s *Store) closeAndDeliver(profileID string, id int64, askerConv, question, from, reply, by, origin string) (Command, error) {
-	res, err := s.db.Exec(`UPDATE coder_session_asks SET status = ?, answer = ?, answered_by = ?, answered_at = ? WHERE id = ? AND profile_id = ? AND status = 'open'`,
-		askAnswered, cleanText(reply, maxQuotedAnswer), cleanText(by, 160), s.stamp(), id, profileID)
+// errAskMoved: inside the commit the asker was found no longer below the lead; the ask was voided, no reply written.
+var errAskMoved = fmt.Errorf("%w: the asking session is no longer below you; the ask is void", ErrNotOpen)
+
+// closeAndDeliver closes the open ask (so two answers cannot both win) and queues the sealed reply to the asker
+// in ONE transaction: the answer and its reply stand together or not at all, so a crash or a full queue leaves the
+// ask open and the answer retryable. The first statement is the conditional update, so it takes the write lock and
+// whatever recheck follows (recheck, the lead's ancestry test) reads the tree as it is at the commit. A normal ask
+// past AskTTL does not close: expiry is part of the condition, not a sweep that has to have run.
+func (s *Store) closeAndDeliver(profileID string, id int64, askerConv, question, from, reply, by, origin string, recheck func(querier) (bool, error)) (Command, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Command{}, err
+	}
+	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
+	res, err := tx.Exec(`UPDATE coder_session_asks SET status = ?, answer = ?, answered_by = ?, answered_at = ? WHERE id = ? AND profile_id = ? AND status = 'open'
+		AND (importance = 'critical' OR created_at >= ?)`,
+		askAnswered, cleanText(reply, maxQuotedAnswer), cleanText(by, 160), s.stamp(), id, profileID, s.now().Add(-AskTTL).UTC().Format(timeLayout))
 	if err != nil {
 		return Command{}, err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return Command{}, fmt.Errorf("%w: that ask is not open", ErrNotOpen)
 	}
-	cmd, err := s.Enqueue(Command{ProfileID: profileID, ConversationID: askerConv, Kind: KindSend, TurnID: askTurnID(origin), Message: replyText(id, question, from, reply)})
+	if recheck != nil {
+		if ok, err := recheck(tx); err != nil {
+			return Command{}, fmt.Errorf("check the ask's place in the tree: %w", err)
+		} else if !ok { // the asker is no longer below the lead: the ask is void, decided on the tree as it is at the commit
+			if _, err := tx.Exec(`UPDATE coder_session_asks SET status = ?, answer = '', answered_by = '', answered_at = '' WHERE id = ?`, askVoid, id); err != nil {
+				return Command{}, fmt.Errorf("void the ask: %w", err)
+			}
+			return Command{}, errors.Join(errAskMoved, tx.Commit())
+		}
+	}
+	if s.afterAnswerBeforeReply != nil {
+		if err := s.afterAnswerBeforeReply(); err != nil {
+			return Command{}, err
+		}
+	}
+	cmd, err := s.enqueueOn(tx, Command{ProfileID: profileID, ConversationID: askerConv, Kind: KindSend, TurnID: askTurnID(origin), Message: replyText(id, question, from, reply)})
 	if err != nil {
-		_, _ = s.db.Exec(`UPDATE coder_session_asks SET status = 'open', answer = '', answered_by = '', answered_at = '' WHERE id = ? AND status = ?`, id, askAnswered)
 		return Command{}, err
 	}
-	_, _ = s.db.Exec(`UPDATE coder_session_asks SET command_id = ? WHERE id = ?`, cmd.ID, id)
-	return cmd, nil
+	return cmd, tx.Commit()
 }
 
 // AnswerAncestorQuestion is the person's answer to a critical ask. It takes no caller: it is for the operator's
@@ -105,7 +131,7 @@ func (s *Store) AnswerAncestorQuestion(profileID string, id int64, answer string
 	if strings.TrimSpace(answer) == "" || len(answer) > MaxAnswerBytes {
 		return a, Command{}, fmt.Errorf("%w: an answer is 1 to %d bytes", ErrInvalid, MaxAnswerBytes)
 	}
-	cmd, err := s.closeAndDeliver(profileID, id, a.AskerConv, a.Question, "the person", answer, "person", askFromPerson)
+	cmd, err := s.closeAndDeliver(profileID, id, a.AskerConv, a.Question, "the person", answer, "person", askFromPerson, nil)
 	if err != nil {
 		return a, cmd, err
 	}

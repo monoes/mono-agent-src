@@ -358,6 +358,9 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		// is void (nobody reads it any more, the asker's slot is free again; the asker is not told, because a note
 		// needs the host's queue, which this package cannot reach). A critical ask goes to the person, not to this
 		// chat, so it stays.
+		// The question it asked may still wait in the recipient's queue (the ask row names the command): it holds the
+		// full text and has no ask left to answer, so it goes too, before the rows that name it.
+		`DELETE FROM coder_session_commands WHERE status = 'pending' AND profile_id = ?2 AND id IN (SELECT command_id FROM coder_session_asks WHERE asker_conv = ?1 AND profile_id = ?2 AND command_id != 0)`,
 		`DELETE FROM coder_session_asks WHERE asker_conv = ?1 AND profile_id = ?2`,
 		`UPDATE coder_session_asks SET status = 'void' WHERE ancestor_conv = ?1 AND profile_id = ?2 AND importance = 'normal' AND status = 'open'`,
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,

@@ -26,10 +26,10 @@ func (s *Store) ReplyAsk(sc CallerScope, profileID string, askID int64, message 
 	}
 	conv := l.Caller.ConversationID
 	var askerSession, ancestorSession int64
-	var askerConv, ancestorConv, importance, status, question string
+	var askerConv, ancestorConv, importance, status, question, createdAt string
 	var ancConv sql.NullString
-	err = s.db.QueryRow(`SELECT asker_session, asker_conv, ancestor_session, ancestor_conv, importance, status, question FROM coder_session_asks
-		WHERE profile_id = ? AND id = ?`, profileID, askID).Scan(&askerSession, &askerConv, &ancestorSession, &ancConv, &importance, &status, &question)
+	err = s.db.QueryRow(`SELECT asker_session, asker_conv, ancestor_session, ancestor_conv, importance, status, question, created_at FROM coder_session_asks
+		WHERE profile_id = ? AND id = ?`, profileID, askID).Scan(&askerSession, &askerConv, &ancestorSession, &ancConv, &importance, &status, &question, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Command{}, errNotAddressee
 	}
@@ -40,21 +40,20 @@ func (s *Store) ReplyAsk(sc CallerScope, profileID string, askID int64, message 
 	if importance != AskNormal || ancestorConv == "" || ancestorConv != conv {
 		return Command{}, errNotAddressee
 	}
+	if s.askStale(importance, status, createdAt) {
+		_, _ = s.db.Exec(`UPDATE coder_session_asks SET status = ? WHERE id = ? AND status = 'open'`, askExpired, askID)
+		status = askExpired
+	}
 	if status != askOpen {
 		return Command{}, fmt.Errorf("%w: that ask is %s", ErrNotOpen, status)
 	}
 	if strings.TrimSpace(message) == "" || len(message) > MaxAnswerBytes {
 		return Command{}, fmt.Errorf("%w: a reply is 1 to %d bytes", ErrInvalid, MaxAnswerBytes)
 	}
-	above, err := s.stillAbove(profileID, askerSession, ancestorSession, conv)
-	if err != nil {
-		return Command{}, fmt.Errorf("check the ask's place in the tree: %w", err)
+	if s.beforeAskReplyTx != nil {
+		s.beforeAskReplyTx()
 	}
-	if !above {
-		if _, err := s.db.Exec(`UPDATE coder_session_asks SET status = ? WHERE id = ? AND status = 'open'`, askVoid, askID); err != nil {
-			return Command{}, fmt.Errorf("void the ask: %w", err)
-		}
-		return Command{}, fmt.Errorf("%w: the asking session is no longer below you; the ask is void", ErrNotOpen)
-	}
-	return s.closeAndDeliver(profileID, askID, askerConv, question, "an ancestor lead", message, "lead:"+conv, askFromLead)
+	cmd, err := s.closeAndDeliver(profileID, askID, askerConv, question, "an ancestor lead", message, "lead:"+conv, askFromLead,
+		func(q querier) (bool, error) { return stillAbove(q, profileID, askerSession, ancestorSession, conv) })
+	return cmd, err
 }

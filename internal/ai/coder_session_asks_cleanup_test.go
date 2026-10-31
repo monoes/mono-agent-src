@@ -70,3 +70,34 @@ func TestChatEvents_DeleteConversationOfTheAskerRemovesItsAsksAndItems(t *testin
 		t.Errorf("asks=%d items=%d survived the asker's chat", a, i)
 	}
 }
+
+// The question a deleted chat asked sits in the recipient's queue as a command; it goes with the asker (it holds
+// the full text and has no ask left to answer).
+func TestChatEvents_DeleteConversationOfTheAskerRemovesItsQueuedQuestion(t *testing.T) {
+	s, db := newChatEventStore(t)
+	asker, _ := s.CreateConversation("p1", "agent", "general", "claude", "", "")
+	anc, _ := s.CreateConversation("p1", "agent", "general", "claude", "", "")
+	cmd := func(conv, msg string) int64 {
+		res, err := db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, created_at, updated_at)
+			VALUES ('p1', ?, 'send', 'ask-q-1', ?, '[]', 'pending', 'now', 'now')`, conv, msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := res.LastInsertId()
+		return id
+	}
+	q, other := cmd(anc.ID, "private question"), cmd(anc.ID, "someone else's")
+	if _, err := db.Exec(`INSERT INTO coder_session_asks (profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, command_id, created_at)
+		VALUES ('p1', 1, ?, 2, ?, 'grandparent', 'normal', 'private question', 1, 'open', ?, 'now')`, asker.ID, anc.ID, q); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteConversation(asker.ID, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	var gotQ, gotOther int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE id = ?`, q).Scan(&gotQ)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE id = ?`, other).Scan(&gotOther)
+	if gotQ != 0 || gotOther != 1 {
+		t.Errorf("queued question kept=%d (want 0), another command kept=%d (want 1)", gotQ, gotOther)
+	}
+}

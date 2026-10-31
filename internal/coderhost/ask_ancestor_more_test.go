@@ -98,10 +98,10 @@ func TestClosingAnAskIsOneWayEvenWhenTheCheckBeforeItIsStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.st.closeAndDeliver("p", got.AskID, f.cc, "q", "the person", "one", "person", askFromPerson); err != nil {
+	if _, err := f.st.closeAndDeliver("p", got.AskID, f.cc, "q", "the person", "one", "person", askFromPerson, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.st.closeAndDeliver("p", got.AskID, f.cc, "q", "the person", "two", "person", askFromPerson); !errors.Is(err, ErrNotOpen) {
+	if _, err := f.st.closeAndDeliver("p", got.AskID, f.cc, "q", "the person", "two", "person", askFromPerson, nil); !errors.Is(err, ErrNotOpen) {
 		t.Fatalf("a second close won: %v", err)
 	}
 	if n := len(f.commandsTo(f.cc)); n != 1 {

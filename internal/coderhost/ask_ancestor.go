@@ -102,12 +102,17 @@ type treeNode struct {
 // ancestorsOf lists the sessions above sid in the profile, nearest (the parent) first. A cycle or a chain
 // longer than maxTreeWalk ends the walk with an error.
 func (s *Store) ancestorsOf(profileID string, sid int64) ([]treeNode, error) {
+	return ancestorsOn(s.db, profileID, sid)
+}
+
+// ancestorsOn is ancestorsOf on a handle: the transaction that commits what the answer depends on.
+func ancestorsOn(q querier, profileID string, sid int64) ([]treeNode, error) {
 	var out []treeNode
 	seen := map[int64]bool{sid: true}
 	cur := sid
 	for i := 0; i < maxTreeWalk; i++ {
 		var parent sql.NullInt64
-		err := s.db.QueryRow(`SELECT parent_session_id FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, cur).Scan(&parent)
+		err := q.QueryRow(`SELECT parent_session_id FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, cur).Scan(&parent)
 		if errors.Is(err, sql.ErrNoRows) || (err == nil && parent.Int64 == 0) {
 			return out, nil
 		}
@@ -121,7 +126,7 @@ func (s *Store) ancestorsOf(profileID string, sid int64) ([]treeNode, error) {
 		var n treeNode
 		var conv sql.NullString
 		var archived string
-		err = s.db.QueryRow(`SELECT id, conversation_id, title, state, archived_at FROM task_sessions WHERE profile_id = ? AND id = ?`,
+		err = q.QueryRow(`SELECT id, conversation_id, title, state, archived_at FROM task_sessions WHERE profile_id = ? AND id = ?`,
 			profileID, parent.Int64).Scan(&n.id, &conv, &n.title, &n.state, &archived)
 		if errors.Is(err, sql.ErrNoRows) {
 			return out, nil // a parent of another profile or a missing one ends the chain
@@ -218,46 +223,75 @@ func (s *Store) AskAncestor(sc CallerScope, profileID string, req AskRequest) (A
 	if level == "" {
 		level = "grandparent"
 	}
-	askRow, err := s.insertAsk(profileID, sid, askerConv, target, level, imp, question, len(req.Question))
+	out, err := s.publishAsk(profileID, sid, askerConv, target, level, imp, question, len(req.Question))
 	if err != nil {
 		return Asked{}, err
+	}
+	if imp == AskCritical {
+		s.recordAsk(profileID, askerConv, target, level, imp, len(req.Question), "raised a person item; no model reads it")
+	} else {
+		s.recordAsk(profileID, askerConv, target, level, imp, len(req.Question), "queued to the ancestor lead as sealed untrusted content")
+	}
+	return out, nil
+}
+
+// publishAsk writes the ask row and what makes it reach its reader (the person item of a critical ask, the
+// sealed send to the ancestor lead of a normal one) in ONE transaction: a crash or a refusal in between leaves
+// no ask at all, never an open ask nobody can see that holds the asker's slot for ever. The command queue is the
+// same database, so its insert joins the transaction (enqueueOn) and no outbox is needed.
+func (s *Store) publishAsk(profileID string, sid int64, askerConv string, target treeNode, level, imp, question string, size int) (Asked, error) {
+	asker := s.titleOf(profileID, sid)
+	now := s.now()
+	s.expireAsks(profileID, now)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Asked{}, err
+	}
+	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
+	askRow, err := insertAsk(tx, profileID, sid, askerConv, target, level, imp, question, size, s.stamp(), now)
+	if err != nil {
+		return Asked{}, err
+	}
+	if askRow == 0 {
+		_ = tx.Rollback()
+		return Asked{}, s.whyAskRefused(profileID, askerConv, target, size, now)
+	}
+	if s.afterAskInsert != nil {
+		if err := s.afterAskInsert(); err != nil {
+			return Asked{}, err
+		}
 	}
 	out := Asked{AskID: askRow, Importance: imp, AncestorSession: target.id, AncestorTitle: cleanText(target.title, 80)}
 	if imp == AskCritical {
 		out.Delivery = "person"
-		if err := addPersonItem(s.db, profileID, askerConv, ItemAncestorQuestion, "", askRow, s.stamp()); err != nil {
-			s.dropAsk(askRow)
+		if err := addPersonItem(tx, profileID, askerConv, ItemAncestorQuestion, "", askRow, s.stamp()); err != nil {
 			return Asked{}, err
 		}
-		s.recordAsk(profileID, askerConv, target, level, imp, len(req.Question), "raised a person item; no model reads it")
-		return out, nil
+	} else {
+		out.Delivery = "lead"
+		cmd, err := s.enqueueOn(tx, Command{ProfileID: profileID, ConversationID: target.conv, Kind: KindSend, TurnID: askTurnID(askFromAsker),
+			Message: askText(askRow, askerConv, asker, level, question)})
+		if err != nil {
+			return Asked{}, err
+		}
+		out.CommandID = cmd.ID
+		if _, err := tx.Exec(`UPDATE coder_session_asks SET command_id = ? WHERE id = ?`, cmd.ID, askRow); err != nil {
+			return Asked{}, err
+		}
 	}
-	out.Delivery = "lead"
-	asker := s.titleOf(profileID, sid)
-	cmd, err := s.Enqueue(Command{ProfileID: profileID, ConversationID: target.conv, Kind: KindSend, TurnID: askTurnID(askFromAsker),
-		Message: askText(askRow, askerConv, asker, level, question)})
-	if err != nil {
-		s.dropAsk(askRow)
-		return Asked{}, err
-	}
-	out.CommandID = cmd.ID
-	_, _ = s.db.Exec(`UPDATE coder_session_asks SET command_id = ? WHERE id = ?`, cmd.ID, askRow)
-	s.recordAsk(profileID, askerConv, target, level, imp, len(req.Question), "queued to the ancestor lead as sealed untrusted content")
-	return out, nil
+	return out, tx.Commit()
 }
 
 // insertAsk writes the row and enforces the limits in the INSERT itself, so concurrent asks cannot pass them
-// together. A refusal names the limit that held.
-func (s *Store) insertAsk(profileID string, asker int64, askerConv string, target treeNode, level, imp, question string, size int) (int64, error) {
-	now := s.now()
-	s.expireAsks(profileID, now)
-	res, err := s.db.Exec(`INSERT INTO coder_session_asks (profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at)
+// together. It returns 0 when a limit held.
+func insertAsk(x execer, profileID string, asker int64, askerConv string, target treeNode, level, imp, question string, size int, stamp string, now time.Time) (int64, error) {
+	res, err := x.Exec(`INSERT INTO coder_session_asks (profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at)
 		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?
 		WHERE (SELECT COUNT(*) FROM coder_session_asks WHERE profile_id = ? AND asker_conv = ? AND status = 'open') < ?
 		AND (SELECT COALESCE(SUM(bytes), 0) FROM coder_session_asks WHERE profile_id = ? AND asker_conv = ? AND status = 'open') + ? <= ?
 		AND NOT EXISTS (SELECT 1 FROM coder_session_asks WHERE profile_id = ? AND asker_conv = ? AND created_at >= ?)
 		AND (? != 'normal' OR (SELECT COUNT(*) FROM coder_session_asks WHERE profile_id = ? AND ancestor_conv = ? AND importance = 'normal' AND status = 'open') < ?)`,
-		profileID, asker, askerConv, target.id, target.conv, level, imp, question, size, s.stamp(),
+		profileID, asker, askerConv, target.id, target.conv, level, imp, question, size, stamp,
 		profileID, askerConv, MaxOpenAsks,
 		profileID, askerConv, size, MaxOpenAskBytes,
 		profileID, askerConv, now.Add(-AskInterval).UTC().Format(timeLayout),
@@ -266,7 +300,7 @@ func (s *Store) insertAsk(profileID string, asker int64, askerConv string, targe
 		return 0, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return 0, s.whyAskRefused(profileID, askerConv, target, size, now)
+		return 0, nil // a limit held: the caller says which, after it has ended its transaction
 	}
 	return res.LastInsertId()
 }
@@ -294,10 +328,6 @@ func (s *Store) whyAskRefused(profileID, askerConv string, target treeNode, size
 func (s *Store) expireAsks(profileID string, now time.Time) {
 	_, _ = s.db.Exec(`UPDATE coder_session_asks SET status = ? WHERE profile_id = ? AND status = 'open' AND importance = 'normal' AND created_at < ?`,
 		askExpired, profileID, now.Add(-AskTTL).UTC().Format(timeLayout))
-}
-
-func (s *Store) dropAsk(id int64) {
-	_, _ = s.db.Exec(`DELETE FROM coder_session_asks WHERE id = ?`, id)
 }
 
 func (s *Store) titleOf(profileID string, sid int64) string {
@@ -328,6 +358,14 @@ func (s *Store) GetAsk(profileID string, id int64) (Ask, error) {
 		return a, err
 	}
 	a.AncestorConv = conv.String
+	if s.askStale(a.Importance, a.Status, a.CreatedAt) {
+		a.Status = askExpired // read as expired, whether or not an ask has come to write it
+	}
 	a.AskerTitle, a.AncestorTitle = cleanText(s.titleOf(profileID, a.AskerSession), 80), cleanText(s.titleOf(profileID, a.AncestorSession), 80)
 	return a, nil
+}
+
+// askStale: a normal ask still open after AskTTL is expired. A critical ask waits for the person and never is.
+func (s *Store) askStale(importance, status, createdAt string) bool {
+	return importance == AskNormal && status == askOpen && createdAt < s.now().Add(-AskTTL).UTC().Format(timeLayout)
 }

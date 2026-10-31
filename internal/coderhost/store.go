@@ -53,8 +53,12 @@ const (
 	MaxPendingMaster = 5
 	// MaxPendingMasterStops is how many stops masters may have waiting for one child.
 	MaxPendingMasterStops = 2
-	MaxAttachments        = 10
-	pendingBatch          = 200
+	// MaxPendingAskNotes is how many ask-channel notes (a question to a lead, a lead's reply) may wait for one chat.
+	MaxPendingAskNotes = 10
+	// AskPersonReserve is how many of a chat's MaxPendingPerChat send slots the ask channel never takes.
+	AskPersonReserve = 10
+	MaxAttachments   = 10
+	pendingBatch     = 200
 	// MaxSendAge is how long a queued send stays valid.
 	MaxSendAge = 6 * time.Hour
 	// MaxCheckinAge is how long a check-in the host queued for itself stays valid: its digest is a
@@ -132,6 +136,13 @@ type Store struct {
 	afterStaleSelect func()
 	// betweenCascadeCheckAndResume lets a test act between the pass's pausedByCascade check and its resume.
 	betweenCascadeCheckAndResume func()
+	// afterAskInsert runs in AskAncestor right after the ask row is written, before its person item or lead command
+	// (tests only: an error is a crash there; nothing is compensated).
+	afterAskInsert func() error
+	// beforeAskReplyTx runs in ReplyAsk after its checks of the ask, before the reply is committed (tests only).
+	beforeAskReplyTx func()
+	// afterAnswerBeforeReply runs when an answer has been written and its reply command is not (tests only: an error is a crash there).
+	afterAnswerBeforeReply func() error
 	// onSpent sees the handle every Spent read goes through.
 	onSpent func(q querier)
 }
@@ -143,7 +154,11 @@ func (s *Store) stamp() string { return s.now().UTC().Format(timeLayout) }
 
 // Enqueue validates and queues a command. The host carries it out when the
 // session allows it; a send to a busy or paused session waits.
-func (s *Store) Enqueue(c Command) (Command, error) {
+func (s *Store) Enqueue(c Command) (Command, error) { return s.enqueueOn(s.db, c) }
+
+// enqueueOn is Enqueue on a handle: a transaction of the caller's, so a command and the state change that
+// goes with it commit together (the ask channel), or the store's own handle.
+func (s *Store) enqueueOn(x querier, c Command) (Command, error) {
 	switch c.Kind {
 	case KindSend:
 		if c.Message == "" {
@@ -172,7 +187,7 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	// Sends and control commands are capped apart: a chat full of queued sends
 	// must still take the stop or resume that would get it moving.
 	var waiting int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending' AND (kind = 'send') = ?`,
+	if err := x.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending' AND (kind = 'send') = ?`,
 		c.ProfileID, c.ConversationID, c.Kind == KindSend).Scan(&waiting); err != nil {
 		return c, err
 	}
@@ -199,14 +214,22 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	// MaxPendingMasterStops for a child, so a master cannot fill the person's slots; taken by the INSERT itself.
 	masterStop := c.Kind == KindStop && c.Issuer != ""
 	masterMade := (c.Issuer != "" && c.Kind != KindStop) || (c.Kind == KindSend && strings.HasPrefix(c.TurnID, MasterTurnPrefix))
-	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
+	// A note the ask channel queues for an agent (a question to an ancestor lead, a lead's reply) is held to
+	// MaxPendingAskNotes waiting in the chat, and never takes the last AskPersonReserve slots of its sends:
+	// closing or expiring an ask frees the ask's slot, not the command's, so the cap counts the commands.
+	askNote := c.Kind == KindSend && c.Issuer == "" && askGated(c.TurnID)
+	res, err := x.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
 		SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?
-		WHERE (? = 0 OR (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
+		WHERE (? = 0 OR ((SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
+			AND kind = 'send' AND issuer = '' AND substr(turn_id, 1, 6) IN ('ask-q-', 'ask-r-')) < ?
+			AND (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending' AND kind = 'send') < ?))
+		AND (? = 0 OR (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
 			AND ((issuer != '' AND kind != 'stop') OR (kind = 'send' AND substr(turn_id, 1, ?) = ?))) < ?)
 		AND (? = 0 OR (
 			NOT EXISTS (SELECT 1 FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ?)
 			AND (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer != '') < ?))`,
 		c.ProfileID, c.ConversationID, string(c.Kind), c.TurnID, c.Message, string(att), mark, now, now, c.Issuer,
+		boolInt(askNote), c.ProfileID, c.ConversationID, MaxPendingAskNotes, c.ProfileID, c.ConversationID, MaxPendingPerChat-AskPersonReserve,
 		boolInt(masterMade), c.ProfileID, c.ConversationID, len(MasterTurnPrefix), MasterTurnPrefix, MaxPendingMaster,
 		boolInt(masterStop), c.ProfileID, c.ConversationID, c.Issuer, c.ProfileID, c.ConversationID, MaxPendingMasterStops)
 	if err != nil {
