@@ -32,6 +32,14 @@ describe('OrbitRing', () => {
     expect(container.querySelectorAll('.orbit-mark svg')).toHaveLength(4)
   })
 
+  it('gives EVERY button of the ring, the overflow one included, a non-empty aria-label', () => {
+    const kids = Array.from({ length: 12 }, (_, i) => S(i + 2, 1))
+    const { container } = render(<OrbitRing orbit={orbit(kids)} />)
+    const all = [...container.querySelectorAll('button')]
+    expect(all.length).toBeGreaterThan(8)
+    for (const b of all) expect((b.getAttribute('aria-label') || '').trim()).not.toBe('')
+  })
+
   it('shows a stopped agent as its own neutral state: label, icon and ring, not as failed', () => {
     const { container } = render(<OrbitRing orbit={orbit([S(2, 1, { state: 'stopped' }), S(3, 1, { state: 'failed' })])} />)
     const stopped = screen.getByRole('button', { name: 'Agent 2, Stopped' })
