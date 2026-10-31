@@ -272,7 +272,7 @@ func TestWorkerReservationReleasedWhenTheStartFails(t *testing.T) {
 	t.Cleanup(c.Close)
 	w := directWorker(r, c, "w-1")
 	r.approve()
-	h, err := c.reserveExec(tbg, w, &monomind.ExecOptions{})
+	h, _, err := c.reserveExec(tbg, w, &monomind.ExecOptions{})
 	if err != nil || h == nil {
 		t.Fatal(err)
 	}
@@ -436,13 +436,13 @@ func TestWorkerReservationSwitchOffKeepsTheHold(t *testing.T) {
 	c := scriptedConductor(r, sx)
 	a, b := directWorker(r, c, "w-a"), directWorker(r, c, "w-b")
 	r.approve()
-	h, err := c.reserveExec(tbg, a, &monomind.ExecOptions{}) // A holds the whole $1
+	h, _, err := c.reserveExec(tbg, a, &monomind.ExecOptions{}) // A holds the whole $1
 	if err != nil || h == nil {
 		t.Fatal(err)
 	}
 	for _, m := range []int32{0, 2} {
 		mode.Store(m)
-		if !c.reservationsOn(tbg, r.mc) {
+		if !peekMode(c, r.mc) {
 			t.Fatalf("mode %d mid-run: the mode is latched while a reservation of this run is live", m)
 		}
 	}
@@ -453,7 +453,7 @@ func TestWorkerReservationSwitchOffKeepsTheHold(t *testing.T) {
 		t.Fatalf("B must get nothing while A holds the dollar: %v (runs %d)", err, sx.n)
 	}
 	c.endExecReservation(a, h)
-	if c.reservationsOn(tbg, r.mc) {
+	if peekMode(c, r.mc) {
 		t.Fatal("with no reservation live the flip applies")
 	}
 }
@@ -465,13 +465,13 @@ func TestWorkerReservationStaleHandleLossIsIgnored(t *testing.T) {
 	c := scriptedConductor(r, sx)
 	w := directWorker(r, c, "w-1")
 	r.approve()
-	h1, err := c.reserveExec(tbg, w, &monomind.ExecOptions{})
+	h1, _, err := c.reserveExec(tbg, w, &monomind.ExecOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	h1.ran = true
 	c.endExecReservation(w, h1)
-	h2, err := c.reserveExec(tbg, w, &monomind.ExecOptions{}) // the fallback run
+	h2, _, err := c.reserveExec(tbg, w, &monomind.ExecOptions{}) // the fallback run
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,5 +497,83 @@ func TestWorkerReservationFailedSettleAlwaysNotices(t *testing.T) {
 	b, _ := json.Marshal(r.em.find("notice"))
 	if countNotices(r.em, "mission.reservation_lost") != 1 || !strings.Contains(string(b), "reservation resolve 1 --usd 0.000000") {
 		t.Fatalf("no recovery notice: %s", b)
+	}
+}
+
+// peekMode is the mode the Conductor would choose now, without entering it.
+func peekMode(c *Conductor, mc *MissionRun) bool {
+	c.resvMu.Lock()
+	defer c.resvMu.Unlock()
+	return c.modeLocked(tbg, mc)
+}
+
+// runBlocked starts a run that holds its place until the returned func ends it.
+func runBlocked(r *missionRig, c *Conductor, w *worker, sx *scripted) (end func()) {
+	ctx, cancel := context.WithCancel(tbg)
+	done := make(chan struct{})
+	go func() { _, _ = c.execOnce(ctx, w, opus, "doing task", ""); close(done) }()
+	<-sx.started
+	return func() { cancel(); <-done }
+}
+
+// Switching ON while an old-path worker runs: its cap is not held, so no run reserves until it is over.
+func TestWorkerReservationSwitchOnWaitsForOldPathRuns(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 1})
+	var on atomic.Bool
+	r.mc.WorkerReservations = func(context.Context) (bool, error) { return on.Load(), nil }
+	sx := &scripted{steps: []step{{stream: []float64{0.1}, block: true}, {final: 0.1}, {final: 0.1}}, started: make(chan struct{}, 4)}
+	c := scriptedConductor(r, sx)
+	a, b := directWorker(r, c, "w-a"), directWorker(r, c, "w-b")
+	r.approve()
+	end := runBlocked(r, c, a, sx) // A: old path, cap $1
+	on.Store(true)
+	r.runOnce(c, b, tbg) // B: still the old path
+	if n := len(r.resvRows()); n != 0 {
+		t.Fatalf("B reserved while an old-path run was in flight: %+v", r.resvRows())
+	}
+	end()
+	r.runOnce(c, b, tbg) // quiescent: the switch applies
+	if rows := r.resvRows(); len(rows) != 1 {
+		t.Fatalf("%+v", rows)
+	}
+}
+
+// Switching OFF while a reserving worker runs: the next run stays on reservations and finds the dollar held.
+func TestWorkerReservationSwitchOffWithARunningWorker(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 1})
+	var on atomic.Bool
+	on.Store(true)
+	r.mc.WorkerReservations = func(context.Context) (bool, error) { return on.Load(), nil }
+	sx := &scripted{steps: []step{{stream: []float64{0.1}, block: true}, {final: 0.1}}, started: make(chan struct{}, 4)}
+	c := scriptedConductor(r, sx)
+	a, b := directWorker(r, c, "w-a"), directWorker(r, c, "w-b")
+	r.approve()
+	end := runBlocked(r, c, a, sx)
+	on.Store(false)
+	if _, err := c.execOnce(tbg, b, opus, "doing task", ""); err == nil || !strings.Contains(err.Error(), "budget") || sx.n != 1 {
+		t.Fatalf("B must be refused: %v (runs %d)", err, sx.n)
+	}
+	end()
+}
+
+// A hold abandoned by a dead Conductor is swept by a fresh one at its first tick, though it never reserved.
+func TestWorkerReservationFreshConductorSweepsAnAbandonedHold(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 1})
+	if _, err := r.store.Reserve(tbg, "default", r.sid, "dead-owner", "w-9#1", 1); err != nil {
+		t.Fatal(err)
+	}
+	r.clk.advance(tasks.ReservationLease + tasks.ReservationGrace + time.Second)
+	r.c.missionWatch(r.sid)
+	eventually(t, "the sweep", func() bool { rows := r.resvRows(); return len(rows) == 1 && rows[0].state == tasks.ReservationExpired })
+}
+
+// The notice names the session as well as the reservation.
+func TestWorkerReservationNoticeNamesTheSession(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 10})
+	h := &execReservation{id: 7, ref: "w-1#1", sid: r.sid}
+	r.c.noticeUnrecorded(h, 0.5)
+	b, _ := json.Marshal(r.em.find("notice"))
+	if !strings.Contains(string(b), fmt.Sprintf("session #%d", r.sid)) || !strings.Contains(string(b), "reservation resolve 7 --usd 0.500000") {
+		t.Fatalf("%s", b)
 	}
 }

@@ -319,10 +319,11 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		opts.BudgetUSD = remaining
 	}
 	c.mu.Unlock()
-	resv, rerr := c.reserveExec(ctx, w, &opts) // nil unless the operator switched worker reservations on
+	resv, runDone, rerr := c.reserveExec(ctx, w, &opts) // resv is nil unless worker reservations are on
 	if rerr != nil {
 		return nil, rerr
 	}
+	defer runDone()
 	if resv != nil {
 		defer c.endExecReservation(w, resv)
 	}

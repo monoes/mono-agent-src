@@ -40,6 +40,7 @@ func newOwnerID() string {
 type execReservation struct {
 	id    int64
 	ref   string
+	sid   int64
 	t0    float64
 	carry float64
 	peak  float64
@@ -59,19 +60,20 @@ func (h *execReservation) total(counter float64) float64 {
 	return h.carry + h.peak
 }
 
-// reservationsOn reports whether the mission's workers reserve their money. The mode is latched for as long as a
-// reservation of this Conductor is live (the setting is read again only when none is), so a flip or an unreadable
-// setting in the middle of a run cannot mix the two paths. Otherwise anything but a clear yes, an unreadable
-// setting included, is no: the old cap applies, which subtracts every reservation's hold (and the first time, a
-// notice says why).
-func (c *Conductor) reservationsOn(ctx context.Context, mc *MissionRun) bool {
+// modeLocked says whether a run starting now reserves; resvMu is held. The mode is latched while anything of this
+// Conductor is in flight: with a reservation live it stays on, with a run on the session cap in flight it stays off
+// (the cap's money is not held, so a reservation could take the same dollar). A flip or an unreadable setting in the
+// middle of a run cannot mix the two paths. Otherwise the setting is read; anything but a clear yes, an unreadable
+// setting included, is no, and the old cap applies, which subtracts every reservation's hold.
+func (c *Conductor) modeLocked(ctx context.Context, mc *MissionRun) bool {
 	if mc.WorkerReservations == nil {
 		return false
 	}
-	c.resvMu.Lock()
-	defer c.resvMu.Unlock()
 	if c.resvLive > 0 {
 		return c.resvMode
+	}
+	if c.oldLive > 0 {
+		return false
 	}
 	on, err := mc.WorkerReservations(ctx)
 	if err != nil {
@@ -84,17 +86,37 @@ func (c *Conductor) reservationsOn(ctx context.Context, mc *MissionRun) bool {
 	return on
 }
 
-// reserveExec is the reservation of a mission worker's run when the setting is on, else nil (the caller keeps
-// the session's cap). A worker that is no mission worker has none.
-func (c *Conductor) reserveExec(ctx context.Context, w *worker, opts *monomind.ExecOptions) (*execReservation, error) {
+// reserveExec enters the mode of a mission worker's run: the reservation when the setting is on (the caller's
+// reservation is nil on the old cap), and a done func to call when the run is over. A worker that is no mission
+// worker has neither.
+func (c *Conductor) reserveExec(ctx context.Context, w *worker, opts *monomind.ExecOptions) (*execReservation, func(), error) {
+	noop := func() {}
 	if w.task == nil {
-		return nil, nil
+		return nil, noop, nil
 	}
 	mc, err := c.missions()
-	if err != nil || !c.reservationsOn(ctx, mc) {
-		return nil, nil
+	if err != nil {
+		return nil, noop, nil
 	}
-	return c.startExecReservation(ctx, mc, w, opts)
+	c.resvMu.Lock()
+	on := c.modeLocked(ctx, mc)
+	if on {
+		c.resvLive++ // counted before the reservation exists, so the mode cannot change in between
+	} else {
+		c.oldLive++
+	}
+	c.resvMu.Unlock()
+	if !on {
+		return nil, func() { c.resvMu.Lock(); c.oldLive--; c.resvMu.Unlock() }, nil
+	}
+	h, err := c.startExecReservation(ctx, mc, w, opts)
+	if err != nil {
+		c.resvMu.Lock()
+		c.resvLive--
+		c.resvMu.Unlock()
+		return nil, noop, err
+	}
+	return h, noop, nil
 }
 
 // startExecReservation takes the money of one run out of the session's budget and caps the run at the grant.
@@ -126,11 +148,7 @@ func (c *Conductor) startExecReservation(ctx context.Context, mc *MissionRun, w 
 		}
 		return nil, err
 	}
-	c.resvUsed.Store(true)
-	c.resvMu.Lock()
-	c.resvLive++
-	c.resvMu.Unlock()
-	h := &execReservation{id: r.ID, ref: ref}
+	h := &execReservation{id: r.ID, ref: ref, sid: w.task.session}
 	c.mu.Lock()
 	h.t0 = w.cost + w.liveCost
 	c.mu.Unlock()
@@ -173,7 +191,7 @@ func (c *Conductor) endExecReservation(w *worker, h *execReservation) {
 	c.mu.Unlock()
 	if !h.ran {
 		if err = mc.Store.ReleaseReservation(ctx, mc.ProfileID, h.id, c.ownerID); err != nil && !errors.Is(err, tasks.ErrReservationLost) {
-			c.notice("mission.reservation", fmt.Sprintf("Reservation #%d of %s could not be released: %v. It lapses and is resolved with `task session reservation resolve %d --usd 0`.", h.id, h.ref, err, h.id), chatevents.SeverityWarning)
+			c.notice("mission.reservation", fmt.Sprintf("Reservation #%d of %s (session #%d) could not be released: %v. It lapses and is resolved with `task session reservation resolve %d --usd 0`.", h.id, h.ref, h.sid, err, h.id), chatevents.SeverityWarning)
 		}
 		return
 	}
@@ -196,8 +214,8 @@ func (c *Conductor) endExecReservation(w *worker, h *execReservation) {
 // noticeUnrecorded tells the operator what a reservation cost in total and how to settle it.
 func (c *Conductor) noticeUnrecorded(h *execReservation, total float64) {
 	h.noted = total
-	c.notice("mission.reservation_lost", fmt.Sprintf("The budget reservation #%d of %s was not recorded; the run cost $%.6f in total, of which part may not be in the session's spend. "+
-		"Once the reservation has expired, settle it with `task session reservation resolve %d --usd %.6f`.", h.id, h.ref, total, h.id, total), chatevents.SeverityError)
+	c.notice("mission.reservation_lost", fmt.Sprintf("The budget reservation #%d of %s on session #%d was not recorded; the run cost $%.6f in total, of which part may not be in the session's spend. "+
+		"Once the reservation has expired, settle it with `task session reservation resolve %d --usd %.6f`.", h.id, h.ref, h.sid, total, h.id, total), chatevents.SeverityError)
 }
 
 // reservationLost stops the worker whose reservation is gone and tells the operator what it cost so far. A handle
@@ -251,9 +269,7 @@ func (c *Conductor) heartbeat(ctx context.Context, mc *MissionRun, w *worker, no
 
 // expireStale lets the store lapse the reservations whose owners have gone (any process may).
 func (c *Conductor) expireStale(ctx context.Context, mc *MissionRun, sid int64) {
-	if c.resvUsed.Load() {
-		_, _ = mc.Store.ExpireStale(ctx, mc.ProfileID, sid)
-	}
+	_, _ = mc.Store.ExpireStale(ctx, mc.ProfileID, sid) // also a hold a dead Conductor left: only the lease and grace fence it
 }
 
 // chargeRun records the cost of a run that holds a reservation into it (and so into the session's spend, in one

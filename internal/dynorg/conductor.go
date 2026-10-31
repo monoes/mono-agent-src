@@ -103,13 +103,14 @@ type Conductor struct {
 	// ownerID names this Conductor on the worker reservations it takes (mission_reserve.go): 128 random bits,
 	// never derived from the process id, so two Conductors never share a handle.
 	ownerID string
-	// resvUsed is set once this Conductor has taken a reservation; the tick sweeps lapsed ones only then.
-	resvUsed atomic.Bool
 	// resvMu guards resvMode and resvLive: the latched mode of the worker reservations and how many reservations of
 	// this Conductor are live (mission_reserve.go).
 	resvMu   sync.Mutex
 	resvMode bool
 	resvLive int
+	// oldLive: runs in flight on the session cap (no reservation). While any is, no run reserves: the cap's money is
+	// not held, so a reservation could take the same dollar (guarded by resvMu).
+	oldLive int
 	// resvNoted: the "setting unreadable" notice went out (once per Conductor).
 	resvNoted atomic.Bool
 }
