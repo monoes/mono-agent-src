@@ -429,6 +429,9 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("delete profile: %w", err)
 	}
+	// The profile's data key row went with it: a key this process cached must not outlive it (a retained v2 row
+	// signed under it would otherwise still verify on this handle).
+	secrets.ForgetProfile(id)
 	return tables, nil
 }
 

@@ -1,7 +1,9 @@
 package profile
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -102,5 +104,46 @@ func TestDeletingAnotherProfileDoesNotRecreateADeletedProfilesKey(t *testing.T) 
 	}
 	if rows(first) != 0 {
 		t.Error("deleting another profile brought the first deleted profile's vault key back")
+	}
+}
+
+// After a profile delete the handle that cached the profile's data key no longer serves it: the retained v2 row,
+// signed under the old key, is refused, and the read-only derivation says there is no key.
+func TestAfterAProfileDeleteTheCachedKeyNoLongerVerifiesItsRetainedRows(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	oldKey, err := procbind.RowKey(ctx, db.DB, id) // cached on this handle
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	row := procbind.MissionTokenRow{ID: "v2-kept", ProfileID: id, TokenHash: "h", Owner: "o", Session: 7, Task: 3, Role: "worker", Actor: "a", CreatedAt: now.Truncate(time.Millisecond), ExpiresAt: now.Add(time.Hour).Truncate(time.Millisecond)}
+	if err := procbind.InsertMissionToken(ctx, db.DB, oldKey, row); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := procbind.GetMissionToken(ctx, db.DB, oldKey, id, "v2-kept"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if _, err := deleteProfile(ctx, db.DB, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := procbind.RowKeyIfExists(ctx, db.DB, id); !errors.Is(err, procbind.ErrNoRowKey) {
+		t.Errorf("RowKeyIfExists after the delete: %v", err)
+	}
+	newKey, err := procbind.RowKey(ctx, db.DB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(newKey, oldKey) {
+		t.Fatal("the deleted profile's key was still served from this handle's cache")
+	}
+	if _, err := procbind.GetMissionToken(ctx, db.DB, newKey, id, "v2-kept"); !errors.Is(err, procbind.ErrRowTampered) {
+		t.Errorf("the retained row verifies after the profile delete: %v", err)
 	}
 }

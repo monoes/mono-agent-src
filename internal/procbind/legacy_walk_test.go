@@ -21,10 +21,6 @@ import (
 
 var legacyEnds = regexp.MustCompile(`(?is)\bDELETE\s+FROM\s+(agent_tokens|coder_session_tokens)\b|\bUPDATE\s+(agent_tokens|coder_session_tokens)\s+SET\s[^;]*?\brevoked_at\s*=`)
 
-// revocationMarks are the names whose presence in a declaration means it revokes the v2 side (or is the shared
-// helper that does).
-var revocationMarks = []string{"RevokeTx", "Revoker", "revokeBoth", "revokeSessionTokens", "sweepOrphanTokens"}
-
 const legacyOnly = "procbind:legacy-only"
 
 // walked are the directories (relative to internal/) that may end a legacy token.
@@ -38,8 +34,17 @@ var reviewedLegacyOnly = map[string]string{
 	"cli/chat/chat_history.go:deleteGuard":                   "the v2 mission tokens of the same owners are revoked by the common delete body, deleteConversationInTx, whichever form of delete runs",
 }
 
-// scan returns the declarations of src that end a legacy token without a revocation or an annotation, and the
+// scan returns the declarations of src that end a legacy token without a revocation or an annotation, the
 // declarations that carry the annotation (with their text after the marker), and how many sites it saw.
+//
+// A site is reviewed in one of three exact ways (identities are read from the syntax tree, never from substrings):
+//   - a "procbind:legacy-only <reason>" comment within three lines above the SQL string;
+//   - the string sits in a function literal that is the callback of procbind.Revoker.Run (a composite literal of
+//     that type, or a call of a method named revoker()), and that callback really returns selectors: some return
+//     has a first result other than nil, and none is `return nil, nil`;
+//   - the string sits in a function literal passed to a call of revokeBoth or revokeSessionTokens whose arguments
+//     include a non-empty procbind.Selector literal;
+//   - or the declaration calls procbind.RevokeTx with a selector that is a non-empty literal or a variable.
 func scan(t *testing.T, path string, src []byte) (bad []string, annotated map[string]string, sites int) {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -48,7 +53,6 @@ func scan(t *testing.T, path string, src []byte) (bad []string, annotated map[st
 		t.Fatal(err)
 	}
 	annotated = map[string]string{}
-	// the annotation comments: the line each ends on, and what follows the marker
 	type note struct {
 		end    int
 		reason string
@@ -66,12 +70,10 @@ func scan(t *testing.T, path string, src []byte) (bad []string, annotated map[st
 	}
 	for _, d := range f.Decls {
 		var name string
-		var doc *ast.CommentGroup
 		switch d := d.(type) {
 		case *ast.FuncDecl:
-			name, doc = d.Name.Name, d.Doc
+			name = d.Name.Name
 		case *ast.GenDecl:
-			doc = d.Doc
 			for _, sp := range d.Specs {
 				if v, ok := sp.(*ast.ValueSpec); ok && len(v.Names) > 0 {
 					name = v.Names[0].Name
@@ -80,18 +82,21 @@ func scan(t *testing.T, path string, src []byte) (bad []string, annotated map[st
 		default:
 			continue
 		}
-		start := d.Pos()
-		if doc != nil {
-			start = doc.Pos()
-		}
-		text := string(src[fset.Position(start).Offset:fset.Position(d.End()).Offset])
-		revokes := false
-		for _, m := range revocationMarks {
-			revokes = revokes || strings.Contains(text, m)
-		}
-		unreviewed := false
+		declRevokes := false
 		ast.Inspect(d, func(n ast.Node) bool {
-			// a string literal, or a concatenation of string literals (read as the one string it makes)
+			if c, ok := n.(*ast.CallExpr); ok && isPkgCall(c.Fun, "procbind", "RevokeTx") && len(c.Args) >= 4 && realSelector(c.Args[3]) {
+				declRevokes = true
+			}
+			return true
+		})
+		unreviewed := false
+		var stack []ast.Node
+		ast.Inspect(d, func(n ast.Node) bool {
+			if n == nil {
+				stack = stack[:len(stack)-1]
+				return true
+			}
+			stack = append(stack, n)
 			lit, ok := constString(n)
 			if !ok || !legacyEnds.MatchString(lit) {
 				return true
@@ -100,22 +105,140 @@ func scan(t *testing.T, path string, src []byte) (bad []string, annotated map[st
 			line := fset.Position(n.Pos()).Line
 			noted := false
 			for _, nt := range notes {
-				// an annotation covers the SQL string it sits directly above (within three lines)
 				if nt.end >= line-3 && nt.end <= line {
 					noted = true
 					annotated[filepath.Base(path)+":"+name] = nt.reason
 				}
 			}
-			if !noted && !revokes {
+			if !noted && !declRevokes && !revokedByEnclosingCall(stack) {
 				unreviewed = true
 			}
-			return false // the parts of a concatenation are not looked at again
+			// the parts of a concatenation are not looked at again; undo the push this node made
+			stack = stack[:len(stack)-1]
+			return false
 		})
 		if unreviewed {
 			bad = append(bad, name)
 		}
 	}
 	return bad, annotated, sites
+}
+
+// revokedByEnclosingCall says whether the innermost function literal on the stack is a revoking callback (see scan).
+func revokedByEnclosingCall(stack []ast.Node) bool {
+	for i := len(stack) - 1; i > 0; i-- {
+		fl, ok := stack[i].(*ast.FuncLit)
+		if !ok {
+			continue
+		}
+		call, ok := stack[i-1].(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		isArg := false
+		for _, a := range call.Args {
+			isArg = isArg || a == ast.Expr(fl)
+		}
+		if !isArg {
+			return false
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Run" && isRevokerValue(sel.X) {
+			return callbackReturnsSelectors(fl)
+		}
+		if name := calleeName(call.Fun); name == "revokeBoth" || name == "revokeSessionTokens" {
+			for _, a := range call.Args {
+				if cl, ok := a.(*ast.CompositeLit); ok && isSelectorType(cl.Type) && len(cl.Elts) > 0 {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func calleeName(e ast.Expr) string {
+	switch e := e.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.SelectorExpr:
+		return e.Sel.Name
+	}
+	return ""
+}
+
+// isPkgCall says whether e is pkg.name.
+func isPkgCall(e ast.Expr, pkg, name string) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != name {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == pkg
+}
+
+func isSelectorType(e ast.Expr) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "Selector"
+}
+
+// isRevokerValue says whether e is a procbind.Revoker literal or a call of a method named revoker().
+func isRevokerValue(e ast.Expr) bool {
+	switch e := e.(type) {
+	case *ast.CompositeLit:
+		sel, ok := e.Type.(*ast.SelectorExpr)
+		return ok && sel.Sel.Name == "Revoker"
+	case *ast.CallExpr:
+		return calleeName(e.Fun) == "revoker"
+	}
+	return false
+}
+
+// realSelector says whether e names a selector that selects something: a non-empty procbind.Selector literal, or a
+// variable (a range variable over the selectors), never nil and never an empty literal.
+func realSelector(e ast.Expr) bool {
+	switch e := e.(type) {
+	case *ast.CompositeLit:
+		return len(e.Elts) > 0
+	case *ast.Ident:
+		return e.Name != "nil"
+	}
+	return false
+}
+
+// callbackReturnsSelectors says whether a Revoker.Run callback hands selectors back: some return has a first
+// result other than nil, and none returns nil, nil (no selectors and no error: revoke nothing, say nothing).
+func callbackReturnsSelectors(fl *ast.FuncLit) bool {
+	real, nothing := false, false
+	var walk func(n ast.Node)
+	walk = func(n ast.Node) {
+		ast.Inspect(n, func(m ast.Node) bool {
+			if m == nil {
+				return true
+			}
+			if inner, ok := m.(*ast.FuncLit); ok && inner != fl {
+				return false
+			}
+			r, ok := m.(*ast.ReturnStmt)
+			if !ok || len(r.Results) < 2 {
+				return true
+			}
+			if isNil(r.Results[0]) && isNil(r.Results[1]) {
+				nothing = true
+			}
+			if !isNil(r.Results[0]) {
+				real = true
+			}
+			return true
+		})
+	}
+	walk(fl.Body)
+	return real && !nothing
+}
+
+func isNil(e ast.Expr) bool {
+	id, ok := e.(*ast.Ident)
+	return ok && id.Name == "nil"
 }
 
 // constString is the value of n when it is a string literal or a + of string literals.
@@ -187,12 +310,13 @@ func TestEveryLegacyTokenEndIsRevokedInV2OrReviewed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(funcText(t, "edit.go", src, "deleteProfile"), "RevokeTx") {
+	if !callsRealRevokeTx(t, "edit.go", src, "deleteProfile") {
 		t.Error("deleteProfile does not revoke the profile's v2 tokens")
 	}
 }
 
-func funcText(t *testing.T, path string, src []byte, name string) string {
+// callsRealRevokeTx says whether the named function calls procbind.RevokeTx with a selector that selects something.
+func callsRealRevokeTx(t *testing.T, path string, src []byte, name string) bool {
 	t.Helper()
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, src, parser.ParseComments)
@@ -200,12 +324,21 @@ func funcText(t *testing.T, path string, src []byte, name string) string {
 		t.Fatal(err)
 	}
 	for _, d := range f.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == name {
-			return string(src[fset.Position(fd.Pos()).Offset:fset.Position(fd.End()).Offset])
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != name {
+			continue
 		}
+		found := false
+		ast.Inspect(fd, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok && isPkgCall(c.Fun, "procbind", "RevokeTx") && len(c.Args) >= 4 && realSelector(c.Args[3]) {
+				found = true
+			}
+			return true
+		})
+		return found
 	}
 	t.Fatalf("no function %s in %s", name, path)
-	return ""
+	return false
 }
 
 // The walk itself: a function that ends a legacy token without a revocation is flagged, one with a revocation or a
@@ -214,7 +347,19 @@ func TestTheLegacyWalkFlagsWhatItShould(t *testing.T) {
 	src := []byte("package x\n" +
 		"func bad() { db.Exec(`UPDATE agent_tokens SET revoked_at = 1`) }\n" +
 		"func badDelete() { db.Exec(`DELETE FROM coder_session_tokens WHERE a = 1`) }\n" +
-		"func good() { procbind.RevokeTx(); db.Exec(`UPDATE agent_tokens SET revoked_at = 1`) }\n" +
+		"func good() { procbind.RevokeTx(ctx, db, k, procbind.Selector{A: 1}, \"r\", now); db.Exec(`UPDATE agent_tokens SET revoked_at = 1`) }\n" +
+		"func rangeGood() { for _, sel := range sels { procbind.RevokeTx(ctx, db, k, sel, \"r\", now) }; db.Exec(`UPDATE agent_tokens SET revoked_at = 2`) }\n" +
+		"func nilSelector() { procbind.RevokeTx(ctx, db, k, nil, \"r\", now); db.Exec(`UPDATE agent_tokens SET revoked_at = 3`) }\n" +
+		"func emptySelector() { procbind.RevokeTx(ctx, db, k, procbind.Selector{}, \"r\", now); db.Exec(`UPDATE agent_tokens SET revoked_at = 4`) }\n" +
+		"func otherPkg() { other.RevokeTx(ctx, db, k, sel, \"r\", now); db.Exec(`UPDATE agent_tokens SET revoked_at = 5`) }\n" +
+		"func runGood() { procbind.Revoker{}.Run(ctx, kinds, sc, func(c *sql.Conn) ([]procbind.Selector, error) { c.Exec(`DELETE FROM agent_tokens WHERE a`); return []procbind.Selector{sel}, nil }) }\n" +
+		"func runNothing() { s.revoker().Run(ctx, kinds, sc, func(c *sql.Conn) ([]procbind.Selector, error) { c.Exec(`DELETE FROM agent_tokens WHERE b`); return nil, nil }) }\n" +
+		"func runErrorOnly() { s.revoker().Run(ctx, kinds, sc, func(c *sql.Conn) ([]procbind.Selector, error) { c.Exec(`DELETE FROM agent_tokens WHERE c`); return nil, err }) }\n" +
+		"func runIndirect() { s.revoker().Run(ctx, kinds, sc, func(c *sql.Conn) ([]procbind.Selector, error) { c.Exec(`DELETE FROM agent_tokens WHERE d`); return sels, nil }) }\n" +
+		"func bothGood() { s.revokeBoth(ctx, procbind.Selector{Owner: o}, func(c *sql.Conn) error { c.Exec(`DELETE FROM agent_tokens WHERE e`); return nil }) }\n" +
+		"func bothEmpty() { s.revokeBoth(ctx, procbind.Selector{}, func(c *sql.Conn) error { c.Exec(`DELETE FROM agent_tokens WHERE f`); return nil }) }\n" +
+		"func notACallback() { f := func() { c.Exec(`DELETE FROM agent_tokens WHERE g`) }; s.revokeBoth(ctx, procbind.Selector{Owner: o}, nil); f() }\n" +
+		"func ownName() { c.Exec(`DELETE FROM agent_tokens WHERE h`) }\nfunc revokeBoth() {}\n" +
 		"// procbind:legacy-only an expired token is denied by its expiry\n" +
 		"const purge = `DELETE FROM agent_tokens WHERE x`\n" +
 		"func mixed() {\n// procbind:legacy-only the purge only, expired tokens are denied by expiry\ndb.Exec(`DELETE FROM agent_tokens WHERE expired`)\nx := 1\ny := 2\nz := 3\ndb.Exec(`DELETE FROM coder_session_tokens WHERE b = 1`) }\n" +
@@ -223,14 +368,17 @@ func TestTheLegacyWalkFlagsWhatItShould(t *testing.T) {
 		"func bind() { db.Exec(`UPDATE coder_session_tokens SET pid = 1 WHERE a = 2`) }\n" +
 		"func read() { db.Exec(`SELECT * FROM agent_tokens`) }\n")
 	bad, annotated, sites := scan(t, "x.go", src)
-	if strings.Join(bad, ",") != "bad,badDelete,mixed" {
-		t.Errorf("flagged %v, want bad, badDelete and mixed", bad)
+	// good, rangeGood, runGood, runIndirect and bothGood are reviewed; everything else is flagged. In particular a
+	// RevokeTx with a nil or empty selector, another package's RevokeTx, a callback that returns no selectors, and a
+	// literal that merely sits near (or in a function called) revokeBoth are not enough.
+	if want := "bad,badDelete,nilSelector,emptySelector,otherPkg,runNothing,runErrorOnly,bothEmpty,notACallback,ownName,mixed"; strings.Join(bad, ",") != want {
+		t.Errorf("flagged %v\nwant    %v", bad, want)
 	}
 	if len(annotated) != 3 || annotated["x.go:purge"] == "" || annotated["x.go:mixed"] == "" || annotated["x.go:joined"] == "" {
 		t.Errorf("annotations %v", annotated)
 	}
-	if sites != 7 {
-		t.Errorf("saw %d sites, want 7", sites)
+	if sites != 19 {
+		t.Errorf("saw %d sites, want 19", sites)
 	}
 }
 
@@ -247,7 +395,7 @@ func TestIssuanceStaysOffUntilTheRevocationGuardsExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(funcText(t, "chat_events_conversations.go", src, "deleteConversationInTx"), "procbind.RevokeTx(") {
+	if !callsRealRevokeTx(t, "chat_events_conversations.go", src, "deleteConversationInTx") {
 		t.Fatal("IssuanceReady is true but deleteConversationInTx does not revoke the v2 tokens")
 	}
 }
