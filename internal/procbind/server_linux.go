@@ -160,9 +160,15 @@ func (s *Server) takeRateToken() bool {
 // peerKey is the identity a peer's limits are kept under: its pid and the time that process started
 // (field 22 of /proc/<pid>/stat). A pid the kernel hands to a new process is a different key, so the new
 // process starts with a full allowance instead of inheriting the drained one of its predecessor.
+//
+// The start time is in clock ticks (10 ms), so a pid recycled within one tick would share it. Where the
+// kernel numbers process file descriptors (pidfs, Linux 6.9) the key also carries id, the inode number of the
+// peer's pidfd, which names one process incarnation and is never reused; elsewhere id is 0 and the same-tick
+// reuse is the residual SECURITY.md states.
 type peerKey struct {
 	pid   int
 	start uint64
+	id    uint64
 }
 
 // startTimeOf reads a process's start time; tests replace it to reap the process in the middle of the read.
@@ -207,7 +213,38 @@ func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (unix.Ucred, int, 
 	if got, err := h.Pid(); err != nil || got != pid {
 		return peerKey{}, errors.New("procbind: the peer was reaped while its identity was read")
 	}
-	return peerKey{pid: pid, start: start}, nil
+	return peerKey{pid: pid, start: start, id: pidfdID(pfd)}, nil
+}
+
+// pidfdIDsUnique says whether this kernel gives every process incarnation its own pidfd inode number
+// (pidfs, Linux 6.9 and later). Tests replace it.
+var pidfdIDsUnique = func() bool {
+	var u unix.Utsname
+	if unix.Uname(&u) != nil {
+		return false
+	}
+	return kernelAtLeast(unix.ByteSliceToString(u.Release[:]), 6, 9)
+}
+
+// kernelAtLeast reports whether a release string such as "7.2.5-arch1" is at least major.minor.
+func kernelAtLeast(release string, major, minor int) bool {
+	var maj, min int
+	if n, _ := fmt.Sscanf(release, "%d.%d", &maj, &min); n != 2 {
+		return false
+	}
+	return maj > major || (maj == major && min >= minor)
+}
+
+// pidfdID is the inode number of a pidfd where that number identifies one process incarnation, else 0.
+func pidfdID(pfd int) uint64 {
+	if !pidfdIDsUnique() {
+		return 0
+	}
+	var st unix.Stat_t
+	if unix.Fstat(pfd, &st) != nil {
+		return 0
+	}
+	return st.Ino
 }
 
 // connState is one tracked connection; idle until the first byte of its request has arrived.

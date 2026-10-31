@@ -247,3 +247,91 @@ func TestParseStartTimeSurvivesAHostileCommandName(t *testing.T) {
 		}
 	}
 }
+
+// The start time has a 10 ms resolution, so a pid recycled within one tick has the same {pid, start}. The
+// pidfd's inode number tells the incarnations apart where the kernel provides one.
+func TestAPidRecycledWithinOneTickIsAnotherPeerWhenTheKernelNamesIncarnations(t *testing.T) {
+	tr := newTestTracker(8, 4, 2)
+	first := peerKey{pid: 4242, start: 100, id: 11}
+	for i := 0; i < 2; i++ {
+		c, _ := unixPair(t)
+		cs, why := tr.admit(first, c, yes)
+		if cs == nil {
+			t.Fatalf("connection %d: %s", i, why)
+		}
+		tr.release(cs)
+	}
+	c, _ := unixPair(t)
+	if cs, _ := tr.admit(first, c, yes); cs != nil {
+		t.Fatal("the same incarnation was admitted past its rate")
+	}
+	c2, _ := unixPair(t)
+	if cs, why := tr.admit(peerKey{pid: 4242, start: 100, id: 12}, c2, yes); cs == nil {
+		t.Errorf("a new incarnation with the same pid and start tick inherited the drained allowance: %s", why)
+	}
+}
+
+func TestKernelAtLeast(t *testing.T) {
+	for rel, want := range map[string]bool{"6.9.0": true, "6.9": true, "6.10.2-arch1": true, "7.2.5-4-omarchy": true, "7.0": true,
+		"6.8.12": false, "6.5": false, "5.15.0-100": false, "": false, "garbage": false} {
+		if got := kernelAtLeast(rel, 6, 9); got != want {
+			t.Errorf("kernelAtLeast(%q, 6, 9) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
+// Two pidfds of one process carry one id; two processes carry two; a kernel without incarnation ids gives 0.
+func TestPidfdIDNamesOneProcessIncarnation(t *testing.T) {
+	if !pidfdIDsUnique() {
+		t.Skip("this kernel does not number pidfds per process")
+	}
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	open := func(pid int) int {
+		fd, err := unix.PidfdOpen(pid, 0)
+		if err != nil {
+			t.Skipf("pidfd_open: %v", err)
+		}
+		t.Cleanup(func() { _ = unix.Close(fd) })
+		return fd
+	}
+	selfA, selfB, child := pidfdID(open(os.Getpid())), pidfdID(open(os.Getpid())), pidfdID(open(cmd.Process.Pid))
+	if selfA == 0 || child == 0 {
+		t.Fatalf("no id: self %d child %d", selfA, child)
+	}
+	if selfA != selfB {
+		t.Errorf("one process, two ids: %d and %d", selfA, selfB)
+	}
+	if selfA == child {
+		t.Errorf("two processes share the id %d", selfA)
+	}
+	old := pidfdIDsUnique
+	defer func() { pidfdIDsUnique = old }()
+	pidfdIDsUnique = func() bool { return false }
+	if got := pidfdID(open(os.Getpid())); got != 0 {
+		t.Errorf("id = %d on a kernel without incarnation ids, want 0", got)
+	}
+}
+
+// The identity read at accept carries the pidfd's id.
+func TestPeerIdentityCarriesThePidfdID(t *testing.T) {
+	if !PeerPidfdSupported() || !pidfdIDsUnique() {
+		t.Skip("no per-process pidfd ids on this kernel")
+	}
+	a, _ := unixPair(t)
+	key, err := peerIdentity(a, peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, err := unix.PidfdOpen(os.Getpid(), 0)
+	if err != nil {
+		t.Skipf("pidfd_open: %v", err)
+	}
+	defer unix.Close(fd)
+	if want := pidfdID(fd); key.id == 0 || key.id != want {
+		t.Errorf("identity id = %d, want %d", key.id, want)
+	}
+}
