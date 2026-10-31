@@ -281,6 +281,7 @@ var coderCommandDocs = []cmdDoc{
 		Examples: []string{
 			"monoagentcli --profile work coder sessions settings set <conv> --mission on",
 			`monoagentcli --profile work coder sessions settings set <conv> --patch '{"checkin_minutes": 30, "checkin_limit": 12}'`,
+			`monoagentcli --profile work coder sessions settings set <conv> --patch '{"mission_directions": 2}'`,
 			"monoagentcli --profile work coder sessions settings set <conv> --role master",
 			"monoagentcli --profile work coder sessions settings set <child> --role child --parent <master>",
 			"monoagentcli --profile work coder sessions settings set <conv> --unattended false",

@@ -59,8 +59,9 @@ type Host struct {
 
 	// CheckinEvery is how often masters are looked at (default 30 s); the interval
 	// each master asks for is its own setting.
-	CheckinEvery time.Duration
-	lastCheckin  time.Time
+	CheckinEvery  time.Duration
+	lastCheckin   time.Time
+	afterOpenSets func() // test seam, see fillDirections
 
 	// MissionChildEvery is how often the mission child pass runs (default 5 s); see missionchild.go.
 	MissionChildEvery time.Duration
