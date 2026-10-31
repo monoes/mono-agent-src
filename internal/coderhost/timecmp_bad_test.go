@@ -9,7 +9,7 @@ import (
 
 // Stored values that are not "YYYY-MM-DDTHH:MM:SS[.f]Z". The columns the sites read are NOT NULL, so NULL is covered
 // at the helper level (TestTsPolaritiesOnUnparsableValues); here every site gets the other ways to be wrong.
-var badStamps = []string{"", "garbage", "2026-10-31 12:00:00Z", "2026-10-31T12:00:00Zjunk", "2026-10-31T12:00:00junk", "2026-10-31T12:00:00+01:00"}
+var badStamps = []string{"", "garbage", "2026-10-31 12:00:00Z", "2026-10-31T12:00:00Zjunk", "2026-10-31T12:00:00junk", "2026-10-31T12:00:00+01:00", "2026-02-30T12:00:00Z", "2026-11-31T12:00:00Z", "0000-01-01T00:00:00Z"}
 
 // runBad plants each bad value at a site (cut: a whole-second cutoff) and requires the site's outcome, as the driver
 // reports it, to be want. want is the site's documented polarity: see the table in timecmp.go.

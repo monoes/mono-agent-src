@@ -54,36 +54,76 @@ func tsFixed(cut time.Time) string {
 	return cut.Format(tsFixedLayout)
 }
 
-// tsOK is the condition "col holds a timestamp in the written spelling". NULL is not OK.
+// tsOK is the condition "col holds a timestamp in the written spelling, on a real calendar date": year 0001..9999,
+// month 1..12, a day that exists in that month (February by the Gregorian leap rule), hour < 24, minute and second
+// < 60. It accepts exactly what time.Parse(time.RFC3339Nano) accepts for those years. NULL is not OK.
 func tsOK(col string) string {
 	const d19 = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]"
+	y, m, d := "CAST(substr("+col+", 1, 4) AS INTEGER)", "CAST(substr("+col+", 6, 2) AS INTEGER)", "CAST(substr("+col+", 9, 2) AS INTEGER)"
+	days := "CASE WHEN " + m + " IN (1, 3, 5, 7, 8, 10, 12) THEN 31 WHEN " + m + " IN (4, 6, 9, 11) THEN 30" +
+		" WHEN " + y + " % 4 = 0 AND (" + y + " % 100 <> 0 OR " + y + " % 400 = 0) THEN 29 ELSE 28 END"
 	return "COALESCE((" + col + " GLOB '" + d19 + "Z' OR (" + col + " GLOB '" + d19 + ".[0-9]*Z' AND length(" + col + ") <= 30 AND substr(" + col + ", 21, length(" + col + ") - 21) NOT GLOB '*[^0-9]*'))" +
-		" AND substr(" + col + ", 6, 2) BETWEEN '01' AND '12' AND substr(" + col + ", 9, 2) BETWEEN '01' AND '31' AND substr(" + col + ", 12, 2) <= '23'" +
-		" AND substr(" + col + ", 15, 2) <= '59' AND substr(" + col + ", 18, 2) <= '59', 0)"
+		" AND " + y + " >= 1 AND " + m + " BETWEEN 1 AND 12 AND " + d + " BETWEEN 1 AND " + days +
+		" AND substr(" + col + ", 12, 2) <= '23' AND substr(" + col + ", 15, 2) <= '59' AND substr(" + col + ", 18, 2) <= '59', 0)"
 }
 
-// tsRawBefore is "col < cut" for a PARSABLE col only (see tsOK): never use it alone.
+// The tsRaw* conditions compare a PARSABLE col (see tsOK) with cut; never use them alone. A cut outside 0001..9999
+// cannot be spelled, so it decides every parsable col the same way and is answered by a constant.
+
+// tsRawBefore is "col < cut".
 func tsRawBefore(col string, cut time.Time) string {
+	if cut.After(tsMaxCut) {
+		return "1"
+	}
 	fixed := tsFixed(cut)
 	sec, frac := fixed[:19], fixed[:29]
 	return "(" + col + " < '" + sec + "~' AND (" + col + " < '" + sec + "' OR " + tsNorm(col) + " < '" + frac + "'))"
 }
 
-// tsRawNotBefore is "col >= cut" for a PARSABLE col only: never use it alone.
+// tsRawNotBefore is "col >= cut".
 func tsRawNotBefore(col string, cut time.Time) string {
+	if cut.After(tsMaxCut) {
+		return "0"
+	} else if cut.Before(tsMinCut) {
+		return "1"
+	}
 	fixed := tsFixed(cut)
 	sec, frac := fixed[:19], fixed[:29]
 	return "(" + col + " >= '" + sec + "' AND (" + col + " >= '" + sec + "~' OR " + tsNorm(col) + " >= '" + frac + "'))"
 }
 
+// tsRawAtMost is "col <= cut".
+func tsRawAtMost(col string, cut time.Time) string {
+	if cut.After(tsMaxCut) {
+		return "1"
+	} else if cut.Before(tsMinCut) {
+		return "0"
+	}
+	fixed := tsFixed(cut)
+	sec, frac := fixed[:19], fixed[:29]
+	return "(" + col + " < '" + sec + "~' AND (" + col + " < '" + sec + "' OR " + tsNorm(col) + " <= '" + frac + "'))"
+}
+
+// tsRawAfter is "col > cut".
+func tsRawAfter(col string, cut time.Time) string {
+	if cut.After(tsMaxCut) {
+		return "0"
+	} else if cut.Before(tsMinCut) {
+		return "1"
+	}
+	fixed := tsFixed(cut)
+	sec, frac := fixed[:19], fixed[:29]
+	return "(" + col + " >= '" + sec + "' AND (" + col + " >= '" + sec + "~' OR " + tsNorm(col) + " > '" + frac + "'))"
+}
+
 // tsExpired: the deadline col has passed (col <= now); an unparsable col counts as passed.
 func tsExpired(col string, now time.Time) string {
-	return "(NOT " + tsOK(col) + " OR " + tsRawBefore(col, now.Add(time.Nanosecond)) + ")"
+	return "(NOT " + tsOK(col) + " OR " + tsRawAtMost(col, now) + ")"
 }
 
 // tsLive: the deadline col has not passed (col > now); an unparsable col is not live.
 func tsLive(col string, now time.Time) string {
-	return "(" + tsOK(col) + " AND " + tsRawNotBefore(col, now.Add(time.Nanosecond)) + ")"
+	return "(" + tsOK(col) + " AND " + tsRawAfter(col, now) + ")"
 }
 
 // tsLapsed: col < cut, for limits that revoke; an unparsable col counts as lapsed.

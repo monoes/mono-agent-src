@@ -114,10 +114,10 @@ func (s *Store) deliver(q Question) (Command, error) {
 
 // pruneClosedQuestions keeps a conversation's newest MaxClosedQuestions closed
 // rows. Open ones are never pruned, nor are closed ones whose note is not queued
-// yet (command_id 0) until MaxSendAge has passed.
+// yet (command_id 0) until MaxSendAge has passed, nor any whose answered_at is unreadable.
 func (s *Store) pruneClosedQuestions(profileID, conversationID string) {
 	old := s.now().Add(-MaxSendAge)
-	prunable := `status != 'open' AND (command_id != 0 OR ` + tsOlderThan("answered_at", old) + `)`
+	prunable := `status != 'open' AND ` + tsOK("answered_at") + ` AND (command_id != 0 OR ` + tsOlderThan("answered_at", old) + `)`
 	defer s.dropStaleItems(profileID, conversationID)
 	_, _ = s.db.Exec(`DELETE FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` AND id NOT IN
 		(SELECT id FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` ORDER BY id DESC LIMIT ?)`,
