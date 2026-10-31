@@ -23,4 +23,10 @@ describe('CoderUsageBar', () => {
     expect(contextWindowFor('claude-opus-4-7[1m]')).toBe(1_000_000)
     expect(contextWindowFor('claude-opus')).toBe(200_000)
   })
+  it('keeps the bar visible on a narrow pane: the row wraps and the track has a minimum width', () => {
+    render(<CoderUsageBar states={[turn(50000, 100, 200)]} model="claude-opus" />)
+    const bar = screen.getByRole('progressbar')
+    expect(bar.style.minWidth).toBe('60px')
+    expect(screen.getByTestId('coder-usage').style.flexWrap).toBe('wrap')
+  })
 })

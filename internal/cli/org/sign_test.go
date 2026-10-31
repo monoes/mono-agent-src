@@ -371,11 +371,18 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	orig := os.Stderr
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stderr = w
 	defer func() { os.Stderr = orig }()
 	fn()
 	w.Close()
-	b, _ := io.ReadAll(r)
+	b := <-drained
 	return string(b)
 }
 

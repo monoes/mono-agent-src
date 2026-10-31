@@ -1209,6 +1209,40 @@
     "chooseHint": "Cualquier carpeta de confianza"
   },
   "bubbles": {
+    "orbit": {
+      "groupLabel": "Agentes",
+      "groupNamed": "Agentes de {{name}}",
+      "satelliteLabel": "{{title}}, {{state}}",
+      "ownAgents_one": "{{count}} agente propio",
+      "ownAgents_other": "{{count}} agentes propios",
+      "more_one": "{{count}} agente más",
+      "more_other": "{{count}} agentes más",
+      "moreTitle": "Más agentes",
+      "tasks": "{{done}}/{{total}} tareas",
+      "state": {
+        "running": "En marcha",
+        "waiting": "Te espera",
+        "done": "Hecho",
+        "failed": "Fallido",
+        "paused": "En pausa",
+        "stopped": "Detenido",
+        "idle": "Inactivo"
+      },
+      "opensBoard": "Aún sin conversación: abre su tablero de tareas",
+      "needsYou_one": "{{count}} elemento te necesita",
+      "needsYou_other": "{{count}} elementos te necesitan"
+    },
+    "lite": {
+      "board": "Tablero de tareas",
+      "pause": "Pausar",
+      "resume": "Reanudar",
+      "stop": "Detener",
+      "stopTurn": "Detener respuesta",
+      "stopTitle": "¿Detener este agente?",
+      "stopBody": "Su sesión termina y se libera el trabajo en curso. Los agentes de debajo también se detienen.",
+      "close": "Cerrar este agente y volver",
+      "call": { "running": "En curso", "done": "Hecho", "failed": "Fallido", "interrupted": "Interrumpido" }
+    },
     "dockLabel": "Chats",
     "newChat": "Nuevo chat",
     "newCoderChat": "Nuevo chat",

@@ -1,0 +1,312 @@
+/* The agent orbit: small circles around a bubble (or around the disc in a lite
+   pane's header), joined to it by thin curved links drawn under it. Colors come
+   from the tokens in index.css, so they follow the theme. Motion is transform
+   and opacity only and is switched off under prefers-reduced-motion. State is
+   never color alone: every circle carries a small icon and an aria-label. */
+
+.orbit {
+  --orbit-face: var(--elevated);
+  --orbit-text: var(--text);
+  --orbit-link: var(--border-bright);
+  --orbit-idle: var(--text-muted);
+  --orbit-running: var(--cyan);
+  --orbit-waiting: var(--yellow);
+  --orbit-done: var(--green);
+  --orbit-failed: var(--red);
+  --orbit-stopped: var(--text-secondary);
+}
+
+/* A dock bubble's orbit: anchored on the middle of the bubble's wrapper. */
+.orbit-arc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.orbit-ring {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 152px;
+  height: 152px;
+}
+.orbit-layer { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.orbit-ring > :not(.orbit-layer) { position: relative; z-index: 1; }
+.orbit-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; z-index: 0; }
+.orbit-link { fill: none; stroke: var(--orbit-link); stroke-width: 1; opacity: 0.7; transition: stroke 300ms ease, opacity 300ms ease; animation: orbitLinkIn 360ms ease-out backwards; }
+.orbit-link.running { stroke: var(--orbit-running); opacity: 0.55; }
+.orbit-link.waiting { stroke: var(--orbit-waiting); opacity: 0.8; }
+.orbit-link.failed { stroke: var(--orbit-failed); opacity: 0.7; }
+.orbit-link.stopped { stroke: var(--orbit-stopped); opacity: 0.45; stroke-dasharray: 2 3; }
+
+.orbit-slot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform: translate(calc(var(--x) * 1px), calc(var(--y) * 1px));
+  pointer-events: none;
+  z-index: 1;
+}
+.orbit-slot > * { pointer-events: auto; }
+.orbit-slot:hover, .orbit-slot:focus-within { z-index: 3; }
+
+.orbit-sat, .orbit-chip {
+  position: absolute;
+  left: calc(var(--size) / -2);
+  top: calc(var(--size) / -2);
+  width: var(--size);
+  height: var(--size);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--orbit-text);
+  cursor: pointer;
+  font-family: var(--font-display);
+  transition: transform var(--transition);
+  animation: orbitIn 320ms cubic-bezier(.2, .8, .2, 1) var(--d, 0ms) backwards;
+}
+.orbit-sat:hover, .orbit-sat:focus-visible, .orbit-chip:hover, .orbit-chip:focus-visible { transform: scale(1.12); outline: none; }
+.orbit-sat:focus-visible, .orbit-chip:focus-visible { box-shadow: 0 0 0 2px var(--base), 0 0 0 4px var(--cyan-bright); }
+
+.orbit-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 35% 30%, var(--orbit-face), var(--base) 85%);
+  border: 2px solid var(--ring, var(--orbit-idle));
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  font-size: max(9px, calc(var(--size) * 0.36));
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  transition: border-color 320ms ease;
+}
+.orbit-pulse { position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--ring); opacity: 0; pointer-events: none; }
+.orbit-sat[data-state="running"] { --ring: var(--orbit-running); }
+.orbit-sat[data-state="waiting"] { --ring: var(--orbit-waiting); }
+.orbit-sat[data-state="done"] { --ring: var(--orbit-done); }
+.orbit-sat[data-state="failed"] { --ring: var(--orbit-failed); }
+.orbit-sat[data-state="paused"], .orbit-sat[data-state="idle"] { --ring: var(--orbit-idle); }
+/* Stopped on purpose: a neutral ring that is dotted (a paused one is dashed), so it never reads as a failure. */
+.orbit-sat[data-state="stopped"] { --ring: var(--orbit-stopped); }
+.orbit-sat[data-state="stopped"] .orbit-face { border-style: dotted; }
+.orbit-sat[data-state="running"] .orbit-pulse { animation: orbitPulse 2.6s ease-out infinite; }
+.orbit-sat[data-state="waiting"] .orbit-pulse { animation: orbitPulse 1.6s ease-out infinite; }
+.orbit-sat[data-state="paused"] .orbit-face { border-style: dashed; }
+/* An item waits for the person on this agent (the optional waiting count on a session row): a wider amber halo and a quicker pulse than a plain draft. */
+.orbit-sat[data-needs-you="true"] .orbit-face { box-shadow: 0 0 0 3px color-mix(in srgb, var(--orbit-waiting) 38%, transparent), 0 3px 10px rgba(0, 0, 0, 0.35); }
+.orbit-sat[data-needs-you="true"] .orbit-pulse { animation: orbitPulse 1.1s ease-out infinite; }
+
+/* The state icon (bottom right) and the count of the agent's own agents (top right). */
+.orbit-mark, .orbit-count {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  line-height: 1;
+  pointer-events: none;
+}
+.orbit-mark { right: -5px; bottom: -5px; width: 14px; height: 14px; background: var(--ring, var(--orbit-idle)); color: var(--void); transition: background 320ms ease; }
+.orbit-count {
+  right: -8px;
+  top: -7px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-active);
+  color: var(--orbit-text);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.orbit-chip {
+  border: 1px dashed var(--border-active);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cyan);
+}
+.orbit-chip[aria-expanded="true"] { border-style: solid; background: var(--elevated); }
+
+/* Hover or focus: the title and a one-line status. */
+.orbit-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: max-content;
+  max-width: 200px;
+  padding: 6px 9px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-bright);
+  background: var(--overlay);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%) translateY(3px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 0s linear 120ms;
+}
+.orbit-arc .orbit-tip { bottom: auto; top: 50%; left: auto; right: calc(100% + 8px); transform: translateY(-50%) translateX(3px); }
+.orbit-arc.face-right .orbit-tip { right: auto; left: calc(100% + 8px); transform: translateY(-50%) translateX(-3px); }
+.orbit-ring .orbit-tip.below { bottom: auto; top: calc(100% + 8px); }
+.orbit-tip-title { font-size: 11px; font-weight: 600; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.orbit-tip-note { margin-top: 2px; color: var(--text-muted); font-style: italic; }
+.orbit-sat:hover .orbit-tip, .orbit-sat:focus-visible .orbit-tip { opacity: 1; visibility: visible; transform: translateX(-50%); transition-delay: 0s; }
+.orbit-arc .orbit-sat:hover .orbit-tip, .orbit-arc .orbit-sat:focus-visible .orbit-tip { transform: translateY(-50%); }
+
+/* The "+N" list. */
+.orbit-more {
+  position: absolute;
+  left: 0;
+  top: 22px;
+  z-index: 4;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  width: 230px;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-bright);
+  background: var(--elevated);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  transform: translateX(-50%);
+  animation: fade-in 140ms ease-out;
+}
+.orbit-more button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 7px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.orbit-more button:hover, .orbit-more button:focus-visible { background: var(--cyan-glow-strong); outline: none; }
+.orbit-more svg { grid-row: span 2; color: var(--orbit-idle); }
+.orbit-more button[data-state="running"] svg { color: var(--orbit-running); }
+.orbit-more button[data-state="waiting"] svg { color: var(--orbit-waiting); }
+.orbit-more button[data-state="done"] svg { color: var(--orbit-done); }
+.orbit-more button[data-state="failed"] svg { color: var(--orbit-failed); }
+.orbit-more button[data-state="stopped"] svg { color: var(--orbit-stopped); }
+.orbit-more-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.orbit-more-state { color: var(--text-muted); font-size: 9.5px; }
+
+/* In the dock the list opens beside the chip, toward the window, not below it (the chip is the lowest circle). */
+.orbit-arc .orbit-more { top: auto; bottom: -6px; left: auto; right: 22px; transform: none; }
+.orbit-arc.face-right .orbit-more { right: auto; left: 22px; }
+
+/* The dock: a bubble with an orbit makes room for it. */
+.bubble-wrap.has-orbit { margin-block: 66px; }
+.bubble-wrap.has-orbit > .bubble { position: relative; z-index: 1; }
+.bubble-wrap.has-orbit:has(.orbit-slot:hover) .bubble-close { display: none; }
+
+/* ── Lite pane (an opened agent) ── */
+.lite-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: radial-gradient(ellipse at 0% 0%, var(--cyan-glow), transparent 60%);
+}
+.lite-head-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.lite-title { margin: 0; font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; text-wrap: balance; }
+.lite-state { display: inline-flex; align-items: flex-start; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary); }
+.lite-state svg { flex: none; margin-top: 2px; color: var(--lite-ring, var(--text-muted)); }
+.lite-state[data-state="running"] { --lite-ring: var(--cyan); }
+.lite-state[data-state="waiting"] { --lite-ring: var(--yellow); }
+.lite-state[data-state="done"] { --lite-ring: var(--green); }
+.lite-state[data-state="failed"] { --lite-ring: var(--red); }
+.lite-state[data-state="stopped"] { --lite-ring: var(--text-secondary); }
+.lite-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.lite-disc {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 35% 30%, var(--elevated), var(--base) 85%);
+  border: 2px solid var(--lite-ring, var(--border-bright));
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  transition: border-color 320ms ease;
+}
+.lite-disc[data-state="running"] { --lite-ring: var(--cyan); }
+.lite-disc[data-state="waiting"] { --lite-ring: var(--yellow); }
+.lite-disc[data-state="done"] { --lite-ring: var(--green); }
+.lite-disc[data-state="failed"] { --lite-ring: var(--red); }
+.lite-disc[data-state="stopped"] { --lite-ring: var(--text-secondary); border-style: dotted; }
+.lite-disc-solo { flex: none; }
+
+/* A tool call in the lite transcript: one line, opens to the full card. */
+.lite-chip { margin: 2px 0; }
+.lite-chip > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+.lite-chip > button:hover, .lite-chip > button:focus-visible { border-color: var(--border-active); color: var(--text); outline: none; }
+.lite-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lite-chip[data-status="failed"] > button { border-color: var(--danger-border); }
+.lite-chip-body { margin-top: 4px; }
+
+@keyframes orbitIn { from { opacity: 0; transform: translate(calc(var(--x) * -0.55px), calc(var(--y) * -0.55px)) scale(0.6); } to { opacity: 1; transform: none; } }
+@keyframes orbitLinkIn { from { opacity: 0; } }
+@keyframes orbitPulse { 0% { opacity: 0.55; transform: scale(1); } 80%, 100% { opacity: 0; transform: scale(1.5); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-sat, .orbit-chip, .orbit-link, .orbit-more, .orbit-pulse, .orbit-face, .orbit-mark, .orbit-tip, .lite-disc {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Narrow: the title, state and buttons go under the ring instead of squeezing beside it. */
+@media (max-width: 640px) {
+  .lite-head { position: relative; flex-wrap: wrap; padding: 10px 10px 8px; gap: 4px 8px; }
+  .lite-head-main { flex: 1 1 100%; }
+  .lite-head > .btn { position: absolute; top: 8px; right: 8px; }
+}

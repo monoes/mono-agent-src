@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -51,6 +50,13 @@ func runPurposes(t *testing.T, d Deps, args ...string) (string, string, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stderr = w
 	var runErr error
 	out := captureStdout(t, func() {
@@ -61,9 +67,8 @@ func runPurposes(t *testing.T, d Deps, args ...string) (string, string, error) {
 	})
 	os.Stderr = oldErr
 	w.Close()
-	var stderr bytes.Buffer
-	_, _ = io.Copy(&stderr, r)
-	return out, stderr.String(), runErr
+	stderr := <-drained
+	return out, string(stderr), runErr
 }
 
 // The list JSON is exactly the contract the Settings pane reads: this file.

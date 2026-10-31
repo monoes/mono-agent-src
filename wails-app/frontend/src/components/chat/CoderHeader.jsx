@@ -65,13 +65,13 @@ export function CoderUsageBar({ states, model }) {
   return (
     <div data-testid="coder-usage" style={{
       padding: '5px 12px', borderBottom: '1px solid rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', gap: 12,
-      flexShrink: 0, fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)',
+      flexShrink: 0, fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)', flexWrap: 'wrap', rowGap: 3,
     }}>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+      <div style={{ flex: '1 1 240px', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
         title={`Latest context sent in one call: ${context.toLocaleString()} of ~${window.toLocaleString()} tokens`}>
         <span>Context</span>
         <div role="progressbar" aria-label="Context window used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
-          style={{ flex: 1, maxWidth: 220, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          style={{ flex: 1, minWidth: 60, maxWidth: 220, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
           <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width .3s' }} />
         </div>
         <span data-testid="coder-usage-context" style={{ color: '#e2e8f0' }}>{fmtTokens(context)} / {fmtTokens(window)} · {pct}%</span>

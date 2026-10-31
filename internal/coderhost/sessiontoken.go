@@ -90,7 +90,7 @@ func (s *Store) HostInsideTurn() bool {
 	for _, p := range chain {
 		in[p] = true
 	}
-	rows, err := s.db.Query(`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND expires_at >= ?`, s.now().UTC().Format(timeLayout))
+	rows, err := s.db.Query(`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND ` + tsLive("expires_at", s.now()))
 	if err != nil {
 		return false
 	}
@@ -149,8 +149,8 @@ func (s *Store) IssueSessionToken(profileID, conversationID, turnID string) (str
 	}
 	tok := SessionTokenPrefix + base64.RawURLEncoding.EncodeToString(b)
 	now := s.now().UTC()
-	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE (profile_id = ? AND conversation_id = ?) OR expires_at < ?`,
-		profileID, conversationID, now.Format(timeLayout)); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE (profile_id = ? AND conversation_id = ?) OR `+tsExpired("expires_at", now),
+		profileID, conversationID); err != nil {
 		return "", err
 	}
 	h, exp := hashToken(tok), now.Add(SessionTokenTTL).Format(timeLayout)
