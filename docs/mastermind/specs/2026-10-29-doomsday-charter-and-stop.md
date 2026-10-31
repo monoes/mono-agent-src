@@ -1,7 +1,7 @@
 # Doomsday mode: charter and Stop (B0 spec and threat model)
 
 Epic #1148, issue #1152 (B0). Plan: `docs/mastermind/plans/2026-10-29-doomsday-mode-and-agent-purposes.md`
-(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 4. B1 code may not start on an area until its prerequisite contract (section 13) is
+(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 5. B1 code may not start on an area until its prerequisite contract (section 13) is
 closed.** Nothing is
 built. The mission series (#1106) has merged; The independent review of this document is a gate; section 13 lists the contracts it still leaves
 open, each blocking the implementation that touches its area. Revision 2 answers the first independent review (two design reviews, request-changes):
@@ -271,14 +271,18 @@ the guarantee is defined by a **host-owned barrier**, not by a conditional inser
   `Admit` succeeds and no `Dispatch` proceeds in the host. A dispatcher holds the shared side **until the
   irreversible start has been issued** (the process created, or the request handed to the transport); the
   registry entry says `admitted` before that point and `started` after it (13.1).
-- **The linearization point** is that exclusive acquire (or, for a process outside the host, the moment it
-  reads the marker). What is guaranteed:
-  - an effect whose `Dispatch` completed **before** the point is *admitted-before-Stop*: it may complete
-    (a request already on the wire cannot be recalled) and it is cancelled by context and reported;
-  - an effect whose start has not been issued at the point does **not** start: because the shared lock is
-    held until the start is issued, the exclusive acquire waits for a dispatcher that is mid-start and
-    refuses every later one; a worker paused before `Dispatch` resumes into the refusal. The exact meaning
-    of "issued" per effect kind (a process, a local file operation, a remote request) is contract 13.1.
+- **What is claimed, and no more.** The only thing this section guarantees is: *an effect that passed its
+  check before Stop is **admitted-before-Stop**, even if it physically starts later.* It may complete (a
+  request already on the wire cannot be recalled); it is cancelled by context where it can be and reported.
+  A **read of the marker is not a linearization point**: it orders nothing against an effect that already
+  passed its check.
+  - **Only for the mechanism contract 13.1 selects** is a stronger statement made: if 13.1 selects
+    *lock-through-start* for an effect kind, then for that kind the host's exclusive acquire waits for a
+    dispatcher that is mid-start and refuses every later one, so an effect whose start was not issued at the
+    acquire does not start, and a worker paused before `Dispatch` resumes into a refusal. If 13.1 declares
+    an effect kind *admitted at its check*, that kind gets only the admitted-before-Stop statement.
+  - The meaning of "issued" per effect kind (a process, a local file operation, a remote request) is
+    contract 13.1. Until it is closed, treat every effect kind as admitted-before-Stop.
 - **A process is registered and pinned before it can execute**: the host creates it stopped or inside the
   containment unit (5.5), records `{pid, pidfd, start stamp, unit}` in the registry, then lets it run. A
   crash between creation and registration leaves the unit, which recovery enumerates (5.3), never an
@@ -318,7 +322,14 @@ Stop must not depend on the first database transaction succeeding, or on the vau
    is authenticated by a **per-run random secret generated at entry and stored in the run directory with
    mode 0600** (not derived from the vault key), so a failed key lookup cannot block it. A **missing or
    unreadable secret is an explicit failure**: the receiver reports it, the sender falls back to step 3
-   (the independent containment attempt) and the generation is treated as stop-requested. Mode 0600 keeps out
+   (the independent containment attempt) and the generation is treated as stop-requested. **Creating a
+   marker needs no key; verifying one needs the secret's MAC.** The unavailable-secret case is defined:
+   a marker that cannot be verified because the secret is missing or unreadable is still **durable and still
+   counts as a stop for its generation** (unsigned is not harmless: it is read as a stop, never ignored); the
+   sender detects an unreadable secret by trying to read it before it signs, and then writes the marker with
+   an explicit `unsigned` field; the host, on finding an `unsigned` marker, treats the generation as
+   stop-requested and reports that the marker could not be authenticated. Forging an unsigned marker can only
+   cause a stop (fail closed), and a same-user process could do that anyway (tier T3). Mode 0600 keeps out
    other users, not the same UID. On receipt the host
    closes the barrier in memory, cancels in-flight contexts, signals the processes it pinned, and writes the
    marker if the sender could not.
@@ -329,11 +340,17 @@ Stop must not depend on the first database transaction succeeding, or on the vau
    in one transaction. The failing step is recorded and printed; the pane shows "stop requested, authority
    not yet revoked" until it is.
 5. **Recovery on every host start, before it accepts any work.** The host keeps a **clean-shutdown record**
-   (written at an orderly exit, removed at start). **An orderly shutdown never writes "clean" while a stop was
+   (written at an orderly exit) and makes the host **dirty at start, durably**: before it admits any work, the
+   host **removes the clean record and fsyncs the file removal and its parent directory**; if that fails,
+   **it does not start work** and says so. (A clean record left in place by a crash would let the next start
+   read an unclean loss as clean.) **An orderly shutdown never writes "clean" while a stop was
    requested and not recorded**: the host keeps an in-memory *stop-unrecorded* flag, set when the emergency
    message arrives and cleared only when the marker **and** the database intent are durable; while it is set,
-   the shutdown writes a durable **fail-closed record** instead of a clean one (and a run that had an
-   emergency receipt is refused at the next start even if that record could not be written). At start: (a) any generation with a marker, or with a
+   the shutdown writes a durable **fail-closed record** instead of a clean one. If that record cannot be
+   written, the host stays marked dirty (the clean record was already removed durably at start, above), so
+   the next start treats the loss as unclean and refuses every previously `running` generation. **That
+   mechanism, and nothing else, is what makes "a run that had an emergency receipt is refused at the next
+   start" true**; a receipt held only in memory proves nothing after a crash. At start: (a) any generation with a marker, or with a
    non-`running` state, resumes its Stop from the recorded step; (b) after an **unclean** host loss (no
    clean-shutdown record), **every previously `running` generation is refused and reconciled, never
    resumed**: its tokens are revoked, its units are enumerated and ended, and the operator starts a new run
@@ -413,6 +430,12 @@ Deterministic barriers (injected pause points), not sleeps:
   step is not recorded ("NOT RECORDED" is for the marker; the others print their own state), the emergency
   channel still closes the barrier, and nothing reports success. After each, a host crash and restart does
   not resume the run, including an **orderly shutdown** with the stop-unrecorded flag set.
+- **Marker and database failure, then orderly exit, then power loss:** with the marker write and the
+  database intent both failing, the emergency receipt is held in memory; the host exits in an orderly way
+  (the fail-closed record cannot be written); the machine loses power. The next start finds no clean record
+  (it was removed durably at the previous start), treats the loss as unclean, and refuses the run. A variant
+  where removing the clean record fails at start: the host does not start work.
+- **Unavailable secret:** an unreadable secret produces an `unsigned` marker that stops its generation.
 - **Marker lifecycle:** a repeated Stop, a corrupt marker, database `running` with a marker, database stopped
   with no marker, a stale marker of an old generation against a new run, a missing secret: each fails closed
   for its own generation only.
@@ -654,7 +677,13 @@ start, a local file effect, a remote request. Decide whether the lock is held th
 start or whether "dispatch completed" is declared *admitted* (the effect may then physically start after
 Stop) and say which effects are in which class. Cover hangs while holding the lock, the CLI/daemon
 dispatchers outside the host (they read the marker, 5.3), and the registry states `admitted` and `started`.
-Include the **marker path**: a dispatcher outside the host that reads the marker does not serialize with the
+**Gate items (blocking), from the review of revision 4:** (a) the **dirty-at-start** mechanism of 5.3 (remove
+the clean record and fsync the file and its parent directory before any work; refuse to start work if that
+fails) with the test marker-and-database failure, then orderly exit, then power loss; (b) the statement of
+5.2 that a marker read is not a linearization point, and the choice per effect kind between *lock-through-
+start* and *admitted at the check* (no stronger claim for a kind than the choice delivers); (c) the
+**unavailable-secret** case (an `unsigned` marker is durable and stops its generation; how the sender detects
+an unreadable secret). Include the **marker path**: a dispatcher outside the host that reads the marker does not serialize with the
 host's exclusive acquire, so the note must say whether such a dispatcher holds a lock to the start or is
 declared *admitted* at its check, and the corrupt, stale and disagreeing marker cases of 5.3. Test plan:
 injected pause points at every gap, for both the host and the marker path.
@@ -687,7 +716,7 @@ A monotonic transition sequence (or an external stop tombstone) so that a restor
 or a truncated prefix of the registry or audit chain is detected; the ordered writes between the database and
 the host's high-water file and their crash recovery; behaviour when the file is missing, corrupt or restored
 together with the database (state it honestly); an enforceable single-host lock or lease with stale-owner
-recovery and detection of copied state (a host-local file alone cannot prove exclusivity). Also the marker's
+recovery and detection of copied state (a host-local file alone cannot prove exclusivity). Also the dirty-at-start record and the unsigned marker of 5.3 (gate items a and c above), and the marker's
 lifecycle across generations (a monotonic, never-reused generation number; a marker that cannot be told from
 a forged or stale one is read as a stop for its generation) and the ordering of the marker, the database
 intent and the high-water file on crash.
