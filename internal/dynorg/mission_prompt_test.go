@@ -131,3 +131,19 @@ func TestMissionPromptHasTheDirectionPhasesAndTheNoForcedSpawnRule(t *testing.T)
 		t.Error("the prompt promises more than the hard cap")
 	}
 }
+
+// The lead's prompt keeps the rule that one session does the work when it can, and says so before any phase asks it to spawn.
+func TestMissionPromptKeepsTheNoSpawnWhenOneSessionCanRule(t *testing.T) {
+	st := missionStore(t)
+	for _, k := range []int{0, 2, 99} {
+		p := MissionPrompt(&MissionConfig{Store: st, Access: "coding", Confirmed: true, MaxDirections: k})
+		rule := strings.Index(p, "Do not spawn when one session can do the work")
+		research := strings.Index(p, "\nRESEARCH:")
+		if rule < 0 || research < 0 || rule > research {
+			t.Fatalf("K=%d: the rule is missing or comes after the phases that spawn (rule %d, research %d)", k, rule, research)
+		}
+		if !strings.Contains(p[rule:research], "skips RESEARCH, EVALUATE and DIRECT") {
+			t.Fatalf("K=%d: the rule lost its consequence", k)
+		}
+	}
+}
