@@ -5,7 +5,7 @@
 # task session worked through the tools (dependencies, evidence, no self-verification, an environment label that binds
 # nothing), a non-task tool refused by name, the CLI showing what the agent did, and the
 # --api-only combination refused, and the session verbs of the command line (list, show, plan, depend, undepend,
-# split, budget, pause, resume, close, archive, stop, and the tree: new --parent/--kind, rename, tree, archive --cascade) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
+# split, budget, pause, resume, close, archive, stop, and the tree: new --parent/--kind, rename, tree, archive --cascade, and the refusal of the person verbs and retire-worker to an agent) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
 #
 #   go build -tags devaccount -o /tmp/monoagentcli ./cmd/monoagentcli && scripts/tasks-mcp-smoke.sh /tmp/monoagentcli
 set -euo pipefail
@@ -271,6 +271,18 @@ sj task session archive "$tr" --cascade >"$root/ca.out" 2>"$root/ca.err" || fail
 jq -e --argjson r "$tr" --argjson a "$tc1" --argjson b "$tc2" '(.archived|sort)==([$r,$a,$b]|sort) and .archived[-1]==$r and .session.archived==true' "$root/ca.out" >/dev/null || fail "task session archive --cascade did not archive the subtree, the deepest first: $(cat "$root/ca.out")"
 sj task session tree | jq -e --argjson r "$tr" '(map(.id)|index($r))==null' >/dev/null || fail "an archived subtree is in the default tree"
 sj task session tree --all | jq -e --argjson r "$tr" '(map(.id)|index($r))!=null' >/dev/null || fail "an archived subtree is missing from the tree with --all"
+
+echo "== the person verbs and retire-worker are the operator's: an agent is refused every one and nothing changes"
+# The person inbox is empty here (no giant plan waits); the operator reads it, an agent never does, and the other
+# person verbs and retire-worker refuse an agent before they look at their arguments.
+sj task session person inbox >"$root/pi.out" 2>"$root/pi.err" || fail "task session person inbox: $(cat "$root/pi.err")"
+jq -e '(.items|type)=="array" and (.items|length)==0' "$root/pi.out" >/dev/null || fail "task session person inbox: $(cat "$root/pi.out")"
+for verb in "inbox" "full 1" "approve 1 --rev 1" "deny 1 --note x" "ask 1 --text x" "answer-ask --ask 1 --text x"; do
+  # shellcheck disable=SC2086
+  if run --profile "$prof" task session person $verb --as bot >"$root/pv.out" 2>"$root/pv.err"; then fail "an agent ran task session person $verb"; fi
+  grep -q "operator_only\|operator" "$root/pv.out" "$root/pv.err" || fail "task session person $verb as an agent was not refused as operator-only: $(cat "$root/pv.out" "$root/pv.err")"
+done
+if run --profile "$prof" task session retire-worker 1 1 --as bot >/dev/null 2>&1; then fail "an agent retired a worker"; fi
 
 echo "== an environment label binds nothing: a server given MONOAGENT_TASK_SESSION but no token is an ordinary agent"
 # What binds a server to a session, a task and a role is a mission token the conductor mints per run

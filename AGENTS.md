@@ -1838,7 +1838,7 @@ over 25), access above the parent's, a level beyond the working depth (`max_dept
 the ceiling, or no budget and no ceiling anywhere ("no budget set: the person decides"; each session is judged by itself, the
 siblings' budgets are not summed). The agent is told only that the plan needs the person; a person item `plan_approval` is raised for the
 operator (no timeout, no default, no model or matrix answer: it is a hard gap class). The operator's CLI verbs are `task session person
-inbox`, `approve ID --rev N [--digest HASH]`, `deny ID --note T`, `ask ID --text T` and `answer-ask --ask ID --text T` (the upward ask channel, below); they are refused to an agent context, to any
+inbox`, `full ID` (the whole plan of one waiting item, no field cut, under the rev and digest `inbox` carries; it changes nothing), `approve ID --rev N [--digest HASH]`, `deny ID --note T`, `ask ID --text T` and `answer-ask --ask ID --text T` (the upward ask channel, below); they are refused to an agent context, to any
 process that holds an agent token variable, and to a process inside a coder turn's process tree. Only `person approve` records
 `approval_basis = person`; a plain `session approve`, also with `--rev N`, records `operator`. `task session approve ID --rev N` is
 refused with code `plan_changed` when the plan moved since it was read. The GUI shows the open items as an answer card in the agent's pane,
@@ -1855,6 +1855,16 @@ asker, one a minute, 4 KiB each, 8 KiB open in total, 6 open per ancestor; a nor
 critical ask reaches no model: it raises a person item `ancestor_question` (no timeout, no default, not in the autonomy matrix)
 that only `task session person answer-ask --ask ID --text T` answers; the answer reaches the asker sealed. Deleting a chat removes
 the asks it made and voids the normal asks addressed to it (`chat_delete_orphans_test.go` decides both conversation columns).
+
+**The agent orbit (desktop app).** A coder chat that leads a task session shows the sessions below it as small circles: around its
+bubble in the dock and, in the simple agent pane, around the disc in the pane header. One circle is one direct child of the chat's
+session, in the state `waiting` (a draft, or a session with something waiting for the person), `failed`, `running`, `paused`,
+`stopped`, `idle` or `done`, most urgent first; at most 8 are drawn and the rest are one "+N" chip, so the chip holds the least
+urgent ones. A circle shows spend and task counts and opens that session's chat when it has one. The tree stops at level 4. The orbit
+renders `task session list` and nothing else: the app reads it every 15 seconds while a coder bubble exists and the window is
+visible, and a failed read keeps the last list. It has no authority of its own. The pane header's buttons are the operator's own
+`task session pause`, `resume` and `stop` of the chat's session (stop asks for confirmation first); approval, budgets, archive and
+rename are not on the orbit.
 
 **Missions (a coder chat's lead working a session).** A confirmed mission
 (`monoagentcli coder sessions send --mission CONVERSATION TEXT`, operator only, the UI's
