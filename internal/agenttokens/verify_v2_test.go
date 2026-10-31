@@ -305,14 +305,30 @@ func TestV2MissionTokenEachRowCheckRefusesOnItsOwn(t *testing.T) {
 	}
 }
 
-// The legacy verifier is frozen against the v2 family: a v2 secret does not start with the legacy prefix, so no path
-// that selects legacy tokens by their prefix (the HTTP bearer routes) ever treats it as one.
-func TestAV2MissionSecretIsNotAPrefixedLegacySecret(t *testing.T) {
+// The legacy verifier is frozen against the v2 family: a valid legacy mission row whose stored hash is the hash of a v2
+// secret is not found by a v2 secret, and the control (a genuine legacy token of the same kind) verifies, so the row is
+// genuinely valid. Removing the v2 dispatch makes the v2 secret verify through the legacy row.
+func TestAV2MissionSecretWithAMatchingValidLegacyRowIsRefusedByTheLegacyVerifier(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	tok, control, err := s.CreateMission(ctx, "default", missionB, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.VerifyMission(ctx, "default", control); err != nil {
+		t.Fatalf("the control legacy token: %v", err)
+	}
 	secret, _, err := procbind.NewSecret(procbind.TaskPrefixV2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.HasPrefix(secret, Prefix) || strings.HasPrefix(procbind.TaskPrefixV2, Prefix) {
-		t.Fatalf("a v2 secret %q starts with the legacy prefix %q", secret[:6], Prefix)
+	if strings.HasPrefix(secret, Prefix) {
+		t.Fatalf("a v2 secret starts with the legacy prefix %q", Prefix)
+	}
+	if _, err := s.db.Exec(`UPDATE agent_tokens SET token_hash = ? WHERE id = ?`, Hash(secret), tok.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.VerifyMission(ctx, "default", secret); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a v2 secret verified through a matching legacy row: %v", err)
 	}
 }

@@ -201,18 +201,41 @@ func TestLegacySessionTokenIsUnchangedByTheV2Verifier(t *testing.T) {
 	}
 }
 
-// The legacy session verifier is frozen against the v2 family: a v2 secret does not start with the legacy prefix, and
-// with no v2 verifier set the store denies it without looking at any table.
-func TestAV2SessionSecretIsNotALegacySessionSecret(t *testing.T) {
+// The legacy session verifier is frozen against the v2 family: a legacy row that is valid in every respect and whose
+// stored hash is the hash of a v2 secret (the signature recomputed) still does not make that secret a legacy token. The
+// control, a genuine legacy token of the same session, verifies, so the row is genuinely valid. Removing the v2 dispatch
+// and the legacy prefix gate together makes the v2 secret verify through the legacy row.
+func TestAV2SessionSecretWithAMatchingValidLegacyRowIsRefusedByTheLegacyVerifier(t *testing.T) {
+	st := newStoreT(t)
+	m, _ := master(t, st, "coding")
+	running(t, st, m.ConversationID, "t1")
+	control := mint(t, st, m.ConversationID, "t1")
+	if _, err := st.VerifySessionToken(control); err != nil {
+		t.Fatalf("the control legacy token: %v", err)
+	}
 	secret, _, err := procbind.NewSecret(procbind.SessionPrefixV2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.HasPrefix(secret, SessionTokenPrefix) || strings.HasPrefix(procbind.SessionPrefixV2, SessionTokenPrefix) {
-		t.Fatalf("a v2 secret %q starts with the legacy prefix %q", secret[:6], SessionTokenPrefix)
+	if strings.HasPrefix(secret, SessionTokenPrefix) {
+		t.Fatalf("a v2 secret starts with the legacy prefix %q", SessionTokenPrefix)
 	}
-	st := newStoreT(t)
+	// the live legacy row now holds the v2 secret's hash, signed as a genuine row would be
+	var expires, stamp string
+	var pid int
+	if err := st.db.QueryRow(`SELECT expires_at, pid, stamp FROM coder_session_tokens WHERE conversation_id = ?`, m.ConversationID).Scan(&expires, &pid, &stamp); err != nil {
+		t.Fatal(err)
+	}
+	key, err := st.tokenKey("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := hashToken(secret)
+	if _, err := st.db.Exec(`UPDATE coder_session_tokens SET token_hash = ?, mac = ? WHERE conversation_id = ?`,
+		h, tokenMAC(key, "p", m.ConversationID, "t1", h, expires, pid, stamp), m.ConversationID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.VerifySessionToken(secret); !errors.Is(err, ErrSessionToken) {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("a v2 secret verified through a matching legacy row: %v", err)
 	}
 }
