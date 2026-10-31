@@ -190,7 +190,7 @@ func (c *Conductor) missionPlan(ctx context.Context, m *MissionConfig, args json
 	if rej := ValidatePlan(a.Tasks, map[int64]bool{}, 0, MaxPlanTasks); len(rej) > 0 {
 		return "", &RejectedError{rej}
 	}
-	se, err := m.Store.CreateSession(ctx, m.ProfileID, tasks.SessionInput{Title: a.Title, Goal: a.Goal, ConversationID: m.ConversationID, ClientID: key, Kind: tasks.SessionKindMission}, m.actor(0))
+	se, err := m.Store.CreateSession(ctx, m.ProfileID, tasks.SessionInput{Title: a.Title, Goal: a.Goal, ConversationID: m.ConversationID, ClientID: key, Kind: tasks.SessionKindMission, BeforeInsert: m.BeforeCreate}, m.actor(0))
 	if err != nil {
 		return "", err
 	}

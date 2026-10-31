@@ -25,8 +25,9 @@ func TestMissionToggleOffIsRefusedWhenTheMissionStateIsUnreadable(t *testing.T) 
 	}
 	ts := tasks.NewStore(db.DB)
 	conv := ai.Conversation{ID: f.conv.ID, Access: ai.AccessCoding}
-	err = guardMissionToggle(context.Background(), ts, "default", conv, false)
-	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+	err = guardMissionToggle(context.Background(), db.DB, "default", conv, false)
+	// the write path reads the columns, so the row the checked list skips still counts as the open mission
+	if err == nil || !strings.Contains(err.Error(), "running a mission") {
 		t.Fatalf("off with an unreadable mission: %v", err)
 	}
 	if v := missionToggleOf(context.Background(), ts, "default", conv, false); !v.On || !v.Locked {

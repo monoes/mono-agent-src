@@ -486,7 +486,12 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left", ErrLimit)
 	}
 	cs := childSettings(ps, childLevel)
-	if err := s.SaveSettings(c.ProfileID, conv.ID, cs); err != nil {
+	// The child's starting settings replace its document, but not the operator's Mission toggle, which a
+	// writer that got to the child since SetRole (the child is already in its master's tree) may have set.
+	if _, err := s.UpdateSettings(c.ProfileID, conv.ID, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
+		cs.Mission = cur.Mission
+		return cs, nil
+	}); err != nil {
 		undo()
 		return Spawned{}, err
 	}

@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -173,29 +172,8 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 			cs := coderhost.NewStore(db.DB)
 			var changed []string
 			if patch != "" || mission != "" {
-				cur, err := cs.GetSettings(profileID, args[0])
+				keys, err := setSettingsAsOperator(cfg, cs, profileID, args[0], patch, mission)
 				if err != nil {
-					db.Close()
-					return err
-				}
-				next, keys := cur, []string(nil)
-				if patch != "" {
-					if next, keys, err = cur.Apply([]byte(patch)); err != nil {
-						db.Close()
-						return clicore.InvalidInput("%v", err)
-					}
-				}
-				if mission != "" {
-					next.Mission = mission == "on"
-					keys = append(keys, "mission")
-				}
-				if slices.Contains(keys, "mission") {
-					if err := applyMissionToggle(cfg, profileID, cur, next, args[0]); err != nil {
-						db.Close()
-						return err
-					}
-				}
-				if err := cs.SaveSettings(profileID, args[0], next); err != nil {
 					db.Close()
 					return err
 				}

@@ -172,7 +172,7 @@ func TestMissionToggleNeedsMissionAccess(t *testing.T) {
 	defer db.Close()
 	ts := tasks.NewStore(db.DB)
 	scoped := ai.Conversation{ID: f.conv.ID, Access: ai.AccessScoped}
-	err := guardMissionToggle(context.Background(), ts, "default", scoped, true)
+	err := guardMissionToggle(context.Background(), db.DB, "default", scoped, true)
 	if err == nil || !strings.Contains(err.Error(), "coding, workspace or full access") {
 		t.Fatalf("scoped: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestMissionToggleNeedsMissionAccess(t *testing.T) {
 		t.Fatalf("view: %+v", v)
 	}
 	for _, lvl := range []string{ai.AccessCoding, ai.AccessWorkspace, ai.AccessFull} {
-		if err := guardMissionToggle(context.Background(), ts, "default", ai.Conversation{ID: f.conv.ID, Access: lvl}, true); err != nil {
+		if err := guardMissionToggle(context.Background(), db.DB, "default", ai.Conversation{ID: f.conv.ID, Access: lvl}, true); err != nil {
 			t.Errorf("%s: %v", lvl, err)
 		}
 	}

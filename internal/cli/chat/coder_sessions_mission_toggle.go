@@ -2,7 +2,10 @@ package chat
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -62,16 +65,18 @@ func missionUnreadableMessage(err error) string {
 	return fmt.Sprintf("the mission state of this chat could not be read, so the toggle stays as it is: %v", err)
 }
 
-// guardMissionToggle refuses a change of the flag the rules do not allow: on needs
-// mission access, off needs no open mission session.
-func guardMissionToggle(ctx context.Context, store *tasks.Store, profileID string, conv ai.Conversation, on bool) error {
+// guardMissionToggle refuses a change of the flag the rules do not allow: on needs mission access, off needs no
+// open mission session. q is the connection of the transaction that stores the change, so the answer holds until
+// the change is committed: a mission session cannot be added in between (its creation recheck takes the same
+// write lock, see missionCreateGuard).
+func guardMissionToggle(ctx context.Context, q tasks.Queryer, profileID string, conv ai.Conversation, on bool) error {
 	if on {
 		if access := conv.EffectiveAccess(); !dynorg.MissionAccess(access) {
 			return clicore.InvalidInput("%s", missionNeedsAccess(access))
 		}
 		return nil
 	}
-	id, err := missionOpenSessionID(ctx, store, profileID, conv.ID)
+	id, err := tasks.OpenMissionSessionIn(ctx, q, profileID, conv.ID)
 	if err != nil {
 		return clicore.InvalidInput("%s", missionUnreadableMessage(err))
 	}
@@ -81,27 +86,68 @@ func guardMissionToggle(ctx context.Context, store *tasks.Store, profileID strin
 	return nil
 }
 
-// applyMissionToggle checks a request to set the flag: turning it on when it is on
-// needs no check; anything else must pass guardMissionToggle. Turning it off is
-// checked even when the stored flag is already off, because an open mission session
-// (a mission started by the card) reads as on.
-func applyMissionToggle(cfg *Deps, profileID string, cur, next coderhost.Settings, conversationID string) error {
-	if cur.Mission && next.Mission {
-		return nil
-	}
+// missionToggleAfterCheck, when set by a test, runs after a change of the toggle passed its check and before it is stored.
+var missionToggleAfterCheck func()
+
+// setSettingsAsOperator applies the operator's change of a conversation's settings (a --patch and/or --mission)
+// as one read-modify-write transaction (coderhost.UpdateSettings): the patch is applied to the settings as they
+// are inside the transaction, and a change of the Mission toggle is checked there too, on the same connection,
+// so no other writer's value is brought back and no mission session can appear between the check and the write.
+// It returns the keys the change named.
+func setSettingsAsOperator(cfg *Deps, cs *coderhost.Store, profileID, conversationID, patch, mission string) ([]string, error) {
 	chat, _, closeDB, err := openChatHistory(cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	conv, err := chat.GetConversation(conversationID, profileID)
 	closeDB()
 	if err != nil {
-		return chatStoreErr(err)
+		return nil, chatStoreErr(err)
 	}
-	db, err := cfg.OpenDB()
-	if err != nil {
-		return err
+	var keys []string
+	_, err = cs.UpdateSettings(profileID, conversationID, func(ctx context.Context, tx *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
+		next, k := cur, []string(nil)
+		if patch != "" {
+			var err error
+			if next, k, err = cur.Apply([]byte(patch)); err != nil {
+				return cur, clicore.InvalidInput("%v", err)
+			}
+		}
+		if mission != "" {
+			next.Mission = mission == "on"
+			k = append(k, "mission")
+		}
+		if slices.Contains(k, "mission") && !(cur.Mission && next.Mission) { // on when it is on needs no check
+			if err := guardMissionToggle(ctx, tx, profileID, conv, next.Mission); err != nil {
+				return cur, err
+			}
+			if missionToggleAfterCheck != nil {
+				missionToggleAfterCheck()
+			}
+		}
+		keys = k
+		return next, nil
+	})
+	return keys, err
+}
+
+// missionCreateGuard is the recheck made inside the transaction that adds a mission session (the planner's
+// mission_plan, via tasks.SessionInput.BeforeInsert). A mission that only the toggle confirmed may not start
+// once the operator has turned the toggle off: the turn read it as on when it began, and a turn that is still
+// running when the operator turns it off must not start a mission after all. A session the operator confirmed
+// by hand (send --mission) does not depend on the toggle and is not rechecked. Refusing, not switching the
+// toggle on, because the toggle is the operator's: nothing the planner does may set it.
+func missionCreateGuard(profileID, conversationID string) func(context.Context, tasks.Queryer) error {
+	return func(ctx context.Context, x tasks.Queryer) error {
+		var raw string
+		err := x.QueryRowContext(ctx, `SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
+		cur, err := coderhost.ParseSettings(conversationID, raw, err)
+		if err != nil {
+			return fmt.Errorf("the Mission toggle of this chat could not be read, so no mission starts: %w", err)
+		}
+		if !cur.Mission {
+			return errors.New("the operator turned the Mission toggle off: no mission starts from this turn. Say so and carry on with the request without a mission")
+		}
+		return nil
 	}
-	defer db.Close()
-	return guardMissionToggle(context.Background(), tasks.NewStore(db.DB), profileID, conv, next.Mission)
 }

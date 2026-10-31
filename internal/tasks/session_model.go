@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -124,6 +125,11 @@ type SessionInput struct {
 	// ParentSessionID, when not 0, starts the session below that one (same profile); Kind is "" for board.
 	ParentSessionID int64
 	Kind            string
+	// BeforeInsert, when set, runs inside the transaction that adds the session, after the idempotency
+	// check and before the insert, on the connection that holds the write lock. An error aborts the
+	// creation. It is how a caller makes a condition it read elsewhere hold at the moment the row exists
+	// (the mission planner: the chat's Mission toggle is still on). Trusted code sets it, never user input.
+	BeforeInsert func(ctx context.Context, x Queryer) error `json:"-"`
 }
 
 // SessionUpdate changes what only the operator may. A nil field stays as it is.

@@ -34,6 +34,9 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 	}
 	if !m.Confirmed && (m.HasOpenSession(ctx) || missionToggleOn(db, profileID, conversationID)) {
 		m.Confirmed = true
+		// Confirmed by the toggle (or by a mission already open), not by the operator's hand on this turn: the
+		// toggle is rechecked when a session is added, in that transaction.
+		m.BeforeCreate = missionCreateGuard(profileID, conversationID)
 	}
 	return m
 }

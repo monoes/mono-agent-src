@@ -2,6 +2,9 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"slices"
 )
 
@@ -46,4 +49,24 @@ func (s *Store) dedupeFits(ctx context.Context, x dbx, found Session, in Session
 	}
 	chain, err := s.sessionChain(ctx, x, found.ID)
 	return err == nil && slices.Contains(chain, actor.Session)
+}
+
+// OpenMissionSessionIn is the id of the chat's open mission session (draft, running or paused, not archived;
+// IsMissionSession says which sessions are missions), 0 when it has none, read through x. A caller that holds
+// the write lock on x's connection (an operator's change of the Mission toggle) can rely on the answer until
+// it commits: no session of that chat can be added or reopened in between. It reads the columns directly, so a
+// row ListSessionsChecked would skip as unreadable still counts.
+func OpenMissionSessionIn(ctx context.Context, x Queryer, profileID, conversationID string) (int64, error) {
+	var id int64
+	err := x.QueryRowContext(ctx, `SELECT id FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = ''
+		AND state IN (?, ?, ?) AND (kind = ? OR (kind = ? AND created_by = ?)) ORDER BY id DESC LIMIT 1`,
+		profileID, conversationID, string(SessionDraft), string(SessionRunning), string(SessionPaused),
+		SessionKindMission, SessionKindBoard, MissionPlannerName).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("tasks: looking for the open mission session of %s: %w", conversationID, err)
+	}
+	return id, nil
 }
