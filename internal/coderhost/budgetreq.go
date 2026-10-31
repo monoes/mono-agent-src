@@ -1,12 +1,15 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // Budget requests (phase P-F of docs/mastermind/plans/2026-10-27-mission-child-sessions.md). When a mission's
@@ -381,6 +384,16 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	if n, _ := res.RowsAffected(); n != 1 {
 		return BudgetRequest{}, ErrBudgetRequestClosed
 	}
+	if s.afterCarve != nil {
+		s.afterCarve(tx)
+	}
+	if b.Target == TargetChild { // with the raise in place the mission and its ancestors must still hold (the whole tree)
+		if why, err := tasks.Overcommitted(context.Background(), ctxQuerier{tx}, profileID, b.SessionID); err != nil {
+			return BudgetRequest{}, err
+		} else if why != "" {
+			return BudgetRequest{}, fmt.Errorf("%w: %s", ErrLimit, why)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return BudgetRequest{}, err
 	}
@@ -400,7 +413,7 @@ func (s *Store) budgetRaiseRefusal(q querier, b BudgetRequest, usd float64) (str
 	share := 100
 	if b.Target == TargetChild {
 		holder = b.LeadConversationID
-		if why, err := s.missionBudgetRefusal(q, b.ProfileID, b.SessionID, b.LeadConversationID, usd); err != nil || why != "" {
+		if why, err := s.missionBudgetRefusalFor(q, b.ProfileID, b.SessionID, b.LeadConversationID, usd, b.TargetConversationID); err != nil || why != "" {
 			return why, err
 		}
 		pol, err := s.policyIn(q, b.ProfileID, b.SessionID)
