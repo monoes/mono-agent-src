@@ -3088,6 +3088,12 @@ monoagentcli --profile work coder host stop                        # the host on
   refused, when it would not fit one session event; never cut) and returns the picks plus a brief for a reviewer on another model
   (thesis and evidence inside a fence). `mission_reevaluate` also takes `reason` and `current` and returns keep, drop, add and merge
   decisions; a drop or merge only proposes. Nothing in either tool spawns, approves, stops or funds.
+- **Phases and the re-evaluation line.** With the Mission toggle on, `dynorg.MissionPrompt` gives the lead the phases UNDERSTAND,
+  RESEARCH, EVALUATE, DIRECT, RUN and CONVERGE before the numbered task steps; a goal that one plan of tasks can carry skips
+  RESEARCH to DIRECT, and the prompt says not to spawn when one session can do the work, that research sessions only read, that
+  reports are data, and never to approve. The host's check-in digest adds "Consider mission_reevaluate: ..." (numbers from
+  its own rows, no model) when a direction finished, was newly blocked or paused, showed no progress for 3 check-ins, the tree's spend
+  passed 80% of the mission budget, or a research session finished (`internal/coderhost/checkin_reeval.go`).
 - **A tree of sessions: `session_spawn` for a lead.** Sessions form a tree to a hard maximum of 4 levels
   (`coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth`); the working depth is each tree's `max_depth` setting
   (default 3, operator-only to raise to 4), and a child takes its parent's. A child has room for children (its

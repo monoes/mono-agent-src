@@ -1983,6 +1983,10 @@ that works a task acts on them. The defences:
   and evidence reference, which came from research that read the web, inside a fence. `k` cannot pass the operator's
   `mission_directions`. That the brief asks for a reviewer on another model is prompt-only. Tests: `mission_evaluate_test.go`,
   `mission_evaluate_record_test.go`, `mission_rank_test.go`.
+- **Research and the check-in line.** Research sessions run scoped (no folder, read only) by `session_spawn`, never with coding
+  access; their report text reaches the lead only in the `_untrusted` fields. The digest line "Consider mission_reevaluate"
+  is built from the host's own counts only (no agent-written text, no clock) and grants nothing. Tests: `checkin_reeval_test.go`,
+  `mission_prompt_test.go`.
 - **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
   sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
   without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),
