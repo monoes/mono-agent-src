@@ -38,9 +38,10 @@ type BindingHost struct {
 }
 
 type bindingService struct {
-	l    *procbind.SecureListener
-	done chan struct{}
-	seq  int64
+	l          *procbind.SecureListener
+	done       chan struct{}
+	seq        int64
+	generation string
 }
 
 // BindingStatus is what `coder host status` shows an operator about one profile's service: counts and states,
@@ -126,6 +127,23 @@ func (h *BindingHost) Running(profile string) bool {
 	}
 }
 
+// Generation is the generation of the profile's running service (what the host row it wrote names); false when the
+// profile has no running service.
+func (h *BindingHost) Generation(profile string) (string, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s, ok := h.svcs[profile]
+	if !ok {
+		return "", false
+	}
+	select {
+	case <-s.done:
+		return "", false
+	default:
+		return s.generation, true
+	}
+}
+
 // Ensure starts the profile's service if it is not running. It fails closed: any step that does not work leaves
 // nothing listening and no host row for this start.
 func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
@@ -175,7 +193,7 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	if err != nil {
 		return fail(fmt.Errorf("the binding service could not record its start: %w", err))
 	}
-	answerKey, err := procbind.AnswerKey(ctx, h.DB, profile, generation)
+	answerKey, err := procbind.AnswerKeyIfExists(ctx, h.DB, profile, generation) // the host row was just signed under the profile's key, so it exists
 	if err != nil {
 		return fail(fmt.Errorf("the binding service could not get its answer key: %w", err))
 	}
@@ -185,7 +203,7 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	}
 	srv := &procbind.Server{Profile: profile, Generation: generation, Key: answerKey, Leases: h.Binder, Procs: procs, UID: os.Getuid(),
 		Logf: func(f string, a ...any) { h.logf("binding service: "+f, a...) }}
-	s := &bindingService{l: l, done: make(chan struct{}), seq: seq}
+	s := &bindingService{l: l, done: make(chan struct{}), seq: seq, generation: generation}
 	go func() {
 		defer close(s.done)
 		_ = srv.Serve(l)

@@ -23,3 +23,6 @@ func (d *boundDelivery) close() {}
 func (d *boundDelivery) deliver(string, string, string, int, string, func() error) error {
 	return errors.New("peer-credential binding needs Linux")
 }
+
+// newBoundLaunch is nil off Linux: a launcher without one cannot launch a bound turn, and the gate refuses "on".
+func newBoundLaunch(any, any, any, any, any) *boundLaunch { return nil }

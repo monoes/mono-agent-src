@@ -238,15 +238,25 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)
 			binding := &coderhost.BindingHost{DB: db.DB, Binder: procbind.NewBinder(time.Now), Logf: logf}
 			defer binding.Shutdown() // revokes every registration and closes every socket
+			legacyLauncher := &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
+				tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
+					if store.HostInsideTurn() {
+						return coderhost.ErrHostInsideTurn
+					}
+					return store.BindSessionToken(p, c, turn, pid, stamp)
+				}}
+			// The same launcher with peer-credential binding on. The gate sends a turn here only when the setting is on and
+			// nothing is in the way; newBoundLaunch also points the stores that end tokens at the registry, so a revocation
+			// ends the live entry.
+			boundCopy := *legacyLauncher
+			boundCopy.bound = newBoundLaunch(db.DB, binding, binding.Binder, store, children)
+			var boundLauncher coderhost.Launcher = &boundCopy
+			if boundCopy.bound == nil {
+				boundLauncher = nil
+			}
 			h := &coderhost.Host{
 				Store: store, ChildTokens: children,
-				L: &gatedLauncher{db: db.DB, svc: binding, inner: &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
-					tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
-						if store.HostInsideTurn() {
-							return coderhost.ErrHostInsideTurn
-						}
-						return store.BindSessionToken(p, c, turn, pid, stamp)
-					}}},
+				L:                    &gatedLauncher{db: db.DB, svc: binding, inner: legacyLauncher, bound: boundLauncher, insideTurn: store.HostInsideTurn},
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,

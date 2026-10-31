@@ -20,7 +20,8 @@ type BindingHost struct {
 	Now    func() time.Time
 }
 
-func (h *BindingHost) Running(string) bool { return false }
+func (h *BindingHost) Generation(string) (string, bool) { return "", false }
+func (h *BindingHost) Running(string) bool              { return false }
 func (h *BindingHost) Ensure(context.Context, string) error {
 	return errors.New("the binding service needs Linux")
 }

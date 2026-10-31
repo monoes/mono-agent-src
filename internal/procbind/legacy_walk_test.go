@@ -491,6 +491,8 @@ func TestIssuanceStaysOffUntilTheRevocationGuardsExist(t *testing.T) {
 var rowKeyMintSites = map[string]bool{
 	// the host row of a binding-service start is signed under the profile's key, which a first start may create
 	"coderhost/bindinghost_linux.go:Ensure": true,
+	// the session token (and a child's task token) of a bound launch are made, with the profile's key, by the launcher
+	"cli/chat/coder_host_bound_linux.go:deliver": true,
 }
 
 // productionRowKeyCalls lists, as "file:Function", the functions in non-test files under internal/ that call
