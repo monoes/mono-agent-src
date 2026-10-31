@@ -67,40 +67,14 @@ func (s *Store) goneConversation(profileID, conv string) (bool, error) {
 
 // A child with a lost cost freezes new reservations of its mission (review of the launcher, round 3c).
 //
-// The hold of a lost child used to be a formula of the row's wish, the mission's default share and the policy, read
-// at two different times (the early term of missionBudgetRefusal, the record the host writes later), so it could
-// grow after capacity had been reserved against it. It has no inputs now: while ANY child of the mission is lost
-// (lostChildExists) the hold is the whole remainder of the mission (budget - spent), counted once for the mission
-// however many children are lost, so no new reservation passes and nothing can grow. The operator ends it with
-// `coder sessions mission-children resolve-charge` (or the charge landing).
-
-// lostRowSQL is the condition, over a coder_mission_children row, of a child whose cost is lost: its conversation
-// is known to the row (child id, else pending id, and the spawn did create one), has no coder session any more,
-// and nothing records its cost (no charge, spend snapshot or unresolved record). A row still `spawning` counts: a
-// pending-only row an older binary's delete left in that state is lost all the same.
-const lostRowSQL = `coder_mission_children.state IN ('spawning', 'spawned', 'ended', 'failed', 'gone') AND ` + rowIdent + ` <> ''
-	AND (coder_mission_children.spawned_at <> '' OR coder_mission_children.pending_conversation_id <> '')
-	AND NOT EXISTS (SELECT 1 FROM coder_sessions s WHERE s.profile_id = coder_mission_children.profile_id AND s.conversation_id = ` + rowIdent + `)
-	AND NOT EXISTS (SELECT 1 FROM coder_mission_events x WHERE x.profile_id = coder_mission_children.profile_id AND x.session_id = coder_mission_children.session_id
-		AND x.kind IN ('charge', 'spend', '` + unresolvedKind + `') AND substr(x.note, 1, length(` + rowIdent + `) + 1) = ` + rowIdent + ` || ' ')`
-
-// lostChildSQL is true when the mission (two parameters: profile, session) has a lost child: a row of lostRowSQL, or
-// an unresolved record no charge row answers (whatever became of the row the host wrote it for). Four parameters:
-// profile, session, profile, session.
-const lostChildSQL = `(EXISTS (SELECT 1 FROM coder_mission_children WHERE coder_mission_children.profile_id = ? AND coder_mission_children.session_id = ? AND ` + lostRowSQL + `)
-	OR EXISTS (SELECT 1 FROM coder_mission_events u WHERE u.profile_id = ? AND u.session_id = ? AND u.kind = '` + unresolvedKind + `'
-		AND NOT EXISTS (SELECT 1 FROM coder_mission_events c WHERE c.profile_id = u.profile_id AND c.session_id = u.session_id AND c.kind = 'charge'
-			AND substr(c.note, 1, instr(u.note, ' ')) = substr(u.note, 1, instr(u.note, ' ')))))`
-
-// lostChildExists says whether the mission has a lost child (lostChildSQL), reading through q.
-func lostChildExists(q querier, profileID string, sessionID int64) (bool, error) {
-	var n int
-	err := q.QueryRow(`SELECT `+lostChildSQL, profileID, sessionID, profileID, sessionID).Scan(&n)
-	return n > 0, err
-}
+// While ANY child of the mission is lost the hold is the whole remainder of the mission (budget - spent), counted
+// once for the mission however many children are lost, so no new reservation passes and nothing can grow. The
+// definition of "lost" lives in the view v_mission_child_held (migration 150), which both this host's check and the
+// worker reservation store read. The operator ends it with `coder sessions mission-children resolve-charge` (or the
+// charge landing).
 
 // unresolvedHold is the amount written on an unresolved record: what the mission has left when it is written. It
-// is informational (the refusal holds the remainder while the record exists, lostChildSQL) and never a charge.
+// is informational (the refusal holds the remainder while the record exists, v_mission_child_held) and never a charge.
 func (s *Store) unresolvedHold(q querier, profileID string, sessionID int64) (float64, error) {
 	var budget, spent float64
 	err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent)
