@@ -117,9 +117,9 @@ func (s *Store) RecordOwn(c Caller, r RecordRequest) (LedgerEntry, error) {
 		return LedgerEntry{}, fmt.Errorf("%w (%s gaps are parked, never decided by the model)", ErrPolicyReserves, r.Class)
 	}
 	var recent int
-	since := s.now().Add(-recordWindow).UTC().Format(timeLayout)
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND made_by = 'model' AND created_at >= ?`,
-		c.ProfileID, c.ConversationID, since).Scan(&recent); err != nil {
+	since := s.now().Add(-recordWindow)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND made_by = 'model' AND `+tsNotBefore("created_at", since),
+		c.ProfileID, c.ConversationID).Scan(&recent); err != nil {
 		return LedgerEntry{}, err
 	}
 	if recent >= MaxRecordsPerHour {

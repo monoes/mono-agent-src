@@ -293,10 +293,10 @@ const expiredMarker = "expired before the host could run it"
 // ExpireSends fails the sends that have waited longer than MaxSendAge, so a
 // message queued while no host ran does not start a full-access turn days later.
 func (s *Store) ExpireSends() error {
-	ids := s.pendingMissionIDs(`created_at < ?`, s.now().Add(-MaxSendAge).UTC().Format(timeLayout))
+	ids := s.pendingMissionIDs(tsBefore("created_at", s.now().Add(-MaxSendAge)))
 	_, err := s.db.Exec(`UPDATE coder_session_commands SET status = 'failed', error = '`+expiredMarker+`', updated_at = ?
-		WHERE kind = 'send' AND status = 'pending' AND (created_at < ? OR (substr(turn_id, 1, 8) = 'checkin-' AND created_at < ?) OR (issuer != '' AND created_at < ?))`,
-		s.stamp(), s.now().Add(-MaxSendAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout))
+		WHERE kind = 'send' AND status = 'pending' AND (`+tsBefore("created_at", s.now().Add(-MaxSendAge))+` OR (substr(turn_id, 1, 8) = 'checkin-' AND `+tsBefore("created_at", s.now().Add(-MaxCheckinAge))+`) OR (issuer != '' AND `+tsBefore("created_at", s.now().Add(-MaxCheckinAge))+`))`,
+		s.stamp())
 	s.revokeCommands(ids)
 	return err
 }

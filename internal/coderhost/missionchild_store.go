@@ -1061,16 +1061,16 @@ func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, p
 // linked is ended as expired with that conversation attached (ended), so it is not started a second time and
 // the spawn's orphan can be stopped; its carve is returned. It is the host's.
 func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset int, ended []string, err error) {
-	old := s.now().Add(-maxAge).UTC().Format(timeLayout)
+	old := s.now().Add(-maxAge)
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'marked', reserved_usd = 0, updated_at = ?
-		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id = '' AND updated_at < ?`, s.stamp(), old)
+		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id = '' AND `+tsBefore("updated_at", old), s.stamp())
 	if err != nil {
 		return 0, nil, err
 	}
 	n, _ := res.RowsAffected()
 	reset = int(n)
 	rows, err := s.db.Query(`SELECT profile_id, session_id, task_id, pending_conversation_id, updated_at FROM coder_mission_children
-		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND updated_at < ?`, old)
+		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND ` + tsBefore("updated_at", old))
 	if err != nil {
 		return reset, nil, err
 	}
@@ -1117,13 +1117,13 @@ type OrphanCarve struct {
 // (End cannot, there is no row). It cannot tell a spawn of a task from a child the lead made another way, so
 // the host decides which of these it started; minAge keeps a spawn that is still running out of the list.
 func (s *Store) FindOrphanCarves(minAge time.Duration) ([]OrphanCarve, error) {
-	old := s.now().Add(-minAge).UTC().Format(timeLayout)
+	old := s.now().Add(-minAge)
 	rows, err := s.db.Query(`SELECT c.profile_id, c.conversation_id, c.parent_conversation_id, c.budget_usd FROM coder_sessions c
-		WHERE c.role = 'child' AND c.budget_usd > 0 AND c.created_at < ?
+		WHERE c.role = 'child' AND c.budget_usd > 0 AND ` + tsBefore("c.created_at", old) + `
 		AND EXISTS (SELECT 1 FROM coder_mission_policy p WHERE p.profile_id = c.profile_id AND p.lead_conversation_id = c.parent_conversation_id)
 		AND NOT EXISTS (SELECT 1 FROM coder_mission_children k WHERE k.profile_id = c.profile_id
 			AND (k.child_conversation_id = c.conversation_id OR k.pending_conversation_id = c.conversation_id))
-		ORDER BY c.created_at, c.conversation_id`, old)
+		ORDER BY c.created_at, c.conversation_id`)
 	if err != nil {
 		return nil, err
 	}

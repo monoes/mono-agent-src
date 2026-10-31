@@ -226,10 +226,10 @@ func (s *Store) park(profileID, conversationID, class, question string, options 
 	id, _ := res.LastInsertId()
 	if HardClass(class) { // the person may have to answer it (now or after a role change): they are told, and nothing times it out
 		if own { // any hard park of a session's own model: what "needs you" shows cannot be inflated
-			since := s.now().Add(-recordWindow).UTC().Format(timeLayout)
+			since := s.now().Add(-recordWindow)
 			var n int
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND created_at >= ?`,
-				profileID, conversationID, since).Scan(&n); err != nil {
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND `+tsNotBefore("created_at", since),
+				profileID, conversationID).Scan(&n); err != nil {
 				return Question{}, err
 			}
 			if n >= MaxPersonItemsPerHour {
