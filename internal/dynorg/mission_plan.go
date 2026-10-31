@@ -31,6 +31,14 @@ type MissionConfig struct {
 	// Confirmed: the user confirmed a mission with one click (D2). Without it
 	// the lead can only propose.
 	Confirmed bool
+	// MaxDirections is the operator's K for mission_evaluate (the coder setting mission_directions);
+	// 0 is the default of 3.
+	MaxDirections int
+	// DirectionsK, when set, reads the operator's CURRENT mission_directions (the coder setting; unset or 0 is the
+	// default of 3, never above 6) each time an evaluation needs K, and again inside the transaction that records it
+	// (x is that transaction's connection; nil outside one). A setting it cannot read is an error: the evaluation
+	// fails, it does not fall back to a default. When it is nil, MaxDirections stands.
+	DirectionsK func(ctx context.Context, x tasks.Queryer) (int, error)
 	// BeforeCreate, when set, is run inside the transaction that adds the mission session
 	// (tasks.SessionInput.BeforeInsert); an error refuses the creation.
 	BeforeCreate func(ctx context.Context, x tasks.Queryer) error

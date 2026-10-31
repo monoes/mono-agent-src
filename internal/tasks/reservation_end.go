@@ -164,16 +164,29 @@ func (s *Store) ExpireStale(ctx context.Context, profileID string, sessionID int
 // (never below what was already charged, 0 to free all of it), the difference goes into the session's spend,
 // and the row ends. Only the operator may, and only an expired row matches.
 func (s *Store) ResolveReservation(ctx context.Context, profileID string, id int64, charged float64, note string, actor Actor) error {
+	_, err := s.resolveReservation(ctx, profileID, id, charged, note, actor, false)
+	return err
+}
+
+// ResolveLapsedReservation is ResolveReservation that also takes a live row whose lease lapsed by more than
+// ReservationGrace (its holder is presumed dead): that one row is expired and resolved in the same transaction.
+// A refused call changes no row. It returns the total the row now records, on the micro-dollar grid.
+func (s *Store) ResolveLapsedReservation(ctx context.Context, profileID string, id int64, charged float64, note string, actor Actor) (float64, error) {
+	return s.resolveReservation(ctx, profileID, id, charged, note, actor, true)
+}
+
+func (s *Store) resolveReservation(ctx context.Context, profileID string, id int64, charged float64, note string, actor Actor, lapsed bool) (float64, error) {
 	if actor.Kind != Human {
-		return operatorOnly("resolve an expired reservation")
+		return 0, operatorOnly("resolve an expired reservation")
 	}
 	if err := reservationAmount("the cost", charged); err != nil {
-		return err
+		return 0, err
 	}
 	sid, err := s.reservationSession(ctx, profileID, id)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	var total float64
 	_, err = s.sessionWrite(ctx, profileID, sid, func(x dbx, se Session) error {
 		r, err := s.reservationTx(ctx, x, profileID, id)
 		if err != nil {
@@ -183,6 +196,19 @@ func (s *Store) ResolveReservation(ctx context.Context, profileID string, id int
 		if cm < was {
 			return invalid("the cost $%.6f is below the $%.6f already charged", charged, r.ChargedUSD)
 		}
+		if lapsed && r.State == ReservationLive {
+			cutoff := s.now().UTC().Add(-ReservationGrace).Format(timeFmt)
+			res, err := x.ExecContext(ctx, `UPDATE task_session_reservations SET state = 'expired', ended_at = ?, end_note = 'lease lapsed'
+				WHERE id = ? AND profile_id = ? AND state = 'live' AND lease_until < ?`, s.stamp(), id, profileID, cutoff)
+			if err != nil {
+				return fmt.Errorf("tasks: expiring reservation #%d: %w", id, err)
+			}
+			if n, _ := res.RowsAffected(); n == 1 {
+				if err := s.sessionEvent(ctx, x, r.SessionID, Actor{Kind: Agent, Name: "reservations"}, "reservation_expired", fmt.Sprintf("reservation #%d of %s lapsed and still holds its money until resolved", id, r.WorkerRef)); err != nil {
+					return err
+				}
+			}
+		}
 		res, err := x.ExecContext(ctx, `UPDATE task_session_reservations SET state = 'resolved', charged_usd = ?, ended_at = ?, end_note = ?
 			WHERE id = ? AND profile_id = ? AND state = 'expired'`, fromMicros(cm), s.stamp(), cutBytes(cleanText(note), maxEndNoteBytes), id, profileID)
 		if err != nil {
@@ -191,7 +217,8 @@ func (s *Store) ResolveReservation(ctx context.Context, profileID string, id int
 		if n, _ := res.RowsAffected(); n != 1 {
 			return notReady("reservation #%d is %s: only an expired reservation is resolved", id, r.State)
 		}
+		total = fromMicros(cm)
 		return s.chargeReservation(ctx, x, r, cm-was, "resolved")
 	})
-	return err
+	return total, err
 }

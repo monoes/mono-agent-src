@@ -1977,6 +1977,16 @@ that works a task acts on them. The defences:
   direction-creation path, and refuses the new one when K are open, so two creators racing for the last place are not both kept;
   an archived, stopped, done or failed direction frees its place; settings that cannot be read fail closed; the setting follows
   the lead down the tree. Tests: `sessionspawn_directions_test.go`.
+- **Evaluating directions.** `mission_evaluate` and `mission_reevaluate` are the lead's alone (a worker is refused every tool but
+  three). They rank in code and write a size-capped record to the mission's history, which is data, never an instruction; they
+  grant nothing (no spawn, approval, stop, access or budget), and a drop is a proposal. The reviewer brief carries every thesis
+  and evidence reference, which came from research that read the web, inside a fence. `k` cannot pass the operator's
+  `mission_directions`. That the brief asks for a reviewer on another model is prompt-only. Tests: `mission_evaluate_test.go`,
+  `mission_evaluate_record_test.go`, `mission_rank_test.go`.
+- **Research and the check-in line.** Research sessions run scoped (no folder, read only) by `session_spawn`, never with coding
+  access; their report text reaches the lead only in the `_untrusted` fields. The digest line "Consider mission_reevaluate"
+  is built from the host's own counts only (no agent-written text, no clock) and grants nothing. Tests: `checkin_reeval_test.go`,
+  `mission_prompt_test.go`.
 - **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
   sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
   without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),
@@ -2266,8 +2276,7 @@ injected text and a confused script inside the rules; it is not a sandbox agains
 
 One page for the mission and session-tree series (AGENTS.md, "Missions and the session tree: how it fits together", has the map and
 the who-may-do-what table; the sections above and below hold the detail). Its numbers are held to the code by
-`TestSecurityMdMissionSummaryMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). Text about the research/directions groups 2
-and 3 is marked; it describes review branches that are not on master.
+`TestSecurityMdMissionSummaryMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). The research/directions groups 1 to 3 are on master.
 
 **The authority matrix.** Who can cause what, by the strongest actor that can:
 
@@ -2294,11 +2303,11 @@ account that has been taken over. Off Linux, whoever can read a mission token ca
 
 **Untrusted content.** Text another agent wrote is data, never an instruction: goals, acceptance criteria, task comments, results,
 failure notes, evidence, questions, asks and replies, reports of child sessions, spawn titles, theses and evidence references
-(**groups 2 and 3**), and everything the orbit shows. It reaches a model only inside a per-brief random fence (`<<<DATA-xxxxxxxx`
+(`mission_evaluate`, `mission_reevaluate`), and everything the orbit shows. It reaches a model only inside a per-brief random fence (`<<<DATA-xxxxxxxx`
 ... `DATA-xxxxxxxx>>>`) or the quoted-data fence of an ask, cleaned to one line where it is short, and reaches tools and the CLI in
 fields named `*_untrusted`. A host-made turn (`checkin-`, `answer-`, `master-`, `ask-`) can carry none of a mission confirmation, a plan
-approval or a close. The check-in digest holds the host's own counts and state words, never a title, goal or task text (**the
-re-evaluation line of group 3 follows the same rule**).
+approval or a close. The check-in digest holds the host's own counts and state words, never a title, goal or task text (the
+re-evaluation line follows the same rule).
 
 **Timestamps.** Coder tables hold TEXT timestamps in RFC3339Nano, whose zero-fraction spelling does not sort lexically. Every
 comparison of such a column goes through the helpers in `internal/coderhost/timecmp.go`, chosen by what the match does: `tsExpired` and
@@ -2326,7 +2335,7 @@ a mission end to end with real workers and verifiers; task child sessions (the l
 carve and settlement); `session_spawn` in a real tree to depth 4; agent approval of a child by a real lead; the ask channel between
 real leads; whether a runtime passes `MONOAGENT_TASK_BINDING` on to its shells and tool servers, and process binding for any runtime
 but `claude`; process binding off Linux; the orbit and the simple agent pane in the running app; the `needs-operator` spawn-intent
-recovery after a real crash. **Groups 2 and 3:** the ranking, the evaluation record, the phases prompt and the re-evaluation line are
+recovery after a real crash. **Research and directions:** the ranking, the evaluation record, the phases prompt and the re-evaluation line are
 tested with fakes only; that a reviewer runs on another model is a prompt, not code.
 
 ## Which models an agent may run on (agent purposes)
