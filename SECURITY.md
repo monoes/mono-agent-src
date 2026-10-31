@@ -1779,7 +1779,7 @@ that works a task acts on them. The defences:
   child has none; the operator's budget for a child is above 0 and at most the parent's, 0 is refused under a parent
   that has a budget, and approving a child with no budget under such a parent is refused until the operator sets
   one. Each child is checked on its own: the sum of the children's budgets and a roll-up of their spend are not
-  accounted in this change. An agent starts at most 12 open children below
+  accounted in this change (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9; until the next change a parent's budget can still be set below the sum of its children's budgets). An agent starts at most 12 open children below
   one parent; lowering a parent clamps every session below it, open or closed, at any depth). No session is started below an archived or closed one. A session can never exceed the minimum of its whole ancestor chain, closed and archived ancestors included (access, `max_tasks`, `max_depth` and the smallest nonzero budget): the store computes that ceiling when the session is created, updated or approved, and does not trust a stored limit of a closed session in between. An agent creates a session only below one it works in, and a
   `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted

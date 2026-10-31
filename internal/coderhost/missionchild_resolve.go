@@ -22,8 +22,8 @@ func (s *Store) ResolveCharge(profileID, conv string, usd float64, skip bool, re
 		return 0, fmt.Errorf("%w: a skip is given with a reason and without an amount", ErrInvalid)
 	case !skip && (usd <= 0 || math.IsNaN(usd) || math.IsInf(usd, 0)):
 		return 0, fmt.Errorf("%w: give the child's cost in dollars above 0 (or --skip with a reason)", ErrInvalid)
-	case !skip && usd > tasks.MaxSpendUSD:
-		return 0, fmt.Errorf("%w: $%g is beyond the supported amount ($%g): check the figure", ErrInvalid, usd, tasks.MaxSpendUSD)
+	case !skip && usd > tasks.MaxBudgetUSD:
+		return 0, fmt.Errorf("%w: $%g is beyond the supported amount ($%g): check the figure", ErrInvalid, usd, tasks.MaxBudgetUSD)
 	}
 	if len(reason) > 150 {
 		reason = reason[:150]
