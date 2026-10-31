@@ -85,6 +85,14 @@ func (s *Store) commitWalkWith(ctx context.Context, x dbx, profileID string, id 
 		WHERE profile_id = ? AND session_id = ? AND state IN ('live', 'expired')`, profileID, id).Scan(&c.Held); err != nil {
 		return c, fmt.Errorf("tasks: reading the reservations of session #%d: %w", id, err)
 	}
+	// What the coder host's mission children hold (v_mission_child_held, migration 150: the host's own carves and
+	// its lost-child freeze) counts as held on this session, so a worker reservation cannot take money a child
+	// session of the host already holds. The host reads the workers' rows in the same way (ReservationHeld).
+	var childHeld float64
+	if err := x.QueryRowContext(ctx, `SELECT COALESCE(MAX(held_usd), 0) FROM v_mission_child_held WHERE profile_id = ? AND session_id = ?`, profileID, id).Scan(&childHeld); err != nil {
+		return c, fmt.Errorf("tasks: reading the child sessions held on session #%d: %w", id, err)
+	}
+	c.Held += childHeld
 	if extra.session == id {
 		c.Held += extra.held
 	}

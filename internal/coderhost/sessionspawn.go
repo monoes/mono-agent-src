@@ -38,12 +38,14 @@ const (
 )
 
 // childShare is the budget of the new session, for its task session and its carve: what the lead asked for, else the
-// default share of what its own session has left. A lead whose session has no budget gets what it asked for (0: none).
-func childShare(lead tasks.Session, asked float64) (float64, error) {
-	if lead.BudgetUSD <= 0 {
+// default share of what its own session has left. What is left is the session's Commitment (spend, worker
+// reservations and what its children hold), not only budget - spent. A lead whose session has no budget gets what it
+// asked for (0: none).
+func childShare(com tasks.Commitment, asked float64) (float64, error) {
+	left, bounded := com.Left()
+	if !bounded {
 		return asked, nil
 	}
-	left := lead.BudgetUSD - lead.SpentUSD
 	if left <= 0 {
 		return 0, fmt.Errorf("%w: your session has no budget left to share", ErrLimit)
 	}
@@ -138,7 +140,11 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 	if se.State != tasks.SessionRunning || se.Archived {
 		return SessionSpawned{}, fmt.Errorf("%w: your session #%d is %s: sessions are spawned only from a running one (the operator approves the plan first)", ErrInvalid, sid, se.State)
 	}
-	budget, err := childShare(se, req.BudgetUSD)
+	com, err := ts.Commitment(ctx, profile, sid)
+	if err != nil {
+		return SessionSpawned{}, err
+	}
+	budget, err := childShare(com, req.BudgetUSD)
 	if err != nil {
 		return SessionSpawned{}, err
 	}
