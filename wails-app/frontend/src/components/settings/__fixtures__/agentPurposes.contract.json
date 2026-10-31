@@ -1,0 +1,308 @@
+{
+ "purposes": [
+  {
+   "id": "coding",
+   "title": "Coding",
+   "category": "code",
+   "description": "Writing and changing code.",
+   "rule": "any",
+   "pairs": [
+    {
+     "runtime": "claude",
+     "model": "opus",
+     "status": "ok"
+    },
+    {
+     "runtime": "claude",
+     "model": "sonnet",
+     "status": "ok"
+    }
+   ],
+   "effort": "medium",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": false
+  },
+  {
+   "id": "debugging",
+   "title": "Debugging",
+   "category": "code",
+   "description": "Finding why something fails and fixing it.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "research",
+   "title": "Research",
+   "category": "research",
+   "description": "Looking things up on the web.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "deep-research",
+   "title": "Deep research",
+   "category": "research",
+   "description": "Long, multi-source research with a written result.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "planning",
+   "title": "Planning",
+   "category": "plan",
+   "description": "Breaking work into steps and tasks.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "strategy",
+   "title": "Strategy and ideation",
+   "category": "plan",
+   "description": "Choosing directions and generating ideas.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "review",
+   "title": "Code review",
+   "category": "review",
+   "description": "Reviewing work someone else did.",
+   "rule": "order",
+   "pairs": [
+    {
+     "runtime": "codex",
+     "model": "gpt-5",
+     "status": "ok"
+    },
+    {
+     "runtime": "claude",
+     "model": "opus",
+     "status": "ok"
+    }
+   ],
+   "effort": "high",
+   "differentFromAuthor": true,
+   "fallback": "none",
+   "budgetSharePct": 15,
+   "isDefault": false
+  },
+  {
+   "id": "testing",
+   "title": "Verifying and testing",
+   "category": "test",
+   "description": "Checking that work does what it should.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "security-audit",
+   "title": "Security audit",
+   "category": "review",
+   "description": "Looking for vulnerabilities and unsafe behavior.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "writing",
+   "title": "Writing and docs",
+   "category": "content",
+   "description": "Prose, documentation and messages.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "data",
+   "title": "Data and analysis",
+   "category": "data",
+   "description": "Working with tables, numbers and reports.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "automation",
+   "title": "Automation and workflows",
+   "category": "ops",
+   "description": "Building and running workflows.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "browsing",
+   "title": "Operating a browser",
+   "category": "ops",
+   "description": "Driving a browser to read or act on pages.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "design",
+   "title": "Design",
+   "category": "design",
+   "description": "Interfaces, layout and visual work.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "triage",
+   "title": "Summarizing and triage",
+   "category": "ops",
+   "description": "Cheap, fast sorting and summaries.",
+   "rule": "cheapest",
+   "pairs": [
+    {
+     "runtime": "claude",
+     "model": "haiku",
+     "status": "stale"
+    },
+    {
+     "runtime": "codex",
+     "model": "gpt-5-mini",
+     "status": "failed"
+    }
+   ],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": false
+  },
+  {
+   "id": "judging",
+   "title": "Judging and evaluating",
+   "category": "review",
+   "description": "Deciding between options as the arbiter.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "orchestrating",
+   "title": "Orchestrating",
+   "category": "plan",
+   "description": "Leading other agents.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  },
+  {
+   "id": "translation",
+   "title": "Translation",
+   "category": "content",
+   "description": "Translating text between languages.",
+   "rule": "any",
+   "pairs": [],
+   "effort": "",
+   "differentFromAuthor": false,
+   "fallback": "any",
+   "budgetSharePct": 0,
+   "isDefault": true
+  }
+ ],
+ "roster": [
+  {
+   "runtime": "claude",
+   "model": "opus",
+   "status": "ok"
+  },
+  {
+   "runtime": "claude",
+   "model": "sonnet",
+   "status": "ok"
+  },
+  {
+   "runtime": "claude",
+   "model": "haiku",
+   "status": "stale"
+  },
+  {
+   "runtime": "codex",
+   "model": "gpt-5",
+   "status": "ok"
+  },
+  {
+   "runtime": "codex",
+   "model": "gpt-5-mini",
+   "status": "failed"
+  },
+  {
+   "runtime": "ollama",
+   "model": "llama3:8b",
+   "status": "unvalidated"
+  },
+  {
+   "runtime": "opencode",
+   "model": "openrouter/qwen:free",
+   "status": "ok"
+  }
+ ]
+}

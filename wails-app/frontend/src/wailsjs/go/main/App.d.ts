@@ -72,6 +72,12 @@ export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:s
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function AgentPurposeReset(arg1:string):Promise<string>;
+
+export function AgentPurposeSet(arg1:string,arg2:Array<string>,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:number):Promise<string>;
+
+export function AgentPurposesList():Promise<string>;
+
 export function AgentRoster():Promise<string>;
 
 export function AgentRosterAdd(arg1:string,arg2:string):Promise<string>;
