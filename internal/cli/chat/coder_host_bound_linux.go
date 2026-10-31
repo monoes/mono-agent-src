@@ -45,6 +45,8 @@ type boundLaunch struct {
 	binder *procbind.Binder // the registry the host's services answer from
 	// afterMint is a test seam: it runs between the transaction of step 4 and the revocation read of step 5.
 	afterMint func()
+	// afterKill is a test seam: it runs right after the leader was signalled on a failed delivery.
+	afterKill func()
 }
 
 // boundDelivery is one turn's frame pipe, pidfd and registration.
@@ -99,6 +101,9 @@ func (d *boundDelivery) kill() {
 	}
 	if d.pidfd >= 0 {
 		_ = unix.PidfdSendSignal(d.pidfd, unix.SIGKILL, nil, 0)
+	}
+	if d.b != nil && d.b.afterKill != nil {
+		d.b.afterKill()
 	}
 }
 
@@ -190,7 +195,7 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 		// an error does not prove that nothing was written (a commit can fail after it was applied): the token is ended
 		// by its own id, so a row that did land is revoked and cannot be accepted
 		err = fmt.Errorf("could not bind the turn's token: %w", err)
-		if rerr := b.revokeByID(ctx, profile, procbind.KindSession, id); rerr != nil {
+		if rerr := b.revokeByID(profile, procbind.KindSession, id); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
 		return undo(err)
@@ -247,7 +252,10 @@ func validateMint(req procbind.MintRequest, key []byte, profile string) error {
 }
 
 // revokeByID ends one v2 token by its id (and its live registration), whether or not its mint is known to have landed.
-func (b *boundLaunch) revokeByID(ctx context.Context, profile string, kind procbind.Kind, id string) error {
+// It runs under a context of its own: the one that failed the mint may be the very deadline that has run out.
+func (b *boundLaunch) revokeByID(profile string, kind procbind.Kind, id string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	sel := procbind.Selector{Profile: profile, Kind: kind, TokenID: id}
 	return procbind.Revoker{DB: b.db, Binder: b.binder}.Run(ctx, []procbind.Kind{kind}, procbind.Scope{Profile: profile, TokenID: id},
 		func(*sql.Conn) ([]procbind.Selector, error) { return []procbind.Selector{sel}, nil })
