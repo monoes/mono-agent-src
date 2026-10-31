@@ -106,6 +106,9 @@ func (s *Store) VerifyMission(ctx context.Context, profileID, presented string) 
 	if strings.HasPrefix(presented, procbind.TaskPrefixV2) {
 		return s.verifyMissionV2(ctx, profileID, presented)
 	}
+	if strings.HasPrefix(presented, procbind.SessionPrefixV2) {
+		return Token{}, ErrInvalid // a session token of the v2 family is no mission token: it never meets the legacy lookup
+	}
 	t, err := s.verify(ctx, presented)
 	if err != nil {
 		return Token{}, err

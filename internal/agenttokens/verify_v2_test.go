@@ -219,22 +219,62 @@ func TestV2MissionTokenIsDeniedWithoutAHostRow(t *testing.T) {
 // A v2-prefixed secret never reaches the legacy table: a legacy row whose hash equals the secret's hash is not found.
 func TestV2PrefixedSecretNeverFallsBackToTheLegacyTable(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
-	tok, _, err := s.CreateMission(ctx, "default", missionB, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secret, _, _ := procbind.NewSecret(procbind.TaskPrefixV2)
-	if _, err := s.db.Exec(`UPDATE agent_tokens SET token_hash = ? WHERE id = ?`, Hash(secret), tok.ID); err != nil {
-		t.Fatal(err)
-	}
-	for _, withVerifier := range []bool{false, true} {
-		if withVerifier {
-			s.SetV2Verifier(&procbind.V2Check{Dial: func(string) (net.Conn, error) { return nil, errors.New("no socket") }})
+	// the session family's prefix too: the mission path must not hand an mst2- secret to the legacy lookup either
+	for _, prefix := range []string{procbind.TaskPrefixV2, procbind.SessionPrefixV2} {
+		s := newStore(t)
+		tok, _, err := s.CreateMission(ctx, "default", missionB, time.Hour)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if _, err := s.VerifyMission(ctx, "default", secret); !errors.Is(err, ErrInvalid) {
-			t.Fatalf("verifier=%v: err = %v, want ErrInvalid", withVerifier, err)
+		secret, _, _ := procbind.NewSecret(prefix)
+		if _, err := s.db.Exec(`UPDATE agent_tokens SET token_hash = ? WHERE id = ?`, Hash(secret), tok.ID); err != nil {
+			t.Fatal(err)
 		}
+		for _, withVerifier := range []bool{false, true} {
+			if withVerifier {
+				s.SetV2Verifier(&procbind.V2Check{Dial: func(string) (net.Conn, error) { return nil, errors.New("no socket") }})
+			}
+			if _, err := s.VerifyMission(ctx, "default", secret); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("prefix %s, verifier=%v: err = %v, want ErrInvalid", prefix, withVerifier, err)
+			}
+		}
+	}
+}
+
+// A token revoked after the row checks passed and before the service answered is denied: the revocation is read again
+// after the answer, which is the authorization boundary. The Dial hook revokes the token in the window between the two.
+func TestV2MissionTokenRevokedBetweenTheChecksAndTheAnswerIsDenied(t *testing.T) {
+	r := newV2Rig(t, nil)
+	ctx := context.Background()
+	if _, err := r.verify(); err != nil {
+		t.Fatalf("before the revocation: %v", err)
+	}
+	r.s.SetV2Verifier(&procbind.V2Check{Timeout: 3 * time.Second, Dial: func(string) (net.Conn, error) {
+		key, err := procbind.RowKeyIfExists(ctx, r.s.db, r.profile)
+		if err != nil {
+			t.Error(err)
+		}
+		if _, err := procbind.RevokeTx(ctx, r.s.db, func(string) ([]byte, error) { return key, nil },
+			procbind.Selector{Kind: procbind.KindMission, Profile: r.profile, TokenID: r.id}, "revoked", time.Now()); err != nil {
+			t.Error(err)
+		}
+		return procbind.DialUnix(r.sock) // the service has not heard of the revocation: it still allows
+	}})
+	if _, err := r.verify(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a token revoked during the verification was accepted: %v", err)
+	}
+}
+
+// A token that expires after the row checks passed and before the service answered is denied too: the clock is read
+// again after the answer. The Dial hook moves the verifier's clock past the expiry in the window between the two.
+func TestV2MissionTokenExpiringBetweenTheChecksAndTheAnswerIsDenied(t *testing.T) {
+	r := newV2Rig(t, nil)
+	offset := time.Duration(0)
+	r.s.SetV2Verifier(&procbind.V2Check{Timeout: 3 * time.Second,
+		Now:  func() time.Time { return time.Now().Add(offset) },
+		Dial: func(string) (net.Conn, error) { offset = 2 * time.Hour; return procbind.DialUnix(r.sock) }})
+	if _, err := r.verify(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a token that expired during the verification was accepted: %v", err)
 	}
 }
 

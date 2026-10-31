@@ -190,6 +190,28 @@ func TestV2SessionTokenIsDeniedWhenTheServiceDoesNotAnswer(t *testing.T) {
 	}
 }
 
+// A session token revoked after the row checks passed and before the service answered is denied, as for a mission token.
+func TestV2SessionTokenRevokedBetweenTheChecksAndTheAnswerIsDenied(t *testing.T) {
+	r := newSessRig(t, nil)
+	if _, err := r.st.VerifySessionToken(r.secret); err != nil {
+		t.Fatalf("before the revocation: %v", err)
+	}
+	r.st.SetV2Verifier(&procbind.V2Check{Timeout: 3 * time.Second, Dial: func(string) (net.Conn, error) {
+		key, err := procbind.RowKeyIfExists(t.Context(), r.st.db, "p")
+		if err != nil {
+			t.Error(err)
+		}
+		if _, err := procbind.RevokeTx(t.Context(), r.st.db, func(string) ([]byte, error) { return key, nil },
+			procbind.Selector{Kind: procbind.KindSession, Profile: "p", TokenID: r.id}, "revoked", time.Now()); err != nil {
+			t.Error(err)
+		}
+		return procbind.DialUnix(r.sock)
+	}})
+	if _, err := r.st.VerifySessionToken(r.secret); !errors.Is(err, ErrSessionToken) {
+		t.Fatalf("a token revoked during the verification was accepted: %v", err)
+	}
+}
+
 // A legacy session token verifies as before with the v2 verifier set, and the v2 secret is not a legacy one.
 func TestLegacySessionTokenIsUnchangedByTheV2Verifier(t *testing.T) {
 	r := newSessRig(t, nil)
