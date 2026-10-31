@@ -189,6 +189,8 @@ export function useCoderBubbles() {
       // A history row or a conversation record names its level; a bare { id } (a task's chat) is read from the row later.
       access: isAccess(conv.access) ? conv.access : '', title: conv.title || '', effort: conv.effort || '', orgMode: conv.orgMode === 'dynamic' ? 'dynamic' : '',
       taskId: conv.taskId || '', taskKind: '',
+      // An agent opened from an orbit: a lite pane, kept out of the dock (its parent's key and its task session).
+      ...(conv.lite ? { lite: true, parentKey: conv.parentKey || '', sessionId: conv.sessionId || 0 } : {}),
       // Only a record or a history row that names the level makes it known; the pane looks the rest up.
       verified: isAccess(conv.access),
     }])
@@ -197,6 +199,23 @@ export function useCoderBubbles() {
       .catch(() => {})
     if (open) expand(key)
     return key
+  }, [expand])
+
+  // openChild opens an agent of an orbit (a circle: { id, conversationId, title }) as a
+  // lite pane over its parent's bubble. The child is a real conversation; one already open
+  // as a full bubble just expands.
+  const openChild = useCallback((parentKey, circle) => {
+    if (!circle?.conversationId) return ''
+    return openConversation({ id: circle.conversationId, title: circle.title, lite: true, parentKey, sessionId: circle.id })
+  }, [openConversation])
+
+  // closeLite closes a lite pane and hands the screen back to its parent's pane, if it has one open.
+  const closeLite = useCallback((key) => {
+    const b = bubblesRef.current.find(x => x.key === key)
+    dropBubble(key)
+    if (b?.parentKey && bubblesRef.current.some(x => x.key === b.parentKey)) expand(b.parentKey)
+  // dropBubble only uses state setters and a ref.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expand])
 
   // openDraft opens a new coder chat. Seeded with { prompt, setup, links,
@@ -362,7 +381,7 @@ export function useCoderBubbles() {
     bubbles, side, expandedKey, summaries,
     summaryOf: key => (key.startsWith('org:') ? orgSummaryOf(key) : coderSummaryOf(key)),
     setHilNeeds,
-    expand, collapse, openDraft, openNewChat, openConversation, openOrg, patchBubble, bindConversation, unbindConversation, close, reorder, setSide,
+    expand, collapse, openDraft, openNewChat, openConversation, openChild, closeLite, openOrg, patchBubble, bindConversation, unbindConversation, close, reorder, setSide,
     getView, setView,
     // bossOf is the org's boss once its design was read ('' before).
     bossOf: name => bosses.current[name] || '',
