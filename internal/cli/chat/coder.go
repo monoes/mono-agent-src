@@ -1,12 +1,15 @@
 package chat
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -71,6 +74,11 @@ type coderSettings struct {
 	// coding-access chat runs inside the agent sandbox (internal/agentbox). Nothing turns it
 	// on; only the operator changes it.
 	Box string `json:"box,omitempty"`
+	// PeercredBinding (security.peercred_binding) asks that a turn's tokens be bound to the turn's process by the
+	// kernel-checked binding service (internal/procbind). Off by default. Only the operator changes it, and it can be
+	// switched on only where procbind.Refusal says nothing: while the build cannot issue bound tokens, switching it on
+	// is refused and, if the setting is on anyway (a hand edit), every turn start is refused (coder_host_gate.go).
+	PeercredBinding bindingFlag `json:"peercredBinding,omitempty"`
 }
 
 const (
@@ -140,6 +148,21 @@ func (s coderSettings) defaultAccess() string {
 // appAccess reports coder.appAccess; unset is on.
 func (s coderSettings) appAccess() bool { return s.AppAccess == nil || *s.AppAccess }
 
+// bindingFlag is the peer-credential setting as stored. It is read conservatively, in ONE way everywhere (status, the
+// setter and the launcher gate all decode this type): anything but a plain false or null counts as on, and a key
+// that occurs more than once (or in other letter case, which encoding/json folds) is on if ANY occurrence is on or
+// unreadable, because the decoder calls this for every occurrence and a later "false" never clears an earlier "on".
+// Reading a junk value never fails, so `coder set --peercred-binding off` can always overwrite it: the stored JSON is
+// written again from the struct, which has the key once.
+type bindingFlag bool
+
+func (f *bindingFlag) UnmarshalJSON(b []byte) error {
+	if s := string(bytes.TrimSpace(b)); s != "false" && s != "null" {
+		*f = true
+	}
+	return nil
+}
+
 func onOff(on bool) string {
 	if on {
 		return "on"
@@ -147,9 +170,19 @@ func onOff(on bool) string {
 	return "off"
 }
 
+// settingsRW is what the settings need of a database, a connection or a transaction.
+type settingsRW interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 func loadCoderSettings(db *sql.DB) (coderSettings, error) {
+	return loadCoderSettingsFrom(context.Background(), db)
+}
+
+func loadCoderSettingsFrom(ctx context.Context, db settingsRW) (coderSettings, error) {
 	var raw string
-	err := db.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
+	err := db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return coderSettings{}.withDefaults(), nil
 	}
@@ -164,6 +197,10 @@ func loadCoderSettings(db *sql.DB) (coderSettings, error) {
 }
 
 func saveCoderSettings(db *sql.DB, s coderSettings) error {
+	return saveCoderSettingsTo(context.Background(), db, s)
+}
+
+func saveCoderSettingsTo(ctx context.Context, db settingsRW, s coderSettings) error {
 	if s.orgWritersDefaulted { // the default is not the operator's choice: keep it unset
 		s.OrgWriters = ""
 	}
@@ -174,7 +211,7 @@ func saveCoderSettings(db *sql.DB, s coderSettings) error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at)
+	_, err = db.ExecContext(ctx, `INSERT INTO configs (name, config_data, created_at, updated_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT(name) DO UPDATE SET config_data = excluded.config_data, updated_at = excluded.updated_at`,
 		coderConfigName, string(b))
@@ -182,6 +219,48 @@ func saveCoderSettings(db *sql.DB, s coderSettings) error {
 		return fmt.Errorf("saving coder settings: %w", err)
 	}
 	return nil
+}
+
+// updateCoderSettings reads the settings, lets change alter them and writes them back inside ONE write transaction
+// (BEGIN IMMEDIATE), so two writers cannot both read the old struct and the second one's save undo the first one's
+// (a concurrent `coder set --box` could otherwise erase an operator's peer-credential setting, and the reverse). It
+// returns the settings as saved; an error from change leaves the stored settings as they were.
+func updateCoderSettings(ctx context.Context, db *sql.DB, change func(s *coderSettings) error) (coderSettings, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return coderSettings{}, err
+	}
+	defer conn.Close()
+	for attempt := 0; ; attempt++ { // only the BEGIN is retried when the database is busy
+		if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err == nil || attempt >= 4 || !strings.Contains(err.Error(), "locked") && !strings.Contains(err.Error(), "BUSY") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond << attempt)
+	}
+	if err != nil {
+		return coderSettings{}, fmt.Errorf("saving coder settings: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
+		}
+	}()
+	s, err := loadCoderSettingsFrom(ctx, conn)
+	if err != nil {
+		return coderSettings{}, err
+	}
+	if err := change(&s); err != nil {
+		return coderSettings{}, err
+	}
+	if err := saveCoderSettingsTo(ctx, conn, s); err != nil {
+		return coderSettings{}, err
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return coderSettings{}, fmt.Errorf("saving coder settings: %w", err)
+	}
+	committed = true
+	return s, nil
 }
 
 // coderStatus is `coder status --json`. Ready and MissingCapabilities are
@@ -333,17 +412,18 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
-			s, err := loadCoderSettings(db.DB)
+			var s coderSettings
+			if change != nil {
+				ctx := cmd.Context()
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				s, err = updateCoderSettings(ctx, db.DB, func(s *coderSettings) error { return change(cmd, s) })
+			} else {
+				s, err = loadCoderSettings(db.DB)
+			}
 			if err != nil {
 				return err
-			}
-			if change != nil {
-				if err := change(cmd, &s); err != nil {
-					return err
-				}
-				if err := saveCoderSettings(db.DB, s); err != nil {
-					return err
-				}
 			}
 			st := currentCoderStatus(cmd, s)
 			if cfg.JSONOutput() {
@@ -353,6 +433,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
+			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s (off by default; it cannot be switched on in this build yet)\n", onOff(bool(st.PeercredBinding)))
 			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s (off by default; best-effort hardening, not isolation: the host network is shared and the host root is read-only)\n", st.Box)
 			if !st.Ready {
 				fmt.Fprintf(cmd.OutOrStdout(), "missing monomind capabilities: %v\n", st.MissingCapabilities)
