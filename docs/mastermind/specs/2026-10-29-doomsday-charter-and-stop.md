@@ -1,9 +1,10 @@
 # Doomsday mode: charter and Stop (B0 spec and threat model)
 
 Epic #1148, issue #1152 (B0). Plan: `docs/mastermind/plans/2026-10-29-doomsday-mode-and-agent-purposes.md`
-(PR #1147), section 2 and the decisions in section 4. Status: **spec only, revision 2**. Nothing is
-built. The mission series (#1106) has merged; B1 may not start until the independent review of this
-document passes. Revision 2 answers the first independent review (two design reviews, request-changes):
+(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 3. B1 code may not start on an area until its prerequisite contract (section 13) is
+closed.** Nothing is
+built. The mission series (#1106) has merged; The independent review of this document is a gate; section 13 lists the contracts it still leaves
+open, each blocking the implementation that touches its area. Revision 2 answers the first independent review (two design reviews, request-changes):
 Stop is now a protocol with a barrier, an emergency path and a membership registry (section 5); the
 adversary boundary is stated as a tiered guarantee (section 2); authority is an immutable per-operation
 allowlist (section 4); the person-less wording is reconciled (section 6); and the earlier addendum is
@@ -89,15 +90,18 @@ What follows from T3, stated plainly:
   and the mission-mode limits are untouched; a session outside the charter is refused at the old limit):
   1. `tree_depth`: levels of the session tree. Default 4, charter maximum 12 (Q1). Replaces the hard limit 4
      **for charter sessions only**.
-  2. `live_per_tree`: live sessions below the root (today 12). Default 12; "unbounded" means a queue
-     (limit 5), not simultaneous processes.
+  2. `live_per_tree`: live sessions below the root (today 12). Charter default **30**, so that the default
+     pair below is valid; "unbounded" means a queue (limit 5), not simultaneous processes.
   3. `spawn_rate`: spawns per lead per 10 minutes (today 6).
   4. `open_sessions`: non-archived sessions of the profile (today 50) for sessions of this run.
   5. `max_concurrent`: processes running at once. A **cap**, not a promise; the governor (section 8) can only
-     lower it. Default 30 (the operator's settled decision D3). What actually runs is
-     `min(max_concurrent, live_per_tree, what the governor allows)`; entry **validates and shows** the
-     effective number, and refuses a charter whose `max_concurrent` exceeds `live_per_tree` unless the same
-     charter raises `live_per_tree` to at least that value, so nobody reads 30 as the real parallelism.
+     lower it. Default 30 (the operator's settled decision D3). The two limits count **different units** and
+     each gates independently: a session launch takes one slot of `live_per_tree` **and** one of
+     `max_concurrent`; a tool process takes one `max_concurrent` slot only; the root counts toward
+     `max_concurrent` and not toward `live_per_tree`. Slots are reserved in the registry transaction (5.4),
+     so concurrent launches cannot both take the last slot. The default pair (30 and 30) is valid. Entry
+     **validates and shows** the effective numbers, requires an explicit choice when an operator sets
+     `max_concurrent` above `live_per_tree`, and the governor can only lower either.
   6. `max_total`: sessions alive or queued; the queue and its storage are bounded (section 8).
   7. Budget: a USD ceiling for the run, in micro-dollars like the existing meters, or the explicit value
      **"no ceiling"**. "No ceiling" does not cancel a bound of an ancestor or of a reservation already
@@ -231,9 +235,11 @@ and a MAC. `state` moves only forward:
   transaction (or its documented retry, 5.3) that also moves the state.
 - **`cleanup-pending`**: processes of T2 are being ended and the membership registry (5.4) still lists work
   that has not acknowledged cancellation.
-- **`quiescent`** is reached only when the registry has no live member and every T2 process is gone or
-  reported as unidentifiable. The word "stopped" is **never** shown while a survivor exists: the pane and
-  the CLI print the state and the list of survivors.
+- **`quiescent`** is reached only when the registry has no live member and every T2 process is **proven**
+  gone. A process whose identity cannot be proven is *unknown*, not gone: the run stays `cleanup-pending`
+  with the unknown processes listed (a process that escaped the unit and was never registered cannot be
+  listed, and Stop says so rather than claiming a complete list). The word "stopped" is **never** shown
+  while a survivor or an unknown process exists: the pane and the CLI print the state and the list.
 - The fence is the **persisted generation and state**, never a lease or an expiry: a clock rolled back or an
   expired lease cannot make a stale grant valid, and a lost row is read as "not admitting".
 - The only writers are the operator verb `doomsday stop` (and the pane, dock and tray, which shell out to it)
@@ -251,14 +257,24 @@ the guarantee is defined by a **host-owned barrier**, not by a conditional inser
   `{generation, operation id, deadline}` only if the state is `running`. `Dispatch` re-checks the state
   under the same lock **immediately before** the external call or the process start and registers the
   effect in the membership registry (5.4) **in the same step**.
-- **Stop closes the barrier**: it takes the **exclusive** side of the lock and writes `stop-requested`
-  while holding it. After the exclusive acquire returns, no `Admit` succeeds and no `Dispatch` proceeds.
-- **The linearization point** is that exclusive acquire. What is guaranteed:
+- **One ordering for every writer.** The first durable act of any Stop is the **stop marker** (5.3: an
+  atomically created, fsynced file in the run directory, readable without the database or the vault key).
+  The host closes its barrier when it observes the marker or receives the emergency message; a dispatcher
+  that runs outside the host (the CLI, the daemon) reads the marker, not a host-local lock, before it
+  admits or starts work. The database intent follows and is the record of the steps. The CLI therefore
+  never needs the host's lock and no writer waits for another.
+- **The barrier** is the host's exclusive side of the lock: after the host's exclusive acquire returns, no
+  `Admit` succeeds and no `Dispatch` proceeds in the host. A dispatcher holds the shared side **until the
+  irreversible start has been issued** (the process created, or the request handed to the transport); the
+  registry entry says `admitted` before that point and `started` after it (13.1).
+- **The linearization point** is that exclusive acquire (or, for a process outside the host, the moment it
+  reads the marker). What is guaranteed:
   - an effect whose `Dispatch` completed **before** the point is *admitted-before-Stop*: it may complete
     (a request already on the wire cannot be recalled) and it is cancelled by context and reported;
-  - an effect whose `Dispatch` has not completed at the point does **not** start: the dispatcher sees the
-    closed barrier and returns a refusal; a worker paused between check and effect resumes into the
-    refusal, not into the call.
+  - an effect whose start has not been issued at the point does **not** start: because the shared lock is
+    held until the start is issued, the exclusive acquire waits for a dispatcher that is mid-start and
+    refuses every later one; a worker paused before `Dispatch` resumes into the refusal. The exact meaning
+    of "issued" per effect kind (a process, a local file operation, a remote request) is contract 13.1.
 - **A process is registered and pinned before it can execute**: the host creates it stopped or inside the
   containment unit (5.5), records `{pid, pidfd, start stamp, unit}` in the registry, then lets it run. A
   crash between creation and registration leaves the unit, which recovery enumerates (5.3), never an
@@ -270,28 +286,36 @@ the guarantee is defined by a **host-owned barrier**, not by a conditional inser
 
 ### 5.3 The independent emergency path, durable intent and recovery
 
-Stop must not depend on the first transaction succeeding.
+Stop must not depend on the first database transaction succeeding, or on the vault key.
 
-1. The CLI writes the **stop intent** with a bounded retry (a short busy timeout, N attempts, jittered),
-   never an unbounded wait. If it cannot write, it **does not report success**: it prints
-   "stop not recorded", exit non-zero, and moves to step 2 anyway.
-2. **Emergency channel.** The host listens on a local, authenticated stop channel (a Unix socket in a
-   private directory, accepted only for the operator's UID, with the peer-credential check of the
-   peer-credential design and a per-run secret read from the vault-derived key). The CLI sends the stop
-   there **in addition** to the database write. On receipt the host closes the barrier **in memory first**,
-   cancels in-flight contexts, signals the processes it pinned, then retries the database write until it
-   succeeds or the operator intervenes.
-3. **Host not running.** The CLI itself runs the containment-unit kill for the run (the unit is a
-   process group or cgroup recorded in a small file next to the host's run-state, written at registration)
-   and writes the intent directly. A dead host cannot do either; the CLI does.
-4. **Recovery on every host start** (before accepting any work): read the highest generation; if its state
-   is not `running`, or the intent exists, resume the Stop from the recorded step; enumerate the units and
-   pinned processes of that generation; kill; mark `quiescent` only when they are gone.
-5. **Failure is visible.** Lock contention, a full or read-only disk, an I/O error, a failed key lookup in the
-   revocation step: each leaves `stop-requested` with the failing step recorded and printed, a retry
-   schedule, and the pane shows "stop requested, authority not yet revoked" until it is. The state never
-   claims a step that did not happen.
-6. Power loss, a host/power/network failure and a running provider are outside what Stop can change;
+1. **The stop marker.** Any Stop (the CLI, the pane, the daemon, the emergency message) first creates the
+   marker `<run directory>/<generation>.stop` atomically (create-exclusive, then fsync of the file and the
+   directory). It needs no database and no key. If even this fails (the disk is read-only or full), the
+   command prints **"NOT RECORDED"** and exits non-zero, then still performs steps 2 and 3, and reports
+   which process-ending actions it did perform. It never prints success for a step it did not complete.
+2. **Emergency channel.** The host listens on a local stop channel: a Unix socket in a private directory,
+   accepted only for the operator's UID, checked with the peer credentials of the peer-credential design. It
+   is authenticated by a **per-run random secret generated at entry and stored in the run directory with
+   mode 0600** (not derived from the vault key), so a failed key lookup cannot block it. On receipt the host
+   closes the barrier in memory, cancels in-flight contexts, signals the processes it pinned, and writes the
+   marker if the sender could not.
+3. **Host not running.** The CLI itself runs the containment-unit kill for the run, using the durable unit
+   identity of contract 13.2, after writing the marker. A dead host cannot do either; the CLI does.
+4. **The database intent** follows, with a bounded retry (a short busy timeout, N attempts, jittered), never
+   an unbounded wait: `stop-requested`, then revocation of every token and cancellation of queued commands
+   in one transaction. The failing step is recorded and printed; the pane shows "stop requested, authority
+   not yet revoked" until it is.
+5. **Recovery on every host start, before it accepts any work.** The host keeps a **clean-shutdown record**
+   (written at an orderly exit, removed at start). At start: (a) any generation with a marker, or with a
+   non-`running` state, resumes its Stop from the recorded step; (b) after an **unclean** host loss (no
+   clean-shutdown record), **every previously `running` generation is refused and reconciled, never
+   resumed**: its tokens are revoked, its units are enumerated and ended, and the operator starts a new run
+   if they want one. A marker or an unclean loss can therefore never be forgotten by a crash that happens
+   after the in-memory close and before the database write.
+6. **Audit and emergency.** Record-then-act (section 6) does **not** apply to the emergency actions of this
+   section: they act first and record best-effort, and the missing records are reconciled from the marker and
+   the registry at the next start. The pane shows that the record is incomplete.
+7. Power loss, a host/power/network failure and a running provider are outside what Stop can change;
    the pane states what remains possible.
 
 ### 5.4 The run-membership registry
@@ -387,7 +411,8 @@ Deterministic barriers (injected pause points), not sleeps:
   chained to the previous row's, and no delete path. It records: the operator's entry (who/what, the hash),
   the charter id and generation, every admission and **denied attempt**, every boss answer with model and
   provider/version, every Stop request, step and partial cleanup. A write failure **refuses the action it
-  would have recorded** (record-then-act, in one transaction where the action is a database effect). It
+  would have recorded** (record-then-act, in one transaction where the action is a database effect),
+  except for the emergency actions of 5.3, which act first. It
   claims integrity against mediated writers, not against the same-user database writer (tier T3).
 - The boss's model comes from the "judging" purpose **as pinned in the charter** (section 3.1), and is a
   different model from the work it judges when more than one validated model exists. With one, the same-model
@@ -489,7 +514,8 @@ See section 12.5 for the questions, each with the recommended default and the co
 
 ## 11. Phases that follow
 
-B1 (charter, entry and exit, the Stop protocol and its tests) ships alone, **before any loop**, with the tests
+B1 (charter, entry and exit, the Stop protocol and its tests) ships alone, **before any loop**, and each
+area of it waits for its prerequisite contract of section 13, with the tests
 of 5.7 and the guard tests above; it begins with the inventories this document leaves open (the platform
 caps, the dispatchers of 5.4, the send paths of attack 23). The rest (B2 boss routing, B3 governor, B4
 strategy, B5 UI, B6 acceptance) follow the plan. The independent review of this document and of B1's diff is a
@@ -514,7 +540,7 @@ gate, not a courtesy.
 | Live sessions per tree, spawn rate | `internal/coderhost/children.go:61`; 6 per 10 minutes |
 | Walkers that use the depth constant | `internal/tasks/session_tree.go:41`, `internal/tasks/reservation_ancestor.go:40` |
 | Tree stop is a periodic parent-link walk | `internal/coderhost/treecascade.go:17` |
-| AI task cancellation has its own lifecycle | `internal/aitask/service.go:367` |
+| AI task cancellation has its own lifecycle | `internal/aitask/service.go:367-368` (`Cancel` is at 368) |
 | A merge continues after a turn stops (today) | `internal/dynorg/worktree_test.go:849` |
 | Per-run platform caps | **no single enforcement function located**; per-node limits and per-grant call limits exist; B1 must find or create the one point before the line can be lifted |
 
@@ -537,9 +563,13 @@ environment-and-ancestry refusal `operator.Refusal()`: coder mode enable
 proof of a human identity and not a signed record. Whether this mode reuses exactly that, or needs a stronger
 record, is a security-posture decision for the operator (Q9).
 
-### 12.4 Not decided here
+### 12.4 What is provisional
 
-Nothing in this document chooses the operator's questions below; each states a recommended default.
+The operator has not answered the questions below. **Every value or rule in the body that a question in
+12.5 asks about is provisional until the operator answers**: the depth maximum, same-model boss and the
+verifier rule, the preset's exclusion of platform caps, the model pins, the tier-T3 offer and confinement
+default, single-host refusal, the acknowledgement strength, no amendment, and the merge exception. The
+recommendations are proposals, not rules, and a reviewer should read them that way.
 
 ### 12.5 Questions for the operator, recommended defaults and the review's conditions
 
@@ -577,3 +607,59 @@ Nothing in this document chooses the operator's questions below; each states a r
     admitted-before-Stop (it may finish, which keeps the repository consistent as today's test requires) and
     report it; a merge not yet begun does not start. The alternative, abandoning a begun merge, risks a dirty
     worktree.
+
+## 13. B1 prerequisite contracts (known open items)
+
+The reviews of revisions 1 and 2 left these designs unfinished. They are **not** solved here. Each is
+**BLOCKING for the implementation PR that touches its area**: before that code lands, a design note that
+closes the contract and a test plan (written as failing tests where possible) must land and pass the
+independent review. B1 work in an area without its note is refused at review.
+
+**13.1 Dispatch lock and "started" (blocks: every dispatcher, spawn, the barrier).**
+Define exactly what the shared lock covers and when `Dispatch` completes, per effect kind: a process
+start, a local file effect, a remote request. Decide whether the lock is held through the irreversible
+start or whether "dispatch completed" is declared *admitted* (the effect may then physically start after
+Stop) and say which effects are in which class. Cover hangs while holding the lock, the CLI/daemon
+dispatchers outside the host (they read the marker, 5.3), and the registry states `admitted` and `started`.
+Test plan: injected pause points at every gap, for both the host and the marker path.
+
+**13.2 Containment with a durable identity (blocks: process start, host-down Stop, recovery).**
+Name the Linux primitive (a cgroup, or a pid namespace) whose identity survives a host restart and is safe
+against reuse; a process group can be left with `setsid`, a pidfd cannot be persisted. Define the identity
+proof checked before the CLI or a restarted host signals a unit, who owns the unit after the host dies,
+crash-safe creation before the first instruction, and the fail-closed result when the primitive is
+unavailable (the mode refuses to start). Define `quiescent` against it: proven, never with an unknown
+process. Test plan: escape by `setsid`, id reuse, restart, unknown identities.
+
+**13.3 Merge and other begun-effect lifecycles (blocks: org runs, worktree merges).**
+A begun merge is registered, visible and crash-recoverable until it ends; Stop's signals and the
+acknowledgement rule allow it explicitly (inside or outside the unit, stated); a new run cannot start while
+it runs; host death mid-merge has a defined repair. The existing test covers a turn stopping, not this
+Stop, and is not evidence for the protocol.
+
+**13.4 Typed approvals bound to the exact effect (blocks: the boss's answers, every lifted operation).**
+Define the canonical per-operation constraint schema **inside the charter** (named accounts, destinations,
+paths, secrets, amounts), the matching semantics (including path and symlink resolution and destination
+normalisation), and an approval record that binds the canonical operation, all resolved arguments, the
+target and the generation, consumed **once, atomically, at dispatch**. Caller binding: the bearer token
+alone does not prove the presenting process; until the peer binding issues tokens the guarantee for stolen
+or forwarded tokens is limited and is stated as such. Test plan: substitution of arguments, targets,
+generations and callers across every backend.
+
+**13.5 Anti-replay, freshness and the single host (blocks: the run, audit and registry tables).**
+A monotonic transition sequence (or an external stop tombstone) so that a restored same-generation snapshot
+or a truncated prefix of the registry or audit chain is detected; the ordered writes between the database and
+the host's high-water file and their crash recovery; behaviour when the file is missing, corrupt or restored
+together with the database (state it honestly); an enforceable single-host lock or lease with stale-owner
+recovery and detection of copied state (a host-local file alone cannot prove exclusivity).
+
+**13.6 Finishing: freeze, recheck, trusted criteria (blocks: the finish path).**
+The subject is frozen (or the version rechecked atomically) with the closing of admission, so evidence is
+fresh at the moment of finish, and a changed subject parks completion; criteria are chosen by the charter
+and a worker-written test or build script is not accepted as evidence of itself; each criterion states what
+it proves, with the confined environment's writable scratch and network rules; a rubric needs an operator
+decision workflow, and a rejection or an unavailable operator leaves completion parked, not failed open.
+
+Each contract's note names its tests, and B1 does not claim a property of this document until its test
+exists and fails when the mechanism is removed.
+
