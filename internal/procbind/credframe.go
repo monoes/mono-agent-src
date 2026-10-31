@@ -19,6 +19,13 @@ import (
 // mission confirmation; each occurs at most once. The whole frame stays within PipeBuf, so one write(2) delivers it
 // whole or not at all, and the decoder rejects anything that is not exactly a frame.
 
+// The prefixes of v2 token secrets. They differ from the legacy ones ("mst-", "mat-") on purpose: a legacy verifier,
+// including an older binary, never resolves a v2 secret, and a v2 verifier looks a v2 secret up only in the v2 tables.
+const (
+	SessionPrefixV2 = "mst2-"
+	TaskPrefixV2    = "mat2-"
+)
+
 // CredKind names an entry of a frame.
 type CredKind byte
 
