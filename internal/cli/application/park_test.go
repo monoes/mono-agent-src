@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -610,3 +611,99 @@ func TestFillResumeCancelsATaskWhenClearingTheObservationFails(t *testing.T) {
 		}
 	})
 }
+
+// Two resumes of one parked tab at once: exactly one starts a task and holds the tab; the other changes nothing.
+func TestTwoResumesOfOneTabAtOnceHaveOneWinner(t *testing.T) {
+	dbPath := homeDB(t)
+	ids := jobs(t, dbPath, 1)
+	b := &browser{}
+	b.install(t, dbPath)
+	if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+		t.Fatalf("queue: %v (%s)", err, out)
+	}
+	b.mu.Lock()
+	b.started = nil
+	b.mu.Unlock()
+	b.status = aitask.StatusRunning
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, errs[i] = runWith(t, testDeps(dbPath, true), "fill", "resume", ids[0])
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	if (errs[0] == nil) == (errs[1] == nil) {
+		t.Fatalf("exactly one resume must win: %v / %v", errs[0], errs[1])
+	}
+	b.mu.Lock()
+	started := len(b.started)
+	b.mu.Unlock()
+	if started != 1 {
+		t.Fatalf("%d tasks started, want 1", started)
+	}
+	withDB(t, dbPath, func(db *sql.DB) {
+		tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+		var running int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM ai_tasks WHERE id = ? AND status = ?`, tab.TaskID, aitask.StatusRunning).Scan(&running)
+		if tab.State != applypark.StateActive || running != 1 {
+			t.Fatalf("tab = %+v, running tasks under it = %d", tab, running)
+		}
+	})
+}
+
+// A real database error while cancelling is joined into what giveBack returns, with the cause: the failure to stop
+// the task is never dropped.
+func TestGiveBackJoinsADatabaseErrorOfTheCancel(t *testing.T) {
+	dbPath := homeDB(t)
+	var tabs applypark.Store
+	withDB(t, dbPath, func(db *sql.DB) { tabs = applypark.Store{DB: db, Profile: "default"} })
+	closed, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed.Close()
+	d := Deps{ProfileID: func() string { return "default" }}
+	cause := errors.New("boom")
+	err = d.giveBack(context.Background(), closed.DB, tabs, "app", "at-00000000000000a1", "", []string{"at-00000000000000a1"}, cause)
+	if !errors.Is(err, cause) || !strings.Contains(err.Error(), "could not be cancelled") {
+		t.Fatalf("err = %v, want the cause joined with the cancel failure", err)
+	}
+}
+
+// The resume committed (task started, linked, tab bound) and only writing its report failed: the error reaches the
+// caller, but nothing is undone.
+func TestResumeWhoseReportCannotBeWrittenStands(t *testing.T) {
+	dbPath := homeDB(t)
+	ids := jobs(t, dbPath, 1)
+	b := &browser{}
+	b.install(t, dbPath)
+	if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+		t.Fatalf("queue: %v (%s)", err, out)
+	}
+	b.status = aitask.StatusRunning
+	cmd := NewCommand(testDeps(dbPath, true))
+	cmd.SetArgs([]string{"fill", "resume", ids[0]})
+	cmd.SetOut(failingWriter{})
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("a failed report write was not reported")
+	}
+	withDB(t, dbPath, func(db *sql.DB) {
+		tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+		var running int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM ai_tasks WHERE id = ? AND status = ?`, tab.TaskID, aitask.StatusRunning).Scan(&running)
+		if tab.State != applypark.StateActive || running != 1 {
+			t.Fatalf("the committed resume was undone: tab = %+v, running = %d", tab, running)
+		}
+	})
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write refused") }
