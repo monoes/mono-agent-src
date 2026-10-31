@@ -135,6 +135,29 @@ func TestDirectionCapReadsTheStoredSettingEachTime(t *testing.T) {
 	}
 }
 
+// A stored document that cannot be read refuses the creation even though the parent has FREE capacity (no open
+// direction, so the default K of 3 would allow one): the parse failure is what refuses, not the limit.
+func TestUnreadableSettingsRefuseWithFreeCapacity(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	lead, lead1 := capLead(t, s, db, 3)
+	if _, err := db.Exec(`UPDATE coder_sessions SET settings = '{not json' WHERE conversation_id = 'conv-lead'`); err != nil {
+		t.Fatal(err)
+	}
+	if n := openDirections(t, db); n != 0 {
+		t.Fatalf("%d open directions, want free capacity", n)
+	}
+	_, err := newDirectionBy(s, lead, 0, lead1)
+	if err == nil {
+		t.Fatal("unreadable settings must fail closed")
+	}
+	if errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "are not readable") {
+		t.Fatalf("want the settings parse error, got: %v", err)
+	}
+	if n := openDirections(t, db); n != 0 {
+		t.Fatalf("%d directions were created", n)
+	}
+}
+
 // Creators racing for the last place: exactly one keeps it.
 func TestRacingDirectionCreatorsKeepExactlyK(t *testing.T) {
 	s, db, _ := newTestStore(t)
