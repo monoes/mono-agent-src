@@ -63,6 +63,9 @@ Consumption is a second insert-only table, `run_approval_consumed(approval_id PR
 means the approval is spent. There is no update and no delete of either table (the retention rule of the
 other insert-only tables applies).
 
+No lock, deadline or lease is assumed anywhere in this note: validity is by generation, charter hash and the
+consumed row, and the only waiting is the gate's, which note 13.1 bounds with an injected clock.
+
 Time does not govern validity. The approval carries a TTL **for display and housekeeping only**; what makes it
 void is the generation (a stopped or ended run), the consumed row, and the charter hash. A clock cannot
 revive or kill one.
@@ -85,13 +88,17 @@ revive or kill one.
       hash with `args_hash`; a mismatch refuses;
    4. re-checks the constraints at the effect (the resolved path under its root, the count and byte budget not
       exceeded);
-   5. passes the dispatch barrier of note 13.1 (`Admit`);
+   5. takes a ticket from the gate of note 13.1 (`Admit`, which refuses at once once the host has closed its
+      gate, even before the database intent commits);
    6. **consumes** the approval.
 5. **Where consumption sits.**
    - For an **E4** effect (a database effect), step 4.6 is the insert into `run_approval_consumed` in the
      **same transaction** as the effect: both happen or neither.
-   - For an **E1/E2/E3** effect, the consume is committed **immediately before** the process start or the hand-over
-     (inside `Started`/`Dispatch`), and the effect follows. If the host crashes between the consume and the
+   - For an **E1/E2/E3** effect, the order is fixed by note 13.1 revision 2: `Admit` → verify and
+     re-canonicalise (steps 4.1-4.4) → `BeginStart` (the irrevocable fence on future creation; it refuses once
+     the gate is `CLOSING`) → **consume** (committed) → the start or the hand-over → `Started`. The consume is
+     therefore after the fence and before the effect: an approval can never be spent by a start that Stop has
+     already fenced, and a fenced ticket leaves the approval unspent. If the host crashes between the consume and the
      effect, the approval is spent and the effect did not happen: that is the safe direction, and the agent
      must ask again.
    - Two concurrent presentations of one approval: the primary key admits one; the other gets a refusal.
@@ -157,6 +164,9 @@ the attempted ones, never secret values.
 | T15 | an operation not on the allowlist, and one on the never-liftable list | denied, with no way to approve |
 | T16 | inventory test: every path to each effect | fails if one bypasses the enforcement function |
 | T17 | two approvals for different arguments of one operation, presented crossed | each only for its own hash |
+| T18a | gate closes between `Admit` and `BeginStart` (a fenced ticket) | `BeginStart` refuses; the approval is **unspent** |
+| T18b | gate closes after `BeginStart`, before the consume | the ticket is `STARTING`; the consume and start proceed and the effect is admitted-before-Stop, or the host terminates per 13.1 section 5 |
+| T18c | a marker exists, the host has not yet closed its gate, an approval is presented | the effect is admitted-before-Stop (no bound is claimed for the gap); once the gate is closed `Admit` refuses |
 | T18 | mutation proof | dropping any one of: the hash compare, the generation check, the caller compare, the consume, the re-canonicalisation, fails a named test |
 
 ## 9. Branch points that depend on the operator's answers
