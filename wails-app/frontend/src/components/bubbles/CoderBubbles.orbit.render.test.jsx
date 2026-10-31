@@ -139,6 +139,16 @@ describe('the simple pane', () => {
     expect(pane.textContent).not.toMatch(/autonomy|budget|access level/i)
   })
 
+  it('shows no folder header and no attach button even when the agent runs in a coder workspace', async () => {
+    const pane = await openA()
+    await within(pane).findByTestId('lite-head')
+    const lite = store.bubbles.find(b => b.lite)
+    act(() => store.patchBubble(lite.key, { cwd: '/home/u/work/agent', access: 'full' }))
+    await within(pane).findByTestId('lite-head')
+    expect(within(pane).queryByTestId('coder-header')).toBeNull()
+    expect(within(pane).queryByRole('button', { name: 'Attach files' })).toBeNull()
+  })
+
   it('shows the title and state, a task board link, pause and stop, and a message box', async () => {
     const pane = await openA()
     expect(pane.querySelector('.lite-state')).toHaveTextContent('Running')
