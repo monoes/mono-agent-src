@@ -170,9 +170,33 @@ func TestNewSecretIsRandomPrefixedAndHashed(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 100; i++ {
 		s, h, err := NewSecret(SessionPrefixV2)
-		if err != nil || !strings.HasPrefix(s, "mst-") || len(s) != 4+43 || h != HashSecret(s) || len(h) != 64 || seen[s] {
+		if err != nil || !strings.HasPrefix(s, SessionPrefixV2) || len(s) != len(SessionPrefixV2)+43 || h != HashSecret(s) || len(h) != 64 || seen[s] {
 			t.Fatalf("%q %q %v", s, h, err)
 		}
 		seen[s] = true
+	}
+}
+
+// AnswerKeyIfExists gives the key AnswerKey gives for a profile that has one, and creates nothing for one that has not.
+func TestAnswerKeyIfExistsNeverCreatesAKey(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	if _, err := AnswerKeyIfExists(ctx, db, "fresh", "g1"); !errors.Is(err, ErrNoRowKey) {
+		t.Fatalf("a profile with no key: %v", err)
+	}
+	if vaultRowsOf(t, db, "fresh") != 0 {
+		t.Fatal("a key was created")
+	}
+	want, err := AnswerKey(ctx, db, "live", "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnswerKeyIfExists(ctx, db, "live", "g1")
+	if err != nil || string(got) != string(want) {
+		t.Errorf("a live profile's key differs: %v", err)
+	}
+	other, _ := AnswerKeyIfExists(ctx, db, "live", "g2")
+	if string(other) == string(got) {
+		t.Error("two generations share an answer key")
 	}
 }

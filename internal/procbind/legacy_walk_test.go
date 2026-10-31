@@ -539,10 +539,10 @@ func callsRowKey(t *testing.T, path string, src []byte) []string {
 			if !ok {
 				return true
 			}
-			if isPkgCall(c.Fun, pb, "RowKey") {
+			if isPkgCall(c.Fun, pb, "RowKey") || isPkgCall(c.Fun, pb, "AnswerKey") {
 				found = true
 			}
-			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "RowKey" && f.Name.Name == "procbind" {
+			if id, ok := c.Fun.(*ast.Ident); ok && (id.Name == "RowKey" || id.Name == "AnswerKey") && f.Name.Name == "procbind" {
 				found = true
 			}
 			return true
@@ -569,6 +569,9 @@ func TestTheRowKeyDetectorFindsOnlyRowKeyCalls(t *testing.T) {
 		"definition alone":            {"package procbind\nfunc RowKey(ctx, db, p) { return secrets.DeriveKey(ctx, db, p, purpose) }\n", ""},
 		"read-only":                   {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { procbind.RowKeyIfExists(ctx, db, p) }\n", ""},
 		"elsewhere":                   {"package x\nimport \"example.com/other\"\nfunc f() { other.RowKey(ctx, db, p) }\n", ""},
+		"answer key qualified":        {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { procbind.AnswerKey(ctx, db, p, g) }\n", "f"},
+		"answer key inside":           {"package procbind\nfunc f() { AnswerKey(ctx, db, p, g) }\n", "f"},
+		"answer key if exists":        {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { procbind.AnswerKeyIfExists(ctx, db, p, g) }\n", ""},
 	}
 	for name, c := range cases {
 		if got := strings.Join(callsRowKey(t, name+".go", []byte(c.src)), ","); got != c.want {
