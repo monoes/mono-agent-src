@@ -2001,6 +2001,12 @@ that works a task acts on them. The defences:
   sealed in the quoted-data fence, and a reply is data, not an instruction, to the lead that reads it. Neither grants access,
   budget, approval or a permission, and neither can carry a person's authority. The channel is no barrier against a lead that can
   run commands as the operator (see the courtesy-layer paragraph above).
+- **The agent orbit and the person verbs' read side.** `task session person full ID` shows the whole plan of one waiting item and changes
+  nothing; it is one of the person verbs, so it carries the same environment-and-ancestry courtesy layer as the others. The desktop app's
+  agent orbit (circles around a coder chat for the sessions below it) is a view of `task session list`: it holds no authority and writes
+  nothing. The simple agent pane's pause, resume and stop buttons call the operator's own `task session` verbs, with their gates; stop
+  asks for confirmation. Approval, budgets, archive and rename are not on the orbit. What the orbit shows (titles, states, spend) is
+  text written by agents, rendered as text and never as markup or an instruction.
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and
@@ -3021,7 +3027,7 @@ covered by the classes above.
 
 **Peer-credential binding records (storage only).** Migration 148 adds insert-only tables for a
 future process binding anchored in kernel peer credentials (design:
-`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). Nothing uses them yet. Their rows
+`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). No v2 token or binding is issued into them yet (nothing outside the package inserts one), so the feature is not live; the token revoke paths already read them in their own transaction and would record a revocation for a v2 token. Their rows
 cannot be updated, and can be deleted only once their expiry is more than 7 days past; no operation
 is exempt. A profile delete therefore leaves the profile's rows in those tables in place (its output
 lists them): they hold hashes, MACs, a pid and a start stamp and no secret, and they are inert once
