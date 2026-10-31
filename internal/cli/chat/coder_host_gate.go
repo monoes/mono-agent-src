@@ -29,6 +29,17 @@ type gatedLauncher struct {
 	// insideTurn says whether the host itself runs inside a coder session's turn (nil: it does not). Every turn it
 	// started would then be a descendant of that one, which a bound turn must not be.
 	insideTurn func() bool
+	// logf receives the class-level reason a service could not be started; the operator is told generically.
+	logf func(format string, args ...any)
+	// reason says why binding may not run (nil: procbind.Refusal); a seam for tests.
+	reason func(serviceRunning bool) string
+}
+
+func (g *gatedLauncher) why(running bool) string {
+	if g.reason != nil {
+		return g.reason(running)
+	}
+	return procbind.Refusal(running)
 }
 
 // bindingService is what the gate asks of the host's binding service.
@@ -59,12 +70,14 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	// The service is asked to start only when everything else allows it: while this build cannot issue bound
 	// tokens (or the machine cannot run it) nothing is ever started.
 	running := false
-	if g.svc != nil && procbind.Refusal(true) == "" {
+	if g.svc != nil && g.why(true) == "" {
 		if err := g.svc.Ensure(context.Background(), profile); err == nil {
 			running = g.svc.Running(profile)
+		} else if g.logf != nil {
+			g.logf("coder host: the binding service could not be started: %v", err)
 		}
 	}
-	if why := procbind.Refusal(running); why != "" {
+	if why := g.why(running); why != "" {
 		return nil, false, &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)"}
 	}
 	if g.bound == nil {
