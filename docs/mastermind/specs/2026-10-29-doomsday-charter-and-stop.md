@@ -1,7 +1,7 @@
 # Doomsday mode: charter and Stop (B0 spec and threat model)
 
 Epic #1148, issue #1152 (B0). Plan: `docs/mastermind/plans/2026-10-29-doomsday-mode-and-agent-purposes.md`
-(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 3. B1 code may not start on an area until its prerequisite contract (section 13) is
+(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 4. B1 code may not start on an area until its prerequisite contract (section 13) is
 closed.** Nothing is
 built. The mission series (#1106) has merged; The independent review of this document is a gate; section 13 lists the contracts it still leaves
 open, each blocking the implementation that touches its area. Revision 2 answers the first independent review (two design reviews, request-changes):
@@ -60,8 +60,8 @@ sentence in this document claims more than its tier**.
 
 | Tier | Work | What Stop guarantees | What it needs |
 |---|---|---|---|
-| T1 | **Host-mediated work**: everything that goes through a choke point of section 5.2 (spawn, enqueue, claim, token check, model call, send-gate approval, platform run, boss answer, tool call that costs money) | After the **barrier closes** no new work of the run is admitted; work admitted before it is cancelled and reported; no new authority exists (all tokens revoked) | Section 5 |
-| T2 | **Processes the host started** for the run (session children, tool processes), when the host started them inside the containment unit of section 5.5 | They are signalled to end, escalated, and the run is not `quiescent` until each is gone or reported | Linux with the containment unit (a process group or cgroup plus a held pidfd); on other systems the mode refuses to start (decision Q7) |
+| T1 | **Host-mediated work**: everything that goes through a choke point of section 5.2 (spawn, enqueue, claim, token check, model call, send-gate approval, platform run, boss answer, tool call that costs money) | After the **barrier closes** no new work of the run is admitted *by the host*; work admitted before it is **admitted-before-Stop**: it may complete and is cancelled and reported (outside dispatchers that read the marker do not serialize with the host's lock, 5.2); no new authority exists once the tokens are revoked | Section 5 and contract 13.1 |
+| T2 | **Processes the host started** for the run (session children, tool processes), when the host started them inside the containment unit of section 5.5 | They are signalled to end and escalated; the run is not `quiescent` until each is **proven gone**, and one whose identity cannot be proven is listed as *unknown* and keeps the run in `cleanup-pending` | Linux with a containment primitive whose identity survives a host restart (**not yet chosen: contract 13.2**; a process group and a held pidfd alone are not sufficient); on other systems the mode refuses to start (decision Q7) |
 | T3 | **Direct action by a full-access same-user worker** (A7): shell, network, files, the state database, the keychain, detached descendants that left the unit | **None.** Revoking a service token revokes no operating-system capability. Stop reports what it cannot prove (section 5.7) | An OS boundary this design does not provide: workers under a different user, or a confinement that withholds the database and key files |
 
 What follows from T3, stated plainly:
@@ -262,7 +262,11 @@ the guarantee is defined by a **host-owned barrier**, not by a conditional inser
   The host closes its barrier when it observes the marker or receives the emergency message; a dispatcher
   that runs outside the host (the CLI, the daemon) reads the marker, not a host-local lock, before it
   admits or starts work. The database intent follows and is the record of the steps. The CLI therefore
-  never needs the host's lock and no writer waits for another.
+  never needs the host's lock and no writer waits for another. **The limit, stated plainly:** a dispatcher
+  that reads the marker does not serialize with the host's exclusive acquire. Anything it started before it
+  read the marker is *admitted-before-Stop* too, and this document claims nothing stronger for it. Whether
+  such a dispatcher holds a lock to the start or is declared admitted at its check is contract 13.1's
+  choice; until it is closed, the guarantee for outside dispatchers is "admitted-before-Stop".
 - **The barrier** is the host's exclusive side of the lock: after the host's exclusive acquire returns, no
   `Admit` succeeds and no `Dispatch` proceeds in the host. A dispatcher holds the shared side **until the
   irreversible start has been issued** (the process created, or the request handed to the transport); the
@@ -293,10 +297,29 @@ Stop must not depend on the first database transaction succeeding, or on the vau
    directory). It needs no database and no key. If even this fails (the disk is read-only or full), the
    command prints **"NOT RECORDED"** and exits non-zero, then still performs steps 2 and 3, and reports
    which process-ending actions it did perform. It never prints success for a step it did not complete.
+   **Marker lifecycle** (every disagreement fails closed *for the affected generation*, never for another):
+   - A repeated Stop whose create-exclusive hits an existing marker is **idempotent success after the
+     content is verified** (generation, charter id, a MAC under the per-run secret); unverified content is
+     treated as the corrupt case.
+   - A **corrupt or unreadable** marker counts as a stop for its generation (the run is refused, not resumed)
+     and is reported.
+   - **Database says `running`, marker exists**: the marker wins; the host reconciles the database forward.
+   - **Database says stopped (or later), no marker**: the database wins; the marker is recreated for the record.
+   - A marker is **named by generation** and a generation number is never reused (a monotonic counter, 13.5),
+     so a stale marker of an old generation cannot stop a new one and a new run cannot be mistaken for an old
+     one.
+   - **A write or fsync failure** of the marker is a failure of the marker step (printed, "NOT RECORDED"); the
+     command does not proceed as if it were written.
+   - **What this does not protect against:** a same-user worker (tier T3) can delete or forge the marker and
+     read the secret; mode 0600 does not protect against the same UID. The marker makes the mediated paths
+     and a crash safe, not a hostile same-user process.
 2. **Emergency channel.** The host listens on a local stop channel: a Unix socket in a private directory,
    accepted only for the operator's UID, checked with the peer credentials of the peer-credential design. It
    is authenticated by a **per-run random secret generated at entry and stored in the run directory with
-   mode 0600** (not derived from the vault key), so a failed key lookup cannot block it. On receipt the host
+   mode 0600** (not derived from the vault key), so a failed key lookup cannot block it. A **missing or
+   unreadable secret is an explicit failure**: the receiver reports it, the sender falls back to step 3
+   (the independent containment attempt) and the generation is treated as stop-requested. Mode 0600 keeps out
+   other users, not the same UID. On receipt the host
    closes the barrier in memory, cancels in-flight contexts, signals the processes it pinned, and writes the
    marker if the sender could not.
 3. **Host not running.** The CLI itself runs the containment-unit kill for the run, using the durable unit
@@ -306,7 +329,11 @@ Stop must not depend on the first database transaction succeeding, or on the vau
    in one transaction. The failing step is recorded and printed; the pane shows "stop requested, authority
    not yet revoked" until it is.
 5. **Recovery on every host start, before it accepts any work.** The host keeps a **clean-shutdown record**
-   (written at an orderly exit, removed at start). At start: (a) any generation with a marker, or with a
+   (written at an orderly exit, removed at start). **An orderly shutdown never writes "clean" while a stop was
+   requested and not recorded**: the host keeps an in-memory *stop-unrecorded* flag, set when the emergency
+   message arrives and cleared only when the marker **and** the database intent are durable; while it is set,
+   the shutdown writes a durable **fail-closed record** instead of a clean one (and a run that had an
+   emergency receipt is refused at the next start even if that record could not be written). At start: (a) any generation with a marker, or with a
    non-`running` state, resumes its Stop from the recorded step; (b) after an **unclean** host loss (no
    clean-shutdown record), **every previously `running` generation is refused and reconciled, never
    resumed**: its tokens are revoked, its units are enumerated and ended, and the operator starts a new run
@@ -381,8 +408,14 @@ Deterministic barriers (injected pause points), not sleeps:
   instruction; recovery finds the unit and ends it; no untracked process.
 - **Crash at each Stop step:** kill the host between intent, revocation, cancellation, kill and `quiescent`;
   on restart the run does not resume and recovery completes.
-- **Failure of the first transaction:** lock contention, full disk, I/O error, failed key lookup; the CLI
-  prints "not recorded", the emergency channel still closes the barrier, and nothing reports success.
+- **Failure of each durable step, separately:** (a) the marker write/fsync fails, (b) the database intent fails
+  (lock contention, full disk, I/O error), (c) the revocation fails (failed key lookup). The output says which
+  step is not recorded ("NOT RECORDED" is for the marker; the others print their own state), the emergency
+  channel still closes the barrier, and nothing reports success. After each, a host crash and restart does
+  not resume the run, including an **orderly shutdown** with the stop-unrecorded flag set.
+- **Marker lifecycle:** a repeated Stop, a corrupt marker, database `running` with a marker, database stopped
+  with no marker, a stale marker of an old generation against a new run, a missing secret: each fails closed
+  for its own generation only.
 - **Host down and app closed:** the CLI ends the unit and writes the intent.
 - **Survivors:** a worker that ignores the signal keeps the run in `cleanup-pending` and listed; `quiescent`
   is never printed with a survivor.
@@ -621,7 +654,10 @@ start, a local file effect, a remote request. Decide whether the lock is held th
 start or whether "dispatch completed" is declared *admitted* (the effect may then physically start after
 Stop) and say which effects are in which class. Cover hangs while holding the lock, the CLI/daemon
 dispatchers outside the host (they read the marker, 5.3), and the registry states `admitted` and `started`.
-Test plan: injected pause points at every gap, for both the host and the marker path.
+Include the **marker path**: a dispatcher outside the host that reads the marker does not serialize with the
+host's exclusive acquire, so the note must say whether such a dispatcher holds a lock to the start or is
+declared *admitted* at its check, and the corrupt, stale and disagreeing marker cases of 5.3. Test plan:
+injected pause points at every gap, for both the host and the marker path.
 
 **13.2 Containment with a durable identity (blocks: process start, host-down Stop, recovery).**
 Name the Linux primitive (a cgroup, or a pid namespace) whose identity survives a host restart and is safe
@@ -651,7 +687,10 @@ A monotonic transition sequence (or an external stop tombstone) so that a restor
 or a truncated prefix of the registry or audit chain is detected; the ordered writes between the database and
 the host's high-water file and their crash recovery; behaviour when the file is missing, corrupt or restored
 together with the database (state it honestly); an enforceable single-host lock or lease with stale-owner
-recovery and detection of copied state (a host-local file alone cannot prove exclusivity).
+recovery and detection of copied state (a host-local file alone cannot prove exclusivity). Also the marker's
+lifecycle across generations (a monotonic, never-reused generation number; a marker that cannot be told from
+a forged or stale one is read as a stop for its generation) and the ordering of the marker, the database
+intent and the high-water file on crash.
 
 **13.6 Finishing: freeze, recheck, trusted criteria (blocks: the finish path).**
 The subject is frozen (or the version rechecked atomically) with the closing of admission, so evidence is
@@ -662,4 +701,3 @@ decision workflow, and a rejection or an unavailable operator leaves completion 
 
 Each contract's note names its tests, and B1 does not claim a property of this document until its test
 exists and fails when the mechanism is removed.
-
