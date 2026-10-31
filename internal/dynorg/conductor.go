@@ -69,9 +69,11 @@ type Conductor struct {
 	mu sync.Mutex
 	// closeMu serialises mission_finish proposals (mission_close.go).
 	closeMu sync.Mutex
-	workers map[string]*worker
-	order   []string
-	spawned int
+	// beforeRecord is a test seam: it runs right before mission_evaluate/mission_reevaluate write their record.
+	beforeRecord func()
+	workers      map[string]*worker
+	order        []string
+	spawned      int
 	// taskRuns: tasks that already had a worker this turn; a retry of one does not count
 	// against Limits.MaxAgents in a mission turn (mission_cap.go).
 	taskRuns map[int64]bool

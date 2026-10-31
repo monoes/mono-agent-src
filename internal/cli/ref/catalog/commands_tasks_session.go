@@ -175,6 +175,20 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session budget 3 --usd 20 --auto-close off"},
 	},
 	{
+		Name:     "task session reservation list",
+		Short:    "List the money workers hold out of a session's budget, newest first (read-only; the operator, or an agent for its own session)",
+		Usage:    "monoagentcli [--profile P] task session reservation list SESSION [--json]",
+		Examples: []string{"monoagentcli --profile work --json task session reservation list 3"},
+	},
+	{
+		Name:  "task session reservation resolve",
+		Short: "Say what an expired worker reservation cost: it is charged to the session and its hold is released (the operator only)",
+		Usage: "monoagentcli [--profile P] task session reservation resolve ID --usd N [--note TEXT]",
+		Flags: `  --usd float    What the reservation cost in total, in dollars, 0 to 1000000000 (not below what it already charged; 0 charges nothing more); required
+  --note string  Where the figure comes from (kept on the reservation)`,
+		Examples: []string{`monoagentcli --profile work task session reservation resolve 7 --usd 1.25 --note "from the provider bill"`},
+	},
+	{
 		Name:  "task split",
 		Short: "Replace a session task that has not begun by two or more; they keep its dependencies and what waited for it waits for all of them (the operator or an agent)",
 		Usage: "monoagentcli [--profile P] task split ID --into \"TITLE|ACCEPTANCE\" --into \"TITLE|ACCEPTANCE\"... [--as NAME]",
