@@ -32,6 +32,9 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 		Store: store, ProfileID: profileID, ConversationID: conversationID,
 		Actor: missionActor, Access: t.access, Confirmed: t.missionConfirmed,
 	}
+	if s, err := coderhost.NewStore(db).GetSettings(profileID, conversationID); err == nil {
+		m.MaxDirections = s.MissionDirections // the operator's K; a store that cannot answer leaves the default
+	}
 	if !m.Confirmed && (m.HasOpenSession(ctx) || missionToggleOn(db, profileID, conversationID)) {
 		m.Confirmed = true
 		// Confirmed by the toggle (or by a mission already open), not by the operator's hand on this turn: the
