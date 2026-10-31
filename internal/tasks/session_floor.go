@@ -27,7 +27,7 @@ func (s *Store) budgetFloor(ctx context.Context, x dbx, se Session, budget float
 	if err != nil {
 		return err
 	}
-	if budget+budgetEps < c.Floor() {
+	if budget*1e6+1e-6 < float64(toMicros(c.Floor())) {
 		return limit("budget $%.2f is below the $%.4f already committed on session #%d (spent $%.4f, reservations $%.4f, children $%.4f): "+
 			"raise it to at least that, or pause the session to halt it", budget, c.Floor(), se.ID, c.Spent, c.Held, c.ChildCommitted)
 	}

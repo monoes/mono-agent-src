@@ -191,3 +191,14 @@ func TestSetBudgetUnchangedIsNotAFloorQuestion(t *testing.T) {
 		t.Fatalf("restating the budget: %v", err)
 	}
 }
+
+func TestSetBudgetFloorIsNotSoftenedByAFractionOfAMicroDollar(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 0)
+	setSpent(t, db, id, 1e-6)
+	_, err := setBudget(s, id, 0.0000009995)
+	wantFloorRefusal(t, err)
+	if _, err := setBudget(s, id, 1e-6); err != nil {
+		t.Fatalf("exactly the committed amount is allowed: %v", err)
+	}
+}

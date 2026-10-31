@@ -337,8 +337,8 @@ func (s *Store) AddSessionSpend(ctx context.Context, profileID string, id int64,
 	if !finite(usd) || usd <= 0 {
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
-	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		return s.applySpend(ctx, x, id, usd, note, actor)
+	return s.sessionWriteIf(ctx, profileID, id, func(x dbx, se Session) (bool, error) {
+		return toMicros(usd) != 0, s.applySpend(ctx, x, id, usd, note, actor)
 	})
 }
 
@@ -358,11 +358,11 @@ func (s *Store) AddSessionSpendWith(ctx context.Context, profileID string, id in
 	if !finite(usd) || usd <= 0 {
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
-	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
+	return s.sessionWriteIf(ctx, profileID, id, func(x dbx, se Session) (bool, error) {
 		if err := s.applySpend(ctx, x, id, usd, note, actor); err != nil {
-			return err
+			return false, err
 		}
-		return also(ctx, x)
+		return toMicros(usd) != 0, also(ctx, x)
 	})
 }
 

@@ -106,3 +106,35 @@ func TestSpendWithRunsItsRecordEvenForAZeroCharge(t *testing.T) {
 		t.Fatalf("past the cap must refuse before the record: %v ran %d", err, ran)
 	}
 }
+
+func sessionRev(t *testing.T, db dbx, id int64) int64 {
+	t.Helper()
+	var rev int64
+	err := db.QueryRowContext(bg, `SELECT COALESCE((SELECT rev FROM task_session_rev WHERE session_id = ?), 0)`, id).Scan(&rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rev
+}
+
+func TestAZeroChargeLeavesTheSessionRevisionAlone(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 10)
+	before := sessionRev(t, db, id)
+	ran := false
+	if _, err := s.AddSessionSpendWith(bg, "default", id, 4e-7, "tiny", human, func(context.Context, Tx) error { ran = true; return nil }); err != nil || !ran {
+		t.Fatalf("zero charge: err %v, record ran %v (it must still run)", err, ran)
+	}
+	if _, err := s.AddSessionSpend(bg, "default", id, 4e-7, "tiny", human); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRev(t, db, id); got != before {
+		t.Fatalf("a zero charge moved the revision %d -> %d: an approval guarded on it would be refused", before, got)
+	}
+	if _, err := s.AddSessionSpend(bg, "default", id, 1, "real", human); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRev(t, db, id); got == before {
+		t.Fatal("a real charge must move the revision")
+	}
+}

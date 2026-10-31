@@ -147,6 +147,12 @@ func (s *Store) touchSession(ctx context.Context, x dbx, id int64) error {
 // sessionWrite runs fn on session id in one write transaction and returns the session as
 // it is afterwards. fn sees the session as it was; the revision moves once.
 func (s *Store) sessionWrite(ctx context.Context, profileID string, id int64, fn func(x dbx, se Session) error) (Session, error) {
+	return s.sessionWriteIf(ctx, profileID, id, func(x dbx, se Session) (bool, error) { return true, fn(x, se) })
+}
+
+// sessionWriteIf is sessionWrite where fn says whether it changed the session: when it did not, the session's
+// revision and updated_at stay as they were (a revision-guarded approval must not be refused over a no-op).
+func (s *Store) sessionWriteIf(ctx context.Context, profileID string, id int64, fn func(x dbx, se Session) (bool, error)) (Session, error) {
 	var out Session
 	err := s.tx(ctx, func(x dbx) error {
 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
@@ -156,11 +162,14 @@ func (s *Store) sessionWrite(ctx context.Context, profileID string, id int64, fn
 		if err != nil {
 			return err
 		}
-		if err := fn(x, se); err != nil {
+		changed, err := fn(x, se)
+		if err != nil {
 			return err
 		}
-		if err := s.touchSession(ctx, x, id); err != nil {
-			return err
+		if changed {
+			if err := s.touchSession(ctx, x, id); err != nil {
+				return err
+			}
 		}
 		out, err = s.sessionTx(ctx, x, profileID, id)
 		return err
