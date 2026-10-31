@@ -127,10 +127,15 @@ func (h *BindingHost) Running(profile string) bool {
 }
 
 // Ensure starts the profile's service if it is not running. It fails closed: any step that does not work leaves
-// nothing listening and no host row for this start.
+// nothing listening. A host row (migration 148) written before a later step failed stays: it is signed, names a
+// generation nobody serves, and so can only make a verifier's question go unanswered (a deny) until the next start
+// writes a newer row; it grants nothing.
 func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	if profile == "" {
 		return errors.New("a binding service needs a profile")
+	}
+	if h.Binder == nil { // checked before the nil pointer could land in the service's lease interface (a non-nil interface holding nil)
+		return errors.New("the binding host has no registry")
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()

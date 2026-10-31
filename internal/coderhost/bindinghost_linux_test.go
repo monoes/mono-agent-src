@@ -202,3 +202,13 @@ func TestTwoProfilesGetTwoBindingServices(t *testing.T) {
 		t.Error("profile b's service allowed profile a's token")
 	}
 }
+
+// A host without a registry is refused before anything is started (a nil pointer must not reach the service's lease
+// interface as a non-nil interface).
+func TestEnsureRefusesAHostWithoutARegistry(t *testing.T) {
+	h, _, _ := bindingRig(t)
+	h.Binder = nil
+	if err := h.Ensure(context.Background(), "p"); err == nil || h.Running("p") {
+		t.Fatalf("Ensure without a Binder: %v (running=%v)", err, h.Running("p"))
+	}
+}
