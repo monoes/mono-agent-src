@@ -1,12 +1,15 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // Budget requests (phase P-F of docs/mastermind/plans/2026-10-27-mission-child-sessions.md). When a mission's
@@ -380,6 +383,13 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return BudgetRequest{}, ErrBudgetRequestClosed
+	}
+	if b.Target == TargetChild { // with the raise in place the mission and its ancestors must still hold (the whole tree)
+		if why, err := tasks.Overcommitted(context.Background(), ctxQuerier{tx}, profileID, b.SessionID); err != nil {
+			return BudgetRequest{}, err
+		} else if why != "" {
+			return BudgetRequest{}, fmt.Errorf("%w: %s", ErrLimit, why)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return BudgetRequest{}, err

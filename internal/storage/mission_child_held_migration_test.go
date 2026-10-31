@@ -48,8 +48,13 @@ func TestMissionChildHeldViewMigrationAppliesOnHeadAndFreshDatabases(t *testing.
 	if err := fresh.DB.QueryRow(`SELECT COUNT(*) FROM v_mission_child_held`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("view on a fresh database: %d rows, %v", n, err)
 	}
-	var typ string
-	if err := fresh.DB.QueryRow(`SELECT type FROM sqlite_master WHERE name = 'v_mission_child_held'`).Scan(&typ); err != nil || typ != "view" {
-		t.Fatalf("v_mission_child_held is a %q, %v", typ, err)
+	for _, v := range []string{"v_mission_child_held", "v_mission_child_linked"} {
+		var typ string
+		if err := fresh.DB.QueryRow(`SELECT type FROM sqlite_master WHERE name = ?`, v).Scan(&typ); err != nil || typ != "view" {
+			t.Fatalf("%s is a %q, %v", v, typ, err)
+		}
+		if err := head.DB.QueryRow(`SELECT COUNT(*) FROM ` + v).Scan(&n); err != nil {
+			t.Fatalf("%s on the head database: %v", v, err)
+		}
 	}
 }
