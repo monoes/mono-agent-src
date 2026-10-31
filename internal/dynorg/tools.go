@@ -253,6 +253,8 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 		return c.handleMissionFinish(ctx, args)
 	case ToolMissionSessionSpawn:
 		return c.handleMissionSessionSpawn(ctx, args)
+	case ToolMissionEvaluate, ToolMissionReevaluate:
+		return c.handleMissionEvaluate(ctx, name, args)
 	// --- end of mission verification and closing tools ---
 	case ToolMerge:
 		var a struct {
