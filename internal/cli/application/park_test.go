@@ -573,3 +573,40 @@ func TestFillResumeCancelsATaskItCouldNotLink(t *testing.T) {
 		}
 	})
 }
+
+// The fill started and linked, then clearing the old submit observation failed: the resume reports failure, so it
+// gives the tab back and cancels the task instead of leaving it filling.
+func TestFillResumeCancelsATaskWhenClearingTheObservationFails(t *testing.T) {
+	dbPath := homeDB(t)
+	ids := jobs(t, dbPath, 1)
+	b := &browser{}
+	b.install(t, dbPath)
+	if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+		t.Fatalf("queue: %v (%s)", err, out)
+	}
+	withDB(t, dbPath, func(db *sql.DB) {
+		if _, err := db.Exec(`CREATE TRIGGER no_clear BEFORE UPDATE OF submit_observed_at ON application_fills BEGIN SELECT RAISE(ABORT, 'clear refused'); END`); err != nil {
+			t.Fatal(err)
+		}
+	})
+	realSubmit := submitTask
+	var made string
+	submitTask = func(ctx context.Context, args []string) ([]byte, error) {
+		made = flagValues(args, "--task-id")[0]
+		return realSubmit(ctx, args)
+	}
+	b.status = aitask.StatusRunning
+	if _, err := run(t, dbPath, true, "fill", "resume", ids[0]); err == nil || !strings.Contains(err.Error(), "clear refused") {
+		t.Fatalf("resume = %v", err)
+	}
+	withDB(t, dbPath, func(db *sql.DB) {
+		task, err := (&aitask.Store{DB: db, Profile: "default"}).Get(made)
+		if err != nil || task.Status != aitask.StatusCancelled {
+			t.Fatalf("the task of a resume reported as failed: %+v %v", task, err)
+		}
+		tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+		if tab == nil || tab.State != applypark.StateParked {
+			t.Fatalf("tab = %+v", tab)
+		}
+	})
+}

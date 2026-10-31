@@ -223,7 +223,8 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 		}
 	}
 	if err := applypark.ClearObserved(ctx, db.DB, id); err != nil {
-		return err
+		// The task is started and linked; the resume is reported as failed, so it is undone, not left running.
+		return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, []string{taskID}, err)
 	}
 	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": taskID, "tabId": tab.TabID, "tabState": map[bool]string{true: "active", false: "lost"}[parked]})
 }
