@@ -120,6 +120,22 @@ transaction, `Drop` after the commit (design section 7).
   therefore fail because the v2 tables are not writable. That is kept (a delete must not leave a live v2 token),
   only for deletes and session ends; `doctor` reports a delete that is blocked for this reason.
 - Each site has a test that a previously allowed caller is denied once the call returns.
+- **Row keys (3d, as built).** Revocation reads a profile's row key with `procbind.RowKeyIfExists` (no create path;
+  the vault row is read on every call, not from the per-handle cache). A profile with no data key is inert: its
+  retained rows are signed under a key that no longer exists, so `RevokeTx` skips them (`ErrNoRowKey`). A profile
+  that is keyless when the keys are read but has a key inside the revoking transaction is refused
+  (`ErrRowKeyAppeared`) and `Revoker.Run` starts over, so a key that appears is never mistaken for none.
+- **Normative requirement for 3c and 4 (verification).** `secrets.ForgetProfile` empties the cached data keys of
+  the CURRENT process only; another process that warmed `RowKey` before a profile delete keeps serving the old key
+  from its cache. Therefore **every verification path** (anything that checks a retained v2 row's MAC, or a
+  revocation, on behalf of a caller) must obtain the row key with `RowKeyIfExists` (no cache) or re-check the
+  vault row at verify time; `RowKey` (get-or-create, cached) is for the mint only. `internal/procbind`'s
+  `TestIssuanceStaysOffUntilTheRevocationGuardsExist` fails if `IssuanceReady` is true while any production code
+  outside the reviewed mint sites calls `RowKey`.
+- **The source walk is a heuristic.** It reads call identities and import paths from the syntax tree, with no type
+  information; the protection it stands for is the behavioural tests that revoke through every path (the
+  `Test…Revokes…V2…` and `…RollsBack…` tests of `agenttokens`, `coderhost`, `ai`, `cli/profile`) and the mutation
+  checks recorded in the review. A new site that ends a token needs its own behavioural test, not only the walk.
 
 **3b. Host wiring.** `coder host` creates the socket directory (`ListenSecure`), writes the host-start row,
 serves (`Server.Serve`) with the Binder as registry, and on shutdown revokes everything and closes. Started only
