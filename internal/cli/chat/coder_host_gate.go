@@ -13,7 +13,10 @@ import (
 // security.peercred_binding is off it only passes every call on, untouched. While it is on and procbind.Refusal
 // has a cause (this build does not issue bound tokens, the machine cannot run the service, or the service is
 // not up), every turn start is refused with that cause: never a weaker mode. The setting is read at every start,
-// so a hand-edited setting refuses too, and so does one switched on after the host started.
+// so a hand-edited setting refuses too, and so does one switched on after the host started. A start that is already past
+// this check when the setting is switched on goes on as it was (legacy) and the next start is refused; the window is the
+// few milliseconds between the read and the launch, and switching the setting on is refused anyway while the build cannot
+// issue bound tokens.
 type gatedLauncher struct {
 	inner coderhost.Launcher
 	db    *sql.DB
@@ -36,16 +39,16 @@ func (g *gatedLauncher) refusal() error {
 	if err != nil {
 		return &bindingRefusal{"the turn was not started: the coder settings could not be read, so whether peer-credential binding is on is not known"}
 	}
+	// The same decoding as `coder status` and the setter (bindingFlag): conservative about junk and duplicate keys.
 	var s struct {
-		On json.RawMessage `json:"peercredBinding"`
+		On bindingFlag `json:"peercredBinding"`
 	}
 	if json.Unmarshal([]byte(raw), &s) != nil {
 		return &bindingRefusal{"the turn was not started: the coder settings are unreadable, so whether peer-credential binding is on is not known"}
 	}
-	if len(s.On) == 0 || string(s.On) == "false" || string(s.On) == "null" {
+	if !s.On {
 		return nil // off
 	}
-	// anything else (true, or a value that is not a plain false) counts as on
 	if why := procbind.Refusal(g.service != nil && g.service()); why != "" {
 		return &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)"}
 	}

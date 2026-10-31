@@ -1,10 +1,13 @@
 package chat
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/procbind"
@@ -203,4 +206,113 @@ func TestThePeercredSettingCannotBeSwitchedOnYet(t *testing.T) {
 	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
 		t.Errorf("off did not clear the setting: %s", out)
 	}
+}
+
+// The setting is read in ONE conservative way by the gate, `coder status` and the setter: a duplicated key, a key in
+// another letter case and a junk value all count as on if any occurrence is not a plain false or null.
+func TestTheSettingIsReadTheSameConservativeWayEverywhere(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	for name, raw := range map[string]string{
+		"true then null":         `{"peercredBinding":true,"peercredBinding":null}`,
+		"true then false":        `{"peercredBinding":true,"peercredBinding":false}`,
+		"false then true":        `{"peercredBinding":false,"peercredBinding":true}`,
+		"other letter case":      `{"peercredBinding":false,"PeercredBinding":true}`,
+		"junk then false":        `{"peercredBinding":"on","peercredBinding":false}`,
+		"false then junk string": `{"peercredBinding":false,"peercredBinding":"yes"}`,
+	} {
+		g, inner := gateRig(t, raw)
+		if _, err := g.Start("p", "c", "t", "m", nil, ""); err == nil || len(inner.calls) != 0 {
+			t.Errorf("%s (gate): a start went through: %v", name, err)
+		}
+		var s coderSettings
+		if err := json.Unmarshal([]byte(raw), &s); err != nil || !bool(s.PeercredBinding) {
+			t.Errorf("%s (status decoding): on=%v err=%v", name, s.PeercredBinding, err)
+		}
+	}
+	// plain false and null, in any number, stay off
+	for name, raw := range map[string]string{
+		"false twice":    `{"peercredBinding":false,"peercredBinding":false}`,
+		"null and false": `{"peercredBinding":null,"peercredBinding":false}`,
+	} {
+		g, inner := gateRig(t, raw)
+		if _, err := g.Start("p", "c", "t", "m", nil, ""); err != nil || len(inner.calls) != 1 {
+			t.Errorf("%s: a start was refused: %v", name, err)
+		}
+	}
+}
+
+// `coder set --peercred-binding off` overwrites any stored junk, including a duplicated key, and leaves the key once.
+func TestOffOverwritesAJunkSetting(t *testing.T) {
+	asOperator(t)
+	for name, raw := range map[string]string{
+		"a string":      `{"enabled":true,"peercredBinding":"on"}`,
+		"a number":      `{"enabled":true,"peercredBinding":7}`,
+		"an object":     `{"enabled":true,"peercredBinding":{"x":1}}`,
+		"duplicated on": `{"enabled":true,"peercredBinding":true,"peercredBinding":true}`,
+	} {
+		dbPath := newChatCLITestDB(t)
+		db, err := storage.NewDatabase(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			ON CONFLICT(name) DO UPDATE SET config_data = excluded.config_data`, coderConfigName, raw); err != nil {
+			t.Fatal(err)
+		}
+		if out, _ := runCoderCLI(t, dbPath, "status"); !strings.Contains(out, `"peercredBinding":true`) {
+			t.Errorf("%s: status does not show a junk setting as on: %s", name, out)
+		}
+		if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=off"); code != 0 {
+			t.Errorf("%s: off was refused (exit %d)", name, code)
+		}
+		var stored string
+		if err := db.DB.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(stored, "peercredBinding") {
+			t.Errorf("%s: the stored settings still carry the key: %s", name, stored)
+		}
+		db.Close()
+	}
+}
+
+// The production `coder host run` installs the gate: the host it builds launches through a gatedLauncher, which
+// refuses a start when the setting is on. Putting the bare launcher back fails this test.
+func TestTheProductionHostInstallsTheGate(t *testing.T) {
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: true}) // hand-edited on
+	builtc := make(chan *coderhost.Host, 1)
+	old := hostBuilt
+	hostBuilt = func(h *coderhost.Host) { builtc <- h }
+	t.Cleanup(func() { hostBuilt = old })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	var built *coderhost.Host
+	select {
+	case built = <-builtc:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host was not built: %v", <-errc)
+	}
+	g, ok := built.L.(*gatedLauncher)
+	if !ok {
+		cancel()
+		<-errc
+		t.Fatalf("the production host launches through %T, not the gate", built.L)
+	}
+	if _, err := g.Start("default", "c", "t", "m", nil, ""); err == nil {
+		t.Error("the production gate let a start through with the setting on")
+	}
+	cancel()
+	<-errc
 }
