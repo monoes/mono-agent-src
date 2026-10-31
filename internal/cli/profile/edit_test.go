@@ -384,10 +384,16 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 			t.Errorf("%s: the note claims every row is removed: %q", what, note)
 		}
 	}
-	checkKept := func(what string, got map[string]int) {
+	// The seeded profile has no data key (the rows were inserted directly), so its live session token cannot be
+	// revoked: it is inert, and the delete writes no revocation row for it. Every retained table keeps one row.
+	checkKept := func(what string, got map[string]int, revocations int) {
 		for tbl := range retainedOnDelete {
-			if got[tbl] != 1 {
-				t.Errorf("%s does not say that %s keeps 1 row (kept: %v)", what, tbl, got)
+			want := 1
+			if tbl == "token_revocations_v2" {
+				want = revocations
+			}
+			if got[tbl] != want {
+				t.Errorf("%s does not say that %s keeps %d row(s) (kept: %v)", what, tbl, want, got)
 			}
 		}
 	}
@@ -396,13 +402,13 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkKept("delete --summary", keptOf(sum))
+	checkKept("delete --summary", keptOf(sum), 1)
 	checkNote("delete --summary", noteOf(sum))
 	out, err := runCaptured(t, dbPath, "delete", id, "--yes-delete-profile", "doomed")
 	if err != nil {
 		t.Fatalf("the delete failed because of insert-only rows: %v", err)
 	}
-	checkKept("the delete output", keptOf(out))
+	checkKept("the delete output", keptOf(out), 1)
 	checkNote("the delete output", noteOf(out))
 	db, err = storage.NewDatabase(dbPath)
 	if err != nil {
@@ -411,8 +417,9 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	defer db.Close()
 	for tbl := range retainedOnDelete {
 		var n int
-		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM "`+tbl+`" WHERE profile_id = ?`, id).Scan(&n); err != nil || n != 1 {
-			t.Errorf("%s: %d row(s) after the profile delete, want the 1 retained (%v)", tbl, n, err)
+		want := 1
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM "`+tbl+`" WHERE profile_id = ?`, id).Scan(&n); err != nil || n != want {
+			t.Errorf("%s: %d row(s) after the profile delete, want the %d retained (%v)", tbl, n, want, err)
 		}
 	}
 	var gone int

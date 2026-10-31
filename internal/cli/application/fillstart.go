@@ -152,7 +152,7 @@ func (d Deps) fillStart(cmd *cobra.Command, id, runtime string) error {
 		return err
 	}
 	if err := d.linkTask(ctx, store, id, task); err != nil {
-		return fmt.Errorf("task %s started but could not be linked to the application: %w", task.ID, err)
+		return &startedTaskError{ID: task.ID, Err: fmt.Errorf("task %s started but could not be linked to the application: %w", task.ID, err)}
 	}
 	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": task.ID, "conversationId": task.ConversationID, "status": task.Status})
 }
@@ -178,6 +178,9 @@ func (d Deps) submitFill(ctx context.Context, in applyfill.Input, sources []aita
 	if runtime != "" {
 		args = append(args, "--runtime", runtime)
 	}
+	if id, _ := ctx.Value(fillTaskIDKey{}).(string); id != "" {
+		args = append(args, "--task-id", id)
+	}
 	for _, s := range sources {
 		args = append(args, "--context", s.Class+"="+s.Path)
 	}
@@ -189,8 +192,32 @@ func (d Deps) submitFill(ctx context.Context, in applyfill.Input, sources []aita
 	if err := json.Unmarshal(bytes.TrimSpace(out), &t); err != nil || t.ID == "" {
 		return t, fmt.Errorf("aitask submit printed no task: %s", strings.TrimSpace(string(out)))
 	}
+	if want, _ := ctx.Value(fillTaskIDKey{}).(string); want != "" && t.ID != want {
+		return t, &wrongTaskError{Got: t.ID, Want: want}
+	}
 	return t, nil
 }
+
+// wrongTaskError: submit made a task, but not the one with the id asked for. The task exists and is not the
+// caller's to keep: whoever asked cancels it.
+type wrongTaskError struct{ Got, Want string }
+
+func (e *wrongTaskError) Error() string {
+	return fmt.Sprintf("aitask submit made task %s, not the %s asked for", e.Got, e.Want)
+}
+
+// startedTaskError: submit made task ID, then a later step failed. The task exists and is the caller's own, so a
+// caller that undoes the start cancels it.
+type startedTaskError struct {
+	ID  string
+	Err error
+}
+
+func (e *startedTaskError) Error() string { return e.Err.Error() }
+func (e *startedTaskError) Unwrap() error { return e.Err }
+
+// fillTaskIDKey carries the id a fill's task must take (a resume holds the tab under it before the task exists).
+type fillTaskIDKey struct{}
 
 // refusalOf turns the {"error","code"} line a failed submit printed into a
 // coded error (coder_disabled keeps its oneshot fallback), else err.

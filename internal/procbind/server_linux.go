@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -55,6 +56,8 @@ type Server struct {
 	// peerOf reads the other end's credentials; tests replace it to stand in for a peer the
 	// service cannot see. It is the real kernel lookup otherwise.
 	peerOf func(*net.UnixConn) (unix.Ucred, int, error)
+	// identityOf reads the key a peer's limits are kept under; tests replace it to stand in for a recycled pid.
+	identityOf func(*net.UnixConn) (peerKey, error)
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -124,7 +127,7 @@ func (s *Server) Serve(l unixAcceptor) error {
 			continue
 		}
 		backoff = 0
-		pid, err := peerPID(c)
+		key, err := s.identity(c)
 		if err != nil {
 			s.logf("procbind: peer credentials: %v", err)
 			_ = c.Close()
@@ -132,9 +135,9 @@ func (s *Server) Serve(l unixAcceptor) error {
 		}
 		// the peer's own share is checked first, so a flooder spends its own allowance and not the shared
 		// rate; the shared token is taken inside admit, before any other connection is touched
-		cs, why := s.track.admit(pid, c, s.takeRateToken)
+		cs, why := s.track.admit(key, c, s.takeRateToken)
 		if cs == nil {
-			s.logf("procbind: refused a connection of pid %d: %s", pid, why)
+			s.logf("procbind: refused a connection of pid %d: %s", key.pid, why)
 			_ = c.Close()
 			continue
 		}
@@ -155,27 +158,107 @@ func (s *Server) takeRateToken() bool {
 	}
 }
 
-// peerPID is the pid the kernel reports for the other end, read before anything else is done for it.
-func peerPID(c *net.UnixConn) (int, error) {
-	rc, err := c.SyscallConn()
+// peerKey is the identity a peer's limits are kept under: its pid and the time that process started
+// (field 22 of /proc/<pid>/stat). A pid the kernel hands to a new process is a different key, so the new
+// process starts with a full allowance instead of inheriting the drained one of its predecessor.
+//
+// The start time is in clock ticks (10 ms), so a pid recycled within one tick would share it. Where the
+// kernel numbers process file descriptors (pidfs, Linux 6.9) the key also carries id, the inode number of the
+// peer's pidfd, which names one process incarnation and is never reused; elsewhere id is 0 and the same-tick
+// reuse is the residual SECURITY.md states.
+type peerKey struct {
+	pid   int
+	start uint64
+	id    uint64
+}
+
+// startTimeOf reads a process's start time; tests replace it to reap the process in the middle of the read.
+var startTimeOf = readStartTime
+
+// peerIdentity reads the identity of the process at the other end, once, at accept. The pid comes from
+// SO_PEERCRED and the pidfd from SO_PEERPIDFD pins the process: the start time is read from procfs and then
+// the pidfd must still name the same pid, which it does only while the process has not been reaped, so the
+// number could not yet have been given to another process and the start time is that process's own.
+func (s *Server) identity(c *net.UnixConn) (peerKey, error) {
+	if s.identityOf != nil {
+		return s.identityOf(c)
+	}
+	lookup := s.peerOf
+	if lookup == nil {
+		lookup = peer
+	}
+	return peerIdentity(c, lookup)
+}
+
+func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (unix.Ucred, int, error)) (peerKey, error) {
+	cred, pfd, err := lookup(c)
 	if err != nil {
-		return 0, err
+		if pfd >= 0 {
+			_ = unix.Close(pfd)
+		}
+		return peerKey{}, err
 	}
-	var cred *unix.Ucred
-	var cerr error
-	if err := rc.Control(func(fd uintptr) { cred, cerr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) }); err != nil {
-		return 0, err
+	h := HandleFromPidfd(pfd)
+	defer h.Close()
+	if cred.Pid <= 0 {
+		return peerKey{}, errors.New("procbind: the peer is not visible in this pid namespace")
 	}
-	if cerr != nil {
-		return 0, cerr
+	pid := int(cred.Pid)
+	if got, err := h.Pid(); err != nil || got != pid {
+		return peerKey{}, errors.New("procbind: the peer's pidfd does not name its pid")
 	}
-	return int(cred.Pid), nil
+	start, err := startTimeOf(pid)
+	if err != nil {
+		return peerKey{}, err
+	}
+	if got, err := h.Pid(); err != nil || got != pid {
+		return peerKey{}, errors.New("procbind: the peer was reaped while its identity was read")
+	}
+	return peerKey{pid: pid, start: start, id: pidfdID(pfd)}, nil
+}
+
+// pidfdIDsUnique says whether this kernel gives every process incarnation its own pidfd inode number: pidfs
+// (Linux 6.9 and later) on a 64-bit build, where the number is a unique 64-bit id. A 32-bit kernel hands out
+// and frees small inode numbers as pidfd inodes come and go, so a number can be reused and names nothing.
+// Tests replace it.
+var pidfdIDsUnique = func() bool {
+	var u unix.Utsname
+	if unix.Uname(&u) != nil {
+		return false
+	}
+	return idsUniqueOn(unix.ByteSliceToString(u.Release[:]), strconv.IntSize)
+}
+
+// idsUniqueOn is the rule behind pidfdIDsUnique for a kernel release and the build's int size in bits.
+func idsUniqueOn(release string, intSize int) bool {
+	return intSize == 64 && kernelAtLeast(release, 6, 9)
+}
+
+// kernelAtLeast reports whether a release string such as "7.2.5-arch1" is at least major.minor.
+func kernelAtLeast(release string, major, minor int) bool {
+	var maj, min int
+	if n, _ := fmt.Sscanf(release, "%d.%d", &maj, &min); n != 2 {
+		return false
+	}
+	return maj > major || (maj == major && min >= minor)
+}
+
+// pidfdID is the inode number of a pidfd where that number identifies one process incarnation, else 0.
+func pidfdID(pfd int) uint64 {
+	if !pidfdIDsUnique() {
+		return 0
+	}
+	var st unix.Stat_t
+	if unix.Fstat(pfd, &st) != nil {
+		return 0
+	}
+	return st.Ino
 }
 
 // connState is one tracked connection; idle until the first byte of its request has arrived.
 type connState struct {
 	c       *net.UnixConn
-	pid     int
+	key     peerKey
 	seq     uint64 // admission order, for choosing the oldest idle connection
 	idle    bool
 	removed bool
@@ -198,7 +281,7 @@ type tracker struct {
 	perRate  int
 	total    int
 	seq      uint64
-	peers    map[int]*peerState
+	peers    map[peerKey]*peerState
 	lastPrun time.Time
 	now      func() time.Time // time.Now unless a test supplies a clock
 }
@@ -214,16 +297,16 @@ func (t *tracker) clock() time.Time {
 // least); the rest are idle records kept only until their allowance has refilled.
 func maxPeerRecords(t *tracker) int { return t.max + 1024 }
 
-// admit decides one new connection of the peer pid. The peer's own rate and cap are checked first. If
+// admit decides one new connection of the peer key. The peer's own rate and cap are checked first. If
 // every slot is taken, a victim is chosen but NOT yet touched; only when the shared rate token
 // (takeGlobal) has been taken is the victim closed and the newcomer admitted, so a refused newcomer
 // never costs another connection its slot.
-func (t *tracker) admit(pid int, c *net.UnixConn, takeGlobal func() bool) (*connState, string) {
+func (t *tracker) admit(key peerKey, c *net.UnixConn, takeGlobal func() bool) (*connState, string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := t.clock()
 	t.prune(now)
-	p := t.peers[pid]
+	p := t.peers[key]
 	isNew := p == nil
 	if isNew {
 		p = &peerState{tokens: float64(t.perRate), last: now}
@@ -240,9 +323,9 @@ func (t *tracker) admit(pid int, c *net.UnixConn, takeGlobal func() bool) (*conn
 	}
 	var victim *connState
 	var victimPeer *peerState
-	var victimPID int
+	var victimKey peerKey
 	if t.total >= t.max {
-		if victim, victimPeer, victimPID = t.pickVictim(len(p.conns)); victim == nil {
+		if victim, victimPeer, victimKey = t.pickVictim(len(p.conns)); victim == nil {
 			return nil, "no free slot"
 		}
 	}
@@ -251,18 +334,18 @@ func (t *tracker) admit(pid int, c *net.UnixConn, takeGlobal func() bool) (*conn
 	}
 	if victim != nil {
 		t.remove(victimPeer, victim)
-		_ = victimPID
+		_ = victimKey
 		_ = victim.c.Close() // its handler sees a closed connection and ends
 	}
 	if isNew {
 		if len(t.peers) >= maxPeerRecords(t) {
 			t.dropOldestEmpty()
 		}
-		t.peers[pid] = p
+		t.peers[key] = p
 	}
 	p.tokens, p.last = tokens-1, now
 	t.seq++
-	cs := &connState{c: c, pid: pid, seq: t.seq, idle: true}
+	cs := &connState{c: c, key: key, seq: t.seq, idle: true}
 	p.conns = append(p.conns, cs)
 	t.total++
 	return cs, ""
@@ -271,11 +354,12 @@ func (t *tracker) admit(pid int, c *net.UnixConn, takeGlobal func() bool) (*conn
 // pickVictim chooses the connection to take when every slot is busy: among the peers that hold more
 // connections than the newcomer (mine) and have an idle one, the peer with the most; among equals the one
 // whose oldest idle connection is the oldest. The choice does not depend on map order.
-func (t *tracker) pickVictim(mine int) (*connState, *peerState, int) {
+func (t *tracker) pickVictim(mine int) (*connState, *peerState, peerKey) {
 	var best *connState
 	var bestPeer *peerState
-	bestPID, bestN := 0, 0
-	for pid, p := range t.peers {
+	var bestKey peerKey
+	bestN := 0
+	for key, p := range t.peers {
 		if len(p.conns) <= mine {
 			continue
 		}
@@ -289,10 +373,10 @@ func (t *tracker) pickVictim(mine int) (*connState, *peerState, int) {
 			continue
 		}
 		if best == nil || len(p.conns) > bestN || (len(p.conns) == bestN && oldest.seq < best.seq) {
-			best, bestPeer, bestPID, bestN = oldest, p, pid, len(p.conns)
+			best, bestPeer, bestKey, bestN = oldest, p, key, len(p.conns)
 		}
 	}
-	return best, bestPeer, bestPID
+	return best, bestPeer, bestKey
 }
 
 func (t *tracker) remove(p *peerState, cs *connState) {
@@ -310,37 +394,38 @@ func (t *tracker) remove(p *peerState, cs *connState) {
 }
 
 // prune forgets peers with no connection whose allowance has had time to refill (a full burst takes
-// perRate/perRate = 1 s), at most once a second; a reused pid then starts from a full allowance.
+// perRate/perRate = 1 s), at most once a second; a recycled pid is a different key anyway (peerKey), and a key that comes back starts from a full allowance.
 func (t *tracker) prune(now time.Time) {
 	if now.Sub(t.lastPrun) < time.Second && len(t.peers) < maxPeerRecords(t) {
 		return
 	}
 	t.lastPrun = now
-	for pid, p := range t.peers {
+	for key, p := range t.peers {
 		if len(p.conns) == 0 && now.Sub(p.last) >= time.Second {
-			delete(t.peers, pid)
+			delete(t.peers, key)
 		}
 	}
 }
 
 // dropOldestEmpty makes room in a full table by forgetting the idle record seen longest ago.
 func (t *tracker) dropOldestEmpty() {
-	oldestPID, found := 0, false
+	var oldestKey peerKey
+	found := false
 	var oldest time.Time
-	for pid, p := range t.peers {
+	for key, p := range t.peers {
 		if len(p.conns) == 0 && (!found || p.last.Before(oldest)) {
-			oldestPID, oldest, found = pid, p.last, true
+			oldestKey, oldest, found = key, p.last, true
 		}
 	}
 	if found {
-		delete(t.peers, oldestPID)
+		delete(t.peers, oldestKey)
 	}
 }
 
 func (t *tracker) release(cs *connState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if p := t.peers[cs.pid]; p != nil {
+	if p := t.peers[cs.key]; p != nil {
 		t.remove(p, cs)
 	}
 }
@@ -456,7 +541,7 @@ func (s *Server) init() {
 		if perRate <= 0 {
 			perRate = 10
 		}
-		s.track = tracker{max: n, perPeer: per, perRate: perRate, peers: map[int]*peerState{}}
+		s.track = tracker{max: n, perPeer: per, perRate: perRate, peers: map[peerKey]*peerState{}}
 		for i := 0; i < r; i++ {
 			s.bucket <- struct{}{}
 		}

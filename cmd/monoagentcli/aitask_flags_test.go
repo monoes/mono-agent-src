@@ -28,7 +28,8 @@ var aitaskPolicy = map[string]struct {
 }{
 	"submit": {"operator", map[string]string{
 		"kind": "routing", "goal": "input", "context": "input", "application": "input",
-		"access": "routing", "runtime": "routing", "unattended": "routing", "queue-only": "routing", "budget-usd": "routing"}, []string{"--goal", "x"}},
+		"access": "routing", "runtime": "routing", "unattended": "routing", "queue-only": "routing", "budget-usd": "routing",
+		"task-id": "input"}, []string{"--goal", "x"}},
 	"submit-page": {"operator", map[string]string{
 		"kind": "routing", "browser": "input", "tab": "input", "stdin-json": "input"}, []string{"--kind", "extension-fill", "--tab", "7", "--stdin-json"}},
 	"start":     {"operator", map[string]string{}, []string{"{other}"}},

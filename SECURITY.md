@@ -2001,6 +2001,12 @@ that works a task acts on them. The defences:
   sealed in the quoted-data fence, and a reply is data, not an instruction, to the lead that reads it. Neither grants access,
   budget, approval or a permission, and neither can carry a person's authority. The channel is no barrier against a lead that can
   run commands as the operator (see the courtesy-layer paragraph above).
+- **The agent orbit and the person verbs' read side.** `task session person full ID` shows the whole plan of one waiting item and changes
+  nothing; it is one of the person verbs, so it carries the same environment-and-ancestry courtesy layer as the others. The desktop app's
+  agent orbit (circles around a coder chat for the sessions below it) is a view of `task session list`: it holds no authority and writes
+  nothing. The simple agent pane's pause, resume and stop buttons call the operator's own `task session` verbs, with their gates; stop
+  asks for confirmation. Approval, budgets, archive and rename are not on the orbit. What the orbit shows (titles, states, spend) is
+  text written by agents, rendered as text and never as markup or an instruction.
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and
@@ -3011,9 +3017,15 @@ the rule that a newcomer with fewer connections may take an idle slot from the p
 most (never one whose request has begun). A process that floods the service is held to its own share
 and cannot deny the others. This is availability, not authorization, and it fails closed: a refused
 verification is a deny. Residual: many processes of the same user can still add up to the service's
-total limits (each gets its own share), and processes are told apart by pid, so a pid recycled within
-about a second of its predecessor inherits that predecessor's used-up allowance and may be refused for
-that moment (tracked in #1182: key by pid and start time).
+total limits (each gets its own share). Processes are told apart by pid, start time and, on a kernel
+that numbers its process file descriptors with unique 64-bit ids (Linux 6.9 and later, 64-bit builds), the
+inode number of the peer's pidfd, which names one process incarnation and is never reused. They are read once at accept from the kernel's
+credentials and the pinned process (a process that cannot be pinned, or is reaped while its start time is
+read, is closed without an answer), so a pid recycled within the refill window is a different peer with a
+full allowance; the table of peers and the shared limits are unchanged. Residual: on an older kernel, or a 32-bit one (which
+reuses its small pidfd inode numbers), the start time has a resolution of 10 ms, so a pid recycled within the same tick as its predecessor looks the
+same and is held to the predecessor's allowance for that moment; it fails closed (a deny) and is
+availability only.
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,
@@ -3021,7 +3033,7 @@ covered by the classes above.
 
 **Peer-credential binding records (storage only).** Migration 148 adds insert-only tables for a
 future process binding anchored in kernel peer credentials (design:
-`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). Nothing uses them yet. Their rows
+`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). No v2 token or binding is issued into them yet (nothing outside the package inserts one), so the feature is not live; the token revoke paths already read them in their own transaction and would record a revocation for a v2 token. Their rows
 cannot be updated, and can be deleted only once their expiry is more than 7 days past; no operation
 is exempt. A profile delete therefore leaves the profile's rows in those tables in place (its output
 lists them): they hold hashes, MACs, a pid and a start stamp and no secret, and they are inert once
