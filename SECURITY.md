@@ -3011,9 +3011,10 @@ the rule that a newcomer with fewer connections may take an idle slot from the p
 most (never one whose request has begun). A process that floods the service is held to its own share
 and cannot deny the others. This is availability, not authorization, and it fails closed: a refused
 verification is a deny. Residual: many processes of the same user can still add up to the service's
-total limits (each gets its own share), and processes are told apart by pid, so a pid recycled within
-about a second of its predecessor inherits that predecessor's used-up allowance and may be refused for
-that moment (tracked in #1182: key by pid and start time).
+total limits (each gets its own share). Processes are told apart by pid and start time, read once at
+accept from the kernel's credentials and the pinned process (a process that cannot be pinned, or is
+reaped while its start time is read, is closed without an answer), so a pid recycled within the refill
+window is a different peer with a full allowance; the table of peers and the shared limits are unchanged.
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,

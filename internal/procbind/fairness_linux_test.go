@@ -165,17 +165,17 @@ func TestTrackerNeverEvictsABusyConnection(t *testing.T) {
 	tr := newTestTracker(2, 2, 1000)
 	c1, c1peer := unixPair(t)
 	c2, _ := unixPair(t)
-	a, why := tr.admit(100, c1, yes)
+	a, why := tr.admit(pk(100), c1, yes)
 	if a == nil {
 		t.Fatal(why)
 	}
-	b, why := tr.admit(100, c2, yes)
+	b, why := tr.admit(pk(100), c2, yes)
 	if b == nil {
 		t.Fatal(why)
 	}
 	tr.busy(a) // one of the heaviest peer's two connections is working, the other waits
 	n1, _ := unixPair(t)
-	got, why := tr.admit(200, n1, yes)
+	got, why := tr.admit(pk(200), n1, yes)
 	if got == nil {
 		t.Fatalf("a newcomer was refused although the heaviest peer has an idle connection: %s", why)
 	}
@@ -193,13 +193,13 @@ func TestTrackerNeverEvictsABusyConnection(t *testing.T) {
 	tr.busy(got)
 	tr2 := newTestTracker(1, 2, 1000)
 	d1, _ := unixPair(t)
-	x, why := tr2.admit(100, d1, yes)
+	x, why := tr2.admit(pk(100), d1, yes)
 	if x == nil {
 		t.Fatal(why)
 	}
 	tr2.busy(x)
 	d2, _ := unixPair(t)
-	if y, _ := tr2.admit(200, d2, yes); y != nil {
+	if y, _ := tr2.admit(pk(200), d2, yes); y != nil {
 		t.Error("a newcomer took the slot of a busy connection")
 	}
 }
@@ -208,7 +208,7 @@ func TestTrackerNeverEvictsABusyConnection(t *testing.T) {
 func TestTrackerReleaseReturnsTheSlotAndForgetsThePeer(t *testing.T) {
 	tr := newTestTracker(1, 1, 1)
 	c, _ := unixPair(t)
-	a, why := tr.admit(7, c, yes)
+	a, why := tr.admit(pk(7), c, yes)
 	if a == nil {
 		t.Fatal(why)
 	}
@@ -218,7 +218,7 @@ func TestTrackerReleaseReturnsTheSlotAndForgetsThePeer(t *testing.T) {
 		t.Errorf("total = %d after release", tr.total)
 	}
 	d, _ := unixPair(t)
-	if b, _ := tr.admit(8, d, yes); b == nil {
+	if b, _ := tr.admit(pk(8), d, yes); b == nil {
 		t.Error("the slot was not returned")
 	}
 }
@@ -294,7 +294,7 @@ func (t testTracker) advance(d time.Duration) { *t.clock = t.clock.Add(d) }
 
 func newTestTracker(max, perPeer, perRate int) testTracker {
 	clock := time.Unix(1_000_000, 0)
-	tr := &tracker{max: max, perPeer: perPeer, perRate: perRate, peers: map[int]*peerState{}}
+	tr := &tracker{max: max, perPeer: perPeer, perRate: perRate, peers: map[peerKey]*peerState{}}
 	tr.now = func() time.Time { return clock }
 	return testTracker{tr, &clock}
 }
@@ -305,7 +305,7 @@ func TestTrackerPeerTableStaysBounded(t *testing.T) {
 	tr := newTestTracker(8, 2, 10)
 	for pid := 1; pid <= 10_000; pid++ {
 		c, _ := unixPair(t)
-		cs, why := tr.admit(pid, c, yes)
+		cs, why := tr.admit(pk(pid), c, yes)
 		if cs == nil {
 			t.Fatalf("pid %d: %s", pid, why)
 		}
@@ -316,11 +316,11 @@ func TestTrackerPeerTableStaysBounded(t *testing.T) {
 	}
 	tr.advance(2 * time.Second) // every allowance has refilled
 	c, _ := unixPair(t)
-	cs, _ := tr.admit(99_999, c, yes)
+	cs, _ := tr.admit(pk(99_999), c, yes)
 	tr.release(cs)
 	tr.advance(2 * time.Second)
 	c2, _ := unixPair(t)
-	cs2, _ := tr.admit(99_998, c2, yes)
+	cs2, _ := tr.admit(pk(99_998), c2, yes)
 	if len(tr.peers) != 1 {
 		t.Errorf("records of long-idle peers were kept: %d", len(tr.peers))
 	}
@@ -333,19 +333,19 @@ func TestTrackerReusedPidDoesNotInheritAStaleAllowance(t *testing.T) {
 	tr := newTestTracker(8, 8, 2)
 	for i := 0; i < 2; i++ {
 		c, _ := unixPair(t)
-		cs, why := tr.admit(5, c, yes)
+		cs, why := tr.admit(pk(5), c, yes)
 		if cs == nil {
 			t.Fatalf("burst %d: %s", i, why)
 		}
 		tr.release(cs)
 	}
 	c, _ := unixPair(t)
-	if cs, _ := tr.admit(5, c, yes); cs != nil {
+	if cs, _ := tr.admit(pk(5), c, yes); cs != nil {
 		t.Fatal("a third connection inside the burst was admitted")
 	}
 	tr.advance(3 * time.Second)
 	c2, _ := unixPair(t)
-	if cs, why := tr.admit(5, c2, yes); cs == nil {
+	if cs, why := tr.admit(pk(5), c2, yes); cs == nil {
 		t.Errorf("a pid whose allowance has refilled was still refused: %s", why)
 	}
 }
@@ -355,7 +355,7 @@ func TestTrackerReusedPidDoesNotInheritAStaleAllowance(t *testing.T) {
 func TestBusyMarkIsAtomicWithTheFirstByte(t *testing.T) {
 	tr := newTestTracker(1, 1, 1000)
 	c, peer := unixPair(t)
-	cs, why := tr.admit(100, c, yes)
+	cs, why := tr.admit(pk(100), c, yes)
 	if cs == nil {
 		t.Fatal(why)
 	}
@@ -364,7 +364,7 @@ func TestBusyMarkIsAtomicWithTheFirstByte(t *testing.T) {
 	}
 	// a newcomer takes the idle slot between the bytes arriving and the handler noticing
 	n, _ := unixPair(t)
-	if got, why := tr.admit(200, n, yes); got == nil {
+	if got, why := tr.admit(pk(200), n, yes); got == nil {
 		t.Fatalf("the idle connection was not taken: %s", why)
 	}
 	// the bytes were already read when the connection was taken (the race), so read from a reader that
@@ -377,7 +377,7 @@ func TestBusyMarkIsAtomicWithTheFirstByte(t *testing.T) {
 	// the other way round: the first byte marks the connection busy, so it cannot then be taken
 	tr2 := newTestTracker(1, 1, 1000)
 	c2, peer2 := unixPair(t)
-	cs2, _ := tr2.admit(100, c2, yes)
+	cs2, _ := tr2.admit(pk(100), c2, yes)
 	if _, err := peer2.Write([]byte{1, 2, 3, 4}); err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestBusyMarkIsAtomicWithTheFirstByte(t *testing.T) {
 		t.Fatal(err)
 	}
 	n2, _ := unixPair(t)
-	if got, _ := tr2.admit(200, n2, yes); got != nil {
+	if got, _ := tr2.admit(pk(200), n2, yes); got != nil {
 		t.Error("a connection that had begun its request was taken")
 	}
 }
@@ -395,9 +395,9 @@ func TestBusyMarkIsAtomicWithTheFirstByte(t *testing.T) {
 func TestARefusedNewcomerEvictsNobody(t *testing.T) {
 	tr := newTestTracker(1, 4, 1000)
 	c1, _ := unixPair(t)
-	a, _ := tr.admit(100, c1, yes) // the heaviest peer, idle
+	a, _ := tr.admit(pk(100), c1, yes) // the heaviest peer, idle
 	n, _ := unixPair(t)
-	if got, _ := tr.admit(200, n, no); got != nil {
+	if got, _ := tr.admit(pk(200), n, no); got != nil {
 		t.Fatal("a newcomer was admitted without a shared-rate token")
 	}
 	if a.removed || tr.total != 1 {
@@ -412,7 +412,7 @@ func TestEvictionChoiceIsDeterministic(t *testing.T) {
 		tr := newTestTracker(7, 3, 1000)
 		admit := func(pid int) *connState {
 			c, _ := unixPair(t)
-			cs, why := tr.admit(pid, c, yes)
+			cs, why := tr.admit(pk(pid), c, yes)
 			if cs == nil {
 				t.Fatalf("pid %d: %s", pid, why)
 			}
@@ -429,7 +429,7 @@ func TestEvictionChoiceIsDeterministic(t *testing.T) {
 		old200 := admit(200)
 		new200 := admit(200)
 		n, _ := unixPair(t)
-		if got, why := tr.admit(400, n, yes); got == nil {
+		if got, why := tr.admit(pk(400), n, yes); got == nil {
 			t.Fatalf("round %d: the newcomer was refused: %s", round, why)
 		}
 		if !old300.removed {

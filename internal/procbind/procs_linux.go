@@ -176,6 +176,11 @@ func (p LinuxProcs) Start(h Handle) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	return readStartTime(pid)
+}
+
+// readStartTime is field 22 of /proc/<pid>/stat: the clock tick since boot at which the process started.
+func readStartTime(pid int) (uint64, error) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return 0, err
