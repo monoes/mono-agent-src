@@ -30,7 +30,7 @@ func AdmitHold(ctx context.Context, x Queryer, profileID string, sessionID int64
 // change of that contribution (nothing when the task hold covers the raise); a child that is not linked is a new hold.
 func AdmitRaise(ctx context.Context, x Queryer, profileID string, sessionID int64, conv string, raise float64) (string, error) {
 	var linked int64
-	err := x.QueryRowContext(ctx, `SELECT child_session_id FROM v_mission_child_linked WHERE profile_id = ? AND conversation_id = ? AND session_id = ?`, profileID, conv, sessionID).Scan(&linked)
+	err := x.QueryRowContext(ctx, `SELECT child_session_id FROM v_mission_child_linked WHERE profile_id = ? AND conversation_id = ? AND session_id = ? LIMIT 1`, profileID, conv, sessionID).Scan(&linked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AdmitHold(ctx, x, profileID, sessionID, raise)
 	}
@@ -42,7 +42,7 @@ func AdmitRaise(ctx context.Context, x Queryer, profileID string, sessionID int6
 	if err != nil {
 		return "", err
 	}
-	c1, err := s.commitWalkWith(ctx, x, profileID, sessionID, 1, map[int64]bool{sessionID: true}, hypo{capSession: linked, capDelta: raise})
+	c1, err := s.commitWalkWith(ctx, x, profileID, sessionID, 1, map[int64]bool{sessionID: true}, hypo{capConv: conv, capDelta: raise})
 	if err != nil {
 		return "", err
 	}

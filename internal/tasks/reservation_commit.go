@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -124,6 +126,12 @@ func (s *Store) commitWalkWith(ctx context.Context, x dbx, profileID string, id 
 	if depth >= HardMaxSessionDepth && len(kids) > 0 {
 		return c, limit("session #%d has sessions deeper than %d levels below it", id, HardMaxSessionDepth)
 	}
+	// A coder child of the host that has task sessions below this one (session_spawn makes both) is one child: its
+	// task sessions are grouped by the conversation they carry, and the group holds the larger of the coder cap and
+	// the sum of its members' holds, once (v_mission_child_linked, migration 150).
+	type group struct{ cap, holds float64 }
+	groups := map[string]*group{}
+	var order []string
 	for _, k := range kids {
 		if seen[k.id] {
 			return c, invalid("session #%d is in a cycle of parents", k.id)
@@ -137,18 +145,31 @@ func (s *Store) commitWalkWith(ctx context.Context, x dbx, profileID string, id 
 		if k.open && min(k.budget, MaxBudgetUSD) > hold {
 			hold = min(k.budget, MaxBudgetUSD)
 		}
-		// A child that is also a coder session of the host (session_spawn makes both) is one child: the larger
-		// of its cap and what the task session holds, not their sum (v_mission_child_linked, migration 150).
+		c.ChildCommitted += kc.Floor()
+		var conv string
 		var cap float64
-		if err := x.QueryRowContext(ctx, `SELECT COALESCE(MAX(cap_usd), 0) FROM v_mission_child_linked WHERE profile_id = ? AND child_session_id = ?`, profileID, k.id).Scan(&cap); err != nil {
+		err = x.QueryRowContext(ctx, `SELECT conversation_id, cap_usd FROM v_mission_child_linked WHERE profile_id = ? AND child_session_id = ?`, profileID, k.id).Scan(&conv, &cap)
+		if errors.Is(err, sql.ErrNoRows) {
+			c.Children += hold
+			continue
+		}
+		if err != nil {
 			return c, fmt.Errorf("tasks: reading the coder cap of session #%d: %w", k.id, err)
 		}
-		if k.id == extra.capSession {
-			cap += extra.capDelta
+		g := groups[conv]
+		if g == nil {
+			g = &group{cap: min(cap, MaxBudgetUSD)}
+			groups[conv] = g
+			order = append(order, conv)
 		}
-		hold = max(hold, min(cap, MaxBudgetUSD))
-		c.Children += hold
-		c.ChildCommitted += kc.Floor()
+		g.holds += hold
+	}
+	for _, conv := range order {
+		g := groups[conv]
+		if conv == extra.capConv {
+			g.cap += extra.capDelta
+		}
+		c.Children += max(g.holds, g.cap)
 	}
 	return c, nil
 }

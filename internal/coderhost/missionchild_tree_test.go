@@ -315,8 +315,8 @@ func TestTwoSiblingTaskSessionsOfOneCoderChildCountItsCapOnce(t *testing.T) {
 		t.Fatalf("with one sibling archived: %+v, %v: want 2", c, err)
 	}
 	var linked int
-	if err := f.st.db.QueryRow(`SELECT COUNT(*) FROM v_mission_child_linked WHERE conversation_id = ?`, out.ConversationID).Scan(&linked); err != nil || linked != 1 {
-		t.Fatalf("the link view has %d rows for one coder child, %v", linked, err)
+	if err := f.st.db.QueryRow(`SELECT COUNT(*) FROM v_mission_child_linked WHERE conversation_id = ?`, out.ConversationID).Scan(&linked); err != nil || linked != 2 {
+		t.Fatalf("the link view lists %d task sessions for the conversation (every match, grouped by the walk), %v", linked, err)
 	}
 }
 
@@ -360,5 +360,31 @@ func TestReserveAndGrantRunTheOvercommitCheck(t *testing.T) {
 	}
 	if g.capOf(t, child) != 4 {
 		t.Fatalf("the refused grant changed the cap to %v", g.capOf(t, child))
+	}
+}
+
+// Sibling task sessions that carry one coder child's conversation, with different holds: the cap counts once, whatever
+// the order the sessions were made in. Cap 4 over holds of 1 and 4 is 5 (the holds add; the cap is inside them).
+func TestUnequalSiblingHoldsGiveTheSameCommitmentInEitherOrder(t *testing.T) {
+	for _, tc := range []struct{ first, second float64 }{{1, 4}, {4, 1}} {
+		f := newHostFix(t)
+		out := f.spawnLinked(t, 4)
+		ctx := context.Background()
+		twin, err := f.ts.CreateSession(ctx, "p", tasks.SessionInput{Title: "twin", ParentSessionID: f.se.ID, ConversationID: out.ConversationID}, opActor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.setTaskBudget(t, out.TaskSessionID, tc.first)
+		f.setTaskBudget(t, twin.ID, tc.second)
+		c, err := f.ts.Commitment(ctx, "p", f.se.ID)
+		if err != nil || c.Total() != 5 {
+			t.Fatalf("holds %v then %v under a cap of 4: commitment %+v, %v: want 5", tc.first, tc.second, c, err)
+		}
+		// holds under the cap: the cap is what the child holds
+		f.setTaskBudget(t, out.TaskSessionID, 1)
+		f.setTaskBudget(t, twin.ID, 2)
+		if c, err = f.ts.Commitment(ctx, "p", f.se.ID); err != nil || c.Total() != 4 {
+			t.Fatalf("holds 1 and 2 under a cap of 4: commitment %+v, %v: want 4", c, err)
+		}
 	}
 }

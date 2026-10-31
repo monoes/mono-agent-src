@@ -20,10 +20,10 @@ import (
 type hypo struct {
 	session int64
 	held    float64
-	// capSession is a task session that is the linked child of a coder session (v_mission_child_linked); the walk
-	// counts its coder cap as capDelta higher, as if the host had raised it.
-	capSession int64
-	capDelta   float64
+	// capConv is the conversation of a coder child that has task sessions below the walked session
+	// (v_mission_child_linked); the walk counts its coder cap as capDelta higher, as if the host had raised it.
+	capConv  string
+	capDelta float64
 }
 
 // ancestorGrant lowers g (the largest grant in micro-dollars) to what every budgeted ancestor of the target
