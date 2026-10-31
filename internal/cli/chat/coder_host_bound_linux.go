@@ -70,6 +70,9 @@ type boundDelivery struct {
 	missionToken string
 	// child, when set, is the mission child whose task token this turn also gets (a v2 mission token, owner = the run).
 	child *childToken
+	// onKill, when set, is called before the leader is killed (the launcher marks the turn as stopping, so its group
+	// is killed with the leader's exit, before the reap).
+	onKill func()
 }
 
 // attach prepares cmd for a bound launch: the frame pipe on descriptor 3 and its marker, nothing else.
@@ -104,7 +107,13 @@ func (d *boundDelivery) start(cmd *exec.Cmd) error {
 }
 
 // kill ends the turn's leader through its own pidfd (never by pid or group).
+// setOnKill sets the hook called before the leader is killed.
+func (d *boundDelivery) setOnKill(f func()) { d.onKill = f }
+
 func (d *boundDelivery) kill() {
+	if d.onKill != nil {
+		d.onKill() // before the signal: the exit it causes must find the turn already marked as being stopped
+	}
 	if d.pidfd >= 0 {
 		_ = unix.PidfdSendSignal(d.pidfd, unix.SIGKILL, nil, 0)
 	}
