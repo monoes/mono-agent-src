@@ -9,6 +9,9 @@ import { usePersonItems } from './usePersonItems.js'
 import { setNotifySound } from '../../lib/personChime.js'
 
 const askItem = { id: 8, kind: 'ancestor_question', askId: 4, sessionId: 31, conversationId: 'c-leaf', question: 'q' }
+// stable per-render inputs: a fresh play/now each render would change refresh and loop
+const play = vi.fn()
+const now = () => 1_000_000
 const flush = () => act(async () => { await Promise.resolve() })
 
 beforeEach(() => {
@@ -20,8 +23,7 @@ afterEach(cleanup)
 
 describe('usePersonItems with an ask item', () => {
   it('chimes for a new ask item, once', async () => {
-    const play = vi.fn()
-    const { result } = renderHook(() => usePersonItems({ play, now: () => 1_000_000 }))
+    const { result } = renderHook(() => usePersonItems({ play, now }))
     await flush()
     expect(result.current.items).toHaveLength(1)
     expect(play).toHaveBeenCalledTimes(1)
@@ -30,7 +32,7 @@ describe('usePersonItems with an ask item', () => {
   })
 
   it('answerAsk sends the ask id (not the session id) and the words, then reads the list again', async () => {
-    const { result } = renderHook(() => usePersonItems({ play: vi.fn() }))
+    const { result } = renderHook(() => usePersonItems({ play, now }))
     await flush()
     api.list.mockClear()
     const res = await act(async () => result.current.answer('answerAsk', askItem, 'yes'))
@@ -42,7 +44,7 @@ describe('usePersonItems with an ask item', () => {
 
   it('does not read the list again after a refusal', async () => {
     api.answerAsk.mockResolvedValue({ error: 'nope' })
-    const { result } = renderHook(() => usePersonItems({ play: vi.fn() }))
+    const { result } = renderHook(() => usePersonItems({ play, now }))
     await flush()
     api.list.mockClear()
     await act(async () => { await result.current.answer('answerAsk', askItem, 'yes') })
