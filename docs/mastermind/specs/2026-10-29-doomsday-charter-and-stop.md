@@ -241,3 +241,99 @@ B1 (charter, entry and exit, Stop switch) ships alone, **before any loop**, with
 guard tests above. The rest (B2 boss routing, B3 governor, B4 strategy, B5 UI, B6 acceptance) follow the plan.
 The independent review of this document and of B1's diff is a gate, not a courtesy: a reviewer who sees only
 the diff and the spec, with the attack list above, and a second pass by codex when a fresh session exists.
+
+## 12. Addendum: the inventory checked against the code (master 650d39a2d)
+
+Written after the mission series merged. Class-level wording; every anchor was read, none was run.
+Section 4 said each point was "to be located and confirmed in B1"; this is that locating, and what it
+changes.
+
+### 12.1 Anchors for the section 4 inventory
+
+| Section 4 line | What the code has today | Anchor |
+|---|---|---|
+| hard gap classes | `HardClass` is **three** classes now: `risky_action`, `missing_credential` and `plan_approval` (a giant plan, which only the person approves). Section 1 names two. | `internal/coderhost/autonomy.go:39` |
+| the policy | `Decide` (pure function of the settings) ends in `clamp`, which turns a model answer on a hard class into the master and parks the fallback | `autonomy.go:48`, `autonomy.go:81` |
+| settings validation | `ValidateAutonomy` | `autonomy.go:107` |
+| ledger refusal of a model-made hard class | there is no `Ledger.Record`: it is `(*Store).Record` and `recordIn`, which refuses `MadeBy == model` on a hard class | `internal/coderhost/ledger.go:76`, `:91`, refusal at `:104` |
+| budget raises | the lead asks with `RequestBudget`; the grant is `GrantBudget`, which is **operator-only** today (`operatorOnly` takes a `CallerScope`) | `internal/coderhost/budgetreq.go:104`, `:322`, `:332` |
+| outbound actions, send gates | the human-in-the-loop guard for send nodes is `hilsend.Guard`; it decides per run whether the run was prepared by an agent and waits for the person | `internal/hilsend/gate.go:125` (`unapprovedRun` `:100`, `Enabled` `:69`) |
+| per-run platform caps | **not located as one enforcement function.** Caps are per node configuration (limits the caller passes) and per-grant call limits for orgs; no single place applies "a charter lifts this cap by name". B1 must find or create the one point before this line can be lifted. | (open: B1) |
+| vault and secrets | the agent-access check: `AllowResolving` puts the access state on the context, `permit` and `resolved` check a secret or a host against the grant | `internal/secrets/agent_access.go:95`, `:159`, `:183` |
+| operator-only verbs | `clicore.RequireOperator` with the command's `RequireOperator` hook; the coder host has its own `operatorOnly` for its scopes | `internal/cli/clicore/errors.go:83`, `budgetreq.go:322` |
+
+### 12.2 Corrections this makes to the spec
+
+1. **`plan_approval` is a third hard class**, and the mode removes the person. Under this spec the boss answers
+   only for the classes a charter ticked and "no person item is raised". A giant plan (over the task, access,
+   depth or budget thresholds) raises a person item that waits with no timeout and no default, and the critical
+   upward ask raises another. Taken literally the mode either stalls on them or the charter must name them as
+   liftable. Neither is decided here: it is open question 6 below. Until it is decided, section 4 must not
+   list `plan_approval` or critical asks as lifted by any existing line.
+2. **Depth has three different limits, not one.** The session tree has a hard maximum of 4 levels
+   (`tasks.HardMaxSessionDepth`, shared with `coderhost.MaxSessionDepth` so there is one source of truth,
+   `internal/tasks/session_model.go:48`, `internal/coderhost/children.go`), a working depth per tree
+   (default 3, operator-only to raise), and a separate task-nesting ceiling inside a session
+   (`MaxSessionDepthCeiling`, 10, `session_model.go:40`) that has nothing to do with agent depth. The
+   charter's `max_depth` lifts the first two. It must not change the shared constant for mission mode: a
+   charter-scoped limit has to be an input to the same checks, as section 4 says for classes, not a new value
+   of the global.
+3. **The live-session and rate limits are separate limits too**: at most 12 live sessions below a tree's root
+   (`MaxLiveSessionsPerTree`, `children.go:61`), 6 spawns per 10 minutes per lead, and 50 non-archived
+   sessions per profile (`MaxOpenSessions`). "Unbounded width" has to say which of these a charter lifts; the
+   governor (section 8) is the only thing that then bounds simultaneous processes.
+4. **Budget grants have a bound the boss's path must reuse.** Session carving (a new session takes at most a
+   share of what its lead's session has left) and the grants bounded by budgeted ancestors are in the store
+   today. The boss's raise must go through the same bound plus the charter ceiling, never around it.
+
+### 12.3 Added attack items (for the independent review)
+
+14. **Giant plan and critical ask under the mode.** A plan or an ask that today waits for a person: does the run
+    stall, does a fallback quietly answer it, or does a path auto-approve it? Look for any path by which the boss
+    gets to answer a class the charter did not name.
+15. **The "judging" purpose is mutable.** The boss model comes from an operator setting that the operator can
+    change while the run is active. Is the boss model chosen at start and pinned in the charter hash, or read at
+    each answer? A mid-run change must not select a model the charter was not entered with unless that is an
+    explicit operator act.
+16. **Depth and width constants shared with mission mode.** A change that raises a shared constant for the mode
+    weakens the mission-mode guarantee (an agent cannot exceed depth 4). The charter value must be an input
+    scoped to charter sessions, with the constant untouched and a test that a session outside the charter is
+    still refused at the old limit.
+17. **Stop and the process identity gap.** Stop's kill step relies on process identity pinned by a pidfd. The
+    per-peer limiter of the peer-credential service keys by pid alone today (#1182), and the binding that would
+    prove a token's process is stored but issues no token yet, so the token layer is the same courtesy layer
+    between agents of one user. The review should say which part of Stop's guarantee leans on the unissued
+    binding and which part does not.
+18. **Tree stop versus charter stop.** The host already stops descendants of a stopped or paused session
+    (`treecascade.go`). The review should check that a charter-level Stop does not depend on that cascade
+    reaching every session (a session whose row is gone or whose parent link is corrupt).
+19. **A boss answer that creates authority elsewhere.** An answer that approves a session, a budget or a send
+    must be checked by the enforcement function of that action, not only recorded: confirm no answer path
+    writes the approval basis of a session or a settings row itself.
+20. **Reservations and ancestors.** The session reservation store charges live reservations and bounds grants by
+    budgeted ancestors. A charter that says "no budget" over a tree whose root has one must not silently cancel
+    the root's own bound.
+
+### 12.4 Observation under open item 3 (not an answer)
+
+Today the human-only acknowledgement for a mode that gives an agent more than the default is a flag on the
+operator's own command, `--yes-i-understand`, behind the operator gate: coder mode enable
+(`internal/cli/chat/coder.go:383-388`) and granting an org role its access (`internal/cli/org/role.go:19`,
+which also refuses when an agent context is detected). It is a typed flag plus the operator gate, not a stored
+signed acknowledgement. Whether the charter should reuse exactly that, or needs a stronger record, is a
+security-posture decision for the operator; this spec does not choose.
+
+### 12.5 Questions for the operator, with the recommended default
+
+1. **Depth sanity ceiling** (open item 1, assumed 12). Recommended: keep 12 as the most a charter may name,
+   require the charter to state the number, and never default it above 4.
+2. **Stop terminal or resumable** (open item 2). Recommended: terminal; "resume" is a new run with a new charter.
+3. **Same model as boss and verifier when only one validated model exists** (open item 4). Recommended: allowed
+   for the boss's answers (recorded and shown in the pane), **not** allowed for the finishing verifier, so a
+   single-model system can run and be stopped but cannot declare itself finished.
+4. **Per-run platform caps as their own charter line** (open item 5). Recommended: yes, never ticked by the
+   "everything" preset unless the operator ticks it in the same dialog by name.
+5. (new) **Giant plans and critical asks in this mode** (correction 1). Recommended: they stay person items and
+   are not liftable; the run parks around them and the pane says what waits for the operator. The alternative
+   (a charter line that lets the boss approve giant plans) is a larger authority grant than any in section 3.
+6. (new) **Pin the boss model at start** (attack item 15). Recommended: pin it in the charter hash.
