@@ -23,6 +23,17 @@ type gatedLauncher struct {
 	db    *sql.DB
 	// svc is the binding service of the host (nil: there is none, so it is never running).
 	svc bindingService
+	// logf receives the class-level reason a service could not be started; the operator is told generically.
+	logf func(format string, args ...any)
+	// refusal says why binding may not run (nil: procbind.Refusal); a seam for tests.
+	reason func(serviceRunning bool) string
+}
+
+func (g *gatedLauncher) why(running bool) string {
+	if g.reason != nil {
+		return g.reason(running)
+	}
+	return procbind.Refusal(running)
 }
 
 // bindingService is what the gate asks of the host's binding service.
@@ -52,12 +63,14 @@ func (g *gatedLauncher) refusal(profile string) error {
 	// The service is asked to start only when everything else allows it: while this build cannot issue bound
 	// tokens (or the machine cannot run it) nothing is ever started.
 	running := false
-	if g.svc != nil && procbind.Refusal(true) == "" {
+	if g.svc != nil && g.why(true) == "" {
 		if err := g.svc.Ensure(context.Background(), profile); err == nil {
 			running = g.svc.Running(profile)
+		} else if g.logf != nil {
+			g.logf("coder host: the binding service could not be started: %v", err)
 		}
 	}
-	if why := procbind.Refusal(running); why != "" {
+	if why := g.why(running); why != "" {
 		return &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)"}
 	}
 	return nil
