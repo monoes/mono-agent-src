@@ -169,7 +169,7 @@ func TestMintCheckRunsInsideTheTransaction(t *testing.T) {
 func TestNewSecretIsRandomPrefixedAndHashed(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 100; i++ {
-		s, h, err := NewSecret("mst-")
+		s, h, err := NewSecret(SessionPrefixV2)
 		if err != nil || !strings.HasPrefix(s, "mst-") || len(s) != 4+43 || h != HashSecret(s) || len(h) != 64 || seen[s] {
 			t.Fatalf("%q %q %v", s, h, err)
 		}
