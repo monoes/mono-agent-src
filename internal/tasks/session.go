@@ -339,6 +339,9 @@ func (s *Store) CreateSession(ctx context.Context, profileID string, in SessionI
 			if err := s.checkChildFence(ctx, x, par, actor); err != nil {
 				return err
 			}
+			if err := s.checkDirectionCap(ctx, x, profileID, par, kind, actor); err != nil {
+				return err
+			}
 			parent = par.ID
 		}
 		stamp := s.stamp()
