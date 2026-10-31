@@ -36,10 +36,12 @@ var ErrCredFrameFatal = errors.New("the credential frame from the coder host is 
 // present it), and the task token or the mission confirmation is kept for TakeMissionToken. A frame that carries
 // both a task token and a mission confirmation is refused: a turn never has both.
 func StashCredFrame() error {
-	v := os.Getenv(CredFDEnv)
-	if v == "" {
+	v, marked := os.LookupEnv(CredFDEnv)
+	if !marked {
 		return nil
 	}
+	// A marker that is present at all means the launch promised a frame, even if its value is empty or junk: that is
+	// fatal, never "unmarked".
 	_ = os.Unsetenv(CredFDEnv)
 	n, perr := strconv.ParseUint(v, 10, 32)
 	var f *os.File
@@ -49,7 +51,7 @@ func StashCredFrame() error {
 			f = nil
 		}
 	}
-	if os.Getenv(MissionFDEnv) != "" { // two pipes: the launch is wrong, and the legacy one must be closed too
+	if _, legacy := os.LookupEnv(MissionFDEnv); legacy { // two pipes: the launch is wrong, and the legacy one must be closed too
 		StashMissionToken()
 		TakeMissionToken()
 		if f != nil {
@@ -98,6 +100,7 @@ func StashCredFrame() error {
 			return fmt.Errorf("%w: the mission confirmation is not one", ErrCredFrameFatal)
 		}
 	}
+	defer fr.Zero() // the frame's own copies are cleared once applied (the environment and the stash hold the strings)
 	if fr.SessionToken != nil {
 		if err := os.Setenv(SessionTokenEnv, string(fr.SessionToken)); err != nil {
 			return fmt.Errorf("%w: the session token could not be kept", ErrCredFrameFatal)
