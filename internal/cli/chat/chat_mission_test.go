@@ -155,3 +155,25 @@ func TestMissionConfigTheOperatorsToggleConfirmsFromTheFirstTurn(t *testing.T) {
 		t.Errorf("scoped access got a mission setup: %+v", m)
 	}
 }
+
+func TestMissionConfigCarriesTheOperatorsDirectionCount(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true}); m == nil || m.MaxDirections != 0 {
+		t.Fatalf("no setting: %+v", m)
+	}
+	st := coderhost.NewStore(db)
+	set, _, err := coderhost.DefaultSettings().Apply([]byte(`{"mission_directions":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveSettings("default", "c1", set); err != nil {
+		t.Fatal(err)
+	}
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true}); m == nil || m.MaxDirections != 2 {
+		t.Fatalf("the setting did not reach the lead: %+v", m)
+	}
+	if m := missionConfig(ctx, db, "default", "c2", coderTurn{access: "coding", missionConfirmed: true}); m == nil || m.MaxDirections != 0 {
+		t.Fatalf("another conversation got it: %+v", m)
+	}
+}
