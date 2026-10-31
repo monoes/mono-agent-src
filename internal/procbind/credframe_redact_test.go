@@ -185,3 +185,38 @@ func (g *gappyReader) Read(p []byte) (int, error) {
 	g.pos += m
 	return m, nil
 }
+
+// A frame that is refused leaves nothing of any credential: not in the value returned (it is the zero frame), and
+// not in any copy made on the way (the decoder looks at every entry before it copies one, so there is none to
+// clear). A valid session token followed by an unknown, repeated, out of order or truncated entry is such a frame.
+func TestARefusedFrameHandsBackAndKeepsNoCredential(t *testing.T) {
+	session := append([]byte{1, 0, byte(len(secretText))}, secretText...)
+	build := func(rest ...byte) []byte {
+		body := append(append([]byte(nil), session...), rest...)
+		b := append([]byte("MAFR\x01"), 0, 0)
+		b = append(b, body...)
+		b[5], b[6] = byte((len(b))>>8), byte(len(b))
+		return b
+	}
+	cases := map[string][]byte{
+		"unknown kind after":     build(9, 0, 1, 'x'),
+		"repeated kind after":    build(1, 0, 1, 'x'),
+		"out of order is caught": build(0, 0, 1, 'x'),
+		"truncated entry after":  build(3, 0, 9, 'x'),
+		"zero length after":      build(3, 0, 0),
+		"short entry header":     build(3, 0),
+	}
+	for name, b := range cases {
+		f, err := DecodeCredFrame(b)
+		if !errors.Is(err, ErrCredFrame) {
+			t.Errorf("%s: accepted: %v", name, err)
+			continue
+		}
+		if f.SessionToken != nil || f.TaskToken != nil || f.MissionConfirmation != nil {
+			t.Errorf("%s: a refused frame handed back credentials", name)
+		}
+		if _, err := ReadCredFrame(bytes.NewReader(b)); !errors.Is(err, ErrCredFrame) {
+			t.Errorf("%s (reader): %v", name, err)
+		}
+	}
+}

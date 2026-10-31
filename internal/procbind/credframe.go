@@ -158,26 +158,35 @@ func DecodeCredFrame(b []byte) (CredFrame, error) {
 	if total != len(b) {
 		return f, fmt.Errorf("%w: length does not match", ErrCredFrame)
 	}
-	var last CredKind
-	rest := b[credHeader:]
-	if len(rest) == 0 {
-		return f, fmt.Errorf("%w: no entries", ErrCredFrame)
+	if len(b) == credHeader {
+		return CredFrame{}, fmt.Errorf("%w: no entries", ErrCredFrame)
 	}
-	for len(rest) > 0 {
+	// Pass one only looks: every entry must be well formed, known and in order before anything is copied, so a frame
+	// that is refused leaves no copy of any of its credentials anywhere.
+	var last CredKind
+	for rest := b[credHeader:]; len(rest) > 0; {
 		if len(rest) < 3 {
-			return f, fmt.Errorf("%w: truncated entry", ErrCredFrame)
+			return CredFrame{}, fmt.Errorf("%w: truncated entry", ErrCredFrame)
 		}
 		kind, n := CredKind(rest[0]), int(binary.BigEndian.Uint16(rest[1:3]))
 		rest = rest[3:]
 		if n == 0 || n > len(rest) {
-			return f, fmt.Errorf("%w: bad entry length", ErrCredFrame)
+			return CredFrame{}, fmt.Errorf("%w: bad entry length", ErrCredFrame)
 		}
 		// kinds come in ascending order, so a kind is neither repeated nor out of place and a frame has one encoding
 		if kind <= last {
-			return f, fmt.Errorf("%w: repeated or out of order kind", ErrCredFrame)
+			return CredFrame{}, fmt.Errorf("%w: repeated or out of order kind", ErrCredFrame)
 		}
 		last = kind
-		v := Secret(append([]byte(nil), rest[:n]...))
+		if kind != CredSessionToken && kind != CredTaskToken && kind != CredMissionConfirmation {
+			return CredFrame{}, fmt.Errorf("%w: unknown kind", ErrCredFrame)
+		}
+		rest = rest[n:]
+	}
+	// Pass two copies what pass one accepted.
+	for rest := b[credHeader:]; len(rest) > 0; {
+		kind, n := CredKind(rest[0]), int(binary.BigEndian.Uint16(rest[1:3]))
+		v := Secret(append([]byte(nil), rest[3:3+n]...))
 		switch kind {
 		case CredSessionToken:
 			f.SessionToken = v
@@ -185,10 +194,8 @@ func DecodeCredFrame(b []byte) (CredFrame, error) {
 			f.TaskToken = v
 		case CredMissionConfirmation:
 			f.MissionConfirmation = v
-		default:
-			return f, fmt.Errorf("%w: unknown kind", ErrCredFrame)
 		}
-		rest = rest[n:]
+		rest = rest[3+n:]
 	}
 	return f, nil
 }
