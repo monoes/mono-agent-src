@@ -26,6 +26,10 @@ const coderConfigName = "coder_mode"
 // coderSettings is coder mode's persisted configuration. Enabled gates every
 // coder conversation and turn: the CLI enforces it, not the app.
 type coderSettings struct {
+	// tx is the write transaction the settings are being changed in (set only while updateCoderSettings runs change); a
+	// setter that must check other state atomically with the save reads through it. Never stored.
+	tx *sql.Conn
+
 	Enabled       bool    `json:"enabled"`
 	WorkspaceRoot string  `json:"workspaceRoot"`
 	MaxTurns      int     `json:"maxTurns"`
@@ -250,7 +254,10 @@ func updateCoderSettings(ctx context.Context, db *sql.DB, change func(s *coderSe
 	if err != nil {
 		return coderSettings{}, err
 	}
-	if err := change(&s); err != nil {
+	s.tx = conn
+	err = change(&s)
+	s.tx = nil
+	if err != nil {
 		return coderSettings{}, err
 	}
 	if err := saveCoderSettingsTo(ctx, conn, s); err != nil {

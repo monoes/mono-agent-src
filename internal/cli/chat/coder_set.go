@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -151,13 +152,13 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 					return clicore.InvalidInput("peer-credential binding cannot be switched on: %s", why)
 				}
 				// A turn that is running now was admitted unbound and holds legacy tokens, which the stores keep accepting:
-				// the switch is made when none runs, so that no turn is left outside it.
-				db, err := cfg.OpenDB()
-				if err != nil {
-					return err
+				// the switch is made when none runs, so that no turn is left outside it. The count is read inside the
+				// transaction that saves the setting.
+				ctx := cmd.Context()
+				if ctx == nil {
+					ctx = context.Background()
 				}
-				n, err := liveTurns(db.DB)
-				db.Close()
+				n, err := liveTurns(ctx, s.tx)
 				if err != nil {
 					return fmt.Errorf("could not check for running coder turns: %w", err)
 				}
@@ -211,8 +212,10 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 }
 
 // liveTurns counts the coder sessions with a turn in flight (a turn id, or a process the host started).
-func liveTurns(db *sql.DB) (int, error) {
+func liveTurns(ctx context.Context, q interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}) (int, error) {
 	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE turn_id <> '' OR turn_pid > 0`).Scan(&n)
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_sessions WHERE turn_id <> '' OR turn_pid > 0`).Scan(&n)
 	return n, err
 }

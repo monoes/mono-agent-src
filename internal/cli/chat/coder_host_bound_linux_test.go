@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -376,15 +377,19 @@ func TestRevokeByIDEndsOnlyThatToken(t *testing.T) {
 // the mint commits, the committed token and its registration must still end: nothing live is left for a dead worker.
 func TestALeaderThatDiesBeforeTheMintCommitsLeavesNoLiveToken(t *testing.T) {
 	r := newBoundRig(t, "")
+	exited := make(chan struct{})
+	var once sync.Once
+	r.l.afterExitRevoke = func() { once.Do(func() { close(exited) }) } // the exit goroutine has reaped the leader and revoked
 	r.l.bound.beforeMint = func() {
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(r.waitFile(r.pidfile))))
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
 			t.Error(err)
 		}
-		if !r.gone(pid) {
-			t.Error("the leader did not die")
+		select { // the leader is dead, reaped and its token revoked, all before the mint commits
+		case <-exited:
+		case <-time.After(30 * time.Second):
+			t.Error("the exit goroutine never ran")
 		}
-		time.Sleep(600 * time.Millisecond) // the exit goroutine reaps it and revokes, all before the mint commits
 	}
 	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
 	if err == nil && turn != nil {

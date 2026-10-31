@@ -253,7 +253,11 @@ func TestAHostInsideABoundTurnIsNoticedThroughItsV2Binding(t *testing.T) {
 	if st.HostInsideTurn() {
 		t.Fatal("a binding with a different start stamp counted")
 	}
-	id := mint("t1", pp, ProcStamp(pp))
+	mint("t0b", pp, ProcStamp(pp)+"@another-boot") // the same process number and start tick of another boot
+	if st.HostInsideTurn() {
+		t.Fatal("a binding of another boot counted")
+	}
+	id := mint("t1", pp, BoundStamp(pp))
 	if !st.HostInsideTurn() {
 		t.Fatal("a host below a bound (v2) turn was not noticed")
 	}

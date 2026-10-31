@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/procbind"
@@ -31,6 +32,8 @@ type gatedLauncher struct {
 	insideTurn func() bool
 	// logf receives the class-level reason a service could not be started; the operator is told generically.
 	logf func(format string, args ...any)
+	// load reads the coder settings (nil: loadCoderSettings); a seam for tests.
+	load func(*sql.DB) (coderSettings, error)
 	// reason says why binding may not run (nil: procbind.Refusal); a seam for tests.
 	reason func(serviceRunning bool) string
 }
@@ -89,18 +92,28 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	return g.bound, true, nil
 }
 
-// settingIsOnNow reads the setting again after a legacy turn's process exists. It is a guard against a flip in between,
-// not a gate: a settings object that cannot be read right now says nothing about a flip, so the healthy turn is left
-// running (the next start reads it again, and refuses if it is unreadable).
+// settingIsOnNow reads the setting again after a legacy turn's process exists. It is a guard against a flip in between.
+// A read that fails is tried again a few times (a transient failure says nothing about a flip and must not stop a healthy
+// turn); one that keeps failing counts as on, since whether binding is on is then not known: the turn is stopped and refused.
 func (g *gatedLauncher) settingIsOnNow() bool {
-	s, err := loadCoderSettings(g.db)
-	if err != nil {
-		if g.logf != nil {
-			g.logf("coder host: the coder settings could not be read after a turn started; the turn is left running: %v", err)
-		}
-		return false
+	load := g.load
+	if load == nil {
+		load = loadCoderSettings
 	}
-	return bool(s.PeercredBinding)
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		var s coderSettings
+		if s, err = load(g.db); err == nil {
+			return bool(s.PeercredBinding)
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+		}
+	}
+	if g.logf != nil {
+		g.logf("coder host: the coder settings could not be read after a turn started; the turn is stopped: %v", err)
+	}
+	return true
 }
 
 // launch routes the turn and starts it. A turn that went to the legacy launcher is checked once more after its process
