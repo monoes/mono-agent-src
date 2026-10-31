@@ -20,6 +20,10 @@ import (
 type hypo struct {
 	session int64
 	held    float64
+	// capConv is the conversation of a coder child that has task sessions below the walked session
+	// (v_mission_child_linked); the walk counts its coder cap as capDelta higher, as if the host had raised it.
+	capConv  string
+	capDelta float64
 }
 
 // ancestorGrant lowers g (the largest grant in micro-dollars) to what every budgeted ancestor of the target
@@ -63,7 +67,7 @@ func (s *Store) ancestorGrant(ctx context.Context, x dbx, profileID string, targ
 		if err != nil {
 			return 0, false, err
 		}
-		cg, err := s.commitWalkWith(ctx, x, profileID, a, 1, map[int64]bool{a: true}, hypo{target, fromMicros(ga)})
+		cg, err := s.commitWalkWith(ctx, x, profileID, a, 1, map[int64]bool{a: true}, hypo{session: target, held: fromMicros(ga)})
 		if err != nil {
 			return 0, false, err
 		}
