@@ -567,15 +567,32 @@ func TestAStopForAnAdoptedTurnSurvivesAnUnreadableStartTime(t *testing.T) {
 }
 
 // The last line of the log may have no newline when the process exits right after it.
+//
+// The host reads the process's start time right after launching it, before it looks at the log, so the fake
+// must still be alive then: it prints the unterminated line and waits for a gate that the test opens only once
+// the host has read the start time, and exits right after. The start-time read is held back for a while first,
+// so a fake that exited at once (as the earlier version of this test did) would deterministically be gone by then.
 func TestAnAdmissionLineWithoutANewlineCounts(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script")
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat > /dev/null\nprintf '{\"admitted\":true}'\n"), 0o755); err != nil {
+	gate := filepath.Join(dir, "gate")
+	script := "#!/bin/sh\ncat > /dev/null\nprintf '{\"admitted\":true}'\nwhile [ ! -e '" + gate + "' ]; do sleep 0.01; done\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	oldStamp := stampOf
+	stampOf = func(pid int) string {
+		time.Sleep(150 * time.Millisecond) // long enough for a fake that does not wait to be gone
+		stamp := oldStamp(pid)
+		if err := os.WriteFile(gate, nil, 0o600); err != nil { // the host has its answer: the fake may end
+			t.Error(err)
+		}
+		return stamp
+	}
+	t.Cleanup(func() { stampOf = oldStamp })
 	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns")}
 	if _, err := l.Start("p", "c1", "t1", "hello", nil, ""); err != nil {
 		t.Fatalf("Start = %v, want the unterminated admission line accepted", err)

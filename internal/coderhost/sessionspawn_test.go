@@ -426,6 +426,7 @@ func TestSessionSpawnRateAndLiveCapHold(t *testing.T) {
 	f := newMC(t, true)
 	s, _ := f.st.GetSettings("p", f.lead.ConversationID)
 	s.MaxChildren = 20
+	setMD(&s, 6) // the rate and live cap are under test here, not the direction cap
 	f.st.SaveSettings("p", f.lead.ConversationID, s)
 	var err error
 	n := 0

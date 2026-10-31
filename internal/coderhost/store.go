@@ -627,6 +627,27 @@ func (s *Store) SaveCheckin(profileID, conversationID string, c Checkin) error {
 	return err
 }
 
+// EnqueueWithCheckin queues a command and records the scheduler's look in ONE transaction, so a failure of either leaves
+// neither: the command is never queued against a baseline that was not saved.
+func (s *Store) EnqueueWithCheckin(c Command, k Checkin) (Command, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return c, err
+	}
+	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
+	got, err := s.enqueueOn(tx, c)
+	if err != nil {
+		return c, err
+	}
+	if _, err := tx.Exec(`UPDATE coder_sessions SET checkin_at = ?, checkin_snapshot = ? WHERE profile_id = ? AND conversation_id = ?`, k.At, k.Snapshot, c.ProfileID, c.ConversationID); err != nil {
+		return c, err
+	}
+	if err := tx.Commit(); err != nil {
+		return c, err
+	}
+	return got, nil
+}
+
 // TurnActivity is the time of a running turn's newest journal event, or when the
 // turn began if it has none yet; the zero time when there is no such turn.
 func (s *Store) TurnActivity(profileID, conversationID, turnID string) time.Time {

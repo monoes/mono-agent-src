@@ -45,6 +45,12 @@ type Settings struct {
 	AgentApproval      string  `json:"agent_approval"`
 	ApprovalCeilingUSD float64 `json:"approval_ceiling_usd"`
 
+	// MissionDirections is K: how many directions a mission lead keeps and may have open at once (1 to 6; 0 is the
+	// default of 3). Operator-only; session_spawn enforces it (sessionspawn_directions.go). It is optional: nil
+	// (absent from the document) means nobody chose, so a child inherits its parent's K, while an operator's
+	// explicit 0 is stored as 0. A pointer, so that an unrelated writer cannot turn "not set" into "set to 0".
+	MissionDirections *int `json:"mission_directions,omitempty"`
+
 	// Mesh: whether other monomind agents see this session and who may message it.
 	MeshVisible bool   `json:"mesh_visible"`
 	MeshAlias   string `json:"mesh_alias"` // "" = a name made from the project and start time
@@ -78,7 +84,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "mission_directions"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
@@ -166,6 +172,11 @@ func (s Settings) Validate() error {
 	if err := within("max_depth", s.MaxDepth, 1, MaxSessionDepth); err != nil { // the hard limit of the design (tasks.HardMaxSessionDepth)
 		return err
 	}
+	if s.MissionDirections != nil {
+		if err := within("mission_directions", *s.MissionDirections, 0, hardMissionDirections); err != nil {
+			return err
+		}
+	}
 	if !oneOf(s.AgentApproval, AgentApprovals) {
 		return fmt.Errorf("agent_approval must be one of %s", strings.Join(AgentApprovals, ", "))
 	}
@@ -193,6 +204,8 @@ func (s Settings) Apply(patch []byte) (Settings, []string, error) {
 		return s, nil, fmt.Errorf("the patch is not a JSON object: %w", err)
 	}
 	out := s
+	// The decode below writes through a non-nil pointer, so out gets a pointer of its own.
+	out.MissionDirections = cloneInt(s.MissionDirections)
 	// A patched map or list replaces the old one (not merged into it), and the
 	// copy shares no storage with s.
 	out.AutonomyClasses = map[string]AutonomyChoice{}

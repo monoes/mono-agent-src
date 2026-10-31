@@ -192,6 +192,10 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 			made, err = ts.CreateSession(ctx, profile, tasks.SessionInput{Title: title, Goal: req.Goal, ConversationID: conv, ParentSessionID: sid, Kind: req.Kind,
 				MaxTasks: min(MaxSpawnedSessionTasks, se.MaxTasks)},
 				leadActor(c.ConversationID, sid, conv))
+			if errors.Is(err, tasks.ErrLimit) {
+				// The direction cap (mission_directions) is held by CreateSession, in the insert transaction.
+				return fmt.Errorf("%w: %w", ErrLimit, err)
+			}
 			if err != nil {
 				return err
 			}
