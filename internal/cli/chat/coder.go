@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -75,7 +76,7 @@ type coderSettings struct {
 	// kernel-checked binding service (internal/procbind). Off by default. Only the operator changes it, and it can be
 	// switched on only where procbind.Refusal says nothing: while the build cannot issue bound tokens, switching it on
 	// is refused and, if the setting is on anyway (a hand edit), every turn start is refused (coder_host_gate.go).
-	PeercredBinding bool `json:"peercredBinding,omitempty"`
+	PeercredBinding bindingFlag `json:"peercredBinding,omitempty"`
 }
 
 const (
@@ -144,6 +145,21 @@ func (s coderSettings) defaultAccess() string {
 
 // appAccess reports coder.appAccess; unset is on.
 func (s coderSettings) appAccess() bool { return s.AppAccess == nil || *s.AppAccess }
+
+// bindingFlag is the peer-credential setting as stored. It is read conservatively, in ONE way everywhere (status, the
+// setter and the launcher gate all decode this type): anything but a plain false or null counts as on, and a key
+// that occurs more than once (or in other letter case, which encoding/json folds) is on if ANY occurrence is on or
+// unreadable, because the decoder calls this for every occurrence and a later "false" never clears an earlier "on".
+// Reading a junk value never fails, so `coder set --peercred-binding off` can always overwrite it: the stored JSON is
+// written again from the struct, which has the key once.
+type bindingFlag bool
+
+func (f *bindingFlag) UnmarshalJSON(b []byte) error {
+	if s := string(bytes.TrimSpace(b)); s != "false" && s != "null" {
+		*f = true
+	}
+	return nil
+}
 
 func onOff(on bool) string {
 	if on {
@@ -358,7 +374,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
-			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s (off by default; it cannot be switched on in this build yet)\n", onOff(st.PeercredBinding))
+			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s (off by default; it cannot be switched on in this build yet)\n", onOff(bool(st.PeercredBinding)))
 			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s (off by default; best-effort hardening, not isolation: the host network is shared and the host root is read-only)\n", st.Box)
 			if !st.Ready {
 				fmt.Fprintf(cmd.OutOrStdout(), "missing monomind capabilities: %v\n", st.MissingCapabilities)

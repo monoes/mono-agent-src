@@ -143,6 +143,10 @@ func newCoderHostCmd(cfg *Deps) *cobra.Command {
 	return cmd
 }
 
+// hostBuilt is a test seam: it sees the host just built, before it runs, so a test can prove which launcher the
+// production wiring installs.
+var hostBuilt func(h *coderhost.Host)
+
 func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 	var poll time.Duration
 	cmd := &cobra.Command{
@@ -217,6 +221,9 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
+			}
+			if hostBuilt != nil {
+				hostBuilt(h)
 			}
 			if meshEnabled() {
 				h.Mesh = &coderhost.HubMesh{StartHub: func(ctx context.Context) error { return startMeshHub(ctx, hostDir(cfg)) }, Logf: logf}

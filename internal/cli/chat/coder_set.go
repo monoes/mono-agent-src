@@ -149,7 +149,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 					return clicore.InvalidInput("peer-credential binding cannot be switched on: %s", why)
 				}
 			}
-			s.PeercredBinding = peercred == "on"
+			s.PeercredBinding = bindingFlag(peercred == "on")
 		}
 		if f.Changed("send-approval") {
 			if err := clicore.RequireOperator(cfg.RequireOperator, "change the send-approval setting"); err != nil {
