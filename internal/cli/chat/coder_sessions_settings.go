@@ -25,11 +25,19 @@ type sessionSettingsView struct {
 	Allowed        map[string][]string `json:"allowed"`
 	Changed        []string            `json:"changed,omitempty"`
 	Mission        missionToggleView   `json:"mission"`
+	// MissionDirections is K as the cap reads it: Effective (not set or 0 is the default of 3) and whether the
+	// operator chose it (Explicit; an explicit 0 counts).
+	MissionDirections missionDirectionsView `json:"missionDirections"`
 	// Checkin is set for a master: how many check-in turns ran in a row with no message
 	// from a person between them, against its limit. Waiting says the scheduler would check
 	// in (it is unattended and has children) but has reached the limit, so it waits until
 	// someone writes to the master.
 	Checkin *checkinView `json:"checkin,omitempty"`
+}
+
+type missionDirectionsView struct {
+	Effective int  `json:"effective"`
+	Explicit  bool `json:"explicit"`
 }
 
 type checkinView struct {
@@ -83,6 +91,7 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 			"checkin_triggers": coderhost.CheckinEvents, "mesh_accept": coderhost.MeshAccepts,
 		},
 	}
+	v.MissionDirections = missionDirectionsView{Effective: settings.EffectiveMissionDirections(), Explicit: settings.MissionDirectionsExplicit()}
 	v.Mission = missionToggleOf(context.Background(), tasks.NewStore(db.DB), profileID, conv, settings.Mission)
 	if x, ok, err := cs.GetSession(profileID, conv.ID); err != nil {
 		return v, err

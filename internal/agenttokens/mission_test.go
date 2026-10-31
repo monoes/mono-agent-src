@@ -224,3 +224,48 @@ func TestSweepMissionsSparesRunningAndOwnRuns(t *testing.T) {
 		t.Errorf("the dead run's token survived: %v", err)
 	}
 }
+
+// The sweep a conductor runs also removes the v2 binding rows that are past retention, at most once an
+// interval, and a failure of it never fails the sweep.
+func TestSweepMissionsRunsTheV2RetentionSweepOnceAnInterval(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	clock := time.Now()
+	s.SetClock(func() time.Time { return clock })
+	old := func(id string) {
+		t.Helper()
+		_, err := s.db.ExecContext(ctx, `INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES (?, 'default', ?, ?, ?, 2, 'm')`,
+			id, "h-"+id, time.Now().UTC().Add(-40*24*time.Hour).Format("2006-01-02T15:04:05.000Z"), time.Now().UTC().Add(-30*24*time.Hour).Format("2006-01-02T15:04:05.000Z"))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	v2 := func() int {
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM agent_tokens_v2`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	old("a")
+	if _, err := s.SweepMissions(ctx, "run-a", "run-a/new", nil); err != nil {
+		t.Fatal(err)
+	}
+	if v2() != 0 {
+		t.Fatalf("the v2 row past retention was not removed by the sweep (%d left)", v2())
+	}
+	old("b")
+	if _, err := s.SweepMissions(ctx, "run-a", "run-a/new", nil); err != nil {
+		t.Fatal(err)
+	}
+	if v2() != 1 {
+		t.Fatal("the retention sweep ran again inside its interval")
+	}
+	clock = clock.Add(purgeInterval + time.Minute)
+	if _, err := s.SweepMissions(ctx, "run-a", "run-a/new", nil); err != nil {
+		t.Fatal(err)
+	}
+	if v2() != 0 {
+		t.Fatal("the retention sweep did not run after its interval")
+	}
+}

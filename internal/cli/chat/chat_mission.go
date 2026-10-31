@@ -32,6 +32,12 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 		Store: store, ProfileID: profileID, ConversationID: conversationID,
 		Actor: missionActor, Access: t.access, Confirmed: t.missionConfirmed,
 	}
+	if s, err := coderhost.NewStore(db).GetSettings(profileID, conversationID); err == nil {
+		if s.MissionDirections != nil {
+			m.MaxDirections = *s.MissionDirections // the K of this moment; the evaluation reads the live one below
+		}
+	}
+	m.DirectionsK = missionDirectionsReader(db, profileID, conversationID)
 	if !m.Confirmed && (m.HasOpenSession(ctx) || missionToggleOn(db, profileID, conversationID)) {
 		m.Confirmed = true
 		// Confirmed by the toggle (or by a mission already open), not by the operator's hand on this turn: the
@@ -39,6 +45,25 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 		m.BeforeCreate = missionCreateGuard(profileID, conversationID)
 	}
 	return m
+}
+
+// missionDirectionsReader reads the operator's mission_directions as it is stored NOW (unset or 0 is the default of 3,
+// never above 6): mission_evaluate asks for it when it runs and again inside the transaction that records the
+// evaluation, so a K lowered during a long turn holds. A setting that cannot be read is an error, not the default. x is
+// the connection of that transaction, nil outside one.
+func missionDirectionsReader(db *sql.DB, profileID, conversationID string) func(context.Context, tasks.Queryer) (int, error) {
+	return func(ctx context.Context, x tasks.Queryer) (int, error) {
+		if x == nil {
+			x = db
+		}
+		var raw string
+		err := x.QueryRowContext(ctx, `SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
+		cur, err := coderhost.ParseSettings(conversationID, raw, err)
+		if err != nil {
+			return 0, err
+		}
+		return cur.EffectiveMissionDirections(), nil
+	}
 }
 
 // missionToggleOn is the operator's Mission toggle for the conversation (`coder sessions

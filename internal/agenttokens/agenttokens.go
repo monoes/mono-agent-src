@@ -167,7 +167,9 @@ type Store struct {
 
 	mu      sync.Mutex
 	touched map[string]time.Time
-	inserts atomic.Uint64
+	// lastPurge is when the v2 retention sweep last ran (mission.go purgeV2); only its rate is kept by this clock.
+	lastPurge time.Time
+	inserts   atomic.Uint64
 }
 
 // NewStore returns a Store over a migrated database.
