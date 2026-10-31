@@ -254,3 +254,52 @@ func TestLegacyMissionTokenIsUnchangedByTheV2Verifier(t *testing.T) {
 		t.Fatalf("the legacy lookup accepted a v2 secret: %v", err)
 	}
 }
+
+// craft puts one more v2 mission token in the rig's store with its own token and binding expiry (or no binding at
+// all), registered with the service as this process's, so that only the check under test can refuse it.
+func (r *v2Rig) craft(t *testing.T, tokenExpires, bindingExpires time.Time, withBinding bool) string {
+	t.Helper()
+	ctx := context.Background()
+	key, err := procbind.RowKey(ctx, r.s.db, r.profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	secret, hash, _ := procbind.NewSecret(procbind.TaskPrefixV2)
+	id, _ := procbind.NewTokenID()
+	if err := procbind.InsertMissionToken(ctx, r.s.db, key, procbind.MissionTokenRow{ID: id, ProfileID: r.profile, TokenHash: hash, Owner: "run-a", Session: 7, Task: 3,
+		Role: RoleWorker, Actor: "w7-t3", CreatedAt: now.Add(-time.Hour), ExpiresAt: tokenExpires}); err != nil {
+		t.Fatal(err)
+	}
+	if withBinding {
+		if err := procbind.InsertBinding(ctx, r.s.db, key, procbind.BindingRow{Kind: procbind.KindMission, TokenID: id, ProfileID: r.profile, Scope: r.scope,
+			WorkerPID: os.Getpid(), WorkerStamp: "stamp", HostGeneration: "gen-1", CreatedAt: now.Add(-time.Hour), ExpiresAt: bindingExpires}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.reg.mu.Lock()
+	r.reg.m[id+"|"+r.profile+"|"+r.scope] = true
+	r.reg.mu.Unlock()
+	return secret
+}
+
+// Each check refuses on its own: the service would allow all of these, so only the row checks stand between them and
+// acceptance.
+func TestV2MissionTokenEachRowCheckRefusesOnItsOwn(t *testing.T) {
+	r := newV2Rig(t, nil)
+	future, past := time.Now().UTC().Add(time.Hour).Truncate(time.Millisecond), time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
+	for name, secret := range map[string]string{
+		"the token has expired":   r.craft(t, past, future, true),
+		"the binding has expired": r.craft(t, future, past, true),
+		"there is no binding row": r.craft(t, future, future, false),
+	} {
+		if _, err := r.s.VerifyMission(context.Background(), r.profile, secret); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	if ok := r.craft(t, future, future, true); ok == "" {
+		t.Fatal("no secret")
+	} else if _, err := r.s.VerifyMission(context.Background(), r.profile, ok); err != nil {
+		t.Fatalf("the same craft with every row valid is refused: %v", err)
+	}
+}
