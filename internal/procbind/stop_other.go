@@ -20,6 +20,7 @@ type StopResult struct {
 // Stopper never stops anything off Linux: no bound turn exists there, and an unknown one is held.
 type Stopper struct {
 	StampOf func(pid int) string
+	Same    func(recorded, current string) bool
 	Grace   time.Duration
 }
 

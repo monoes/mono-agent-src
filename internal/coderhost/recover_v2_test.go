@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -111,8 +112,8 @@ func TestAHeldBoundTurnBlocksTheChatUntilItsLeaderIsConfirmedGone(t *testing.T) 
 	if x.TurnID != "t1" || x.State != StateRunning || len(l.finished) != 0 {
 		t.Fatalf("a held session was settled: %+v finished=%v", x, l.finished)
 	}
-	if rv, _ := procbind.IsRevoked(context.Background(), st.db, procbind.KindSession, id); rv {
-		t.Error("the token of a turn that may still be running was revoked")
+	if rv, _ := procbind.IsRevoked(context.Background(), st.db, procbind.KindSession, id); !rv {
+		t.Error("the token of a turn whose leader may survive was not revoked before the stop")
 	}
 	if held := h.Held(); len(held) != 1 {
 		t.Errorf("held = %v", held)
@@ -183,5 +184,106 @@ func TestALegacyTurnIsStillAdopted(t *testing.T) {
 	}
 	if len(fs.calls) != 0 || h.live[key("p", "c1")] == nil {
 		t.Errorf("a legacy turn: stopper calls %v, adopted=%v", fs.calls, h.live[key("p", "c1")] != nil)
+	}
+}
+
+// blockingStopper stops nothing until released; it tells the test when it has been called and what the database said
+// about the turn's token at that moment.
+type blockingStopper struct {
+	called  chan struct{}
+	release chan struct{}
+	atCall  func()
+}
+
+func (b *blockingStopper) StopLeader(int, string) procbind.StopResult {
+	if b.atCall != nil {
+		b.atCall()
+	}
+	close(b.called)
+	<-b.release
+	return procbind.StopResult{Outcome: procbind.StopStopped}
+}
+
+// While a leader is being stopped (up to two grace periods) the host's lock is free: other callers of the host are not
+// blocked, and the session shows as held with the reason. The turn's token is already revoked when the stop starts.
+func TestStoppingALeaderDoesNotHoldTheHostLockAndRevokesTheTokenFirst(t *testing.T) {
+	h, _, st := newHost(t)
+	id := v2Turn(t, st, "c1", "t1", 0, "", 4242, "bind-stamp")
+	bs := &blockingStopper{called: make(chan struct{}), release: make(chan struct{})}
+	var revokedAtStop bool
+	bs.atCall = func() {
+		rv, _ := procbind.IsRevoked(context.Background(), st.db, procbind.KindSession, id)
+		revokedAtStop = rv
+	}
+	h.Stopper = bs
+	done := make(chan error, 1)
+	go func() { done <- h.Recover() }()
+	select {
+	case <-bs.called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the leader was never stopped")
+	}
+	got := make(chan map[string]string, 1)
+	go func() { got <- h.Held() }() // takes the host lock
+	select {
+	case held := <-got:
+		if len(held) != 1 {
+			t.Errorf("held while stopping = %v", held)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the host lock is held while the leader is being stopped")
+	}
+	close(bs.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !revokedAtStop {
+		t.Error("the token was not revoked before the leader was stopped")
+	}
+	if len(h.Held()) != 0 {
+		t.Errorf("still held after the stop: %v", h.Held())
+	}
+}
+
+type failingChildTokens struct{ err error }
+
+func (f failingChildTokens) RevokeChildTokens(string, string) error { return f.err }
+
+// A child's task tokens that cannot be revoked hold the session: it is not settled while a token of the run lives.
+func TestAChildWhoseTaskTokensCannotBeRevokedStaysHeld(t *testing.T) {
+	h, l, st := newHost(t)
+	v2Turn(t, st, "c1", "t1", 0, "", 4242, "bind-stamp")
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = 'm' WHERE conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopStopped}}}
+	h.ChildTokens = failingChildTokens{err: errors.New("database is locked")}
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if x := state(t, st, "c1"); x.TurnID != "t1" || x.State != StateRunning {
+		t.Fatalf("the session was settled with a live task token: %+v", x)
+	}
+	if len(l.finished) != 0 || len(h.Held()) != 1 {
+		t.Errorf("finished=%v held=%v", l.finished, h.Held())
+	}
+	h.ChildTokens = failingChildTokens{} // the revoke works now: the next pass settles it
+	if err := h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if x := state(t, st, "c1"); x.TurnID != "" {
+		t.Errorf("the session was not settled once its tokens could be revoked: %+v", x)
+	}
+}
+
+// The production stopper reads a leader's stamp with its boot id and compares it the boot-aware way.
+func TestTheProductionStopperKnowsTheBootId(t *testing.T) {
+	h, _, _ := newHost(t)
+	s, ok := h.leaderStopper().(procbind.Stopper)
+	if !ok || s.Same == nil || s.StampOf == nil {
+		t.Fatalf("the production stopper is %#v", h.leaderStopper())
+	}
+	if !s.Same("start:5", "start:5@boot") || s.Same("start:5@a", "start:5@b") {
+		t.Error("the production stopper does not compare the boot id")
 	}
 }

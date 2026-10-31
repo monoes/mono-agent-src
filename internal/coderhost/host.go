@@ -132,7 +132,9 @@ func (h *Host) Recover() error {
 // settle clears a session's turn; a paused session stays paused. Callers hold mu.
 func (h *Host) settle(x Session) {
 	if x.Role == "child" {
-		_ = h.revokeChildTokens(x.ProfileID, x.ConversationID) // the run is over: no token of it outlives it
+		if err := h.revokeChildTokens(x.ProfileID, x.ConversationID); err != nil { // the run is over: no token of it outlives it
+			h.logf("coder host: the task tokens of the child %s could not be revoked: %v", x.ConversationID, err)
+		}
 	}
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
 		x = cur

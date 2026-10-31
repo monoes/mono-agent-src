@@ -123,3 +123,35 @@ func TestStopLeaderHoldsWhenItCannotCheck(t *testing.T) {
 		}
 	}
 }
+
+// The recorded stamp names a boot: a process with the same pid and start tick of another boot is not the leader; a stamp
+// recorded without a boot id still matches (every stamp before the boot id was added).
+func TestStopLeaderDoesNotMistakeAProcessOfAnotherBootForTheLeader(t *testing.T) {
+	same := func(recorded, current string) bool { // the shape of procchain.SameStamp
+		r0, rb, rh := strings.Cut(recorded, "@")
+		c0, cb, ch := strings.Cut(current, "@")
+		return r0 == c0 && (!rh || !ch || rb == cb)
+	}
+	for name, c := range map[string]struct {
+		recorded, current string
+		want              StopOutcome
+	}{
+		"another boot":               {"start:5@boot-A", "start:5@boot-B", StopAbsent},
+		"the same boot":              {"start:5@boot-A", "start:5@boot-A", StopStopped},
+		"recorded without a boot id": {"start:5", "start:5@boot-A", StopStopped},
+		"another start tick":         {"start:6@boot-A", "start:5@boot-A", StopAbsent},
+	} {
+		pid, done := startChild(t, "sleep 60")
+		s := Stopper{StampOf: func(int) string { return c.current }, Same: same, Grace: 300 * time.Millisecond}
+		r := s.StopLeader(pid, c.recorded)
+		if r.Outcome != c.want {
+			t.Errorf("%s: %+v, want outcome %v", name, r, c.want)
+		}
+		if c.want == StopStopped && !exited(done) {
+			t.Errorf("%s: the leader was not stopped", name)
+		}
+		if c.want == StopAbsent && exited(done) {
+			t.Errorf("%s: a process of another identity was stopped", name)
+		}
+	}
+}

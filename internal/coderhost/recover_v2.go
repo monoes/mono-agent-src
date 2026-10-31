@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/procchain"
 )
 
 // A turn launched with peer-credential binding (a v2 turn: its token row is in coder_session_tokens_v2, which is
@@ -60,35 +61,53 @@ func (h *Host) leaderStopper() LeaderStopper {
 	if h.Stopper != nil {
 		return h.Stopper
 	}
-	return procbind.Stopper{StampOf: ProcStamp}
+	return procbind.Stopper{StampOf: BoundStamp, Same: procchain.SameStamp}
 }
 
+// stopping is the cause shown for a session whose leader is being stopped right now (the host's lock is released for
+// the stop, which can take two grace periods); it holds the chat and keeps the retry pass away from the session.
+const stopping = "its turn is being stopped"
+
 // recoverV2 stops a v2 turn's leader and settles the session if the leader is gone; it holds the session otherwise.
-// Callers hold mu.
+// Callers hold mu. mu is released while the leader is stopped (up to two grace periods per session), so the host keeps
+// ticking for every other session; the session is held, with a cause that says why, for that time.
+//
+// The turn's tokens are revoked BEFORE the leader is stopped: a leader that survives the stop must have no usable
+// credential.
 func (h *Host) recoverV2(x Session, pid int, stamp string) {
 	k := key(x.ProfileID, x.ConversationID)
 	if pid == 0 { // the binding row could not be read: what the host saved of the turn, if it saved it
 		pid, stamp = x.TurnPID, x.TurnStamp
 	}
-	r := h.leaderStopper().StopLeader(pid, stamp)
-	if r.Outcome == procbind.StopHeld {
+	hold := func(cause string) {
 		if h.held == nil {
 			h.held = map[string]heldSession{}
 		}
-		if prev, ok := h.held[k]; !ok || prev.cause != r.Cause {
-			h.logf("coder host: the turn of %s is held: %s", x.ConversationID, r.Cause)
+		if prev, ok := h.held[k]; cause != stopping && (!ok || prev.cause != cause) {
+			h.logf("coder host: the turn of %s is held: %s", x.ConversationID, cause)
 		}
-		h.held[k] = heldSession{x: x, cause: r.Cause}
+		h.held[k] = heldSession{x: x, cause: cause}
+	}
+	revokeErr := h.Store.RevokeSessionTokensErr(x.ProfileID, x.ConversationID)
+	hold(stopping)
+	h.mu.Unlock()
+	r := h.leaderStopper().StopLeader(pid, stamp)
+	h.mu.Lock()
+	if r.Outcome == procbind.StopHeld {
+		hold(r.Cause)
 		return
 	}
-	// the leader is gone (absent, or stopped through its pidfd): no token of the turn outlives it
-	if err := h.Store.RevokeSessionTokensErr(x.ProfileID, x.ConversationID); err != nil {
-		if h.held == nil {
-			h.held = map[string]heldSession{}
-		}
-		h.held[k] = heldSession{x: x, cause: "the turn's tokens could not be revoked"}
-		h.logf("coder host: the turn of %s is held: its tokens could not be revoked: %v", x.ConversationID, err)
+	if revokeErr != nil {
+		hold("the turn's tokens could not be revoked")
+		h.logf("coder host: the tokens of the turn of %s could not be revoked: %v", x.ConversationID, revokeErr)
 		return
+	}
+	if x.Role == "child" { // the run is over: no task token of it outlives it, and a token that cannot be ended holds the session
+		if err := h.revokeChildTokens(x.ProfileID, x.ConversationID); err != nil {
+			hold("the child's task tokens could not be revoked")
+			h.logf("coder host: the task tokens of the child %s could not be revoked: %v", x.ConversationID, err)
+			return
+		}
 	}
 	delete(h.held, k)
 	if x.TurnID != "" {
@@ -99,7 +118,14 @@ func (h *Host) recoverV2(x Session, pid int, stamp string) {
 
 // retryHeld re-checks every held session once. Callers hold mu.
 func (h *Host) retryHeld() {
-	for k, hs := range h.held {
+	snapshot := make(map[string]heldSession, len(h.held))
+	for k, hs := range h.held { // recoverV2 releases mu while it stops a leader, so the map is not ranged over directly
+		snapshot[k] = hs
+	}
+	for k, hs := range snapshot {
+		if hs.cause == stopping {
+			continue
+		}
 		x := hs.x
 		if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
 			x = cur

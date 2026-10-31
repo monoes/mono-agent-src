@@ -180,7 +180,7 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT DISTINCT mission_owner FROM agent_tokens WHERE revoked_at IS NULL AND mission_session > 0
-		   AND (mission_owner = ? OR mission_owner LIKE ?) AND mission_owner <> ?`, group, group+"/%", self)
+		   AND (mission_owner = ?1 OR substr(mission_owner, 1, length(?1) + 1) = ?1 || '/') AND mission_owner <> ?2`, group, self)
 	if err != nil {
 		return 0, fmt.Errorf("listing mission token owners: %w", err)
 	}

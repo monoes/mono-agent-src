@@ -261,7 +261,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	if bd != nil {
 		bd.setOnKill(t.markStopping)
-		if err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) }); err != nil {
+		if err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.BoundStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) }); err != nil {
 			t.stopAndWait()
 			return nil, err
 		}

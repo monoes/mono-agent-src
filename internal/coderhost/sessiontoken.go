@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/procchain"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
 
@@ -114,7 +115,7 @@ func (s *Store) chainHits(query string, in map[int]bool) bool {
 	for rows.Next() {
 		var pid int
 		var stamp string
-		if rows.Scan(&pid, &stamp) == nil && in[pid] && (stamp == "" || ProcStamp(pid) == stamp) {
+		if rows.Scan(&pid, &stamp) == nil && in[pid] && (stamp == "" || procchain.SameStamp(stamp, ProcStamp(pid))) {
 			return true
 		}
 	}

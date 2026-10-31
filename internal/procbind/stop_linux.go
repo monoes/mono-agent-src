@@ -38,6 +38,8 @@ type StopResult struct {
 type Stopper struct {
 	// StampOf reads a process's start stamp ("" when it cannot be read); the same function that recorded the stamp.
 	StampOf func(pid int) string
+	// Same compares the recorded stamp with the current one (nil: equality).
+	Same func(recorded, current string) bool
 	// Grace is how long the leader gets after SIGTERM before SIGKILL, and then after SIGKILL to exit.
 	Grace time.Duration
 
@@ -131,7 +133,11 @@ func (s Stopper) StopLeader(pid int, stamp string) StopResult {
 	if !alive {
 		return StopResult{Outcome: StopAbsent}
 	}
-	if got != stamp { // the number belongs to another process now, so ours is gone
+	same := got == stamp
+	if s.Same != nil {
+		same = s.Same(stamp, got)
+	}
+	if !same { // the number belongs to another process now (or the same number of another boot), so ours is gone
 		return StopResult{Outcome: StopAbsent}
 	}
 	grace := s.Grace
