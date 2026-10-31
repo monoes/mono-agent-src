@@ -10,6 +10,7 @@ import { useStreamsIncrementally } from './useChatPaneData.js'
 import { ChatTimeline } from '../chat/ChatTimeline.jsx'
 import { TurnStatus } from '../chat/TurnStatus.jsx'
 import { ChatComposer } from '../chat/ChatComposer.jsx'
+import { PersonItemsRegion } from './PersonItemViews.jsx'
 import { MessageAttachments, WorkspaceImageContext } from '../chat/ChatAttachments.jsx'
 import { takeFiles, MAX_ATTACHMENTS } from '../chat/chatAttachments.js'
 import { useChatScroll } from '../chat/useChatScroll.js'
@@ -155,6 +156,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
         </div>
       )}
       <div role="status" aria-live="polite" aria-label={t('bubbles.pane.announcements')} style={srOnly}>{announcement}</div>
+      <PersonItemsRegion conversationId={conv.conversationId || ''} />
       {isDraft && empty && <ChatSetup s={setupState} setup={setup} onChange={onSetupChange} onNavigate={onNavigate} />}
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         <div ref={scroll.containerRef} onScroll={e => onScroll?.(e.currentTarget.scrollTop)} data-testid="bubble-transcript"

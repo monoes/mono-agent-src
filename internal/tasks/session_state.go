@@ -8,55 +8,6 @@ import (
 	"strings"
 )
 
-// ApproveSession is the operator's approval of the plan: the session's draft tasks move
-// to Ready, in their order, and the session runs. Only the operator may, and only a draft
-// that holds a task: an agent cannot approve its own plan.
-func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, actor Actor) (Session, error) {
-	if actor.Kind != Human {
-		return Session{}, operatorOnly("approve a session's plan")
-	}
-	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		if se.State != SessionDraft || se.Archived {
-			return sessionNotReady("session #%d is %s: only a draft is approved", id, se.State)
-		}
-		if se.ParentSessionID != 0 {
-			top, err := s.ceilingAt(ctx, x, profileID, se.ParentSessionID)
-			if err != nil {
-				return err
-			}
-			if err := withinCeiling(se, top); err != nil {
-				return err
-			}
-			if se.BudgetUSD <= 0 && top.budget > 0 {
-				return limit("session #%d has no budget of its own and a session above it has $%.2f: set one first (task session budget %d --usd N, at most that)", id, top.budget, id)
-			}
-		}
-		ids, _, err := s.sessionColumn(ctx, x, id, StatusInbox)
-		if err != nil {
-			return err
-		}
-		// Inbox cards stack newest on top; the plan's order is the order they were added.
-		slices.Sort(ids)
-		if se.Counts.Total == 0 {
-			return invalid("session #%d has no tasks: plan some before approving", id)
-		}
-		for _, tid := range ids {
-			cur, err := s.getTx(ctx, x, profileID, tid)
-			if err != nil {
-				return err
-			}
-			if err := s.moveTx(ctx, x, profileID, cur, StatusReady, Placement{Bottom: true}, actor, "moved", "approved with the plan"); err != nil {
-				return err
-			}
-		}
-		stamp := s.stamp()
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = 'running', approved_by = ?, approved_at = ?, approval_basis = 'operator' WHERE id = ?`, actor.Label(), stamp, id); err != nil {
-			return fmt.Errorf("tasks: approving session #%d: %w", id, err)
-		}
-		return s.sessionEvent(ctx, x, id, actor, "approved", fmt.Sprintf("%d tasks to Ready", len(ids)))
-	})
-}
-
 // sessionColumn lists the ids and positions of a session's cards in one column.
 func (s *Store) sessionColumn(ctx context.Context, x dbx, id int64, st Status) ([]int64, []int64, error) {
 	rows, err := x.QueryContext(ctx, `SELECT id, position FROM tasks WHERE session_id = ? AND status = ? ORDER BY position, id`, id, string(st))

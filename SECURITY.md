@@ -1967,6 +1967,22 @@ that works a task acts on them. The defences:
   it, and the database is a file that user owns) can sign a record, so none of this stops
   such a process; the guard is against agent turns going through the CLI, which refuses
   them these commands.
+- **Agent approval of child sessions and the person's answers.** The operator may let the lead of a session's parent approve the
+  sessions below it (`agent_approval = lead`, with `approval_ceiling_usd` above 0; both are operator-only settings and `lead` is refused
+  without a ceiling). The caller is the lead of the parent only if its coder-session token is verified (`internal/cli/task/approver.go`),
+  and the store, not the CLI, refuses a root, a session the lead leads or sits in, a peer's or another mission's session, and a worker or
+  verifier. The settings are read inside the write transaction of the approval. An agent never approves giant work (over 25 tasks,
+  more access than the parent, a level beyond the working depth, over 40% of the parent's budget, over the ceiling, or no budget and no
+  ceiling); it is told only that the person decides, and a person item is raised that waits with no timeout, no default and no model
+  or matrix answer (`plan_approval` is a hard class). `task session approve --rev N` and `person approve --rev N` are refused with
+  `plan_changed` when the plan moved after it was read; a denial is atomic. Only `person approve` records `approval_basis = person`.
+  **The split between the operator and an agent in these verbs depends on the process environment and ancestry: it is a courtesy
+  layer, the same class as the token-to-process binding, which also reads the process tree, not a barrier.** The `person` verbs are refused when the environment holds
+  an agent token variable (`MONOAGENT_SESSION_TOKEN`, `MONOAGENT_TASK_BINDING`, `MONOAGENT_TASK_SESSION`, `MONOAGENT_TASK_ID`) and when
+  the process is inside the process tree of a running coder turn (the ancestry check that binds a session token to its turn, applied
+  without a token); a lead with a shell that clears its environment and detaches from its turn's process tree is not stopped by either,
+  and can run `session approve` and the person verbs as the operator. The tests pin each refusal; they do not prove the absence of such
+  a bypass.
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and

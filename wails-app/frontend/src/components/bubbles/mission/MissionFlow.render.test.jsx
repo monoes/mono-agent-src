@@ -13,6 +13,7 @@ const { api, chatAccess, sess, tasksApi, listeners } = vi.hoisted(() => ({
   sess: { list: vi.fn(), show: vi.fn(), plan: vi.fn(), board: vi.fn(), approve: vi.fn(), pause: vi.fn(), resume: vi.fn(), stop: vi.fn(), archive: vi.fn(), close: vi.fn(), budget: vi.fn(), pulse: vi.fn() },
   tasksApi: { board: vi.fn(), show: vi.fn(), add: vi.fn(), edit: vi.fn(), move: vi.fn(), approve: vi.fn(), archive: vi.fn(), comment: vi.fn(), agentShell: vi.fn() },
   api: {
+    getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
     getChatTurns: vi.fn(), getChatEvents: vi.fn(), startChatTurn: vi.fn(), confirmMission: vi.fn(), stopChatTurn: vi.fn(), coderStatus: vi.fn(),
     coderWorkspaceList: vi.fn(), getAgentRuntimeModels: vi.fn(), hilList: vi.fn(), getProfiles: vi.fn(),
   },
@@ -105,7 +106,7 @@ describe('mission flow, end to end', () => {
 
     // 3. Approve calls TaskSessionApprove; the strip shows running with progress and a worker
     fireEvent.click(screen.getByTestId('mission-approve'))
-    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7))
+    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(7, 1))
     const strip = await screen.findByTestId('mission-strip')
     await waitFor(() => expect(within(strip).getByTestId('ts-state')).toHaveTextContent('Running'))
     expect(screen.getByTestId('mission-strip-progress')).toHaveTextContent('1/4')

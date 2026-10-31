@@ -63,6 +63,7 @@ WHO MAY DO WHAT
   can call it.
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
   agents deny, session approve, session resume, session close, session retire-worker, session archive, session archive --cascade, session budget,
+  session person inbox, session person full, session person approve, session person deny, session person ask,
   undepend, os install and os uninstall are the operator's: they answer an agent
   with exit 3 and the code operator_only (board and approve unless delegated, see
   below). board shows the Inbox, so an agent uses "task list". os install and
@@ -99,7 +100,7 @@ WHO MAY DO WHAT
   never shows its tasks. The operator opens a session, not each task: an agent (or the
   operator) plans it as a draft with session new and add --session N --acceptance TEXT
   (every session task needs acceptance criteria), and its tasks cannot be taken, and are
-  not in any inbox, until the operator runs session approve. Then an agent works inside
+  not in any inbox, until the operator runs session approve (or, with the coder setting agent_approval=lead, the lead of the session's parent; giant work needs the person). Then an agent works inside
   that session only: next --session N (a Ready task whose dependencies are done, or verified and
   waiting in Review: auto-close is off by default, so a verified task settles its dependents, of a
   running session), claim, comment, finish and release by task id, add follow-ups (Ready
