@@ -176,11 +176,21 @@ func (p LinuxProcs) Start(h Handle) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	return readStartTime(pid)
+}
+
+// readStartTime is field 22 of /proc/<pid>/stat: the clock tick since boot at which the process started.
+func readStartTime(pid int) (uint64, error) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return 0, err
 	}
-	// the command name (field 2) is in parentheses and may hold spaces: count from the last ')'
+	return parseStartTime(b)
+}
+
+// parseStartTime reads field 22 of a /proc/<pid>/stat line.
+func parseStartTime(b []byte) (uint64, error) {
+	// the command name (field 2) is in parentheses and may hold spaces and parentheses: count from the last ')'
 	i := bytes.LastIndexByte(b, ')')
 	if i < 0 {
 		return 0, errors.New("procbind: malformed stat")

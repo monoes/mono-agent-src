@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -182,7 +183,29 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 	if _, err := s.db.ExecContext(ctx, purgeExpiredMissions, s.now().UTC().Format(timeFmt)); err != nil {
 		return total, fmt.Errorf("purging expired mission tokens: %w", err)
 	}
+	s.purgeV2(ctx)
 	return total, nil
+}
+
+// purgeInterval is how often a store runs the v2 retention sweep: a sweep of an idle database is cheap, but this
+// runs on every conversation delete too.
+const purgeInterval = time.Hour
+
+// purgeV2 removes the v2 binding rows that are past retention (procbind.PurgeRetained, 3e). It never fails the
+// sweep it runs in: an error is logged and the rows wait for the next one. This process's clock only limits how
+// often it runs; what counts as old is decided by the database's clock.
+func (s *Store) purgeV2(ctx context.Context) {
+	s.mu.Lock()
+	now := s.now()
+	if !s.lastPurge.IsZero() && now.Sub(s.lastPurge) < purgeInterval {
+		s.mu.Unlock()
+		return
+	}
+	s.lastPurge = now
+	s.mu.Unlock()
+	if _, err := procbind.PurgeRetained(ctx, s.db); err != nil {
+		log.Printf("agenttokens: v2 retention sweep: %v", err)
+	}
 }
 
 // procbind:legacy-only an expired token is denied by its expiry; the v2 rows of expired tokens follow their own retention (3e).

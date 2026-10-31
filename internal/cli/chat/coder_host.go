@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -147,6 +148,34 @@ func newCoderHostCmd(cfg *Deps) *cobra.Command {
 // production wiring installs.
 var hostBuilt func(h *coderhost.Host)
 
+// retentionSweepEvery is how often the host runs the sweep of the retained v2 rows after the first one at its start.
+var retentionSweepEvery = time.Hour
+
+// purgeRetainedEvery runs procbind.PurgeRetained now and then every interval until ctx is done. A failure is logged
+// and never ends the host or the loop.
+func purgeRetainedEvery(ctx context.Context, db *sql.DB, logf func(string, ...any), interval time.Duration) {
+	run := func() {
+		p, err := procbind.PurgeRetained(ctx, db)
+		if err != nil {
+			logf("coder host: the retention sweep of the binding tables stopped early: %v", err)
+		}
+		if p.Total() > 0 {
+			logf("coder host: the retention sweep removed %d row(s) of the binding tables", p.Total())
+		}
+	}
+	run()
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
+}
+
 func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 	var poll time.Duration
 	cmd := &cobra.Command{
@@ -230,6 +259,13 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			// The retention sweep of the v2 tables (procbind.PurgeRetained) runs at the start and then about once an hour.
+			// It reads no key and never fails the host: an error is logged and the host carries on.
+			purged := make(chan struct{})
+			go func() {
+				defer close(purged)
+				purgeRetainedEvery(ctx, db.DB, logf, retentionSweepEvery)
+			}()
 			// the services' state is republished into the host info file when it changes
 			published := make(chan struct{})
 			go func() {
@@ -239,6 +275,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			logf("coder host %s started (pid %d)", info.Instance, info.PID)
 			err = h.Run(ctx)
 			stop()
+			<-purged    // the sweep does not outlive the host
 			<-published // no write of the info file after the deferred remove
 			logf("coder host stopped; running turns keep going")
 			return err

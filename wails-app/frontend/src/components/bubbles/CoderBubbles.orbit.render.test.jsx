@@ -54,8 +54,12 @@ const S = (id, parent, extra = {}) => ({ id, parent_session_id: parent, conversa
 const TREE = [S(1, 0, { conversation_id: 'root', title: 'Mission' }), S(2, 1, { title: 'Direction A' }), S(3, 1, { title: 'Direction B', state: 'draft' }),
   S(4, 2, { title: 'Worker A1' }), S(5, 4, { title: 'Worker A1a' }), S(6, 5, { title: 'Too deep' })]
 
+const realMatchMedia = window.matchMedia
 beforeEach(() => {
   vi.clearAllMocks()
+  // Reduced motion: an overlay collapses at once instead of after its 170 ms shrink animation,
+  // so Escape needs no real time (and no waiting on a timer a loaded runner stretches).
+  window.matchMedia = q => ({ matches: q.includes('prefers-reduced-motion'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
   Element.prototype.scrollTo = function scrollTo() {}
   listeners.chat.clear()
   localStorage.clear()
@@ -72,7 +76,7 @@ beforeEach(() => {
   sessions.pause.mockResolvedValue({}); sessions.resume.mockResolvedValue({}); sessions.stop.mockResolvedValue({})
   mockConfirm.mockResolvedValue(true)
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); window.matchMedia = realMatchMedia })
 
 const orbit = () => screen.findByRole('group', { name: /Agents of/ })
 
@@ -200,8 +204,9 @@ describe('the simple pane', () => {
     fireEvent.click(await within(pane).findByRole('button', { name: /^Worker A1,/ }))
     await screen.findByRole('heading', { name: 'Worker A1' })
     fireEvent.keyDown(document.body, { key: 'Escape' })
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Direction A' })).toBeInTheDocument())
-    expect(store.bubbles.some(b => b.key === 'conv-4')).toBe(false)
+    // Wait for the state the next key press depends on, not just for a heading that may sit under the closing pane.
+    await waitFor(() => expect(store.bubbles.some(b => b.key === 'conv-4')).toBe(false))
+    expect(await screen.findByRole('heading', { name: 'Direction A' })).toBeInTheDocument()
     // Out of the last agent, back at the root pane; one more Escape shrinks that into its bubble.
     fireEvent.keyDown(document.body, { key: 'Escape' })
     await waitFor(() => expect(screen.getByRole('dialog', { name: /mission/ })).toBeInTheDocument())
