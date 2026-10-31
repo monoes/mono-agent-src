@@ -124,3 +124,26 @@ func TestAFailingV2RevocationRollsTheLegacyChangeBack(t *testing.T) {
 		}
 	}
 }
+
+// A v2 token whose id differs from every legacy id is reached by the owner selector, not by Revoke of a legacy id.
+func TestAV2TokenWithItsOwnIdIsRevokedByOwnerNotByTheLegacyId(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	tok, _, err := s.CreateMission(ctx, "default", missionB, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2Mission(t, s, "v2-own-id", "default", "run-a")
+	if _, err := s.Revoke(ctx, "default", tok.ID); err != nil {
+		t.Fatal(err)
+	}
+	if v2Revoked(t, s, "v2-own-id") {
+		t.Fatal("Revoke of a legacy id revoked a v2 token with another id")
+	}
+	if _, err := s.RevokeOwner(ctx, "run-a"); err != nil {
+		t.Fatal(err)
+	}
+	if !v2Revoked(t, s, "v2-own-id") {
+		t.Error("RevokeOwner did not revoke the v2 token")
+	}
+}

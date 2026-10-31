@@ -16,6 +16,13 @@ import (
 // (design section 7, decision K1): if the v2 side cannot be written, the legacy change is rolled back
 // and the call fails. The live registry entries are dropped after the commit (SetBinder; nil until
 // the host is wired).
+//
+// Which v2 tokens a legacy call reaches: Revoke selects by the legacy token's id, so it finds a v2 token
+// only if it has that id. In the flag-on world a turn has no legacy token (3c issues the v2 token instead,
+// with its own id), so Revoke(legacy id) finds nothing there and is harmless; every caller that revokes
+// a mission token it minted must then revoke by owner (RevokeOwner) or by the v2 id. Those callers are
+// the 3c requirement: childTokenMinter.RevokeChildTokens/revokeToken, settleChild and the launcher's wait
+// goroutine.
 
 // SetBinder sets the registry whose live entries are ended after a revocation commits.
 func (s *Store) SetBinder(b *procbind.Binder) { s.binder = b }
@@ -44,7 +51,8 @@ func isBusy(err error) bool {
 // v2Keys derives, before the transaction, the row key of every profile that holds a v2 mission token
 // the selector can reach: deriving a key may write to this database, which must not happen inside the
 // write transaction. A profile that gains its first token between this read and the transaction has no
-// key there, and the revocation fails closed (the caller retries).
+// key there, and the revocation fails closed: the caller retries. The 3c mint of a v2 token must therefore
+// not interleave with a revoke-all of the same profile (or take the same key function first).
 func (s *Store) v2Keys(ctx context.Context, profileID string) (map[string][]byte, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT profile_id FROM agent_tokens_v2 WHERE (?1 = '' OR profile_id = ?1)`, profileID)
 	if err != nil {
