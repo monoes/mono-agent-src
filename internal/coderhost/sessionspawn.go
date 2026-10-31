@@ -189,6 +189,9 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 			if err != nil {
 				return err
 			}
+			if err := s.holdDirections(ctx, c, sid, made); err != nil {
+				return err
+			}
 			if s.afterSpawnSessionCreated != nil {
 				s.afterSpawnSessionCreated()
 			}
