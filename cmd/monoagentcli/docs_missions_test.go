@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -230,5 +231,28 @@ func TestSecurityMdMissionSummaryMatchesTheCode(t *testing.T) {
 		if !strings.Contains(sec, name) {
 			t.Errorf("the mission summary does not name %s", name)
 		}
+	}
+}
+
+// The research/directions paragraph of AGENTS.md states the bounds of mission_evaluate, mission_reevaluate and the
+// check-in digest line. 512 KiB (the argument cap, dynorg.maxEvaluateArgBytes) is unexported and has no exported
+// accessor, so it is not pinned here.
+func TestAgentsMdResearchDirectionsMatchesTheCode(t *testing.T) {
+	sec := docSection(t, "AGENTS.md", "### Missions and the session tree: how it fits together")
+	w := dynorg.DefaultWeights
+	wantAll(t, "AGENTS.md (research and directions)", sec, map[string]string{
+		"the candidate cap":     fmt.Sprintf("at most %d candidates (`dynorg.MaxCandidates`)", dynorg.MaxCandidates),
+		"the default weights":   fmt.Sprintf("success %g, cost %g, risk %g, effort %g (`dynorg.DefaultWeights`)", w[dynorg.CritSuccess], w[dynorg.CritCost], w[dynorg.CritRisk], w[dynorg.CritEffort]),
+		"the record size":       fmt.Sprintf("at most %d KiB, `tasks.MaxCommentBytes`", tasks.MaxCommentBytes>>10),
+		"the current-list cap":  "most `HardMaxDirections` (#1234)",
+		"the stall length":      fmt.Sprintf("no progress for %d check-ins (`coderhost.StalledCheckins`)", coderhost.StalledCheckins),
+		"the budget trigger":    fmt.Sprintf("crossed %d %% of the mission budget (`coderhost.BudgetTriggerPct`)", coderhost.BudgetTriggerPct),
+		"the open-set bound":    fmt.Sprintf("at most `coderhost.MaxOpenSessions` = %d", coderhost.MaxOpenSessions),
+		"the transaction":       "`Store.EnqueueWithCheckin`",
+		"the hard max of picks": fmt.Sprintf("K 0..%d", dynorg.HardMaxDirections),
+	})
+	if dynorg.HardMaxDirections != tasks.HardMissionDirections || dynorg.DefaultDirections != tasks.DefaultMissionDirections {
+		t.Errorf("dynorg and tasks disagree on K (%d/%d against %d/%d)", dynorg.DefaultDirections, dynorg.HardMaxDirections,
+			tasks.DefaultMissionDirections, tasks.HardMissionDirections)
 	}
 }
