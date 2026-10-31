@@ -147,3 +147,23 @@ func TestAV2TokenWithItsOwnIdIsRevokedByOwnerNotByTheLegacyId(t *testing.T) {
 		t.Error("RevokeOwner did not revoke the v2 token")
 	}
 }
+
+// The sweep finds a run that has only v2 tokens (a bound turn has no legacy token): the group's runs not reported as
+// running are revoked, a run reported as running and the caller's own are left, another group's and a longer name that
+// merely starts the same are untouched.
+func TestSweepMissionsFindsRunsThatHaveOnlyV2Tokens(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	for id, owner := range map[string]string{"g-own": "grp", "g-run1": "grp/run1", "g-run2": "grp/run2", "g-self": "grp/self", "g-other": "other/run1", "g-longer": "grp2/run1"} {
+		v2Mission(t, s, id, "default", owner)
+	}
+	live := func(_ context.Context, owner string) bool { return owner == "grp/run2" }
+	if _, err := s.SweepMissions(ctx, "grp", "grp/self", live); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{"g-own": true, "g-run1": true, "g-run2": false, "g-self": false, "g-other": false, "g-longer": false} {
+		if got := v2Revoked(t, s, id); got != want {
+			t.Errorf("%s revoked=%v, want %v", id, got, want)
+		}
+	}
+}

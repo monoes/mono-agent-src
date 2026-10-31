@@ -448,6 +448,9 @@ func checkSelector(s Selector) error {
 	if s.Turn != "" && s.Session == "" {
 		return fmt.Errorf("%w: a turn needs its session", ErrBadSelector)
 	}
+	if s.ExactOwner && s.Owner == "" {
+		return fmt.Errorf("%w: ExactOwner needs an owner", ErrBadSelector)
+	}
 	if s.Owner != "" && (s.Session != "" || s.Turn != "" || s.Kind == KindSession) {
 		return fmt.Errorf("%w: an owner selects mission tokens only", ErrBadSelector)
 	}
@@ -507,14 +510,18 @@ func RevokeTx(ctx context.Context, x DBTX, keyFor func(profile string) ([]byte, 
 	if keyFor == nil {
 		return nil, errors.New("procbind: a revocation needs a key function")
 	}
+	exactOwner := 0
+	if sel.ExactOwner {
+		exactOwner = 1
+	}
 	var targets []target
 	if sel.Session == "" && sel.Turn == "" && (sel.Kind == "" || sel.Kind == KindMission) {
 		found, err := collect(ctx, x, KindMission, `SELECT id, profile_id, expires_at FROM agent_tokens_v2 t
 			WHERE (?1 = '' OR profile_id = ?1) AND (?2 = '' OR id = ?2)
-			  AND (?3 = '' OR mission_owner = ?3 OR substr(mission_owner, 1, length(?3) + 1) = ?3 || '/')
+			  AND (?3 = '' OR mission_owner = ?3 OR (?4 = 0 AND substr(mission_owner, 1, length(?3) + 1) = ?3 || '/'))
 			  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'mission' AND r.token_id = t.id)
 			ORDER BY id`,
-			sel.Profile, sel.TokenID, sel.Owner)
+			sel.Profile, sel.TokenID, sel.Owner, exactOwner)
 		if err != nil {
 			return nil, err
 		}
