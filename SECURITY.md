@@ -1983,6 +1983,19 @@ that works a task acts on them. The defences:
   without a token); a lead with a shell that clears its environment and detaches from its turn's process tree is not stopped by either,
   and can run `session approve` and the person verbs as the operator. The tests pin each refusal; they do not prove the absence of such
   a bypass.
+- **The upward ask channel.** `session_ask_ancestor` and `session_reply_ask` carry text between leads of one mission tree and
+  grant nothing: the question and the reply are cleaned, one line, inside a fixed fence that says they are quoted data written by
+  another agent, and they are queued as host-made sends (`ask-` turn ids) that can never carry a mission confirmation or a person's
+  authority. The caller is the lead whose coder-session token the process holds (no task binding); the target is found from the
+  caller's own parent chain in the database, never from input, and only a proper ancestor above the parent is reachable; a
+  reply is accepted only from the lead the ask is addressed to (one answer for an unknown ask, another lead's ask and a critical
+  ask, so asks cannot be probed). Rate and size limits bound the channel (3 open asks, one a minute, 4 KiB each, 8 KiB open). A
+  critical ask is never delivered to a model: it is a person item that only `task session person answer-ask` answers, under the same
+  environment-and-ancestry courtesy layer as the other person verbs. No model-facing tool answers it.
+  Limits, stated plainly: an ask is untrusted content written by another agent, never an instruction; it is shown to a model only
+  sealed in the quoted-data fence, and a reply is data, not an instruction, to the lead that reads it. Neither grants access,
+  budget, approval or a permission, and neither can carry a person's authority. The channel is no barrier against a lead that can
+  run commands as the operator (see the courtesy-layer paragraph above).
 - **A setting that changes what agents may do must be changed by the operator only:**
   the configuration rows that gate approvals, permissions or sandboxing, or that decide
   what runs unattended, are written and deleted only by the operator's own terminal, and

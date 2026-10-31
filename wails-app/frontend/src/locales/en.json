@@ -2412,9 +2412,15 @@
     "inboxTitle_one": "Needs you ({{count}})",
     "inboxTitle_other": "Needs you ({{count}})",
     "otherKind": "A request ({{kind}}) is waiting for you",
+    "askHeading": "A lead asks for you",
+    "askCardLabel": "A lead asks for you: {{asker}}",
+    "askParties": "{{asker}} asks {{ancestor}}",
+    "askQuestion": "The question (written by an agent, not by the system)",
+    "answerLabel": "Your answer. It goes to the asking lead as quoted data and grants nothing.",
+    "answerSend": "Answer",
     "settings": {
       "title": "Notifications",
-      "sound": "Sound a chime when something needs me (a plan waiting for approval)",
+      "sound": "Sound a chime when something needs me (a plan waiting for approval, or a question from a lead)",
       "hint": "The chime plays at most once every five seconds and never twice for the same item. The notification shows whatever this says."
     }
   }

@@ -1838,11 +1838,23 @@ over 25), access above the parent's, a level beyond the working depth (`max_dept
 the ceiling, or no budget and no ceiling anywhere ("no budget set: the person decides"; each session is judged by itself, the
 siblings' budgets are not summed). The agent is told only that the plan needs the person; a person item `plan_approval` is raised for the
 operator (no timeout, no default, no model or matrix answer: it is a hard gap class). The operator's CLI verbs are `task session person
-inbox`, `approve ID --rev N [--digest HASH]`, `deny ID --note T` and `ask ID --text T`; they are refused to an agent context, to any
+inbox`, `approve ID --rev N [--digest HASH]`, `deny ID --note T`, `ask ID --text T` and `answer-ask --ask ID --text T` (the upward ask channel, below); they are refused to an agent context, to any
 process that holds an agent token variable, and to a process inside a coder turn's process tree. Only `person approve` records
 `approval_basis = person`; a plain `session approve`, also with `--rev N`, records `operator`. `task session approve ID --rev N` is
 refused with code `plan_changed` when the plan moved since it was read. The GUI shows the open items as an answer card in the agent's pane,
 a tray on the dock and a section of the inbox, with an optional chime (`notifySound`, Settings > Notifications).
+
+**The upward ask channel (migration 146, table `coder_session_asks`).** The lead of a mission session may ask a proper ancestor
+above its parent (the grandparent by default, the root, or an ancestor named by session id) for context; the parent is reached
+with the existing messaging, and approval stays with the parent. MCP tool `session_ask_ancestor` (lead only: the caller is the
+session whose token the process holds, a bound worker or verifier is refused with `not_yours`; no argument names a caller or a
+target outside the session's own ancestors) and `session_reply_ask` (only the lead the ask is addressed to). A normal ask reaches
+the ancestor lead's chat as sealed quoted data with a host-made turn id (`ask-q-`), carrying no authority; the reply
+(`ask-r-`) comes back sealed too, and `session_send` is always an ordinary command, never a reply. Limits: at most 3 open asks per
+asker, one a minute, 4 KiB each, 8 KiB open in total, 6 open per ancestor; a normal ask nobody answers expires after six hours. A
+critical ask reaches no model: it raises a person item `ancestor_question` (no timeout, no default, not in the autonomy matrix)
+that only `task session person answer-ask --ask ID --text T` answers; the answer reaches the asker sealed. Deleting a chat removes
+the asks it made and voids the normal asks addressed to it (`chat_delete_orphans_test.go` decides both conversation columns).
 
 **Missions (a coder chat's lead working a session).** A confirmed mission
 (`monoagentcli coder sessions send --mission CONVERSATION TEXT`, operator only, the UI's

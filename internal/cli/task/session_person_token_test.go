@@ -2,6 +2,7 @@ package task
 
 import (
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -13,11 +14,12 @@ import (
 // operator-only verb cannot skip the token-holder check unnoticed.
 func personVerbArgs(big int64) map[string][]string {
 	return map[string][]string{
-		"inbox":   {"inbox"},
-		"full":    {"full", id(big)},
-		"approve": {"approve", id(big), "--rev", "1"},
-		"deny":    {"deny", id(big), "--note", "n"},
-		"ask":     {"ask", id(big), "--text", "t"},
+		"inbox":      {"inbox"},
+		"full":       {"full", id(big)},
+		"approve":    {"approve", id(big), "--rev", "1"},
+		"deny":       {"deny", id(big), "--note", "n"},
+		"ask":        {"ask", id(big), "--text", "t"},
+		"answer-ask": {"answer-ask", "--ask", strconv.Itoa(1), "--text", "t"},
 	}
 }
 

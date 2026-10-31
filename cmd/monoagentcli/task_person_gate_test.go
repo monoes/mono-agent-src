@@ -27,6 +27,7 @@ func personVerbs() map[string][]string {
 		"approve":                   with("approve", "1", "--rev", "1"),
 		"deny":                      with("deny", "1", "--note", "x"),
 		"ask":                       with("ask", "1", "--text", "x"),
+		"answer-ask":                with("answer-ask", "--ask", "1", "--text", "x"),
 		"approve-without-arguments": with("approve"),
 	}
 }
