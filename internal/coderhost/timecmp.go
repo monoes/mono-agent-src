@@ -105,7 +105,3 @@ func tsOlderThan(col string, cut time.Time) string {
 func tsNorm(col string) string {
 	return "(substr(" + col + ", 1, 19) || '.' || substr(CASE WHEN substr(" + col + ", 20, 1) = '.' THEN substr(" + col + ", 21, length(" + col + ") - 21) ELSE '' END || '000000000', 1, 9))"
 }
-
-// Group 2 sites still use the raw forms in this commit.
-func tsBefore(col string, cut time.Time) string    { return tsRawBefore(col, cut) }
-func tsNotBefore(col string, cut time.Time) string { return tsRawNotBefore(col, cut) }

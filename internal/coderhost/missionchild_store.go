@@ -1063,14 +1063,14 @@ func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, p
 func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset int, ended []string, err error) {
 	old := s.now().Add(-maxAge)
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'marked', reserved_usd = 0, updated_at = ?
-		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id = '' AND `+tsBefore("updated_at", old), s.stamp())
+		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id = '' AND `+tsOlderThan("updated_at", old), s.stamp())
 	if err != nil {
 		return 0, nil, err
 	}
 	n, _ := res.RowsAffected()
 	reset = int(n)
 	rows, err := s.db.Query(`SELECT profile_id, session_id, task_id, pending_conversation_id, updated_at FROM coder_mission_children
-		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND ` + tsBefore("updated_at", old))
+		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND ` + tsLapsed("updated_at", old))
 	if err != nil {
 		return reset, nil, err
 	}
@@ -1119,7 +1119,7 @@ type OrphanCarve struct {
 func (s *Store) FindOrphanCarves(minAge time.Duration) ([]OrphanCarve, error) {
 	old := s.now().Add(-minAge)
 	rows, err := s.db.Query(`SELECT c.profile_id, c.conversation_id, c.parent_conversation_id, c.budget_usd FROM coder_sessions c
-		WHERE c.role = 'child' AND c.budget_usd > 0 AND ` + tsBefore("c.created_at", old) + `
+		WHERE c.role = 'child' AND c.budget_usd > 0 AND ` + tsOlderThan("c.created_at", old) + `
 		AND EXISTS (SELECT 1 FROM coder_mission_policy p WHERE p.profile_id = c.profile_id AND p.lead_conversation_id = c.parent_conversation_id)
 		AND NOT EXISTS (SELECT 1 FROM coder_mission_children k WHERE k.profile_id = c.profile_id
 			AND (k.child_conversation_id = c.conversation_id OR k.pending_conversation_id = c.conversation_id))

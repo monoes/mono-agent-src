@@ -118,7 +118,7 @@ func (s *Store) RecordOwn(c Caller, r RecordRequest) (LedgerEntry, error) {
 	}
 	var recent int
 	since := s.now().Add(-recordWindow)
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND made_by = 'model' AND `+tsNotBefore("created_at", since),
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND made_by = 'model' AND `+tsInWindow("created_at", since),
 		c.ProfileID, c.ConversationID).Scan(&recent); err != nil {
 		return LedgerEntry{}, err
 	}

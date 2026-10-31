@@ -228,7 +228,7 @@ func (s *Store) park(profileID, conversationID, class, question string, options 
 		if own { // any hard park of a session's own model: what "needs you" shows cannot be inflated
 			since := s.now().Add(-recordWindow)
 			var n int
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND `+tsNotBefore("created_at", since),
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM coder_session_person_items WHERE profile_id = ? AND conversation_id = ? AND `+tsInWindow("created_at", since),
 				profileID, conversationID).Scan(&n); err != nil {
 				return Question{}, err
 			}

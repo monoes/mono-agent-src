@@ -117,7 +117,7 @@ func (s *Store) deliver(q Question) (Command, error) {
 // yet (command_id 0) until MaxSendAge has passed.
 func (s *Store) pruneClosedQuestions(profileID, conversationID string) {
 	old := s.now().Add(-MaxSendAge)
-	prunable := `status != 'open' AND (command_id != 0 OR ` + tsBefore("answered_at", old) + `)`
+	prunable := `status != 'open' AND (command_id != 0 OR ` + tsOlderThan("answered_at", old) + `)`
 	defer s.dropStaleItems(profileID, conversationID)
 	_, _ = s.db.Exec(`DELETE FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` AND id NOT IN
 		(SELECT id FROM coder_session_questions WHERE profile_id = ? AND conversation_id = ? AND `+prunable+` ORDER BY id DESC LIMIT ?)`,
@@ -156,7 +156,7 @@ func (s *Store) scanQuestions(query string, args ...any) ([]Question, error) {
 // a command (the host or CLI died between the two steps).
 func (s *Store) redeliver() error {
 	cut := s.now().Add(-redeliverAfter)
-	lost, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status != 'open' AND command_id = 0 AND answered_at != '' AND `+tsBefore("answered_at", cut)+` ORDER BY id LIMIT ?`, pendingBatch)
+	lost, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status != 'open' AND command_id = 0 AND answered_at != '' AND `+tsOlderThan("answered_at", cut)+` ORDER BY id LIMIT ?`, pendingBatch)
 	if err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func (s *Store) ApplyDefaults() (int, error) {
 	cache := map[string]*passCtx{}
 	for {
 		// Paged by id so that questions the policy keeps parked cannot hide the ones behind them.
-		page, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status = 'open' AND default_answer != '' AND `+tsBefore("created_at", cut)+` AND id > ? ORDER BY id LIMIT ?`, last, pendingBatch)
+		page, err := s.scanQuestions(`SELECT `+questionCols+` FROM coder_session_questions WHERE status = 'open' AND default_answer != '' AND `+tsOlderThan("created_at", cut)+` AND id > ? ORDER BY id LIMIT ?`, last, pendingBatch)
 		if err != nil {
 			return applied, errors.Join(append(errs, err)...)
 		}
