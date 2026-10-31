@@ -1791,7 +1791,7 @@ that works a task acts on them. The defences:
   and nothing is stored. On, every turn of the chat is a confirmed mission (the toggle replaces the card's click, so it
   is the same trust: the person's word); it needs coding access or more, and it stays on, and cannot be turned
   off, while the chat has an open (draft, running or paused) mission session (only a session of kind `mission`
-  counts); if the store cannot say whether one is open, off is refused. A session's
+  counts); if the store cannot say whether one is open, off is refused. The toggle governs the missions it starts; a mission confirmed on a single send (`send --mission`) is the operator's separate per-turn confirmation with no creation guard on the stored switch, and off is not a stop (a running mission or confirmed turn continues until `task session stop|close`). A session's
   goal and a task's acceptance criteria are text an agent wrote and come back
   as data (`_untrusted` over MCP, a notice in text), and a session's tasks are
   deleted with its profile. A session that has spent its budget hands out no tasks.

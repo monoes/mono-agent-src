@@ -2422,7 +2422,7 @@
     "off": "desactivada",
     "chip": "Misión",
     "chipOn": "Este chat se ejecuta como misión",
-    "hint": "Ejecutar este chat como misión: el líder la planifica y trabaja hasta que la cierres",
+    "hint": "Ejecutar este chat como misión: el líder la planifica y trabaja hasta que la cierres. El interruptor gobierna las misiones que inicia; una misión que confirmas en un solo envío es aparte, y desactivarlo no detiene una misión en curso (usa detener)",
     "locked": "Este chat está ejecutando una misión",
     "needsAccess": "Las misiones necesitan acceso de código o superior",
     "loadFailed": "No se pudo leer el ajuste de misión",

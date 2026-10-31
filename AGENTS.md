@@ -2798,6 +2798,10 @@ monoagentcli --profile work coder host stop                        # the host on
   is open. `settings get` has a `mission` object `{on, locked, sessionId, available, reason}`; an open session reads
   as on and locked even when the flag was never set. The desktop coder pane header shows the switch (disabled with
   the reason when locked or below access) and a `Mission` chip while it is on.
+  **What the toggle does not do:** it governs the missions it starts (toggle-confirmed turns). A mission confirmed on a
+  single send (`send --mission`, the operator's per-turn confirmation) is a separate authority with no creation guard on
+  the stored switch, so it can open a mission session while the switch is off; and turning the switch off is not a stop:
+  a running mission, or a confirmed turn still running, keeps going until `task session stop|close <id>`.
 - **Masters and children:** `sessions settings set <conv> --role master`, then `--role child --parent <master>`
   for each child (the master must be a master with room under its `max_children`; depth is 3 by default, the
   operator's `max_depth` up to the hard 4; a session with children cannot change role).

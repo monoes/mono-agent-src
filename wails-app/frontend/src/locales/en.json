@@ -2464,7 +2464,7 @@
     "off": "off",
     "chip": "Mission",
     "chipOn": "This chat runs as a mission",
-    "hint": "Run this chat as a mission: the lead plans it and works until you close it",
+    "hint": "Run this chat as a mission: the lead plans it and works until you close it. The switch governs the missions it starts; a mission you confirm on a single send is separate, and turning this off does not stop a running mission (use stop)",
     "locked": "This chat is running a mission",
     "needsAccess": "Missions need coding access or more",
     "loadFailed": "Could not read the mission setting",
