@@ -298,7 +298,7 @@ func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
 	task("t-ended", profile, "cancelled")
 	task("t-running", profile, "running")
 	task("t-other", "someone-else", "cancelled") // another profile's task id does not count
-	for app, tk := range map[string]string{ended: "t-ended", running: "t-running", pending: "resume-pending", other: "t-other"} {
+	for app, tk := range map[string]string{ended: "t-ended", running: "t-running", pending: ResumePending, other: "t-other"} {
 		if err := st.SetState(bg, app, StateActive, tk); err != nil {
 			t.Fatal(err)
 		}
@@ -310,6 +310,43 @@ func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
 	for app, want := range map[string]State{ended: StateParked, running: StateActive, pending: StateActive, other: StateActive} {
 		if tab, _ := st.Get(bg, app); tab.State != want {
 			t.Errorf("%s: state %s, want %s", app, tab.State, want)
+		}
+	}
+}
+
+// A resume that died between its two state writes leaves the tab active under the placeholder with no task
+// behind it. Once the placeholder is older than any resume could take, the sweep gives the tab back (parked), or,
+// when the application has an open task by then, binds the tab to it. A fresh placeholder is a resume in flight.
+func TestSweepRecoversAStaleResumePlaceholder(t *testing.T) {
+	db, st, apps := fixture(t)
+	stale := parkedApp(t, st, apps, 7)
+	staleWithTask := parkedApp(t, st, apps, 8)
+	fresh := parkedApp(t, st, apps, 9)
+	if _, err := db.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id, created_at, updated_at)
+		VALUES ('t-open', ?, 'apply', 'c1', 'running', 'g', ?, 'x', 'x')`, profile, staleWithTask); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
+	for _, app := range []string{stale, staleWithTask, fresh} {
+		if err := st.SetState(bg, app, StateActive, ResumePending); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, app := range []string{stale, staleWithTask} {
+		if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tabs := []LiveTab{live(7, "https://jobs.example/a"), live(8, "https://jobs.example/b"), live(9, "https://jobs.example/c")}
+	if _, err := Sweep(bg, st, apps, tabs); err != nil {
+		t.Fatal(err)
+	}
+	for app, want := range map[string]struct {
+		state State
+		task  string
+	}{stale: {StateParked, ResumePending}, staleWithTask: {StateActive, "t-open"}, fresh: {StateActive, ResumePending}} {
+		if tab, _ := st.Get(bg, app); tab.State != want.state || tab.TaskID != want.task {
+			t.Errorf("%s: %s under %q, want %s under %q", app, tab.State, tab.TaskID, want.state, want.task)
 		}
 	}
 }

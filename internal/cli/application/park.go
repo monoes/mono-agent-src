@@ -169,10 +169,6 @@ func (d Deps) newFillResumeCmd() *cobra.Command {
 	return cmd
 }
 
-// resumePending marks a tab claimed for a task that has no id yet: no task
-// matches it, so nothing can act on the tab while the new task is created.
-const resumePending = "resume-pending"
-
 func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	ctx := cmd.Context()
 	db, err := d.OpenDB()
@@ -193,7 +189,7 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	}
 	hold := tab.State == applypark.StateParked
 	if hold {
-		if err := tabs.SetState(ctx, id, applypark.StateActive, resumePending); err != nil {
+		if err := tabs.SetState(ctx, id, applypark.StateActive, applypark.ResumePending); err != nil {
 			return err
 		}
 	}
