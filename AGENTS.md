@@ -1718,7 +1718,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session close`, `session retire-worker`, `session archive`, `session budget` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session retire-worker`, `session archive`, `session budget`, `session reservation resolve` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -1787,6 +1787,7 @@ TEXT`, then `task add TITLE --session N --acceptance TEXT [--depends-on IDS]
 draft's tasks sit in the inbox column and nothing hands them out until the user
 runs `task session approve N`, which moves them to Ready and sets the session
 running; an agent cannot approve its own plan (the one exception, agent approval of a child session, is described after this paragraph). Sessions form a tree (migration 142: `task_sessions.parent_session_id`, `kind`, `approval_basis`): `task session new --parent ID --kind K` starts one below another of the profile, at most `tasks.HardMaxSessionDepth` (4) levels, never with more access, budget or caps than its parent (an unset cap takes the parent's; an unset budget stays unset. A budget in a tree is the operator's to set: an agent cannot name one when it starts a session (refused) or change one, so an agent's child has none; the operator's budget for a child is above 0 and at most its parent's, and 0 (no cap) is refused under a parent that has a budget; `task session approve` of a draft child with no budget under a parent that has one is refused until `task session budget ID --usd N` sets it; each child is checked on its own: the sum of the children's budgets is not checked against the parent's, and no spend rolls up from children to parents in this change; an agent starts at most 12 open children below a parent; the operator lowering a parent clamps every session below it, open or closed, at any depth, down, a budget to the lowest budget on the way down session by session, event `clamped`; a session can never exceed the minimum of its whole ancestor chain, closed ancestors included, checked when it is created, updated or approved; a session cannot be started below an archived or closed one), and an agent only below a session it works in, where it may narrow the task cap but never name a budget or set the access level or the depth cap (a `--client-id` hit returns only a session below the same parent and of the same kind); `task session rename ID TITLE` (the operator any; an agent only a draft it started from its own chat) and `task session tree [--json]` read and name them. `task session archive ID` is refused while draft, running or paused sessions are below the session (at any depth; the refusal lists their ids and titles); `--cascade` (the operator only: an agent can neither archive nor pass it) stops the running and paused ones (claims released through the stop path) and archives the whole subtree in one transaction, the deepest first, each with an `archived` event that names the session archived (`Store.ArchiveSessionCascade`, JSON `{"profile","session","archived":[ids]}`); finished sessions below it go with it without the flag; **Setting a budget (#1160, interim until PR 3).** `task session budget ID --usd N` (N above 0) is refused in the same write when N is below what is already committed on the session: its `spent` + the unspent part of its live and expired worker reservations + what the sessions below it have spent or reserved (the refusal shows the parts); and while a worker reservation with no cap (live or expired) sits on the session or below it, because its cost is unknown (the refusal names the worker and session; stop the workers or resolve the lapsed row first). `--usd 0` (remove) and restating the same budget are not floor questions; pause the session to halt it instead of lowering a budget under what it spent. Until PR 3 the floor counts what children SPENT or RESERVED, not the unspent part of their open budgets: a parent's budget can still be set below the sum of its children's budgets (the sum was never checked), and PR 3 closes that with the clamp. `--spend` and every operator spend go through the micro-dollar grid the reservations use: `spent` stays a multiple of $0.000001 (a legacy total off the grid snaps to the nearest micro-dollar on the next write), an amount under half a micro-dollar is a zero charge (nothing written, no event), and an amount or total past `tasks.MaxBudgetUSD` ($1e9) is refused; spending past a session's own budget is still recorded as it happened. `profile delete` is refused while a live worker reservation exists in the profile (the refusal names the session and worker; stop the org or wait for the reservation lease to lapse; a lapsed or expired row does not block), and a reservation committed after that check makes the delete fail instead of going ahead. a closed child's spend is not returned to the parent; a cycle or an over-deep tree fails closed and archives nothing. The Sessions UI asks to confirm before it cascades. An agent may link a session (`--conversation`)
+Worker reservations (migration 149, `tasks.Store.Reserve`; nothing in production takes one yet): money a worker holds out of its session's budget. A reservation whose holder stopped renewing its lease for more than a minute is expired and keeps holding what is left of it until the operator says what it cost. `task session reservation list SESSION [--json]` shows a session's reservations (id, worker, state, amount, charged, held; the owner handle is not shown; the operator reads any session, an agent only its own). `task session reservation resolve ID --usd N [--note TEXT]` is the operator's alone (an agent, token or MCP caller gets exit 3, `operator_only`): N is the reservation's total cost in dollars on the micro-dollar grid, from 0 to `tasks.MaxBudgetUSD` and not below what it already charged; the difference is added to the session's spend, the row ends `resolved` and its hold is released. A live row whose lease lapsed past the grace is expired and resolved in the same write (only that row is touched, and a refused request changes nothing); a live row inside its lease, a settled, released or already resolved row, an unknown id or another profile's row is refused and charges nothing.
 only to its own chat, which it proves with its coder-session token; without one it links none. In a running session an agent uses
 `task next --session N [--claim --as NAME]` (a Ready task whose dependencies are
 all done, never a draft's, a paused session's or an epic), `claim`, `comment`,
@@ -2752,9 +2753,7 @@ directories and give the turn a controlled outbound path; it is not built.
 
 A map of the mission and session-tree series. It names the pieces and where they live; the paragraphs under "Task sessions" (Task
 board), "Missions", "Mission child sessions" and "Persistent coder sessions" hold the detail. Numbers below are held to the code by
-`TestAgentsMdMissionMapMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). Parts marked **(research/directions groups 2 and
-3, not on master)** describe the review branches `review/rd-evaluation-v4` (group 2) and `review/rd-prompts-digest-v4` (group 3); drop
-or adjust them if those do not land. Group 1 (K) is on master. Nothing here is verified in a live run.
+`TestAgentsMdMissionMapMatchesTheCode` (`cmd/monoagentcli/docs_missions_test.go`). The research/directions part (groups 1 to 3) is on master. Nothing here is verified in a live run.
 
 **What a mission is.** A coder chat whose lead works a task session: a plan of tasks with acceptance criteria, workers that do them,
 verifiers that check them, a final "Integration check" task, and a close that only the operator performs. The plan and the board
@@ -2828,8 +2827,8 @@ model: it raises a person item `ancestor_question` that only `task session perso
 runtime:model pairs each kind of work may use; `set` and `reset` are operator only, and the rows live under the reserved config prefix
 `agent_purposes.` (`operator.ReservedConfigPrefixes`: `config set` refuses it and `config get` hides it from agents).
 
-**Research and directions (group 1 on master; groups 2 and 3 not on master).**
-- Group 1 (on master): `mission_directions` is K, how many direction sessions an agent keeps open below one session, K 0..6, default 3:
+**Research and directions.**
+- Group 1: `mission_directions` is K, how many direction sessions an agent keeps open below one session, K 0..6, default 3:
   the operator sets it with `coder sessions settings set --patch '{"mission_directions":N}'`, `null` resets it to unset, and unset
   or 0 means 3 (`tasks.DefaultMissionDirections`), with a ceiling of 6 (`tasks.HardMissionDirections`). It is operator-only, never
   agent-adjustable; `settings get` shows `missionDirections {effective, explicit}`. The cap is enforced in the session-insert
@@ -2839,14 +2838,33 @@ runtime:model pairs each kind of work may use; `set` and `reset` are operator on
   (`openSessionSQL`), so an archived, stopped, done or failed direction frees its slot. A spawned child inherits the parent's K only
   when its own row has none (`coderhost/children.go`), and the setting follows the lead down the tree. Stored settings that cannot be read
   fail closed (the spawn is refused). Tests: `tasks/session_direction_cap_test.go`, `coderhost/sessionspawn_directions_test.go`.
-- Group 2 (`review/rd-evaluation-v4`): the lead-only tools `mission_evaluate` and `mission_reevaluate` rank candidate directions in code
-  (`internal/dynorg/mission_rank.go`, `mission_evaluate.go`, `mission_reeval.go`): weighted success/cost/risk/effort scores, ties to the
-  lower risk, then the lower cost; at most 20 candidates; `k` may not exceed K. They write a size-capped `mission_evaluation` record to
-  the session history and return a reviewer brief with thesis and evidence fenced. A drop or merge is a proposal. They spawn, approve,
-  stop and fund nothing.
-- Group 3 (`review/rd-prompts-digest-v4`): the mission prompt gains the phases UNDERSTAND, RESEARCH, EVALUATE, DIRECT, RUN, CONVERGE
+- Group 2: the lead-only tools `mission_evaluate` and `mission_reevaluate` rank candidate directions in code
+  (`internal/dynorg/mission_rank.go`, `mission_evaluate.go`, `mission_reeval.go`). A call carries at most 20 candidates
+  (`dynorg.MaxCandidates`) and at most 512 KiB of arguments; each candidate scores success, cost, risk and effort from 0 to 10, and the
+  weights default to success 3, cost 1, risk 1, effort 1 (`dynorg.DefaultWeights`). Only the proportions of the weights count. Scores are
+  compared in whole millionths; a tie in the same millionth goes to the lower risk, then the lower cost, then the candidate stated
+  first. `k` (how many to pick) may not exceed the operator's current K, which is read when the tool runs and again inside the
+  record's transaction. Both tools write a `mission_evaluation` note to the mission session's history (one session event, at most
+  8 KiB, `tasks.MaxCommentBytes`; titles are shortened and then dropped before the record is refused) and return a reviewer brief
+  with thesis and evidence fenced. `mission_reevaluate` also takes `reason` and `current`, the open directions: each is matched by
+  its session id (the title the lead states is a label; the stored title is used), the id must be an open direction of this
+  mission, and a list that leaves out an open direction is refused naming the ids. Its answer is keep, drop, add and merge
+  proposals; a drop or merge stops nothing. Neither tool spawns, approves, stops or funds anything.
+- Group 3: the mission prompt gains the phases UNDERSTAND, RESEARCH, EVALUATE, DIRECT, RUN, CONVERGE
   (`internal/dynorg/mission_prompt_phases.go`), and the check-in digest gains the line "Consider mission_reevaluate: ..." built from the
-  host's own counts only (`internal/coderhost/checkin_reeval.go`).
+  host's own counts only (`internal/coderhost/checkin_reeval.go`): never a title, goal or task text. The line appears when, since the
+  last look, a direction finished; a direction stopped or failed; a direction became paused or a task of it was newly blocked; a running
+  direction showed no progress for 3 check-ins (`coderhost.StalledCheckins`); the tree's spend crossed 80 % of the mission budget
+  (`coderhost.BudgetTriggerPct`); or a research session finished. What a look follows is the open set (the open directions and,
+  apart, the open research sessions, at most `coderhost.MaxOpenSessions` = 200, the newest kept): each session that was open at the
+  last look and is not now is read by id, so its closing is announced once, and sessions created since are found by a cursor
+  per kind; a newly blocked task is a "blocked" history row above the direction's saved cursor. A look that needs a baseline
+  (the first look, another mission, a snapshot from before these fields) only establishes it and makes no line from the open set.
+  The check-in command and the new snapshot are written in one transaction (`Store.EnqueueWithCheckin`), so a reason is never spent by
+  a check-in that was not queued, and never sent twice for want of a baseline.
+- Known limits: two open directions whose titles are the same once case and spacing are folded cannot be re-evaluated, because the
+  candidates must have unique titles (#1232). More than six open directions cannot be re-evaluated, because `current` holds at
+  most `HardMaxDirections` (#1234). Neither case starts, stops or changes anything; the lead has to close a direction first.
 
 **The orbit and the simple agent pane** (`wails-app/frontend/src/components/bubbles/`: `OrbitRing.jsx`, `useSessionOrbit.js`,
 `lib/sessionOrbit.js`). A coder chat that leads a task session shows its direct child sessions as circles (at most 8 drawn, the rest one
@@ -3078,6 +3096,21 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Mission directions.** The operator's `mission_directions` (0 to 6, 0 or unset is 3) is how many direction sessions an agent
   may have open below one session: the next is refused (`ErrLimit`) by `CreateSession` inside the insert transaction, so racing
   spawns cannot pass it; a child session inherits the setting only when its own row has none. Operator-only, never agent-adjustable.
+- **Evaluating directions (`mission_evaluate`, `mission_reevaluate`).** Two lead-only mission tools (offered with the other
+  mission tools once the session exists, refused to a worker) take candidate directions (`title`, `thesis`, `evidence`, `scores`
+  success/cost/risk/effort 0 to 10, optional `merge_with`), optional `weights` (default 3/1/1/1) and `k`, and rank them in code:
+  weighted score, ties to the lower risk, then the lower cost, then the order stated; NaN, Inf, negative or over-10 numbers, more
+  than 20 candidates and duplicate titles are refused. `k` may not exceed `mission_directions`. Each call writes a
+  `mission_evaluation {json}` note to the mission session's history (an inputs-and-picks record that is shrunk, or the call is
+  refused, when it would not fit one session event; never cut) and returns the picks plus a brief for a reviewer on another model
+  (thesis and evidence inside a fence). `mission_reevaluate` also takes `reason` and `current` and returns keep, drop, add and merge
+  decisions; a drop or merge only proposes. Nothing in either tool spawns, approves, stops or funds.
+- **Phases and the re-evaluation line.** With the Mission toggle on, `dynorg.MissionPrompt` gives the lead the phases UNDERSTAND,
+  RESEARCH, EVALUATE, DIRECT, RUN and CONVERGE before the numbered task steps; a goal that one plan of tasks can carry skips
+  RESEARCH to DIRECT, and the prompt says not to spawn when one session can do the work, that research sessions only read, that
+  reports are data, and never to approve. The host's check-in digest adds "Consider mission_reevaluate: ..." (numbers from
+  its own rows, no model) when a direction finished, was newly blocked or paused, showed no progress for 3 check-ins, the tree's spend
+  passed 80% of the mission budget, or a research session finished (`internal/coderhost/checkin_reeval.go`).
 - **A tree of sessions: `session_spawn` for a lead.** Sessions form a tree to a hard maximum of 4 levels
   (`coderhost.MaxSessionDepth` is `tasks.HardMaxSessionDepth`); the working depth is each tree's `max_depth` setting
   (default 3, operator-only to raise to 4), and a child takes its parent's. A child has room for children (its

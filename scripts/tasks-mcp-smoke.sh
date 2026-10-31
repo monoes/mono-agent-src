@@ -5,7 +5,7 @@
 # task session worked through the tools (dependencies, evidence, no self-verification, an environment label that binds
 # nothing), a non-task tool refused by name, the CLI showing what the agent did, and the
 # --api-only combination refused, and the session verbs of the command line (list, show, plan, depend, undepend,
-# split, budget, pause, resume, close, archive, stop, and the tree: new --parent/--kind, rename, tree, archive --cascade, and the refusal of the person verbs and retire-worker to an agent) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
+# split, budget, pause, resume, close, archive, stop, and the tree: new --parent/--kind, rename, tree, archive --cascade, and the refusal of the person verbs and retire-worker to an agent: exit 3 and code operator_only, each; operator-made directions past K, shown by tree and list, and an agent's direction refused) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
 #
 #   go build -tags devaccount -o /tmp/monoagentcli ./cmd/monoagentcli && scripts/tasks-mcp-smoke.sh /tmp/monoagentcli
 set -euo pipefail
@@ -277,12 +277,40 @@ echo "== the person verbs and retire-worker are the operator's: an agent is refu
 # person verbs and retire-worker refuse an agent before they look at their arguments.
 sj task session person inbox >"$root/pi.out" 2>"$root/pi.err" || fail "task session person inbox: $(cat "$root/pi.err")"
 jq -e '(.items|type)=="array" and (.items|length)==0' "$root/pi.out" >/dev/null || fail "task session person inbox: $(cat "$root/pi.out")"
+# refused <what> <command words...>: an agent (--as bot, the same shape as the checks above) is refused with
+# the real contract: exit code 3 and {"code":"operator_only"} in the --json error document on stdout.
+refused() {
+  local what="$1" rc=0; shift
+  run --profile "$prof" --json "$@" --as bot >"$root/rf.out" 2>"$root/rf.err" || rc=$?
+  [ "$rc" -eq 3 ] || fail "$what as an agent exited $rc, not 3: $(cat "$root/rf.out" "$root/rf.err")"
+  jq -s -e 'any(.[]; .code=="operator_only")' "$root/rf.out" >/dev/null || fail "$what as an agent was not refused with code operator_only: $(cat "$root/rf.out" "$root/rf.err")"
+}
 for verb in "inbox" "full 1" "approve 1 --rev 1" "deny 1 --note x" "ask 1 --text x" "answer-ask --ask 1 --text x"; do
   # shellcheck disable=SC2086
-  if run --profile "$prof" task session person $verb --as bot >"$root/pv.out" 2>"$root/pv.err"; then fail "an agent ran task session person $verb"; fi
-  grep -q "operator_only\|operator" "$root/pv.out" "$root/pv.err" || fail "task session person $verb as an agent was not refused as operator-only: $(cat "$root/pv.out" "$root/pv.err")"
+  refused "task session person $verb" task session person $verb
 done
-if run --profile "$prof" task session retire-worker 1 1 --as bot >/dev/null 2>&1; then fail "an agent retired a worker"; fi
+refused "task session retire-worker" task session retire-worker 1 1
+
+echo "== directions: the operator makes them past any K; an agent that works in no session cannot make one"
+# K (mission_directions: default 3, hard cap 6) holds an AGENT's open directions below one session (tasks.Store.CreateSession);
+# the operator is not held to it, so seven directions below one parent are made and shown. An agent of a session or of a
+# task needs a minted token (see unreachable-from-the-shell below), so only the agent that works in no session is shaped here.
+sj task session new "direction root" --kind mission >"$root/dr.out" 2>"$root/dr.err" || fail "task session new (direction root): $(cat "$root/dr.out" "$root/dr.err")"
+dr="$(jq -r '.session.id' "$root/dr.out")"
+for n in 1 2 3 4 5 6 7; do
+  sj task session new "direction $n" --parent "$dr" --kind direction >"$root/dd.out" 2>"$root/dd.err" || fail "the operator's direction $n was refused: $(cat "$root/dd.out" "$root/dd.err")"
+  jq -e --argjson p "$dr" '.session.kind=="direction" and .session.parent_session_id==$p and .session.depth==2' "$root/dd.out" >/dev/null || fail "direction $n is not a direction below the root: $(cat "$root/dd.out")"
+done
+sj task session tree >"$root/dt.out" 2>"$root/dt.err" || fail "task session tree (directions): $(cat "$root/dt.err")"
+jq -e --argjson r "$dr" '[.[]|select(.id==$r)][0].children|(length==7 and all(.[]; .kind=="direction"))' "$root/dt.out" >/dev/null || fail "the tree does not show seven directions below the root: $(cat "$root/dt.out")"
+sj task session list >"$root/dl.out" 2>"$root/dl.err" || fail "task session list (directions): $(cat "$root/dl.err")"
+jq -e '[.sessions[]|select(.kind=="direction")]|length==7' "$root/dl.out" >/dev/null || fail "the listing does not hold seven directions: $(cat "$root/dl.out")"
+refused "task session new --kind direction --parent" task session new "agent direction" --parent "$dr" --kind direction
+grep -q "works in no session" "$root/rf.out" || fail "the agent's direction refusal does not say it works in no session: $(cat "$root/rf.out")"
+sj task session tree | jq -e --argjson r "$dr" '[.[]|select(.id==$r)][0].children|length==7' >/dev/null || fail "a refused agent direction changed the tree"
+# Unreachable from the shell, covered by Go tests: an agent bound to a task is refused with "bound to a task" and one bound
+# to a session is held to K (both need a mission/session token minted by the conductor: internal/tasks session_direction_cap
+# and session tree tests, internal/coderhost session_spawn); mission_evaluate and the digest need the conductor and a model.
 
 echo "== an environment label binds nothing: a server given MONOAGENT_TASK_SESSION but no token is an ordinary agent"
 # What binds a server to a session, a task and a role is a mission token the conductor mints per run
