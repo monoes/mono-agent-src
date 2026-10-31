@@ -46,6 +46,12 @@ For every transition to `seq = n+1`:
 2. commit the database transaction that writes the row(s);
 3. append `committed n+1` to the witness and fsync.
 
+**Marker first.** For the `stop-requested` transition (and every later Stop step) the order is the spec's
+marker-first order: the stop **marker** is durable before step 1, because the marker needs neither the
+database nor the witness; the witness line and the database commit follow. A host that crashes after the
+marker and before step 1 is read by the unclean-loss rule of spec 5.3 and the marker, so the generation is
+refused either way.
+
 If step 1 fails, the transition is **refused** (record-then-act) — except the emergency actions of spec 5.3,
 which act first and reconcile afterwards. If step 3 fails, the database is ahead by one committed
 transition; recovery repairs the witness (section 4, row 3).
@@ -84,11 +90,16 @@ the witness tail is the same-user writer (section 8).
 
 ## 6. The single host
 
-- **A lock.** The host takes an exclusive, non-blocking advisory lock on `host.lock` in the run directory
+- **A lock (no timed waiting anywhere).** The host takes an exclusive, **non-blocking** advisory lock on `host.lock` in the run directory
   for its whole life (the same file-lock pattern the account store uses, `internal/account/lock_unix.go`).
   The kernel drops it when the process dies, so a **stale owner cannot hold it**: recovery after a crash
   needs no timeout and no stale-lock heuristic. A second host fails to take the lock and **refuses to
-  start before it touches the database**.
+  start before it touches the database**. No part of this note waits on a timed lock or a lease: freshness is
+  by `seq` and the witness, ownership is by the kernel-released lock.
+- **Fence on future creation.** A host that lost its lock (it cannot: the lock lives as long as the process)
+  or a **second host that started anyway** is prevented from creating work by the database condition below
+  (every host-written transition is conditional on the run's `host id`), and a generation that failed closed
+  admits nothing: its gate is never `OPEN` again (note 13.1), and a new run gets a new generation.
 - **An owner record.** Next to the lock: `{host id (random, per start), pid, start stamp, boot id, machine
   id, hostname}`, written after the lock is taken. It is for diagnosis and for the copy check; it is not
   the lock.
