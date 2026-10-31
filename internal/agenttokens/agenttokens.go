@@ -22,6 +22,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // Prefix starts every token, so a secret scanner and a person can recognise one.
@@ -158,6 +160,8 @@ type Use struct {
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// binder, when set, has its live entries ended after a revocation commits (revoke_v2.go).
+	binder *procbind.Binder
 
 	mu      sync.Mutex
 	touched map[string]time.Time
@@ -393,22 +397,36 @@ func (s *Store) Revoke(ctx context.Context, profileID, ref string) (Token, error
 	if t.RevokedAt != nil {
 		return t, nil
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
-		s.now().UTC().Format(timeFmt), t.ID); err != nil {
-		return Token{}, fmt.Errorf("revoking agent token: %w", err)
+	err = s.revokeBoth(ctx, procbind.Selector{Profile: t.ProfileID, TokenID: t.ID}, func(conn *sql.Conn) error {
+		if _, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
+			s.now().UTC().Format(timeFmt), t.ID); err != nil {
+			return fmt.Errorf("revoking agent token: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return Token{}, err
 	}
 	return s.byID(ctx, t.ID)
 }
 
 // RevokeProfile revokes every unrevoked token of the profile.
 func (s *Store) RevokeProfile(ctx context.Context, profileID string) (int, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE profile_id = ? AND revoked_at IS NULL`,
-		s.now().UTC().Format(timeFmt), profileID)
+	n := 0
+	err := s.revokeBoth(ctx, procbind.Selector{Profile: profileID, All: true}, func(conn *sql.Conn) error {
+		res, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE profile_id = ? AND revoked_at IS NULL`,
+			s.now().UTC().Format(timeFmt), profileID)
+		if err != nil {
+			return fmt.Errorf("revoking agent tokens of the profile: %w", err)
+		}
+		c, _ := res.RowsAffected()
+		n = int(c)
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("revoking agent tokens of the profile: %w", err)
+		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return n, nil
 }
 
 // The audit table is bounded by count, never by an id gap, so that one token's traffic cannot
