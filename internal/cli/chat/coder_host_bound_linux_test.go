@@ -292,3 +292,65 @@ func TestManyBoundTurnsLeakNoDescriptors(t *testing.T) {
 		t.Errorf("descriptors: %d before, %d after 150 bound turns", before, after)
 	}
 }
+
+// The caller's own checks before a mint, which MintTx does not make: the profile whose key signs, a scope that belongs to
+// the kind, a token that outlives the mint.
+func TestValidateMintRefusesWhatMintTxWouldNotNotice(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	good := func() procbind.MintRequest {
+		return procbind.MintRequest{Profile: "default", Now: now, Tokens: []procbind.MintToken{
+			{Kind: procbind.KindSession, Scope: procbind.SessionScope("c1", "t1"), Expires: now.Add(time.Hour)},
+			{Kind: procbind.KindMission, Scope: procbind.MissionScope(7, 3), Expires: now.Add(time.Hour)}}}
+	}
+	if err := validateMint(good(), []byte("k"), "default"); err != nil {
+		t.Fatalf("a good mint: %v", err)
+	}
+	for name, c := range map[string]struct {
+		mut     func(*procbind.MintRequest)
+		key     []byte
+		profile string
+	}{
+		"no key":                             {func(*procbind.MintRequest) {}, nil, "default"},
+		"another profile":                    {func(r *procbind.MintRequest) { r.Profile = "other" }, []byte("k"), "default"},
+		"a session scope on a mission token": {func(r *procbind.MintRequest) { r.Tokens[1].Scope = procbind.SessionScope("c1", "t1") }, []byte("k"), "default"},
+		"a mission scope on a session token": {func(r *procbind.MintRequest) { r.Tokens[0].Scope = procbind.MissionScope(7, 3) }, []byte("k"), "default"},
+		"already expired":                    {func(r *procbind.MintRequest) { r.Tokens[0].Expires = now }, []byte("k"), "default"},
+	} {
+		r := good()
+		c.mut(&r)
+		if err := validateMint(r, c.key, c.profile); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// After an error from the mint (which cannot tell whether the rows landed) the token is ended by its own id: a row that
+// did land is revoked and its registration gone, and another turn's token of the same conversation is left alone.
+func TestRevokeByIDEndsOnlyThatToken(t *testing.T) {
+	r := newBoundRig(t, "")
+	ctx := context.Background()
+	key, err := procbind.RowKey(ctx, r.db.DB, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	mint := func(turn string) string {
+		id, _ := procbind.NewTokenID()
+		_, hash, _ := procbind.NewSecret(procbind.SessionPrefixV2)
+		if err := procbind.MintTx(ctx, r.db.DB, key, procbind.MintRequest{Profile: "default", WorkerPID: 4242, WorkerStamp: "s", HostGeneration: "g", Now: now,
+			Tokens: []procbind.MintToken{{Kind: procbind.KindSession, ID: id, Hash: hash, Scope: procbind.SessionScope("c1", turn), Expires: now.Add(time.Hour), ConversationID: "c1", TurnID: turn}}}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	landed, other := mint("t1"), mint("t2")
+	if err := r.l.bound.revokeByID(ctx, "default", procbind.KindSession, landed); err != nil {
+		t.Fatal(err)
+	}
+	if rv, _ := procbind.IsRevoked(ctx, r.db.DB, procbind.KindSession, landed); !rv {
+		t.Error("the token that may have landed was not revoked")
+	}
+	if rv, _ := procbind.IsRevoked(ctx, r.db.DB, procbind.KindSession, other); rv {
+		t.Error("another turn's token was revoked")
+	}
+}
