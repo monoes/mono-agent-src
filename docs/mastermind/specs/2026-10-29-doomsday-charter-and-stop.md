@@ -268,7 +268,7 @@ changes.
    only for the classes a charter ticked and "no person item is raised". A giant plan (over the task, access,
    depth or budget thresholds) raises a person item that waits with no timeout and no default, and the critical
    upward ask raises another. Taken literally the mode either stalls on them or the charter must name them as
-   liftable. Neither is decided here: it is open question 6 below. Until it is decided, section 4 must not
+   liftable. Neither is decided here: it is question 5 in 12.5 below. Until it is decided, section 4 must not
    list `plan_approval` or critical asks as lifted by any existing line.
 2. **Depth has three different limits, not one.** The session tree has a hard maximum of 4 levels
    (`tasks.HardMaxSessionDepth`, shared with `coderhost.MaxSessionDepth` so there is one source of truth,
