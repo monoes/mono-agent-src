@@ -216,7 +216,7 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&patch, "patch", "", "JSON object with the settings to change")
 	cmd.Flags().StringVar(&unattended, "unattended", "", "true or false: false turns off the host's own scheduled check-ins for the session")
-	cmd.Flags().StringVar(&mission, "mission", "", "on or off: the chat's Mission toggle (the operator's; needs coding access or more; stays on while the chat has an open mission session; it governs the missions the toggle starts: a mission confirmed on a single send is separate and off is not a stop, use `task session stop`)")
+	cmd.Flags().StringVar(&mission, "mission", "", "on or off: the chat's Mission toggle (the operator's; needs coding access or more; stays on while the chat has an open mission session; it governs the missions the toggle starts: a mission confirmed on a single send is separate and off is not a stop, use task session stop)")
 	cmd.Flags().StringVar(&role, "role", "", "solo, master or child (a child needs --parent: a master with room for it)")
 	cmd.Flags().Float64Var(&budget, "budget-usd", 0, "The session's spend cap in USD that its children are carved from (0 = none; not below what its children hold)")
 	cmd.Flags().StringVar(&parent, "parent", "", "the master conversation, with --role child")
