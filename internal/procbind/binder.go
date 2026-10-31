@@ -380,6 +380,29 @@ func (b *Binder) Stats() Stats {
 	return st
 }
 
+// StatsByProfile is Stats for each profile that has an entry.
+func (b *Binder) StatsByProfile() map[string]Stats {
+	var toClose []Handle
+	defer func() { closeAll(toClose) }()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.pruneLocked(&toClose)
+	out := map[string]Stats{}
+	for k, e := range b.entries {
+		st := out[k.profile]
+		switch e.state {
+		case statePending:
+			st.Pending++
+		case stateActive:
+			st.Active++
+		default:
+			st.Revoked++
+		}
+		out[k.profile] = st
+	}
+	return out
+}
+
 // Lease is a borrowed, counted hold on an active entry and its worker handle. A nil Lease is safe to use:
 // it is never valid and releasing it does nothing.
 type Lease struct {

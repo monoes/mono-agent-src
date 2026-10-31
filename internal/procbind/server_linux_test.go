@@ -70,8 +70,19 @@ func startServer(t *testing.T, reg Registry, tweak func(*Server)) (string, *Serv
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A connection goroutine may log after Serve has returned and the test has finished; t.Logf then races with the
+	// test's completion, so the log is dropped once the test is over.
+	var logMu sync.Mutex
+	over := false
+	t.Cleanup(func() { logMu.Lock(); over = true; logMu.Unlock() })
 	s := &Server{Profile: tProfile, Generation: tGen, Key: tKey, Registry: reg, Procs: lp(t), UID: os.Getuid(),
-		Timeout: 3 * time.Second, Logf: func(f string, a ...any) { t.Logf("server: "+f, a...) }}
+		Timeout: 3 * time.Second, Logf: func(f string, a ...any) {
+			logMu.Lock()
+			defer logMu.Unlock()
+			if !over {
+				t.Logf("server: "+f, a...)
+			}
+		}}
 	if tweak != nil {
 		tweak(s)
 	}
