@@ -35,5 +35,5 @@ func refuseLiveReservations(ctx context.Context, q scopeQuerier, profileID strin
 		named = append(named, fmt.Sprintf("worker %q on session #%d", r.WorkerRef, r.SessionID))
 	}
 	return fmt.Errorf("the profile has %d live worker reservation(s) holding session budget: %s. Stop the org that runs them, or wait about %d minutes for their lease to lapse, then delete again",
-		len(live), strings.Join(named, ", "), int((tasks.ReservationLease+tasks.ReservationGrace).Minutes()))
+		len(live), strings.Join(named, ", "), int((tasks.ReservationLease + tasks.ReservationGrace).Minutes()))
 }
