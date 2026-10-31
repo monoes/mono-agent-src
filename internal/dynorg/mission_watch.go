@@ -56,6 +56,7 @@ func (c *Conductor) missionTick(mc *MissionRun) {
 		for _, w := range c.sessionWorkers(sid) {
 			c.chargeSession(w) // what a worker has cost so far, even between its events
 		}
+		c.expireStale(c.ctx, mc, sid)
 		se, err := mc.Store.GetSession(c.ctx, mc.ProfileID, sid, missionActor())
 		if err != nil {
 			continue
@@ -126,6 +127,7 @@ func (c *Conductor) sessionWorkers(sid int64) []*worker {
 func (c *Conductor) renewLeases(ctx context.Context, mc *MissionRun, sid int64) {
 	now := c.cfg.Now()
 	for _, w := range c.sessionWorkers(sid) {
+		c.heartbeat(ctx, mc, w, now) // its reservation, on its own clock; verifiers hold one too
 		if w.task.verifier {
 			continue // it holds no claim to renew
 		}

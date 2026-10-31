@@ -55,6 +55,12 @@ type Settings struct {
 	// mission_propose click). The operator sets it with `settings set --mission`,
 	// which also holds it on while the conversation has an open mission session.
 	Mission bool `json:"mission"`
+
+	// MissionWorkerReservations: whether the mission workers of this conversation take their money from the
+	// session's budget as a reservation per run (the live switch of the session budget reservations), instead of
+	// the cap each run reads from the session. Off by default; operator-only, and written only through
+	// Store.UpdateSettings. Read at the start of every worker run: a store that cannot answer leaves it off.
+	MissionWorkerReservations bool `json:"mission_worker_reservations"`
 }
 
 // AutonomyChoice overrides the preset for one class of gap.
@@ -78,7 +84,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "mission_worker_reservations"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {

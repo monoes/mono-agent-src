@@ -418,6 +418,9 @@ func (c *Conductor) recordSpend(ctx context.Context, mc *MissionRun, w *worker) 
 		w.task.spendMu.Unlock()
 		return false
 	}
+	if h := w.task.resv; h != nil {
+		return c.chargeRun(ctx, w, h, cost, delta)
+	}
 	note := fmt.Sprintf("%s on task #%d", w.id, w.task.task.ID)
 	if _, err := mc.Store.AddSessionSpend(ctx, mc.ProfileID, w.task.session, delta, note, operatorActor()); err != nil {
 		w.task.spendMu.Unlock()

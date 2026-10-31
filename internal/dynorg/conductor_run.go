@@ -319,7 +319,14 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		opts.BudgetUSD = remaining
 	}
 	c.mu.Unlock()
-	if w.task != nil {
+	resv, rerr := c.reserveExec(ctx, w, &opts) // nil unless the operator switched worker reservations on
+	if rerr != nil {
+		return nil, rerr
+	}
+	if resv != nil {
+		defer c.endExecReservation(w, resv)
+	}
+	if w.task != nil && resv == nil {
 		// a mission worker is also capped by what its session has left (the operator's budget)
 		left, bounded, err := c.missionExecCap(ctx, w)
 		if err != nil {
@@ -337,6 +344,9 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	opts.SystemPrompt = workerSystemPrompt(w.staff, dir, w.files, c.spawnsOn(w, m, opts.Access)) + c.profileSection() + c.worktreeRule(w) + missionRule(w)
 	c.workerTools(w, m, &opts)
 	var run monomind.TurnResult
+	if resv != nil {
+		resv.ran = true // from here on the run settles; before it, it releases
+	}
 	ectx, ecancel := context.WithCancel(ctx)
 	defer ecancel()
 	// refused is set when the start event says the confined run isn't

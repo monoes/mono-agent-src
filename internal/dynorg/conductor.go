@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -99,6 +100,13 @@ type Conductor struct {
 	profileFresh bool
 	// msched is the scheduler's state (mission_sched.go).
 	msched missionState
+	// ownerID names this Conductor on the worker reservations it takes (mission_reserve.go): 128 random bits,
+	// never derived from the process id, so two Conductors never share a handle.
+	ownerID string
+	// resvUsed is set once this Conductor has taken a reservation; the tick sweeps lapsed ones only then.
+	resvUsed atomic.Bool
+	// resvNoted: the "setting unreadable" notice went out (once per Conductor).
+	resvNoted atomic.Bool
 }
 
 type worker struct {
@@ -232,6 +240,7 @@ func New(ctx context.Context, cfg Config) *Conductor {
 		slots: make(chan struct{}, cfg.Limits.MaxConcurrent),
 		write: newLease(), browser: newLease(),
 		workers: map[string]*worker{}, leadEdits: map[string]bool{},
+		ownerID: newOwnerID(),
 	}
 	c.initWriters()
 	return c

@@ -47,6 +47,10 @@ type MissionRun struct {
 	Live func(ctx context.Context, owner string) bool
 	// revokeFn replaces the token store's revoke (tests).
 	revokeFn func(ctx context.Context, id string) error
+	// WorkerReservations reports whether the mission workers' runs take their money as a reservation on the
+	// session (mission_reserve.go) instead of reading a cap from it. It is asked at the start of every run; nil
+	// is off, and so is an error (the old cap applies, the run goes on).
+	WorkerReservations func(ctx context.Context) (bool, error)
 	// Session is the session the mission tools work when a call names none.
 	Session int64
 	// Poll is how often the watcher looks at the session: its state, its budget, the
@@ -133,6 +137,11 @@ type missionBind struct {
 	// callbacks. spent advances only after the corresponding write commits.
 	spendMu sync.Mutex
 	spent   float64
+	// resv is the live run's reservation and execs the runs started so far (mission_reserve.go); both are
+	// guarded by spendMu. hbAt is when the reservation was last renewed (guarded by missionState.mu).
+	resv  *execReservation
+	execs int
+	hbAt  time.Time
 
 	// guarded by missionState.mu
 	stopped      string    // why the mission ended the run ("" = it was not)
