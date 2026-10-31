@@ -367,8 +367,8 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 			t.Errorf("%s: the note claims every row is removed: %q", what, note)
 		}
 	}
-	// The delete revokes the profile's live v2 token (the seeded session token) and writes a revocation row for
-	// it: after the delete the revocation table holds two rows, the seeded one and that one.
+	// The seeded profile has no data key (the rows were inserted directly), so its live session token cannot be
+	// revoked: it is inert, and the delete writes no revocation row for it. Every retained table keeps one row.
 	checkKept := func(what string, got map[string]int, revocations int) {
 		for tbl := range retainedOnDelete {
 			want := 1
@@ -391,7 +391,7 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the delete failed because of insert-only rows: %v", err)
 	}
-	checkKept("the delete output", keptOf(out), 2)
+	checkKept("the delete output", keptOf(out), 1)
 	checkNote("the delete output", noteOf(out))
 	db, err = storage.NewDatabase(dbPath)
 	if err != nil {
@@ -401,9 +401,6 @@ func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
 	for tbl := range retainedOnDelete {
 		var n int
 		want := 1
-		if tbl == "token_revocations_v2" {
-			want = 2
-		}
 		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM "`+tbl+`" WHERE profile_id = ?`, id).Scan(&n); err != nil || n != want {
 			t.Errorf("%s: %d row(s) after the profile delete, want the %d retained (%v)", tbl, n, want, err)
 		}
