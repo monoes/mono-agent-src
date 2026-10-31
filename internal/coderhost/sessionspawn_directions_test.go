@@ -109,3 +109,30 @@ func TestADirectionLeadKeepsTheOperatorsMissionDirections(t *testing.T) {
 		}
 	}
 }
+
+// An archived draft holds no place: the next spawn passes. A direction the operator closed holds none either.
+func TestArchivedAndClosedDirectionsFreeTheirSlot(t *testing.T) {
+	f := newMC(t, true)
+	f.setDirections(t, f.lead.ConversationID, 1)
+	ctx := context.Background()
+	first, err := f.spawnDirection(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.spawnDirection(1); !errors.Is(err, ErrLimit) {
+		t.Fatalf("the place is taken: %v", err)
+	}
+	if _, err := f.ts.ArchiveSession(ctx, "p", first.TaskSessionID, opActor); err != nil {
+		t.Fatalf("archiving a draft: %v", err)
+	}
+	second, err := f.spawnDirection(2)
+	if err != nil {
+		t.Fatalf("an archived draft must free its slot: %v", err)
+	}
+	if _, err := f.ts.StopSession(ctx, "p", second.TaskSessionID, opActor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.spawnDirection(3); err != nil {
+		t.Fatalf("a stopped direction must free its slot: %v", err)
+	}
+}
