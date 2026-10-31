@@ -514,17 +514,31 @@ func TestParkIfTaskEndedLeavesATabANewTaskTook(t *testing.T) {
 
 // fakeRunner stands in for the application commands.
 type fakeRunner struct {
-	mu        sync.Mutex
-	st        Store
-	apps      *applications.Store
-	started   []string
-	running   int32
-	maxSeen   int32
-	needsYou  map[string]bool
-	startErr  map[string]error
-	gate      chan struct{} // when set, every Wait blocks until it is closed or fed
-	nextTab   int32
-	submitted chan string // an application the "person" submitted, freeing its slot
+	mu          sync.Mutex
+	st          Store
+	apps        *applications.Store
+	started     []string
+	running     int32
+	maxSeen     int32
+	needsYou    map[string]bool
+	startErr    map[string]error
+	gate        chan struct{} // when set, every Wait blocks until it is closed or fed
+	nextTab     int32
+	submitted   chan string   // an application the "person" submitted, freeing its slot
+	statusDelay time.Duration // how long the queue's status read takes after Finalize returns
+	readMu      sync.Mutex
+	read        map[string]bool // applications whose status the queue has read since Finalize
+	pending     []string        // submissions the person made that Sweep has not applied yet
+}
+
+// statusRead notes that the queue has read id's status after its fill.
+func (f *fakeRunner) statusRead(id string) {
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+	if f.read == nil {
+		f.read = map[string]bool{}
+	}
+	f.read[id] = true
 }
 
 func (f *fakeRunner) Start(_ context.Context, id string) (string, error) {
@@ -572,16 +586,31 @@ func (f *fakeRunner) Sweep(ctx context.Context) error {
 	if f.submitted == nil {
 		return nil
 	}
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+drain:
 	for {
 		select {
 		case id := <-f.submitted:
-			if err := f.apps.SetStatus(ctx, profile, id, applications.StatusApplied, applications.ActorUser, "sent"); err != nil {
-				return err
-			}
+			f.pending = append(f.pending, id)
 		default:
-			return nil
+			break drain
 		}
 	}
+	// The person's submit lands only after the queue has read the status its fill left: a submit that overtook
+	// the read would make the queue see "applied" and report needs_you.
+	var later []string
+	for _, id := range f.pending {
+		if !f.read[id] {
+			later = append(later, id)
+			continue
+		}
+		if err := f.apps.SetStatus(ctx, profile, id, applications.StatusApplied, applications.ActorUser, "sent"); err != nil {
+			return err
+		}
+	}
+	f.pending = later
+	return nil
 }
 
 // person submits each of ids once it is parked (awaiting_submit).
@@ -608,7 +637,9 @@ func queueFixture(t *testing.T, n int) (*fakeRunner, Queue, []string) {
 	r := &fakeRunner{st: st, apps: apps, needsYou: map[string]bool{}, startErr: map[string]error{}}
 	q := Queue{Store: st, Slots: slotsFor(st, "queue-1", 1001), Max: 2, Runner: r, Tick: time.Millisecond,
 		Status: func(ctx context.Context, id string) (string, error) {
+			time.Sleep(r.statusDelay)
 			a, err := apps.Get(ctx, profile, id)
+			r.statusRead(id)
 			return string(a.Status), err
 		}}
 	return r, q, ids
@@ -738,6 +769,30 @@ func TestQueueMovesOnFromNeedsYouAndFailures(t *testing.T) {
 	}
 	if out[1].Error != "coder is off" {
 		t.Errorf("failure reason = %q", out[1].Error)
+	}
+}
+
+// A slow status read after a fill must not change what the queue reports: an application that was filled is
+// parked, even when the person submits the moment it shows as awaiting_submit and the sweep applies it before the
+// queue has read its status.
+func TestQueueReportsParkedWhenTheStatusReadIsSlow(t *testing.T) {
+	r, q, ids := queueFixture(t, 2)
+	q.Max = 1
+	r.statusDelay = 200 * time.Millisecond
+	r.submitted = make(chan string, 8)
+	go person(r, ids)
+	done := make(chan []Outcome, 1)
+	go func() { out, _ := q.Run(bg, ids); done <- out }()
+	var out []Outcome
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the queue never finished")
+	}
+	for _, o := range out {
+		if o.Result != ResultParked {
+			t.Errorf("%s: %s (%s), want parked", o.ApplicationID, o.Result, o.Error)
+		}
 	}
 }
 
