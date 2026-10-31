@@ -14,6 +14,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/attachments"
 	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -374,6 +375,12 @@ func refuseRunning(ctx context.Context, q scopeQuerier, id string) error {
 // all or nothing. What it owns is read inside the transaction, so a row added
 // since the caller looked is not missed. It returns what was removed.
 func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, error) {
+	// The row keys of the profile's v2 tokens are derived before the transaction (deriving may write, and the
+	// profile's data key goes with it).
+	keyFor, err := procbind.Revoker{DB: db}.Keys(ctx, []procbind.Kind{procbind.KindMission, procbind.KindSession})
+	if err != nil {
+		return nil, fmt.Errorf("delete profile: %w", err)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -398,6 +405,12 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	violationsBefore, err := foreignKeyViolations(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("check foreign keys: %w", err)
+	}
+	// The profile's v2 tokens are revoked in this transaction (their rows stay, see retainedOnDelete; the
+	// revocation rows are what a verifier reads): if that cannot be written the delete is rolled back (decision K1).
+	// Any live registry entry is in the host process, which reads the revocation rows when it verifies.
+	if _, err := procbind.RevokeTx(ctx, tx, keyFor, procbind.Selector{Profile: id, All: true}, "profile deleted", time.Now()); err != nil {
+		return nil, fmt.Errorf("delete profile: revoke the v2 tokens: %w", err)
 	}
 	for _, e := range scope {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+e.Table+`" WHERE `+e.Where, sql.Named("p", id)); err != nil {

@@ -1,0 +1,69 @@
+package profile
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/storage"
+)
+
+func v2ProfileTokens(t *testing.T, dbPath, id string) (*storage.Database, string) {
+	t.Helper()
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	key, err := procbind.RowKey(ctx, db.DB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := procbind.InsertMissionToken(ctx, db.DB, key, procbind.MissionTokenRow{ID: "v2-m", ProfileID: id, TokenHash: "h-m", Owner: "o", Session: 7, Task: 3, Role: "worker", Actor: "a", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := procbind.InsertSessionToken(ctx, db.DB, key, procbind.SessionTokenRow{ID: "v2-s", ProfileID: id, TokenHash: "h-s", ConversationID: "c", TurnID: "t", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	return db, id
+}
+
+// Deleting a profile revokes its v2 tokens (both families) in the delete's transaction; the rows stay (retainedOnDelete).
+func TestDeleteProfileRevokesItsV2Tokens(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	db, _ := v2ProfileTokens(t, dbPath, id)
+	ctx := context.Background()
+	if _, err := deleteProfile(ctx, db.DB, id); err != nil {
+		t.Fatal(err)
+	}
+	for kind, tok := range map[procbind.Kind]string{procbind.KindMission: "v2-m", procbind.KindSession: "v2-s"} {
+		if rv, err := procbind.IsRevoked(ctx, db.DB, kind, tok); err != nil || !rv {
+			t.Errorf("%s token %s is still live after the profile delete (%v)", kind, tok, err)
+		}
+	}
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM agent_tokens_v2 WHERE profile_id = ?`, id).Scan(&n); err != nil || n != 1 {
+		t.Errorf("the v2 token row should stay (%d, %v)", n, err)
+	}
+}
+
+// If the v2 revocation cannot be written the profile delete is rolled back.
+func TestDeleteProfileRollsBackWhenTheV2RevocationFails(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	db, _ := v2ProfileTokens(t, dbPath, id)
+	if _, err := db.DB.Exec(`CREATE TRIGGER zz_refuse BEFORE INSERT ON token_revocations_v2 BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := deleteProfile(context.Background(), db.DB, id); err == nil {
+		t.Fatal("the profile was deleted although the v2 revocation failed")
+	}
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM profiles WHERE id = ?`, id).Scan(&n); err != nil || n != 1 {
+		t.Errorf("the profile is gone (%d, %v)", n, err)
+	}
+}

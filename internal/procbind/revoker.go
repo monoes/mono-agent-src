@@ -29,15 +29,9 @@ type Revoker struct {
 // closed: the caller retries. The 3c mint of a v2 token must therefore not interleave with a revoke-all of
 // the same profile (or take the same key function first).
 func (r Revoker) Run(ctx context.Context, kinds []Kind, legacy func(conn *sql.Conn) ([]Selector, error)) error {
-	keys, err := r.keys(ctx, kinds)
+	keyFor, err := r.Keys(ctx, kinds)
 	if err != nil {
 		return err
-	}
-	keyFor := func(profile string) ([]byte, error) {
-		if k, ok := keys[profile]; ok {
-			return k, nil
-		}
-		return nil, errors.New("no row key was derived for this profile")
 	}
 	conn, err := r.DB.Conn(ctx)
 	if err != nil {
@@ -78,6 +72,23 @@ func (r Revoker) Run(ctx context.Context, kinds []Kind, legacy func(conn *sql.Co
 	committed = true
 	Drop(r.Binder, refs)
 	return nil
+}
+
+// Keys derives the row key of every profile that holds a v2 token of one of kinds and returns the key function
+// RevokeTx takes (a profile it did not derive has no key: the revocation fails closed). It is for a caller that
+// runs its own write transaction: call it BEFORE the transaction begins, because deriving a key may write the
+// database.
+func (r Revoker) Keys(ctx context.Context, kinds []Kind) (func(profile string) ([]byte, error), error) {
+	keys, err := r.keys(ctx, kinds)
+	if err != nil {
+		return nil, err
+	}
+	return func(profile string) ([]byte, error) {
+		if k, ok := keys[profile]; ok {
+			return k, nil
+		}
+		return nil, errors.New("no row key was derived for this profile")
+	}, nil
 }
 
 func (r Revoker) keys(ctx context.Context, kinds []Kind) (map[string][]byte, error) {
