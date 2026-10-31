@@ -88,7 +88,7 @@ func TestTheDigestSaysToReevaluateWhenADirectionFinished(t *testing.T) {
 func TestTheDigestSaysToReevaluateWhenADirectionIsBlocked(t *testing.T) {
 	r := newReevalRig(t)
 	r.pass()
-	r.exec(`UPDATE tasks SET blocked = 1 WHERE id = (SELECT MIN(id) FROM tasks WHERE session_id = ?)`, r.dirs[1].ID)
+	r.block(r.minTask(r.dirs[1].ID))
 	c := r.pass()
 	if c == nil || !strings.Contains(c.Message, reevalMark+": 1 direction(s) newly blocked.") {
 		t.Fatalf("check-in %+v", c)
@@ -195,7 +195,7 @@ func TestTheReevaluationLineIsNumbersOnlyAndNeedsDirections(t *testing.T) {
 		}
 	}
 	// the first look has nothing to compare with: no reasons
-	if got := reevalReasons(nil, &missionFact{Dirs: []dirFact{{ID: 1, State: "done"}}, SpentPct: 95, ResearchIDs: []int64{1, 2}}); got != nil {
+	if got := reevalReasons(nil, &missionFact{V: snapshotV, DirCur: 1, NewDone: 1, SpentPct: 95, NewResearch: 2}); got != nil {
 		t.Fatalf("first look: %v", got)
 	}
 }

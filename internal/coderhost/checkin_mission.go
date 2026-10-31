@@ -32,16 +32,25 @@ type missionFact struct {
 	// verified=1 after the operator closes it, so Done and Verified overlap and must not be summed). It is
 	// not part of the digest or of the change signal.
 	Open int `json:"-"`
-	// Directions of the mission, research reports finished and the share of the budget the tree spent (numbers
-	// from the host's rows; omitted when there are none, so an older digest still compares equal), and the
-	// re-evaluation reasons found at this look (never stored).
-	Dirs []dirFact `json:"dirs,omitempty"`
-	// ResearchIDs are the finished, unarchived research reports; ResearchSeen every one ever seen done (newest
-	// maxMarkIDs), so that an archive plus a finish is not a count of zero and an unarchive is not new.
-	ResearchIDs  []int64  `json:"researchIds,omitempty"`
-	ResearchSeen []int64  `json:"researchSeen,omitempty"`
-	SpentPct     int      `json:"spentPct,omitempty"`
-	Reeval       []string `json:"-"`
+	// What the re-evaluation triggers compare (checkin_reeval.go): the OPEN direction sessions with their numbers,
+	// the open research sessions, a cursor for each kind (the newest session id seen, so a session created after it
+	// is new) and the share of the budget the tree spent. All are numbers from the host's rows, omitted when there are
+	// none so that an older digest still compares equal. V says the snapshot has them (an older one has not: its
+	// baseline is unknown); Sess is the mission session they were read for.
+	V            int       `json:"v,omitempty"`
+	Sess         int64     `json:"sess,omitempty"`
+	Dirs         []dirFact `json:"dirs,omitempty"`
+	DirCur       int64     `json:"dirCur,omitempty"`
+	ResearchOpen []int64   `json:"researchOpen,omitempty"`
+	ResearchCur  int64     `json:"researchCur,omitempty"`
+	OpenCapped   bool      `json:"openCapped,omitempty"` // more than MaxOpenSessions were open: the oldest are not followed
+	SpentPct     int       `json:"spentPct,omitempty"`
+	// Found at this look by comparing with the last (never stored): re-evaluation reasons, and the changes they are
+	// made of.
+	Reeval      []string `json:"-"`
+	NewDone     int      `json:"-"` // directions that finished since the last look
+	NewStopped  int      `json:"-"` // directions that were stopped or failed since the last look
+	NewResearch int      `json:"-"` // research sessions that finished since the last look
 }
 
 var (
@@ -69,6 +78,11 @@ func MissionChildrenReady() bool {
 // false when the read failed (the caller keeps what it had). It is read-only and asks the database only
 // for this profile's sessions of this conversation, not for every session of the profile.
 func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok bool) {
+	return h.missionSince(profileID, conversationID, nil)
+}
+
+// missionSince is missionOf that also finds what changed in the directions and research since the last look (was).
+func (h *Host) missionSince(profileID, conversationID string, was *missionFact) (m *missionFact, ok bool) {
 	db := h.Store.db
 	var id int64
 	var state string
@@ -120,7 +134,7 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 		return nil, false
 	}
 	f.ChildRun, f.ChildQueued, f.ChildFailed = cc.Live, cc.Queued, cc.Failed
-	if f.Dirs, f.ResearchIDs, f.SpentPct, err = h.directionFacts(id); err != nil {
+	if err = h.fillDirections(f, id, was); err != nil {
 		return nil, false
 	}
 	if on, err := h.Store.MissionChildrenEnabled(); err != nil {

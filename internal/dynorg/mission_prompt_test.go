@@ -108,7 +108,8 @@ func TestMissionPromptHasTheDirectionPhasesAndTheNoForcedSpawnRule(t *testing.T)
 		"only the operator closes the mission",
 		"Giant work waits for the person",
 		"ask_user",
-		"you have 3 at most",
+		"at most 3 at the start of this turn",
+		"the operator's current setting is enforced when you call mission_evaluate",
 		"TASK STEPS",
 	} {
 		if !strings.Contains(p, must) {
@@ -124,10 +125,10 @@ func TestMissionPromptHasTheDirectionPhasesAndTheNoForcedSpawnRule(t *testing.T)
 		last = i
 	}
 	two := MissionPrompt(&MissionConfig{Store: st, Access: "coding", Confirmed: true, MaxDirections: 2})
-	if !strings.Contains(two, "you have 2 at most") || strings.Contains(two, "you have 3 at most") {
+	if !strings.Contains(two, "at most 2 at the start of this turn") || strings.Contains(two, "at most 3 at the start") || strings.Contains(two, "you have 2") {
 		t.Error("the prompt does not follow the operator's K")
 	}
-	if !strings.Contains(MissionPrompt(&MissionConfig{Store: st, Access: "coding", Confirmed: true, MaxDirections: 99}), "you have 6 at most") {
+	if !strings.Contains(MissionPrompt(&MissionConfig{Store: st, Access: "coding", Confirmed: true, MaxDirections: 99}), "at most 6 at the start of this turn") {
 		t.Error("the prompt promises more than the hard cap")
 	}
 }

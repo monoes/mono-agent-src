@@ -18,7 +18,8 @@ func (r *reevalRig) newSession(kind string) int64 {
 	return s.ID
 }
 
-// A mission may keep many finished directions: a new running one must still be looked at, and its finish announced.
+// A mission may keep many finished directions: a new open one must still be looked at (it is in the saved snapshot, and its
+// first state is announced), and its finish announced.
 func TestANewDirectionIsObservedAfterManyFinishedOnes(t *testing.T) {
 	r := newReevalRig(t)
 	for i := 0; i < 15; i++ {
@@ -27,10 +28,16 @@ func TestANewDirectionIsObservedAfterManyFinishedOnes(t *testing.T) {
 	}
 	r.pass() // the historical finishes are seen (and may be announced) here
 	fresh := r.newSession(tasks.SessionKindDirection)
-	r.exec(`UPDATE task_sessions SET state = 'running' WHERE id = ?`, fresh)
-	r.pass()
-	r.exec(`UPDATE task_sessions SET state = 'done' WHERE id = ?`, fresh)
+	r.exec(`UPDATE task_sessions SET state = 'paused' WHERE id = ?`, fresh)
 	c := r.pass()
+	if c == nil || !strings.Contains(c.Message, "1 direction(s) newly blocked") {
+		t.Fatalf("the first state of a new direction after 15 old ones was not announced: %+v", c)
+	}
+	if !r.observes(fresh) {
+		t.Fatalf("the new direction is not in the saved snapshot")
+	}
+	r.exec(`UPDATE task_sessions SET state = 'done' WHERE id = ?`, fresh)
+	c = r.pass()
 	if c == nil || !strings.Contains(c.Message, "1 direction(s) finished") {
 		t.Fatalf("the finish of a new direction after 15 old ones was not announced: %+v", c)
 	}
@@ -70,10 +77,10 @@ func TestOppositeChangesDoNotCancelInTheCounts(t *testing.T) {
 		t.Fatalf("research: one archived, one finished: %+v", c)
 	}
 
-	r.exec(`UPDATE tasks SET blocked = 1 WHERE id = (SELECT MIN(id) FROM tasks WHERE session_id = ?)`, r.dirs[1].ID)
+	r.block(r.minTask(r.dirs[1].ID))
 	r.pass() // one task blocked, announced
-	r.exec(`UPDATE tasks SET blocked = 0 WHERE id = (SELECT MIN(id) FROM tasks WHERE session_id = ?)`, r.dirs[1].ID)
-	r.exec(`UPDATE tasks SET blocked = 1 WHERE id = (SELECT MAX(id) FROM tasks WHERE session_id = ?)`, r.dirs[1].ID)
+	r.exec(`UPDATE tasks SET blocked = 0 WHERE id = ?`, r.minTask(r.dirs[1].ID))
+	r.block(r.maxTask(r.dirs[1].ID))
 	c = r.pass()
 	if c == nil || !strings.Contains(c.Message, "1 direction(s) newly blocked") {
 		t.Fatalf("blocked: one unblocked, another blocked: %+v", c)

@@ -9,10 +9,10 @@ import (
 // and each trigger produces exactly its own reason.
 
 func quietMission() *missionFact {
-	return &missionFact{State: "running", Total: 4, Done: 1, Dirs: []dirFact{
+	return &missionFact{State: "running", Total: 4, Done: 1, V: snapshotV, Sess: 9, DirCur: 2, ResearchCur: 1, Dirs: []dirFact{
 		{ID: 1, State: "running", Total: 2, Done: 1},
 		{ID: 2, State: "running", Total: 2},
-	}, SpentPct: 40, ResearchIDs: []int64{1}}
+	}, SpentPct: 40}
 }
 
 func TestReevalLineIsAbsentForAQuietMissionAndPresentForEachTrigger(t *testing.T) {
@@ -32,12 +32,12 @@ func TestReevalLineIsAbsentForAQuietMissionAndPresentForEachTrigger(t *testing.T
 		change func(m *missionFact)
 		want   string
 	}{
-		{"a direction finished", func(m *missionFact) { m.Dirs[0].State = "done" }, "1 direction(s) finished"},
-		{"a direction newly blocked", func(m *missionFact) { m.Dirs[1].Blocked, m.Dirs[1].BlockedIDs = 1, []int64{7} }, "1 direction(s) newly blocked"},
+		{"a direction finished", func(m *missionFact) { m.Dirs, m.NewDone = m.Dirs[1:], 1 }, "1 direction(s) finished"},
+		{"a direction newly blocked", func(m *missionFact) { m.Dirs[1].Blocked, m.Dirs[1].blockNow = 1, 7 }, "1 direction(s) newly blocked"},
 		{"a direction paused", func(m *missionFact) { m.Dirs[1].State = "paused" }, "1 direction(s) newly blocked"},
 		{"no progress for 3 check-ins", func(m *missionFact) { m.Dirs[1].Stall = StalledCheckins }, "1 direction(s) with no progress for 3 check-ins"},
 		{"spend reaches 80 percent", func(m *missionFact) { m.SpentPct = 80 }, "80% of the mission budget spent"},
-		{"a research session finished", func(m *missionFact) { m.ResearchIDs = []int64{1, 2} }, "1 new research report(s)"},
+		{"a research session finished", func(m *missionFact) { m.ResearchCur, m.NewResearch = 2, 1 }, "1 new research report(s)"},
 	}
 	for _, c := range cases {
 		now := quietMission()
@@ -59,12 +59,12 @@ func TestReevalLineIsAbsentForAQuietMissionAndPresentForEachTrigger(t *testing.T
 func TestReevalReasonsFireOnTheChangeOnly(t *testing.T) {
 	was, now := quietMission(), quietMission()
 	was.SpentPct, now.SpentPct = 85, 90
-	was.Dirs[0].State, now.Dirs[0].State = "done", "done"
+	was.Dirs[0].BlockCur, now.Dirs[0].BlockCur, now.Dirs[0].blockNow = 7, 7, 7
 	was.Dirs[1].Stall, now.Dirs[1].Stall = StalledCheckins, StalledCheckins
 	if got := reevalReasons(was, now); got != nil {
 		t.Fatalf("repeated: %v", got)
 	}
-	empty := &missionFact{State: "running", SpentPct: 95, ResearchIDs: []int64{1, 2, 3, 4, 5}}
+	empty := &missionFact{State: "running", V: snapshotV, Sess: 9, SpentPct: 95, NewResearch: 5}
 	if got := reevalReasons(quietMission(), empty); got != nil {
 		t.Fatalf("no directions: %v", got)
 	}
