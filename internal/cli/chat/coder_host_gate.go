@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -16,8 +15,9 @@ import (
 // not up), every turn start is refused with that cause: never a weaker mode. The setting is read at every start,
 // so a hand-edited setting refuses too, and so does one switched on after the host started. A start that is already past
 // this check when the setting is switched on goes on as it was (legacy) and the next start is refused; the window is the
-// few milliseconds between the read and the launch, and switching the setting on is refused anyway while the build cannot
-// issue bound tokens.
+// few milliseconds between the read and the launch. Today it cannot be reached: "on" cannot be set while IssuanceReady is
+// false (the setter refuses and the gate refuses a hand edit). Before IssuanceReady flips, admission must be synchronized
+// with the setting change (the 3c/4 flip checklist in the wiring note).
 type gatedLauncher struct {
 	inner coderhost.Launcher
 	db    *sql.DB
@@ -38,22 +38,15 @@ func (e *bindingRefusal) Error() string { return e.msg }
 
 // refusal is nil when the turn may start.
 func (g *gatedLauncher) refusal(profile string) error {
-	var raw string
-	err := g.db.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil // no coder settings: the setting is off
-	}
+	// The whole settings object is read with the loader every other reader uses (coder status, the setter, the
+	// turn itself): if it cannot be read as a whole, whether the setting is on is not known and the turn is refused,
+	// even if the one field looks fine. A settings object that is valid JSON with another field of the wrong type is
+	// such a case.
+	s, err := loadCoderSettings(g.db)
 	if err != nil {
 		return &bindingRefusal{"the turn was not started: the coder settings could not be read, so whether peer-credential binding is on is not known"}
 	}
-	// The same decoding as `coder status` and the setter (bindingFlag): conservative about junk and duplicate keys.
-	var s struct {
-		On bindingFlag `json:"peercredBinding"`
-	}
-	if json.Unmarshal([]byte(raw), &s) != nil {
-		return &bindingRefusal{"the turn was not started: the coder settings are unreadable, so whether peer-credential binding is on is not known"}
-	}
-	if !s.On {
+	if !bool(s.PeercredBinding) {
 		return nil // off
 	}
 	// The service is asked to start only when everything else allows it: while this build cannot issue bound
