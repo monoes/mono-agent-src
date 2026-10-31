@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -197,5 +198,21 @@ func TestLegacySessionTokenIsUnchangedByTheV2Verifier(t *testing.T) {
 	tok := mint(t, r.st, m.ConversationID, "t1")
 	if _, err := r.st.VerifySessionToken(tok); err != nil {
 		t.Fatalf("legacy verify: %v", err)
+	}
+}
+
+// The legacy session verifier is frozen against the v2 family: a v2 secret does not start with the legacy prefix, and
+// with no v2 verifier set the store denies it without looking at any table.
+func TestAV2SessionSecretIsNotALegacySessionSecret(t *testing.T) {
+	secret, _, err := procbind.NewSecret(procbind.SessionPrefixV2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(secret, SessionTokenPrefix) || strings.HasPrefix(procbind.SessionPrefixV2, SessionTokenPrefix) {
+		t.Fatalf("a v2 secret %q starts with the legacy prefix %q", secret[:6], SessionTokenPrefix)
+	}
+	st := newStoreT(t)
+	if _, err := st.VerifySessionToken(secret); !errors.Is(err, ErrSessionToken) {
+		t.Fatalf("err = %v", err)
 	}
 }

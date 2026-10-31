@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -301,5 +302,17 @@ func TestV2MissionTokenEachRowCheckRefusesOnItsOwn(t *testing.T) {
 		t.Fatal("no secret")
 	} else if _, err := r.s.VerifyMission(context.Background(), r.profile, ok); err != nil {
 		t.Fatalf("the same craft with every row valid is refused: %v", err)
+	}
+}
+
+// The legacy verifier is frozen against the v2 family: a v2 secret does not start with the legacy prefix, so no path
+// that selects legacy tokens by their prefix (the HTTP bearer routes) ever treats it as one.
+func TestAV2MissionSecretIsNotAPrefixedLegacySecret(t *testing.T) {
+	secret, _, err := procbind.NewSecret(procbind.TaskPrefixV2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(secret, Prefix) || strings.HasPrefix(procbind.TaskPrefixV2, Prefix) {
+		t.Fatalf("a v2 secret %q starts with the legacy prefix %q", secret[:6], Prefix)
 	}
 }
