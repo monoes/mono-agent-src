@@ -99,7 +99,7 @@ func runWithFrame(t *testing.T, bin string, frame []byte, closeWriter bool, args
 // it, which proves the recorder would have seen a premature open.
 func TestTheBinaryReadsTheFrameBeforeTouchingAnything(t *testing.T) {
 	bin := builtBinary(t)
-	good, err := procbind.CredFrame{SessionToken: []byte("mst-" + string(bytes.Repeat([]byte("a"), 43)))}.Encode()
+	good, err := procbind.CredFrame{SessionToken: []byte("mst2-" + string(bytes.Repeat([]byte("a"), 43)))}.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
