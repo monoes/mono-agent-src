@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/applications"
 )
 
@@ -48,6 +49,9 @@ func Sweep(ctx context.Context, store Store, apps *applications.Store, live []Li
 			continue
 		}
 		if open[t.TabID] {
+			if err := parkIfTaskEnded(ctx, store, t); err != nil {
+				return res, err
+			}
 			continue
 		}
 		if err := store.SetState(ctx, t.ApplicationID, StateLost, ""); err != nil {
@@ -59,6 +63,26 @@ func Sweep(ctx context.Context, store Store, apps *applications.Store, live []Li
 		res.Lost = append(res.Lost, t.ApplicationID)
 	}
 	return res, nil
+}
+
+// parkIfTaskEnded gives an `active` tab back to the person when the task that held it is over (cancelled with
+// its conversation's delete, failed, or done without parking it): nothing else would, the guard refusing every
+// other process and a resume taking only parked or lost tabs. A task with no row (the placeholder a resume
+// writes before its task exists) or in another profile is not judged.
+func parkIfTaskEnded(ctx context.Context, store Store, t Tab) error {
+	if t.State != StateActive || t.TaskID == "" {
+		return nil
+	}
+	// One statement: the tab is parked only while it still is the one this sweep read (active under the same
+	// task) and that task still is over, so a task that took the tab since the read keeps it.
+	_, err := store.DB.ExecContext(ctx,
+		`UPDATE application_tabs SET state = ?, updated_at = ?
+		 WHERE application_id = ? AND state = ? AND task_id = ?
+		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)
+		   AND EXISTS (SELECT 1 FROM ai_tasks k WHERE k.id = application_tabs.task_id AND k.profile_id = ? AND k.status IN (?, ?, ?))`,
+		string(StateParked), now(), t.ApplicationID, string(StateActive), t.TaskID, store.Profile,
+		store.Profile, aitask.StatusComplete, aitask.StatusFailed, aitask.StatusCancelled)
+	return err
 }
 
 // markReopen turns the application into needs_you with ReopenNote, keeping its
