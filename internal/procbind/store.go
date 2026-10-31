@@ -35,7 +35,11 @@ var (
 	// ErrNoRowKey is what a key function returns for a profile that has no row key (a deleted profile): RevokeTx skips
 	// its tokens, which are signed under a key that no longer exists and so verify nowhere.
 	ErrNoRowKey = errors.New("procbind: the profile has no row key")
-	ErrIDInUse  = errors.New("procbind: the token id is already used by the other family of tokens")
+	// ErrRowKeyAppeared is RevokeTx's refusal to treat a profile as keyless when, inside the revoking transaction, it
+	// has a key row after all (it got a key, and maybe new tokens, since the key function looked): skipping its tokens
+	// would leave a live one unrevoked. The caller retries with a fresh key function; Revoker.Run does so itself.
+	ErrRowKeyAppeared = errors.New("procbind: the profile got a row key while the revocation was being prepared")
+	ErrIDInUse        = errors.New("procbind: the token id is already used by the other family of tokens")
 )
 
 // NewTokenID is a new token id: 128 random bits as lowercase hex. A token id is unique across both families
@@ -537,6 +541,15 @@ func RevokeTx(ctx context.Context, x DBTX, keyFor func(profile string) ([]byte, 
 		}
 		key, err := keyFor(t.profile)
 		if errors.Is(err, ErrNoRowKey) {
+			// The key function looked before this transaction. Inside it, the profile must still have no key row:
+			// one that appeared since (with tokens signed under it) is not inert, so it is not skipped.
+			var one int
+			switch qerr := x.QueryRowContext(ctx, `SELECT 1 FROM vault_keys WHERE profile_id = ?`, t.profile).Scan(&one); {
+			case qerr == nil:
+				return nil, ErrRowKeyAppeared
+			case !errors.Is(qerr, sql.ErrNoRows):
+				return nil, fmt.Errorf("procbind: checking that the profile has no row key: %w", qerr)
+			}
 			keyless[t.profile] = true
 			continue
 		}
