@@ -2392,6 +2392,8 @@
     "locked": "Este chat está ejecutando una misión",
     "needsAccess": "Las misiones necesitan acceso de código o superior",
     "loadFailed": "No se pudo leer el ajuste de misión",
-    "saveFailed": "No se pudo cambiar el ajuste de misión: {{error}}"
+    "saveFailed": "No se pudo cambiar el ajuste de misión: {{error}}",
+    "runningSession": "Ejecutando una misión (sesión {{id}})",
+    "unreadable": "Estado de la misión desconocido"
   }
 }

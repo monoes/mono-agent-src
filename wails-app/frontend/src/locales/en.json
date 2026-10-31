@@ -2434,6 +2434,8 @@
     "locked": "This chat is running a mission",
     "needsAccess": "Missions need coding access or more",
     "loadFailed": "Could not read the mission setting",
-    "saveFailed": "Could not change the mission setting: {{error}}"
+    "saveFailed": "Could not change the mission setting: {{error}}",
+    "runningSession": "Running a mission (session {{id}})",
+    "unreadable": "Mission state unknown"
   }
 }

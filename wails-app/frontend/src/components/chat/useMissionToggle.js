@@ -49,13 +49,18 @@ export function useMissionToggle(conversationId, enabled = true) {
 
   const pendingRef = useRef(false)
   pendingRef.current = pending
+  // applyPending sets a choice made before the chat existed. A failure keeps the choice, shows the error and
+  // is rethrown: the caller must not go on to send a first message that would run with the toggle off.
   const applyPending = useCallback(async id => {
     if (!pendingRef.current || !id) return
+    try { await api.setChatMissionToggle(id, true) } catch (err) {
+      const message = tRef.current('missionToggle.saveFailed', { error: String(err?.message || err) })
+      setError(message)
+      throw new Error(message)
+    }
     pendingRef.current = false
     setPending(false)
-    try { await api.setChatMissionToggle(id, true) } catch (err) {
-      setError(tRef.current('missionToggle.saveFailed', { error: String(err?.message || err) }))
-    }
+    setError('')
   }, [])
 
   const view = conversationId ? state : { on: pending, locked: false, available: true }

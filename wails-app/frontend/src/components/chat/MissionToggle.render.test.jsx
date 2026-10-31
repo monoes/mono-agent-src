@@ -61,17 +61,43 @@ describe('Mission toggle', () => {
     expect(screen.queryByTestId('mission-chip')).toBeNull()
   })
 
-  it('shows on and disabled, with the reason, while the chat is running a mission', async () => {
-    api.getChatMissionToggle.mockResolvedValue(view(mission({ on: true, locked: true, sessionId: 7 })))
+  const RUNNING = 'this chat is running a mission (session 7): stop or close that session first (`task session stop 7` or `task session close 7`; pausing keeps it open)'
+
+  it("shows on and disabled, with the CLI's reason (session and how to stop it), while the chat is running a mission", async () => {
+    api.getChatMissionToggle.mockResolvedValue(view(mission({ on: true, locked: true, sessionId: 7, reason: RUNNING })))
     render(<Harness />)
     const s = await sw()
     await waitFor(() => expect(s).toHaveAttribute('aria-checked', 'true'))
     expect(s).toBeDisabled()
-    expect(s).toHaveAttribute('title', 'This chat is running a mission')
-    expect(screen.getByTestId('mission-toggle-reason')).toHaveTextContent('This chat is running a mission')
+    expect(s).toHaveAttribute('title', RUNNING)
+    const reason = screen.getByTestId('mission-toggle-reason')
+    expect(reason).toHaveTextContent('session 7')
+    expect(reason).toHaveTextContent('task session stop 7')
+    expect(reason).toHaveAttribute('data-lock', 'running')
     expect(screen.getByTestId('mission-chip')).toHaveAttribute('title', 'This chat is running a mission')
     fireEvent.click(s)
     expect(api.setChatMissionToggle).not.toHaveBeenCalled()
+  })
+
+  it('names the session even when the CLI sent no reason', async () => {
+    api.getChatMissionToggle.mockResolvedValue(view(mission({ on: true, locked: true, sessionId: 7 })))
+    render(<Harness />)
+    expect(await screen.findByTestId('mission-toggle-reason')).toHaveTextContent('Running a mission (session 7)')
+  })
+
+  it('does not call an unreadable mission state a running mission: its own reason, no session, no Mission chip', async () => {
+    const reason = 'the mission state of this chat could not be read, so the toggle stays as it is: database is locked'
+    api.getChatMissionToggle.mockResolvedValue(view(mission({ on: true, locked: true, reason })))
+    render(<Harness />)
+    const s = await sw()
+    await waitFor(() => expect(s).toBeDisabled())
+    const shown = screen.getByTestId('mission-toggle-reason')
+    expect(shown).toHaveAttribute('data-lock', 'unreadable')
+    expect(shown).toHaveTextContent('Mission state unknown')
+    expect(shown).toHaveTextContent('could not be read')
+    expect(shown).not.toHaveTextContent(/running a mission/i)
+    expect(s).not.toHaveAttribute('title', 'This chat is running a mission')
+    expect(screen.queryByTestId('mission-chip')).toBeNull()
   })
 
   it('is disabled with the reason below coding access', async () => {
@@ -129,6 +155,21 @@ describe('Mission toggle', () => {
     expect(api.setChatMissionToggle).toHaveBeenCalledWith('new-conv', true)
     await t.applyPending('again') // applied once
     expect(api.setChatMissionToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the choice and rethrows when applying it fails, so the first message is not sent with the toggle off', async () => {
+    api.setChatMissionToggle.mockRejectedValueOnce(new Error('database is locked')).mockResolvedValue(view(mission({ on: true })))
+    let t
+    render(<Harness id="" onToggle={x => { t = x }} />)
+    fireEvent.click(await sw())
+    await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'))
+    await expect(t.applyPending('new-conv')).rejects.toThrow('Could not change the mission setting: database is locked')
+    expect(await screen.findByTestId('mission-toggle-error')).toHaveTextContent('database is locked')
+    await t.applyPending('new-conv') // the choice is still there: the retry applies it
+    expect(api.setChatMissionToggle).toHaveBeenCalledTimes(2)
+    expect(api.setChatMissionToggle).toHaveBeenLastCalledWith('new-conv', true)
+    await t.applyPending('again') // and once it went through it is applied once
+    expect(api.setChatMissionToggle).toHaveBeenCalledTimes(2)
   })
 
   it('keeps the locked switch legible (the default disabled 40% opacity is about 2:1 on this background), and only that one', async () => {

@@ -76,6 +76,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const bodyRef = useRef(null)
   const pressOnBackdrop = useRef(false)
   const missionRef = useRef(null)
+  const madeRef = useRef(null)
 
   // create makes the conversation for a draft's first message, at the access
   // level, runtime, model and effort picked in its setup (ChatSetup). Above
@@ -92,13 +93,21 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
         cwd = workspace.path
       }
     }
-    const made = await chatAccessApi.create('general', runtime, setup.model, setup.effort || '', access, cwd)
+    // A conversation made for a first message whose Mission toggle could not be applied is kept for the retry
+    // (same setup), so a failed apply does not leave one more empty chat behind each time.
+    const setupKey = JSON.stringify([runtime, setup.model, setup.effort || '', access, cwd])
+    const kept = madeRef.current?.key === setupKey ? madeRef.current.made : null
+    const made = kept || await chatAccessApi.create('general', runtime, setup.model, setup.effort || '', access, cwd)
+    madeRef.current = { key: setupKey, made }
+    // The toggle chosen before the chat existed is applied BEFORE the chat is bound and before any message is
+    // sent: when it fails this throws, the first message is not sent, and the choice stays pending.
+    await missionRef.current?.applyPending(made.id)
+    madeRef.current = null
     const bound = {
       id: made.id, cwd: made.cwd || cwd, model: made.model || setup.model, runtime: made.runtimeId || runtime,
       access: isAccess(made.access) ? made.access : access, verified: isAccess(made.access), effort: made.effort || setup.effort || '', orgMode: made.orgMode || '',
     }
     store.bindConversation(bubble.key, bound)
-    await missionRef.current?.applyPending(made.id) // the Mission toggle chosen before the chat existed
     return { ...bound, workspace }
   }, [setup, store, bubble.key])
   // A conversation's level counts once the backend has said it; a cached one is a hint only.
