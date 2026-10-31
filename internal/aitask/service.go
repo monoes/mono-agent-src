@@ -133,7 +133,10 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 	}
 	if in.ID != "" {
 		// Before anything is made: a task id already in use must not get a second conversation or have its context
-		// folder written over. The table key still refuses a race past this check.
+		// folder written over. Known residual (accepted): this check and the insert are not one step, so two
+		// submits that hand-pick the same id at the same moment can both pass it and the loser can write over the
+		// winner's context folder before the table key refuses it. `submit` is operator-only and the one caller
+		// that names an id (a resume) draws it at random, 64 bits.
 		if taken, err := s.Store.IDTaken(in.ID); err != nil {
 			return Task{}, err
 		} else if taken {

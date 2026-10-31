@@ -190,7 +190,6 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	}
 	parked := tab.State == applypark.StateParked
 	taskID := aitask.NewID()
-	claimedAt := time.Now().UTC().Add(-time.Second) // a task created from here on is this resume's
 	if parked {
 		// The tab is held under the id the task will take, so no placeholder and no second write: the hold becomes
 		// the task's own the moment it exists.
@@ -201,18 +200,22 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 		}
 	}
 	if _, err := d.startFill(context.WithValue(ctx, fillTaskIDKey{}, taskID), id, runtime); err != nil {
-		if parked {
-			return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, claimedAt, err)
+		// Also for a lost tab: a submit that answered with another task made one that must not keep running.
+		var owned []string
+		var wrong *wrongTaskError
+		if errors.As(err, &wrong) {
+			owned = append(owned, wrong.Got)
 		}
-		return err
+		return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, owned, err)
 	}
 	if parked {
 		if ok, err := tabs.Holds(ctx, id, taskID); err != nil || !ok {
 			// The hold went stale before the task existed and the sweep gave the tab back; whoever has it keeps it.
+			// The submit answered with our id, so the task is ours to stop.
 			if err == nil {
 				err = d.InvalidInput("the resume of application %s took longer than %s and its tab was given back: resume it again", id, applypark.ResumeHoldTTL)
 			}
-			return d.giveBack(ctx, db.DB, tabs, id, taskID, "", claimedAt, err)
+			return d.giveBack(ctx, db.DB, tabs, id, taskID, "", []string{taskID}, err)
 		}
 	}
 	if err := applypark.ClearObserved(ctx, db.DB, id); err != nil {
@@ -227,37 +230,20 @@ func hasCode(err error, code string) bool {
 }
 
 // giveBack undoes a resume that did not get its task running: the tab goes back to parked while it is still held
-// under the resume's task id, and the tasks this resume made are cancelled: the one with its id when it was created
-// since claimedAt (one that is older is somebody else's), and the one submit made instead when it answered with
-// another id. cause is what went wrong; an error of the undo itself is reported with it, never dropped.
-func (d Deps) giveBack(ctx context.Context, db *sql.DB, tabs applypark.Store, id, taskID, observed string, claimedAt time.Time, cause error) error {
+// under the resume's task id, and the tasks in owned are cancelled. owned is only what this resume's own submit
+// answered with (the id it asked for, or the one it made instead); nothing is cancelled for a refusal or a
+// failure that answered with no task, so a task that merely shares an id is never touched. cause is what went
+// wrong; an error of the undo itself is reported with it, never dropped.
+func (d Deps) giveBack(ctx context.Context, db *sql.DB, tabs applypark.Store, id, taskID, observed string, owned []string, cause error) error {
 	errs := []error{cause}
 	if _, err := tabs.Release(ctx, id, taskID, observed); err != nil {
 		errs = append(errs, fmt.Errorf("giving the tab back: %w", err))
 	}
 	svc := &aitask.Service{Store: &aitask.Store{DB: db, Profile: d.ProfileID()}}
-	cancel := func(tid string, ours func(aitask.Task) bool) {
-		t, err := svc.Store.Get(tid)
-		switch {
-		case hasCode(err, aitask.CodeNotFound):
-			return
-		case err != nil:
-			errs = append(errs, fmt.Errorf("task %s could not be looked up to cancel it: %w", tid, err))
-			return
-		case !ours(t):
-			return
-		}
-		if _, err := svc.Cancel(tid); err != nil && !hasCode(err, aitask.CodeTaskClosed) {
+	for _, tid := range owned {
+		if _, err := svc.Cancel(tid); err != nil && !hasCode(err, aitask.CodeTaskClosed) && !hasCode(err, aitask.CodeNotFound) {
 			errs = append(errs, fmt.Errorf("task %s was started and could not be cancelled: %w", tid, err))
 		}
-	}
-	cancel(taskID, func(t aitask.Task) bool {
-		at, err := time.Parse(time.RFC3339Nano, t.CreatedAt)
-		return err == nil && !at.Before(claimedAt)
-	})
-	var wrong *wrongTaskError
-	if errors.As(cause, &wrong) && wrong.Got != taskID {
-		cancel(wrong.Got, func(aitask.Task) bool { return true })
 	}
 	return errors.Join(errs...)
 }
