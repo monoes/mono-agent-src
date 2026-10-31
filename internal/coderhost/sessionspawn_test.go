@@ -511,7 +511,7 @@ func TestASpawnedSessionIsNotGiantByDefault(t *testing.T) {
 	if _, err := f.spawnSession(over); !errors.Is(err, ErrLimit) {
 		t.Fatalf("a share above 40 percent: %v", err)
 	}
-	over.BudgetUSD = 4
+	over.BudgetUSD = 3.2 // 40 percent of the $8 left once the first session holds its $2 carve
 	if _, err := f.spawnSession(over); err != nil {
 		t.Fatalf("a share of exactly 40 percent: %v", err)
 	}
