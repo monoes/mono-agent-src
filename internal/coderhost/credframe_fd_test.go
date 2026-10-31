@@ -183,20 +183,69 @@ func TestBothMarkersAreFatal(t *testing.T) {
 
 func TestAMarkerThatIsNotAPipeIsFatal(t *testing.T) {
 	resetStash(t)
+	// a regular file that holds a perfectly good frame: only the pipe-type guard refuses it
 	f, err := os.CreateTemp(t.TempDir(), "notapipe")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(frameOf(t, procbind.CredFrame{SessionToken: goodSession})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
 		t.Fatal(err)
 	}
 	fd, _ := unix.Dup(int(f.Fd()))
 	f.Close()
 	t.Setenv(CredFDEnv, strconv.Itoa(fd))
 	if err := StashCredFrame(); err == nil {
-		t.Error("a regular file was accepted as the frame pipe")
+		t.Error("a regular file holding a valid frame was accepted as the frame pipe")
+	}
+	if os.Getenv(SessionTokenEnv) != "" || TakeMissionToken() != "" {
+		t.Error("a credential was taken from a file")
 	}
 	for _, v := range []string{"x", "1", "-4", "99999999999"} {
 		t.Setenv(CredFDEnv, v)
 		if err := StashCredFrame(); err == nil {
 			t.Errorf("marker %q was accepted", v)
 		}
+	}
+}
+
+// A marker that is present but empty is a launch that promised a frame and did not deliver one: fatal, the marker is
+// removed, and a legacy marker next to it (even an empty one) is the both-pipes error, with the legacy pipe consumed.
+func TestAnEmptyMarkerIsFatalNotUnmarked(t *testing.T) {
+	resetStash(t)
+	t.Setenv(CredFDEnv, "")
+	if err := StashCredFrame(); err == nil {
+		t.Fatal("an empty marker was treated as unmarked")
+	}
+	if _, still := os.LookupEnv(CredFDEnv); still {
+		t.Error("the empty marker stayed in the environment")
+	}
+	// empty cred marker + a legacy pipe that holds a token: both-markers error, the legacy token is consumed
+	resetStash(t)
+	t.Setenv(CredFDEnv, "")
+	r, err := newTokenPipe(string(goodConfirm))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, _ := unix.Dup(int(r.Fd()))
+	r.Close()
+	t.Setenv(MissionFDEnv, strconv.Itoa(fd))
+	if err := StashCredFrame(); err == nil {
+		t.Fatal("an empty frame marker next to a legacy pipe was accepted")
+	}
+	if _, still := os.LookupEnv(MissionFDEnv); still || TakeMissionToken() != "" {
+		t.Error("the legacy pipe was left in place")
+	}
+	// a valid frame marker next to an EMPTY legacy marker is the both-markers error too
+	resetStash(t)
+	credPipe(t, frameOf(t, procbind.CredFrame{SessionToken: goodSession}), false)
+	t.Setenv(MissionFDEnv, "")
+	if err := StashCredFrame(); err == nil {
+		t.Fatal("a frame marker next to an empty legacy marker was accepted")
+	}
+	if os.Getenv(SessionTokenEnv) != "" {
+		t.Error("a credential was applied")
 	}
 }
