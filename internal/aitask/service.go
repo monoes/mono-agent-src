@@ -3,6 +3,7 @@ package aitask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -113,7 +114,7 @@ type SubmitInput struct {
 // Submit creates the task and its coder conversation, writes its context and
 // starts turn 1 (unless QueueOnly). It never falls back to anything: when
 // coder mode is off it says so with CodeCoderDisabled, and the caller decides.
-func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
+func (s *Service) Submit(ctx context.Context, in SubmitInput) (out Task, err error) {
 	goal := strings.TrimSpace(in.Goal)
 	switch {
 	case goal == "":
@@ -132,11 +133,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 		return Task{}, err
 	}
 	if in.ID != "" {
-		// Before anything is made: a task id already in use must not get a second conversation or have its context
-		// folder written over. Known residual (accepted): this check and the insert are not one step, so two
-		// submits that hand-pick the same id at the same moment can both pass it and the loser can write over the
-		// winner's context folder before the table key refuses it. `submit` is operator-only and the one caller
-		// that names an id (a resume) draws it at random, 64 bits.
+		// Cheap early refusal; the reservation below is what makes the id ours.
 		if taken, err := s.Store.IDTaken(in.ID); err != nil {
 			return Task{}, err
 		} else if taken {
@@ -162,6 +159,21 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 	budget, err := s.budget(ctx, in.BudgetUSD)
 	if err != nil {
 		return Task{}, err
+	}
+	reserved := false
+	defer func() {
+		if reserved && err != nil {
+			s.Store.Abandon(in.ID, err.Error())
+		}
+	}()
+	if in.ID != "" {
+		// A caller-named id is reserved before any conversation or context folder is made for it, so of two submits
+		// that name one id the table key lets exactly one go on. A submit that stops after this leaves the row failed.
+		if err := s.Store.Reserve(Task{ID: in.ID, Kind: kind.Name, Goal: goal, ApplicationID: in.ApplicationID,
+			Access: access, Profile: s.Store.Profile}); err != nil {
+			return Task{}, err
+		}
+		reserved = true
 	}
 	conv, err := s.Launcher.CreateConversation(ctx, in.Runtime, kind.Name, access)
 	if err != nil {
@@ -189,14 +201,32 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Task, error) {
 		return Task{}, err
 	}
 	t.CapsHash = CapsHash(t, kind, policy)
-	if t, err = s.Store.Insert(t); err != nil {
+	if reserved {
+		t, err = s.Store.Fill(t)
+		reserved = false
+	} else {
+		t, err = s.Store.Insert(t)
+	}
+	if err != nil {
 		return Task{}, err
 	}
 	if in.QueueOnly {
 		return t, nil
 	}
-	return s.Start(ctx, t.ID)
+	started, err := s.Start(ctx, t.ID)
+	var held *admitRefusal
+	if err != nil && !errors.As(err, &held) {
+		// A task this call made and could not start is not left queued for nobody; a budget hold is the exception:
+		// it keeps the task queued to be started later.
+		_, _ = s.Store.move(t.ID, []string{StatusQueued}, StatusFailed, map[string]any{"error": clip(err.Error())})
+	}
+	return started, err
 }
+
+// admitRefusal marks an Admit refusal: the task stays queued.
+type admitRefusal struct{ error }
+
+func (e *admitRefusal) Unwrap() error { return e.error }
 
 // budget is the cap a task gets: the one asked for, else the default. Zero
 // or less is "no spend", which no task can run on.
@@ -249,7 +279,7 @@ func (s *Service) Start(ctx context.Context, id string) (Task, error) {
 	}
 	if s.Admit != nil {
 		if _, err := s.Admit(ctx, t); err != nil {
-			return Task{}, err
+			return Task{}, &admitRefusal{err}
 		}
 	}
 	// The turn reads a verified, read-only copy, never the original folder.
@@ -407,36 +437,6 @@ func (s *Service) EndTurn(id, turnErr string) error {
 		turnErr = s.Redact(turnErr)
 	}
 	return s.Store.EndTurn(id, turnErr)
-}
-
-// Wait blocks until task id is over or needs the user, ctx ends, or timeout
-// (when positive) passes. On a timeout it returns the task as it is with a
-// CodeWaitTimeout error.
-func (s *Service) Wait(ctx context.Context, id string, timeout time.Duration) (Task, error) {
-	poll := s.PollEvery
-	if poll <= 0 {
-		poll = 500 * time.Millisecond
-	}
-	var deadline <-chan time.Time
-	if timeout > 0 {
-		timer := time.NewTimer(timeout)
-		defer timer.Stop()
-		deadline = timer.C
-	}
-	for {
-		t, err := s.Store.Get(id)
-		if err != nil || Terminal(t.Status) || t.Status == StatusNeedsUser {
-			return t, err
-		}
-		select {
-		case <-ctx.Done():
-			return t, ctx.Err()
-		case <-deadline:
-			return t, &Error{Code: CodeWaitTimeout, Message: "task " + id + " is still " + t.Status,
-				Fields: map[string]any{"status": t.Status}}
-		case <-time.After(poll):
-		}
-	}
 }
 
 func clip(s string) string {

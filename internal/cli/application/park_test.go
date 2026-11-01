@@ -707,3 +707,50 @@ func TestResumeWhoseReportCannotBeWrittenStands(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write refused") }
+
+// A submit that dies after its task started (no answer read): the resume reports the task that is there and does
+// not undo it, rather than reporting a failed resume.
+func TestResumeWhoseSubmitDiedAfterTheTaskStartedReportsTheTask(t *testing.T) {
+	dbPath := homeDB(t)
+	ids := jobs(t, dbPath, 1)
+	b := &browser{}
+	b.install(t, dbPath)
+	if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+		t.Fatalf("queue: %v (%s)", err, out)
+	}
+	realSubmit := submitTask
+	var taskID string
+	submitTask = func(ctx context.Context, args []string) ([]byte, error) {
+		taskID = flagValues(args, "--task-id")[0]
+		if _, err := realSubmit(ctx, args); err != nil {
+			t.Fatal(err)
+		}
+		return nil, errors.New("signal: killed")
+	}
+	b.status = aitask.StatusRunning
+	_, err := run(t, dbPath, true, "fill", "resume", ids[0])
+	if err == nil || !strings.Contains(err.Error(), taskID) || !strings.Contains(err.Error(), aitask.StatusRunning) {
+		t.Fatalf("resume = %v, want it to name task %s as running", err, taskID)
+	}
+	withDB(t, dbPath, func(db *sql.DB) {
+		task, gerr := (&aitask.Store{DB: db, Profile: "default"}).Get(taskID)
+		tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+		if gerr != nil || task.Status != aitask.StatusRunning || tab.State != applypark.StateActive || tab.TaskID != taskID {
+			t.Fatalf("task = %+v %v, tab = %+v: the started task was undone", task, gerr, tab)
+		}
+	})
+}
+
+// The command says that a resume stands when only its report fails.
+func TestResumeHelpSaysItStandsWhenItsReportFails(t *testing.T) {
+	for _, c := range NewCommand(testDeps("", true)).Commands() {
+		if c.Name() != "fill" {
+			continue
+		}
+		for _, r := range c.Commands() {
+			if r.Name() == "resume" && !strings.Contains(r.Long, "nothing is undone") {
+				t.Fatalf("resume help = %q", r.Long)
+			}
+		}
+	}
+}

@@ -156,7 +156,8 @@ func (d Deps) newFillResumeCmd() *cobra.Command {
 		Short: "Have the coder take a parked application up again (a new task)",
 		Long: "Starts a new " + applyfill.Kind + " task for an application whose tab is parked or lost, and binds the tab to " +
 			"that task alone: until the task is over no other task can act on it. The agent never touches a parked tab unless " +
-			"you resume it. Refused while the application has a task still open.\n\n" + clicore.OperatorOnlyHelp,
+			"you resume it. Refused while the application has a task still open. Once the task is started and the tab bound the " +
+			"resume stands: if writing its report then fails (a closed stdout), the command exits with an error but nothing is undone.\n\n" + clicore.OperatorOnlyHelp,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := d.requireOperator("resume a parked application"); err != nil {
@@ -204,11 +205,24 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 		var owned []string
 		var wrong *wrongTaskError
 		var started *startedTaskError
+		var refused *coded
 		if errors.As(err, &wrong) {
 			owned = append(owned, wrong.Got)
 		}
 		if errors.As(err, &started) {
 			owned = append(owned, started.ID)
+		}
+		if len(owned) == 0 && !errors.As(err, &refused) {
+			// The submit ended without an answer (the child died): what it left under our id is the truth.
+			task, gerr := (&aitask.Store{DB: db.DB, Profile: d.ProfileID()}).Get(taskID)
+			switch {
+			case gerr != nil:
+			case task.Status == aitask.StatusRunning || task.Status == aitask.StatusNeedsUser:
+				// Started and holding the tab under its own id: not undone, not reported as a failed resume.
+				return fmt.Errorf("the submit for application %s ended without an answer, but task %s was made and is %s; the tab stays with it (%v)", id, taskID, task.Status, err)
+			case task.Status == aitask.StatusQueued:
+				owned = append(owned, taskID)
+			}
 		}
 		return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, owned, err)
 	}

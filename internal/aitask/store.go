@@ -106,7 +106,9 @@ func NewID() string {
 }
 
 // Insert stores t for the store's profile.
-func (s *Store) Insert(t Task) (Task, error) {
+func (s *Store) Insert(t Task) (Task, error) { return s.insert(t) }
+
+func (s *Store) insert(t Task) (Task, error) {
 	now := s.now()
 	t.Profile, t.CreatedAt, t.UpdatedAt = s.Profile, now, now
 	un := 0
@@ -114,10 +116,54 @@ func (s *Store) Insert(t Task) (Task, error) {
 		un = 1
 	}
 	_, err := s.DB.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id,
-		access, runtime, unattended, prompt, budget_usd, cwd, context_hash, caps_hash, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		access, runtime, unattended, prompt, budget_usd, cwd, context_hash, caps_hash, error, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.Profile, t.Kind, t.ConversationID, t.Status, t.Goal, t.ApplicationID, t.Access, t.Runtime, un,
-		t.Prompt, t.BudgetUSD, t.Cwd, t.ContextHash, t.CapsHash, now, now)
+		t.Prompt, t.BudgetUSD, t.Cwd, t.ContextHash, t.CapsHash, t.Error, now, now)
 	return t, err
+}
+
+// reservedMark is the error text of a row that holds a caller-named id while its submit is still being made.
+const reservedMark = "being submitted"
+
+// Reserve takes the caller-named id t.ID before anything else is made for it: the table key is the gate, so of two
+// submits that name one id only one gets past here. The row is failed (never startable) until Fill completes it;
+// Abandon records why it never was. A taken id is refused with CodeInvalidInput.
+func (s *Store) Reserve(t Task) error {
+	t.Status, t.Error = StatusFailed, reservedMark
+	if _, err := s.insert(t); err != nil {
+		if taken, terr := s.IDTaken(t.ID); terr == nil && taken {
+			return errf(CodeInvalidInput, "--task-id %s is already a task", t.ID)
+		}
+		return err
+	}
+	return nil
+}
+
+// Fill completes the row Reserve made: the whole task, queued.
+func (s *Store) Fill(t Task) (Task, error) {
+	un := 0
+	if t.Unattended {
+		un = 1
+	}
+	t.Profile, t.UpdatedAt = s.Profile, s.now()
+	res, err := s.DB.Exec(`UPDATE ai_tasks SET kind = ?, conversation_id = ?, status = ?, goal = ?, application_id = ?,
+		access = ?, runtime = ?, unattended = ?, prompt = ?, budget_usd = ?, cwd = ?, context_hash = ?, caps_hash = ?,
+		error = '', updated_at = ? WHERE id = ? AND profile_id = ? AND status = ? AND error = ?`,
+		t.Kind, t.ConversationID, StatusQueued, t.Goal, t.ApplicationID, t.Access, t.Runtime, un, t.Prompt, t.BudgetUSD,
+		t.Cwd, t.ContextHash, t.CapsHash, t.UpdatedAt, t.ID, s.Profile, StatusFailed, reservedMark)
+	if err != nil {
+		return t, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return t, errf(CodeTaskClosed, "task %s was reserved but is no longer", t.ID)
+	}
+	return s.Get(t.ID)
+}
+
+// Abandon leaves the row Reserve made failed, with the reason the submit did not finish.
+func (s *Store) Abandon(id, reason string) {
+	_, _ = s.DB.Exec(`UPDATE ai_tasks SET error = ?, updated_at = ? WHERE id = ? AND profile_id = ? AND status = ? AND error = ?`,
+		clip(reason), s.now(), id, s.Profile, StatusFailed, reservedMark)
 }
 
 // IDTaken says whether any profile has a task with this id (the id is the table's key).
