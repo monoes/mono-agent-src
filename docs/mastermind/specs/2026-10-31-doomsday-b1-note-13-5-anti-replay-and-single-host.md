@@ -523,8 +523,9 @@ Further review rounds continue; the operator's answers (spec section 12.5) are r
 ### 12.3 Remaining after the delta review of revision 7 (recorded)
 
 Three **P1** items are **open in this revision**; they are folded into the next revision of this note. Each
-must be resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the
-reviewers'.
+must be resolved before any code in the area lands (spec section 13 gate). The items are recorded from the
+coordinator's summary of the reviewers' findings; the elaboration in each item is the author's, and the
+reviewers' own text is in the review report.
 
 1. **P1: the pinned-connection binding has no driver or VFS mechanism.** The note says the pinned connection
    operates on descriptors, but it does not say how the **SQLite driver** guarantees that the connection uses
