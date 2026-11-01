@@ -519,3 +519,26 @@ revision and await a P1-only delta review.
    process writing and checkpointing (section 3A; T48, T49).
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.3 Remaining after the delta review of revision 7 (recorded)
+
+Three **P1** items are **open in this revision**; they are folded into the next revision of this note. Each
+must be resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the
+reviewers'.
+
+1. **P1: the pinned-connection binding has no driver or VFS mechanism.** The note says the pinned connection
+   operates on descriptors, but it does not say how the **SQLite driver** guarantees that the connection uses
+   exactly the descriptors the host identified (the driver may open further files, reopen after an error, or
+   checkpoint at the last close). Required: an **actual driver or VFS binding** between the pinned connection
+   and the identified descriptors, and the **checkpoint and last-close lifecycle** it implies.
+2. **P1: `pending.prev` and the witness predecessor are different MACs.** The `pending` record's `prev` is the
+   **database head MAC**; the chain's predecessor in the witness is the **previous witness record's MAC**. The
+   note uses one word for both. Required: specify **separately authenticated database-head and
+   witness-predecessor fields**.
+3. **P1: the recovery state machine is not total over all record types.** The phased procedure covers
+   `pending` and `committed` but not `abandoned`, `dbid` and `failed` records, nor the **crash points** around
+   them. Required: a **total state machine over all record types** including those crash points, with a
+   **phase-2 tie-break** (the ended/anchor phase versus a pending record), and a fix of the contradiction
+   between test **T36** and **T21b**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
