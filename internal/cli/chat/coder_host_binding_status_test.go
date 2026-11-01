@@ -52,6 +52,10 @@ func TestHostStatusShowsTheBindingServicesToTheOperatorOnly(t *testing.T) {
 	if st := hostStatus(cfg); st["binding"] != nil || st["running"] != true {
 		t.Errorf("an agent's status: %v", st)
 	}
+	cfg.RequireOperator = nil // an unwired operator check refuses: nothing of the services is shown
+	if st := hostStatus(cfg); st["binding"] != nil || st["running"] != true {
+		t.Errorf("a status with no operator check wired: %v", st)
+	}
 }
 
 // The host publishes the services' state into its info file when it changes, and not before.
