@@ -308,3 +308,25 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
    lists it and the operator can see why).
 7. The marker-observation gap used on purpose by a worker that can trigger work at that moment.
 8. A conditional E4 write whose predicate reads a stale generation.
+
+## 13. Open blockers before implementation (from review, recorded verbatim)
+
+Status after the review rounds: the independent review of revision 4 found **no P1**. The three items below
+are P2s that are **not fixed in this revision**; each must be resolved in a later revision before any code in
+the area lands (spec section 13 gate). They are recorded as the reviewers stated them.
+
+1. **Note 13.4 T18b contradiction, and an audit row for a consumed-but-aborted approval.** Test T18b of note
+   13.4 expects an effect to proceed after the gate closed between `BeginStart` and the consume, which
+   contradicts this note's rule that a ticket whose `Started` finds the gate not open is aborted and never
+   starts. The two notes must agree on what happens to the approval and the effect in that interleaving, and a
+   consumed approval whose ticket is then aborted must leave an audit row that says so.
+2. **A `transport.before-enter` hook, and a "wrapper ignores `Started`" mutation.** The E3 tests need a pause
+   point at the last instant before the transport is entered, so that the late-ticket rule can be exercised at
+   exactly that gap, and the mutation list needs "the wrapper enters the transport without checking the result
+   of `Started`" as a named mutation that must fail a test.
+3. **The abort-write failure rule, and `UNKNOWN` in the BARRIER row.** When the write that marks a late ticket
+   aborted fails, the ticket's state and the effect on `Close`'s outcome are not specified; the BARRIER row of
+   section 4.2 lists the ticket states that may remain after a barrier and does not include `UNKNOWN`, which
+   section 4.1 says an unwritable registry produces.
+
+Further review rounds resume after the operator answers the open questions (spec section 12.5).
