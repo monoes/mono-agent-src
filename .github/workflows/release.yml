@@ -623,9 +623,35 @@ jobs:
           retention-days: 1
           path: out/
 
+  # Gate: the previous release must cope with a database holding the v2 binding rows (scripts/procbind-old-binary-smoke.sh).
+  # Hosted runner, no secrets, scratch HOME. Must pass before anything is published.
+  procbind-old-binary-smoke:
+    name: Previous-binary smoke (v0.193.5)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Test-only build with the dev gate off; never uploaded and not part of any release artifact.
+      - name: Build the new binary (devaccount, test only)
+        run: go build -tags devaccount -o "$RUNNER_TEMP/monoagentcli-dev" ./cmd/monoagentcli
+      # The checkout is shallow with no tags; the script builds the old release from its tag.
+      - name: Fetch the previous release tag
+        run: git fetch --depth=1 origin tag v0.193.5
+      # The script builds the old tag and the seeder itself and uses a scratch HOME.
+      - name: Previous release against a database holding v2 binding rows
+        run: TMPDIR="$RUNNER_TEMP" bash scripts/procbind-old-binary-smoke.sh --selftest --new "$RUNNER_TEMP/monoagentcli-dev" --old-tag v0.193.5 --require-reachable
+
   # ─── 3. Publish GitHub Release with all artifacts ─────────────────────────
   release:
-    needs: [version, build-cli, build-cli-macos, build-macos-arm64, build-windows, build-linux, build-chrome-extension, release-guard]
+    needs: [version, build-cli, build-cli-macos, build-macos-arm64, build-windows, build-linux, build-chrome-extension, release-guard, procbind-old-binary-smoke]
     runs-on: ubuntu-latest
     # Gates publication on approval from whoever the `release` environment's
     # required reviewers are set to in repo settings (MA-09): tests passing
