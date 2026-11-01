@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
@@ -32,6 +33,15 @@ func personVerbs() map[string][]string {
 	}
 }
 
+// operatorOnlyVerbs is every person verb and retire-worker: what scripts/tasks-mcp-smoke.sh asserts an agent is refused
+// (exit 3, code operator_only), here in process through the real command tree.
+func operatorOnlyVerbs() map[string][]string {
+	m := personVerbs()
+	m["retire-worker"] = []string{"session", "retire-worker", "1", "1"}
+	m["retire-worker-without-arguments"] = []string{"session", "retire-worker"}
+	return m
+}
+
 func TestPersonVerbsAreRefusedByTheProductionGate(t *testing.T) {
 	contexts := map[string]func(*testing.T){
 		"agent":    asAgentProcess,
@@ -47,7 +57,7 @@ func TestPersonVerbsAreRefusedByTheProductionGate(t *testing.T) {
 		},
 	}
 	for ctxName, setup := range contexts {
-		for verb, args := range personVerbs() {
+		for verb, args := range operatorOnlyVerbs() {
 			t.Run(ctxName+"/"+verb, func(t *testing.T) {
 				cfg := sendEnv(t)
 				cfg.DBPath = filepath.Join(t.TempDir(), "never-opened.db")
@@ -73,35 +83,24 @@ func TestPersonInboxIsNotRefusedToAnOperator(t *testing.T) {
 	}
 }
 
-// retire-worker is operator-only and goes through the same gate as the person verbs.
-func TestRetireWorkerIsRefusedByTheProductionGate(t *testing.T) {
-	contexts := map[string]func(*testing.T){
-		"agent":         asAgentProcess,
-		"mission-token": func(t *testing.T) { asOperatorProcess(t); t.Setenv(agenttokens.EnvMissionToken, "task-binding") },
-		"session-token": func(t *testing.T) { asOperatorProcess(t); t.Setenv(coderhost.SessionTokenEnv, "session-token") },
-	}
-	for ctxName, setup := range contexts {
-		t.Run(ctxName, func(t *testing.T) {
-			cfg := sendEnv(t)
-			cfg.DBPath = filepath.Join(t.TempDir(), "never-opened.db")
-			setup(t)
-			_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "session", "retire-worker", "1", "1")
-			var coded interface{ JSONErrorFields() map[string]any }
-			if clicore.ExitCodeFor(err) != 3 || !errors.As(err, &coded) || coded.JSONErrorFields()["code"] != "operator_only" {
-				t.Fatalf("retire-worker was not refused as operator_only in %s: %v", ctxName, err)
-			}
-			if _, statErr := os.Stat(cfg.DBPath); statErr == nil {
-				t.Errorf("the database was opened by a refused %s", ctxName)
-			}
-		})
-	}
-}
-
 func TestRetireWorkerIsNotRefusedToAnOperator(t *testing.T) {
 	cfg := sendEnv(t)
 	_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "session", "retire-worker", "1")
 	var coded interface{ JSONErrorFields() map[string]any }
 	if err == nil || (errors.As(err, &coded) && coded.JSONErrorFields()["code"] == "operator_only") {
 		t.Fatalf("an operator should reach the argument check, not the operator gate: %v", err)
+	}
+}
+
+// The smoke script's agent-shaped direction (--as bot, below a session, the agent working in no session) is refused with
+// exit 3 and operator_only, before any session is made.
+func TestAgentDirectionBelowASessionItDoesNotWorkInIsRefused(t *testing.T) {
+	cfg := sendEnv(t)
+	cfg.DBPath = filepath.Join(t.TempDir(), "never-opened.db")
+	_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "session", "new", "d", "--parent", "1", "--kind", "direction", "--as", "bot")
+	var coded interface{ JSONErrorFields() map[string]any }
+	if clicore.ExitCodeFor(err) != 3 || !errors.As(err, &coded) || coded.JSONErrorFields()["code"] != "operator_only" ||
+		!strings.Contains(err.Error(), "works in no session") {
+		t.Fatalf("an agent's direction was not refused as operator_only (works in no session): %v", err)
 	}
 }

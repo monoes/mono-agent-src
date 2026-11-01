@@ -66,6 +66,14 @@ reverted alone**, and so that the setting does not exist until everything it nee
 | 5 | **3c** launch ordering, the typed pipe frame, restart/downgrade handling, and the **setting**, whose setter refuses unless `procbind.IssuanceReady` (a constant flipped in this PR only) | yes, only when the operator sets the setting | yes |
 | 6 | **3e** retention sweep | n/a | n/a |
 
+**Flip checklist (before `procbind.IssuanceReady` becomes true, in the PR that flips it).**
+- Synchronize turn admission with the setting change: a start that has read the setting as off must not launch a legacy
+  turn after the operator has switched it on (today the window between the gate's read and the launch is unreachable
+  because "on" cannot be set while the constant is false; once it can, the read and the launch need one critical section,
+  or the launch re-checks the setting after the process exists and stops the turn if it is on).
+- Every writer of the settings is transactional (`updateCoderSettings`), so no concurrent writer can undo the field.
+- The guard walk, the `RowKey` tripwire and the revoke-by-owner callers (3c-3c) have merged.
+
 Each step is tested with the setting forced on in a test build where the step has a setting-visible effect
 (steps 3 to 5), including the intermediate states: the setter refuses before step 5, and a host started with the
 internal constant true in step 3 or 4 issues nothing.
