@@ -1,6 +1,6 @@
 # B1 design note 13.5: anti-replay, freshness and the single host
 
-Status: **design note and test plan, revision 5, no code.** It closes contract 13.5 of
+Status: **design note and test plan, revision 6, no code.** It closes contract 13.5 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults (Q8: one host only).
 Alternatives that depend on an unanswered question are listed in section 10. Wording is class level: this
 repository is public.
@@ -104,26 +104,54 @@ registration, in any process**, not only at host start:
   CLI cannot admit work). Stop is exempt (section 6): it acts with no host;
 - **File identity, bound to the files the process actually holds open.** SQLite owns the descriptors of the
   database, the write-ahead log and the shared-memory file, but on Linux (the only supported system) the
-  process can see them: `/proc/self/fd`. The check, run at **every transition and every admission, in every
+  process can see them in `/proc/self/fd`. The check runs at **every transition and every admission, in every
   process**, and **right after every connection is opened or reopened**:
-  1. list the process's own descriptors; for every descriptor whose link target is the database path or one of
-     its siblings (`-wal`, `-shm`, `-journal`), compare `fstat(descriptor)` with `stat(path)` on `(device,
-     inode)`. A descriptor whose path no longer exists, or exists with a **different** identity, means the file
-     was **renamed over, restored or swapped while open**: fail closed. This is the case a head comparison
-     cannot see, because the old inode still reads consistently;
-  2. the **main database file** must also match the identity **recorded once per host life** (when the host
-     first opened it under `host.lock`) and **recorded in the witness** as a `dbid` record. A CLI or other
-     process that opens the database compares its own opened descriptor with the witness's latest `dbid` and
-     refuses on a difference. This is the **cross-process hand-off**: the identity travels in the witness,
-     written under `witness.lock`, never in a variable;
-  3. **a rename between SQLite's open and the check** is covered because the check looks at the descriptor that
-     was actually opened (`fstat`), not at the path, and at the path afterwards: the two must agree with each
-     other and with the recorded identity;
-  4. a legitimate re-creation of `-wal`/`-shm` (SQLite creates and removes them when the last connection
-     closes) re-records those siblings' identity **only when the process held no descriptor on them
-     immediately before**, and the main file's identity never changes during a host life;
+  1. **Associating each descriptor with its logical file, including a moved one.** For every entry of
+     `/proc/self/fd`, take `readlink`. A replaced or moved file resolves to its **original path followed by
+     ` (deleted)`**; the check strips that suffix to get the **logical path** and classifies the descriptor
+     (main database, `-wal`, `-shm`, `-journal`, witness, `host.lock`) by the logical path. A descriptor whose
+     link ended in ` (deleted)`, or whose `fstat` identity differs from `stat(logical path)`, or whose path no
+     longer exists, is a **swapped file: fail closed**. The suffix test is only a hint; the **identity
+     comparison is the test** (a legitimate file whose name happens to end in ` (deleted)` is compared by
+     identity, not by name);
+  2. **fail if an expected descriptor cannot be identified.** The host keeps the **expected set** for its
+     open connections: while any connection is open, the main database must have at least one descriptor, and in
+     WAL mode `-wal` and `-shm` must too. If an expected logical file has no identifiable descriptor, or a
+     descriptor cannot be read (`readlink` or `fstat` fails), the check **fails closed** rather than passing by
+     omission;
+  3. **how the host finds the descriptors of its own connections.** At each open, the host takes the set of
+     descriptors before and after and attributes the **new** ones to the connection, by logical path;
+  4. the **main database file** must match the identity **recorded once per host life** and **recorded in the
+     witness** as a `dbid` record (written under `witness.lock`); another process compares its own opened
+     descriptor with the witness's latest `dbid` and refuses on a difference: this is the **cross-process
+     hand-off**, carried in the witness, never in a variable;
   5. the journal mode is pinned (`journal_mode=WAL`, verified on every connection) so the set of sibling files
      is fixed.
+
+- **The database lifecycle: a pinned connection.** The host keeps **one pinned connection open for its whole
+  life** and never lets the pool close the last connection, so the database, `-wal` and `-shm` descriptors
+  stay open and the main file's identity is checked against descriptors that never change. The host performs
+  **no checkpoint-and-close**; SQLite's own checkpointing continues while the pinned connection holds the files.
+  Other connections of the pool may open and close freely; each is checked after it opens. A short-lived
+  process (the CLI) opens, checks against the witness's `dbid`, operates and closes; after its last close the
+  siblings may be removed by SQLite, and the next opener re-checks (a **verified close, checkpoint and reopen**
+  needs no special case beyond the check at open). **Same-head replacement:** a replacement that keeps the
+  main file's inode (an in-place overwrite) is not an identity change; it is caught only if the chained head
+  differs from the witness. A file with the **same head but different contents in tables outside the chain**
+  is not detected here: the chained tables are the authority-relevant rows, and the other tables are out of
+  this note's scope (stated limit).
+
+- **Staying bound to the checked files between the check and SQLite's use (a barrier, not a snapshot).** A
+  transition runs on **one connection**, and the checks are made on **that connection's descriptors**:
+  1. check the descriptors (as above) **before** `BEGIN IMMEDIATE`;
+  2. run the transaction; then check again **before `COMMIT`**; a mismatch is a `ROLLBACK` and a fail-closed;
+  3. after `COMMIT`, check once more **before** the `committed` line is appended; a mismatch means the
+     transaction landed on a swapped-out inode: **do not append `committed`**, fail closed.
+  A swap in any gap can therefore only make the transaction land on the file the connection had open (the one
+  that was checked), never on the replacement, and the next check sees the swap. The residual window is the
+  instant between the last check and the OS's `rename`, which is the same as any check-then-act and is closed
+  by the post-commit check plus the witness comparison. Tests: renames at `db.before-begin`, `db.before-commit`
+  and `db.after-commit` (T40b-d).
 
   For the **witness** and **`host.lock`**, which this code opens itself, the same `fstat(descriptor)` against
   `stat(path)` comparison applies at every transition and admission.
@@ -191,6 +219,11 @@ truncated or edited.
   row 1, not row 2. **Row 2 requires a complete, authenticated `pending`.**
 - A **torn `committed`** is read as row 3 **only if `D` agrees** (`D.seq = n+k` and the MACs match); a torn
   `committed` that the database contradicts (`D.seq = n`) is row 13.
+- **A record whose MAC verifies but that does not chain from the last good record is never accepted as a
+  continuation and never silently skipped.** If its `seq` is not greater than the last good `seq` it is a
+  **replayed** record; if it leaves a gap it is a **fork or a deletion**; either way the file is classified
+  damaged (row 7). The framing's `SYNC` marker is a per-file random 8-byte value written in a file header (so
+  a marker found in a fragment cannot be guessed), and the header itself is authenticated.
 - A bad record that is **followed by a good record that does not chain from the last good one** is damage
   inside the chain, not a torn tail: row 7.
 
@@ -319,6 +352,12 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T26 | the headless case: no secret service at entry | the run is `anchor-bound: no`; the dialog says so; rows 1-8 decide |
 | T27 | Stop writes a column outside its list | refused by the conditional write |
 | T17b | writer A commits and is paused before step 6 (`committed`); writer B starts | B waits on `witness.lock` (bounded) and cannot append `pending n+2` into the window; the line-MAC chain has no fork; after A releases, B re-reads the head |
+| T40b | a rename of the database at `db.before-begin` | the pre-`BEGIN` check fails closed; no transaction |
+| T40c | a rename at `db.before-commit` | the pre-`COMMIT` check rolls back and fails closed |
+| T40d | a rename at `db.after-commit` (before `committed` is appended) | the post-commit check fails closed; `committed` is **not** appended; the transaction is on the checked (old) file |
+| T42 | a file whose name ends in ` (deleted)`; a replaced file whose link reads `… (deleted)`; an expected `-wal` descriptor that is missing while a connection is open; a descriptor that cannot be read | the first passes (identity equal); the second fails closed; the third and fourth fail closed (cannot be identified) |
+| T43 | the pinned connection: the pool tries to close its last connection; an in-place overwrite of the database file by a copy with the same head | the pool refuses to close the last one; the in-place overwrite with the same head is not detected, and the test records that this is the stated limit |
+| T44 | a record with a valid MAC that does not chain (an older record re-appended; a gap) | never accepted as a continuation, never skipped silently; the file is classified damaged (row 7) |
 | T40 | a rename **between SQLite's open and our check** (pause at `db.after-open`, before the check) | the check compares the opened descriptor with the path and the recorded identity and fails closed |
 | T41 | a CLI process opens the database whose identity differs from the witness's latest `dbid` | refuses |
 | T38 | a **k-row** transition (k = 3: a run row, a registry row, an audit row): crash after row 1, after row 2, after row 3 before `COMMIT`, and after `COMMIT` before `committed` | the first three are a rollback (`D.seq = n`, row 2); the last is row 3 with the **final** seq and head MAC; a database whose seq lies strictly between `n` and `n+k` fails closed (row 13) |
@@ -385,6 +424,15 @@ Three P1 items were open in revision 3. They are closed in this revision and awa
    and the sibling files are explicitly not identity-checked (section 3A, tests T29, T30, T30b).
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
+### 12.0 Closed in revision 6
+
+The delta review of revision 5 found three P1s. Closed in this revision, awaiting a P1-only delta review:
+(1) the association of each descriptor with its logical file, including a moved one resolving to `… (deleted)`,
+and the fail-closed rule when an expected descriptor cannot be identified (section 3A, T42); (2) a pinned
+database lifecycle with one connection open for the host's life and a stated limit for a same-head in-place
+replacement (T43); (3) a barrier of three checks around the transaction, bound to the connection's own
+descriptors (T40b-d). P3: the authentication rule for a good non-chaining record (T44).
 
 ### 12.1 Closed in revision 5
 
