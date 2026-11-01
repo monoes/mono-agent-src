@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -746,5 +747,60 @@ func TestARefusedTurnThatWillNotExitIsWaitedForOnlyTheBound(t *testing.T) {
 	var r *bindingRefusal
 	if !errors.As(err, &r) || time.Since(start) < 100*time.Millisecond || time.Since(start) > 3*time.Second {
 		t.Fatalf("%v after %v", err, time.Since(start))
+	}
+}
+
+// A refused turn that survives past the bound: the host settles the session and starts the next turn, whose token must
+// survive the old process's late exit (the exit revokes only the refused turn's own tokens).
+func TestALateExitOfARefusedTurnLeavesTheNextTurnsTokenAlone(t *testing.T) {
+	oldGrace := hostTurnGrace
+	hostTurnGrace = time.Hour // the stop does not kill the group within the test
+	t.Cleanup(func() { hostTurnGrace = oldGrace })
+	script := `trap '' TERM
+d=$(dirname "$0")
+echo $$ > "$d/pid"
+while [ ! -e "$d/release" ]; do sleep 0.05; done
+`
+	r := newBoundRig(t, script)
+	l := &execLauncher{bin: r.l.bin, dbPath: "/db/x.db", instance: "host-test", logDir: r.l.logDir, revokeBackoff: time.Millisecond,
+		tokens: r.store.IssueSessionToken, revoke: r.store.RevokeSessionTokensErr, revokeTurn: r.store.RevokeTurnSessionTokensErr}
+	turn, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := func(turnID string) int {
+		var n int
+		if err := r.db.DB.QueryRow(`SELECT COUNT(*) FROM coder_session_tokens WHERE conversation_id = 'c1' AND turn_id = ?`, turnID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if count("t1") != 1 {
+		t.Fatalf("the first turn has %d tokens, want 1", count("t1"))
+	}
+	rf, ok := turn.(interface{ Refuse() error })
+	if !ok {
+		t.Fatalf("the launcher's turn %T cannot be refused", turn)
+	}
+	if err := rf.Refuse(); err != nil {
+		t.Fatal(err)
+	}
+	if count("t1") != 0 {
+		t.Error("the refused turn's own token was not ended at once")
+	}
+	// the host settled the session and started the next turn, while the old process (ignoring SIGTERM) still runs
+	r.session("default", "c1", "t2")
+	if _, err := r.store.IssueSessionToken("default", "c1", "t2"); err != nil {
+		t.Fatal(err)
+	}
+	if count("t2") != 1 {
+		t.Fatalf("the next turn has %d tokens, want 1", count("t2"))
+	}
+	if err := os.WriteFile(r.release, []byte("x"), 0o600); err != nil { // the old process finally exits
+		t.Fatal(err)
+	}
+	_ = turn.Wait()
+	if count("t2") != 1 {
+		t.Error("the refused turn's late exit revoked the next turn's token")
 	}
 }

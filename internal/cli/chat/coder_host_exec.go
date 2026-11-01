@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
@@ -34,6 +35,9 @@ type execLauncher struct {
 	// a session's tokens when its turn ends; an error means a token may still be live (revokeSession retries it, then reports it).
 	tokens func(profileID, conversationID, turnID string) (string, error)
 	revoke func(profileID, conversationID string) error
+	// revokeTurn drops ONE turn's tokens (nil: the conversation's, as revoke does); used for a turn the gate refused, whose late
+	// exit must not revoke a newer turn's token.
+	revokeTurn func(profileID, conversationID, turnID string) error
 	// revokeBackoff is the first wait between revoke attempts (zero: 200 ms; tests shorten it).
 	revokeBackoff time.Duration
 	// bind names the turn's process for its token, right after the turn starts.
@@ -77,6 +81,30 @@ func (l *execLauncher) revokeSession(profileID, conversationID string) error {
 		}
 	}
 	return fmt.Errorf("the session token of %s could not be ended: %w", conversationID, err)
+}
+
+// revokeTurnTokens ends one turn's tokens, trying a few times like revokeSession.
+func (l *execLauncher) revokeTurnTokens(profileID, conversationID, turnID string) error {
+	if l.revokeTurn == nil {
+		return l.revokeSession(profileID, conversationID)
+	}
+	backoff := l.revokeBackoff
+	if backoff <= 0 {
+		backoff = 200 * time.Millisecond
+	}
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if err = l.revokeTurn(profileID, conversationID, turnID); err == nil {
+			return nil
+		}
+		if l.logf != nil {
+			l.logf("WARNING: ending the session token of turn %s of %s failed (attempt %d): %v", turnID, conversationID, attempt+1, err)
+		}
+		if attempt < 3 {
+			time.Sleep(backoff << attempt)
+		}
+	}
+	return fmt.Errorf("the session token of turn %s of %s could not be ended: %w", turnID, conversationID, err)
 }
 
 func (l *execLauncher) args(profileID string, rest ...string) []string {
@@ -235,6 +263,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 	}
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
+	t.ownRevoke = func() error { return l.revokeTurnTokens(profileID, conversationID, turnID) }
 	go func() {
 		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
 			t.settle()
@@ -243,7 +272,11 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		t.markReaped()
 		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
 		// revoke is retried; a revoke that still fails is reported as the turn's error.
-		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
+		revoke := func() error { return l.revokeSession(profileID, conversationID) }
+		if t.scoped.Load() { // a refused turn: its late exit ends its own tokens only, never a newer turn's
+			revoke = func() error { return l.revokeTurnTokens(profileID, conversationID, turnID) }
+		}
+		if rerr := revoke(); rerr != nil {
 			t.err = errors.Join(t.err, rerr)
 		}
 		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
@@ -436,6 +469,10 @@ type execTurn struct {
 	// by number after the reap.
 	strict bool
 
+	// scoped is set when the gate refused the turn: its exit then revokes its own turn's tokens, not the conversation's.
+	scoped    atomic.Bool
+	ownRevoke func() error
+
 	mu       sync.Mutex
 	stopping bool // Stop was asked for (or the launcher is about to kill the leader itself)
 	held     bool // strict, and the leader's exit is observed without reaping it
@@ -516,6 +553,17 @@ func (t *execTurn) killGroupIfHeld() {
 	if t.pinned() && !t.exited {
 		_ = t.killGrp()
 	}
+}
+
+// Refuse stops a turn the gate refused after its process existed, and ends its own tokens at once. Its late exit (the stop
+// can take a while) revokes only its own turn's tokens, so the next turn of the conversation keeps its own.
+func (t *execTurn) Refuse() error {
+	t.scoped.Store(true)
+	t.Stop()
+	if t.ownRevoke == nil {
+		return nil
+	}
+	return t.ownRevoke()
 }
 
 func (t *execTurn) PID() int      { return t.pid }
