@@ -11,6 +11,7 @@ import (
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -60,5 +61,39 @@ func TestUndependPassesTheGateForTheOperator(t *testing.T) {
 	_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "undepend", "2")
 	if err == nil || !strings.Contains(err.Error(), "task undepend takes a task id") {
 		t.Fatalf("the operator's undepend did not reach its argument check: %v", err)
+	}
+}
+
+// A process inside a coder turn's process tree never acts as the person, even with a clean
+// environment and the operator's identity: the ancestry layer of the shared gate covers undepend.
+// A courtesy layer (SECURITY.md). The turn is this test process itself, recorded in the database
+// the verb opens.
+func TestUndependRefusesAProcessInsideACoderTurn(t *testing.T) {
+	if coderhost.ProcStamp(os.Getpid()) == "" {
+		t.Skip("process ancestry cannot be read here")
+	}
+	for verb, args := range gateUndependVerbs() {
+		t.Run(verb, func(t *testing.T) {
+			cfg := sendEnv(t)
+			d, err := storage.NewDatabase(cfg.DBPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := coderhost.NewStore(d.DB).EnsureSession("default", "conv-lead"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := d.DB.Exec(`UPDATE coder_sessions SET turn_pid = ?, turn_stamp = ? WHERE conversation_id = 'conv-lead'`, os.Getpid(), coderhost.ProcStamp(os.Getpid())); err != nil {
+				t.Fatal(err)
+			}
+			d.Close()
+			_, err = runSendCLI(t, cfg, newTaskCmd(cfg), args...)
+			var coded interface{ JSONErrorFields() map[string]any }
+			if clicore.ExitCodeFor(err) != 3 || !errors.As(err, &coded) || coded.JSONErrorFields()["code"] != "operator_only" {
+				t.Fatalf("%s inside a coder turn was not refused as operator_only: %v", verb, err)
+			}
+			if !strings.Contains(err.Error(), "coder session's turn") {
+				t.Fatalf("%s was refused by another layer, not the turn ancestry: %v", verb, err)
+			}
+		})
 	}
 }
