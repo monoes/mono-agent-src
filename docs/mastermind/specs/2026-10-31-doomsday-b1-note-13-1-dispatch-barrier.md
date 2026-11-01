@@ -1,6 +1,6 @@
 # B1 design note 13.1: the dispatch barrier and what "started" means
 
-Status: **design note and test plan, revision 2, no code.** It closes contract 13.1 of
+Status: **design note and test plan, revision 3, no code.** It closes contract 13.1 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults. Revision 2 answers the
 first independent review of this note: the gate is an explicit **ticket state machine** (not a read-write
 lock), a **timed-out close is not a barrier**, a **future start is fenced**, outside dispatchers may no
@@ -32,7 +32,7 @@ whether more can be promised, and gives the mechanism and the tests that prove i
 | E4 | **Gate admission plus transactional admission** (section 4.4): the write passes the in-memory gate and carries the generation/state check in the same statement. | Exact against the database intent; after the gate has closed, the host refuses it even before the intent commits. |
 | E1 | **Ticket with a start fence** (section 4): `BeginStart` is the irrevocable fence; the OS start call is only allowed after it succeeded. | After a *successful* close, no E1 starts that had not passed `BeginStart`. The tickets that had passed it are a finite, known set (section 5). |
 | E2 | **Each step is an E1-like unit** with its own ticket; the operation is registered as `incomplete` until its last step, so a stopped operation is visible and repairable (contract 13.3). | Per step as E1. A begun operation is admitted-before-Stop. |
-| E3 | **Admitted at the hand-over**: the wrapper checks the context and the gate immediately before calling the transport, registers, and uses a context Stop cancels. | Only admitted-before-Stop. No claim about bytes: cancellation that races the transport proves nothing once the call into the transport has begun. |
+| E3 | **Admitted at the hand-over** (section 4.3): the ticket is `STARTED` when its registry row is durable, **immediately before the transport call is entered, and never during it**. The call runs outside the gate with a context Stop cancels. | Only admitted-before-Stop. No claim about bytes: cancellation that races the transport proves nothing once the call into the transport has begun. |
 
 There is no "default to E3 at run time": an effect that is not routed through the closed boundary of section
 8 does not exist as far as this note is concerned, and the inventory test fails (T20).
@@ -60,8 +60,13 @@ that tells it what it may do.
   fence on future creation.
 - **`Started(ticket, handle)`**: writes the registry row (outside `mu`), then takes `mu` and moves the ticket
   to `STARTED`. If the gate is by then `CLOSING` or `CLOSED`, the ticket is also marked `late` and the caller
-  **must kill what it started** with the handle it holds, then report. A registry write that fails also means
+  **kills the held process** with the handle it holds, then reports. A registry write that fails also means
   the caller kills and reports; the ticket becomes `UNKNOWN` (never silently `STARTED`).
+  **For an E1 the process is created *held*** (spec 5.2: registered and pinned before it can execute): it is
+  created inside the containment unit and blocks on a release pipe before running any user code; the host
+  registers it, calls `Started`, and only then releases it. A late ticket or a failed registry write kills a
+  process that **never ran**. (The primitive that holds and contains is contract 13.2; this note requires
+  only the order create-held, register, `Started`, release.)
 - **`Abort(ticket)`**: idempotent: `ADMITTED` or `STARTING` → `ABORTED`; any other state is left unchanged.
   A dispatcher wrapper runs it in a `defer` with `recover`, so a panic resolves the ticket.
 - **`Close()`**: takes `mu`; sets the gate `CLOSING` (so every later `Admit` and `BeginStart` refuses); copies
@@ -73,13 +78,28 @@ that tells it what it may do.
 
 | Outcome | Condition | Meaning |
 |---|---|---|
-| **BARRIER** | `S` drained before the deadline | the gate is `CLOSED`; **no E1 or E3 can begin** from now on; every ticket is `STARTED`, `ABORTED` or `FENCED` |
+| **BARRIER** | `S` drained before the deadline | the gate is `CLOSED`; **through the host gate**, no E1 process is created and no E3 ticket is admitted or fenced-in from now on; every ticket is `STARTED`, `ABORTED` or `FENCED`. An E3 ticket already `STARTED` may be on the wire (admitted-before-Stop) |
 | **CLOSED-WITH-STARTERS(S′)** | the deadline passed with `S′ ⊆ S` still `STARTING` | **not a barrier.** The gate is `CLOSED` to new work, but each ticket in `S′` is `UNKNOWN` and can still create a process |
 
 The spec's no-later-start promise (5.2) is made **only** for the BARRIER outcome. For
 CLOSED-WITH-STARTERS the promise is: no ticket outside `S′` can start; each ticket in `S′` is recorded
 durably in the registry as `unknown` with the dispatcher's identity and the point it had reached; the run
 cannot be `quiescent` while any exists.
+
+### 4.3 The E3 ticket lifecycle, and who cancels what
+
+- An E3 ticket is `STARTING` **only while its registry row is being written**, a bounded local write. Then it
+  is `STARTED` and the transport call is entered. It is never `STARTING` during the network call, so a model
+  call or a slow lookup longer than `T_close`, or `T_hung`, neither makes `Close` return
+  CLOSED-WITH-STARTERS nor makes the host terminate itself.
+- A `STARTED` E3 ticket that has not yet been dialled when `Close` runs is reported *admitted-before-Stop*.
+- **Cancellation.** After setting `CLOSING`, `Close` cancels the **contexts of `STARTED` E3 tickets** (spec
+  5.3 step 2). It never cancels the context of a `STARTING` ticket (that would race its start); those are the
+  ones `Close` waits for. Signalling the processes of `STARTED` E1 tickets is Stop's step after `Close`
+  returns, through the containment unit (13.2).
+- **Scope of the barrier.** It covers work that goes through the host gate. A tool child already inside the
+  containment unit may make its own network calls and spawn its own processes; those are not gated and are not
+  claimed. They are contained by the unit and ended by Stop's kill step (13.2).
 
 ## 5. Resolving the unknown: no false quiescence
 
@@ -94,7 +114,11 @@ finite, named set. A ticket in `S′` is resolved only when its starter is **pro
    second bound `T_hung` the host **terminates itself** (crash-only): it writes the durable fail-closed
    shutdown record of spec 5.3, and exits. Every process of the run is then found and ended by containment
    (13.2) at the next start or by the CLI, and a new `Admit` can never happen for the generation. The run
-   stays `cleanup-pending` until that has been done.
+   stays `cleanup-pending` until that has been done. Before exiting, the host makes a **best-effort kill of
+   the containment unit**; and the CLI that requested the Stop, on observing the host's exit, **runs the
+   unit sweep itself** (spec 5.3 step 3), so children do not keep running while nothing is scheduled to end
+   them. **If the fail-closed record cannot be written the host exits anyway**: the clean record was removed
+   durably at start (spec 5.3), so the missing record reads as an unclean loss at the next start.
 
 A starter that creates a process and then **fails to kill it** (kill error, host crash after creation, a
 failed registry write) leaves a `kill-failed` or `UNKNOWN` ticket with its handle and identity; the run stays
@@ -122,6 +146,9 @@ claimers). The rule is now stricter than in revision 1.
 3. **An `admitted` outside row is resolved only by the dispatcher's own end** (it writes `ended`) **or by
    proof that its identity is dead** (process id with start stamp, or its unit). A dispatcher that crashed
    leaves `admitted` and shows as unknown until its death is proven. There is no timeout that clears it.
+   **A dispatcher that registers and is then refused** (it reads the marker, or its action is denied) **must
+   write `ended`/`aborted` itself**, otherwise it blocks quiescence. The operator's way out for one that is
+   alive and stuck: kill the named identity, which then counts as proof of death.
 
 ## 7. Stop ordering, the marker, and the recovery gates of 13.1
 
@@ -153,6 +180,10 @@ Process starts and remote requests of a run go only through two wrappers in one 
   dispatchers) and fails if it finds a direct use of the process-start and network primitives (`os/exec`
   command construction and start, `net/http` client calls, raw dials) **outside a reviewed allowlist of
   files**; each allowlist entry names an owner and a reason;
+- the scan is **transitive**: it computes with `go list -deps` which packages reach those primitives (the
+  standard ones, `os.StartProcess`/`syscall.ForkExec`, and any third-party SDK built on them) and requires
+  every file that imports a reaching package to be on the allowlist; it covers every module of the
+  repository, including the desktop app's separate module;
 - the same test flags the *value* of those primitives being passed around (`exec.Command` used as a function
   value), and a **new import** of those packages in a file that is not in the allowlist, so a new primitive or
   a new file cannot enter silently;
@@ -166,7 +197,7 @@ Process starts and remote requests of a run go only through two wrappers in one 
 | chat turn, queue resume, schedule run | enqueue (E4) then the host starts it (E1) |
 | workflow node that calls a model or a platform | host-side E3 (ticket), or refused for a charter if it runs outside |
 | MCP call that costs money | E3 (ticket) |
-| human-in-the-loop answer, browser form submit | E4 for the approval, E3 for the submit (ticket) |
+| human-in-the-loop answer, browser form submit | E4 for the approval; E3 for the submit, whose ticket is taken **host-side** when the approved submit is handed to the extension bridge (the submit itself runs in the extension's script, which no Go scan can see: that hand-over is the gated step) |
 | spawn, claim, token mint, budget grant, session approval, boss answer | E4 |
 | merge, workspace write sequence | E2 (per step), contract 13.3 |
 
@@ -179,17 +210,25 @@ Deterministic pause points, not sleeps, and an **injected clock** for every dead
 point a test can block and release; production builds compile them to no-ops.
 
 Points: `admit.before`, `admit.after`, `beginstart.before`, `beginstart.after`, `start.inside` (inside the
-start call), `started.before-registry`, `started.after-registry`, `close.set-closing`, `close.drained`,
-`marker.created`, `marker.observed`, `gate.closed`, `db.intent.committed`, `host.exit`.
+start call), `started.before-registry`, `started.after-registry`, `release.before` (the held child not yet
+released), `close.set-closing`, `close.drained`, `scan.done` (containment scan finished), `marker.created`,
+`marker.observed`, `gate.closed`, `db.intent.committed`, `host.exit`, and for the recovery gates
+`clean.removed`, `fsync.file`, `fsync.dir`, `secret.read`, and for outside dispatchers `outside.registered`,
+`outside.marker-read`, `outside.act`.
+
+Mechanisms for what a hook cannot do: **power loss** and a failed `fsync` by a fault-injecting file-system
+seam that drops every write after a chosen point; **a real crash** by a subprocess harness that kills the
+host process at a named point (SIGKILL), with a real held child in a real unit.
 
 | # | Scenario | Expected |
 |---|---|---|
-| T1 | E4: the check is *inside* the write statement; run two connections, one holding Stop's transaction | the writer waits for Stop's transaction and then fails on the state predicate; if it commits first, its row exists and is covered by Stop. Both orders are accepted; a row can never appear after Stop's commit |
+| T1a | E4: the writer's statement runs after `db.intent.committed` (hook ordering) | the state predicate fails; no row |
+| T1b | E4: the writer's statement commits before Stop's transaction begins (hook ordering) | the row exists and Stop's scan covers it; a row can never appear after Stop's commit |
 | T2 | E4 row committed before Stop | revoked or cancelled where the kind allows it; a completed answer is reported, not revoked |
 | T3 | ticket `ADMITTED`, paused at `beginstart.before`; `Close` | `Close` does not wait on it (it is not `STARTING`); after release `BeginStart` refuses; nothing starts |
-| T4 | ticket `STARTING` at `start.inside`; `Close` | `Close` waits; if released in time: BARRIER and the process is registered and killed by Stop |
+| T4 | ticket `STARTING` at `start.inside`; `Close` | `Close` waits; if released in time: BARRIER, the held process is registered and released, and **Stop's kill step** ends it (a late starter kills only what it just created, T6) |
 | T5 | ticket stuck in `STARTING` past `T_close` (clock advanced) | outcome CLOSED-WITH-STARTERS; ticket `UNKNOWN`; run `cleanup-pending`; **no quiescence** |
-| T6 | the same, then the starter resumes and creates a process after an *empty* containment scan | the late `Started` sees `late`, kills, reports; `quiescent` was never reached; kill failure keeps `cleanup-pending` |
+| T6 | the same, with the pause at `scan.done` (an *empty* containment scan finished), then the starter resumes and creates a held process | the late `Started` sees `late`, kills, reports; `quiescent` was never reached; kill failure keeps `cleanup-pending` |
 | T7 | starter hung forever past `T_hung` | the host writes the fail-closed record and exits; the next start finds the unit via containment and ends it |
 | T8 | `Close` twice, concurrently, and `Abort` racing `Close`, double `Abort` | one result, no deadlock, no double release (run under the race detector) |
 | T9 | panic inside the dispatcher after `BeginStart` | the deferred `Abort`/resolve runs; the ticket resolves |
@@ -205,7 +244,13 @@ start call), `started.before-registry`, `started.after-registry`, `close.set-clo
 | T19 | an outside dispatcher process starts a process for the run | not possible by construction; a test asserts there is no such path in the table |
 | T20 | add a file that calls `exec` directly | the boundary test fails |
 | T21 | add an unregistered dispatcher / import `net/http` in a new file | the boundary test fails; a charter cannot be entered |
-| T22 | mutation proof | removing: the `OPEN` check in `Admit`, the fence in `BeginStart`, the `late` kill, the `UNKNOWN` quiescence block, the conditional in an E4 write, or a registration condition fails a named test |
+| T22 | E3 call in flight for 10 times `T_hung` while `Close` runs | BARRIER, the host does **not** exit, the context is cancelled |
+| T23 | E3 ticket `STARTED`, not yet dialled, when `Close` runs | reported admitted-before-Stop |
+| T24 | a child created held, registry write fails | the held child is killed and **never ran** (no side effect observable) |
+| T25 | `T_hung` exit with an unwritable fail-closed record | the host exits anyway; the next start reads an unclean loss; the CLI ran the unit sweep on the host's exit |
+| T26 | an outside dispatcher registers, then is refused | it writes `ended`; quiescence is not blocked; a stuck live one is resolved by killing its named identity |
+| T27 | a third-party SDK that uses `net/http` called from a non-allowlisted file | the transitive boundary test fails |
+| T28 | mutation proof | removing: the `OPEN` check in `Admit`, the fence in `BeginStart`, the `late` kill, the `UNKNOWN` quiescence block, the copy of `S` in `Close`, the `T_hung` exit, the boundary allowlist check, the outside registration scan, the conditional in an E4 write, or a registration condition fails a named test |
 
 ## 10. What this note does not claim
 
@@ -213,7 +258,9 @@ start call), `started.before-registry`, `started.after-registry`, `close.set-clo
 - Nothing stronger than admitted-before-Stop for E3, for a request already registered by an outside
   dispatcher, and for effects in the marker-observation gap.
 - That cancellation prevents transmission once the call into the transport has begun.
-- The numbers `T_close`, `T_hung` and the poll interval are starting values.
+- The numbers `T_close`, `T_hung` and the poll interval are starting values. **Measuring them is a gate on B1
+  code:** the gate lands with measured values and a test that records how often `Close` returns
+  CLOSED-WITH-STARTERS on ordinary Stops.
 
 ## 11. Branch points that depend on the operator's answers
 
