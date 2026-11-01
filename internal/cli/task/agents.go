@@ -119,7 +119,7 @@ func (d Deps) newTaskAgentsSetCmd(on bool) *cobra.Command {
 		Use:   use,
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("change what AI agents may do with the Inbox")
+			actor, err := d.personGate(cmd, "change what AI agents may do with the Inbox")
 			if err != nil {
 				return err
 			}

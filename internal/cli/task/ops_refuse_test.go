@@ -44,10 +44,12 @@ func TestOperatorCommandsRefuseBeforeTheDatabaseIsOpened(t *testing.T) {
 // A mistake in the arguments is exit 3 with the JSON error document, like every other
 // argument mistake of the group (cobra's own check would be exit 1 and no document), and
 // it is found before the database is opened. An agent that makes one is refused as an
-// agent first.
+// agent first. The operator's own call goes through personGate, which opens the database for
+// the turn-ancestry check, so the operator rows run on a working database; the agent rows
+// stay on the broken one, which proves the refusal comes before any database open.
 func TestOperatorCommandsRefuseTheWrongArgumentsWithoutOpeningTheDatabase(t *testing.T) {
 	t.Parallel()
-	newTaskTestDB(t)
+	good := newTaskTestDB(t)
 	db := opsBrokenDB(t)
 	for _, args := range [][]string{
 		{"edit"},
@@ -75,7 +77,7 @@ func TestOperatorCommandsRefuseTheWrongArgumentsWithoutOpeningTheDatabase(t *tes
 		{"move", "1", "ready", "--before", "0"},
 		{"move", "1", "ready", "--after", ""},
 	} {
-		doc := failedTaskJSON(t, db, "default", 3, args...)
+		doc := failedTaskJSON(t, good, "default", 3, args...)
 		if doc["code"] != "invalid_input" {
 			t.Errorf("task %s: %v, want invalid_input", strings.Join(args, " "), doc)
 		}
