@@ -356,3 +356,26 @@ the attempted ones, never secret values.
 5. A boss answer that the host presents to the model with free text that differs from the canonical arguments.
 6. A constraint of `"*"` that the entry dialog does not render in plain words.
 7. An approval row written without its audit row.
+
+## 12. Open blockers before implementation (from review, recorded verbatim)
+
+Status after the review rounds: two **P1** items remain **open in this revision**. Each must be resolved in a
+later revision before any code in the area lands (spec section 13 gate). They are recorded as the reviewers
+stated them.
+
+1. **P1: the claim "the secret never leaves the host process" holds only for the `status-only` transform.**
+   For `json-fields` and `text-capped` a destination that reflects the secret back (in a field, or in text)
+   returns it to the agent through the transformed body. Either restrict `vault.use` to `status-only` plus
+   **host-computed results** (the host derives what the agent receives from the response and the secret is
+   never in it), or run test T5f **per transform** against reflecting destinations and show none leaks.
+2. **P1: sealed bytes are not what section 4A claims.**
+   - The fallback "re-verify the digest at the syscall" is a **second read**, so it does not close the
+     check-to-use gap.
+   - A private temporary file is **not sealed**; only an in-memory file with seals is. The text must say
+     which is used where.
+   - Package managers and browser-driven sends **cannot consume a descriptor**. Either they are **not
+     enabled in B1**, or they are a stated, weaker class with its own limits.
+   - Test T5h must have **one deterministic outcome per class** (descriptor-consuming, re-verified,
+     not-enabled), not a disjunction.
+
+Further review rounds resume after the operator answers the open questions (spec section 12.5).
