@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
@@ -263,7 +262,11 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 	}
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
-	t.ownRevoke = func() error { return l.revokeTurnTokens(profileID, conversationID, turnID) }
+	t.ownRevoke = func() error {
+		err := l.revokeTurnTokens(profileID, conversationID, turnID)
+		l.child.revokeToken(ct) // a mission child's separate task token dies with the refusal too (nil-safe)
+		return err
+	}
 	go func() {
 		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
 			t.settle()
@@ -272,11 +275,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		t.markReaped()
 		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
 		// revoke is retried; a revoke that still fails is reported as the turn's error.
-		revoke := func() error { return l.revokeSession(profileID, conversationID) }
-		if t.scoped.Load() { // a refused turn: its late exit ends its own tokens only, never a newer turn's
-			revoke = func() error { return l.revokeTurnTokens(profileID, conversationID, turnID) }
-		}
-		if rerr := revoke(); rerr != nil {
+		// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
+		// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
+		// keeps the conversation-wide one.
+		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
 			t.err = errors.Join(t.err, rerr)
 		}
 		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
@@ -469,8 +471,7 @@ type execTurn struct {
 	// by number after the reap.
 	strict bool
 
-	// scoped is set when the gate refused the turn: its exit then revokes its own turn's tokens, not the conversation's.
-	scoped    atomic.Bool
+	// ownRevoke ends this turn's own tokens (its session token and a mission child's task token) at once, for a refusal.
 	ownRevoke func() error
 
 	mu       sync.Mutex
@@ -555,10 +556,10 @@ func (t *execTurn) killGroupIfHeld() {
 	}
 }
 
-// Refuse stops a turn the gate refused after its process existed, and ends its own tokens at once. Its late exit (the stop
-// can take a while) revokes only its own turn's tokens, so the next turn of the conversation keeps its own.
+// Refuse stops a turn the gate refused after its process existed, and ends its own tokens (session and a child's task
+// token) at once. Its exit, however late, revokes only its own turn's tokens (decided at launch), so the next turn of the
+// conversation keeps its own.
 func (t *execTurn) Refuse() error {
-	t.scoped.Store(true)
 	t.Stop()
 	if t.ownRevoke == nil {
 		return nil
