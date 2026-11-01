@@ -162,6 +162,8 @@ type Store struct {
 	now func() time.Time
 	// binder, when set, has its live entries ended after a revocation commits (revoke_v2.go).
 	binder *procbind.Binder
+	// v2 verifies mission tokens of the v2 family (verify_v2.go); nil: v2 secrets are denied.
+	v2 *procbind.V2Check
 
 	mu      sync.Mutex
 	touched map[string]time.Time
