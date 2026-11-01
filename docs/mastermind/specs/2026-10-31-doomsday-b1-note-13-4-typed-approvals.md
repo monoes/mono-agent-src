@@ -1,6 +1,6 @@
 # B1 design note 13.4: typed approvals bound to the exact effect
 
-Status: **design note and test plan, revision 6, no code.** It closes contract 13.4 of
+Status: **design note and test plan, revision 7, no code.** It closes contract 13.4 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13). It depends on notes 13.1 (the gate and where an
 effect is "issued") and 13.5 (the sequence and the audit chain), and is written for the recommended defaults.
 Wording is class level: this repository is public.
@@ -291,21 +291,40 @@ base64-encoded, percent-encoded, split across chunks or echoed in a header. So:
     `0`. So `length_bucket` takes at most `bucket_count + 1` values;
   - **entry validation.** A charter is **refused at entry** unless `bucket_size`, `bucket_count`, the timing
     `slot_size` (milliseconds) and `max_attempts` are all **positive, finite integers** within published
-    bounds (`bucket_size` ≥ 1 and ≤ 1 MiB, `bucket_count` 1 to 16, `slot_size` ≥ 100 ms and ≤ 60 s,
-    `max_attempts` 1 to 1000); zero, negative, non-integer, `NaN`/infinite or out-of-range values do not
-    parse (spec 3.1: every constraint is typed and validated at entry);
+    bounds (`bucket_size` ≥ 1 and ≤ 1 MiB, `bucket_count` 1 to 16, `max_call_ms` 1000 to 60000, `slot_ms`
+    100 to `max_call_ms`, `max_attempts` 1 to 1000), **and the derived `slots` (below) is at most 64**; zero,
+    negative, non-integer, `NaN`/infinite or out-of-range values do not parse, and **arithmetic is checked
+    before conversion** (a product such as `bucket_size × bucket_count` is computed in a wider type and
+    rejected on overflow, never wrapped) (spec 3.1: every constraint is typed and validated at entry);
   - **the predicate is fixed at charter entry** (the marker or pattern is part of the hash) and cannot be
     chosen by the agent or the boss per request.
 - **Retries and attempts are counted.** A **finite budget `max_attempts`** counts **every transport attempt,
   including a retry**, across the run for this operation; the host does not retry on its own beyond it. When
   the budget is exhausted the operation is refused (and parks nothing: it is a plain refusal).
-- **Timing.** The result is released at a **quantised deadline** (the response time rounded up to the next
-  fixed slot, the slot size set in the charter), so a destination that picks its response delay by secret bits
-  conveys at most `log2(slots)` bits per attempt, and the wrapper's maximum call duration (note 13.1) bounds
-  the number of slots.
+- **Timing: a finite maximum, an exact slot count, a defined release.**
+  - **The call duration is the charter's, never the caller's.** The charter fixes `max_call_ms` (validated
+    above). The wrapper imposes **exactly that** as the call's deadline (note 13.1); a deadline supplied by the
+    agent, the boss or the request is **ignored**.
+  - **The exact slot count.** With `slot_ms` fixed in the charter, the response time is rounded **up** to the
+    next slot boundary: `slot = ceil(response_ms / slot_ms)`, from 1 to `ceil(max_call_ms / slot_ms)`. A call
+    that reaches `max_call_ms` ends as `outcome = timeout` in the **last slot**. So
+    `slots = ceil(max_call_ms / slot_ms)`, a **constant fixed at entry** and at most 64 (6 bits per attempt).
+    The timing channel conveys at most `log2(slots)` bits per attempt, exactly.
+  - **What the agent observes at release.** One attempt is **in flight at a time per operation** (attempts are
+    serialised), so concurrent completions of one operation do not exist. The result of an attempt is released
+    **at the end of its slot**, and results are delivered to the agent **in attempt order** (a later attempt's
+    result is never delivered before an earlier one's, even if its slot ends first, which cannot happen with
+    serialised attempts but is asserted). Across operations, results are released in the order their
+    approvals were issued. The release time therefore reveals nothing beyond the slot number.
 - **The leak bound, stated and not zero.** A destination that deliberately reflects the secret can still
   convey information through `outcome`, `status`, `length_bucket`, `predicate` and the timing slot. Over a run
-  it is bounded by `max_attempts × (log2 |outcomes| + bits(status) + log2 buckets + 1 + log2 slots)` bits. The
+  it is bounded by `max_attempts × (log2 5 + log2 501 + log2 (bucket_count + 1) + log2 3 + log2 slots)` bits
+  (five outcomes, a status of 0 or 100-599, `bucket_count + 1` length values, a predicate of true, false or
+  null, and `slots`); with the maximum validated values that is about 23 bits per attempt and about 23 000
+  bits per run. **This is a bound, not a protection against a destination chosen to encode the secret:** the
+  destination is a host the operator approved to receive that secret, so the residual concerns a destination
+  that is itself hostile to the operator. It is stated, and the attempt budget is how an operator keeps it
+  small. The
   note **does not claim that these are the only channels** in the sense of zero leakage; it claims the channels
   are enumerated, finite and budgeted, and each attempt is an audit row.
 - the audit row records the name, host and request hash, never the value.
@@ -354,8 +373,11 @@ the attempted ones, never secret values.
 | T5d | `install.package` is requested (class C2, **not enabled in B1**) | refused at the allowlist; the version-and-digest binding is specified for a later class only |
 | T5e | `vault.use` for a secret outside the session's agent-access level, line ticked, approval present | refused; no grant or level changes; the value never appears in any agent-visible output |
 | T5f | **positive path, against reflecting destinations:** an approved `vault.use` to fake servers that echo the secret (i) base64-encoded, (ii) percent-encoded, (iii) chunk-split, (iv) in a response header, (v) in `Content-Type`, (vi) in a JSON field | the server received the secret exactly at the injection point; the agent-visible result is **only** `{outcome: enum, status: int, length_bucket: int, predicate: bool|null}` for every destination; a type-level test shows no other field can be returned |
-| T5f7 | **length cap and buckets, boundaries:** bodies of 0, 1, `bucket_size`, `bucket_size + 1`, `bucket_size × bucket_count`, and `bucket_size × bucket_count + 1` bytes and a far larger one (a sparse 1 GiB stream) | `0`, `1`, `1`, `2`, `bucket_count`, `bucket_count` (saturated), `bucket_count`; the host reads at most the cap (a counting reader shows no more bytes consumed) |
-| T5f8 | **invalid constraints at entry:** `bucket_size` 0, -1, 2^40, 1.5, `NaN`; `bucket_count` 0 and 17; `slot_size` 0 and 10; `max_attempts` 0, -1 and 100000 | each charter is refused at entry with the field named; nothing is stored |
+| T5f7 | **length cap and buckets, boundaries, `bucket_count >= 2`:** bodies of 0, 1, `bucket_size`, `bucket_size + 1`, `bucket_size × bucket_count`, and `bucket_size × bucket_count + 1` bytes and a far larger one (a sparse 1 GiB stream) | `0`, `1`, `1`, `2`, `bucket_count`, `bucket_count` (saturated), `bucket_count`; the host reads at most the cap (a counting reader shows no more bytes consumed) |
+| T5f7b | **`bucket_count = 1`:** bodies of 0, 1, `bucket_size`, `bucket_size + 1` and a far larger one | `0`, `1`, `1`, `1` (saturated), `1`; the cap is `bucket_size` |
+| T5f8 | **invalid constraints at entry, per field:** `bucket_size` 0, -1, 2^40, 1.5, `NaN`, `+Inf`; `bucket_count` 0, -1, 17, 2.5, `NaN`, `+Inf`; `max_call_ms` 0, 999, 60001, -1, 1.5, `NaN`, `+Inf`; `slot_ms` 0, 99, -1, 1.5, `NaN`, `+Inf`, and `slot_ms > max_call_ms`; `max_attempts` 0, -1, 1001, 1.5, `NaN`, `+Inf`; **numeric overflow:** `bucket_size = 2^40` with `bucket_count = 2^40` (the product overflows before any conversion); `max_call_ms = 60000` with `slot_ms = 100` (600 slots, over 64) | each charter is refused at entry with the field named; nothing is stored; no arithmetic wraps |
+| T5f9 | **the caller supplies a deadline** (a request that asks for a 1 h deadline) | ignored; the wrapper's deadline is `max_call_ms` |
+| T5f10 | **timing slots (injected clock):** responses at 1, 99 and 100 ms with `slot_ms = 100`; a response at `max_call_ms`; two attempts in sequence | slots 1, 1, 1 (then 2 at 101 ms); the last slot is `timeout`; results are released at the slot boundary and in attempt order |
 | T5f3 | **reflecting failures** (a fake transport that returns the bytes directly, no network): a destination returns a malformed response whose bytes (and the resulting parser or transport error text) contain the secret; one that resets the connection with the secret in a banner | the agent-visible result is the fixed envelope with `outcome = malformed` or `transport-error`; **no error text** and no reflected byte appears anywhere agent-visible (a type-level test shows `outcome` is an enum) |
 | T5f4 | **delays** (deterministic: an injected clock and a fake transport that blocks on a barrier the test releases; no real sleeps): a destination delays its response by an amount derived from secret bits | the result is released at the quantised slot; two different delays within one slot are indistinguishable; the wrapper's maximum duration cuts off the rest |
 | T5f5 | **retries and the budget** (deterministic: a fake transport that fails on the first call and a barrier between attempts): a destination that fails transiently; `max_attempts = 3` | at most 3 transport attempts in total across the run (the retry counts); the next request is refused; an audit row per attempt |
@@ -488,23 +510,38 @@ and await a P1-only delta review.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
 
-### 12.2 Remaining after the delta review of revision 6 (recorded)
+### 12.2 Closed in revision 7
 
-One **P1** and the P2s below are **open in this revision**. Each must be resolved in a later revision before
-any code in the area lands (spec section 13 gate). The length-bucket P1 of the last round is **closed** (the
-cap is at most 16 MiB and the output set is exactly `bucket_count + 1` values).
+The items recorded after the delta review of revision 6 are closed in this revision and await a P1-only delta
+review.
 
-1. **P1: the timing bound has no established maximum.** Note 13.1 requires only a per-call deadline, so a
-   caller can choose a distant deadline and a reflecting destination can choose among correspondingly many
-   response slots; the slot count is not a bounded constant at entry. Required: specify a **finite validated
-   maximum duration** and derive the **exact slot count** (including timeout and rounding), or explicitly
-   **exclude timing** and state the residual; also define **what the agent observes at release** (the
-   scheduling and ordering of concurrent completions).
-2. **P2:** the boundary test T5f7 is inconsistent for `bucket_count = 1` (a body of `bucket_size + 1` bytes
-   gives `1`, the table says `2`): state `bucket_count >= 2` there and cover `1` separately.
-3. **P2:** T5f8 lacks infinity, numeric overflow (a multiplication overflowing before conversion) and
-   per-field non-integer and negative cases.
-4. **P2:** the checked-in charter still shows provisional recommendations in places; the answers PR (#1285)
-   replaces them with the decisions.
+1. **P1: the timing bound had no established maximum.** Closed: the charter fixes a validated `max_call_ms`
+   (1000 to 60000) and a `slot_ms`, the wrapper's deadline is the charter's and the caller's is ignored, the
+   slot count is the constant `ceil(max_call_ms / slot_ms)` (at most 64, validated at entry), and the
+   release rule is defined (end of slot, attempt order, serialised attempts) (section 5A; T5f9, T5f10).
+2. **P2: `bucket_count = 1`.** Closed: T5f7 states `bucket_count >= 2` and T5f7b covers 1.
+3. **P2: the T5f8 gaps.** Closed: infinity, `NaN`, per-field non-integer and negative cases, and numeric
+   overflow before conversion (T5f8).
+4. **P2: provisional text.** Closed by the merged answers PR (#1285); this note carries no provisional
+   recommendation.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.3 Remaining after the delta review of revision 7 (recorded)
+
+Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
+be resolved before any code in the area lands (spec section 13 gate). The items are recorded from the
+coordinator's summary of the reviewers' findings; the elaboration in each item is the author's, and the
+reviewers' own text is in the review report.
+
+1. **P1: the cross-operation release rule is undefined.** Section 5A says results across operations are
+   released "in the order their approvals were issued", but an earlier approval that **never starts or is
+   cancelled** would block every later release, and the ordering itself is an observable wait. Required: define
+   a **cross-operation release protocol** (or drop the ordering requirement) that accounts for **all
+   observable waits**, including an earlier approval that never starts or is cancelled.
+2. **P1: the observation model is not stated.** Required: state the **observation model** honestly, with
+   **cancellation and error delivery** and **scheduler jitter**, and a **justified bound** on what a destination
+   can convey through them (a call cancelled by `Stop`, a host that is slow to release at a slot boundary);
+   tests for **concurrent operations, cancellation and jitter**.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
