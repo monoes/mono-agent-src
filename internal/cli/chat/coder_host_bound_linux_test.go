@@ -387,12 +387,28 @@ func TestRevokeByIDEndsOnlyThatToken(t *testing.T) {
 // The bound token is minted after the process exists. If the leader dies after the exit goroutine's revoke and before
 // the mint commits, the committed token and its registration must still end: nothing live is left for a dead worker.
 func TestALeaderThatDiesBeforeTheMintCommitsLeavesNoLiveToken(t *testing.T) {
-	r := newBoundRig(t, "")
+	// A descendant holds the read end of the credential pipe for the whole test, so that the write of the frame cannot fail
+	// on a dead reader: the only thing that can end the dead worker's token is the re-revoke after the delivery.
+	script := `d=$(dirname "$0")
+sleep 300 <&3 &
+echo $! > "$d/holder"
+echo $$ > "$d/pid"
+cat <&3 > "$d/frame"
+while [ ! -e "$d/release" ]; do sleep 0.05; done
+`
+	r := newBoundRig(t, script)
+	t.Cleanup(func() {
+		if b, err := os.ReadFile(filepath.Join(r.dir, "holder")); err == nil {
+			if hp, _ := strconv.Atoi(strings.TrimSpace(string(b))); hp > 1 {
+				_ = syscall.Kill(hp, syscall.SIGKILL)
+			}
+		}
+	})
 	exited := make(chan struct{})
 	var once sync.Once
 	r.l.afterExitRevoke = func() { once.Do(func() { close(exited) }) } // the exit goroutine has reaped the leader and revoked
 	r.l.bound.beforeMint = func() {
-		pid, _ := strconv.Atoi(strings.TrimSpace(string(r.waitFile(r.pidfile))))
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(r.waitFile(filepath.Join(r.dir, "pid")))))
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
 			t.Error(err)
 		}
