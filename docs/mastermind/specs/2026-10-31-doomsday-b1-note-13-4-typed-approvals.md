@@ -411,4 +411,3 @@ before any code in the area lands (spec section 13 gate). Sealing for class C1 w
 6. **P2:** note 13.5's torn-`committed` recovery still says `n+1`, against the batch rule `n+k`.
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
-
