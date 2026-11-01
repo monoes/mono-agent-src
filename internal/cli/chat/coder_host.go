@@ -300,7 +300,7 @@ func hostStatus(cfg *Deps) map[string]any {
 	if info, ok := readHostInfo(cfg); ok && st["running"] == true {
 		st["pid"], st["instance"], st["startedAt"] = info.PID, info.Instance, info.StartedAt
 		// the binding services' state is the operator's: an agent is not told what is registered
-		if len(info.Binding) > 0 && cfg.RequireOperator != nil && cfg.RequireOperator("see the binding services of the coder host") == nil {
+		if len(info.Binding) > 0 && clicore.RequireOperator(cfg.RequireOperator, "see the binding services of the coder host") == nil {
 			st["binding"] = info.Binding
 		}
 	}
