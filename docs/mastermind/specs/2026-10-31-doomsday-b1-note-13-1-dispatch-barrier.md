@@ -336,3 +336,26 @@ review. The original statements are kept in the history of this file.
    outcome CLOSED-WITH-UNKNOWN is in section 4.2, and test T30 covers it.
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
+### 13.1 Remaining after the delta review of revision 5 (recorded verbatim)
+
+Two **P1** items and one P2 are **open in this revision**. Each must be resolved in a later revision before any
+code in the area lands (spec section 13 gate).
+
+1. **P1: `Close` can return BARRIER before the abort write runs or fails.** `Started` flips the late ticket to
+   `ABORTED` under `mu`, but the abort and audit write cannot hold `mu`, and `Close` waits only for the
+   `STARTING` set to drain. The BARRIER predicate also overlaps the UNKNOWN outcome: the set can be drained
+   with an `UNKNOWN` ticket. Fix: keep the ticket in a **non-drained state through the abort transaction**;
+   publish `ABORTED` or `UNKNOWN` and **signal the drain atomically under the mutex**; make BARRIER explicitly
+   **exclude every `UNKNOWN`** (including one from before `Close`); add deterministic pauses before and after
+   the abort write (failure plus a concurrent `Close`).
+2. **P1: the context check and the transport entry are not atomic.** A `STARTED` E3 wrapper checks an
+   uncancelled context, pauses, `Close` cancels and returns BARRIER, and the wrapper still enters the
+   transport. T29 accepts the past-the-check case as admitted-before-Stop, which contradicts the stated
+   guarantee. Either define the check as the hand-over and admission point and **narrow the promise**, or
+   **synchronise entry with `Close`** (a bounded hand-over); test a pause after the check and before entry.
+3. **P2:** the mutation "wrapper ignores `Started`" cannot fail T29 as written (the context check still blocks
+   entry); T23b detects it, so name that test, or add a failed-`Started` scenario to T29.
+
+Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
