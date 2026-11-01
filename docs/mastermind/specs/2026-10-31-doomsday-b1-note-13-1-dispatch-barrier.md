@@ -391,3 +391,33 @@ two P1s and one P2. They are closed in this revision and await a P1-only delta r
    (`transport.before-ctx-check`, `transport.after-ctx-check`).
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.1 Remaining after the delta review of revision 7 (recorded)
+
+One **P1** and the P2/P3 items below are **open in this revision**. Each must be resolved in a later revision
+before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewers'.
+
+1. **P1: the continuation exception conflicts with `BeginStart`, `Started` and BARRIER (shared with the spec's
+   section 5.4 and the answers PR).** Pause a begun merge between steps; `Close` snapshots an empty `S` and
+   returns BARRIER; then `AdmitContinuation` and `BeginStart` succeed while the gate is `CLOSED` and the next
+   step creates a process. Or a continuation becomes `STARTING` after the snapshot while `Close` waits on
+   another ticket, so `Close` does not wait for it. Letting it proceed contradicts BARRIER's no-new-process
+   guarantee, and the text omits how later `STARTING`, `ABORTING` and `UNKNOWN` continuation tickets affect
+   `Close` and quiescence. Required: either **synchronise continuations with the drain** (continuations are
+   tickets created only while the gate is open, or while a begun-merge registration holds `Close`, registered
+   **before** the snapshot), or **narrow the BARRIER and quiescence contract consistently**; test **both
+   schedules**; define the continuation lifecycle and its bound alongside the barrier outcomes (races with
+   `Close`, failure, `T_merge` expiry).
+   *Proposed, not yet reviewed (spec section 5.4, in the answers PR):* a begun operation is a member of the set
+   `Close` waits for (state `CONTINUING`), registered under the mutex while the gate is `OPEN`; `Close` returns
+   **CLOSED-WITH-OPERATION** (not a barrier) if the operation is still `CONTINUING` at the deadline;
+   `quiescent` requires no `CONTINUING` operation; this note's `AdmitContinuation` is the admission for its
+   steps.
+2. **P2:** T33 does not pause the deferred panic abort while a concurrent `Close` runs: add that pause and
+   assert **no BARRIER before the durable abort write**.
+3. **P2:** the E3 `STARTING` duration is still contradictory with note 13.4's sections 4 and 4B (consume held
+   across `STARTING`): reconcile the two (the E3 consume is the registry write).
+4. **P3:** a deadline with a ticket simultaneously `STARTING` and another `ABORTING` is not classified: state
+   which outcome wins (the recommended precedence is CLOSED-WITH-STARTERS over CLOSED-WITH-UNKNOWN).
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
