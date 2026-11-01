@@ -441,3 +441,24 @@ review.
 4. **P3: `STARTING` and `ABORTING` at once.** Closed: the precedence order and T40.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.1 Remaining after the delta review of revision 8 (recorded)
+
+Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
+be resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the
+reviewers'.
+
+1. **P1: a continuation starter created after the snapshot has no deadline outcome.** `S` is a snapshot taken
+   when `Close` begins, while the drain predicate is live; a continuation ticket that becomes `STARTING` after
+   the snapshot is waited for by the predicate but is in no outcome row at the deadline (the outcome table
+   names `S′ ⊆ S`). Required: define the deadline outcome over **all live starters, not the snapshot**;
+   **re-evaluate the whole predicate on every resolution**; test that schedule together with the deadline.
+2. **P1: an admitted continuation can start after its operation became `INCOMPLETE` and after BARRIER.** A
+   continuation ticket is `ADMITTED` when the operation leaves `CONTINUING` (a step failed or aborted, or
+   `T_merge` expired) and the ticket is paused; after BARRIER it can still call `BeginStart` and create a
+   process. Required: **withdraw every admitted continuation ticket on every terminal transition** of the
+   operation (`FINISHED`, `INCOMPLETE`, expiry); `BeginStart` must **check `CONTINUING` atomically** under `mu`;
+   test the paused ticket against failure, abort and expiry, **including duplicate calls**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
