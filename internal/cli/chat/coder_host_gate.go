@@ -28,8 +28,9 @@ type gatedLauncher struct {
 	// svc is the binding service of the host (nil: there is none, so it is never running).
 	svc bindingService
 	// insideTurn says whether the host itself runs inside a coder session's turn (nil: it does not). Every turn it
-	// started would then be a descendant of that one, which a bound turn must not be.
-	insideTurn func() bool
+	// started would then be a descendant of that one, which a bound turn must not be. An error means it could not be
+	// told, and the gate refuses as if the host were inside a turn.
+	insideTurn func() (bool, error)
 	// logf receives the class-level reason a service could not be started; the operator is told generically.
 	logf func(format string, args ...any)
 	// load reads the coder settings (nil: loadCoderSettings); a seam for tests.
@@ -70,8 +71,14 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	if !bool(s.PeercredBinding) {
 		return g.inner, false, nil // off
 	}
-	if g.insideTurn != nil && g.insideTurn() {
-		return nil, false, &bindingRefusal{"the turn was not started: the coder host runs inside a coder session's turn, so every turn it starts would descend from that one; start the host from a terminal"}
+	if g.insideTurn != nil {
+		inside, err := g.insideTurn()
+		if err != nil {
+			return nil, false, &bindingRefusal{"the turn was not started: whether the coder host runs inside a coder session's turn could not be determined"}
+		}
+		if inside {
+			return nil, false, &bindingRefusal{"the turn was not started: the coder host runs inside a coder session's turn, so every turn it starts would descend from that one; start the host from a terminal"}
+		}
 	}
 	// The service is asked to start only when everything else allows it: while this build cannot issue bound
 	// tokens (or the machine cannot run it) nothing is ever started.
