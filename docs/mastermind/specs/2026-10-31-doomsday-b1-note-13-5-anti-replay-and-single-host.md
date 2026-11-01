@@ -1,6 +1,6 @@
 # B1 design note 13.5: anti-replay, freshness and the single host
 
-Status: **design note and test plan, revision 3, no code.** It closes contract 13.5 of
+Status: **design note and test plan, revision 4, no code.** It closes contract 13.5 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults (Q8: one host only).
 Alternatives that depend on an unanswered question are listed in section 10. Wording is class level: this
 repository is public.
@@ -58,12 +58,19 @@ unbounded wait.
    the `committed` line of this transition is appended before any other writer can append anything.
 1. `BEGIN IMMEDIATE` (the database write lock).
 2. Under both locks, **read the head** `(seq n, head MAC)` and **verify freshness** (section 3A).
-3. **Append `pending n+1 <head MAC>` to the witness and fsync.** The head MAC equals the `prev` MAC the new
-   row will carry.
-4. Write the rows with `UNIQUE(generation, seq)` and a condition that `prev` equals the head MAC read in
-   step 2 (a conditional insert).
-5. `COMMIT` (this releases the database write lock).
-6. Append `committed n+1` to the witness and fsync, then release `witness.lock`.
+3. **Append `pending <n+1>..<n+k> kind=<kind> rows=<k> prev=<head MAC>` to the witness and fsync.** A
+   transition writes **k ≥ 1 rows** (a run row with registry and audit rows, an approval with its counter
+   deltas) and takes the seqs `n+1 … n+k` in order. The line carries the **row count and the kind**; `prev` is
+   the head MAC the first new row will carry.
+4. Write the k rows, each with `UNIQUE(generation, seq)` and a condition that its `prev` is the previous
+   row's MAC (the first one the head MAC read in step 2), as conditional inserts **in one transaction**.
+5. `COMMIT` (this releases the database write lock). The transaction is atomic: either all k rows exist or
+   none; a crash between two inserts is a rollback.
+6. Append `committed <n+k> <final head MAC>` to the witness and fsync, then release `witness.lock`.
+
+**The batch rule.** Recovery compares **final values**: the database head after the transition is `(seq n+k,
+final head MAC)`. A database seq strictly between `n` and `n+k` cannot be produced by an atomic transaction;
+if it is seen, it is a fork or an edit, and fails closed (row 13).
 
 Because `witness.lock` spans steps 3-6, a second writer can neither append `pending n+2` into the window
 between the commit and the `committed` line nor fork the line-MAC chain; it waits (bounded) and then re-reads
@@ -94,13 +101,25 @@ registration, in any process**, not only at host start:
   (released at once)**; if
   no live host holds it, no admission or registration is allowed (an outside dispatcher cannot register, the
   CLI cannot admit work). Stop is exempt (section 6): it acts with no host;
-- **file identity, at every transition and every admission, in every process:** for each of the database
-  file, its journal and write-ahead-log files, the witness and `host.lock`, the process compares
-  `fstat(open descriptor)` with `stat(path)` on `(device, inode)` (a process that opened the file records its
-  identity at open). A mismatch means the file was renamed over, restored or swapped under an open handle:
-  **fail closed** (rows 4-9 apply). A host that keeps a handle to a swapped database therefore cannot keep
-  admitting on the old inode, and a CLI that opens the restored database by path finds the head behind the
-  witness.
+- **file identity, and why it is path-level for the database:** SQLite owns the descriptors of the database,
+  journal and write-ahead-log files, so the process cannot compare `fstat` on them. Instead:
+  1. the process **records the `(device, inode)` of the database file path once per host life**, when it first
+     opens it under `host.lock`;
+  2. at **every transition and every admission** it compares `stat(path)` with the recorded identity; a
+     difference (the file was renamed over, restored or swapped) **fails closed**, even though its own pooled
+     connections still read the old inode;
+  3. **every connection the pool opens or reopens** is checked against the recorded identity before use, and a
+     connection to a different identity is **refused and closed**;
+  4. **WAL mode is pinned**: each new connection sets and verifies `journal_mode=WAL` and refuses to proceed
+     otherwise, so the rollback-journal case (a different set of sibling files) does not arise;
+  5. the `-wal` and `-shm` files are **not identity-checked** (SQLite creates and removes them legitimately);
+     a swapped sibling shows up as a head that disagrees with the witness (rows 4-6), and that is the
+     defence.
+
+  For the **witness** and **`host.lock`**, which this code opens itself, the process compares
+  `fstat(open descriptor)` with `stat(path)` on `(device, inode)` at every transition and admission and fails
+  closed on a difference. A host that keeps a handle to a swapped witness cannot keep admitting, and a CLI that
+  opens the restored database by path finds the head behind the witness.
 
 **What Stop writes when freshness fails.** Stop is never blocked by a failed freshness check, but it does not
 add rows to a chain it cannot trust. It writes: the **marker**; the **token revocation** (the token tables,
@@ -120,11 +139,11 @@ section of section 3A.
 | # | Situation | Reading | Action |
 |---|---|---|---|
 | 1 | `D.seq` = last `committed` of the witness | consistent | proceed |
-| 2 | witness has `pending n+1` with no `committed`, `D.seq = n`, the database head MAC **equals the pending line's `prev` MAC**, and the transition is **not** an ending one | crash before the commit | append `abandoned n+1`, proceed |
+| 2 | witness has `pending n+1..n+k` with no `committed`, `D.seq = n`, the database head MAC **equals the pending line's `prev` MAC**, and the transition is **not** an ending one | crash before the commit | append `abandoned n+1`, proceed |
 | 2e | the same, but the transition is an ending one (`stop-requested` or later) | a Stop was being recorded; or a one-step rollback made to look like row 2 | **fail closed** (the marker covers the Stop) |
-| 3 | witness has `pending n+1`, `D.seq = n+1`, the new row's `prev` equals the pending line's `prev` and the head MAC matches | crash after the commit | append `committed n+1`, proceed |
+| 3 | witness has `pending n+1..n+k`, `D.seq = n+k` (the **final** seq), the first new row's `prev` equals the pending line's `prev`, and the head MAC equals the chain computed over the k rows | crash after the commit | append `committed n+k <final head MAC>`, proceed |
 | 4 | `D.seq` < last `committed` | **database rolled back** | fail closed |
-| 5 | `D.seq` is greater than the witness's last `committed`/`pending` and is not row 3 (this includes **exactly one ahead with no `pending` line**) | witness older than the database, lost or restored; or a transition committed without step 3 | fail closed |
+| 5 | `D.seq` is greater than the witness's last `committed`, or than the **final seq** of its last `pending`, and is not row 3 (this includes **exactly one ahead with no `pending` line**) | witness older than the database, lost or restored; or a transition committed without step 3 | fail closed |
 | 6 | `D.seq` = witness but the head MAC differs | a replaced row, or a fork | fail closed |
 | 7 | witness missing or unreadable, database says `running` | cannot prove freshness | fail closed; a **new run** is the only way forward |
 | 8 | witness says the generation ended, database says `running` | rollback of the database | fail closed |
@@ -143,6 +162,15 @@ authority blocks execution.
 Each line is `<payload> <MAC>`, the MAC over the payload and the previous line's MAC. A **torn final line** is
 read as absent **only** if it is the last line: a torn `pending` is row 2, a torn `committed` is row 3
 (derived from `D`) **only if `D` agrees** (`D.seq = n+1` and the MACs match); a torn `committed` line that the database contradicts (`D.seq = n`) is row 13. Any other damage (a bad MAC mid-file, a torn line that is not last) is row 7.
+
+**Append-only repair of a torn tail.** Appending after a torn final line would glue the next line onto the
+fragment. So before any writer appends, under `witness.lock`, it **repairs**: it appends a newline and then a
+`sealed <torn_length> <MAC>` line, where `torn_length` is the number of bytes between the end of the last good
+line and the end of the file, and the MAC chains from the **last good line**. Readers skip exactly
+`torn_length` bytes after the last good line. The file stays append-only (nothing is truncated or edited). The
+repair is **idempotent**: a crash during it leaves either a bare newline (the next writer appends the `sealed`
+line, with `torn_length` measured from the last good line) or a torn `sealed` line (treated as a new torn tail
+and sealed in turn).
 
 ## 5. The anchor, entry, and what a restore can and cannot do
 
@@ -261,7 +289,7 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T18 | the database file swapped under a **running** host | the next admission fails closed (3A) |
 | T19 | an outside dispatcher registers after a restore with **no host** running | refused (no live host holds the lock, or the head is behind the witness) |
 | T20 | a source scan: no ordering or freshness path reads a clock; a clock moved back and forward around a transition | no effect |
-| T21 | a torn final witness line (pending, then committed); a torn line mid-file | row 2 / row 3; mid-file damage is row 7 |
+| T21 | a torn final witness line (pending, then committed), **then another writer appends**; a crash during the repair; a torn `sealed` line; a torn line mid-file | the repair appends a newline and a `sealed` line recording the torn length, the next line frames cleanly, readers skip the torn bytes, the repair is idempotent; a torn `pending` is row 2, a torn `committed` is row 3 (when the database agrees); mid-file damage is row 7 |
 | T22 | replace `host.lock` or the run directory while the host runs; a child that inherited the lock fd | the inode check fails closed; the launcher leaves no inherited lock descriptor |
 | T23 | host id hand-off after an orderly shutdown, and after an unclean loss | adoption only in the first case, conditional on the old id and the clean record |
 | T24 | a state combination matching no row | row 13: fail closed |
@@ -269,8 +297,11 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T26 | the headless case: no secret service at entry | the run is `anchor-bound: no`; the dialog says so; rows 1-8 decide |
 | T27 | Stop writes a column outside its list | refused by the conditional write |
 | T17b | writer A commits and is paused before step 6 (`committed`); writer B starts | B waits on `witness.lock` (bounded) and cannot append `pending n+2` into the window; the line-MAC chain has no fork; after A releases, B re-reads the head |
-| T29 | the database file renamed over by a restored copy while the host runs | the next transition or admission compares `fstat` with `stat`, fails closed; the host does not keep admitting on the old inode |
-| T30 | the journal or write-ahead-log file swapped under an open handle | the same comparison fails closed |
+| T38 | a **k-row** transition (k = 3: a run row, a registry row, an audit row): crash after row 1, after row 2, after row 3 before `COMMIT`, and after `COMMIT` before `committed` | the first three are a rollback (`D.seq = n`, row 2); the last is row 3 with the **final** seq and head MAC; a database whose seq lies strictly between `n` and `n+k` fails closed (row 13) |
+| T39 | the `pending` line carries `rows=k` and `kind`; a `committed` line whose final seq or head MAC does not match the rows | not accepted; fail closed |
+| T29 | the database file renamed over by a restored copy while the host runs | the next transition or admission compares `stat(path)` with the recorded identity and fails closed; the host does not keep admitting on the old inode |
+| T30 | the database renamed over, then a **forced pool reopen** (close all pooled connections, open a new one) | the new connection is checked against the recorded identity and **refused**; WAL mode is verified on every new connection |
+| T30b | the `-wal` file swapped under the host | no identity check on it by design; the head disagrees with the witness at the next transition and fails closed |
 | T31 | the witness renamed over by an older copy while the host runs | fails closed (identity mismatch, then row 5) |
 | T32 | CLI Stop after the database was restored (freshness failed) | writes the marker, the token revocation, the unit kill and a `failed <row>` witness line; **no chained database row** |
 | T33 | entry: the lock order and the `max(counter, witness, anchor)+1` rule under the write lock; anchor write fails at step 1 | `anchor-bound: no` is what the `pending(entry)` line records; no reused number after a crash between steps |
@@ -278,7 +309,7 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T35 | the probe racing a host's start | the host's bounded retry succeeds; no spurious "another host" |
 | T36 | a torn `committed` line while the database says `D.seq = n` | row 13: fail closed |
 | T37 | row 2 with a database head MAC that differs from the pending line's `prev` | not row 2; fail closed |
-| T28 | mutation proof, **one per row and per guard**; also removing the `witness.lock` span (steps 3-6), the lock order, the `abandoned`-before-`pending` rule, any one of the file-identity comparisons (database, journal/WAL, witness, `host.lock`) | removing: each table row's check (1-13); the `UNIQUE(generation, seq)` constraint; the `prev` condition; the witness-tail check in 3A; the live-host probe; the host-id condition; the lock-inode comparison; the anchor comparison; the entry `max(...)+1` rule; the marker's generation test, each fails a named test |
+| T28 | mutation proof, **one per row and per guard**; also removing the batch comparison of final values (T38), the `sealed` repair (T21), the path-identity compare of the database (T29), the pool-reopen check and the WAL pin (T30), and removing the `witness.lock` span (steps 3-6), the lock order, the `abandoned`-before-`pending` rule, any one of the file-identity comparisons (database, journal/WAL, witness, `host.lock`) | removing: each table row's check (1-13); the `UNIQUE(generation, seq)` constraint; the `prev` condition; the witness-tail check in 3A; the live-host probe; the host-id condition; the lock-inode comparison; the anchor comparison; the entry `max(...)+1` rule; the marker's generation test, each fails a named test |
 
 ## 9A. Known limits
 
@@ -311,24 +342,46 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 7. A writer that carries a host id it should not, and the exact columns Stop may write.
 8. The freshness check (3A) skipped by a process that does not take the critical section.
 
-## 12. Open blockers before implementation (from review, recorded verbatim)
+## 12. Blockers recorded from review, and how this revision closes them
 
-Status after the review rounds: three **P1** items remain **open in this revision**. Each must be resolved in a
-later revision before any code in the area lands (spec section 13 gate). They are recorded as the reviewers
-stated them.
+Three P1 items were open in revision 3. They are closed in this revision and await a P1-only delta review.
 
-1. **P1: transactions that write more than one row need a batch rule.** One transition can write several rows
-   (for example a run row plus registry and audit rows). The `pending` line must carry the **row count and
-   kind**, and the `committed` line the **final `seq` and head MAC**; recovery rows 2, 3 and 5 must compare the
-   **final** values, not the first row's. A test with **k rows**, including a **crash between rows**, is
-   required.
-2. **P1: a torn witness tail needs an append-only repair.** Appending after a torn final line corrupts the
-   next line. The repair is: append a newline and then a **`sealed` line that records the torn length**, so
-   the file stays append-only and the framing resumes cleanly. Test T21 must be extended to cover appending
-   after a torn tail and recovery from it.
-3. **P1: database, journal and WAL identity is not implementable as written.** SQLite owns those file
-   descriptors, so the process cannot compare `fstat` on them at every transition. Instead: **record the
-   database identity once per host life**, **refuse any reconnect to a different identity**, **pin WAL mode**,
-   and add a test that **forces a pool reopen after a rename** and sees the refusal.
+1. **P1: transactions that write more than one row need a batch rule.** Closed: the `pending` line carries
+   the seq range, the row count and the kind; the `committed` line carries the final seq and head MAC;
+   recovery rows 2, 3 and 5 compare final values; a seq strictly between `n` and `n+k` fails closed (section 3,
+   tests T38, T39).
+2. **P1: a torn witness tail needs an append-only repair.** Closed: a newline and a `sealed <torn_length>
+   <MAC>` line are appended before any other writer appends, readers skip the torn bytes, and the repair is
+   idempotent (section 4A, T21 extended).
+3. **P1: database, journal and WAL identity was not implementable as written.** Closed: the database
+   identity is recorded once per host life and compared **by path** at every transition and admission, every
+   pooled connection is checked against it on open and a different identity is refused, WAL mode is pinned,
+   and the sibling files are explicitly not identity-checked (section 3A, tests T29, T30, T30b).
+
+Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
+### 12.1 Remaining after the delta review of revision 4 (recorded verbatim)
+
+Three **P1** items and the P2s below are **open in this revision**. Each must be resolved in a later revision
+before any code in the area lands (spec section 13 gate).
+
+1. **P1: the torn-tail repair is not idempotent.** A crash after the newline and before the `sealed` line
+   leaves a terminated invalid line, which becomes mid-file damage once anything is appended; a crash partway
+   through the `sealed` line leaves fragment, newline and a partial `sealed` line. Define **crash-safe
+   authenticated framing** (for example a fixed-length authenticated repair record) and exercise each partial
+   write plus a re-read. Section 4A also calls an absent torn `pending` "row 2", but row 2 needs a complete
+   authenticated `pending`.
+2. **P1: a WAL replaced by rename while the host holds the original open still reads the old inode**, and the
+   head still agrees with the witness, so T30b's guaranteed failure does not follow (SQLite warns that a
+   moved or mismatched hot WAL corrupts recovery). Define a **reliable pinned-file strategy** (an SQLite VFS or
+   an equivalent, its lifecycle and reopen) and test the swap **with descriptors open and after reopen**; do
+   not assume a head mismatch detects it.
+3. **P1: a path-only `stat` does not say which database a newly opened connection holds** (a rename between
+   SQLite's open and the check). Bind the check to the **opened file** (`fstat` on the connection's file, as
+   SQLite's own moved-file detection does) and define the **cross-process identity handoff under the lock**;
+   add a barrier test at open and at rename.
+4. **P2:** section 2 still says `seq` increases once per transition (against k rows); section 4A uses `n+1`
+   for a committed batch; rows 1 and 6, and rows 5 and 3, overlap (specify precedence and the MAC
+   comparisons); test T28 still asks for a journal/WAL identity mutation though that check was removed.
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
