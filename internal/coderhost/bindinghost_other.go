@@ -25,3 +25,15 @@ func (h *BindingHost) Ensure(context.Context, string) error {
 	return errors.New("the binding service needs Linux")
 }
 func (h *BindingHost) Shutdown() {}
+
+// BindingStatus is the state of one profile's service; here there is none.
+type BindingStatus struct {
+	Profile string `json:"profile"`
+	Running bool   `json:"running"`
+	Start   int64  `json:"start"`
+	Pending int    `json:"pending"`
+	Active  int    `json:"active"`
+	Revoked int    `json:"revoked"`
+}
+
+func (h *BindingHost) Status() []BindingStatus { return nil }

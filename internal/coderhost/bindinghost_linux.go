@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -39,6 +40,48 @@ type BindingHost struct {
 type bindingService struct {
 	l    *procbind.SecureListener
 	done chan struct{}
+	seq  int64
+}
+
+// BindingStatus is what `coder host status` shows an operator about one profile's service: counts and states,
+// never a token, a hash, a generation or a key.
+type BindingStatus struct {
+	Profile string `json:"profile"`
+	Running bool   `json:"running"`
+	// Start is the sequence number of the service's start in the profile's host log (1 for the first).
+	Start   int64 `json:"start"`
+	Pending int   `json:"pending"`
+	Active  int   `json:"active"`
+	Revoked int   `json:"revoked"`
+}
+
+// Status lists the services, sorted by profile.
+func (h *BindingHost) Status() []BindingStatus {
+	h.mu.Lock()
+	profiles := make([]string, 0, len(h.svcs))
+	seqs := map[string]int64{}
+	running := map[string]bool{}
+	for p, s := range h.svcs {
+		profiles = append(profiles, p)
+		seqs[p] = s.seq
+		select {
+		case <-s.done:
+		default:
+			running[p] = true
+		}
+	}
+	h.mu.Unlock()
+	sort.Strings(profiles)
+	var counts map[string]procbind.Stats
+	if h.Binder != nil {
+		counts = h.Binder.StatsByProfile()
+	}
+	out := make([]BindingStatus, 0, len(profiles))
+	for _, p := range profiles {
+		c := counts[p]
+		out = append(out, BindingStatus{Profile: p, Running: running[p], Start: seqs[p], Pending: c.Pending, Active: c.Active, Revoked: c.Revoked})
+	}
+	return out
 }
 
 func (h *BindingHost) logf(f string, a ...any) {
@@ -133,7 +176,8 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 		return fail(err)
 	}
 	generation := hex.EncodeToString(g[:])
-	if err := h.writeHostRow(ctx, rowKey, profile, generation); err != nil {
+	seq, err := h.writeHostRow(ctx, rowKey, profile, generation)
+	if err != nil {
 		return fail(fmt.Errorf("the binding service could not record its start: %w", err))
 	}
 	answerKey, err := procbind.AnswerKey(ctx, h.DB, profile, generation)
@@ -146,7 +190,7 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	}
 	srv := &procbind.Server{Profile: profile, Generation: generation, Key: answerKey, Leases: h.Binder, Procs: procs, UID: os.Getuid(),
 		Logf: func(f string, a ...any) { h.logf("binding service: "+f, a...) }}
-	s := &bindingService{l: l, done: make(chan struct{})}
+	s := &bindingService{l: l, done: make(chan struct{}), seq: seq}
 	go func() {
 		defer close(s.done)
 		_ = srv.Serve(l)
@@ -159,14 +203,14 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	return nil
 }
 
-func (h *BindingHost) writeHostRow(ctx context.Context, key []byte, profile, generation string) error {
+func (h *BindingHost) writeHostRow(ctx context.Context, key []byte, profile, generation string) (int64, error) {
 	conn, err := h.DB.Conn(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		return err
+		return 0, err
 	}
 	committed := false
 	defer func() {
@@ -174,14 +218,15 @@ func (h *BindingHost) writeHostRow(ctx context.Context, key []byte, profile, gen
 			_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
 		}
 	}()
-	if _, err := procbind.InsertHost(ctx, conn, key, profile, generation, h.now()); err != nil {
-		return err
+	row, err := procbind.InsertHost(ctx, conn, key, profile, generation, h.now())
+	if err != nil {
+		return 0, err
 	}
 	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
-		return err
+		return 0, err
 	}
 	committed = true
-	return nil
+	return row.Seq, nil
 }
 
 // Shutdown revokes every registration, closes every socket and waits for the serve loops. It is idempotent; after
