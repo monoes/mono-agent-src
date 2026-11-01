@@ -35,22 +35,31 @@ func Reevaluate(cs []DirCandidate, w map[string]float64, k int, current []Curren
 	for _, c := range cs {
 		byKey[titleKey(c.Title)] = c
 	}
-	if len(current) > HardMaxDirections {
-		return nil, nil, fmt.Errorf("at most %d current directions", HardMaxDirections)
+	if len(current) > MaxCandidates {
+		return nil, nil, fmt.Errorf("at most %d current directions", MaxCandidates)
 	}
+	// live holds the first direction of each normalized title. Later ones with the same title (distinct sessions) are
+	// duplicates of it: they follow its fate (merged into it when it is kept, dropped when it is not).
 	live := map[string]CurrentDirection{}
-	for _, d := range current {
+	isDup := make([]bool, len(current))
+	sessions := map[int64]bool{}
+	for i, d := range current {
 		key := titleKey(d.Title)
 		if _, ok := byKey[key]; !ok {
 			return nil, nil, fmt.Errorf("current direction %q is not among the candidates: score it again with the others", oneLine(d.Title))
 		}
-		if _, dup := live[key]; dup {
-			return nil, nil, fmt.Errorf("current direction %q is listed twice", oneLine(d.Title))
-		}
 		if d.SessionID < 0 {
 			return nil, nil, fmt.Errorf("current direction %q has a bad session id", oneLine(d.Title))
 		}
-		live[key] = d
+		if first, same := live[key]; same {
+			if d.SessionID == 0 || first.SessionID == 0 || sessions[d.SessionID] {
+				return nil, nil, fmt.Errorf("current direction %q is listed twice", oneLine(d.Title))
+			}
+			isDup[i] = true
+		} else {
+			live[key] = d
+		}
+		sessions[d.SessionID] = true
 	}
 	for _, c := range cs {
 		if c.MergeWith == "" {
@@ -98,9 +107,12 @@ func Reevaluate(cs []DirCandidate, w map[string]float64, k int, current []Curren
 			out = append(out, Decision{Action: ActAdd, Title: r.Title})
 		}
 	}
-	for _, d := range current {
+	for i, d := range current {
 		key := titleKey(d.Title)
 		if desired[key] {
+			if isDup[i] {
+				out = append(out, Decision{Action: ActMerge, Title: byKey[key].Title, SessionID: d.SessionID, Into: byKey[key].Title, IntoSessionID: live[key].SessionID})
+			}
 			continue
 		}
 		title := byKey[key].Title
@@ -111,4 +123,15 @@ func Reevaluate(cs []DirCandidate, w map[string]float64, k int, current []Curren
 		out = append(out, Decision{Action: ActDrop, Title: title, SessionID: d.SessionID})
 	}
 	return ranked, out, nil
+}
+
+// firstID is the lowest id in a set, for a stable message.
+func firstID(ids map[int64]bool) int64 {
+	var low int64
+	for id := range ids {
+		if low == 0 || id < low {
+			low = id
+		}
+	}
+	return low
 }

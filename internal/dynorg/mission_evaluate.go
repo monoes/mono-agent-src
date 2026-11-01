@@ -214,8 +214,8 @@ func (a evaluateArgs) checkSizes() error {
 	if len(a.Reason) > maxReasonBytes {
 		return fmt.Errorf("reason is required, at most 300 characters")
 	}
-	if len(a.Current) > HardMaxDirections {
-		return fmt.Errorf("at most %d current directions", HardMaxDirections)
+	if len(a.Current) > MaxCandidates {
+		return fmt.Errorf("at most %d current directions", MaxCandidates)
 	}
 	for _, d := range a.Current {
 		if len(d.Title) > maxTitleBytes {
@@ -261,9 +261,13 @@ func (c *Conductor) checkCurrent(ctx context.Context, mc *MissionRun, m *Mission
 			open = append(open, se)
 		}
 	}
-	openTitle := map[string]int64{}
+	openTitle := map[string]map[int64]bool{} // several open directions may share a normalized title
 	for _, se := range open {
-		openTitle[titleKey(se.Title)] = se.ID
+		k := titleKey(se.Title)
+		if openTitle[k] == nil {
+			openTitle[k] = map[int64]bool{}
+		}
+		openTitle[k][se.ID] = true
 	}
 	seen := map[int64]bool{}
 	out := make([]CurrentDirection, 0, len(current))
@@ -286,8 +290,8 @@ func (c *Conductor) checkCurrent(ctx context.Context, mc *MissionRun, m *Mission
 		case se.Archived:
 			return nil, fmt.Errorf("session #%d (current direction %q) is not an open session of this profile", d.SessionID, title)
 		}
-		if other, taken := openTitle[titleKey(d.Title)]; taken && other != d.SessionID {
-			return nil, fmt.Errorf("session #%d is titled %q, not %q (that is session #%d): pass each direction with its own session id", d.SessionID, oneLine(se.Title), title, other)
+		if owners := openTitle[titleKey(d.Title)]; len(owners) > 0 && !owners[d.SessionID] {
+			return nil, fmt.Errorf("session #%d is titled %q, not %q (that is session #%d): pass each direction with its own session id", d.SessionID, oneLine(se.Title), title, firstID(owners))
 		}
 		seen[d.SessionID] = true
 		out = append(out, CurrentDirection{Title: se.Title, SessionID: d.SessionID})
