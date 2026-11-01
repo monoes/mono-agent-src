@@ -102,10 +102,13 @@ type SubmitInput struct {
 	Goal          string
 	Context       []ContextSource
 	ApplicationID string
-	Access        string
-	Runtime       string
-	Unattended    bool
-	QueueOnly     bool
+	// Owner is a private token of the caller that made this submit (empty for none); it is stored on the task so
+	// that caller can tell its own task from another one that has the same id.
+	Owner      string
+	Access     string
+	Runtime    string
+	Unattended bool
+	QueueOnly  bool
 	// BudgetUSD is the spend cap; nil takes the launcher's default. 0 is no
 	// spend and the task is refused: it is never read as unlimited.
 	BudgetUSD *float64
@@ -170,7 +173,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (out Task, err err
 		// A caller-named id is reserved before any conversation or context folder is made for it, so of two submits
 		// that name one id the table key lets exactly one go on. A submit that stops after this leaves the row failed.
 		if err := s.Store.Reserve(Task{ID: in.ID, Kind: kind.Name, Goal: goal, ApplicationID: in.ApplicationID,
-			Access: access, Profile: s.Store.Profile}); err != nil {
+			Access: access, Owner: in.Owner, Profile: s.Store.Profile}); err != nil {
 			return Task{}, err
 		}
 		reserved = true
@@ -183,7 +186,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (out Task, err err
 		in.ID = NewID()
 	}
 	t := Task{ID: in.ID, Kind: kind.Name, ConversationID: conv.ID, Status: StatusQueued, Goal: goal,
-		ApplicationID: in.ApplicationID, Access: access, Runtime: conv.Runtime, Unattended: in.Unattended,
+		ApplicationID: in.ApplicationID, Owner: in.Owner, Access: access, Runtime: conv.Runtime, Unattended: in.Unattended,
 		BudgetUSD: budget, Profile: s.Store.Profile}
 	files, err := WriteContext(conv.Cwd, t.ID, in.Context, s.Redact)
 	if err != nil {
@@ -214,7 +217,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (out Task, err err
 		return t, nil
 	}
 	started, err := s.Start(ctx, t.ID)
-	var held *admitRefusal
+	var held *budgetHold
 	if err != nil && !errors.As(err, &held) {
 		// A task this call made and could not start is not left queued for nobody; a budget hold is the exception:
 		// it keeps the task queued to be started later.
@@ -222,11 +225,6 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (out Task, err err
 	}
 	return started, err
 }
-
-// admitRefusal marks an Admit refusal: the task stays queued.
-type admitRefusal struct{ error }
-
-func (e *admitRefusal) Unwrap() error { return e.error }
 
 // budget is the cap a task gets: the one asked for, else the default. Zero
 // or less is "no spend", which no task can run on.
@@ -279,7 +277,10 @@ func (s *Service) Start(ctx context.Context, id string) (Task, error) {
 	}
 	if s.Admit != nil {
 		if _, err := s.Admit(ctx, t); err != nil {
-			return Task{}, &admitRefusal{err}
+			if IsBudgetHold(err) {
+				return Task{}, &budgetHold{err}
+			}
+			return Task{}, err
 		}
 	}
 	// The turn reads a verified, read-only copy, never the original folder.

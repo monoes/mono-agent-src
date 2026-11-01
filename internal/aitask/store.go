@@ -21,7 +21,14 @@ const (
 	StatusComplete  = "complete"
 	StatusFailed    = "failed"
 	StatusCancelled = "cancelled"
+	// StatusReserved is a caller-named id held while its submit is still being made: not terminal, not a task a
+	// person sees (List skips it), and never startable.
+	StatusReserved = "reserved"
 )
+
+// ReservationTTL is how long a reservation may stay unfinished before Store.ReapReservations fails it (its submit
+// is taken to have died).
+const ReservationTTL = 5 * time.Minute
 
 // Terminal reports whether a task in status s is over for good.
 func Terminal(s string) bool {
@@ -47,6 +54,8 @@ type Task struct {
 	Runtime    string `json:"-"`
 	Unattended bool   `json:"-"`
 	Prompt     string `json:"-"`
+	// Owner is the private attempt token of the caller that made the task (see SubmitInput.Owner).
+	Owner string `json:"-"`
 	// What `start` checks against the task as it was at submit.
 	Cwd         string `json:"-"`
 	ContextHash string `json:"-"`
@@ -71,7 +80,7 @@ func (s *Store) now() string {
 }
 
 const taskColumns = `id, profile_id, kind, conversation_id, status, goal, application_id, access, runtime,
-	unattended, prompt, budget_usd, cwd, context_hash, caps_hash, result_json, error, created_at, updated_at`
+	unattended, prompt, budget_usd, cwd, context_hash, caps_hash, result_json, error, owner, created_at, updated_at`
 
 type scanner interface{ Scan(...any) error }
 
@@ -80,7 +89,7 @@ func scanTask(r scanner) (Task, error) {
 	var unattended int
 	var result string
 	err := r.Scan(&t.ID, &t.Profile, &t.Kind, &t.ConversationID, &t.Status, &t.Goal, &t.ApplicationID, &t.Access,
-		&t.Runtime, &unattended, &t.Prompt, &t.BudgetUSD, &t.Cwd, &t.ContextHash, &t.CapsHash, &result, &t.Error, &t.CreatedAt, &t.UpdatedAt)
+		&t.Runtime, &unattended, &t.Prompt, &t.BudgetUSD, &t.Cwd, &t.ContextHash, &t.CapsHash, &result, &t.Error, &t.Owner, &t.CreatedAt, &t.UpdatedAt)
 	t.Unattended = unattended != 0
 	if result != "" {
 		t.Result = json.RawMessage(result)
@@ -116,20 +125,21 @@ func (s *Store) insert(t Task) (Task, error) {
 		un = 1
 	}
 	_, err := s.DB.Exec(`INSERT INTO ai_tasks (id, profile_id, kind, conversation_id, status, goal, application_id,
-		access, runtime, unattended, prompt, budget_usd, cwd, context_hash, caps_hash, error, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		access, runtime, unattended, prompt, budget_usd, cwd, context_hash, caps_hash, error, owner, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.Profile, t.Kind, t.ConversationID, t.Status, t.Goal, t.ApplicationID, t.Access, t.Runtime, un,
-		t.Prompt, t.BudgetUSD, t.Cwd, t.ContextHash, t.CapsHash, t.Error, now, now)
+		t.Prompt, t.BudgetUSD, t.Cwd, t.ContextHash, t.CapsHash, t.Error, t.Owner, now, now)
 	return t, err
 }
 
-// reservedMark is the error text of a row that holds a caller-named id while its submit is still being made.
-const reservedMark = "being submitted"
-
 // Reserve takes the caller-named id t.ID before anything else is made for it: the table key is the gate, so of two
-// submits that name one id only one gets past here. The row is failed (never startable) until Fill completes it;
-// Abandon records why it never was. A taken id is refused with CodeInvalidInput.
+// submits that name one id only one gets past here. The row is StatusReserved (never startable, not listed, not a
+// finished task to anything that judges tasks) until Fill queues it; Abandon fails it with the reason. A taken id
+// is refused with CodeInvalidInput. A reservation older than ReservationTTL is failed first (its submit died).
 func (s *Store) Reserve(t Task) error {
-	t.Status, t.Error = StatusFailed, reservedMark
+	if err := s.ReapReservations(); err != nil {
+		return err
+	}
+	t.Status = StatusReserved
 	if _, err := s.insert(t); err != nil {
 		if taken, terr := s.IDTaken(t.ID); terr == nil && taken {
 			return errf(CodeInvalidInput, "--task-id %s is already a task", t.ID)
@@ -139,7 +149,39 @@ func (s *Store) Reserve(t Task) error {
 	return nil
 }
 
-// Fill completes the row Reserve made: the whole task, queued.
+// ReapReservations fails the profile's reservations that have been open longer than ReservationTTL.
+func (s *Store) ReapReservations() error {
+	rows, err := s.DB.Query(`SELECT id, updated_at FROM ai_tasks WHERE profile_id = ? AND status = ?`, s.Profile, StatusReserved)
+	if err != nil {
+		return err
+	}
+	var stale []string
+	cutoff := time.Now().Add(-ReservationTTL)
+	if s.Now != nil {
+		cutoff = s.Now().Add(-ReservationTTL)
+	}
+	for rows.Next() {
+		var id, at string
+		if err := rows.Scan(&id, &at); err != nil {
+			rows.Close()
+			return err
+		}
+		if when, perr := time.Parse(time.RFC3339Nano, at); perr != nil || when.Before(cutoff) {
+			stale = append(stale, id)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range stale {
+		if _, err := s.move(id, []string{StatusReserved}, StatusFailed, map[string]any{"error": "the submit never finished"}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Fill completes the row Reserve made: the whole task, queued. It holds only while the row is still reserved.
 func (s *Store) Fill(t Task) (Task, error) {
 	un := 0
 	if t.Unattended {
@@ -148,22 +190,36 @@ func (s *Store) Fill(t Task) (Task, error) {
 	t.Profile, t.UpdatedAt = s.Profile, s.now()
 	res, err := s.DB.Exec(`UPDATE ai_tasks SET kind = ?, conversation_id = ?, status = ?, goal = ?, application_id = ?,
 		access = ?, runtime = ?, unattended = ?, prompt = ?, budget_usd = ?, cwd = ?, context_hash = ?, caps_hash = ?,
-		error = '', updated_at = ? WHERE id = ? AND profile_id = ? AND status = ? AND error = ?`,
+		error = '', updated_at = ? WHERE id = ? AND profile_id = ? AND status = ?`,
 		t.Kind, t.ConversationID, StatusQueued, t.Goal, t.ApplicationID, t.Access, t.Runtime, un, t.Prompt, t.BudgetUSD,
-		t.Cwd, t.ContextHash, t.CapsHash, t.UpdatedAt, t.ID, s.Profile, StatusFailed, reservedMark)
+		t.Cwd, t.ContextHash, t.CapsHash, t.UpdatedAt, t.ID, s.Profile, StatusReserved)
 	if err != nil {
 		return t, err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
-		return t, errf(CodeTaskClosed, "task %s was reserved but is no longer", t.ID)
+		return t, errf(CodeTaskClosed, "task %s was reserved but the reservation is gone", t.ID)
 	}
 	return s.Get(t.ID)
 }
 
-// Abandon leaves the row Reserve made failed, with the reason the submit did not finish.
+// Abandon fails the row Reserve made, with the reason the submit did not finish.
 func (s *Store) Abandon(id, reason string) {
-	_, _ = s.DB.Exec(`UPDATE ai_tasks SET error = ?, updated_at = ? WHERE id = ? AND profile_id = ? AND status = ? AND error = ?`,
-		clip(reason), s.now(), id, s.Profile, StatusFailed, reservedMark)
+	_, _ = s.move(id, []string{StatusReserved}, StatusFailed, map[string]any{"error": clip(reason)})
+}
+
+// CancelQueuedOwned cancels task id only while it is still queued and was made by owner for application: one
+// statement, so a task that started in the meantime is not touched. It says whether it cancelled.
+func (s *Store) CancelQueuedOwned(id, owner, applicationID string) (bool, error) {
+	if owner == "" {
+		return false, nil
+	}
+	res, err := s.DB.Exec(`UPDATE ai_tasks SET status = ?, updated_at = ? WHERE id = ? AND profile_id = ? AND status = ?
+		AND owner = ? AND application_id = ?`, StatusCancelled, s.now(), id, s.Profile, StatusQueued, owner, applicationID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
 }
 
 // IDTaken says whether any profile has a task with this id (the id is the table's key).
@@ -185,7 +241,7 @@ func (s *Store) Get(id string) (Task, error) {
 // List returns the profile's tasks, newest first, filtered by kind and
 // application when those are set.
 func (s *Store) List(kind, applicationID string) ([]Task, error) {
-	q := `SELECT ` + taskColumns + ` FROM ai_tasks WHERE profile_id = ?`
+	q := `SELECT ` + taskColumns + ` FROM ai_tasks WHERE profile_id = ? AND status != '` + StatusReserved + `'`
 	args := []any{s.Profile}
 	if kind != "" {
 		q += ` AND kind = ?`

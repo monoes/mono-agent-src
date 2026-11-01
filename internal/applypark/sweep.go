@@ -36,6 +36,10 @@ func Sweep(ctx context.Context, store Store, apps *applications.Store, live []Li
 	for _, t := range live {
 		open[t.TabID] = true
 	}
+	// A reservation whose submit died would hold its tab for ever: fail it so the tab's task counts as over.
+	if err := (&aitask.Store{DB: store.DB, Profile: store.Profile}).ReapReservations(); err != nil {
+		return res, err
+	}
 	tabs, err := store.Live(ctx)
 	if err != nil {
 		return res, err

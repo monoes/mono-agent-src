@@ -314,6 +314,36 @@ func TestSweepParksATabWhoseTaskEnded(t *testing.T) {
 	}
 }
 
+// A submit that has reserved its task id is still making the task: the tab held under it is not given back, and one
+// whose submit died (a stale reservation) is.
+func TestSweepKeepsATabHeldUnderAReservationAndReapsAStaleOne(t *testing.T) {
+	db, st, apps := fixture(t)
+	live1 := parkedApp(t, st, apps, 7)
+	dead := parkedApp(t, st, apps, 8)
+	tasks := &aitask.Store{DB: db, Profile: profile}
+	for app, id := range map[string]string{live1: "at-00000000000000b1", dead: "at-00000000000000b2"} {
+		if err := tasks.Reserve(aitask.Task{ID: id, Kind: "application-apply", Goal: "g", ApplicationID: app}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetState(bg, app, StateActive, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`UPDATE ai_tasks SET updated_at = ? WHERE id = 'at-00000000000000b2'`,
+		time.Now().Add(-2*aitask.ReservationTTL).UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	tabs := []LiveTab{live(7, "https://jobs.example/a"), live(8, "https://jobs.example/b")}
+	if _, err := Sweep(bg, st, apps, tabs); err != nil {
+		t.Fatal(err)
+	}
+	for app, want := range map[string]State{live1: StateActive, dead: StateParked} {
+		if tab, _ := st.Get(bg, app); tab.State != want {
+			t.Errorf("%s: state %s, want %s", app, tab.State, want)
+		}
+	}
+}
+
 // A resume holds the tab under the id of the task it is about to create. One that died before creating it leaves
 // a tab held under an id no task has; once the hold is older than any resume could take, the sweep gives it back.
 // A task that exists is judged like any other, and a fresh hold is a resume in flight.

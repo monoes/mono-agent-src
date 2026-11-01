@@ -191,6 +191,7 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	}
 	parked := tab.State == applypark.StateParked
 	taskID := aitask.NewID()
+	owner := aitask.NewToken()
 	if parked {
 		// The tab is held under the id the task will take, so no placeholder and no second write: the hold becomes
 		// the task's own the moment it exists.
@@ -200,7 +201,7 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 			return d.InvalidInput("application %s's tab changed while it was resumed: look at it again", id)
 		}
 	}
-	if _, err := d.startFill(context.WithValue(ctx, fillTaskIDKey{}, taskID), id, runtime); err != nil {
+	if _, err := d.startFill(context.WithValue(context.WithValue(ctx, fillTaskIDKey{}, taskID), fillOwnerKey{}, owner), id, runtime); err != nil {
 		// Also for a lost tab: a submit that answered with another task made one that must not keep running.
 		var owned []string
 		var wrong *wrongTaskError
@@ -213,15 +214,8 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 			owned = append(owned, started.ID)
 		}
 		if len(owned) == 0 && !errors.As(err, &refused) {
-			// The submit ended without an answer (the child died): what it left under our id is the truth.
-			task, gerr := (&aitask.Store{DB: db.DB, Profile: d.ProfileID()}).Get(taskID)
-			switch {
-			case gerr != nil:
-			case task.Status == aitask.StatusRunning || task.Status == aitask.StatusNeedsUser:
-				// Started and holding the tab under its own id: not undone, not reported as a failed resume.
-				return fmt.Errorf("the submit for application %s ended without an answer, but task %s was made and is %s; the tab stays with it (%v)", id, taskID, task.Status, err)
-			case task.Status == aitask.StatusQueued:
-				owned = append(owned, taskID)
+			if kept := d.recoverNoAnswer(db.DB, id, taskID, owner, err); kept != nil {
+				return kept
 			}
 		}
 		return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, owned, err)
@@ -246,6 +240,32 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 func hasCode(err error, code string) bool {
 	var e *aitask.Error
 	return errors.As(err, &e) && e.Code == code
+}
+
+// recoverNoAnswer looks at what a submit that ended without an answer left under the id this resume asked for. It
+// acts only on a task this resume made (its application and its private owner token): a task another submit made
+// under the same id is left alone. It returns the error to report when the resume must not be undone (the task
+// is running, holding the tab under its own id), and nil when the caller goes on to give the tab back; a queued
+// task of ours is cancelled first, in one statement that holds only while it is still queued.
+func (d Deps) recoverNoAnswer(db *sql.DB, id, taskID, owner string, cause error) error {
+	tasks := &aitask.Store{DB: db, Profile: d.ProfileID()}
+	task, err := tasks.Get(taskID)
+	if err != nil || task.Owner == "" || task.Owner != owner || task.ApplicationID != id {
+		return nil
+	}
+	if task.Status == aitask.StatusQueued {
+		cancelled, cerr := tasks.CancelQueuedOwned(taskID, owner, id)
+		if cerr != nil || cancelled {
+			return nil
+		}
+		if task, err = tasks.Get(taskID); err != nil {
+			return nil
+		}
+	}
+	if task.Status == aitask.StatusRunning || task.Status == aitask.StatusNeedsUser {
+		return fmt.Errorf("the submit for application %s ended without an answer, but task %s was made and is %s; the tab stays with it (%v)", id, taskID, task.Status, cause)
+	}
+	return nil
 }
 
 // giveBack undoes a resume that did not get its task running: the tab goes back to parked while it is still held

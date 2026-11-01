@@ -50,8 +50,11 @@ func (b *browser) install(t *testing.T, dbPath string) {
 	applyfill.Parking = &applyfill.ParkingConfig{Live: read}
 	liveTabs = func(ctx context.Context, d Deps) ([]applypark.LiveTab, error) { return read(ctx, d.ProfileID()) }
 	submitTask = func(_ context.Context, args []string) ([]byte, error) {
-		app, want := "", aitask.NewID()
+		app, want, owner := "", aitask.NewID(), ""
 		for i, a := range args {
+			if a == "--owner" {
+				owner = args[i+1]
+			}
 			if a == "--application" {
 				app = args[i+1]
 			}
@@ -76,7 +79,7 @@ func (b *browser) install(t *testing.T, dbPath string) {
 		defer db.Close()
 		result := fmt.Sprintf(`{"status":"filled","fields":[{"label":"Email","value":"a@b.example","source":"Facts"}],"tabId":%d,"origin":"https://acme.example"}`, tab)
 		task, err := (&aitask.Store{DB: db.DB, Profile: "default"}).Insert(aitask.Task{ID: want, Kind: applyfill.Kind,
-			ConversationID: fmt.Sprintf("conv-%d", tab), Status: b.status, Goal: "g", ApplicationID: app, Access: aitask.AccessWorkspace, BudgetUSD: 1})
+			ConversationID: fmt.Sprintf("conv-%d", tab), Status: b.status, Goal: "g", ApplicationID: app, Owner: owner, Access: aitask.AccessWorkspace, BudgetUSD: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -752,5 +755,48 @@ func TestResumeHelpSaysItStandsWhenItsReportFails(t *testing.T) {
 				t.Fatalf("resume help = %q", r.Long)
 			}
 		}
+	}
+}
+
+// Another submit reserved or made a task under the id this resume asked for (ids are visible in the tab hold and
+// --task-id is the caller's choice). A resume whose own submit then ended without an answer must not cancel it,
+// nor report it as its own: it gives the tab back and leaves the task alone.
+func TestResumeLeavesAnotherSubmitsTaskUnderItsIdAlone(t *testing.T) {
+	for _, status := range []string{aitask.StatusQueued, aitask.StatusRunning} {
+		t.Run(status, func(t *testing.T) {
+			dbPath := homeDB(t)
+			ids := jobs(t, dbPath, 1)
+			b := &browser{}
+			b.install(t, dbPath)
+			if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+				t.Fatalf("queue: %v (%s)", err, out)
+			}
+			var taskID string
+			submitTask = func(_ context.Context, args []string) ([]byte, error) {
+				taskID = flagValues(args, "--task-id")[0]
+				withDB(t, dbPath, func(db *sql.DB) {
+					if _, err := (&aitask.Store{DB: db, Profile: "default"}).Insert(aitask.Task{ID: taskID, Kind: applyfill.Kind,
+						ConversationID: "other", Status: status, Goal: "g", ApplicationID: ids[0], Owner: "someone-else",
+						Access: aitask.AccessWorkspace, BudgetUSD: 1}); err != nil {
+						t.Fatal(err)
+					}
+				})
+				return nil, errors.New("signal: killed")
+			}
+			_, err := run(t, dbPath, true, "fill", "resume", ids[0])
+			if err == nil || strings.Contains(err.Error(), "was made and is") {
+				t.Fatalf("resume = %v: another submit's task was reported as this resume's", err)
+			}
+			withDB(t, dbPath, func(db *sql.DB) {
+				task, gerr := (&aitask.Store{DB: db, Profile: "default"}).Get(taskID)
+				tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+				if gerr != nil || task.Status != status {
+					t.Fatalf("another submit's task was touched: %+v %v", task, gerr)
+				}
+				if tab.State != applypark.StateParked {
+					t.Fatalf("the tab stays held under an id that is not this resume's task: %+v", tab)
+				}
+			})
+		})
 	}
 }
