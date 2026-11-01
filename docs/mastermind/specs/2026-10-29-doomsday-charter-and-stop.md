@@ -388,8 +388,22 @@ what belongs to a run:
   - **Organisation runs and workers (`internal/dynorg`)**: stop through the conductor; note that a merge in
     progress is today designed to **finish** after a turn stops and leave the repository consistent
     (`internal/dynorg/worktree_test.go`: stopping the turn before the merge still merges). Under Stop that
-    behaviour is settled (Q11, answered): a merge already begun is *admitted-before-Stop* (it finishes, as
-    the test pins, and is reported); a merge not yet begun does not start.
+    behaviour is settled (Q11, answered) and is defined as a **continuation exception**, because each step of a
+    merge has its own ticket (note 13.1, E2) and `Admit`/`BeginStart` refuse after closure:
+    - A merge is **begun** when its first step's ticket is `STARTED`; at that moment it is registered as a
+      *begun operation* with its fixed list of remaining steps.
+    - After `Close`, **only the remaining steps of an already begun operation, and only those, are admitted**,
+      through a *continuation ticket* (`AdmitContinuation(op, step)`), which refuses any step that is not the
+      operation's next registered step, any new operation, and any step once the operation's bound has passed.
+    - The exception is **bounded**: the operation's own step list, and a wall-clock bound `T_merge` after which
+      the continuation is withdrawn, the remaining steps do not run, the operation is recorded `incomplete`
+      (note 13.3) and reported. The containment kill (13.2) of the merge's processes is deferred until the
+      operation ends or `T_merge` passes; other processes of the run are killed on the usual schedule.
+    - A merge **not yet begun** (no `STARTED` first step) does not start: its `BeginStart` is refused.
+    - The merge is reported in the pane with its state (finishing, finished, incomplete).
+    - Test: Stop between steps (pause between step 1 and step 2): step 2 runs through its continuation
+      ticket, a new merge is refused, a step outside the list is refused, and an overrun of `T_merge` leaves
+      `incomplete`.
   - **Browser tasks and approvals**: pending browser-form submits and their person items
     (`internal/cli/hil/browser_submit.go`, `browserctl`) are voided at Stop; an approval racing Stop never
     produces the submit (the dispatcher's barrier, 5.2).
@@ -469,6 +483,10 @@ Deterministic barriers (injected pause points), not sleeps:
   parked work and stays unfinished. Every auto-approval is an audit row (the limits used, the actual values),
   and the tests of note 13.4 cover the path: a request just inside, just over, and a split into many small asks
   (the limits are checked against the **cumulative** spend and task count of the run, not only per request).
+  **The cumulative check is atomic with the approval**: the run's counters are insert-only delta rows and the
+  conditional insert `SUM(n) + n <= cap` runs in **the same statement and transaction as the approval's
+  consume** (note 13.4), so concurrent asks race for the last unit in one place, a split ask counts as the sum
+  of its parts, and a retry that is the same ask (same approval id) is not double counted.
 - The boss answers the ordinary questions that reach the root for the lines the charter ticked, as typed
   operations (section 4.1). For a class a charter did not lift, nobody answers: the question stays parked.
 - **The audit stream is a new, separate, append-only table, not the existing decisions ledger.**
@@ -557,8 +575,11 @@ See section 12.5 for the questions, each with the recommended default and the co
     platform-caps line ticked by habit.
 12. A second start while a run is active, or two hosts on one database.
 13. The pane or tray showing `running` after `stop-requested` (stale UI is a safety issue here).
-14. Giant plan and critical ask parked: does the run stall, does a fallback answer them, does a path
-    auto-approve them (6)?
+13b. **The continuation exception (Q11):** a new operation or an out-of-list step entered through a
+    continuation ticket after `Close`; the bound `T_merge` ignored; the containment kill deferred forever.
+14. Giant plan and critical ask: over a limit it must park (does the run stall, does a fallback answer it, does a
+    path auto-approve it); **inside** a limit the auto-approval must check **every** limit at the effect, the
+    cumulative totals included (6, note 13.4 section 4B).
 15. The "judging" purpose, the boss model and the verifier model changing mid-run (pinned, 3.1).
 16. Depth and width constants shared with mission mode: the charter value must be an input scoped to charter
     sessions, with the constants untouched and a test that a non-charter session is still refused at the

@@ -174,6 +174,15 @@ anything over parks as a person item. This note makes that path as strict as any
   requirement added here for review; the operator's answer says "per-ask limits".)
 - **The approval record carries the limits it was approved under** (`limit_id` and the values) and the actual
   values checked, so the audit shows what the boss was allowed and what it was given.
+- **Atomicity of the cumulative check.** The totals are `run_counter_deltas` rows (insert-only); the
+  approval's consume does a **conditional insert `SUM(n) + n <= cap` in the same statement and the same
+  transaction as the consumed row, the audit row and, for an E4 effect, the effect**. Consequences, each a
+  test: **concurrent asks** racing the last unit (exactly the available units succeed); **many small asks**
+  crossing the cap (the crossing ask parks); a **split ask** (one big plan presented as several smaller ones
+  is counted as the sum); a **retry of the same ask** (same approval id; the consumed row's primary key makes
+  it a no-op, so it is not double counted); a **retry of a failed E4 effect** (the whole transaction rolled
+  back, so the counter is unspent); a retry after an E3 consume (the unit was spent at consume and is not
+  returned, the safe direction).
 - **Over a limit:** the request is not refused, it **parks** as a person item exactly as before, and the audit
   records which limit it exceeded.
 - **Never widened by this path:** a plan whose approval would raise an access level above `ask_access`, grant a
