@@ -170,10 +170,11 @@ func fakeChildBin(t *testing.T, dir string) (bin string) {
 		"if [ -n \"$MONOAGENT_MISSION_FD\" ]; then eval \"read -r tok <&$MONOAGENT_MISSION_FD\"; echo \"$tok\" > '" + filepath.Join(dir, "tok.txt") + "'; fi\n" +
 		"cat > /dev/null\n" +
 		"echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\n" +
-		"while [ ! -e '" + filepath.Join(dir, "release") + "' ]; do sleep 0.05; done\n"
+		"p0=$PPID; while [ -d '" + dir + "' ] && [ ! -e '" + filepath.Join(dir, "release") + "' ] && kill -0 $p0 2>/dev/null; do sleep 0.05; done\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	reapFakeTurns(t, dir)
 	return bin
 }
 

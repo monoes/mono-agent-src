@@ -17,6 +17,7 @@ import (
 func TestStopAfterANaturalEndKillsTheTurnsBackgroundProcess(t *testing.T) {
 	for name, delay := range map[string]time.Duration{"at once": 0, "after 300 ms": 300 * time.Millisecond} {
 		dir := t.TempDir()
+		reapFakeTurns(t, dir)
 		bin := filepath.Join(dir, "fake-monoagentcli")
 		body := "#!/bin/sh\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 300 &\necho $! > '" + filepath.Join(dir, "bg") + "'\nexit 0\n"
 		if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {

@@ -24,7 +24,7 @@ func TestALateExitOfARefusedTurnLeavesTheNextTurnsTokenAlone(t *testing.T) {
 	script := `trap '' TERM
 d=$(dirname "$0")
 echo $$ > "$d/pid"
-while [ ! -e "$d/release" ]; do sleep 0.05; done
+p0=$PPID; while [ -d "$d" ] && [ ! -e "$d/release" ] && kill -0 $p0 2>/dev/null; do sleep 0.05; done
 `
 	r := newBoundRig(t, script)
 	l := &execLauncher{bin: r.l.bin, dbPath: "/db/x.db", instance: "host-test", logDir: r.l.logDir, revokeBackoff: time.Millisecond,
@@ -75,7 +75,7 @@ while [ ! -e "$d/release" ]; do sleep 0.05; done
 func TestADelayedExitCleanupNeverTouchesALaterTurnsToken(t *testing.T) {
 	script := `d=$(dirname "$0")
 echo $$ > "$d/pid"
-while [ ! -e "$d/release" ]; do sleep 0.05; done
+p0=$PPID; while [ -d "$d" ] && [ ! -e "$d/release" ] && kill -0 $p0 2>/dev/null; do sleep 0.05; done
 `
 	r := newBoundRig(t, script)
 	wide := 0
@@ -120,7 +120,7 @@ while [ ! -e "$d/release" ]; do sleep 0.05; done
 func TestARefusedChildsTaskTokenIsDeadWhileItsProcessStillRuns(t *testing.T) {
 	f := newChildFix(t)
 	dir := t.TempDir()
-	bin := fakeChildBin(t, dir)
+	bin := fakeChildBin(t, dir) // registers the reaper
 	b, err := os.ReadFile(bin)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestARefusedChildsTaskTokenIsDeadWhileItsProcessStillRuns(t *testing.T) {
 	}
 	oldGrace := hostTurnGrace
 	hostTurnGrace = time.Hour
-	t.Cleanup(func() { hostTurnGrace = oldGrace; _ = os.WriteFile(filepath.Join(dir, "release"), []byte("x"), 0o600) })
+	t.Cleanup(func() { hostTurnGrace = oldGrace })
 	store := coderhost.NewStore(f.db.DB)
 	l := &execLauncher{bin: bin, dbPath: f.m.dbPath, instance: "host-test", logDir: filepath.Join(dir, "turns"), child: f.mint,
 		revoke: store.RevokeSessionTokensErr, revokeTurn: store.RevokeTurnSessionTokensErr, revokeBackoff: time.Millisecond}

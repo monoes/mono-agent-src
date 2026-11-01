@@ -63,7 +63,7 @@ func newBoundRigOn(t *testing.T, db *storage.Database, script string) *boundRig 
 		script = `echo $$ > '` + r.pidfile + `'
 env | sort > '` + r.envlog + `'
 cat <&3 > '` + r.frame + `'
-while [ ! -e '` + r.release + `' ]; do sleep 0.05; done
+p0=$PPID; while [ -d '` + r.dir + `' ] && [ ! -e '` + r.release + `' ] && kill -0 $p0 2>/dev/null; do sleep 0.05; done
 `
 	}
 	bin := filepath.Join(r.dir, "fake-monoagentcli")
@@ -71,7 +71,7 @@ while [ ! -e '` + r.release + `' ]; do sleep 0.05; done
 	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.WriteFile(r.release, []byte("x"), 0o600) }) // a turn left by a failing test ends
+	reapFakeTurns(t, r.dir) // a turn left by a failing test ends, and is reaped before the directory goes
 	r.store = coderhost.NewStore(db.DB)
 	r.binder = procbind.NewBinder(time.Now)
 	t.Cleanup(r.binder.Close)
@@ -242,7 +242,7 @@ echo $$ > "$d/pid"
 sleep 300 &
 echo $! > "$d/descendant"
 cat <&3 > "$d/frame"
-while [ ! -e "$d/release" ]; do sleep 0.05; done
+p0=$PPID; while [ -d "$d" ] && [ ! -e "$d/release" ] && kill -0 $p0 2>/dev/null; do sleep 0.05; done
 `
 	for name, c := range cases {
 		r := newBoundRig(t, script)
@@ -394,7 +394,7 @@ sleep 300 <&3 &
 echo $! > "$d/holder"
 echo $$ > "$d/pid"
 cat <&3 > "$d/frame"
-while [ ! -e "$d/release" ]; do sleep 0.05; done
+p0=$PPID; while [ -d "$d" ] && [ ! -e "$d/release" ] && kill -0 $p0 2>/dev/null; do sleep 0.05; done
 `
 	r := newBoundRig(t, script)
 	t.Cleanup(func() {
