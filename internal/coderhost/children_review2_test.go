@@ -1,8 +1,11 @@
 package coderhost
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/procbind"
 	"os"
 	"os/exec"
 	"strings"
@@ -217,5 +220,59 @@ func TestAMasterCommandForADescendantRunsAndOneForAReleasedSessionDoesNot(t *tes
 	_ = h.Tick()
 	if got, _, _ := st.GetCommand(bad.ID); got.Status != CmdFailed || len(l.started) != 0 {
 		t.Fatalf("a released session's command: %+v", got)
+	}
+}
+
+// A bound turn writes only v2 rows: a host started from inside one is noticed through the live v2 bindings (worker pid
+// and start stamp), and not once that token is revoked or the stamp is not the process's.
+func TestAHostInsideABoundTurnIsNoticedThroughItsV2Binding(t *testing.T) {
+	st := newStoreT(t)
+	ctx := context.Background()
+	key, err := procbind.RowKey(ctx, st.db, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pp := os.Getppid()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	mint := func(turn string, pid int, stamp string) string {
+		id, _ := procbind.NewTokenID()
+		_, hash, _ := procbind.NewSecret(procbind.SessionPrefixV2)
+		if err := procbind.MintTx(ctx, st.db, key, procbind.MintRequest{Profile: "p", WorkerPID: pid, WorkerStamp: stamp, HostGeneration: "g", Now: now,
+			Tokens: []procbind.MintToken{{Kind: procbind.KindSession, ID: id, Hash: hash, Scope: procbind.SessionScope("c1", turn), Expires: now.Add(time.Hour), ConversationID: "c1", TurnID: turn}}}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	orig := callerChain
+	t.Cleanup(func() { callerChain = orig })
+	callerChain = func() ([]int, bool) { return []int{os.Getpid(), 7, pp, 3}, true }
+	if st.HostInsideTurn() {
+		t.Fatal("refused with no binding at all")
+	}
+	mint("t0", pp, "not-the-stamp") // a worker whose pid is in the chain but whose start time is another process's
+	if st.HostInsideTurn() {
+		t.Fatal("a binding with a different start stamp counted")
+	}
+	mint("t0b", pp, ProcStamp(pp)+"@another-boot") // the same process number and start tick of another boot
+	if st.HostInsideTurn() {
+		t.Fatal("a binding of another boot counted")
+	}
+	id := mint("t1", pp, BoundStamp(pp))
+	if !st.HostInsideTurn() {
+		t.Fatal("a host below a bound (v2) turn was not noticed")
+	}
+	callerChain = func() ([]int, bool) { return []int{os.Getpid(), 7, 3}, true }
+	if st.HostInsideTurn() {
+		t.Fatal("a host outside every turn was refused")
+	}
+	callerChain = func() ([]int, bool) { return []int{os.Getpid(), 7, pp, 3}, true }
+	rv := procbind.Revoker{DB: st.db}
+	if err := rv.Run(ctx, []procbind.Kind{procbind.KindSession}, procbind.Scope{Profile: "p", TokenID: id}, func(*sql.Conn) ([]procbind.Selector, error) {
+		return []procbind.Selector{{Profile: "p", Kind: procbind.KindSession, TokenID: id}}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if st.HostInsideTurn() {
+		t.Fatal("a revoked binding still counted")
 	}
 }

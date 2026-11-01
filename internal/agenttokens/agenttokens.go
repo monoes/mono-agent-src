@@ -174,7 +174,11 @@ type Store struct {
 
 // NewStore returns a Store over a migrated database.
 func NewStore(db *sql.DB) *Store {
-	return &Store{db: db, now: time.Now, touched: map[string]time.Time{}}
+	s := &Store{db: db, now: time.Now, touched: map[string]time.Time{}}
+	if procbind.IssuanceOn() { // the only place a verifier is installed outside a test: v2 secrets are denied until issuance is on
+		s.v2 = &procbind.V2Check{DB: db}
+	}
+	return s
 }
 
 // SetClock replaces the clock; for tests.

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 
 // fakeLauncher records what the gate passes on.
 type fakeLauncher struct {
+	onStart func()
 	calls   [][]any
 	turn    coderhost.Turn
 	err     error
@@ -25,6 +27,9 @@ type fakeLauncher struct {
 }
 
 func (f *fakeLauncher) Start(p, c, turn, msg string, att []string, mt string) (coderhost.Turn, error) {
+	if f.onStart != nil {
+		f.onStart()
+	}
 	f.calls = append(f.calls, []any{"Start", p, c, turn, msg, att, mt})
 	return f.turn, f.err
 }
@@ -418,6 +423,119 @@ func TestConcurrentSettingsWritersKeepEachOthersChanges(t *testing.T) {
 	}
 }
 
+// ---- routing with issuance on (the test seam stands in for the flipped constant) ----
+
+type stopTurn struct {
+	stopped chan struct{}
+}
+
+func (s *stopTurn) PID() int      { return 1 }
+func (s *stopTurn) Stamp() string { return "s" }
+func (s *stopTurn) Wait() error   { <-s.stopped; return nil }
+func (s *stopTurn) Stop()         { close(s.stopped) }
+
+type countingService struct {
+	ensured    int
+	ensureErr  error
+	runningNow bool
+}
+
+func (c *countingService) Ensure(context.Context, string) error { c.ensured++; return c.ensureErr }
+func (c *countingService) Running(string) bool                  { return c.runningNow }
+
+func routedRig(t *testing.T, raw string) (*gatedLauncher, *fakeLauncher, *fakeLauncher, *countingService) {
+	t.Helper()
+	if !procbind.PeerPidfdSupported() {
+		t.Skip("the machine cannot run the binding service")
+	}
+	procbind.ForTestSetIssuance(t, true)
+	g, legacy := gateRig(t, raw)
+	bound := &fakeLauncher{turn: fakeTurn{}}
+	svc := &countingService{runningNow: true}
+	g.bound, g.svc = bound, svc
+	return g, legacy, bound, svc
+}
+
+// With the setting off a turn goes to the legacy launcher and the service is never touched; with it on and nothing in the
+// way it goes to the bound launcher, after the service was started for its profile.
+func TestTheGateRoutesATurnByTheSetting(t *testing.T) {
+	g, legacy, bound, svc := routedRig(t, `{"enabled":true}`)
+	if _, err := g.Start("p", "c1", "t1", "hi", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.calls) != 1 || len(bound.calls) != 0 || svc.ensured != 0 {
+		t.Fatalf("off: legacy %d, bound %d, ensured %d", len(legacy.calls), len(bound.calls), svc.ensured)
+	}
+	if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.StartCapped("p", "c1", "t2", "hi", nil, "mission", 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.calls) != 1 || len(bound.calls) != 1 || svc.ensured != 1 {
+		t.Fatalf("on: legacy %d, bound %d, ensured %d", len(legacy.calls), len(bound.calls), svc.ensured)
+	}
+	if got := bound.calls[0]; got[0] != "StartCapped" || got[1] != "p" || got[6] != "mission" || got[7] != 2.0 {
+		t.Errorf("the bound launcher saw %v", got)
+	}
+}
+
+// With the setting on, every reason the bound launch cannot go ahead is a refusal and starts nothing: the service does
+// not start, it is not running, there is no bound launcher, the host runs inside a turn.
+func TestTheGateRefusesABoundTurnItCannotLaunch(t *testing.T) {
+	const on = `{"enabled":true,"peercredBinding":true}`
+	cases := map[string]func(g *gatedLauncher, svc *countingService){
+		"the service does not start":  func(g *gatedLauncher, svc *countingService) { svc.ensureErr = errors.New("socket refused") },
+		"the service is not running":  func(g *gatedLauncher, svc *countingService) { svc.runningNow = false },
+		"no bound launcher":           func(g *gatedLauncher, svc *countingService) { g.bound = nil },
+		"the host runs inside a turn": func(g *gatedLauncher, svc *countingService) { g.insideTurn = func() bool { return true } },
+	}
+	for name, mutate := range cases {
+		g, legacy, bound, svc := routedRig(t, on)
+		mutate(g, svc)
+		_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+		var r *bindingRefusal
+		if !errors.As(err, &r) || len(legacy.calls) != 0 || len(bound.calls) != 0 {
+			t.Errorf("%s: %v (legacy %d, bound %d)", name, err, len(legacy.calls), len(bound.calls))
+		}
+	}
+}
+
+// A turn that was routed to the legacy launcher while the setting was off, and whose setting was switched on while it
+// started, is stopped and refused: no turn runs unbound after the setting says bound.
+func TestATurnStartedWhileTheSettingWasSwitchedOnIsStopped(t *testing.T) {
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	st := &stopTurn{stopped: make(chan struct{})}
+	legacy.turn = st
+	legacy.onStart = func() { // the operator switches it on between the routing and the end of the start
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	turn, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || turn != nil {
+		t.Fatalf("%v %v", turn, err)
+	}
+	select {
+	case <-st.stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the unbound turn was not stopped")
+	}
+	// and a start that stays off is left alone
+	g2, legacy2, _, _ := routedRig(t, `{"enabled":true}`)
+	st2 := &stopTurn{stopped: make(chan struct{})}
+	legacy2.turn = st2
+	if turn, err := g2.Start("p", "c1", "t1", "hi", nil, ""); err != nil || turn == nil {
+		t.Fatalf("a turn with the setting still off: %v %v", turn, err)
+	}
+	select {
+	case <-st2.stopped:
+		t.Fatal("a turn with the setting off was stopped")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 type scriptedService struct {
 	err     error
 	running bool
@@ -442,6 +560,7 @@ func TestTheGateRefusesWhenTheServiceCannotBeStartedOrIsNotRunning(t *testing.T)
 		var logs []string
 		g.logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
 		g.svc = c.svc
+		g.bound = &fakeLauncher{turn: fakeTurn{}}
 		g.reason = func(running bool) string { // issuance and the machine allow it; only the service decides
 			if !running {
 				return "its service is not running"
@@ -462,6 +581,107 @@ func TestTheGateRefusesWhenTheServiceCannotBeStartedOrIsNotRunning(t *testing.T)
 		}
 		if c.logged && strings.Contains(err.Error(), "socket") {
 			t.Errorf("%s: the operator's refusal carries the internal reason: %v", name, err)
+		}
+	}
+}
+
+// With issuance on (the test seam) the setter still refuses "on" while a coder turn is running: that turn holds legacy
+// tokens and was admitted unbound. With none running it is accepted; a running turn does not stop "off".
+func TestThePeercredSettingIsNotSwitchedOnWhileATurnRuns(t *testing.T) {
+	if !procbind.PeerPidfdSupported() {
+		t.Skip("the machine cannot run the binding service")
+	}
+	procbind.ForTestSetIssuance(t, true)
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := coderhost.NewStore(db.DB)
+	x, err := st.EnsureSession("default", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = coderhost.StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on")
+	if code != 3 {
+		t.Fatalf("on with a turn running: exit %d: %s", code, out)
+	}
+	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
+		t.Fatalf("the refused setter changed the setting: %s", out)
+	}
+	x.State, x.TurnID = coderhost.StateIdle, ""
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on"); code != 0 {
+		t.Fatalf("on with no turn running: exit %d: %s", code, out)
+	}
+	x.State, x.TurnID = coderhost.StateRunning, "t2"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=off"); code != 0 {
+		t.Fatalf("off with a turn running: exit %d", code)
+	}
+}
+
+// A host that runs inside a coder session's turn is refused before the binding service is started for it.
+func TestTheGateDoesNotStartTheServiceForAHostInsideATurn(t *testing.T) {
+	g, legacy, bound, svc := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.insideTurn = func() bool { return true }
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || svc.ensured != 0 || len(legacy.calls) != 0 || len(bound.calls) != 0 {
+		t.Fatalf("%v (ensured %d, legacy %d, bound %d)", err, svc.ensured, len(legacy.calls), len(bound.calls))
+	}
+}
+
+// The re-check after a legacy turn's process exists is a guard against a flip: a settings read that fails once leaves the
+// healthy turn running; one that keeps failing stops it (whether binding is on is then not known).
+func TestAReadFailureAfterATurnStartedStopsItOnlyWhenItPersists(t *testing.T) {
+	for name, c := range map[string]struct {
+		failures int
+		stopped  bool
+	}{"one transient failure": {1, false}, "a persistent failure": {99, true}} {
+		g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+		st := &stopTurn{stopped: make(chan struct{})}
+		legacy.turn = st
+		reads := 0
+		legacy.onStart = func() {
+			g.load = func(db *sql.DB) (coderSettings, error) { // the first read (the routing) is already done; these are the re-check's
+				reads++
+				if reads <= c.failures {
+					return coderSettings{}, errors.New("database is locked")
+				}
+				return loadCoderSettings(db)
+			}
+		}
+		turn, err := g.Start("p", "c1", "t1", "hi", nil, "")
+		if c.stopped {
+			var r *bindingRefusal
+			if !errors.As(err, &r) || turn != nil {
+				t.Errorf("%s: %v %v", name, turn, err)
+			}
+			select {
+			case <-st.stopped:
+			case <-time.After(2 * time.Second):
+				t.Errorf("%s: the turn was not stopped", name)
+			}
+			continue
+		}
+		if err != nil || turn == nil {
+			t.Errorf("%s: the healthy turn was refused: %v %v", name, turn, err)
+		}
+		select {
+		case <-st.stopped:
+			t.Errorf("%s: the healthy turn was stopped", name)
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
 }

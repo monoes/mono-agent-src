@@ -270,6 +270,17 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			t.stopAndWait()
 			return nil, err
 		}
+		if t.isReaped() {
+			// The leader was reaped before this point, so the exit goroutine's revoke has run or is about to, possibly
+			// before the mint committed (the bound token is minted after the process exists): that would leave a live
+			// token and registration for a dead worker. End them again now. If the leader is not reaped yet, the
+			// goroutine's revoke comes after the commit.
+			rerr := l.revokeSession(profileID, conversationID)
+			l.child.revokeToken(ct)
+			if rerr != nil {
+				return nil, errors.Join(errors.New("the turn ended while its credentials were being delivered"), rerr)
+			}
+		}
 	} else if l.bind != nil {
 		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {
 			// the host runs inside a session's turn: no token is bound, so the master tools refuse in this turn
@@ -465,6 +476,13 @@ func (t *execTurn) markReaped() {
 	t.mu.Lock()
 	t.reaped = true
 	t.mu.Unlock()
+}
+
+// isReaped says whether cmd.Wait has returned. It is set before the exit goroutine's revokes run.
+func (t *execTurn) isReaped() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reaped
 }
 
 // markStopping records that the turn is being given up on before its leader is killed by other means (the launcher's

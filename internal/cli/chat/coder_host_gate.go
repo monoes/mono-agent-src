@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/procbind"
@@ -19,13 +20,21 @@ import (
 // false (the setter refuses and the gate refuses a hand edit). Before IssuanceReady flips, admission must be synchronized
 // with the setting change (the 3c/4 flip checklist in the wiring note).
 type gatedLauncher struct {
-	inner coderhost.Launcher
+	inner coderhost.Launcher // the legacy launch
+	// bound is the same launcher with peer-credential binding on (execLauncher.bound set); the gate sends a turn there
+	// only when the setting is on and procbind.Refusal has no cause. Nil: there is none, so "on" is always refused.
+	bound coderhost.Launcher
 	db    *sql.DB
 	// svc is the binding service of the host (nil: there is none, so it is never running).
 	svc bindingService
+	// insideTurn says whether the host itself runs inside a coder session's turn (nil: it does not). Every turn it
+	// started would then be a descendant of that one, which a bound turn must not be.
+	insideTurn func() bool
 	// logf receives the class-level reason a service could not be started; the operator is told generically.
 	logf func(format string, args ...any)
-	// refusal says why binding may not run (nil: procbind.Refusal); a seam for tests.
+	// load reads the coder settings (nil: loadCoderSettings); a seam for tests.
+	load func(*sql.DB) (coderSettings, error)
+	// reason says why binding may not run (nil: procbind.Refusal); a seam for tests.
 	reason func(serviceRunning bool) string
 }
 
@@ -47,18 +56,22 @@ type bindingRefusal struct{ msg string }
 
 func (e *bindingRefusal) Error() string { return e.msg }
 
-// refusal is nil when the turn may start.
-func (g *gatedLauncher) refusal(profile string) error {
+// route says which launcher a turn goes to: the legacy one while the setting is off (byte for byte as before), the bound
+// one when it is on and nothing in the way, and an error (nothing starts) otherwise.
+func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool, err error) {
 	// The whole settings object is read with the loader every other reader uses (coder status, the setter, the
 	// turn itself): if it cannot be read as a whole, whether the setting is on is not known and the turn is refused,
 	// even if the one field looks fine. A settings object that is valid JSON with another field of the wrong type is
 	// such a case.
 	s, err := loadCoderSettings(g.db)
 	if err != nil {
-		return &bindingRefusal{"the turn was not started: the coder settings could not be read, so whether peer-credential binding is on is not known"}
+		return nil, false, &bindingRefusal{"the turn was not started: the coder settings could not be read, so whether peer-credential binding is on is not known"}
 	}
 	if !bool(s.PeercredBinding) {
-		return nil // off
+		return g.inner, false, nil // off
+	}
+	if g.insideTurn != nil && g.insideTurn() {
+		return nil, false, &bindingRefusal{"the turn was not started: the coder host runs inside a coder session's turn, so every turn it starts would descend from that one; start the host from a terminal"}
 	}
 	// The service is asked to start only when everything else allows it: while this build cannot issue bound
 	// tokens (or the machine cannot run it) nothing is ever started.
@@ -71,28 +84,73 @@ func (g *gatedLauncher) refusal(profile string) error {
 		}
 	}
 	if why := g.why(running); why != "" {
-		return &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)"}
+		return nil, false, &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)"}
 	}
-	return nil
+	if g.bound == nil {
+		return nil, false, &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but this host has no bound launcher: switch it off (coder set --peercred-binding off)"}
+	}
+	return g.bound, true, nil
+}
+
+// settingIsOnNow reads the setting again after a legacy turn's process exists. It is a guard against a flip in between.
+// A read that fails is tried again a few times (a transient failure says nothing about a flip and must not stop a healthy
+// turn); one that keeps failing counts as on, since whether binding is on is then not known: the turn is stopped and refused.
+func (g *gatedLauncher) settingIsOnNow() bool {
+	load := g.load
+	if load == nil {
+		load = loadCoderSettings
+	}
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		var s coderSettings
+		if s, err = load(g.db); err == nil {
+			return bool(s.PeercredBinding)
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+		}
+	}
+	if g.logf != nil {
+		g.logf("coder host: the coder settings could not be read after a turn started; the turn is stopped: %v", err)
+	}
+	return true
+}
+
+// launch routes the turn and starts it. A turn that went to the legacy launcher is checked once more after its process
+// exists, when binding can be on at all: if the operator switched the setting on in between, the turn is stopped and
+// the start refused, so no turn runs unbound after the setting says bound.
+func (g *gatedLauncher) launch(profile string, start func(coderhost.Launcher) (coderhost.Turn, error)) (coderhost.Turn, error) {
+	l, bound, err := g.route(profile)
+	if err != nil {
+		return nil, err
+	}
+	turn, err := start(l)
+	if err != nil || bound || !procbind.IssuanceOn() {
+		return turn, err
+	}
+	if g.settingIsOnNow() {
+		turn.Stop()
+		go func() { _ = turn.Wait() }()
+		return nil, &bindingRefusal{"the turn was not started: peer-credential binding was switched on while it started; send again"}
+	}
+	return turn, nil
 }
 
 func (g *gatedLauncher) Start(profileID, conversationID, turnID, message string, attachments []string, missionToken string) (coderhost.Turn, error) {
-	if err := g.refusal(profileID); err != nil {
-		return nil, err
-	}
-	return g.inner.Start(profileID, conversationID, turnID, message, attachments, missionToken)
+	return g.launch(profileID, func(l coderhost.Launcher) (coderhost.Turn, error) {
+		return l.Start(profileID, conversationID, turnID, message, attachments, missionToken)
+	})
 }
 
-// StartCapped is Start under a spend cap; the inner launcher must offer it (the host asks for it by interface).
+// StartCapped is Start under a spend cap; the launcher must offer it (the host asks for it by interface).
 func (g *gatedLauncher) StartCapped(profileID, conversationID, turnID, message string, attachments []string, missionToken string, capUSD float64) (coderhost.Turn, error) {
-	if err := g.refusal(profileID); err != nil {
-		return nil, err
-	}
-	b, ok := g.inner.(coderhost.BudgetLauncher)
-	if !ok {
-		return nil, errors.New("this launcher cannot run a turn under a spend cap")
-	}
-	return b.StartCapped(profileID, conversationID, turnID, message, attachments, missionToken, capUSD)
+	return g.launch(profileID, func(l coderhost.Launcher) (coderhost.Turn, error) {
+		b, ok := l.(coderhost.BudgetLauncher)
+		if !ok {
+			return nil, errors.New("this launcher cannot run a turn under a spend cap")
+		}
+		return b.StartCapped(profileID, conversationID, turnID, message, attachments, missionToken, capUSD)
+	})
 }
 
 func (g *gatedLauncher) Adopt(pid int, stamp string) coderhost.Turn { return g.inner.Adopt(pid, stamp) }

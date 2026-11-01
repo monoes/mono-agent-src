@@ -22,3 +22,19 @@ func Refusal(serviceRunning bool) string {
 	}
 	return ""
 }
+
+// IssuanceOn says whether bound tokens may be issued and accepted. It is the constant IssuanceReady; the stores install
+// the real verifier by it and the gate reads it, so one value decides everything.
+func IssuanceOn() bool { return issuanceReady() }
+
+// ForTestSetIssuance overrides IssuanceOn for the life of a test. It takes the test (anything with Cleanup), so it
+// cannot be used without one; a test (procbind's own) fails if any non-test file calls it.
+func ForTestSetIssuance(t interface {
+	Helper()
+	Cleanup(func())
+}, on bool) {
+	t.Helper()
+	old := issuanceReady
+	issuanceReady = func() bool { return on }
+	t.Cleanup(func() { issuanceReady = old })
+}

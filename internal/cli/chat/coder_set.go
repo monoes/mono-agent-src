@@ -1,6 +1,9 @@
 package chat
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -148,6 +151,20 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 				if why := procbind.Refusal(true); why != "" { // the service is the host's to start; the rest must hold now
 					return clicore.InvalidInput("peer-credential binding cannot be switched on: %s", why)
 				}
+				// A turn that is running now was admitted unbound and holds legacy tokens, which the stores keep accepting:
+				// the switch is made when none runs, so that no turn is left outside it. The count is read inside the
+				// transaction that saves the setting.
+				ctx := cmd.Context()
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				n, err := liveTurns(ctx, s.tx)
+				if err != nil {
+					return fmt.Errorf("could not check for running coder turns: %w", err)
+				}
+				if n > 0 {
+					return clicore.InvalidInput("peer-credential binding cannot be switched on while %d coder turn(s) are running without it: wait for them to finish or stop them, then switch it on", n)
+				}
 			}
 			s.PeercredBinding = bindingFlag(peercred == "on")
 		}
@@ -192,4 +209,13 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 	c.Flags().StringVar(&router, "org-router", "", "Dynamic org (coder.router): who picks a worker's role and skills when the lead doesn't: auto (default; monomind pick when confident, else Jev, else the lead), jev or model (the lead names roles from org_roster; operator only)")
 	c.Flags().StringVar(&writers, "org-writers", "", "Dynamic org: shared (default; one writer at a time under the write lease) or isolated (each writer gets its own git worktree and branch, merged by the lead; its checkpoint commits skip git hooks, so merged work never passed pre-commit, and the worktrees under .monoagent-worktrees/ are visible to tools that ignore git excludes; operator only)")
 	return c
+}
+
+// liveTurns counts the coder sessions with a turn in flight (a turn id, or a process the host started).
+func liveTurns(ctx context.Context, q interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}) (int, error) {
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_sessions WHERE turn_id <> '' OR turn_pid > 0`).Scan(&n)
+	return n, err
 }

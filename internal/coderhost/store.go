@@ -158,7 +158,13 @@ type Store struct {
 }
 
 // NewStore wraps an open, migrated database.
-func NewStore(db *sql.DB) *Store { return &Store{db: db, now: time.Now} }
+func NewStore(db *sql.DB) *Store {
+	s := &Store{db: db, now: time.Now}
+	if procbind.IssuanceOn() { // the only place a verifier is installed outside a test: v2 secrets are denied until issuance is on
+		s.v2 = &procbind.V2Check{DB: db}
+	}
+	return s
+}
 
 func (s *Store) stamp() string { return s.now().UTC().Format(timeLayout) }
 
