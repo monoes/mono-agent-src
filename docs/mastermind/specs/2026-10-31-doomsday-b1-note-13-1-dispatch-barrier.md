@@ -56,8 +56,8 @@ that tells it what it may do.
 - **`Admit(op)`**: takes `mu`; if the gate is not `OPEN`, returns a refusal **immediately** (it cannot wait
   behind a closer: `mu` is never held while waiting); otherwise creates a ticket `ADMITTED` and returns it.
 - **`BeginStart(ticket)`**: takes `mu` and applies **exactly one** of three rules, by the ticket's current
-  state: (a) the ticket is `ADMITTED` and the gate is `OPEN` → the ticket becomes `STARTING` and the call
-  succeeds; (b) the ticket is `ADMITTED` and the gate is not `OPEN` → the ticket becomes `FENCED` and the call
+  state: (a) the ticket is `ADMITTED` and the gate is `OPEN` — **or the ticket is a continuation ticket whose
+  operation is still within its bound** — → the ticket becomes `STARTING` and the call succeeds; (b) the ticket is `ADMITTED` and the gate is not `OPEN` → the ticket becomes `FENCED` and the call
   refuses; (c) **the ticket is in any other state** (including a **repeated call on a `STARTING` ticket**) →
   the call **refuses and leaves the ticket unchanged**. A duplicate `BeginStart` therefore can never turn a
   `STARTING` ticket into `FENCED` while its first caller goes on to create a process; `Close` keeps waiting
@@ -76,7 +76,9 @@ that tells it what it may do.
 - **`Started(ticket, handle)`**: writes the registry row (outside `mu`), then takes `mu`. **If the gate is
   `OPEN`, the ticket becomes `STARTED`. If the gate is by then `CLOSING` or `CLOSED`, the ticket is marked
   `late` and goes to `ABORTED`, and the registry row is marked aborted.** `STARTED` therefore means exactly
-  "`Started` completed while the gate was open".
+  "`Started` completed while the gate was open", **except for a continuation ticket**: a continuation ticket
+  of a begun operation within its bound becomes `STARTED` even when the gate is `CLOSING` or `CLOSED` (that is
+  the exception), and a continuation ticket past the bound is `late` like any other.
   - **E1:** a `late` ticket's caller **kills the held process**, which never ran, and reports.
   - **E3: a `late` ticket must not enter the transport.** The wrapper enters the transport only after
     `Started` returned `STARTED`, and checks the context immediately before the call.
