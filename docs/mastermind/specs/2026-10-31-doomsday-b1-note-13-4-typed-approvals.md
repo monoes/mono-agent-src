@@ -1,6 +1,6 @@
 # B1 design note 13.4: typed approvals bound to the exact effect
 
-Status: **design note and test plan, revision 2, no code.** It closes contract 13.4 of
+Status: **design note and test plan, revision 3, no code.** It closes contract 13.4 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13). It depends on notes 13.1 (the gate and where an
 effect is "issued") and 13.5 (the sequence and the audit chain), and is written for the recommended defaults.
 Wording is class level: this repository is public.
@@ -51,8 +51,9 @@ An approval is an **insert-only row** (the pattern of migration 148) with:
 
 - `approval_id` (random), `profile`, `generation`, `charter_id`, `charter_hash`;
 - `operation` (an allowlist id) and `args_hash`: SHA-256 of the **canonical JSON of the fully resolved
-  arguments**, domain-separated by the operation id. **What is hashed, per operation:**
-  - `local.destructive`: the verb and the **exact resolved target set** (each target as its path relative to
+  arguments**, domain-separated by the operation id **and by a canonicalisation version** (`canon_version`), so
+  a change of a canonicalisation rule can never make an old hash match a new form. **What is hashed, per operation:**
+  - `local.destructive`: the verb, for `overwrite` a **hash of the new content** (bound like a send's), and the **exact resolved target set** (each target as its path relative to
     the root's directory identity), **not the root**. The root is only a charter constraint. For a recursive
     verb the approval **enumerates** the targets at approval time up to the charter's count and byte ceiling;
     "one effect" is one approved target set. The effect removes only listed entries; an entry that appeared
@@ -60,8 +61,10 @@ An approval is an **insert-only row** (the pattern of migration 148) with:
   - `send.third_party`: platform, account, resolved destination and a **hash of the canonical content**
     (payload bytes and the hashes of attachments). The boss is shown the canonical content. An approval for
     destination A cannot carry another payload.
-  - `vault.use`: the secret **name**, the destination host, and the **request** it is used in (method, the
-    path-and-query template, a hash of the body). It authorises host-side use only (section 5A).
+  - `vault.use`: the secret **name**, the **resolved request** (method, the resolved URL with its path and
+    query, **all headers** that will be sent, and a hash of the body) and the **injection point** (the header
+    name or the body field where the host places the secret). There is no template: the hash is over the request
+    as it will be sent. It authorises host-side use only (section 5A).
   - `install.package`: manager, exact name, **exact version and the integrity digest** observed when the boss
     approved. A version range is never an approved argument. The install runs the package's install code as the
     user; the approval covers that, and nothing narrows it.
@@ -70,7 +73,9 @@ An approval is an **insert-only row** (the pattern of migration 148) with:
   hash and repeated for display;
 - the **caller binding**: `session id` and `token id` of the session the approval is addressed to (section 5);
 - `boss`: the audit sequence number of the boss answer that produced it, and the pinned boss identity;
-- `issued_seq` and `expires_seq` (note 13.5), a nonce, a MAC under the run key over all of the above.
+- `issued_seq` and `expires_seq` (note 13.5), a nonce, a MAC under the run key over all of the above. The MAC
+  key has **one name** (`run-approvals/v1`), derived from the vault key with that domain separation, used by
+  the approval, step, consumption, revocation and counter rows alike.
 
 Approvals, consumption rows, revocation rows and counter updates are **rows of the chained stream** of note
 13.5 (each carries `seq` and `prev`), so a restore or an edit that un-spends an approval is caught by the
@@ -84,9 +89,19 @@ approval is "modelled on" the mission confirmation only in its MAC and nonce ide
 configuration row consumed by a guarded delete, whereas this one is an insert-only pair. A same-user writer
 without the key can still insert consumed rows (denial of approvals), which is a T3 case.
 
-**Counters.** Count and byte ceilings, the run ceiling and the spend ceiling live in a table
-`run_counters(generation, kind, used)`. They are **spent at consume**, by a conditional update
-(`used + n <= cap`) in the **same transaction as the consume**, so concurrent approvals race for the last
+**Multi-step operations (E2).** One approval covers the whole operation, and its steps are **insert-only rows
+in order**: `run_approval_steps(approval_id, step_index, step_args_hash, PRIMARY KEY (approval_id, step_index))`.
+Step 0 is the consume itself (the consumed row, the counter spend for the whole approved set, the audit row).
+**Step n can be inserted only if step n-1 exists** (a conditional insert in the step's own transaction, with the
+generation/state predicate), and each step binds the hash of **its slice of the approved target set**. A spent
+approval id therefore cannot be replayed for steps 2..n unless the steps before them exist, a step cannot be
+inserted twice, and a step out of order or outside the approved set is refused. A crash between steps leaves the
+operation recorded `incomplete` (13.3).
+
+**Counters.** Count and byte ceilings, the run ceiling and the spend ceiling live in
+insert-only **delta rows** in the chain (`run_counter_deltas(generation, kind, n)`; `used` is their sum), so no
+row is updated in place and the insert-only triggers hold. They are **spent at consume**, by a conditional
+insert that checks `SUM(n) + n <= cap` **in the same statement and transaction as the consume**, so concurrent approvals race for the last
 unit in one place. A crash after the consume has spent the unit without the effect (the safe direction, as
 for the approval itself).
 
@@ -128,14 +143,14 @@ revive or kill one.
 5. **Where consumption sits.**
    - For an **E4** effect (a database effect), step 4.6 is the insert into `run_approval_consumed`, the counter
      update **and the audit row**, in the **same transaction** as the effect, and that transaction carries the
-     `generation = ? AND state = 'running'` predicate **in the same statement** (note 13.1, E4): both happen
-     or neither.
+     `generation = ? AND state = 'running'` predicate **in the same statement** (note 13.1, E4), together with
+     the not-revoked check and `current seq <= expires_seq`: both happen or neither.
    - For an **E1/E2/E3** effect, the order is fixed by note 13.1 revision 2: `Admit` → verify and
      re-canonicalise (steps 4.1-4.4) → `BeginStart` (the irrevocable fence on future creation; it refuses once
      the gate is `CLOSING`) → **consume** (committed) → the start or the hand-over → `Started`. The consume is
      therefore after the fence and before the effect: an approval can never be spent by a start that Stop has
      already fenced, and a fenced ticket leaves the approval unspent. The consume transaction **also appends
-     its audit row** (13.5). Named injection points: `consume.before`, `consume.committed`,
+     its audit row** (13.5), and the same not-revoked and `expires_seq` predicates are inside it. Named injection points: `consume.before`, `consume.committed`,
      `effect.before-start`. If the host crashes between the consume and the
      effect, the approval is spent and the effect did not happen: that is the safe direction, and the agent
      must ask again.
@@ -158,6 +173,17 @@ re-resolved by the effect. On Linux (the only supported system, spec 2.3):
   and **dials only that pinned set**; the host name is the TLS server name. **Redirects are not followed**
   (a redirect is a refusal and an audit row); a second resolution never happens. DNS rebinding and a redirect to
   an internal address are therefore refused.
+
+- **Bytes.** Whatever is hashed is what is used. Content, attachments and package artifacts are read **once
+  into a sealed buffer** (an in-memory file with seals, or a private temporary file the process alone can
+  write), hashed there, and the effect consumes **that buffer or descriptor**, never the path again and never a
+  second download. For a package: the artifact is downloaded into the sealed buffer, its digest is verified on
+  that descriptor, and the install runs from it. Where the effect cannot take the verified descriptor, the
+  digest is **re-verified at the syscall** and a mismatch refuses.
+- **Details of the handle.** The open uses `RESOLVE_NO_XDEV` as well as the flags above, `O_TRUNC` is never
+  passed at open (the host opens, checks identity and link count, then truncates with `ftruncate` on the same
+  descriptor), the dial ignores proxy environment variables, and an IPv4-mapped IPv6 address is normalised to
+  its IPv4 form **before** the range checks.
 
 An effect that cannot run on a handle (a platform without these calls) is not enabled.
 
@@ -185,13 +211,23 @@ the token id, so no format change is needed.
 constructs or borrows `OperatorScope` (spec 4.4), and a test asserts that no enforcement function accepts one in
 its place.
 
-## 5A. `vault.use` cannot widen anything
+## 5A. `vault.use`: cannot widen anything, and the secret never leaves the host process
 
 `vault.use` approves the **host-side use** of a secret the session **already may use at its agent-access
 level**. It cannot widen a vault grant or an agent-access level (those are on the never-liftable list), and a
-secret outside the session's level is refused even with the line ticked and an approval. **The secret value is
-never returned to the agent**: the host performs the request and returns the response with the value redacted
-from it; the audit row records the name, host and request hash, never the value.
+secret outside the session's level is refused even with the line ticked and an approval.
+
+**The guarantee is "the secret never leaves the host process", not "the value is redacted".** Matching the
+value in the response (literally, or in another encoding) cannot be a guarantee: the response can carry it
+base64-encoded, percent-encoded, split across chunks or echoed in a header. So:
+
+- the host **injects the secret at the transport**, at exactly the injection point the approval named (a header
+  or a body field), after every check; the secret is not part of any value the agent can read;
+- the response reaches the agent only as **status code, an allowlist of header names, and the body after a
+  transform** named by the charter's constraint for the operation: `status-only` (the **default**: the body is
+  withheld), `json-fields` (an allowlist of field paths) or `text-capped` (a length cap). The transform is
+  structural; no search for the secret is relied on;
+- the audit row records the name, host and request hash, never the value.
 
 ## 6. Backends and equivalent paths
 
@@ -236,6 +272,11 @@ the attempted ones, never secret values.
 | T5c | `send.third_party` with the approved destination and a different payload; `vault.use` with a different request | `args_hash` mismatch; refused |
 | T5d | `install.package` approved at version V with digest D; the registry now serves another digest | refused |
 | T5e | `vault.use` for a secret outside the session's agent-access level, line ticked, approval present | refused; no grant or level changes; the value never appears in any agent-visible output |
+| T5f | **positive path:** an approved `vault.use` against a fake server that echoes the secret base64-encoded, percent-encoded, chunk-split and in a response header | the server received the secret exactly at the injection point; the agent-visible output (status, allowlisted headers, transformed body) contains none of the encodings; with `status-only` the body is withheld |
+| T5g | the approved request with an extra header added at the effect | `args_hash` mismatch; refused |
+| T5h | attachments or content bytes changed between the hash check and the send; a package artifact swapped between the digest check and the install | the effect uses the verified buffer and is unaffected, or the re-verification at the syscall refuses |
+| T5i | proxy environment variables set; an IPv4-mapped IPv6 address of a private range | the proxy is ignored; the mapped address is refused |
+| T5j | `overwrite` with a different content hash; `O_TRUNC` ordering (truncate before the identity check) | refused; truncation only after the checks, on the verified descriptor |
 | T6 | approval for operation X presented to operation Y | refused |
 | T7 | approval from another generation, profile, charter hash, or after Stop/finish | refused |
 | T8 | approval addressed to session S1 presented by S2 | refused; the caller comes from the token result |
@@ -250,7 +291,8 @@ the attempted ones, never secret values.
 | T19 | canonicalisation table: Unicode (NFC and compatibility forms), case, trailing dot, punycode, userinfo, platform handle rules, `..`, NUL, a case-insensitive file system, micro-dollar overflow and negatives; and a cross-check that entry, approval and effect call **one** function per field type | each case has one expected canonical form; a second implementation fails the cross-check |
 | T20 | concurrent approvals racing the last count, byte and spend unit | exactly the available units succeed (conditional update in the consume transaction) |
 | T21 | an unconsumed approval rescinded; one past `expires_seq` | both refused; audited |
-| T22 | an E2 operation: one approval covers all steps, consumed at the first; a crash between steps | later steps bound to the same approval id and target set; the operation is recorded incomplete (13.3); a second operation cannot reuse it |
+| T22 | an E2 operation: one approval covers all steps, consumed at step 0; a crash between steps | later steps are rows bound to the same approval id and their slice of the target set; the operation is recorded incomplete (13.3); a second operation cannot reuse it |
+| T22b | replay a spent approval id for steps 2..n with no earlier step rows; a step out of order; the same step twice; a step outside the approved set | every one refused by the conditional step insert |
 | T23 | the boss prompt is built only from the canonical struct (free text from the agent differs) | the model sees the canonical fields only |
 | T24 | an entry with `"*"` | the dialog renders it in plain words (a rendered-text assertion) |
 | T25 | an approval row inserted without its audit row; a consume committed without its audit row | impossible by construction (same transaction); a test forces the audit insert to fail and sees no approval or consume |
@@ -260,7 +302,7 @@ the attempted ones, never secret values.
 | T18a | gate closes between `Admit` and `BeginStart` (a fenced ticket) | `BeginStart` refuses; the approval is **unspent** |
 | T18b | gate closes after `BeginStart`, before the consume | the ticket is `STARTING`; the consume and start proceed and the effect is admitted-before-Stop, or the host terminates per 13.1 section 5 |
 | T18c | a marker exists, the host has not yet closed its gate, an approval is presented | the effect is admitted-before-Stop (no bound is claimed for the gap); once the gate is closed `Admit` refuses |
-| T18 | mutation proof | dropping any one of: the hash compare, the generation check, the caller compare, the consume, the re-canonicalisation, the `Admit`/`BeginStart` order, the state predicate in the E4 consume statement, the constraint recheck at 4.4, the identity check of the root, `RESOLVE_BENEATH`, the pinned dial set, the redirect refusal, the counter conditional, the `expires_seq` check, the `Approved` type boundary, fails a named test |
+| T18 | mutation proof | dropping any one of: the hash compare, the generation check, the caller compare, the consume, the re-canonicalisation, the `Admit`/`BeginStart` order, the state predicate in the E4 consume statement, the constraint recheck at 4.4, the identity check of the root, `RESOLVE_BENEATH`, the pinned dial set, the redirect refusal, the counter conditional, the `expires_seq` check, the `Approved` type boundary, the step-order condition, the not-revoked and `expires_seq` predicates, the sealed-buffer use, the injection-point binding, the `status-only` default, fails a named test |
 
 ## 9. Branch points that depend on the operator's answers
 
@@ -272,6 +314,23 @@ the attempted ones, never secret values.
 - **Per-operation human confirmation.** The stronger alternative for some operations (a person confirms each
   one) defeats the point of the mode for those operations; it is available per operation as "never liftable",
   not as a second path.
+
+## 9A. Known limits
+
+- The unexported `Approved` type can be forged by a zero value in the same package, so the **inventory test is
+  the guarantee**, the type is a speed bump.
+- **Browser-driven sends** (a page in the extension's browser) have no dial the host can pin; the approval
+  binds the destination at the page level and no network-level claim is made.
+- **Registrable-domain suffix matching** must use the public suffix list **including its private section**
+  (so a name on a shared host is not "the same domain" as another tenant); a name the list does not know is
+  matched exactly only.
+- `install.package`: the resolved **dependency set** of the package is part of what the digest covers where the
+  manager provides a lock; a manager without one runs dependencies' install code unbound, and is not enabled.
+- The retention sweep of the insert-only tables must **not** remove the consumed rows of a generation that has
+  not ended; it applies its window after the run ends.
+- Counting rows (the delta rows) grow with use; the counters are summed per generation and the sum is checked
+  against the cap in the same statement.
+- These and the open items are tracked in issue #1270.
 
 ## 10. What this note does not claim
 
