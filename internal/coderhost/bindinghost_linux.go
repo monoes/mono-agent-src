@@ -31,6 +31,9 @@ type BindingHost struct {
 	Root string
 	Logf func(format string, args ...any)
 	Now  func() time.Time
+	// EnsureTimeout bounds one start (the socket, the key and the host-row write), which holds the host's lock; zero
+	// is defaultEnsureTimeout.
+	EnsureTimeout time.Duration
 
 	mu     sync.Mutex
 	svcs   map[string]*bindingService
@@ -144,6 +147,15 @@ func (h *BindingHost) Generation(profile string) (string, bool) {
 	}
 }
 
+const defaultEnsureTimeout = 30 * time.Second
+
+func (h *BindingHost) ensureTimeout() time.Duration {
+	if h.EnsureTimeout > 0 {
+		return h.EnsureTimeout
+	}
+	return defaultEnsureTimeout
+}
+
 // Ensure starts the profile's service if it is not running. It fails closed: any step that does not work leaves
 // nothing listening. A host row (migration 148) written before a later step failed stays: it is signed, names a
 // generation nobody serves, and so can only make a verifier's question go unanswered (a deny) until the next start
@@ -157,6 +169,8 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, h.ensureTimeout())
+	defer cancel()
 	if h.closed {
 		return errors.New("the binding host is shut down")
 	}
