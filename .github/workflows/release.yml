@@ -639,12 +639,33 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Download Go modules
+        run: |
+          for i in 1 2 3; do
+            go mod download && exit 0
+            sleep $((i*5))
+          done
+          echo "go mod download failed" >&2
+          exit 1
       # Test-only build with the dev gate off; never uploaded and not part of any release artifact.
       - name: Build the new binary (devaccount, test only)
         run: go build -tags devaccount -o "$RUNNER_TEMP/monoagentcli-dev" ./cmd/monoagentcli
       # The checkout is shallow with no tags; the script builds the old release from its tag.
+      # The job token (read-only) so this still works when the repository is private. The header is
+      # masked and never traced; the script then finds the tag locally and needs no network.
       - name: Fetch the previous release tag
-        run: git fetch --depth=1 origin tag v0.193.5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          for i in 1 2 3; do
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" fetch --depth=1 origin tag v0.193.5 && exit 0
+            sleep $((i*5))
+          done
+          echo "could not fetch tag v0.193.5" >&2
+          exit 1
       # The script builds the old tag and the seeder itself and uses a scratch HOME.
       - name: Previous release against a database holding v2 binding rows
         run: TMPDIR="$RUNNER_TEMP" bash scripts/procbind-old-binary-smoke.sh --selftest --new "$RUNNER_TEMP/monoagentcli-dev" --old-tag v0.193.5 --require-reachable
