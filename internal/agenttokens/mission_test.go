@@ -225,6 +225,43 @@ func TestSweepMissionsSparesRunningAndOwnRuns(t *testing.T) {
 	}
 }
 
+// A failing owner in the middle does not leave the owners after it live: all are tried, the count is
+// what was revoked, and the error names the owner that failed.
+func TestSweepMissionsContinuesPastAFailingOwner(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	secrets := map[string]string{}
+	for _, owner := range []string{"grp/a", "grp/b", "grp/c", "grp/d"} {
+		b := missionB
+		b.Owner = owner
+		_, sec, err := s.CreateMission(ctx, "default", b, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		secrets[owner] = sec
+	}
+	if _, err := s.db.Exec(`CREATE TRIGGER fail_b BEFORE UPDATE ON agent_tokens WHEN OLD.mission_owner = 'grp/b'
+		BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.SweepMissions(ctx, "grp", "", nil)
+	if err == nil || !strings.Contains(err.Error(), "grp/b") || !strings.Contains(err.Error(), "injected failure") {
+		t.Fatalf("the error does not name the failing owner: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("revoked %d, want 3", n)
+	}
+	for owner, sec := range secrets {
+		_, verr := s.VerifyMission(ctx, "default", sec)
+		if owner == "grp/b" && verr != nil {
+			t.Errorf("the failing owner's token was revoked: %v", verr)
+		}
+		if owner != "grp/b" && !errors.Is(verr, ErrInvalid) {
+			t.Errorf("%s survived the sweep: %v", owner, verr)
+		}
+	}
+}
+
 // The sweep a conductor runs also removes the v2 binding rows that are past retention, at most once an
 // interval, and a failure of it never fails the sweep.
 func TestSweepMissionsRunsTheV2RetentionSweepOnceAnInterval(t *testing.T) {

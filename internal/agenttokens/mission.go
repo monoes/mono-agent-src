@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -173,7 +174,7 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 // that ended without revoking: a crash or a kill), leaves the tokens of a run that is still
 // running (a second conductor of the conversation must not end the first one's workers) and
 // those of self, and purges the mission tokens that have expired, so the list does not grow.
-// A nil live reports no owner as running. It returns how many tokens it revoked.
+// A nil live reports no owner as running. It returns how many tokens it revoked; a failing owner does not stop the rest, and the errors are joined.
 func (s *Store) SweepMissions(ctx context.Context, group, self string, live func(ctx context.Context, owner string) bool) (int, error) {
 	if group == "" {
 		return 0, nil
@@ -225,7 +226,11 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 	if err := v2.Err(); err != nil {
 		return 0, err
 	}
+	// A failing owner does not stop the others: every owner is tried, so a failure leaves only its own
+	// tokens live until the next sweep, and the errors are joined.
+	sort.Strings(owners)
 	total := 0
+	var errs []error
 	for _, o := range owners {
 		if live != nil && live(ctx, o) {
 			continue
@@ -233,14 +238,14 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 		n, err := s.RevokeOwner(ctx, o)
 		total += n
 		if err != nil {
-			return total, err
+			errs = append(errs, fmt.Errorf("revoking mission tokens of %q: %w", o, err))
 		}
 	}
 	if _, err := s.db.ExecContext(ctx, purgeExpiredMissions, s.now().UTC().Format(timeFmt)); err != nil {
-		return total, fmt.Errorf("purging expired mission tokens: %w", err)
+		errs = append(errs, fmt.Errorf("purging expired mission tokens: %w", err))
 	}
 	s.purgeV2(ctx)
-	return total, nil
+	return total, errors.Join(errs...)
 }
 
 // purgeInterval is how often a store runs the v2 retention sweep: a sweep of an idle database is cheap, but this
