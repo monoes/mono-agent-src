@@ -106,7 +106,6 @@ func TestHelperBoundE2E(t *testing.T) {
 		if kek, err := os.ReadFile(filepath.Join(files, "kek")); err == nil {
 			_ = keyring.Set("monoagent-vault", "kek-default", strings.TrimSpace(string(kek)))
 		}
-		procbind.ForTestSetIssuance(t, true) // this process stands in for a build that issues bound tokens
 		time.Sleep(200 * time.Millisecond)
 		e2eWrite(files, "self", e2eAsk(sqldb, files, id))
 		// the stores' own verify path (VerifySessionToken -> V2Check -> the service), from the turn itself
@@ -137,7 +136,6 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 	if !procbind.PeerPidfdSupported() {
 		t.Skip("the machine cannot run the binding service")
 	}
-	procbind.ForTestSetIssuance(t, true)
 	files := t.TempDir()
 	runtimeDir, err := os.MkdirTemp("", "e2e")
 	if err != nil {

@@ -27,6 +27,18 @@ func Refusal(serviceRunning bool) string {
 // the real verifier by it and the gate reads it, so one value decides everything.
 func IssuanceOn() bool { return issuanceReady() }
 
+// ForTestSetReady overrides what Ready says about the machine for the life of a test (nil: it can run the service). Like
+// ForTestSetIssuance it takes the test, and a test of procbind fails if any non-test file calls it.
+func ForTestSetReady(t interface {
+	Helper()
+	Cleanup(func())
+}, err error) {
+	t.Helper()
+	old := ready
+	ready = func() error { return err }
+	t.Cleanup(func() { ready = old })
+}
+
 // ForTestSetIssuance overrides IssuanceOn for the life of a test. It takes the test (anything with Cleanup), so it
 // cannot be used without one; a test (procbind's own) fails if any non-test file calls it.
 func ForTestSetIssuance(t interface {

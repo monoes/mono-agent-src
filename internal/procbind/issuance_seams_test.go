@@ -24,7 +24,7 @@ func TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch(t *testing.T) {
 // wails-app module is scanned too: it can import the internal packages through its replace.
 func scanIssuanceSeams(t *testing.T, root string) []string {
 	t.Helper()
-	guarded := map[string]bool{"SetV2Verifier": true, "ForTestSetIssuance": true}
+	guarded := map[string]bool{"SetV2Verifier": true, "ForTestSetIssuance": true, "ForTestSetReady": true}
 	var bad []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -96,22 +96,18 @@ func TestTheIssuanceSeamScanCatchesWhatItShould(t *testing.T) {
 	}
 }
 
-// With the constant false every v2 secret is denied by the stores (they hold no verifier); the seam, which a test uses
-// to stand in for the flipped constant, turns it on and off and restores itself.
-func TestTheIssuanceSwitchDefaultsOffAndTheSeamRestores(t *testing.T) {
-	if IssuanceReady {
-		t.Skip("issuance is on")
-	}
-	if IssuanceOn() {
-		t.Fatal("issuance is on although the constant is false")
+// IssuanceOn follows the constant; the seam, which a test uses to stand in for either value, moves it and restores itself.
+func TestTheIssuanceSwitchFollowsTheConstantAndTheSeamRestores(t *testing.T) {
+	if IssuanceOn() != IssuanceReady {
+		t.Fatal("IssuanceOn does not follow the constant")
 	}
 	t.Run("seam", func(t *testing.T) {
-		ForTestSetIssuance(t, true)
-		if !IssuanceOn() {
-			t.Error("the seam did not turn issuance on")
+		ForTestSetIssuance(t, !IssuanceReady)
+		if IssuanceOn() == IssuanceReady {
+			t.Error("the seam did not move the switch")
 		}
 	})
-	if IssuanceOn() {
+	if IssuanceOn() != IssuanceReady {
 		t.Error("the seam did not restore the switch")
 	}
 }
