@@ -51,6 +51,12 @@ func newBoundRig(t *testing.T, script string) *boundRig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	return newBoundRigOn(t, db, script)
+}
+
+// newBoundRigOn is newBoundRig over a database the test already has.
+func newBoundRigOn(t *testing.T, db *storage.Database, script string) *boundRig {
+	t.Helper()
 	r := &boundRig{t: t, db: db, dir: t.TempDir()}
 	r.frame, r.envlog, r.pidfile, r.release = filepath.Join(r.dir, "frame"), filepath.Join(r.dir, "env"), filepath.Join(r.dir, "pid"), filepath.Join(r.dir, "release")
 	if script == "" {
@@ -65,16 +71,18 @@ while [ ! -e '` + r.release + `' ]; do sleep 0.05; done
 	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.WriteFile(r.release, []byte("x"), 0o600) }) // a turn left by a failing test ends
 	r.store = coderhost.NewStore(db.DB)
 	r.binder = procbind.NewBinder(time.Now)
-	r.store.SetBinder(r.binder)
 	t.Cleanup(r.binder.Close)
 	r.l = &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(r.dir, "turns"), revokeBackoff: time.Millisecond,
 		tokens: func(string, string, string) (string, error) { r.legacy++; return "mst-legacy", nil },
 		revoke: r.store.RevokeSessionTokensErr,
-		bound:  &boundLaunch{db: db.DB, host: fakeBoundHost{"gen-1", true}, binder: r.binder},
 	}
-	r.session("default", "c1", "t1")
+	r.l.bound = newBoundLaunch(db.DB, fakeBoundHost{"gen-1", true}, r.binder, r.store, r.l.child)
+	if db.DB != nil {
+		r.session("default", "c1", "t1")
+	}
 	return r
 }
 

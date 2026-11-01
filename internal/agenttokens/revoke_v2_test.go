@@ -147,3 +147,20 @@ func TestAV2TokenWithItsOwnIdIsRevokedByOwnerNotByTheLegacyId(t *testing.T) {
 		t.Error("RevokeOwner did not revoke the v2 token")
 	}
 }
+
+// A run that holds only a v2 token (a bound turn has no legacy one) is found by the sweep and its token revoked.
+func TestSweepMissionsFindsARunThatHoldsOnlyAV2Token(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	v2Mission(t, s, "v2-only", "default", "conv-1/t1")
+	v2Mission(t, s, "own", "default", "conv-1/t2")
+	if _, err := s.SweepMissions(ctx, "conv-1", "conv-1/t2", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !v2Revoked(t, s, "v2-only") {
+		t.Error("the v2-only run was not swept")
+	}
+	if v2Revoked(t, s, "own") {
+		t.Error("the sweeper's own run was revoked")
+	}
+}
