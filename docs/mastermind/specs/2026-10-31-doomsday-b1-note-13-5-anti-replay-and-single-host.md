@@ -310,3 +310,25 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 6. A restore that keeps the database head but lowers only the generation counter.
 7. A writer that carries a host id it should not, and the exact columns Stop may write.
 8. The freshness check (3A) skipped by a process that does not take the critical section.
+
+## 12. Open blockers before implementation (from review, recorded verbatim)
+
+Status after the review rounds: three **P1** items remain **open in this revision**. Each must be resolved in a
+later revision before any code in the area lands (spec section 13 gate). They are recorded as the reviewers
+stated them.
+
+1. **P1: transactions that write more than one row need a batch rule.** One transition can write several rows
+   (for example a run row plus registry and audit rows). The `pending` line must carry the **row count and
+   kind**, and the `committed` line the **final `seq` and head MAC**; recovery rows 2, 3 and 5 must compare the
+   **final** values, not the first row's. A test with **k rows**, including a **crash between rows**, is
+   required.
+2. **P1: a torn witness tail needs an append-only repair.** Appending after a torn final line corrupts the
+   next line. The repair is: append a newline and then a **`sealed` line that records the torn length**, so
+   the file stays append-only and the framing resumes cleanly. Test T21 must be extended to cover appending
+   after a torn tail and recovery from it.
+3. **P1: database, journal and WAL identity is not implementable as written.** SQLite owns those file
+   descriptors, so the process cannot compare `fstat` on them at every transition. Instead: **record the
+   database identity once per host life**, **refuse any reconnect to a different identity**, **pin WAL mode**,
+   and add a test that **forces a pool reopen after a rename** and sees the refusal.
+
+Further review rounds resume after the operator answers the open questions (spec section 12.5).
