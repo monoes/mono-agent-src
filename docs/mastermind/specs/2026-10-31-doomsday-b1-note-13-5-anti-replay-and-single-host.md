@@ -1,6 +1,6 @@
 # B1 design note 13.5: anti-replay, freshness and the single host
 
-Status: **design note and test plan, revision 6, no code.** It closes contract 13.5 of
+Status: **design note and test plan, revision 7, no code.** It closes contract 13.5 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults (Q8: one host only).
 Alternatives that depend on an unanswered question are listed in section 10. Wording is class level: this
 repository is public.
@@ -128,30 +128,49 @@ registration, in any process**, not only at host start:
   5. the journal mode is pinned (`journal_mode=WAL`, verified on every connection) so the set of sibling files
      is fixed.
 
-- **The database lifecycle: a pinned connection.** The host keeps **one pinned connection open for its whole
-  life** and never lets the pool close the last connection, so the database, `-wal` and `-shm` descriptors
-  stay open and the main file's identity is checked against descriptors that never change. The host performs
-  **no checkpoint-and-close**; SQLite's own checkpointing continues while the pinned connection holds the files.
-  Other connections of the pool may open and close freely; each is checked after it opens. A short-lived
-  process (the CLI) opens, checks against the witness's `dbid`, operates and closes; after its last close the
-  siblings may be removed by SQLite, and the next opener re-checks (a **verified close, checkpoint and reopen**
-  needs no special case beyond the check at open). **Same-head replacement:** a replacement that keeps the
-  main file's inode (an in-place overwrite) is not an identity change; it is caught only if the chained head
-  differs from the witness. A file with the **same head but different contents in tables outside the chain**
-  is not detected here: the chained tables are the authority-relevant rows, and the other tables are out of
-  this note's scope (stated limit).
-
-- **Staying bound to the checked files between the check and SQLite's use (a barrier, not a snapshot).** A
-  transition runs on **one connection**, and the checks are made on **that connection's descriptors**:
-  1. check the descriptors (as above) **before** `BEGIN IMMEDIATE`;
-  2. run the transaction; then check again **before `COMMIT`**; a mismatch is a `ROLLBACK` and a fail-closed;
-  3. after `COMMIT`, check once more **before** the `committed` line is appended; a mismatch means the
-     transaction landed on a swapped-out inode: **do not append `committed`**, fail closed.
-  A swap in any gap can therefore only make the transaction land on the file the connection had open (the one
-  that was checked), never on the replacement, and the next check sees the swap. The residual window is the
-  instant between the last check and the OS's `rename`, which is the same as any check-then-act and is closed
-  by the post-commit check plus the witness comparison. Tests: renames at `db.before-begin`, `db.before-commit`
-  and `db.after-commit` (T40b-d).
+- **The binding: chained state lives only on a pinned connection whose files are identified at pin time.**
+  The descriptor checks above are **detection**. The **binding** is the following, and it is what makes a swap
+  between checks harmless.
+  1. **One pinned connection per process, for all chained tables.** The host keeps one pinned connection open
+     for its life; **every read and write of the chained tables goes through it and no pooled connection
+     touches them** (an API that takes the pinned connection enforces this, and the inventory test scans for
+     chained-table access outside it). A short-lived process (the CLI) pins its own connection for its
+     operation. The pool may open and close other connections for non-chained tables; the pinned one is never
+     the last to close during a host life, and the host performs no checkpoint-and-close.
+  2. **The pinning protocol**, under `host.lock` and `witness.lock` where they apply: (a) `stat` the database
+     path → identity `I0`; the host writes `I0` to the witness as `dbid`, and any other process compares its
+     own `I0` with the witness's latest `dbid` and refuses on a difference (the **cross-process hand-off**);
+     (b) open the connection, set and verify `journal_mode=WAL`, and **force the sibling files open** with a
+     read transaction and a trivial write transaction, so `-wal` and `-shm` are never opened lazily later;
+     (c) `stat` the database path again → `I1`, and `stat` the `-wal` and `-shm` paths → `W`, `S`; require
+     `I0 = I1`; (d) scan `/proc/self/fd` and **identify the connection's descriptors by identity**: those whose
+     `fstat` equals `I1`, `W` and `S`; require each of the three to be found at least once. Anything else
+     **fails closed**. The path identity is the same before and after the open and the descriptors match it,
+     so the connection holds exactly the files that were checked. The descriptors are identified **by
+     identity at pin time, not by a before/after difference of the descriptor set**, so shared or lazily
+     opened descriptors cannot be missed (all three files were forced open).
+  3. **A swap between checks cannot redirect the transaction.** After pinning, the connection operates on its
+     **descriptors, not on paths**: a rename or swap of a path cannot make it read or write another file. A WAL
+     renamed away with another WAL placed at its path, or a file swapped and restored between two checks,
+     changes **nothing the connection does**; SQLite does not re-open the siblings while the connection is
+     open. The next check compares `fstat(descriptor)` with `stat(path)` and fails closed on any divergence.
+     A rename to another name **without an unlink** is covered because the comparison is by **identity**, not
+     by the ` (deleted)` suffix.
+  4. **A swap's result is never accepted.** After a permanent swap (even one landing after the post-commit
+     check and before the witness append), the pinned connection keeps writing to the original file and the
+     witness records those commits. A process that opens the database **by path** sees the other file, whose
+     head is behind the witness: rows 4 and 5 fail it closed. No process can admit work on the swapped file,
+     and the pinned host's own next check fails closed.
+  5. **Lifecycle and hand-off.** At an orderly exit the pinned connection closes: SQLite checkpoints and may
+     remove `-wal` and `-shm`; the main file keeps its inode and the witness keeps `dbid`. A later **no-host
+     CLI Stop** pins its own connection by the same protocol and compares `I0` with `dbid`. **Another process
+     that writes or checkpoints** (`wal_checkpoint`) while the host runs changes content in place, not
+     identity: the pinned descriptors stay valid and the chained head moves only through the sequencer.
+  6. **Stated limit:** a same-head in-place replacement that differs only in non-chained tables is not
+     detected (T43).
+  The three checks around the transaction (before `BEGIN`, before `COMMIT`, after `COMMIT` and before the
+  `committed` line) **remain as detection** (T40b-d); they are no longer what binds the transaction to the
+  files.
 
   For the **witness** and **`host.lock`**, which this code opens itself, the same `fstat(descriptor)` against
   `stat(path)` comparison applies at every transition and admission.
@@ -171,10 +190,21 @@ the admission point.
 Run on every host start before any work is admitted, on every `doomsday status`, and inside the critical
 section of section 3A.
 
-**Precedence.** Rows are evaluated **top to bottom and the first match wins**; every row's condition includes
-the MAC comparisons it names, so rows 1 and 6 differ only by the head MAC (equal / different), and row 3 (a
-complete authenticated `pending` that the database agrees with) takes precedence over row 5 (a database ahead
-of the witness without such a `pending`).
+**The decision procedure.** The rows below are **outcomes**; they are reached in **phases, in this order**, and
+a failure in an earlier phase ends the evaluation. **Row 1 is reachable only in phase 4, after phases 1-3 have
+passed**, so a consistent head can never mask a pending transition, an ending transition, or an anchor that
+says otherwise.
+1. *Witness integrity.* Missing, unreadable, or a damaged chain → row 7.
+2. *Ended and anchor consistency.* The witness says ended while the database says `running` → row 8; the
+   anchor newer or ended → row 9; the anchor missing for an anchor-bound run → row 11; the anchor unreadable →
+   row 10 (hold). `anchor-bound: no` → row 12 (the weaker note, then continue).
+3. *Pending.* If the **last complete authenticated record** is a `pending` with no `committed` after it,
+   classify **by `D` alone**: rows 2, 2e or 3, and rows 4, 5, 6 or 13 when `D` matches none of them.
+4. *Steady state.* If the last complete record is a `committed`: `D.seq` equal and the MAC equal → **row 1**;
+   `D.seq` equal and the MAC different → row 6; `D.seq` lower → row 4; higher → row 5.
+5. *Anything else* → row 13.
+Rows 1 and 6 differ only by the head MAC; row 3 (a complete authenticated `pending` that the database agrees
+with) is decided in phase 3, before row 5 can apply.
 
 | # | Situation | Reading | Action |
 |---|---|---|---|
@@ -200,12 +230,14 @@ authority blocks execution.
 ### 4A. The witness record framing (crash-safe by construction)
 
 **Framing.** A record is `SYNC | len | payload | MAC`, with `SYNC` a fixed 8-byte marker, `len` a fixed 4-byte
-length, and `MAC` 32 bytes over `(payload, previous good record's MAC)`. A record is **good** only if its MAC
-verifies and its chain position is right.
+length, and `MAC` 32 bytes over **`len || payload`**. The payload carries its **type**, its seq range and its
+own **`prev`** (the MAC of the record its writer saw last), so a record's authenticity does not depend on the
+reader's position. A record is **good** if its MAC verifies; it is **chaining** if its `prev` equals the last
+good record's MAC.
 
 **Reading and resynchronisation.** The reader walks the file from the last good record. If the bytes that
 follow are not a good record, it **scans forward for the next `SYNC`** and accepts a record there only if it is
-good **and its previous-MAC is the last good record's MAC**. Everything skipped is a *torn fragment* and
+good **and chaining**. Everything skipped is a *torn fragment* and
 carries no meaning. A fake `SYNC` inside a fragment fails the MAC and the chain test and is skipped in turn.
 
 **Consequence: no repair step.** A torn tail needs no repair record, and appending after it is safe, because
@@ -217,8 +249,12 @@ truncated or edited.
 **What a torn record means.**
 - A **torn `pending`** is *absent* (it was never complete, so step 5 of the sequencer never ran): the state is
   row 1, not row 2. **Row 2 requires a complete, authenticated `pending`.**
-- A **torn `committed`** is read as row 3 **only if `D` agrees** (`D.seq = n+k` and the MACs match); a torn
-  `committed` that the database contradicts (`D.seq = n`) is row 13.
+- **A torn or missing `committed` is classified from `D`, never from the fragment.** After a complete
+  authenticated `pending` (phase 3), whatever follows it (nothing, a prefix of `SYNC`, a partial header, a
+  partial `committed`) is **the same state**: *a `pending` without a `committed`*. It is then rows 2, 2e or 3
+  by `D` alone (`D.seq = n` → row 2 or 2e; `D.seq = n+k` with the MACs matching → row 3). There is no
+  "torn committed" outcome that depends on how many bytes were written, and a partial header is never
+  trusted to say what record type it begins.
 - **A record whose MAC verifies but that does not chain from the last good record is never accepted as a
   continuation and never silently skipped.** If its `seq` is not greater than the last good `seq` it is a
   **replayed** record; if it leaves a gap it is a **fork or a deletion**; either way the file is classified
@@ -344,6 +380,13 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T18 | the database file swapped under a **running** host | the next admission fails closed (3A) |
 | T19 | an outside dispatcher registers after a restore with **no host** running | refused (no live host holds the lock, or the head is behind the witness) |
 | T20 | a source scan: no ordering or freshness path reads a clock; a clock moved back and forward around a transition | no effect |
+| T21b | **every byte offset of the `committed` record, in both database states** (`D.seq = n` and `D.seq = n+k`), including only a prefix of `SYNC`, a partial header and a partial payload | the classification is **identical at every offset** for a given `D`: row 2/2e for `D.seq = n`, row 3 for `D.seq = n+k`; never row 13 for a torn `committed` alone |
+| T45 | **swap and restore between two checks**: rename the WAL away, put another WAL at its path while the pinned connection is running, restore the original before the next check; and a **lazy sibling open** schedule (a connection that opens `-wal` only on its first read) | the pinned connection's transactions are unaffected (they use its descriptors); the sibling descriptors were forced open at pin time; the next check compares by identity and fails closed on any divergence; nothing is accepted on the replacement |
+| T46 | a **permanent swap after the post-commit check and before the witness append** | the commit is on the original file and the witness records it; a process opening by path sees a head behind the witness and fails closed (rows 4/5); the host's next check fails closed |
+| T47 | descriptors **shared** with another component of the process, and descriptors opened lazily after pin time (a defect injected) | identified by identity at pin time; an unexpected extra descriptor on a swapped file fails the check; nothing is missed by a before/after difference |
+| T48 | **another process writes and runs `wal_checkpoint(TRUNCATE)`** while the host transitions | the pinned descriptors stay valid; the chained head moves only through the sequencer; no false fail-closed and no missed swap |
+| T49 | **orderly host exit, then a no-host CLI Stop** (the last close checkpoints and removes the siblings) | the CLI pins its own connection by the protocol, compares `I0` with `dbid`, and writes the Stop; a database whose inode differs from `dbid` fails closed |
+| T50 | a decision-procedure matrix: each phase-3 and phase-4 situation crossed with each phase-2 anchor/ended state | the first failing phase decides; row 1 is never returned while a pending, ending or anchor failure exists |
 | T21 | **truncate the witness at every byte offset of an append**, re-open, append another record, re-read; fake `SYNC` markers inside the fragment; a partial record followed by a valid one; a torn `pending`, a torn `committed` | the reader returns exactly the good records, the fragment is skipped, the next record chains from the last good one, the result is the same at every offset (idempotent); a torn `pending` is row 1, a torn `committed` is row 3 when `D` agrees; a bad record before a non-chaining good one is row 7 |
 | T22 | replace `host.lock` or the run directory while the host runs; a child that inherited the lock fd | the inode check fails closed; the launcher leaves no inherited lock descriptor |
 | T23 | host id hand-off after an orderly shutdown, and after an unclean loss | adoption only in the first case, conditional on the old id and the clean record |
@@ -455,34 +498,23 @@ and await a P1-only delta review.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
 
-### 12.2 Remaining after the delta review of revision 6 (recorded)
+### 12.2 Closed in revision 7
 
-Three **P1** items and the P2/P3 items below are **open in this revision**. Each must be resolved in a later
-revision before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewers'.
+The three P1s recorded after the delta review of revision 6 and the unproved hand-off are closed in this
+revision and await a P1-only delta review.
 
-1. **P1: the three checks are snapshots, not a binding.** Rename the WAL away, put another WAL at its path
-   while SQLite opens it lazily, restore the original before the next check: all three checks pass. A
-   permanent swap after the post-commit check and before the witness append is also unseen. Required: an
-   **actual binding or exclusion mechanism** (hold the files via the pinned descriptors only; check the inode
-   of the **open** descriptors of that connection at each check; **lazy sibling opens** forced at pin time), and
-   tests that hold the replacement **only between checks**. A rename to a different name **without an
-   unlink** need not get the ` (deleted)` suffix, and descriptor-set differences can miss **shared or lazily
-   opened** descriptors. A first B1 step is a capability check of the SQLite driver (a moved-file query, a VFS
-   hook).
-2. **P1: the first-match recovery rule bypasses the pending and anchor checks.** With a complete `pending`, an
-   uncommitted transaction has `D.seq` equal to the last committed seq, so **row 1 wins before rows 2 and 2e**
-   (no abandonment is written) and an **ending transition that must fail closed proceeds**; row 1 also masks
-   rows 8-11 when the head is consistent but the witness or the anchor says ended, newer, missing or
-   unreadable. Required: make ordinary consistency **conditional on all mandatory pending, ending and anchor
-   checks**; test those combinations.
-3. **P1: torn-`committed` classification is not derivable from the framing.** After a complete `pending`, a
-   crash before any byte of `committed`, or after only a prefix of `SYNC`, yields the same parseable state as
-   a `pending` without `committed`; `D.seq = n` is then row 2 or 2e, but the text demands row 13; a partial
-   header cannot authenticate the record type. Required: **deterministic recovery for indistinguishable
-   prefixes** (classify from `D`, not from the fragment), and a test of **every offset in both database
-   states**. The MAC omits the header and length, and the text does not say how a non-chaining record's prior
-   MAC is obtained (T44): carry `prev` inside the authenticated payload and cover `len` in the MAC.
-4. **Also unproved:** the safe hand-off for the legitimate last-close checkpoint and a later **no-host CLI
-   Stop**, and a test with **another process writing and checkpointing**.
+1. **P1: the three checks were snapshots, not a binding.** Closed: chained state lives only on a pinned
+   connection whose files are identified by identity at pin time, with the siblings forced open; the connection
+   operates on descriptors, so a swap between checks cannot redirect a transaction, and a permanent swap's
+   result is never accepted because a path-opening process sees a head behind the witness (section 3A; T45,
+   T46, T47).
+2. **P1: the first-match rule bypassed the pending and anchor checks.** Closed: a phased decision procedure in
+   which row 1 is reachable only after the integrity, ended/anchor and pending phases have passed (section 4;
+   T50).
+3. **P1: torn-`committed` prefixes were indistinguishable from `pending` without `committed`.** Closed: the
+   classification is from `D` alone, the MAC covers `len || payload`, the payload carries its own `prev`, and a
+   test covers every byte offset in both database states (section 4A; T21b).
+4. **Hand-off and concurrency:** the legitimate last-close checkpoint, a later no-host CLI Stop, and another
+   process writing and checkpointing (section 3A; T48, T49).
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
