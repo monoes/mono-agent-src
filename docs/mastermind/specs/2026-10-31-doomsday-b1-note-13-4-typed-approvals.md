@@ -526,3 +526,21 @@ review.
    recommendation.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.3 Remaining after the delta review of revision 7 (recorded)
+
+Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
+be resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the
+reviewers'.
+
+1. **P1: the cross-operation release rule is undefined.** Section 5A says results across operations are
+   released "in the order their approvals were issued", but an earlier approval that **never starts or is
+   cancelled** would block every later release, and the ordering itself is an observable wait. Required: define
+   a **cross-operation release protocol** (or drop the ordering requirement) that accounts for **all
+   observable waits**, including an earlier approval that never starts or is cancelled.
+2. **P1: the observation model is not stated.** Required: state the **observation model** honestly, with
+   **cancellation and error delivery** and **scheduler jitter**, and a **justified bound** on what a destination
+   can convey through them (a call cancelled by `Stop`, a host that is slow to release at a slot boundary);
+   tests for **concurrent operations, cancellation and jitter**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
