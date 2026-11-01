@@ -32,6 +32,18 @@ func (s *Store) revokeSessionTokens(profileID, conversationID string) error {
 	})
 }
 
+// RevokeTurnSessionTokensErr ends the tokens of ONE turn of a conversation (legacy and v2), not the conversation's: the
+// exit of an old process must not take a newer turn's token with it. An error means a token may still be live.
+func (s *Store) RevokeTurnSessionTokensErr(profileID, conversationID, turnID string) error {
+	ctx := context.Background()
+	return s.revoker().Run(ctx, sessionKinds, procbind.Scope{Profile: profileID, Session: conversationID}, func(conn *sql.Conn) ([]procbind.Selector, error) {
+		if _, err := conn.ExecContext(ctx, `DELETE FROM coder_session_tokens WHERE profile_id = ? AND conversation_id = ? AND turn_id = ?`, profileID, conversationID, turnID); err != nil {
+			return nil, err
+		}
+		return []procbind.Selector{{Profile: profileID, Session: conversationID, Turn: turnID, Kind: procbind.KindSession}}, nil
+	})
+}
+
 // sweepOrphanTokens removes the legacy tokens of conversations that are gone and revokes the v2 tokens of
 // those conversations, in one transaction. The orphans are read inside it, so a conversation deleted
 // between the read and the delete cannot leave a token behind. It returns how many legacy rows it removed.

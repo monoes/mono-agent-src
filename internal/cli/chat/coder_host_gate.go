@@ -123,6 +123,10 @@ func (g *gatedLauncher) settingIsOnNow() bool {
 	return true
 }
 
+// refusedTurnWait is how long a refused turn gets to exit after its stop (the stop itself allows hostTurnGrace and then
+// kills the group).
+var refusedTurnWait = hostTurnGrace + 5*time.Second
+
 // launch routes the turn and starts it. A turn that went to the legacy launcher is checked once more after its process
 // exists, when binding can be on at all: if the operator switched the setting on in between, the turn is stopped and
 // the start refused, so no turn runs unbound after the setting says bound.
@@ -136,8 +140,31 @@ func (g *gatedLauncher) launch(profile string, start func(coderhost.Launcher) (c
 		return turn, err
 	}
 	if g.settingIsOnNow() {
-		turn.Stop()
-		go func() { _ = turn.Wait() }()
+		// The refused turn is stopped, its own tokens ended, and it is waited for (bounded) before the refusal is returned:
+		// the host settles the session on the returned error and may start another turn at once. Past the bound the old
+		// process may still be running; its late exit then revokes only its own turn's tokens (Refuse scopes it), so it
+		// cannot take the next turn's with it.
+		if r, ok := turn.(interface{ Refuse() error }); ok {
+			if rerr := r.Refuse(); rerr != nil && g.logf != nil {
+				g.logf("coder host: ending the tokens of the refused turn failed: %v", rerr)
+			}
+		} else {
+			turn.Stop()
+		}
+		exited := make(chan struct{})
+		go func() {
+			if werr := turn.Wait(); werr != nil && g.logf != nil {
+				g.logf("coder host: the refused turn ended with an error: %v", werr)
+			}
+			close(exited)
+		}()
+		select {
+		case <-exited:
+		case <-time.After(refusedTurnWait):
+			if g.logf != nil {
+				g.logf("coder host: the refused turn is still running after %v", refusedTurnWait)
+			}
+		}
 		return nil, &bindingRefusal{"the turn was not started: peer-credential binding was switched on while it started; send again"}
 	}
 	return turn, nil

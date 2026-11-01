@@ -239,7 +239,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			binding := &coderhost.BindingHost{DB: db.DB, Binder: procbind.NewBinder(time.Now), Logf: logf}
 			defer binding.Shutdown() // revokes every registration and closes every socket
 			legacyLauncher := &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
-				tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
+				tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, revokeTurn: store.RevokeTurnSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
 					if store.HostInsideTurn() {
 						return coderhost.ErrHostInsideTurn
 					}

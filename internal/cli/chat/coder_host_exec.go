@@ -34,6 +34,9 @@ type execLauncher struct {
 	// a session's tokens when its turn ends; an error means a token may still be live (revokeSession retries it, then reports it).
 	tokens func(profileID, conversationID, turnID string) (string, error)
 	revoke func(profileID, conversationID string) error
+	// revokeTurn drops ONE turn's tokens (nil: the conversation's, as revoke does); used for a turn the gate refused, whose late
+	// exit must not revoke a newer turn's token.
+	revokeTurn func(profileID, conversationID, turnID string) error
 	// revokeBackoff is the first wait between revoke attempts (zero: 200 ms; tests shorten it).
 	revokeBackoff time.Duration
 	// bind names the turn's process for its token, right after the turn starts.
@@ -77,6 +80,30 @@ func (l *execLauncher) revokeSession(profileID, conversationID string) error {
 		}
 	}
 	return fmt.Errorf("the session token of %s could not be ended: %w", conversationID, err)
+}
+
+// revokeTurnTokens ends one turn's tokens, trying a few times like revokeSession.
+func (l *execLauncher) revokeTurnTokens(profileID, conversationID, turnID string) error {
+	if l.revokeTurn == nil {
+		return l.revokeSession(profileID, conversationID)
+	}
+	backoff := l.revokeBackoff
+	if backoff <= 0 {
+		backoff = 200 * time.Millisecond
+	}
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if err = l.revokeTurn(profileID, conversationID, turnID); err == nil {
+			return nil
+		}
+		if l.logf != nil {
+			l.logf("WARNING: ending the session token of turn %s of %s failed (attempt %d): %v", turnID, conversationID, attempt+1, err)
+		}
+		if attempt < 3 {
+			time.Sleep(backoff << attempt)
+		}
+	}
+	return fmt.Errorf("the session token of turn %s of %s could not be ended: %w", turnID, conversationID, err)
 }
 
 func (l *execLauncher) args(profileID string, rest ...string) []string {
@@ -235,6 +262,11 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 	}
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
+	t.ownRevoke = func() error {
+		err := l.revokeTurnTokens(profileID, conversationID, turnID)
+		l.child.revokeToken(ct) // a mission child's separate task token dies with the refusal too (nil-safe)
+		return err
+	}
 	go func() {
 		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
 			t.settle()
@@ -243,7 +275,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		t.markReaped()
 		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
 		// revoke is retried; a revoke that still fails is reported as the turn's error.
-		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
+		// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
+		// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
+		// keeps the conversation-wide one.
+		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
 			t.err = errors.Join(t.err, rerr)
 		}
 		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
@@ -436,6 +471,9 @@ type execTurn struct {
 	// by number after the reap.
 	strict bool
 
+	// ownRevoke ends this turn's own tokens (its session token and a mission child's task token) at once, for a refusal.
+	ownRevoke func() error
+
 	mu       sync.Mutex
 	stopping bool // Stop was asked for (or the launcher is about to kill the leader itself)
 	held     bool // strict, and the leader's exit is observed without reaping it
@@ -516,6 +554,17 @@ func (t *execTurn) killGroupIfHeld() {
 	if t.pinned() && !t.exited {
 		_ = t.killGrp()
 	}
+}
+
+// Refuse stops a turn the gate refused after its process existed, and ends its own tokens (session and a child's task
+// token) at once. Its exit, however late, revokes only its own turn's tokens (decided at launch), so the next turn of the
+// conversation keeps its own.
+func (t *execTurn) Refuse() error {
+	t.Stop()
+	if t.ownRevoke == nil {
+		return nil
+	}
+	return t.ownRevoke()
 }
 
 func (t *execTurn) PID() int      { return t.pid }

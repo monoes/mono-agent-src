@@ -706,3 +706,66 @@ func TestAReadFailureAfterATurnStartedStopsItOnlyWhenItPersists(t *testing.T) {
 		}
 	}
 }
+
+// slowExitTurn is a turn whose process takes its time to exit after the stop.
+type slowExitTurn struct{ exit chan struct{} }
+
+func (s *slowExitTurn) PID() int      { return 1 }
+func (s *slowExitTurn) Stamp() string { return "s" }
+func (s *slowExitTurn) Wait() error   { <-s.exit; return nil }
+func (s *slowExitTurn) Stop()         {}
+
+// A turn refused because the setting was switched on while it started is waited for before the refusal is returned: the
+// host starts the next turn as soon as the refusal comes back, and the old process's exit must not find it running.
+func TestARefusedTurnIsWaitedForBeforeTheRefusalReturns(t *testing.T) {
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	st := &slowExitTurn{exit: make(chan struct{})}
+	legacy.turn = st
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	returned := make(chan error, 1)
+	go func() {
+		_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+		returned <- err
+	}()
+	select {
+	case err := <-returned:
+		t.Fatalf("the refusal came back while the refused turn was still running: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(st.exit) // the old process exits
+	select {
+	case err := <-returned:
+		var r *bindingRefusal
+		if !errors.As(err, &r) {
+			t.Fatalf("%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refusal never came back after the turn exited")
+	}
+}
+
+// A refused turn that will not exit does not hold the host forever: the refusal comes back after the bound.
+func TestARefusedTurnThatWillNotExitIsWaitedForOnlyTheBound(t *testing.T) {
+	old := refusedTurnWait
+	refusedTurnWait = 100 * time.Millisecond
+	t.Cleanup(func() { refusedTurnWait = old })
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	st := &slowExitTurn{exit: make(chan struct{})}
+	t.Cleanup(func() { close(st.exit) })
+	legacy.turn = st
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	start := time.Now()
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || time.Since(start) < 100*time.Millisecond || time.Since(start) > 3*time.Second {
+		t.Fatalf("%v after %v", err, time.Since(start))
+	}
+}

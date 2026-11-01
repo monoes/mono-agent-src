@@ -118,10 +118,11 @@ func TestExecLauncherStartsADetachedTurnAndStopsItsGroup(t *testing.T) {
 		t.Skip("process groups")
 	}
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	argsLog := filepath.Join(dir, "args.log")
 	promptLog := filepath.Join(dir, "prompt.txt")
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\necho \"$*\" >> '" + argsLog + "'\nif [ \"$6\" = \"chat\" ] && [ \"$7\" = \"history\" ]; then exit 0; fi\n" +
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "echo \"$*\" >> '" + argsLog + "'\nif [ \"$6\" = \"chat\" ] && [ \"$7\" = \"history\" ]; then exit 0; fi\n" +
 		"cat > '" + promptLog + "'\necho '{\"level\":\"warn\",\"error\":\"a library log line, not a refusal\"}'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\n" +
 		"(trap '' TERM; exec sleep 60) &\necho $! > '" + filepath.Join(dir, "child.pid") + "'\nwait\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
@@ -189,8 +190,9 @@ func TestExecLauncherReportsARefusedTurn(t *testing.T) {
 		t.Skip("shell script")
 	}
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\ncat > /dev/null\necho '{\"error\":\"chat: conversation has an active turn owned by another instance\",\"code\":\"invalid_input\"}'\nexit 3\n"
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "cat > /dev/null\necho '{\"error\":\"chat: conversation has an active turn owned by another instance\",\"code\":\"invalid_input\"}'\nexit 3\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -260,8 +262,9 @@ func TestReconcileSparesOnlyTurnsWhoseProcessIsAlive(t *testing.T) {
 // A turn another host started has no waiter to remove its prompt: Finish does.
 func TestFinishRemovesTheTurnsPromptFile(t *testing.T) {
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	bin := filepath.Join(dir, "fake")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+fakeRecord(dir)+"exit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns")}
@@ -370,9 +373,10 @@ func TestAStartedTurnWithoutAReadableStartTimeIsStoppedAndFails(t *testing.T) {
 		t.Skip("shell script")
 	}
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	pidFile := filepath.Join(dir, "pid")
 	bin := filepath.Join(dir, "fake")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho $$ > '"+pidFile+"'\ncat > /dev/null\necho '{\"admitted\":true}'\nsleep 60\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+fakeRecord(dir)+"echo $$ > '"+pidFile+"'\ncat > /dev/null\necho '{\"admitted\":true}'\nsleep 60\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	oldStamp := stampOf
@@ -429,9 +433,10 @@ func TestThePromptFileIsRemovedOnceTheTurnHoldsIt(t *testing.T) {
 		t.Skip("windows removes it after the turn")
 	}
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	promptLog := filepath.Join(dir, "prompt.txt")
 	bin := filepath.Join(dir, "fake")
-	script := "#!/bin/sh\necho '{\"admitted\":true}'\nsleep 1\ncat > '" + promptLog + "'\n"
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "echo '{\"admitted\":true}'\nsleep 1\ncat > '" + promptLog + "'\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -454,6 +459,7 @@ func TestThePromptFileIsRemovedOnceTheTurnHoldsIt(t *testing.T) {
 
 func TestSweepPromptsRemovesOnlyOldFiles(t *testing.T) {
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	oldF, newF, other := filepath.Join(dir, "old.prompt"), filepath.Join(dir, "new.prompt"), filepath.Join(dir, "keep.log")
 	for _, f := range []string{oldF, newF, other} {
 		os.WriteFile(f, []byte("x"), 0o600)
@@ -506,10 +512,11 @@ func TestAGivenUpTurnIsGoneBeforeStartReturns(t *testing.T) {
 		t.Skip("shell script")
 	}
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	pidFile := filepath.Join(dir, "pid")
 	bin := filepath.Join(dir, "fake")
 	// ignores SIGTERM, so only the kill after the grace period ends it
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\ntrap '' TERM\necho $$ > '"+pidFile+"'\ncat > /dev/null\nwhile true; do sleep 1; done\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+fakeRecord(dir)+"trap '' TERM\necho $$ > '"+pidFile+"'\ncat > /dev/null\nwhile true; do sleep 1; done\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	oldStamp, oldGrace := stampOf, hostTurnGrace
@@ -577,9 +584,10 @@ func TestAnAdmissionLineWithoutANewlineCounts(t *testing.T) {
 		t.Skip("shell script")
 	}
 	dir := t.TempDir()
+	reapFakeTurns(t, dir)
 	bin := filepath.Join(dir, "fake")
 	gate := filepath.Join(dir, "gate")
-	script := "#!/bin/sh\ncat > /dev/null\nprintf '{\"admitted\":true}'\nwhile [ ! -e '" + gate + "' ]; do sleep 0.01; done\n"
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "cat > /dev/null\nprintf '{\"admitted\":true}'\nwhile [ ! -e '" + gate + "' ]; do sleep 0.01; done\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -168,3 +168,27 @@ func TestAFailingV2RevocationKeepsTheLegacyTokenAndFailsTheCall(t *testing.T) {
 		}
 	}
 }
+
+// A turn's v2 session token and its live registration end with that turn, and the following turn's rows and registration of
+// the same conversation are untouched (the selector's turn restriction).
+func TestRevokingOneTurnLeavesTheFollowingTurnsV2TokenAndRegistration(t *testing.T) {
+	_, _, st := newHost(t)
+	b := procbind.NewBinder(time.Now)
+	st.SetBinder(b)
+	h1 := v2Session(t, st, b, "tok-t1", "c1", "t1")
+	h2 := v2Session(t, st, b, "tok-t2", "c1", "t2")
+	if err := st.RevokeTurnSessionTokensErr("p", "c1", "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if !v2Revoked(t, st, "tok-t1") || h1.closed.Load() == 0 {
+		t.Error("the turn's own v2 token or registration survived")
+	}
+	if v2Revoked(t, st, "tok-t2") || h2.closed.Load() != 0 {
+		t.Error("the following turn's v2 token or registration was ended")
+	}
+	if lease, ok := b.Acquire("tok-t2", "p", "session:7"); !ok {
+		t.Error("the following turn's registration is not active")
+	} else {
+		lease.Release()
+	}
+}

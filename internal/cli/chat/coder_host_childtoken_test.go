@@ -164,16 +164,17 @@ func TestRevokeChildTokensRetiresARunThatHoldsOnlyAV2Token(t *testing.T) {
 func fakeChildBin(t *testing.T, dir string) (bin string) {
 	t.Helper()
 	bin = filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\necho \"$*\" >> '" + filepath.Join(dir, "args.log") + "'\n" +
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "echo \"$*\" >> '" + filepath.Join(dir, "args.log") + "'\n" +
 		"if [ \"$6\" = \"chat\" ] && [ \"$7\" = \"history\" ]; then exit 0; fi\n" +
 		"env > '" + filepath.Join(dir, "env.txt") + "'\n" +
 		"if [ -n \"$MONOAGENT_MISSION_FD\" ]; then eval \"read -r tok <&$MONOAGENT_MISSION_FD\"; echo \"$tok\" > '" + filepath.Join(dir, "tok.txt") + "'; fi\n" +
 		"cat > /dev/null\n" +
 		"echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\n" +
-		"while [ ! -e '" + filepath.Join(dir, "release") + "' ]; do sleep 0.05; done\n"
+		"p0=$PPID; while [ -d '" + dir + "' ] && [ ! -e '" + filepath.Join(dir, "release") + "' ] && kill -0 $p0 2>/dev/null; do sleep 0.05; done\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	reapFakeTurns(t, dir)
 	return bin
 }
 
