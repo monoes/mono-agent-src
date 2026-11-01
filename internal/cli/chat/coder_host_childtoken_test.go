@@ -14,6 +14,7 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -134,6 +135,28 @@ func TestRevokeChildTokensEndsEveryRunOfTheConversationAndNoOtherChilds(t *testi
 	}
 	if _, err := f.verify(otherSecret); err != nil {
 		t.Fatalf("another conversation's token was revoked: %v", err)
+	}
+}
+
+// A child run that holds only a v2 task token (a bound launch writes no legacy one) is retired like any other.
+func TestRevokeChildTokensRetiresARunThatHoldsOnlyAV2Token(t *testing.T) {
+	f := newChildFix(t)
+	ctx := context.Background()
+	key, err := procbind.RowKey(ctx, f.db.DB, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	row := procbind.MissionTokenRow{ID: "v2-child-run", ProfileID: "default", TokenHash: "h-v2-child-run", Owner: dynorg.TurnOwner("default", f.child, "t1"),
+		Session: f.sid, Task: f.ids[0], Role: "worker", Actor: "w", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err := procbind.InsertMissionToken(ctx, f.db.DB, key, row); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.mint.RevokeChildTokens("default", f.child); err != nil {
+		t.Fatal(err)
+	}
+	if rv, err := procbind.IsRevoked(ctx, f.db.DB, procbind.KindMission, row.ID); err != nil || !rv {
+		t.Fatalf("the v2-only run was not retired: %v %v", rv, err)
 	}
 }
 

@@ -74,7 +74,7 @@ func MintTx(ctx context.Context, db *sql.DB, key []byte, r MintRequest) error {
 	}()
 	if r.Check != nil {
 		if err := r.Check(ctx, conn); err != nil {
-			return fmt.Errorf("%w: %v", ErrMintRefused, err)
+			return fmt.Errorf("%w: %w", ErrMintRefused, err)
 		}
 	}
 	seen := map[string]bool{}
@@ -120,4 +120,15 @@ func NewSecret(prefix string) (secret, hash string, err error) {
 func HashSecret(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
+}
+
+// SessionScope is the scope string of a session token's binding and of a verifier's question: the conversation and
+// the turn the token was minted for.
+func SessionScope(conversationID, turnID string) string {
+	return "session:" + conversationID + "/" + turnID
+}
+
+// MissionScope is the scope string of a mission token's binding: the mission session and task it was minted for.
+func MissionScope(session, task int64) string {
+	return fmt.Sprintf("mission:%d:%d", session, task)
 }

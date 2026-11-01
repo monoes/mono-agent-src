@@ -135,3 +135,75 @@ func TestARevocationRevokesATokenOfAProfileThatGotAKeyAfterTheSnapshot(t *testin
 		t.Errorf("the legacy callback ran %d times, want 2 (the first attempt rolled back)", calls)
 	}
 }
+
+// ExactOwner selects the owner itself and not its runs (the legacy RevokeOwner's meaning); without it the owner's runs
+// are included (a conversation delete). The registry's selector agrees with the store's.
+func TestAnExactOwnerSelectsTheOwnerAlone(t *testing.T) {
+	ctx := context.Background()
+	for _, exact := range []bool{false, true} {
+		db := newDB(t)
+		mustInsertMission(t, db, mission("own", "p1", "grp"))
+		mustInsertMission(t, db, mission("run", "p1", "grp/run1"))
+		mustInsertMission(t, db, mission("longer", "p1", "grp2"))
+		refs, err := RevokeTx(ctx, db, keyFor(nil), Selector{Profile: "p1", Owner: "grp", ExactOwner: exact}, "x", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, r := range refs {
+			got[r.TokenID] = true
+		}
+		if !got["own"] || got["longer"] || got["run"] == exact {
+			t.Errorf("exact=%v revoked %v", exact, got)
+		}
+	}
+	// the registry's matching
+	b := NewBinder(time.Now)
+	for _, o := range []string{"grp", "grp/run1"} {
+		h := &cHandle{}
+		spec := spec(o)
+		spec.Kind, spec.Owner, spec.Session, spec.Turn, spec.Expires = KindMission, o, "", "", time.Now().Add(time.Hour)
+		if err := regErr(b, spec, h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(b.Revoke(Selector{Profile: "p1", Owner: "grp", ExactOwner: true})); n != 1 {
+		t.Errorf("an exact owner revoked %d registry entries, want 1", n)
+	}
+	if _, err := RevokeTx(ctx, newDB(t), keyFor(nil), Selector{Profile: "p1", ExactOwner: true, All: true}, "x", t0); !errors.Is(err, ErrBadSelector) {
+		t.Errorf("ExactOwner without an owner: %v", err)
+	}
+}
+
+// An exact owner reaches the key discovery too: the profiles of the owner's runs are not looked at, so an unreadable key
+// of an unrelated descendant cannot fail the revocation of the owner itself. A selector that is "exact" without an owner
+// matches nothing in the registry (it must not widen into everything).
+func TestAnExactOwnerScopeDiscoversKeysOfTheOwnerAlone(t *testing.T) {
+	ctx := context.Background()
+	for _, exact := range []bool{false, true} {
+		db := newDB(t)
+		mustInsertMission(t, db, mission("own", "p1", "grp"))
+		mustInsertMission(t, db, mission("run", "p2", "grp/run2"))
+		keyFn, err := Revoker{DB: db}.Keys(ctx, []Kind{KindMission}, Scope{Owner: "grp", ExactOwner: exact})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := keyFn("p1"); !errors.Is(err, ErrNoRowKey) { // looked at (and has no key row here)
+			t.Errorf("exact=%v: the owner's profile: %v", exact, err)
+		}
+		_, err = keyFn("p2")
+		if looked := errors.Is(err, ErrNoRowKey); looked == exact {
+			t.Errorf("exact=%v: the descendant's profile was looked at = %v (%v)", exact, looked, err)
+		}
+	}
+	b := NewBinder(time.Now)
+	h := &cHandle{}
+	sp := spec("x")
+	sp.Kind, sp.Owner, sp.Expires = KindMission, "grp", time.Now().Add(time.Hour)
+	if err := regErr(b, sp, h); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(b.Revoke(Selector{Profile: "p1", ExactOwner: true, All: true})); n != 0 {
+		t.Errorf("an exact owner without an owner revoked %d entries", n)
+	}
+}

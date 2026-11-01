@@ -27,7 +27,9 @@ type Revoker struct {
 // the session tokens whose conversation no longer exists (the orphan sweep).
 type Scope struct {
 	Profile, TokenID, Owner, Session string
-	Orphans                          bool
+	// ExactOwner, with Owner, scopes the key discovery to the owner itself, not its runs (Selector.ExactOwner).
+	ExactOwner bool
+	Orphans    bool
 }
 
 // Run opens a BEGIN IMMEDIATE transaction on a dedicated connection, calls legacy with it, and revokes in the
@@ -41,30 +43,37 @@ type Scope struct {
 // transaction is ErrRowKeyAppeared; Run then starts over, up to three times). The 3c mint of a v2 token must therefore not interleave
 // with a revoke-all of the same profile (or take the same key function first).
 func (r Revoker) Run(ctx context.Context, kinds []Kind, scope Scope, legacy func(conn *sql.Conn) ([]Selector, error)) error {
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if err = r.runOnce(ctx, kinds, scope, legacy); !errors.Is(err, ErrRowKeyAppeared) {
-			return err
-		}
-	}
+	_, err := r.RunRefs(ctx, kinds, scope, legacy)
 	return err
 }
 
-func (r Revoker) runOnce(ctx context.Context, kinds []Kind, scope Scope, legacy func(conn *sql.Conn) ([]Selector, error)) error {
+// RunRefs is Run that also returns the v2 tokens it revoked, for a caller that counts them.
+func (r Revoker) RunRefs(ctx context.Context, kinds []Kind, scope Scope, legacy func(conn *sql.Conn) ([]Selector, error)) ([]TokenRef, error) {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		var refs []TokenRef
+		if refs, err = r.runOnce(ctx, kinds, scope, legacy); !errors.Is(err, ErrRowKeyAppeared) {
+			return refs, err
+		}
+	}
+	return nil, err
+}
+
+func (r Revoker) runOnce(ctx context.Context, kinds []Kind, scope Scope, legacy func(conn *sql.Conn) ([]Selector, error)) ([]TokenRef, error) {
 	keyFor, err := r.Keys(ctx, kinds, scope)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if r.afterKeys != nil {
 		r.afterKeys()
 	}
 	conn, err := r.DB.Conn(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 	if err := beginImmediate(ctx, conn); err != nil {
-		return err
+		return nil, err
 	}
 	committed := false
 	defer func() {
@@ -74,7 +83,7 @@ func (r Revoker) runOnce(ctx context.Context, kinds []Kind, scope Scope, legacy 
 	}()
 	sels, err := legacy(conn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	now := time.Now
 	if r.Now != nil {
@@ -83,20 +92,20 @@ func (r Revoker) runOnce(ctx context.Context, kinds []Kind, scope Scope, legacy 
 	var refs []TokenRef
 	for _, sel := range sels {
 		if sel.Kind == "" {
-			return ErrBadSelector
+			return nil, ErrBadSelector
 		}
 		got, err := RevokeTx(ctx, conn, keyFor, sel, "revoked", now())
 		if err != nil {
-			return fmt.Errorf("revoking v2 tokens: %w", err)
+			return nil, fmt.Errorf("revoking v2 tokens: %w", err)
 		}
 		refs = append(refs, got...)
 	}
 	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
-		return err
+		return nil, err
 	}
 	committed = true
 	Drop(r.Binder, refs)
-	return nil
+	return refs, nil
 }
 
 // Keys derives the row key of every profile that holds a not-yet-revoked v2 token of one of kinds within scope,
@@ -171,11 +180,15 @@ func scopeQuery(k Kind, sc Scope) (string, []any) {
 			  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'session' AND r.token_id = t.id)`,
 			[]any{sc.Profile, sc.TokenID, sc.Session, orphans}
 	}
+	exact := 0
+	if sc.ExactOwner {
+		exact = 1
+	}
 	return `SELECT DISTINCT profile_id FROM agent_tokens_v2 t
 		WHERE (?1 = '' OR profile_id = ?1) AND (?2 = '' OR id = ?2)
-		  AND (?3 = '' OR mission_owner = ?3 OR substr(mission_owner, 1, length(?3) + 1) = ?3 || '/')
+		  AND (?3 = '' OR mission_owner = ?3 OR (?4 = 0 AND substr(mission_owner, 1, length(?3) + 1) = ?3 || '/'))
 		  AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'mission' AND r.token_id = t.id)`,
-		[]any{sc.Profile, sc.TokenID, sc.Owner}
+		[]any{sc.Profile, sc.TokenID, sc.Owner, exact}
 }
 
 // beginImmediate opens the write transaction on conn, retrying only a busy database (nothing has been read

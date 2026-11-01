@@ -61,3 +61,22 @@ func TestRealChainStartsAtThisProcess(t *testing.T) {
 		t.Error("this process is not its own descendant")
 	}
 }
+
+func TestSameStampComparesTheBootOnlyWhenBothSidesCarryOne(t *testing.T) {
+	for _, c := range []struct {
+		stored, current string
+		want            bool
+	}{
+		{"start:5", "start:5", true},
+		{"start:5", "start:6", false},
+		{"start:5@a", "start:5@a", true},
+		{"start:5@a", "start:5@b", false},
+		{"start:5", "start:5@b", true},
+		{"start:5@a", "start:5", true},
+		{"start:5@a", "start:6@a", false},
+	} {
+		if got := SameStamp(c.stored, c.current); got != c.want {
+			t.Errorf("SameStamp(%q, %q) = %v, want %v", c.stored, c.current, got, c.want)
+		}
+	}
+}

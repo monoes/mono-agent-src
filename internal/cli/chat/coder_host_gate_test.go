@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -209,6 +210,30 @@ func TestThePeercredSettingCannotBeSwitchedOnYet(t *testing.T) {
 	}
 }
 
+// fakeService counts what the gate asks of the binding service.
+type fakeService struct{ ensured, asked int }
+
+func (f *fakeService) Ensure(_ context.Context, _ string) error { f.ensured++; return nil }
+func (f *fakeService) Running(string) bool                      { f.asked++; return true }
+
+// The service is never started while it is off or while this build cannot issue bound tokens: the gate asks
+// procbind first and only then the service.
+func TestTheGateNeverStartsTheServiceWhileItIsNotAllowed(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	for name, raw := range map[string]string{"off": `{"enabled":true}`, "on": `{"peercredBinding":true}`} {
+		g, _ := gateRig(t, raw)
+		svc := &fakeService{}
+		g.svc = svc
+		_, _ = g.Start("p", "c", "t", "m", nil, "")
+		_, _ = g.StartCapped("p", "c", "t", "m", nil, "", 1)
+		if svc.ensured != 0 || svc.asked != 0 {
+			t.Errorf("%s: the service was asked (%d ensure, %d running)", name, svc.ensured, svc.asked)
+		}
+	}
+}
+
 // The setting is read in ONE conservative way by the gate, `coder status` and the setter: a duplicated key, a key in
 // another letter case and a junk value all count as on if any occurrence is not a plain false or null.
 func TestTheSettingIsReadTheSameConservativeWayEverywhere(t *testing.T) {
@@ -390,5 +415,53 @@ func TestConcurrentSettingsWritersKeepEachOthersChanges(t *testing.T) {
 	}
 	if after, _ := loadCoderSettings(db.DB); after.Box != before.Box {
 		t.Errorf("a failed change was stored: %q", after.Box)
+	}
+}
+
+type scriptedService struct {
+	err     error
+	running bool
+}
+
+func (s scriptedService) Ensure(context.Context, string) error { return s.err }
+func (s scriptedService) Running(string) bool                  { return s.running }
+
+// With binding switched on and everything else allowing it, a service that cannot be started, or that starts but is
+// not running, refuses the turn (never a weaker mode); the operator gets the generic refusal and the reason is logged.
+func TestTheGateRefusesWhenTheServiceCannotBeStartedOrIsNotRunning(t *testing.T) {
+	for name, c := range map[string]struct {
+		svc     scriptedService
+		logged  bool
+		refusal string
+	}{
+		"ensure fails":          {scriptedService{err: errors.New("the binding service socket was refused")}, true, "its service is not running"},
+		"ensure ok but not up":  {scriptedService{running: false}, false, "its service is not running"},
+		"ensure ok and running": {scriptedService{running: true}, false, ""},
+	} {
+		g, inner := gateRig(t, `{"peercredBinding":true}`)
+		var logs []string
+		g.logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+		g.svc = c.svc
+		g.reason = func(running bool) string { // issuance and the machine allow it; only the service decides
+			if !running {
+				return "its service is not running"
+			}
+			return ""
+		}
+		_, err := g.Start("p", "c", "t", "m", nil, "")
+		switch {
+		case c.refusal != "" && (err == nil || !strings.Contains(err.Error(), c.refusal)):
+			t.Errorf("%s: %v, want a refusal naming %q", name, err, c.refusal)
+		case c.refusal != "" && len(inner.calls) != 0:
+			t.Errorf("%s: a turn was started anyway", name)
+		case c.refusal == "" && err != nil:
+			t.Errorf("%s: refused: %v", name, err)
+		}
+		if c.logged != (len(logs) == 1) {
+			t.Errorf("%s: logged %v, want logged=%v", name, logs, c.logged)
+		}
+		if c.logged && strings.Contains(err.Error(), "socket") {
+			t.Errorf("%s: the operator's refusal carries the internal reason: %v", name, err)
+		}
 	}
 }
