@@ -73,6 +73,10 @@ reverted alone**, and so that the setting does not exist until everything it nee
   re-check after a legacy turn's process exists stays as a second guard for the few milliseconds between the setter's
   check and a start that read the setting as off (such a turn is stopped and refused). A transient failure to read the
   settings in that re-check leaves the healthy turn running. Both are tested (`coder_host_gate_test.go`).
+- **Blocking until the refused-turn fix has merged:** a legacy turn that the post-start re-check refuses must be waited for
+  (bounded) before the refusal returns, because the host starts the next turn at once and the old process's exit revokes
+  the conversation's tokens. The fix is the follow-up PR "the gate waits for a refused turn"; `IssuanceReady` must not flip
+  before it is in.
 - Every writer of the settings is transactional (`updateCoderSettings`), so no concurrent writer can undo the field.
 - The guard walk, the `RowKey` tripwire and the revoke-by-owner callers (3c-3c) have merged.
 

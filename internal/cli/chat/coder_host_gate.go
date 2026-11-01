@@ -116,6 +116,10 @@ func (g *gatedLauncher) settingIsOnNow() bool {
 	return true
 }
 
+// refusedTurnWait is how long a refused turn gets to exit after its stop (the stop itself allows hostTurnGrace and then
+// kills the group).
+var refusedTurnWait = hostTurnGrace + 5*time.Second
+
 // launch routes the turn and starts it. A turn that went to the legacy launcher is checked once more after its process
 // exists, when binding can be on at all: if the operator switched the setting on in between, the turn is stopped and
 // the start refused, so no turn runs unbound after the setting says bound.
@@ -129,8 +133,16 @@ func (g *gatedLauncher) launch(profile string, start func(coderhost.Launcher) (c
 		return turn, err
 	}
 	if g.settingIsOnNow() {
+		// The refused turn is stopped and waited for before the refusal is returned: the host settles the session on
+		// the returned error and may start another turn at once, and the old process's exit revokes the conversation's
+		// tokens (the exit goroutine of the launcher), which would then take the new turn's with them.
 		turn.Stop()
-		go func() { _ = turn.Wait() }()
+		exited := make(chan struct{})
+		go func() { _ = turn.Wait(); close(exited) }()
+		select {
+		case <-exited:
+		case <-time.After(refusedTurnWait):
+		}
 		return nil, &bindingRefusal{"the turn was not started: peer-credential binding was switched on while it started; send again"}
 	}
 	return turn, nil
