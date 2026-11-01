@@ -5,6 +5,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -19,6 +20,13 @@ var personTokenEnv = []string{coderhost.SessionTokenEnv, agenttokens.EnvMissionT
 // proof: an agent that clears its environment AND detaches from its turn's process tree is not
 // seen; SECURITY.md says so. A variable set to the empty string does not count (lookupEnv wants a value).
 func (d Deps) personGate(cmd *cobra.Command, what string) (tasks.Actor, error) {
+	return d.personGateOpening(cmd, what, d.OpenDB)
+}
+
+// personGateOpening is personGate with the way the ancestry check opens the database chosen by
+// the caller: a verb that must work without a resolvable --profile (task os uninstall acts on
+// profiles that may be deleted) passes OpenDBUnresolved, so that the gate has no side effect on it.
+func (d Deps) personGateOpening(cmd *cobra.Command, what string, open func() (*storage.Database, error)) (tasks.Actor, error) {
 	for _, key := range personTokenEnv {
 		if _, set := d.lookupEnv(key); set {
 			return tasks.Actor{}, d.operatorOnlyError("%s is set, so a process holding an agent token is running this command; only the operator can %s; run it in your own terminal", key, what)
@@ -28,7 +36,7 @@ func (d Deps) personGate(cmd *cobra.Command, what string) (tasks.Actor, error) {
 	if err != nil {
 		return tasks.Actor{}, err
 	}
-	db, err := d.OpenDB()
+	db, err := open()
 	if err != nil {
 		return tasks.Actor{}, err
 	}
