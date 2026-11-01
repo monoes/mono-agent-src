@@ -1,6 +1,6 @@
 # B1 design note 13.4: typed approvals bound to the exact effect
 
-Status: **design note and test plan, revision 4, no code.** It closes contract 13.4 of
+Status: **design note and test plan, revision 5, no code.** It closes contract 13.4 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13). It depends on notes 13.1 (the gate and where an
 effect is "issued") and 13.5 (the sequence and the audit chain), and is written for the recommended defaults.
 Wording is class level: this repository is public.
@@ -27,7 +27,7 @@ entry dialog renders it in plain words ("any destination", "any path under the w
 | Operation id | Constraint fields | Matching semantics (canonical form) |
 |---|---|---|
 | `send.third_party` | platform (enum), account id (an account of the profile), destination set (explicit handles/addresses/domains, or a named class), count per run, content class | handles and addresses lowercased and normalised per platform; domains lowercased, converted to the ASCII form, matched exactly or by a registrable-domain suffix on a label boundary |
-| `vault.use` | secret names (explicit list), hosts the secret may be sent to | names exact and case-sensitive; hosts as above; a secret name outside the list is refused even if the line is ticked |
+| `vault.use` | secret names (explicit list), hosts the secret may be sent to, a **finite request budget** (`max_attempts`, counting every transport attempt and retry), a **length bucket size**, and at most one **predicate**, fixed at entry | names exact and case-sensitive; hosts as above; a secret name outside the list is refused even if the line is ticked |
 | `spend.grant` | targets (the sessions or roles that may receive), maximum per grant, run ceiling | integer micro-dollars only; the existing carve and ancestor bounds still apply (spec 4.3) |
 | `local.destructive` | path roots, verbs (delete, overwrite), count and bytes per run | roots resolved **at entry** to a directory identity (device and inode); a target is accepted only if it lies **beneath** a root, decided on the **open handle** (section 4A), never on a string; no pattern semantics beyond "under" |
 | `install.package` (**not enabled in B1**, section 4A) | manager (enum), package names, and a **version range as a constraint only** | exact name match; the version actually installed must lie in the range, and the approval binds one exact version and its integrity digest (section 3) |
@@ -147,7 +147,11 @@ revive or kill one.
      the not-revoked check and `current seq <= expires_seq`: both happen or neither.
    - For an **E1/E2/E3** effect, the order is fixed by note 13.1 revision 2: `Admit` → verify and
      re-canonicalise (steps 4.1-4.4) → `BeginStart` (the irrevocable fence on future creation; it refuses once
-     the gate is `CLOSING`) → **consume** (committed) → the start or the hand-over → `Started`. The consume is
+     the gate is `CLOSING`) → **consume** (committed) → the start or the hand-over → `Started`. **For an E3 ticket
+     the consume transaction is the registry write of note 13.1**: it writes the approval's consumed row, the
+     counter delta, the audit row **and** the registry row `started` in one transaction, so `STARTING` lasts for
+     that single bounded local transaction and note 13.1's definition (`STARTING` is only the registry write)
+     holds. For an E1 the consume commits before the held process is created. The consume is
      therefore after the fence and before the effect: an approval can never be spent by a start that Stop has
      already fenced, and a fenced ticket leaves the approval unspent. The consume transaction **also appends
      its audit row** (13.5), and the same not-revoked and `expires_seq` predicates are inside it. Named injection points: `consume.before`, `consume.committed`,
@@ -235,9 +239,28 @@ base64-encoded, percent-encoded, split across chunks or echoed in a header. So:
   receives **no header value, no body bytes and no field**: a header such as `Content-Type`, or a JSON field,
   can reflect the secret as easily as the body can. The earlier transforms that returned header values, field
   paths or capped text are **removed** for this operation;
-- **Residual, stated:** a destination that deliberately reflects the secret can still leak a few bits per
-  request through the status code, the length and the predicate. The `count per run` constraint bounds the
-  number of requests and so the bits; the audit row records each request. This is the only channel left;
+- **The result envelope is fixed and finite.** Whatever happens at the transport, the agent receives exactly
+  `{outcome, status, length_bucket, predicate}`:
+  - `outcome` is one of a fixed enum: `ok`, `transport-error`, `timeout`, `malformed`, `refused`. **No error
+    text, no parser or transport message, no reflected bytes** ever reaches the agent; the host logs the
+    details to its own audit row without any response bytes;
+  - `status` is an integer (0 when there was none), `length_bucket` is the body length **quantised into
+    buckets of a size fixed in the charter at entry** (not an unrestricted integer), and `predicate` is a
+    boolean or `null` (no predicate declared, or no body);
+  - **the predicate is fixed at charter entry** (the marker or pattern is part of the hash) and cannot be
+    chosen by the agent or the boss per request.
+- **Retries and attempts are counted.** A **finite budget `max_attempts`** counts **every transport attempt,
+  including a retry**, across the run for this operation; the host does not retry on its own beyond it. When
+  the budget is exhausted the operation is refused (and parks nothing: it is a plain refusal).
+- **Timing.** The result is released at a **quantised deadline** (the response time rounded up to the next
+  fixed slot, the slot size set in the charter), so a destination that picks its response delay by secret bits
+  conveys at most `log2(slots)` bits per attempt, and the wrapper's maximum call duration (note 13.1) bounds
+  the number of slots.
+- **The leak bound, stated and not zero.** A destination that deliberately reflects the secret can still
+  convey information through `outcome`, `status`, `length_bucket`, `predicate` and the timing slot. Over a run
+  it is bounded by `max_attempts × (log2 |outcomes| + bits(status) + log2 buckets + 1 + log2 slots)` bits. The
+  note **does not claim that these are the only channels** in the sense of zero leakage; it claims the channels
+  are enumerated, finite and budgeted, and each attempt is an audit row.
 - the audit row records the name, host and request hash, never the value.
 
 ## 6. Backends and equivalent paths
@@ -281,12 +304,16 @@ the attempted ones, never secret values.
 | T5a | the name resolves to a public address at the check and to a private or metadata address at the dial (rebinding, pause at `effect.before-start`) | the dial uses the pinned set; refused |
 | T5b | the destination answers with a redirect to an internal address | not followed; refused and audited |
 | T5c | `send.third_party` with the approved destination and a different payload; `vault.use` with a different request | `args_hash` mismatch; refused |
-| T5d | `install.package` approved at version V with digest D; the registry now serves another digest | refused |
+| T5d | `install.package` is requested (class C2, **not enabled in B1**) | refused at the allowlist; the version-and-digest binding is specified for a later class only |
 | T5e | `vault.use` for a secret outside the session's agent-access level, line ticked, approval present | refused; no grant or level changes; the value never appears in any agent-visible output |
 | T5f | **positive path, against reflecting destinations:** an approved `vault.use` to fake servers that echo the secret (i) base64-encoded, (ii) percent-encoded, (iii) chunk-split, (iv) in a response header, (v) in `Content-Type`, (vi) in a JSON field | the server received the secret exactly at the injection point; the agent-visible result is **only** `{status: int, length: int, predicate: bool}` for every destination; a type-level test shows no other field can be returned |
+| T5f3 | **reflecting failures:** a destination returns a malformed response whose bytes (and the resulting parser or transport error text) contain the secret; one that resets the connection with the secret in a banner | the agent-visible result is the fixed envelope with `outcome = malformed` or `transport-error`; **no error text** and no reflected byte appears anywhere agent-visible (a type-level test shows `outcome` is an enum) |
+| T5f4 | **delays:** a destination delays its response by an amount derived from secret bits | the result is released at the quantised slot; two different delays within one slot are indistinguishable; the wrapper's maximum duration cuts off the rest |
+| T5f5 | **retries and the budget:** a destination that fails transiently; `max_attempts = 3` | at most 3 transport attempts in total across the run (the retry counts); the next request is refused; an audit row per attempt |
+| T5f6 | a `length` of 1, 2 and 3 bytes with a bucket size of 1 KiB; a `predicate` supplied per request instead of at entry | the same `length_bucket`; the per-request predicate is refused (it must be fixed at entry) |
 | T5f2 | the host-evaluated predicate on a body that contains the secret | the boolean is returned, never the body or a match position |
 | T5g | the approved request with an extra header added at the effect | `args_hash` mismatch; refused |
-| T5h1 | **C1:** content or attachment bytes on the source path changed after the hash was taken (pause at `effect.before-start`) | the effect sends the sealed, verified bytes, unaffected; the sent hash equals `args_hash`; a write to the sealed descriptor fails |
+| T5h1 | **C1:** (a) **sealing is asserted to have succeeded before the hash is taken** (the seals are read back and the hash is refused otherwise); (b) content or attachment bytes on the source path changed after the hash was taken (pause at `effect.before-start`); (c) a same-user process tries to **write through a writable mapping** or to reopen the descriptor (`/proc/<pid>/fd/<n>`) for writing | (a) no hash without seals; (b) the effect sends the sealed, verified bytes, unaffected, and the sent hash equals `args_hash`; (c) the mapping and the reopen fail; a write to the sealed descriptor fails |
 | T5h2 | **C2:** an `install.package` or a browser-driven send is requested | refused at the allowlist: the operation is not enabled in B1 |
 | T5i | proxy environment variables set; an IPv4-mapped IPv6 address of a private range | the proxy is ignored; the mapped address is refused |
 | T5j | `overwrite` with a different content hash; `O_TRUNC` ordering (truncate before the identity check) | refused; truncation only after the checks, on the verified descriptor |
@@ -332,8 +359,8 @@ the attempted ones, never secret values.
 
 - The unexported `Approved` type can be forged by a zero value in the same package, so the **inventory test is
   the guarantee**, the type is a speed bump.
-- **Browser-driven sends** (a page in the extension's browser) have no dial the host can pin; the approval
-  binds the destination at the page level and no network-level claim is made.
+- **Browser-driven sends** (a page in the extension's browser) are class C2 and **not enabled in B1** (section
+  4A); there is no page-level approval in B1.
 - **Registrable-domain suffix matching** must use the public suffix list **including its private section**
   (so a name on a shared host is not "the same domain" as another tenant); a name the list does not know is
   matched exactly only.
@@ -386,28 +413,19 @@ Two P1 items were open in revision 3. They are closed in this revision and await
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
 
-### 12.1 Remaining after the delta review of revision 4 (recorded verbatim)
+### 12.1 Closed in revision 5
 
-Two **P1** items and the P2s below are **open in this revision**. Each must be resolved in a later revision
-before any code in the area lands (spec section 13 gate). Sealing for class C1 was **accepted** by the review
-(F_SEAL_WRITE plus the other seals, applied before hashing).
+Two P1 items and the P2s were recorded after the delta review of revision 4. They are closed in this revision
+and await a P1-only delta review.
 
-1. **P1: the leakage bound has no `vault.use` request count.** The count constraint belongs to
-   `send.third_party`; a charter can approve repeated uses and collect unbounded status, length and predicate
-   observations, and `length` as an unrestricted integer can encode a secret in one response. Fix: a finite
-   `vault.use` **request budget counting actual transport attempts and retries**, a **length cap or
-   quantisation into buckets**, a **predicate constrained at charter entry**; tests for the limits and the
-   retries.
-2. **P1: "these are the only channels" is false.** A reflecting destination can choose a **response delay** by
-   secret bits, or produce a **malformed response** whose transport or parser error includes reflected bytes;
-   retries multiply observations. Specify the **error and result envelope** (sanitised failure results), a
-   **timing limit or a narrowed claim**, and tests for reflecting failures, delays and retry accounting (T5f
-   is success-only).
-3. **P2:** T5h1 should assert that **sealing succeeded before hashing** and try a same-user writable mapping.
-4. **P2:** section 9A still describes browser-driven sends with page-level approvals, and T5d an approved
-   package install, although class C2 is disabled.
-5. **P2:** this note holds an E3 ticket `STARTING` across the approval consume, while note 13.1 says
-   `STARTING` is only the registry write; reconcile the two.
-6. **P2:** note 13.5's torn-`committed` recovery still says `n+1`, against the batch rule `n+k`.
+1. **P1: the leakage bound had no `vault.use` request count.** Closed: a finite `max_attempts` budget counting
+   every transport attempt and retry, the length quantised into buckets fixed at entry, and a predicate fixed at
+   entry (sections 2 and 5A; T5f5, T5f6).
+2. **P1: "these are the only channels" was false.** Closed: the claim is withdrawn and replaced by an enumerated,
+   finite, budgeted bound; a fixed result envelope with an enum outcome and no error text; quantised timing
+   slots (section 5A; T5f3, T5f4).
+3. **P2s:** T5h1 now asserts sealing before hashing and tries a writable mapping and a reopen; the stale C2 text
+   in section 9A and in T5d is fixed; the `STARTING`-across-consume mismatch with note 13.1 is reconciled (the
+   E3 consume is the registry write, section 4); the `n+1` versus `n+k` item belongs to note 13.5.
 
-Further review rounds resume after the operator answers the open questions (spec section 12.5).
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
