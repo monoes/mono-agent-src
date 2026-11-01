@@ -75,10 +75,12 @@ type Selector struct {
 	Kind    Kind
 	TokenID string
 	// Owner matches the owner itself and its runs ("owner/..."), not another owner that merely starts with it.
-	Owner   string
-	Session string
-	Turn    string
-	All     bool
+	Owner string
+	// ExactOwner, with Owner, matches the owner itself only (the legacy RevokeOwner's meaning), not its runs.
+	ExactOwner bool
+	Session    string
+	Turn       string
+	All        bool
 	// Generation, when not zero, restricts the selector to one registration of the token id; it is not a
 	// criterion by itself.
 	Generation Generation
@@ -94,6 +96,9 @@ func (s Selector) matches(e *entry) bool {
 	if s.TokenID == "" && s.Owner == "" && s.Session == "" && !s.All {
 		return false
 	}
+	if s.ExactOwner && s.Owner == "" { // an exact owner needs an owner: it must not widen into "all"
+		return false
+	}
 	if s.Kind != "" && e.spec.Kind != s.Kind {
 		return false
 	}
@@ -106,7 +111,7 @@ func (s Selector) matches(e *entry) bool {
 	if s.TokenID != "" && e.spec.TokenID != s.TokenID {
 		return false
 	}
-	if s.Owner != "" && e.spec.Owner != s.Owner && !strings.HasPrefix(e.spec.Owner, s.Owner+"/") {
+	if s.Owner != "" && e.spec.Owner != s.Owner && (s.ExactOwner || !strings.HasPrefix(e.spec.Owner, s.Owner+"/")) {
 		return false
 	}
 	if s.Session != "" && e.spec.Session != s.Session {
