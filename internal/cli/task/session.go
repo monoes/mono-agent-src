@@ -393,6 +393,18 @@ func (d Deps) newSessionApproveCmd() *cobra.Command {
 			}
 			return d.writeSession(cmd, p, se, "Approved")
 		})
+	inner := cmd.RunE
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		// What the environment alone refuses (the operator branch outside the operator's terminal, an
+		// agent that has not named itself) is refused before the database is opened; approver then
+		// runs the whole gate and the lead path once the store is there.
+		if caller := d.callerFor(flagAs(c)); !caller.isAgent() || caller.asBlank || caller.envBlank || caller.actor.Name == "" {
+			if _, err := caller.operator("approve a session's plan"); err != nil {
+				return err
+			}
+		}
+		return inner(c, args)
+	}
 	cmd.Flags().Int64Var(&rev, "rev", 0, "The session revision you read (its rev in session show --json): refused with plan_changed if the plan moved since. Without it the plan as it is now is approved, as scripts expect; pass it whenever you approve what you read")
 	return cmd
 }
