@@ -3,6 +3,7 @@ package coderhost
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/procbind"
 )
@@ -23,7 +24,8 @@ var sessionKinds = []procbind.Kind{procbind.KindSession}
 
 // revokeSessionTokens deletes the session's legacy tokens and revokes its v2 tokens.
 func (s *Store) revokeSessionTokens(profileID, conversationID string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), revokeDeadline)
+	defer cancel()
 	return s.revoker().Run(ctx, sessionKinds, procbind.Scope{Profile: profileID, Session: conversationID}, func(conn *sql.Conn) ([]procbind.Selector, error) {
 		if _, err := conn.ExecContext(ctx, `DELETE FROM coder_session_tokens WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID); err != nil {
 			return nil, err
@@ -32,10 +34,14 @@ func (s *Store) revokeSessionTokens(profileID, conversationID string) error {
 	})
 }
 
+// revokeDeadline bounds one revocation: a database that does not answer must not hold the host forever.
+var revokeDeadline = 30 * time.Second
+
 // RevokeTurnSessionTokensErr ends the tokens of ONE turn of a conversation (legacy and v2), not the conversation's: the
 // exit of an old process must not take a newer turn's token with it. An error means a token may still be live.
 func (s *Store) RevokeTurnSessionTokensErr(profileID, conversationID, turnID string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), revokeDeadline)
+	defer cancel()
 	return s.revoker().Run(ctx, sessionKinds, procbind.Scope{Profile: profileID, Session: conversationID}, func(conn *sql.Conn) ([]procbind.Selector, error) {
 		if _, err := conn.ExecContext(ctx, `DELETE FROM coder_session_tokens WHERE profile_id = ? AND conversation_id = ? AND turn_id = ?`, profileID, conversationID, turnID); err != nil {
 			return nil, err

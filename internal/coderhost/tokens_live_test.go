@@ -125,3 +125,114 @@ func TestSettleDoesNotClearAChildWhoseTaskTokensCannotBeRevoked(t *testing.T) {
 		t.Errorf("not settled once the revoke worked: %+v held=%v", got, h.Held())
 	}
 }
+
+// After a host restart a turn whose process is gone has its OWN tokens ended before the session is settled (the old host never
+// ran its exit's revocation): the legacy token of the turn is gone once Recover returns.
+func TestRecoveryEndsTheTokensOfATurnWhoseProcessIsGone(t *testing.T) {
+	h, l, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID, x.TurnPID, x.TurnStamp = StateRunning, "t1", 4242, "gone-stamp" // no live process behind it
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.IssueSessionToken("p", "c1", "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if got := legacyTokens(t, st, "c1"); got != 0 {
+		t.Errorf("the restarted host left the dead turn's token live: %d", got)
+	}
+	if got := state(t, st, "c1"); got.TurnID != "" || got.State != StateIdle {
+		t.Errorf("the session was not settled: %+v", got)
+	}
+	if len(l.finished) != 1 {
+		t.Errorf("finished = %v", l.finished)
+	}
+}
+
+// A child whose task tokens cannot be ended at recovery is held with its turn id kept (a later restart finds it again), and
+// settled once they can.
+func TestRecoveryHoldsAChildWhoseTaskTokensCannotBeEnded(t *testing.T) {
+	old := holdBackoff
+	holdBackoff = time.Millisecond
+	t.Cleanup(func() { holdBackoff = old })
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID, x.TurnPID, x.TurnStamp = StateRunning, "t1", 4242, "gone-stamp"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = 'm' WHERE conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	h.ChildTokens = failingChildTokens{err: errors.New("database is locked")}
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(t, st, "c1"); got.TurnID != "t1" || len(h.Held()) != 1 {
+		t.Fatalf("the child was settled with a task token that may be live: %+v held=%v", got, h.Held())
+	}
+	h.ChildTokens = failingChildTokens{}
+	time.Sleep(20 * time.Millisecond)
+	if err := h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(t, st, "c1"); got.TurnID != "" || len(h.Held()) != 0 {
+		t.Errorf("not settled once the tokens could be ended: %+v held=%v", got, h.Held())
+	}
+}
+
+type countingChildTokens struct {
+	err   error
+	calls *int
+}
+
+func (c countingChildTokens) RevokeChildTokens(string, string) error { *c.calls++; return c.err }
+
+// A hold for tokens is retried with a growing wait, not at every pass: while the wait runs, a pass does not call the revoke.
+func TestAHoldForTokensIsRetriedWithABackoffNotAtEveryPass(t *testing.T) {
+	old := holdBackoff
+	holdBackoff = time.Hour
+	t.Cleanup(func() { holdBackoff = old })
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = 'm' WHERE conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	h.ChildTokens = countingChildTokens{err: errors.New("database is locked"), calls: &calls}
+	x = state(t, st, "c1")
+	h.mu.Lock()
+	h.settle(x) // the first failure: held, and one call
+	h.mu.Unlock()
+	if calls != 1 || len(h.Held()) != 1 {
+		t.Fatalf("calls %d held %v", calls, h.Held())
+	}
+	if err := h.Tick(); err != nil { // the first retry is due at once (no failure of the retry yet)
+		t.Fatal(err)
+	}
+	after := calls
+	for i := 0; i < 5; i++ {
+		if err := h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != after {
+		t.Errorf("the revoke was called %d more times inside the backoff", calls-after)
+	}
+}

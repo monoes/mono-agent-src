@@ -123,6 +123,12 @@ func (h *Host) Recover() error {
 		}
 		if x.TurnID != "" {
 			h.L.Finish(x.ProfileID, x.ConversationID, x.TurnID, "the coder host restarted and the turn's process was gone")
+			// The old host never ran its exit's revocation: the turn's own tokens are ended here before the session is settled, or
+			// the session is held (its turn id stays on the session, so a later restart finds it again).
+			if err := h.endTurnTokens(x)(); err != nil {
+				h.holdForTokens(x, "the turn's tokens could not be revoked at recovery", h.endTurnTokens(x))
+				continue
+			}
 		}
 		h.settle(x)
 	}
