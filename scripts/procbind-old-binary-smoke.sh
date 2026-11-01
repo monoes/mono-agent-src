@@ -10,11 +10,19 @@
 #   scripts/procbind-old-binary-smoke.sh --new NEW_BIN (--old OLD_BIN | --old-tag TAG | --fetch-latest) [--require-reachable]
 #   scripts/procbind-old-binary-smoke.sh --selftest --new NEW_BIN (--old OLD_BIN | --old-tag TAG)
 #
+# WHICH RUN MEANS SOMETHING. Migration 148 (the v2 tables) first shipped in v0.194.0. The run that proves what the
+# requirement asks, an older binary meeting tables it has never heard of, is `--old-tag v0.193.5 --require-reachable`
+# (the newest release that predates 148): that is the documented default for a CI job. `--old-tag v0.206.0`
+# and `--fetch-latest` only test a binary that already knows migrations 148-150 (it has the tables and does not use
+# them yet), which is a weaker claim; --fetch-latest never reaches the token and revoke checks at all, since a
+# published binary asks for a sign-in (see below).
+#
 #   --new NEW_BIN       the build under test, built with `-tags devaccount` (it makes the database and runs the baseline)
 #   --old OLD_BIN       the previous release's binary
 #   --old-tag TAG       build the previous release from its git tag with `-tags devaccount` (needs the tag and a Go toolchain)
 #   --fetch-latest      download the latest published release binary from the public releases (no secret needed), check
-#                       its sha256 against the release manifest, and SKIP, visibly, if any of that fails
+#                       its sha256 against the release manifest, and SKIP, visibly, if any of that fails. The sha256
+#                       guards against a corrupted download, not against a hostile release: the manifest comes from the same place
 #   --require-reachable fail, not just say so, when the old binary refuses commands for want of a monoes.me sign-in
 #   --selftest          prove the checks catch a bad old binary (two negative controls) and exit
 #
@@ -198,9 +206,9 @@ case "\$*" in *"chat history delete"*) "\$PROCBIND_SMOKE_SEED" -db "\$PROCBIND_S
 exit \$rc
 EOF
   chmod +x "$wrap/accepts-v2" "$wrap/damages-rows"
-  for w in accepts-v2:"accepted a v2 secret" damages-rows:"changed the v2 tables"; do
+  for w in "accepts-v2:the old binary accepted a v2 secret" "damages-rows:the old binary changed the v2 tables"; do
     if "$0" --new "$new" --old "$wrap/${w%%:*}" >"$root/neg.out" 2>&1; then fail "negative control ${w%%:*}: the script passed a bad old binary"; fi
-    grep -q "${w#*:}\|not refused the way\|a legacy mission token no longer binds" "$root/neg.out" || fail "negative control ${w%%:*} failed for another reason: $(tail -2 "$root/neg.out")"
+    grep -qF "${w#*:}" "$root/neg.out" || fail "negative control ${w%%:*} failed for another reason than '${w#*:}': $(tail -2 "$root/neg.out")"
     ok "negative control ${w%%:*} is caught"
   done
   notice "selftest done"
