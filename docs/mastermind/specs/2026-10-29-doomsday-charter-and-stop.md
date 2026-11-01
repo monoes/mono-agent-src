@@ -1,7 +1,7 @@
 # Doomsday mode: charter and Stop (B0 spec and threat model)
 
 Epic #1148, issue #1152 (B0). Plan: `docs/mastermind/plans/2026-10-29-doomsday-mode-and-agent-purposes.md`
-(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 5. B1 code may not start on an area until its prerequisite contract (section 13) is
+(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 6 (the operator's answers to 12.5 recorded, 2026-11-01). B1 code may not start on an area until its prerequisite contract (section 13) is
 closed.** Nothing is
 built. The mission series (#1106) has merged; The independent review of this document is a gate; section 13 lists the contracts it still leaves
 open, each blocking the implementation that touches its area. Revision 2 answers the first independent review (two design reviews, request-changes):
@@ -29,8 +29,9 @@ the lines a charter ticks and only for sessions that carry that charter**, four 
 | Outbound third-party actions pass human-in-the-loop send gates; vault use needs agent-access levels | Lifted only for the actions a ticked line names |
 
 What does **not** change: the access level of a conversation (only the operator raises it), the operator
-gate on CLI verbs, the **never-liftable list** (section 4.2), giant-plan approval and critical asks (they stay
-person items, section 6), and Stop.
+gate on CLI verbs, the **never-liftable list** (section 4.2), and Stop. Giant-plan approval and critical asks stay
+person items **except inside the charter's per-ask limits** (Q5, answered: the boss may auto-approve only
+what is within limits the operator declared in the charter; everything over a limit parks, section 6).
 
 ## 2. Threat model and the guarantee tiers
 
@@ -61,7 +62,7 @@ sentence in this document claims more than its tier**.
 | Tier | Work | What Stop guarantees | What it needs |
 |---|---|---|---|
 | T1 | **Host-mediated work**: everything that goes through a choke point of section 5.2 (spawn, enqueue, claim, token check, model call, send-gate approval, platform run, boss answer, tool call that costs money) | After the **barrier closes** no new work of the run is admitted *by the host*; work admitted before it is **admitted-before-Stop**: it may complete and is cancelled and reported (outside dispatchers that read the marker do not serialize with the host's lock, 5.2); no new authority exists once the tokens are revoked | Section 5 and contract 13.1 |
-| T2 | **Processes the host started** for the run (session children, tool processes), when the host started them inside the containment unit of section 5.5 | They are signalled to end and escalated; the run is not `quiescent` until each is **proven gone**, and one whose identity cannot be proven is listed as *unknown* and keeps the run in `cleanup-pending` | Linux with a containment primitive whose identity survives a host restart (**not yet chosen: contract 13.2**; a process group and a held pidfd alone are not sufficient); on other systems the mode refuses to start (decision Q7) |
+| T2 | **Processes the host started** for the run (session children, tool processes), when the host started them inside the containment unit of section 5.5 | They are signalled to end and escalated; the run is not `quiescent` until each is **proven gone**, and one whose identity cannot be proven is listed as *unknown* and keeps the run in `cleanup-pending` | Linux with a containment primitive whose identity survives a host restart (**not yet chosen: contract 13.2**; a process group and a held pidfd alone are not sufficient); on other systems the mode refuses to start (13.2) |
 | T3 | **Direct action by a full-access same-user worker** (A7): shell, network, files, the state database, the keychain, detached descendants that left the unit | **None.** Revoking a service token revokes no operating-system capability. Stop reports what it cannot prove (section 5.7) | An OS boundary this design does not provide: workers under a different user, or a confinement that withholds the database and key files |
 
 What follows from T3, stated plainly:
@@ -71,13 +72,14 @@ What follows from T3, stated plainly:
   against that user**, exactly as the rest of the product is (SECURITY.md, the courtesy-layer paragraph).
 - The design does not make the stop mechanism removable by a **mediated** caller (section 4.2) and does not
   let a mediated caller forge operator context (section 4.4). It cannot stop an unmediated one.
-- Therefore the entry dialog states the tier boundary in plain words (Q7), and by default the mode is
-  offered for workers that run **confined** (the existing bubblewrap profile, `internal/agentbox`, which can
-  withhold the database and key files); entering with `full`-access roles and no confinement requires the
-  operator to tick a separate, named acknowledgement of T3.
+- **Q7, answered: no special isolation.** The mode has **the same trust model as ordinary sessions**. There
+  is no confinement requirement and no separate acknowledgement. The entry dialog **states the tier plainly**:
+  what the mode does *not* defend against is a full-access worker acting directly as the operator's user
+  (its shell, files, network, the state database and the keychain); that is beyond hard Stop. The statement in
+  the dialog is the whole disclosure.
 - Side effects taken before Stop (a sent message, a post, money spent, a deleted file) are not undone.
 - Out of scope: a compromised provider, kernel or root compromise, and several hosts sharing one state
-  database (the mode is **single-host**; Q8 asks whether to refuse a second host explicitly).
+  database (the mode is **single-host**; Q8, answered: it refuses to start if a second host shares the state database).
 
 ## 3. The charter
 
@@ -114,6 +116,12 @@ What follows from T3, stated plainly:
 - **Pins** (so that nothing changes the effective model or policy mid-run): the boss's provider, model
   identifier and version/configuration as the host reports them, the finishing verifier's likewise, and
   the "judging" purpose policy in force at entry. A change of any of them needs a new charter (Q6).
+- **Per-ask limits** (Q5, answered). For the two classes that otherwise need a person, a giant plan
+  (`plan_approval`) and a critical upward ask, the charter declares what the boss may auto-approve:
+  `ask_spend_micro` (the spend the approved plan or answer may commit, in micro-dollars), `ask_tasks` (the
+  task count), `ask_access` (a ceiling on the access level, never `full`) and `ask_depth` (levels below the
+  asker). **"Small" means every declared limit is met.** A charter with no per-ask limits auto-approves
+  nothing (default deny). Anything over any limit **parks** as a person item and blocks dependants.
 - Not a charter item and not configurable: **Stop supremacy**.
 
 ### 3.2 Entering the mode
@@ -131,7 +139,7 @@ What follows from T3, stated plainly:
   file changed between rendering and insertion fails closed (no read-then-insert race).
 - What this acknowledgement is, and is not: a flag and a typed phrase behind the operator gate and the
   environment-and-ancestry refusal. It is not a proof of a human identity and not a signed record
-  (Q9 asks whether a stronger one is wanted). The record keeps who or what acknowledged (the interactive
+  (Q9, answered: the phrase plus the hash is enough; a script start records that a script supplied it). The record keeps who or what acknowledged (the interactive
   terminal, or the script that supplied the flag) and states that an unattended script is trusted by whoever
   runs it.
 - **One run per profile at a time.** A second start while a run is `running` or not yet `quiescent` is refused
@@ -152,7 +160,7 @@ What follows from T3, stated plainly:
   host also keeps the highest generation it has seen in its own durable file; a database whose generation
   is lower than the host's refuses to start and says so).
 - Editing a charter means ending the run and starting a new one: a new `charter_id` and generation. There is
-  no update, no amend and no lift of one line mid-run (Q10 asks whether an operator amendment is wanted).
+  no update, no amend and no lift of one line mid-run (Q10, answered: no amendment; an amendment is a new run).
 - Every session of the tree stores `charter_id` and the generation; every token minted for the tree carries
   both inside its signed fields. A token from another run, generation or profile is refused.
 - **Fail closed on unverifiable authority.** An unverifiable charter, a MAC that does not verify, an
@@ -176,7 +184,7 @@ generic approval must never authorise a different, unticked one. Instead:
   `{operation id, charter line, typed arguments schema, the enforcement function, the audit fields}`.
   Examples of the shape: `send.third_party{platform, account, destination class}`,
   `vault.use{secret name, host}`, `spend.grant{target, amount}`, `local.destructive{path under the
-  workspace}`, `install.package{manager, name}`.
+  workspace}`, `install.package{manager, name}`; and, for Q5, `plan.approve{session, rev, digest, tasks, spend, access, depth}` and `ask.answer{ask id, answer class}`, each constrained by the charter's per-ask limits.
 - The boss does not answer "a risky action"; it **approves a typed operation**. The enforcement function of
   that operation checks, at the effect: the operation is on the allowlist, the arguments satisfy the typed
   schema and the resource/destination the charter named, the session carries the charter at the current
@@ -195,7 +203,7 @@ the coder host's tools, the pane's bindings, a workflow node, a store function):
 3. Granting or changing credentials, vault grants, agent-access levels and conversation access levels.
 4. The resource governor's configuration and the limits' own settings.
 5. The audit stream (no write except by its single writer, no delete, no reorder).
-6. Approving a giant plan or answering a critical ask (section 6).
+6. Approving a giant plan or answering a critical ask **outside the charter's per-ask limits** (section 6).
 7. The operator-only settings that gate any of the above (`coder.*` switches reserved to the operator).
 
 Each is enforced **in the backend function** (the store or service function that performs the effect), with
@@ -380,7 +388,7 @@ what belongs to a run:
   - **Organisation runs and workers (`internal/dynorg`)**: stop through the conductor; note that a merge in
     progress is today designed to **finish** after a turn stops and leave the repository consistent
     (`internal/dynorg/worktree_test.go`: stopping the turn before the merge still merges). Under Stop that
-    behaviour is a stated question (Q11): a merge already begun is *admitted-before-Stop* (it finishes, as
+    behaviour is settled (Q11, answered): a merge already begun is *admitted-before-Stop* (it finishes, as
     the test pins, and is reported); a merge not yet begun does not start.
   - **Browser tasks and approvals**: pending browser-form submits and their person items
     (`internal/cli/hil/browser_submit.go`, `browserctl`) are voided at Stop; an approval racing Stop never
@@ -398,7 +406,7 @@ what belongs to a run:
   and, where available, a cgroup, plus a held **pidfd** per process. A pidfd pins one process; the unit is what
   makes "the whole tree" a stated thing (descendants that did not leave it). The unit's identity is stored
   durably so a restarted host or the CLI can find it (5.3).
-- Supported systems for the mode: Linux. On other systems the mode refuses to start (Q7). The fork-versus-
+- Supported systems for the mode: Linux. On other systems the mode refuses to start (13.2). The fork-versus-
   register race is closed by creating the process stopped inside the unit (5.2).
 - Escalation: signal the unit, wait a bounded time, kill, wait; a process that survives is listed as a
   straggler and the run stays `cleanup-pending`.
@@ -450,14 +458,17 @@ Deterministic barriers (injected pause points), not sleeps:
 
 ## 6. The boss, its answers, and person items
 
-- **Policy (one, throughout).** `plan_approval` (giant plans) and the **critical upward ask** stay **person
-  items**. They are never answered by the boss, never defaulted, never lifted by any line. In this mode they
-  are **parked**: the work that depends on them waits, independent work continues, and completion is blocked
-  while any is open. There is no auto-approval and no fallback that resolves them. The pane and a
-  notification (the existing chime and tray) tell the operator that something waits. A run with no operator
-  present continues around parked work and stays unfinished; it is not "person-less" in the sense of
-  discarding the item. Every earlier sentence that said "no person item in this mode" means: the mode never
-  *asks a person to unblock the flow of ordinary decisions*.
+- **Policy (one, throughout), as answered (Q5).** `plan_approval` (giant plans) and the **critical upward
+  ask** are person items **unless the request is inside the charter's per-ask limits** (section 3.1). Inside
+  the limits the **boss may auto-approve**, as a typed operation (`plan.approve`, `ask.answer`, section 4.1):
+  the enforcement function re-checks **every** declared limit against the actual plan or ask at the effect, and
+  the approval record carries **the limit values it was approved under** (note 13.4). **Anything over any limit
+  is parked** as a person item: the work that depends on it waits, independent work continues, and completion
+  is blocked while one is open. There is no fallback that resolves a parked item. The pane and a notification
+  (the existing chime and tray) tell the operator what waits. A run with no operator present continues around
+  parked work and stays unfinished. Every auto-approval is an audit row (the limits used, the actual values),
+  and the tests of note 13.4 cover the path: a request just inside, just over, and a split into many small asks
+  (the limits are checked against the **cumulative** spend and task count of the run, not only per request).
 - The boss answers the ordinary questions that reach the root for the lines the charter ticked, as typed
   operations (section 4.1). For a class a charter did not lift, nobody answers: the question stays parked.
 - **The audit stream is a new, separate, append-only table, not the existing decisions ledger.**
@@ -619,50 +630,46 @@ environment-and-ancestry refusal `operator.Refusal()`: coder mode enable
 proof of a human identity and not a signed record. Whether this mode reuses exactly that, or needs a stronger
 record, is a security-posture decision for the operator (Q9).
 
-### 12.4 What is provisional
+### 12.4 What was provisional, and what is still open
 
-The operator has not answered the questions below. **Every value or rule in the body that a question in
-12.5 asks about is provisional until the operator answers**: the depth maximum, same-model boss and the
-verifier rule, the preset's exclusion of platform caps, the model pins, the tier-T3 offer and confinement
-default, single-host refusal, the acknowledgement strength, no amendment, and the merge exception. The
-recommendations are proposals, not rules, and a reviewer should read them that way.
+The operator answered every question of 12.5 on **2026-11-01** (relayed by c9; Q5 and Q7 were confirmed with
+the operator directly by c). The values and rules in the body that those questions ask about are therefore
+**no longer provisional**. What remains open is not a question to the operator but design work: the contracts
+of section 13 and the blockers recorded in their notes.
 
-### 12.5 Questions for the operator, recommended defaults and the review's conditions
+### 12.5 Questions for the operator, and the operator's answers (2026-11-01)
 
-1. **Depth ceiling.** Recommended: an explicit charter maximum of 12, the charter must state the number, the
-   default is at most 4; every depth-dependent walk (tasks, reservations, budgets) is checked at every depth
-   the charter allows, and all existing hard caps stay for ordinary sessions. 12 is a policy choice, not a
-   demonstrated safe resource bound; benchmark traversal, load and recovery before enabling it.
-2. **Stop terminal.** Recommended: yes; resume is a new run with a new charter and generation, carrying no old
+1. **Depth ceiling.** *Answered:* the charter maximum is **12**, the default is **4**; every depth-dependent
+   walk (tasks, reservations, budgets) is checked at every depth the charter allows, and all existing hard caps
+   stay for ordinary sessions. 12 is a policy choice, not a demonstrated safe resource bound; benchmark
+   traversal, load and recovery before enabling it.
+2. **Stop terminal.** *Answered:* yes. Resume is a new run with a new charter and generation, carrying no old
    pending work or tokens without explicit reauthorisation.
-3. **Same model as boss or verifier.** Recommended: same-model answers allowed (recorded, shown); same-model
-   **finishing** verification forbidden; a distinct, pinned verifier is required, and completion parks when it
-   is absent; a different label is not independence without the verification environment (section 7);
-   provider/model version and role assignments are pinned and displayed.
-4. **Platform caps.** Recommended: a separate, explicitly named line, individually opt-in, never ticked by the
-   "everything" preset; the concrete caps are enumerated and the non-liftable bounds kept; no lifting is
+3. **Same model as boss or verifier.** *Answered:* the same model is allowed for **answers** (recorded, shown);
+   **finishing verification needs a distinct, pinned verifier**, and completion parks when it is absent; a
+   different label is not independence without the verification environment (section 7).
+4. **Platform caps.** *Answered:* a separate, explicitly named line, individually opt-in, **never ticked by the
+   "everything" preset**; the concrete caps are enumerated and the non-liftable bounds kept; no lifting is
    enabled until enforcement is inventoried (12.1).
-5. **Giant plans and critical asks.** Recommended: stay person items, parked, block dependants and
-   completion while open, the operator is notified; if strictly unattended operation matters, the request
-   is rejected or parked, never auto-approved (section 6).
-6. **Pin the boss model.** Recommended: pin provider, model identifier/version and the relevant purpose
-   policy in the charter; aliases or backend changes cannot silently change the effective model; a change
-   needs a new charter. Pin the verifier too.
-7. **The adversary boundary (new).** Recommended: state tier T3 in the entry dialog; offer the mode by
-   default only for **confined** workers (bubblewrap profile) on Linux; entering with `full`-access roles and
-   no confinement needs a separate, named acknowledgement. The alternative, requiring OS isolation (workers
-   under a different user, the database and key files withheld) before B1, is stronger and larger; the
-   operator decides which B1 must deliver.
-8. **Several hosts (new).** Recommended: the mode is single-host and refuses to start when a second host
-   shares the state database.
-9. **Strength of the acknowledgement (new).** Recommended: the typed phrase plus the hash (3.2) is enough for
-   interactive entry; a non-interactive start records that a script supplied it. A signed or second-factor
-   record is the stronger option.
-10. **Mid-run amendment (new).** Recommended: none; an amendment is a new run.
-11. **A merge in progress at Stop (new).** Recommended: treat a merge that has already begun as
-    admitted-before-Stop (it may finish, which keeps the repository consistent as today's test requires) and
-    report it; a merge not yet begun does not start. The alternative, abandoning a begun merge, risks a dirty
-    worktree.
+5. **Giant plans and critical asks.** *Answered, different from the recommendation:* the boss **may
+   auto-approve** a giant plan or a critical ask **inside charter-declared per-ask limits** (spend and scope,
+   section 3.1). **Anything over a limit parks** as a person item and blocks dependants. The approval record
+   carries the limit it was approved under; the audit stream and the tests cover this path (section 6, note
+   13.4). *(The earlier recommendation was "never auto-approved".)*
+6. **Pin the boss and verifier.** *Answered:* pin provider, model identifier/version and the relevant purpose
+   policy in the charter for both; aliases or backend changes cannot silently change the effective model; a
+   change needs a new charter.
+7. **The adversary boundary.** *Answered, different from the recommendation:* **no special isolation**. The mode
+   has the same trust model as ordinary sessions; the entry dialog and sections 2.3, 5 and 7 state the tier
+   plainly, including what the mode does **not** defend against (a full-access same-user worker acting
+   directly is beyond hard Stop). No confinement requirement, no separate acknowledgement.
+8. **Several hosts.** *Answered:* single host; the mode **refuses to start** if a second host shares the
+   state database.
+9. **Strength of the acknowledgement.** *Answered:* the typed phrase plus the hash is enough for interactive
+   entry; a non-interactive start records that a script supplied it.
+10. **Mid-run amendment.** *Answered:* none; an amendment is a new run.
+11. **A merge in progress at Stop.** *Answered:* a merge that has already begun **finishes and is reported**;
+    a merge not yet begun does not start.
 
 ## 13. B1 prerequisite contracts (known open items)
 
@@ -677,20 +684,21 @@ independent review. B1 work in an area without its note is refused at review.
 note has been merged for three of the six contracts, as a **draft**; each still lists open blockers recorded
 verbatim from review, and none of the six can close before the operator answers the questions it depends on
 (section 12.5). Rows below are the state after the follow-up note PRs #1279-#1281 (which close the first round of blockers and
-record the second); **note rounds are paused until the operator answers section 12.5**.
+record the second). **The operator answered section 12.5 on 2026-11-01, so note rounds resume.**
 
 | Contract | Area it blocks | Note | State | Open blockers (verbatim in the note) | Depends on (12.5) | Follow-ups |
 |---|---|---|---|---|---|---|
-| **13.1** dispatch barrier | every dispatcher, spawn, the barrier | `2026-10-31-doomsday-b1-note-13-1-dispatch-barrier.md` (PRs #1226, follow-up #1279) | **Draft, not closed.** Revision 5 closed the first three P2s; the delta review found two P1s | **2 P1s + 1 P2:** (1) `Close` can return BARRIER before the abort write runs or fails, and BARRIER overlaps UNKNOWN: keep the ticket non-drained through the abort transaction, publish ABORTED/UNKNOWN and signal the drain atomically, BARRIER excludes every UNKNOWN, pauses before and after the abort write; (2) the context check and the transport entry are not atomic: define the check as the hand-over point and narrow the promise, or synchronise entry with `Close`; P2: the "wrapper ignores `Started`" mutation cannot fail T29 (T23b detects it) | Q7 (discovery via containment), Q8 (the gate is in-host), Q11 (E2 merge steps) | issue #1269 |
-| **13.2** containment with a durable identity | process start, host-down Stop, recovery, `quiescent` | **not written** | **Open.** | the primitive (cgroup or pid namespace), the identity proof before signalling, ownership of a unit after the host dies, crash-safe creation, the fail-closed result when unavailable | **Q7** (the primitive and the adversary boundary) | none yet |
-| **13.3** merge and other begun-effect lifecycles | org runs, worktree merges | **not written** | **Open.** | a begun merge registered, visible and crash-recoverable; Stop's signals and acknowledgements allow it; no new run while it runs; repair after host death | **Q11** (finish or abandon a begun merge) | none yet |
-| **13.4** typed approvals | the boss's answers, every lifted operation | `2026-10-31-doomsday-b1-note-13-4-typed-approvals.md` (PRs #1228, follow-up #1280) | **Draft, not closed.** Revision 4 closed the first two P1s (status-only `vault.use`, sealed descriptors); the delta review found two more P1s | **2 P1s + P2s:** (1) the `vault.use` leakage bound has no request budget: a finite budget counting transport attempts and retries, a length cap or buckets, a predicate fixed at charter entry; (2) "the only channels" is false (response delay, malformed-response error text, retries): an error and result envelope, a timing limit or a narrower claim, tests for failures, delays and retry accounting; P2s: T5h1 asserts sealing before hashing, stale C2 text in 9A and T5d, the `STARTING`-across-consume mismatch with 13.1, `n+1` vs `n+k` in 13.5 | Q3 and Q6 (the boss identity in the record), Q4 (which platform caps and destinations), and the peer-credential binding for process-level caller binding | issue #1270 |
-| **13.5** anti-replay, freshness, single host | the run, audit and registry tables | `2026-10-31-doomsday-b1-note-13-5-anti-replay-and-single-host.md` (PRs #1227, follow-up #1281) | **Draft, not closed.** Revision 4 closed the first three P1s (batch rule, torn-tail repair, database identity); the delta review found three more P1s | **3 P1s + P2s:** (1) the torn-tail repair is not idempotent: crash-safe authenticated framing (a fixed-length repair record) and a test of each partial write; (2) a WAL replaced by rename under open descriptors is not detected by the head: a reliable pinned-file strategy (VFS or equivalent) tested with descriptors open and after reopen; (3) a path-only `stat` does not say which database a new connection holds: bind the check to the opened file and define the cross-process handoff under the lock; P2s: `seq` once per transition vs k rows, `n+1` vs `n+k` in 4A, overlapping rows 1/6 and 5/3, a stale journal/WAL mutation in T28 | Q8 (one host), Q2 (Stop is terminal, generations never reused), and the anchor (12.5 and the note's section 10) | issue #1271 |
-| **13.6** finishing | the finish path | **not written** | **Open.** | freeze and recheck atomic with the closing of admission; trusted criteria (a worker-written test is not evidence of itself); a rubric needs an operator decision workflow, and a rejection or an unavailable operator parks completion | **Q3** (the finishing verifier), **Q6** (the pins), **Q5** (parked person items and rubric decisions) | none yet |
+| **13.1** dispatch barrier | every dispatcher, spawn, the barrier | `2026-10-31-doomsday-b1-note-13-1-dispatch-barrier.md` (PRs #1226, follow-up #1279) | **Draft, not closed.** Revision 5 closed the first three P2s; the delta review found two P1s | **2 P1s + 1 P2:** (1) `Close` can return BARRIER before the abort write runs or fails, and BARRIER overlaps UNKNOWN: keep the ticket non-drained through the abort transaction, publish ABORTED/UNKNOWN and signal the drain atomically, BARRIER excludes every UNKNOWN, pauses before and after the abort write; (2) the context check and the transport entry are not atomic: define the check as the hand-over point and narrow the promise, or synchronise entry with `Close`; P2: the "wrapper ignores `Started`" mutation cannot fail T29 (T23b detects it) | Q7, Q8, Q11: **all answered** (no special isolation; single host; a begun merge finishes), no remaining dependency on the operator | issue #1269 |
+| **13.2** containment with a durable identity | process start, host-down Stop, recovery, `quiescent` | **not written** | **Open.** | the primitive (cgroup or pid namespace), the identity proof before signalling, ownership of a unit after the host dies, crash-safe creation, the fail-closed result when unavailable | Q7 **answered**: no special isolation; what remains is the containment primitive for host-started processes (design work, not a question) | none yet |
+| **13.3** merge and other begun-effect lifecycles | org runs, worktree merges | **not written** | **Open.** | a begun merge registered, visible and crash-recoverable; Stop's signals and acknowledgements allow it; no new run while it runs; repair after host death | Q11 **answered**: a begun merge finishes (reported) and a not-yet-begun merge does not start; the note can now be written | none yet |
+| **13.4** typed approvals | the boss's answers, every lifted operation | `2026-10-31-doomsday-b1-note-13-4-typed-approvals.md` (PRs #1228, follow-up #1280) | **Draft, not closed.** Revision 4 closed the first two P1s (status-only `vault.use`, sealed descriptors); the delta review found two more P1s | **2 P1s + P2s:** (1) the `vault.use` leakage bound has no request budget: a finite budget counting transport attempts and retries, a length cap or buckets, a predicate fixed at charter entry; (2) "the only channels" is false (response delay, malformed-response error text, retries): an error and result envelope, a timing limit or a narrower claim, tests for failures, delays and retry accounting; P2s: T5h1 asserts sealing before hashing, stale C2 text in 9A and T5d, the `STARTING`-across-consume mismatch with 13.1, `n+1` vs `n+k` in 13.5 | Q3, Q4, Q6 **answered**; **Q5 answered with a new requirement**: the boss may auto-approve a giant plan or critical ask inside charter-declared per-ask limits, so the note must define the `plan.approve` and `ask.answer` operations, the approval record carrying the limit used, the cumulative-limit check, the audit and the tests; the peer-credential binding for process-level caller binding is still open | issue #1270 |
+| **13.5** anti-replay, freshness, single host | the run, audit and registry tables | `2026-10-31-doomsday-b1-note-13-5-anti-replay-and-single-host.md` (PRs #1227, follow-up #1281) | **Draft, not closed.** Revision 4 closed the first three P1s (batch rule, torn-tail repair, database identity); the delta review found three more P1s | **3 P1s + P2s:** (1) the torn-tail repair is not idempotent: crash-safe authenticated framing (a fixed-length repair record) and a test of each partial write; (2) a WAL replaced by rename under open descriptors is not detected by the head: a reliable pinned-file strategy (VFS or equivalent) tested with descriptors open and after reopen; (3) a path-only `stat` does not say which database a new connection holds: bind the check to the opened file and define the cross-process handoff under the lock; P2s: `seq` once per transition vs k rows, `n+1` vs `n+k` in 4A, overlapping rows 1/6 and 5/3, a stale journal/WAL mutation in T28 | Q8, Q2 **answered**; the anchor (mandatory or best effort) is a design choice the note recommends best effort for | issue #1271 |
+| **13.6** finishing | the finish path | **not written** | **Open.** | freeze and recheck atomic with the closing of admission; trusted criteria (a worker-written test is not evidence of itself); a rubric needs an operator decision workflow, and a rejection or an unavailable operator parks completion | Q3, Q6 **answered** (a distinct pinned verifier; pins); **Q5 answered** (parked items remain only over the per-ask limits, so a rubric that needs an operator decision parks completion) | none yet |
 
 Questions that gate **entry** and the charter rather than one contract: Q1 (depth ceiling, 3.1), Q4 (the
-platform-caps line, 3.1), Q9 (the strength of the acknowledgement, 3.2), Q10 (no mid-run amendment, 3.3).
-Until they are answered the values in the body that they ask about stay provisional (12.4).
+platform-caps line, 3.1), Q9 (the strength of the acknowledgement, 3.2), Q10 (no mid-run amendment, 3.3):
+**all answered on 2026-11-01** (12.5). **All of Q1-Q11 are answered**; the gate is now the design work in the
+open blockers of the notes and the three notes that are not yet written (13.2, 13.3, 13.6).
 
 **How this table changes.** A row moves to CLOSED when its note has no open blocker, has passed the
 independent review, and the dependent questions are answered. Update this table in the same PR that records the

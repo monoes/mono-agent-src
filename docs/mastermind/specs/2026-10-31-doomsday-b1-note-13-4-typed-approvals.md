@@ -156,6 +156,33 @@ revive or kill one.
      must ask again.
    - Two concurrent presentations of one approval: the primary key admits one; the other gets a refusal.
 
+## 4B. Auto-approval inside the charter's per-ask limits (Q5, answered)
+
+The operator's answer to Q5: the boss **may auto-approve** a giant plan or a critical upward ask **inside
+charter-declared per-ask limits** (spec 3.1: `ask_spend_micro`, `ask_tasks`, `ask_access`, `ask_depth`);
+anything over parks as a person item. This note makes that path as strict as any other approval.
+
+- **Two operations on the allowlist:** `plan.approve{session, rev, digest, tasks, spend, access, depth}` and
+  `ask.answer{ask id, answer class}`. Their constraints are the per-ask limits; a charter without them enables
+  neither (default deny).
+- **The enforcement function re-derives the actual values** from the store at the effect (the plan's task
+  count, the carved spend and the cumulative committed spend, the access level, the depth), never from the
+  approval or from the agent, and refuses if **any** limit is exceeded. The plan digest and revision bind the
+  approval to the exact plan the boss saw; a plan that changed (`plan_changed`) voids it.
+- **Cumulative check.** The limits are also checked against the run's **running totals** of auto-approved spend
+  and tasks, so many small asks cannot add up to what one large ask would have been. (This is a design
+  requirement added here for review; the operator's answer says "per-ask limits".)
+- **The approval record carries the limits it was approved under** (`limit_id` and the values) and the actual
+  values checked, so the audit shows what the boss was allowed and what it was given.
+- **Over a limit:** the request is not refused, it **parks** as a person item exactly as before, and the audit
+  records which limit it exceeded.
+- **Never widened by this path:** a plan whose approval would raise an access level above `ask_access`, grant a
+  credential, or change a never-liftable control (spec 4.2) is not auto-approvable at any value.
+- **Tests:** a plan just inside every limit is approved and audited; just over each limit parks (one test per
+  limit); a plan split into many small asks that cross the cumulative limit parks at the crossing; a plan that
+  changes between the boss's answer and the effect is refused; the approval record shows the limit values; the
+  limits of one run do not apply to another; a mutation test removes each limit check in turn.
+
 ## 4A. Performing the effect on the resolved handle
 
 The check of step 4 and the effect are not one operation, so a string that was checked must never be
@@ -319,11 +346,12 @@ the attempted ones, never secret values.
 
 ## 9. Branch points that depend on the operator's answers
 
-- **Q3/Q6 (boss and verifier identity).** The approval records the pinned boss identity; if the operator
-  chooses a different pinning policy only that field's meaning changes.
-- **Peer binding (Q7 and the token work).** This note is written for a bearer token (today). If the operator
-  requires process-level caller binding before the mode ships, the enforcement function adds the process check
-  and the limit in section 5 goes away; no record change.
+- **Q3/Q6, answered (boss and verifier identity pinned).** The approval records the pinned boss identity.
+- **Peer binding (Q7, answered: no special isolation, and the token work).** This note is written for a bearer
+  token (today). Process-level caller binding is not required by the operator's answer to Q7; if the peer
+  binding later issues tokens, the enforcement function adds the process check and the limit in section 5
+  goes away; no record change.
+- **Q5, answered: auto-approval inside per-ask limits** (section 4B).
 - **Per-operation human confirmation.** The stronger alternative for some operations (a person confirms each
   one) defeats the point of the mode for those operations; it is available per operation as "never liftable",
   not as a second path.

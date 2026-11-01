@@ -322,9 +322,9 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 
 ## 10. Branch points that depend on the operator's answers
 
-- **Q8, several hosts.** Written for "one host, refuse a second". If the operator wants several hosts on one
-  state, this note does not apply: it would need database-resident leases with fencing tokens and an outside
-  coordinator, which a local file lock and a local witness cannot give. That is a separate, larger design.
+- **Q8, answered: single host; refuse to start if a second host shares the state database.** This note is
+  written for exactly that. (Several hosts would need database-resident leases with fencing tokens and an
+  outside coordinator; that is not required.)
 - **The anchor.** Whether to require the OS secret store item (this note: best effort, `anchor-bound`
   recorded, never blocks a Stop) or to make it mandatory at entry (stronger rollback detection, refuses to
   run where the store is unavailable). Recommended: best effort now, mandatory only if the operator asks for

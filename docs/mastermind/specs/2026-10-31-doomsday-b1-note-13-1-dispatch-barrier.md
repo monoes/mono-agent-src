@@ -299,13 +299,13 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
 
 ## 11. Branch points that depend on the operator's answers
 
-- **Q7 (containment primitive, adversary boundary).** Resolution of `UNKNOWN` and `late` tickets uses
-  containment (13.2) for discovery. If the operator requires stronger OS isolation first, the gate is
-  unchanged and only discovery changes.
-- **Q11 (a merge in progress).** E2 is written for "a begun operation is registered and finishes or is
-  cancelled at a step boundary"; if the answer is "abandon a begun merge", E2 becomes "cancel at the next step
-  boundary".
-- **Q8 (single host).** The gate is in-host by design.
+- **Q7, answered: no special isolation.** Resolution of `UNKNOWN` and `late` tickets uses containment (13.2)
+  for discovery; there is no stronger OS-isolation requirement. A full-access same-user worker acting
+  directly is beyond hard Stop and the entry dialog says so.
+- **Q11, answered: a begun merge finishes (reported); a not-yet-begun merge does not start.** E2 is written for
+  exactly that: a begun operation is registered and runs to its end, a not-yet-begun one is refused at its
+  `BeginStart`.
+- **Q8, answered: single host.** The gate is in-host by design.
 
 ## 12. For the reviewer to attack
 
