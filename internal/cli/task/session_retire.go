@@ -30,7 +30,7 @@ This is for the worker of a task run by the mission's conductor. A task running 
 (off by default) is stopped with coder sessions stop and is not touched by this verb.`,
 		Example: "  monoagentcli task session retire-worker 3 12 --note \"its context is stale\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("retire a session's worker")
+			actor, err := d.personGate(cmd, "retire a session's worker")
 			if err != nil {
 				return err
 			}

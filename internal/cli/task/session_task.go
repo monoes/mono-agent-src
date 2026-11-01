@@ -380,7 +380,7 @@ func (d Deps) newTaskUndependCmd() *cobra.Command {
 		Use:   "undepend ID DEPENDENCY_ID...",
 		Short: "Stop a session task waiting for others (you only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("remove a task's dependencies")
+			actor, err := d.personGate(cmd, "remove a task's dependencies")
 			if err != nil {
 				return err
 			}

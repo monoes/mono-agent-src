@@ -487,8 +487,11 @@ func TestIssuanceStaysOffUntilTheRevocationGuardsExist(t *testing.T) {
 }
 
 // rowKeyMintSites are the production FUNCTIONS (file relative to internal/, then the function) that may call RowKey:
-// the mint only. None yet. A whole file is never allowed, so a verifier added next to a mint cannot hide in it.
-var rowKeyMintSites = map[string]bool{}
+// the mint only. A whole file is never allowed, so a verifier added next to a mint cannot hide in it.
+var rowKeyMintSites = map[string]bool{
+	// the host row of a binding-service start is signed under the profile's key, which a first start may create
+	"coderhost/bindinghost_linux.go:Ensure": true,
+}
 
 // productionRowKeyCalls lists, as "file:Function", the functions in non-test files under internal/ that call
 // procbind.RowKey (or, inside procbind, RowKey).
