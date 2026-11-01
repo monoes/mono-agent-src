@@ -471,4 +471,3 @@ cap is at most 16 MiB and the output set is exactly `bucket_count + 1` values).
    replaces them with the decisions.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
-
