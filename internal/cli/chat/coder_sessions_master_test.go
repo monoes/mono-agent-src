@@ -163,7 +163,7 @@ func TestExecLauncherGivesATurnItsOwnSessionTokenOnly(t *testing.T) {
 	reapFakeTurns(t, dir)
 	envLog := filepath.Join(dir, "env.txt")
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\ncat > /dev/null\nenv | grep MONOAGENT_ | sort > '" + envLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n"
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "cat > /dev/null\nenv | grep MONOAGENT_ | sort > '" + envLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestExecLauncherPassesTheBudgetCapAndBindsTheTokenToTheTurnProcess(t *testi
 	bin := filepath.Join(dir, "fake-monoagentcli")
 	t.Setenv(agenttokens.EnvMissionToken, "a-workers-binding")
 	envLog := filepath.Join(dir, "env.log")
-	script := "#!/bin/sh\ncat > /dev/null\necho \"$*\" >> '" + argsLog + "'\necho \"binding=${" + agenttokens.EnvMissionToken + ":-none}\" >> '" + envLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "cat > /dev/null\necho \"$*\" >> '" + argsLog + "'\necho \"binding=${" + agenttokens.EnvMissionToken + ":-none}\" >> '" + envLog + "'\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestAHostInsideASessionTurnStartsTurnsWithoutABoundTokenAndTinyCapsAreRefus
 	dir := t.TempDir()
 	reapFakeTurns(t, dir)
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\ncat > /dev/null\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "cat > /dev/null\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 5\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

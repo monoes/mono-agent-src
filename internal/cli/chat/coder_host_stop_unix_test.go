@@ -19,7 +19,7 @@ func TestStopAfterANaturalEndKillsTheTurnsBackgroundProcess(t *testing.T) {
 		dir := t.TempDir()
 		reapFakeTurns(t, dir)
 		bin := filepath.Join(dir, "fake-monoagentcli")
-		body := "#!/bin/sh\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 300 &\necho $! > '" + filepath.Join(dir, "bg") + "'\nexit 0\n"
+		body := "#!/bin/sh\n" + fakeRecord(dir) + "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 300 &\necho $! > '" + filepath.Join(dir, "bg") + "'\nexit 0\n"
 		if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}

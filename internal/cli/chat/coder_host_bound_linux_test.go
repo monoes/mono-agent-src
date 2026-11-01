@@ -67,7 +67,7 @@ p0=$PPID; while [ -d '` + r.dir + `' ] && [ ! -e '` + r.release + `' ] && kill -
 `
 	}
 	bin := filepath.Join(r.dir, "fake-monoagentcli")
-	body := "#!/bin/sh\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\n" + script
+	body := "#!/bin/sh\n" + fakeRecord(r.dir) + "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\n" + script
 	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestOnlyABoundLaunchMakesAStrictTurn(t *testing.T) {
 
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake-monoagentcli")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+fakeRecord(dir)+"echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond, revoke: func(string, string) error { return nil }}

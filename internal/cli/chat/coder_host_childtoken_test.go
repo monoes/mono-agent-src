@@ -164,7 +164,7 @@ func TestRevokeChildTokensRetiresARunThatHoldsOnlyAV2Token(t *testing.T) {
 func fakeChildBin(t *testing.T, dir string) (bin string) {
 	t.Helper()
 	bin = filepath.Join(dir, "fake-monoagentcli")
-	script := "#!/bin/sh\necho \"$*\" >> '" + filepath.Join(dir, "args.log") + "'\n" +
+	script := "#!/bin/sh\n" + fakeRecord(dir) + "echo \"$*\" >> '" + filepath.Join(dir, "args.log") + "'\n" +
 		"if [ \"$6\" = \"chat\" ] && [ \"$7\" = \"history\" ]; then exit 0; fi\n" +
 		"env > '" + filepath.Join(dir, "env.txt") + "'\n" +
 		"if [ -n \"$MONOAGENT_MISSION_FD\" ]; then eval \"read -r tok <&$MONOAGENT_MISSION_FD\"; echo \"$tok\" > '" + filepath.Join(dir, "tok.txt") + "'; fi\n" +
