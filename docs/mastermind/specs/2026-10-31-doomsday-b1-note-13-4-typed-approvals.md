@@ -450,3 +450,25 @@ and await a P1-only delta review.
    E3 consume is the registry write, section 4); the `n+1` versus `n+k` item belongs to note 13.5.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.2 Remaining after the delta review of revision 6 (recorded)
+
+One **P1** and the P2s below are **open in this revision**. Each must be resolved in a later revision before
+any code in the area lands (spec section 13 gate). The length-bucket P1 of the last round is **closed** (the
+cap is at most 16 MiB and the output set is exactly `bucket_count + 1` values).
+
+1. **P1: the timing bound has no established maximum.** Note 13.1 requires only a per-call deadline, so a
+   caller can choose a distant deadline and a reflecting destination can choose among correspondingly many
+   response slots; the slot count is not a bounded constant at entry. Required: specify a **finite validated
+   maximum duration** and derive the **exact slot count** (including timeout and rounding), or explicitly
+   **exclude timing** and state the residual; also define **what the agent observes at release** (the
+   scheduling and ordering of concurrent completions).
+2. **P2:** the boundary test T5f7 is inconsistent for `bucket_count = 1` (a body of `bucket_size + 1` bytes
+   gives `1`, the table says `2`): state `bucket_count >= 2` there and cover `1` separately.
+3. **P2:** T5f8 lacks infinity, numeric overflow (a multiplication overflowing before conversion) and
+   per-field non-integer and negative cases.
+4. **P2:** the checked-in charter still shows provisional recommendations in places; the answers PR (#1285)
+   replaces them with the decisions.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
