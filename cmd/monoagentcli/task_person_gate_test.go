@@ -58,11 +58,6 @@ func TestPersonVerbsAreRefusedByTheProductionGate(t *testing.T) {
 	}
 	for ctxName, setup := range contexts {
 		for verb, args := range operatorOnlyVerbs() {
-			// retire-worker has no personGate: it is refused by the general operator check (agent marker, workflow, chat),
-			// which the token variables alone do not trip. Finding, left as is: this test does not assert it.
-			if strings.HasPrefix(verb, "retire-worker") && strings.HasSuffix(ctxName, "-token") {
-				continue
-			}
 			t.Run(ctxName+"/"+verb, func(t *testing.T) {
 				cfg := sendEnv(t)
 				cfg.DBPath = filepath.Join(t.TempDir(), "never-opened.db")
@@ -85,6 +80,15 @@ func TestPersonInboxIsNotRefusedToAnOperator(t *testing.T) {
 	out, err := runSendCLI(t, cfg, newTaskCmd(cfg), personVerbs()["inbox"]...)
 	if err != nil {
 		t.Fatalf("an operator's inbox was refused: %v\n%s", err, out)
+	}
+}
+
+func TestRetireWorkerIsNotRefusedToAnOperator(t *testing.T) {
+	cfg := sendEnv(t)
+	_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "session", "retire-worker", "1")
+	var coded interface{ JSONErrorFields() map[string]any }
+	if err == nil || (errors.As(err, &coded) && coded.JSONErrorFields()["code"] == "operator_only") {
+		t.Fatalf("an operator should reach the argument check, not the operator gate: %v", err)
 	}
 }
 

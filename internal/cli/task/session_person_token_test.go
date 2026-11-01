@@ -86,3 +86,27 @@ func TestPersonVerbsRefuseAProcessInsideACoderTurn(t *testing.T) {
 		t.Fatalf("a refused process changed the items: %+v", items)
 	}
 }
+
+// retire-worker goes through the same gate: a process inside a coder turn's process tree is
+// refused by the turn-ancestry layer, with an empty environment (no marker, no token).
+func TestRetireWorkerRefusesAProcessInsideACoderTurn(t *testing.T) {
+	if coderhost.ProcStamp(os.Getpid()) == "" {
+		t.Skip("process ancestry cannot be read here")
+	}
+	db, _, _ := giantWithItem(t)
+	d, err := storage.NewDatabase(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coderhost.NewStore(d.DB).EnsureSession("default", "conv-lead"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DB.Exec(`UPDATE coder_sessions SET turn_pid = ?, turn_stamp = ? WHERE conversation_id = 'conv-lead'`, os.Getpid(), coderhost.ProcStamp(os.Getpid())); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	doc := failedTaskJSON(t, db, "default", 3, "session", "retire-worker", "1", "1")
+	if doc["code"] != "operator_only" {
+		t.Fatalf("retire-worker inside a turn: %v", doc)
+	}
+}
