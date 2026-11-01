@@ -390,20 +390,35 @@ what belongs to a run:
     (`internal/dynorg/worktree_test.go`: stopping the turn before the merge still merges). Under Stop that
     behaviour is settled (Q11, answered) and is defined as a **continuation exception**, because each step of a
     merge has its own ticket (note 13.1, E2) and `Admit`/`BeginStart` refuse after closure:
-    - A merge is **begun** when its first step's ticket is `STARTED`; at that moment it is registered as a
-      *begun operation* with its fixed list of remaining steps.
-    - After `Close`, **only the remaining steps of an already begun operation, and only those, are admitted**,
+    - A merge is **begun** when its first step's ticket is `STARTED` while the gate is open; at that moment it
+      is **registered as a begun operation** (state `CONTINUING`) with its fixed list of remaining steps.
+      **The registration happens before any `Close` can snapshot**, because it is made under the gate's
+      mutex while the gate is `OPEN`.
+    - **A `CONTINUING` operation is a member of the set `Close` waits for**, like a `STARTING` ticket. So
+      `Close` does not return BARRIER while a begun operation is continuing, and a continuation cannot become
+      `STARTING` after a snapshot that did not include it: the operation itself, not its next step, is the
+      member.
+    - After `Close`, **only the remaining steps of a `CONTINUING` operation, and only those, are admitted**,
       through a *continuation ticket* (`AdmitContinuation(op, step)`), which refuses any step that is not the
       operation's next registered step, any new operation, and any step once the operation's bound has passed.
-    - The exception is **bounded**: the operation's own step list, and a wall-clock bound `T_merge` after which
-      the continuation is withdrawn, the remaining steps do not run, the operation is recorded `incomplete`
-      (note 13.3) and reported. The containment kill (13.2) of the merge's processes is deferred until the
-      operation ends or `T_merge` passes; other processes of the run are killed on the usual schedule.
+      `BeginStart` and `Started` accept a continuation ticket within the bound (note 13.1).
+    - **Outcomes.** The operation leaves `CONTINUING` when its last step ends (`finished`), a step fails
+      (`incomplete`), or `T_merge` passes (`incomplete`, the remaining steps withdrawn). `Close`'s deadline
+      (`T_close`) is much shorter than `T_merge`: if the operation is still `CONTINUING` at the deadline, `Close`
+      returns **CLOSED-WITH-OPERATION** (not a barrier; the gate is closed to new work, the operation continues
+      by its continuation tickets), the run stays `cleanup-pending`, and the drain resolves when the operation
+      leaves `CONTINUING`. `quiescent` requires no `CONTINUING` operation.
+    - The exception is **bounded** by the operation's own step list and by `T_merge`. The containment kill
+      (13.2) of the merge's processes is deferred until the operation leaves `CONTINUING`; other processes of
+      the run are killed on the usual schedule.
     - A merge **not yet begun** (no `STARTED` first step) does not start: its `BeginStart` is refused.
-    - The merge is reported in the pane with its state (finishing, finished, incomplete).
-    - Test: Stop between steps (pause between step 1 and step 2): step 2 runs through its continuation
-      ticket, a new merge is refused, a step outside the list is refused, and an overrun of `T_merge` leaves
-      `incomplete`.
+    - The merge is reported in the pane with its state (continuing, finished, incomplete).
+    - Tests (deterministic, with an injected clock): **both schedules** of the race: (a) Stop between step 1 and
+      step 2 with `Close` called while the operation is `CONTINUING`: `Close` does not return BARRIER, step 2
+      runs through its continuation ticket, and the drain resolves when the operation finishes; (b) `Close`
+      called while another ticket is `STARTING`, and the operation proceeds to its next step: `Close` still
+      waits for the operation. Also: a new merge is refused, a step outside the list is refused, a failing
+      step leaves `incomplete`, and an overrun of `T_merge` withdraws the rest and leaves `incomplete`.
   - **Browser tasks and approvals**: pending browser-form submits and their person items
     (`internal/cli/hil/browser_submit.go`, `browserctl`) are voided at Stop; an approval racing Stop never
     produces the submit (the dispatcher's barrier, 5.2).
