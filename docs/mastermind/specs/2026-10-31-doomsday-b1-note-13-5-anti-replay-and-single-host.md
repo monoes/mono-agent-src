@@ -1,6 +1,6 @@
 # B1 design note 13.5: anti-replay, freshness and the single host
 
-Status: **design note and test plan, revision 2, no code.** It closes contract 13.5 of
+Status: **design note and test plan, revision 3, no code.** It closes contract 13.5 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults (Q8: one host only).
 Alternatives that depend on an unanswered question are listed in section 10. Wording is class level: this
 repository is public.
@@ -46,19 +46,28 @@ outcome:
 ## 3. The sequencer: one critical section for every writer
 
 The host, the CLI Stop, the daemon's signal path and the outside dispatchers of note 13.1 are separate
-processes, and all of them write transitions. They are serialised by **one critical section**, the database
-write lock, taken first:
+processes, and all of them write transitions. They are serialised by **two locks taken in a fixed order**, held
+across the whole transition:
 
-1. `BEGIN IMMEDIATE` (the database write lock), with a **bounded retry** (a short busy timeout, N attempts,
-   jittered; never an unbounded wait). If it cannot be taken, the transition does not happen (an emergency
-   Stop acts per spec 5.3 and reconciles).
-2. Under the lock, **read the head** `(seq n, head MAC)` and **verify freshness** (section 3A).
-3. Under the lock, **append `pending n+1 <head MAC>` to the witness and fsync it.** Only the holder of the lock
-   appends to the witness, so witness writers are serialised too.
+**Lock order, everywhere: `host.lock` (held only by the host, for life) → `witness.lock` → the database write
+lock.** No code takes them in another order. Waits on `witness.lock` and on the database write lock are
+**bounded retries** (a non-blocking `flock` attempt and a short busy timeout, N attempts, jittered), never an
+unbounded wait.
+
+0. Take **`witness.lock`** (an exclusive `flock` on its own file). It is held **until step 6 has finished**, so
+   the `committed` line of this transition is appended before any other writer can append anything.
+1. `BEGIN IMMEDIATE` (the database write lock).
+2. Under both locks, **read the head** `(seq n, head MAC)` and **verify freshness** (section 3A).
+3. **Append `pending n+1 <head MAC>` to the witness and fsync.** The head MAC equals the `prev` MAC the new
+   row will carry.
 4. Write the rows with `UNIQUE(generation, seq)` and a condition that `prev` equals the head MAC read in
-   step 2 (a conditional insert). A second writer can never produce a second `n+1` or a fork.
-5. `COMMIT`.
-6. Append `committed n+1` to the witness and fsync it.
+   step 2 (a conditional insert).
+5. `COMMIT` (this releases the database write lock).
+6. Append `committed n+1` to the witness and fsync, then release `witness.lock`.
+
+Because `witness.lock` spans steps 3-6, a second writer can neither append `pending n+2` into the window
+between the commit and the `committed` line nor fork the line-MAC chain; it waits (bounded) and then re-reads
+the head under its own locks. Entry takes the locks in the same order (below).
 
 **A superseded pending line is never edited or discarded** (the file is append-only). If a holder finds, under
 the lock, a `pending n+1` whose transition did not commit (`D.seq = n`), it first appends `abandoned n+1
@@ -81,11 +90,23 @@ registration, in any process**, not only at host start:
 
 - under the lock (step 2), the head must equal the **witness tail** (the last `committed`, or the `pending`
   whose commit is being completed); otherwise the writer fails closed (table rows 4-9);
-- **a live host must hold `host.lock`**: the writer probes it with a **non-blocking shared lock attempt**; if
+- **a live host must hold `host.lock`**: the writer probes it with a **non-blocking shared lock attempt
+  (released at once)**; if
   no live host holds it, no admission or registration is allowed (an outside dispatcher cannot register, the
   CLI cannot admit work). Stop is exempt (section 6): it acts with no host;
-- the host additionally re-verifies at each of its own transitions, and checks that the lock inode is still
-  the file it locked (section 6).
+- **file identity, at every transition and every admission, in every process:** for each of the database
+  file, its journal and write-ahead-log files, the witness and `host.lock`, the process compares
+  `fstat(open descriptor)` with `stat(path)` on `(device, inode)` (a process that opened the file records its
+  identity at open). A mismatch means the file was renamed over, restored or swapped under an open handle:
+  **fail closed** (rows 4-9 apply). A host that keeps a handle to a swapped database therefore cannot keep
+  admitting on the old inode, and a CLI that opens the restored database by path finds the head behind the
+  witness.
+
+**What Stop writes when freshness fails.** Stop is never blocked by a failed freshness check, but it does not
+add rows to a chain it cannot trust. It writes: the **marker**; the **token revocation** (the token tables,
+which are not chained rows); the unit kill; and a **`failed <row>` line in the witness** (under
+`witness.lock`) recording which table row fired. It adds **no** chained database row. The chained rows are
+left as found, for the operator to inspect.
 
 So a database swapped under a running host, or a restored `running` row with no host, admits nothing: the
 first writer that tries finds the head behind the witness and fails closed. The headline guarantee holds at
@@ -99,9 +120,9 @@ section of section 3A.
 | # | Situation | Reading | Action |
 |---|---|---|---|
 | 1 | `D.seq` = last `committed` of the witness | consistent | proceed |
-| 2 | witness has `pending n+1` with no `committed`, `D.seq = n`, and the transition is **not** an ending one | crash before the commit | append `abandoned n+1`, proceed |
+| 2 | witness has `pending n+1` with no `committed`, `D.seq = n`, the database head MAC **equals the pending line's `prev` MAC**, and the transition is **not** an ending one | crash before the commit | append `abandoned n+1`, proceed |
 | 2e | the same, but the transition is an ending one (`stop-requested` or later) | a Stop was being recorded; or a one-step rollback made to look like row 2 | **fail closed** (the marker covers the Stop) |
-| 3 | witness has `pending n+1`, `D.seq = n+1`, head MAC matches | crash after the commit | append `committed n+1`, proceed |
+| 3 | witness has `pending n+1`, `D.seq = n+1`, the new row's `prev` equals the pending line's `prev` and the head MAC matches | crash after the commit | append `committed n+1`, proceed |
 | 4 | `D.seq` < last `committed` | **database rolled back** | fail closed |
 | 5 | `D.seq` is greater than the witness's last `committed`/`pending` and is not row 3 (this includes **exactly one ahead with no `pending` line**) | witness older than the database, lost or restored; or a transition committed without step 3 | fail closed |
 | 6 | `D.seq` = witness but the head MAC differs | a replaced row, or a fork | fail closed |
@@ -121,15 +142,22 @@ authority blocks execution.
 
 Each line is `<payload> <MAC>`, the MAC over the payload and the previous line's MAC. A **torn final line** is
 read as absent **only** if it is the last line: a torn `pending` is row 2, a torn `committed` is row 3
-(derived from `D`). Any other damage (a bad MAC mid-file, a torn line that is not last) is row 7.
+(derived from `D`) **only if `D` agrees** (`D.seq = n+1` and the MACs match); a torn `committed` line that the database contradicts (`D.seq = n`) is row 13. Any other damage (a bad MAC mid-file, a torn line that is not last) is row 7.
 
 ## 5. The anchor, entry, and what a restore can and cannot do
 
-- **Entry order:** witness `pending(entry)` → database commit of the counter and the run row → **anchor
-  update (highest generation)** → witness `committed(entry)`. The entry records `anchor-bound: yes|no`. If the
-  anchor cannot be written at entry (for example a headless Linux system with no secret service), the run is
-  entered as `anchor-bound: no`, and the entry dialog says rollback detection is weaker. An anchor update that
-  fails **after** the commit is retried at the next transition and shown.
+- **Entry order and locks.** Entry takes `host.lock` first (the host that will own the run), `witness.lock`
+  second and the database write lock third (the fixed order of section 3). **The rule
+  `max(counter, witness, anchor) + 1` is evaluated under the write lock.** Then:
+  1. write the **anchor** item for the new generation first (state `entering`). `anchor-bound` is `yes` **only
+     if this write succeeded**; if it cannot be written (for example a headless Linux system with no secret
+     service) the run is `anchor-bound: no` and the entry dialog says rollback detection is weaker;
+  2. witness `pending(entry)`, **carrying the `anchor-bound` value just determined**;
+  3. database commit of the counter and the run row;
+  4. anchor state `running`;
+  5. witness `committed(entry)`.
+  A crash after step 1 leaves an anchor generation with no run; the next entry uses `max(...) + 1`, so no
+  number is reused. An anchor update that fails after step 3 is retried at the next transition and shown.
 - The ending transition updates the anchor (`ended`).
 
 **Truncation of the streams.** The chain heads are in the witness lines (one global `seq`). Dropping the
@@ -142,7 +170,9 @@ recovers it.
 - **A lock (no timed waiting).** The host takes an exclusive, **non-blocking** advisory lock on `host.lock` in
   the run directory for its whole life (the pattern of `internal/account/lock_unix.go`). The kernel drops it
   when the process dies, so a **stale owner cannot hold it**. A second host fails to take it and **refuses to
-  start before it touches the database**.
+  start before it touches the database**. A probe (section 3A) takes a *shared* lock for an instant, which can
+  make a host's exclusive attempt fail spuriously at that moment: the host therefore retries its exclusive
+  attempt a bounded number of times before it reports "another host".
 - **The lock fd is close-on-exec and no child inherits it.** Go opens files close-on-exec; the launcher
   additionally closes every descriptor above the standard three in a spawned child. A child that kept the
   descriptor would hold the lock after the host died and block a restart (T22).
@@ -172,7 +202,9 @@ recovers it.
 - **Filesystems.** Advisory locks are not reliable on network or overlay file systems. At entry and at start the
   host reads the filesystem type (`statfs`) of the run directory and **allows only a local allowlist**
   (ext4, xfs, btrfs, f2fs); an unknown type is refused, so a FUSE or bind mount of a local disk is refused too,
-  which is acceptable.
+  which is acceptable. Tests that run on a memory file system use a **test-only allowlist extension selected
+  by a build tag** (`testfs`); no environment variable, flag or setting can add a type in a release build
+  (T34).
 - **Defence in depth in the database.** Host-written transitions are conditional on the run's `host id`; a
   second host that somehow got past the lock fails the condition.
 
@@ -236,7 +268,26 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T25 | an approval consumed, then the database restored to before the consume (same generation) | caught by rows 4/5; the approval is not silently re-enabled |
 | T26 | the headless case: no secret service at entry | the run is `anchor-bound: no`; the dialog says so; rows 1-8 decide |
 | T27 | Stop writes a column outside its list | refused by the conditional write |
-| T28 | mutation proof, **one per row and per guard** | removing: each table row's check (1-13); the `UNIQUE(generation, seq)` constraint; the `prev` condition; the witness-tail check in 3A; the live-host probe; the host-id condition; the lock-inode comparison; the anchor comparison; the entry `max(...)+1` rule; the marker's generation test, each fails a named test |
+| T17b | writer A commits and is paused before step 6 (`committed`); writer B starts | B waits on `witness.lock` (bounded) and cannot append `pending n+2` into the window; the line-MAC chain has no fork; after A releases, B re-reads the head |
+| T29 | the database file renamed over by a restored copy while the host runs | the next transition or admission compares `fstat` with `stat`, fails closed; the host does not keep admitting on the old inode |
+| T30 | the journal or write-ahead-log file swapped under an open handle | the same comparison fails closed |
+| T31 | the witness renamed over by an older copy while the host runs | fails closed (identity mismatch, then row 5) |
+| T32 | CLI Stop after the database was restored (freshness failed) | writes the marker, the token revocation, the unit kill and a `failed <row>` witness line; **no chained database row** |
+| T33 | entry: the lock order and the `max(counter, witness, anchor)+1` rule under the write lock; anchor write fails at step 1 | `anchor-bound: no` is what the `pending(entry)` line records; no reused number after a crash between steps |
+| T34 | a release build asked to add a filesystem type (env, flag, setting) | refused; only the `testfs` build tag extends the list |
+| T35 | the probe racing a host's start | the host's bounded retry succeeds; no spurious "another host" |
+| T36 | a torn `committed` line while the database says `D.seq = n` | row 13: fail closed |
+| T37 | row 2 with a database head MAC that differs from the pending line's `prev` | not row 2; fail closed |
+| T28 | mutation proof, **one per row and per guard**; also removing the `witness.lock` span (steps 3-6), the lock order, the `abandoned`-before-`pending` rule, any one of the file-identity comparisons (database, journal/WAL, witness, `host.lock`) | removing: each table row's check (1-13); the `UNIQUE(generation, seq)` constraint; the `prev` condition; the witness-tail check in 3A; the live-host probe; the host-id condition; the lock-inode comparison; the anchor comparison; the entry `max(...)+1` rule; the marker's generation test, each fails a named test |
+
+## 9A. Known limits
+
+- A writer that cannot take `witness.lock` or the write lock after the bounded retries does not write; an
+  emergency Stop acts per spec 5.3 and reconciles. Under heavy contention a non-emergency transition can be
+  refused (the caller retries).
+- The shared-lock probe can briefly make a host's exclusive attempt fail (retried, T35).
+- The filesystem allowlist is deliberately narrow; a refused type is reported with its name.
+- These and the open items are tracked in issue #1271.
 
 ## 10. Branch points that depend on the operator's answers
 
