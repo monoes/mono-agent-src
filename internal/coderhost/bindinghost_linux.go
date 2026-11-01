@@ -31,6 +31,11 @@ type BindingHost struct {
 	Root string
 	Logf func(format string, args ...any)
 	Now  func() time.Time
+	// EnsureTimeout bounds one start (the socket, the key and the host-row write), which holds the host's lock; zero
+	// is defaultEnsureTimeout.
+	EnsureTimeout time.Duration
+
+	beforePublish func() // a test hook: runs after the last context-aware step, before the service is started
 
 	mu     sync.Mutex
 	svcs   map[string]*bindingService
@@ -144,6 +149,34 @@ func (h *BindingHost) Generation(profile string) (string, bool) {
 	}
 }
 
+// lockCtx takes h.mu, or gives up with the context's error when ctx ends first; a refused wait touches no state.
+func (h *BindingHost) lockCtx(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	got := make(chan struct{})
+	go func() {
+		h.mu.Lock()
+		close(got)
+	}()
+	select {
+	case <-got:
+		return nil
+	case <-ctx.Done():
+		go func() { <-got; h.mu.Unlock() }() // the lock arrives later and is handed straight back
+		return ctx.Err()
+	}
+}
+
+const defaultEnsureTimeout = 30 * time.Second
+
+func (h *BindingHost) ensureTimeout() time.Duration {
+	if h.EnsureTimeout > 0 {
+		return h.EnsureTimeout
+	}
+	return defaultEnsureTimeout
+}
+
 // Ensure starts the profile's service if it is not running. It fails closed: any step that does not work leaves
 // nothing listening. A host row (migration 148) written before a later step failed stays: it is signed, names a
 // generation nobody serves, and so can only make a verifier's question go unanswered (a deny) until the next start
@@ -155,7 +188,11 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	if h.Binder == nil { // checked before the nil pointer could land in the service's lease interface (a non-nil interface holding nil)
 		return errors.New("the binding host has no registry")
 	}
-	h.mu.Lock()
+	ctx, cancel := context.WithTimeout(ctx, h.ensureTimeout())
+	defer cancel()
+	if err := h.lockCtx(ctx); err != nil {
+		return err
+	}
 	defer h.mu.Unlock()
 	if h.closed {
 		return errors.New("the binding host is shut down")
@@ -205,6 +242,12 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	procs, err := procbind.NewLinuxProcs()
 	if err != nil {
 		return fail(errors.New("the binding service cannot read the process table"))
+	}
+	if h.beforePublish != nil {
+		h.beforePublish()
+	}
+	if err := ctx.Err(); err != nil { // the deadline passed since the last step that watched it: record nothing
+		return fail(fmt.Errorf("the binding service start ran out of time: %w", err))
 	}
 	srv := &procbind.Server{Profile: profile, Generation: generation, Key: answerKey, Leases: h.Binder, Procs: procs, UID: os.Getuid(),
 		Logf: func(f string, a ...any) { h.logf("binding service: "+f, a...) }}
