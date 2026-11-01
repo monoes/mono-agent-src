@@ -1,6 +1,6 @@
 # B1 design note 13.4: typed approvals bound to the exact effect
 
-Status: **design note and test plan, revision 3, no code.** It closes contract 13.4 of
+Status: **design note and test plan, revision 4, no code.** It closes contract 13.4 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13). It depends on notes 13.1 (the gate and where an
 effect is "issued") and 13.5 (the sequence and the audit chain), and is written for the recommended defaults.
 Wording is class level: this repository is public.
@@ -30,7 +30,7 @@ entry dialog renders it in plain words ("any destination", "any path under the w
 | `vault.use` | secret names (explicit list), hosts the secret may be sent to | names exact and case-sensitive; hosts as above; a secret name outside the list is refused even if the line is ticked |
 | `spend.grant` | targets (the sessions or roles that may receive), maximum per grant, run ceiling | integer micro-dollars only; the existing carve and ancestor bounds still apply (spec 4.3) |
 | `local.destructive` | path roots, verbs (delete, overwrite), count and bytes per run | roots resolved **at entry** to a directory identity (device and inode); a target is accepted only if it lies **beneath** a root, decided on the **open handle** (section 4A), never on a string; no pattern semantics beyond "under" |
-| `install.package` | manager (enum), package names, and a **version range as a constraint only** | exact name match; the version actually installed must lie in the range, and the approval binds one exact version and its integrity digest (section 3) |
+| `install.package` (**not enabled in B1**, section 4A) | manager (enum), package names, and a **version range as a constraint only** | exact name match; the version actually installed must lie in the range, and the approval binds one exact version and its integrity digest (section 3) |
 | `host.setting` | an explicit list of setting keys and their value domains | only keys that are not on the never-liftable list (spec 4.2); the list is checked first |
 
 Rules common to all rows:
@@ -65,7 +65,7 @@ An approval is an **insert-only row** (the pattern of migration 148) with:
     query, **all headers** that will be sent, and a hash of the body) and the **injection point** (the header
     name or the body field where the host places the secret). There is no template: the hash is over the request
     as it will be sent. It authorises host-side use only (section 5A).
-  - `install.package`: manager, exact name, **exact version and the integrity digest** observed when the boss
+  - `install.package` (**not enabled in B1**; kept for a later, separately reviewed class): manager, exact name, **exact version and the integrity digest** observed when the boss
     approved. A version range is never an approved argument. The install runs the package's install code as the
     user; the approval covers that, and nothing narrows it.
   - `spend.grant`: the target id and the integer amount; `host.setting`: the key and the exact value.
@@ -174,12 +174,17 @@ re-resolved by the effect. On Linux (the only supported system, spec 2.3):
   (a redirect is a refusal and an audit row); a second resolution never happens. DNS rebinding and a redirect to
   an internal address are therefore refused.
 
-- **Bytes.** Whatever is hashed is what is used. Content, attachments and package artifacts are read **once
-  into a sealed buffer** (an in-memory file with seals, or a private temporary file the process alone can
-  write), hashed there, and the effect consumes **that buffer or descriptor**, never the path again and never a
-  second download. For a package: the artifact is downloaded into the sealed buffer, its digest is verified on
-  that descriptor, and the install runs from it. Where the effect cannot take the verified descriptor, the
-  digest is **re-verified at the syscall** and a mismatch refuses.
+- **Bytes: two classes, no fallback.** Whatever is hashed is what is used.
+  - **C1, descriptor-consuming (enabled).** Content and attachments are read **once into a sealed in-memory
+    file** (`memfd_create` with sealing; seals against write, shrink and grow, then the seal-seal), hashed on
+    that descriptor, and the effect **consumes that descriptor directly** (a send streams from it; an
+    `overwrite` copies from it). The path is never read again and nothing is fetched again. **There is no
+    "re-verify at the syscall" fallback** (it would be a second read) and **no private temporary file** (a
+    file is not sealed, only the in-memory file is).
+  - **C2, cannot consume a descriptor (not enabled in B1).** Package managers (`install.package`) and
+    browser-driven sends take a path or a page, not a descriptor, so they cannot meet C1. They are **not
+    enabled in B1**: they have no entry in the operation allowlist. A later class with a stated weaker
+    guarantee needs its own note.
 - **Details of the handle.** The open uses `RESOLVE_NO_XDEV` as well as the flags above, `O_TRUNC` is never
   passed at open (the host opens, checks identity and link count, then truncates with `ftruncate` on the same
   descriptor), the dial ignores proxy environment variables, and an IPv4-mapped IPv6 address is normalised to
@@ -223,10 +228,16 @@ base64-encoded, percent-encoded, split across chunks or echoed in a header. So:
 
 - the host **injects the secret at the transport**, at exactly the injection point the approval named (a header
   or a body field), after every check; the secret is not part of any value the agent can read;
-- the response reaches the agent only as **status code, an allowlist of header names, and the body after a
-  transform** named by the charter's constraint for the operation: `status-only` (the **default**: the body is
-  withheld), `json-fields` (an allowlist of field paths) or `text-capped` (a length cap). The transform is
-  structural; no search for the secret is relied on;
+- **`vault.use` is restricted to one transform: `status-only` with host-computed results.** The agent receives
+  only values the host **computes** from the response, and none of them is a piece of the response: the status
+  code (an integer), the body length (an integer) and, if the charter's constraint declares one, a **boolean
+  predicate the host evaluates on the body** (for example "the body contains the declared marker"). It
+  receives **no header value, no body bytes and no field**: a header such as `Content-Type`, or a JSON field,
+  can reflect the secret as easily as the body can. The earlier transforms that returned header values, field
+  paths or capped text are **removed** for this operation;
+- **Residual, stated:** a destination that deliberately reflects the secret can still leak a few bits per
+  request through the status code, the length and the predicate. The `count per run` constraint bounds the
+  number of requests and so the bits; the audit row records each request. This is the only channel left;
 - the audit row records the name, host and request hash, never the value.
 
 ## 6. Backends and equivalent paths
@@ -272,9 +283,11 @@ the attempted ones, never secret values.
 | T5c | `send.third_party` with the approved destination and a different payload; `vault.use` with a different request | `args_hash` mismatch; refused |
 | T5d | `install.package` approved at version V with digest D; the registry now serves another digest | refused |
 | T5e | `vault.use` for a secret outside the session's agent-access level, line ticked, approval present | refused; no grant or level changes; the value never appears in any agent-visible output |
-| T5f | **positive path:** an approved `vault.use` against a fake server that echoes the secret base64-encoded, percent-encoded, chunk-split and in a response header | the server received the secret exactly at the injection point; the agent-visible output (status, allowlisted headers, transformed body) contains none of the encodings; with `status-only` the body is withheld |
+| T5f | **positive path, against reflecting destinations:** an approved `vault.use` to fake servers that echo the secret (i) base64-encoded, (ii) percent-encoded, (iii) chunk-split, (iv) in a response header, (v) in `Content-Type`, (vi) in a JSON field | the server received the secret exactly at the injection point; the agent-visible result is **only** `{status: int, length: int, predicate: bool}` for every destination; a type-level test shows no other field can be returned |
+| T5f2 | the host-evaluated predicate on a body that contains the secret | the boolean is returned, never the body or a match position |
 | T5g | the approved request with an extra header added at the effect | `args_hash` mismatch; refused |
-| T5h | attachments or content bytes changed between the hash check and the send; a package artifact swapped between the digest check and the install | the effect uses the verified buffer and is unaffected, or the re-verification at the syscall refuses |
+| T5h1 | **C1:** content or attachment bytes on the source path changed after the hash was taken (pause at `effect.before-start`) | the effect sends the sealed, verified bytes, unaffected; the sent hash equals `args_hash`; a write to the sealed descriptor fails |
+| T5h2 | **C2:** an `install.package` or a browser-driven send is requested | refused at the allowlist: the operation is not enabled in B1 |
 | T5i | proxy environment variables set; an IPv4-mapped IPv6 address of a private range | the proxy is ignored; the mapped address is refused |
 | T5j | `overwrite` with a different content hash; `O_TRUNC` ordering (truncate before the identity check) | refused; truncation only after the checks, on the verified descriptor |
 | T6 | approval for operation X presented to operation Y | refused |
@@ -300,7 +313,7 @@ the attempted ones, never secret values.
 | T27 | restore the database to a point before the consume (same generation) | caught by the recovery table of 13.5 (the chained rows), not silently re-enabled |
 | T17 | two approvals for different arguments of one operation, presented crossed | each only for its own hash |
 | T18a | gate closes between `Admit` and `BeginStart` (a fenced ticket) | `BeginStart` refuses; the approval is **unspent** |
-| T18b | gate closes after `BeginStart`, before the consume | the ticket is `STARTING`; the consume and start proceed and the effect is admitted-before-Stop, or the host terminates per 13.1 section 5 |
+| T18b | gate closes after `BeginStart`, before `Started` | the ticket is `STARTING`; `Close` waits; `Started` finds the gate not open, the ticket is `ABORTED` and the effect **never starts**; if the consume had been committed the approval is spent, and the audit row `aborted-after-consume` records it (note 13.1, T31) |
 | T18c | a marker exists, the host has not yet closed its gate, an approval is presented | the effect is admitted-before-Stop (no bound is claimed for the gap); once the gate is closed `Admit` refuses |
 | T18 | mutation proof | dropping any one of: the hash compare, the generation check, the caller compare, the consume, the re-canonicalisation, the `Admit`/`BeginStart` order, the state predicate in the E4 consume statement, the constraint recheck at 4.4, the identity check of the root, `RESOLVE_BENEATH`, the pinned dial set, the redirect refusal, the counter conditional, the `expires_seq` check, the `Approved` type boundary, the step-order condition, the not-revoked and `expires_seq` predicates, the sealed-buffer use, the injection-point binding, the `status-only` default, fails a named test |
 
@@ -324,8 +337,8 @@ the attempted ones, never secret values.
 - **Registrable-domain suffix matching** must use the public suffix list **including its private section**
   (so a name on a shared host is not "the same domain" as another tenant); a name the list does not know is
   matched exactly only.
-- `install.package`: the resolved **dependency set** of the package is part of what the digest covers where the
-  manager provides a lock; a manager without one runs dependencies' install code unbound, and is not enabled.
+- `install.package` is **not enabled in B1** (class C2, section 4A); when a later class admits it, its
+  dependency set and install scripts need their own note.
 - The retention sweep of the insert-only tables must **not** remove the consumed rows of a generation that has
   not ended; it applies its window after the run ends.
 - Counting rows (the delta rows) grow with use; the counters are summed per generation and the sum is checked
@@ -357,25 +370,18 @@ the attempted ones, never secret values.
 6. A constraint of `"*"` that the entry dialog does not render in plain words.
 7. An approval row written without its audit row.
 
-## 12. Open blockers before implementation (from review, recorded verbatim)
+## 12. Blockers recorded from review, and how this revision closes them
 
-Status after the review rounds: two **P1** items remain **open in this revision**. Each must be resolved in a
-later revision before any code in the area lands (spec section 13 gate). They are recorded as the reviewers
-stated them.
+Two P1 items were open in revision 3. They are closed in this revision and await a P1-only delta review.
 
-1. **P1: the claim "the secret never leaves the host process" holds only for the `status-only` transform.**
-   For `json-fields` and `text-capped` a destination that reflects the secret back (in a field, or in text)
-   returns it to the agent through the transformed body. Either restrict `vault.use` to `status-only` plus
-   **host-computed results** (the host derives what the agent receives from the response and the secret is
-   never in it), or run test T5f **per transform** against reflecting destinations and show none leaks.
-2. **P1: sealed bytes are not what section 4A claims.**
-   - The fallback "re-verify the digest at the syscall" is a **second read**, so it does not close the
-     check-to-use gap.
-   - A private temporary file is **not sealed**; only an in-memory file with seals is. The text must say
-     which is used where.
-   - Package managers and browser-driven sends **cannot consume a descriptor**. Either they are **not
-     enabled in B1**, or they are a stated, weaker class with its own limits.
-   - Test T5h must have **one deterministic outcome per class** (descriptor-consuming, re-verified,
-     not-enabled), not a disjunction.
+1. **P1: the secret-never-leaves claim held only for `status-only`.** Closed: `vault.use` is restricted to
+   `status-only` with host-computed results (an integer status, an integer length, a charter-declared boolean
+   predicate); header values, body bytes and fields are never returned; the residual side channel is stated
+   and bounded by the count per run; test T5f runs against six reflecting destinations and a type-level test
+   shows no other field exists (section 5A).
+2. **P1: sealed bytes were not what section 4A claimed.** Closed: two classes, no fallback. C1 consumes a
+   sealed in-memory descriptor directly (no re-verify-at-syscall, no private temporary file). C2 (package
+   managers, browser-driven sends) cannot consume a descriptor and is **not enabled in B1**. T5h is split into
+   one deterministic outcome per class (T5h1, T5h2).
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
