@@ -64,6 +64,15 @@ that tells it what it may do.
   for that ticket. **The OS start call, or the
   hand-over to the transport, is allowed only after `BeginStart` returned success.** This is the irrevocable
   fence on future creation.
+- **`AdmitContinuation(op, step)`** (the continuation exception for a begun merge, spec 5.4, Q11): takes
+  `mu`; **succeeds only if** `op` is registered as a **begun operation** (its first step's ticket was
+  `STARTED` while the gate was open), `step` is **that operation's next registered step**, and the operation's
+  bound `T_merge` has not passed. It works while the gate is `CLOSING` or `CLOSED`, creates an ordinary ticket
+  for that step (`ADMITTED`; the step then goes through `BeginStart`, which also accepts a continuation
+  ticket), and refuses anything else: a new operation, a step out of order, a step outside the list, a step
+  after the bound. Test: Stop between steps (a pause between step 1 and step 2): step 2 runs through its
+  continuation ticket, a new operation is refused, an out-of-list step is refused, and an overrun of
+  `T_merge` withdraws the continuation and records the operation `incomplete`.
 - **`Started(ticket, handle)`**: writes the registry row (outside `mu`), then takes `mu`. **If the gate is
   `OPEN`, the ticket becomes `STARTED`. If the gate is by then `CLOSING` or `CLOSED`, the ticket is marked
   `late` and goes to `ABORTED`, and the registry row is marked aborted.** `STARTED` therefore means exactly
