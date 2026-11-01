@@ -27,6 +27,9 @@ const CredFDEnv = "MONOAGENT_CRED_FD"
 // has committed, so only a wedged host makes it matter.
 var credFrameTimeout = 10 * time.Second
 
+// readCredFrame reads the frame; a variable only so that a test can watch the frame it returns.
+var readCredFrame = procbind.ReadCredFrame
+
 // ErrCredFrameFatal is every reason the turn cannot go on; the text names the cause and never the bytes.
 var ErrCredFrameFatal = errors.New("the credential frame from the coder host is missing or malformed")
 
@@ -72,7 +75,7 @@ func StashCredFrame() error {
 	}
 	ch := make(chan res, 1)
 	go func() {
-		fr, err := procbind.ReadCredFrame(f)
+		fr, err := readCredFrame(f)
 		ch <- res{fr, err}
 	}()
 	var fr procbind.CredFrame
@@ -82,6 +85,7 @@ func StashCredFrame() error {
 			return fmt.Errorf("%w: it did not parse", ErrCredFrameFatal)
 		}
 		fr = x.f
+		defer fr.Zero() // the frame's own copies are cleared on every way out (the environment and the stash hold the strings)
 	case <-time.After(credFrameTimeout):
 		return fmt.Errorf("%w: it did not arrive in time", ErrCredFrameFatal)
 	}
@@ -100,7 +104,6 @@ func StashCredFrame() error {
 			return fmt.Errorf("%w: the mission confirmation is not one", ErrCredFrameFatal)
 		}
 	}
-	defer fr.Zero() // the frame's own copies are cleared once applied (the environment and the stash hold the strings)
 	if fr.SessionToken != nil {
 		if err := os.Setenv(SessionTokenEnv, string(fr.SessionToken)); err != nil {
 			return fmt.Errorf("%w: the session token could not be kept", ErrCredFrameFatal)

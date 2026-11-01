@@ -10,3 +10,5 @@ const Supported = false
 func procStamp(int) string { return "" }
 
 func parentPID(int) (int, bool) { return 0, false }
+
+func bootID() string { return "" }

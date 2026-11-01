@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -51,8 +52,16 @@ func (s *Store) ChildTaskOf(profileID, conversationID string) (ChildTask, bool, 
 // for: the row is live, names this conversation and carries the same generation. The launcher asks again after it
 // has started the turn, so a token minted in the instant before the child ended or was replaced does not stand.
 func (s *Store) ChildAttemptCurrent(profileID, conversationID string, t ChildTask) (bool, error) {
+	return ChildAttemptCurrentIn(context.Background(), s.db, profileID, conversationID, t)
+}
+
+// ChildAttemptCurrentIn is ChildAttemptCurrent over a connection or transaction, so a launcher can ask inside the write
+// transaction that mints the child's token.
+func ChildAttemptCurrentIn(ctx context.Context, q interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}, profileID, conversationID string, t ChildTask) (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND session_id = ? AND task_id = ? AND generation = ?
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND session_id = ? AND task_id = ? AND generation = ?
 		AND state IN ('spawning', 'spawned') AND (child_conversation_id = ? OR pending_conversation_id = ?)`,
 		profileID, t.SessionID, t.TaskID, t.Generation, conversationID, conversationID).Scan(&n)
 	if errors.Is(err, sql.ErrNoRows) {

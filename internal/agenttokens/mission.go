@@ -129,7 +129,24 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 		return 0, nil
 	}
 	n := 0
-	err := s.revokeBoth(ctx, procbind.Selector{Owner: owner}, func(conn *sql.Conn) error {
+	legacy := map[string]bool{}
+	refs, err := s.revokeBothRefs(ctx, procbind.Selector{Owner: owner, ExactOwner: true}, func(conn *sql.Conn) error {
+		rows, err := conn.QueryContext(ctx, `SELECT id FROM agent_tokens WHERE mission_owner = ? AND revoked_at IS NULL`, owner)
+		if err != nil {
+			return fmt.Errorf("listing mission tokens: %w", err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			legacy[id] = true
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 		res, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE mission_owner = ? AND revoked_at IS NULL`,
 			s.now().UTC().Format(timeFmt), owner)
 		if err != nil {
@@ -141,6 +158,11 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 	})
 	if err != nil {
 		return 0, err
+	}
+	for _, r := range refs { // a bound run holds only a v2 token: it counts too (a twin of a legacy token does not count twice)
+		if !legacy[r.TokenID] {
+			n++
+		}
 	}
 	return n, nil
 }
@@ -158,7 +180,7 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT DISTINCT mission_owner FROM agent_tokens WHERE revoked_at IS NULL AND mission_session > 0
-		   AND (mission_owner = ? OR mission_owner LIKE ?) AND mission_owner <> ?`, group, group+"/%", self)
+		   AND (mission_owner = ?1 OR substr(mission_owner, 1, length(?1) + 1) = ?1 || '/') AND mission_owner <> ?2`, group, self)
 	if err != nil {
 		return 0, fmt.Errorf("listing mission token owners: %w", err)
 	}
@@ -173,6 +195,34 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	// The v2 mission tokens of the group's runs: a bound turn has no legacy token, so its run is found here (the
+	// revocation of an owner revokes both forms).
+	v2, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT mission_owner FROM agent_tokens_v2 t WHERE mission_session > 0
+		   AND (mission_owner = ?1 OR substr(mission_owner, 1, length(?1) + 1) = ?1 || '/') AND mission_owner <> ?2
+		   AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'mission' AND r.token_id = t.id)`, group, self)
+	if err != nil {
+		return 0, fmt.Errorf("listing v2 mission token owners: %w", err)
+	}
+	have := map[string]bool{}
+	for _, o := range owners {
+		have[o] = true
+	}
+	for v2.Next() {
+		var o string
+		if err := v2.Scan(&o); err != nil {
+			v2.Close()
+			return 0, err
+		}
+		if !have[o] {
+			have[o] = true
+			owners = append(owners, o)
+		}
+	}
+	v2.Close()
+	if err := v2.Err(); err != nil {
 		return 0, err
 	}
 	total := 0

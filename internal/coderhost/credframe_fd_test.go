@@ -3,6 +3,7 @@
 package coderhost
 
 import (
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -251,5 +252,37 @@ func TestAnEmptyMarkerIsFatalNotUnmarked(t *testing.T) {
 	}
 	if os.Getenv(SessionTokenEnv) != "" {
 		t.Error("a credential was applied")
+	}
+}
+
+// A frame that was read but refused (a bad token, both a task token and a confirmation) is cleared on the way out like
+// an applied one: no copy of its credentials stays in the process.
+func TestARefusedFrameIsZeroedOnEveryWayOut(t *testing.T) {
+	var seen procbind.CredFrame
+	old := readCredFrame
+	readCredFrame = func(r io.Reader) (procbind.CredFrame, error) {
+		fr, err := old(r)
+		seen = fr // shares its backing arrays with the frame StashCredFrame holds
+		return fr, err
+	}
+	t.Cleanup(func() { readCredFrame = old })
+	for name, f := range map[string]procbind.CredFrame{
+		"task and confirmation":   {TaskToken: goodTask, MissionConfirmation: goodConfirm},
+		"a session token of junk": {SessionToken: []byte("not-a-session-token")},
+		"a legacy task token":     {TaskToken: []byte("mat-" + strings.Repeat("b", 40))},
+		"a good frame":            {SessionToken: goodSession, TaskToken: goodTask},
+	} {
+		resetStash(t)
+		seen = procbind.CredFrame{}
+		credPipe(t, frameOf(t, f), false)
+		_ = StashCredFrame()
+		for kind, s := range map[string]procbind.Secret{"session": seen.SessionToken, "task": seen.TaskToken, "confirmation": seen.MissionConfirmation} {
+			for _, c := range s {
+				if c != 0 {
+					t.Errorf("%s: the %s token's copy was not cleared", name, kind)
+					break
+				}
+			}
+		}
 	}
 }

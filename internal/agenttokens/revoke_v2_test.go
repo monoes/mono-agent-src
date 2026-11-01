@@ -2,11 +2,16 @@ package agenttokens
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/zalando/go-keyring"
+
 	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/secrets"
 )
 
 type fakeHandle struct{ closed atomic.Int32 }
@@ -145,5 +150,109 @@ func TestAV2TokenWithItsOwnIdIsRevokedByOwnerNotByTheLegacyId(t *testing.T) {
 	}
 	if !v2Revoked(t, s, "v2-own-id") {
 		t.Error("RevokeOwner did not revoke the v2 token")
+	}
+}
+
+// The sweep finds a run that has only v2 tokens (a bound turn has no legacy token): the group's runs not reported as
+// running are revoked, a run reported as running and the caller's own are left, another group's and a longer name that
+// merely starts the same are untouched.
+func TestSweepMissionsFindsRunsThatHaveOnlyV2Tokens(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	for id, owner := range map[string]string{"g-own": "grp", "g-run1": "grp/run1", "g-run2": "grp/run2", "g-self": "grp/self", "g-other": "other/run1", "g-longer": "grp2/run1"} {
+		v2Mission(t, s, id, "default", owner)
+	}
+	live := func(_ context.Context, owner string) bool { return owner == "grp/run2" }
+	if _, err := s.SweepMissions(ctx, "grp", "grp/self", live); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{"g-own": true, "g-run1": true, "g-run2": false, "g-self": false, "g-other": false, "g-longer": false} {
+		if got := v2Revoked(t, s, id); got != want {
+			t.Errorf("%s revoked=%v, want %v", id, got, want)
+		}
+	}
+}
+
+// RevokeOwner counts the v2 tokens it revoked, a bound run's token being the only one it holds; a v2 twin of a legacy
+// token (the same id) does not count twice.
+func TestRevokeOwnerCountsTheV2OnlyTokens(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	v2Mission(t, s, "v2-only", "default", "run-x")
+	if n, err := s.RevokeOwner(ctx, "run-x"); err != nil || n != 1 {
+		t.Fatalf("revoked %d: %v, want 1", n, err)
+	}
+	tok, _, err := s.CreateMission(ctx, "default", missionB, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2Mission(t, s, tok.ID, "default", missionB.Owner) // the twin
+	if n, err := s.RevokeOwner(ctx, missionB.Owner); err != nil || n != 1 {
+		t.Fatalf("a legacy token with a v2 twin counted %d: %v, want 1", n, err)
+	}
+}
+
+// A sweep of a group lists the runs of that group and no look-alike: `_` and `%` in a group name are not wildcards, and
+// the match is case-sensitive, so no other group's live run is revoked.
+func TestSweepMissionsGroupNamesAreNotPatterns(t *testing.T) {
+	ctx := context.Background()
+	for group, others := range map[string][]string{
+		"a_b": {"axb/r1", "A_B/r1", "a_bc/r1"},
+		"a%":  {"abc/r1", "A%/r1"},
+	} {
+		s := newStore(t)
+		mk := func(owner string) string {
+			b := missionB
+			b.Owner = owner
+			_, secret, err := s.CreateMission(ctx, "default", b, time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return secret
+		}
+		mine := mk(group + "/r1")
+		var theirs []string
+		for _, o := range others {
+			theirs = append(theirs, mk(o))
+		}
+		if _, err := s.SweepMissions(ctx, group, "", nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.VerifyMission(ctx, "default", mine); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%q: the group's own run was not swept: %v", group, err)
+		}
+		for i, secret := range theirs {
+			if _, err := s.VerifyMission(ctx, "default", secret); err != nil {
+				t.Errorf("%q: the look-alike %q was swept: %v", group, others[i], err)
+			}
+		}
+	}
+}
+
+// RevokeOwner(grp) ends grp's tokens even while the v2 key of an unrelated run (grp/run2) cannot be read: the exact
+// owner reaches key discovery too, so that profile's key is not even looked at.
+func TestRevokeOwnerDoesNotNeedTheKeyOfAnotherRun(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	tok, _, err := s.CreateMission(ctx, "default", missionB, time.Hour) // grp's legacy token
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := missionB.Owner
+	v2Mission(t, s, "own-v2", "default", owner)
+	v2Mission(t, s, "run2", "p2", owner+"/run2")
+	if err := keyring.Delete("monoagent-vault", "kek-p2"); err != nil { // p2's row key can no longer be unwrapped
+		t.Fatal(err)
+	}
+	secrets.ForgetProfile("p2")
+	if _, err := s.RevokeOwner(ctx, owner); err != nil {
+		t.Fatalf("RevokeOwner failed on another run's unreadable key: %v", err)
+	}
+	if !v2Revoked(t, s, "own-v2") {
+		t.Error("the owner's v2 token was not revoked")
+	}
+	var rev sql.NullString
+	if err := s.db.QueryRow(`SELECT revoked_at FROM agent_tokens WHERE id = ?`, tok.ID).Scan(&rev); err != nil || !rev.Valid {
+		t.Errorf("the owner's legacy token stayed live: %v %v", rev, err)
 	}
 }

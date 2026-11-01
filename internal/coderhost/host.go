@@ -71,8 +71,12 @@ type Host struct {
 	orphanSeen        map[string]bool     // orphaned carves already reported; Tick only
 	leadFacts         map[string]leadFact // what one pass read about each lead; Tick only
 
+	// Stopper stops the leader of a bound (v2) turn that a previous host left (nil: procbind.Stopper).
+	Stopper LeaderStopper
+
 	mu   sync.Mutex // serializes session changes between the loop and the turn watchers
 	live map[string]Turn
+	held map[string]heldSession // sessions whose bound turn could not be confirmed gone (recover_v2.go)
 	wg   sync.WaitGroup
 
 	readHolds map[int64]*readHold  // commands held for a failed read, Tick only
@@ -104,6 +108,14 @@ func (h *Host) Recover() error {
 		if x.TurnID == "" && x.TurnPID == 0 && x.State != StateRunning {
 			continue
 		}
+		// A bound turn is never adopted: it is stopped (by its leader's own pidfd) and the session settled once the
+		// leader is gone, or held.
+		if isV2, pid, stamp, err := h.Store.V2Turn(x.ProfileID, x.ConversationID, x.TurnID); err != nil {
+			return err
+		} else if isV2 {
+			h.recoverV2(x, pid, stamp)
+			continue
+		}
 		if t := h.L.Adopt(x.TurnPID, x.TurnStamp); t != nil && x.TurnPID > 0 {
 			h.live[key(x.ProfileID, x.ConversationID)] = t
 			h.watch(x, t)
@@ -120,7 +132,9 @@ func (h *Host) Recover() error {
 // settle clears a session's turn; a paused session stays paused. Callers hold mu.
 func (h *Host) settle(x Session) {
 	if x.Role == "child" {
-		_ = h.revokeChildTokens(x.ProfileID, x.ConversationID) // the run is over: no token of it outlives it
+		if err := h.revokeChildTokens(x.ProfileID, x.ConversationID); err != nil { // the run is over: no token of it outlives it
+			h.logf("coder host: the task tokens of the child %s could not be revoked: %v", x.ConversationID, err)
+		}
 	}
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
 		x = cur
@@ -168,6 +182,7 @@ func (h *Host) Tick() error {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.retryHeld() // a session whose bound turn could not be confirmed gone is checked again before anything else starts
 	heldNow := map[string][2]string{}
 	defer func() { h.capHeld = heldNow }()
 	if h.live == nil {
@@ -212,7 +227,7 @@ func (h *Host) Tick() error {
 		}
 		switch c.Kind {
 		case KindSend:
-			if blocked[k] || h.live[k] != nil || x.State == StatePaused {
+			if _, isHeld := h.held[k]; isHeld || blocked[k] || h.live[k] != nil || x.State == StatePaused {
 				blocked[k] = true
 				continue
 			}
