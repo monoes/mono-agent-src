@@ -385,3 +385,30 @@ Two P1 items were open in revision 3. They are closed in this revision and await
    one deterministic outcome per class (T5h1, T5h2).
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
+### 12.1 Remaining after the delta review of revision 4 (recorded verbatim)
+
+Two **P1** items and the P2s below are **open in this revision**. Each must be resolved in a later revision
+before any code in the area lands (spec section 13 gate). Sealing for class C1 was **accepted** by the review
+(F_SEAL_WRITE plus the other seals, applied before hashing).
+
+1. **P1: the leakage bound has no `vault.use` request count.** The count constraint belongs to
+   `send.third_party`; a charter can approve repeated uses and collect unbounded status, length and predicate
+   observations, and `length` as an unrestricted integer can encode a secret in one response. Fix: a finite
+   `vault.use` **request budget counting actual transport attempts and retries**, a **length cap or
+   quantisation into buckets**, a **predicate constrained at charter entry**; tests for the limits and the
+   retries.
+2. **P1: "these are the only channels" is false.** A reflecting destination can choose a **response delay** by
+   secret bits, or produce a **malformed response** whose transport or parser error includes reflected bytes;
+   retries multiply observations. Specify the **error and result envelope** (sanitised failure results), a
+   **timing limit or a narrowed claim**, and tests for reflecting failures, delays and retry accounting (T5f
+   is success-only).
+3. **P2:** T5h1 should assert that **sealing succeeded before hashing** and try a same-user writable mapping.
+4. **P2:** section 9A still describes browser-driven sends with page-level approvals, and T5d an approved
+   package install, although class C2 is disabled.
+5. **P2:** this note holds an E3 ticket `STARTING` across the approval consume, while note 13.1 says
+   `STARTING` is only the registry write; reconcile the two.
+6. **P2:** note 13.5's torn-`committed` recovery still says `n+1`, against the batch rule `n+k`.
+
+Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
