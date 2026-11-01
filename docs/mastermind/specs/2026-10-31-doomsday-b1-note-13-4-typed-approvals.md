@@ -530,8 +530,9 @@ Further review rounds continue; the operator's answers (spec section 12.5) are r
 ### 12.3 Remaining after the delta review of revision 7 (recorded)
 
 Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
-be resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the
-reviewers'.
+be resolved before any code in the area lands (spec section 13 gate). The items are recorded from the
+coordinator's summary of the reviewers' findings; the elaboration in each item is the author's, and the
+reviewers' own text is in the review report.
 
 1. **P1: the cross-operation release rule is undefined.** Section 5A says results across operations are
    released "in the order their approvals were issued", but an earlier approval that **never starts or is
