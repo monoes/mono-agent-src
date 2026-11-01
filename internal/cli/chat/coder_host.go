@@ -256,7 +256,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			}
 			h := &coderhost.Host{
 				Store: store, ChildTokens: children,
-				L:                    &gatedLauncher{db: db.DB, svc: binding, logf: logf, inner: legacyLauncher, bound: boundLauncher, insideTurn: store.HostInsideTurn},
+				L:                    &gatedLauncher{db: db.DB, svc: binding, logf: logf, inner: legacyLauncher, bound: boundLauncher, insideTurn: store.HostInsideTurnErr},
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,

@@ -86,40 +86,54 @@ var ErrVaultKey = fmt.Errorf("%w (the vault key is unavailable)", ErrSessionToke
 var ErrHostInsideTurn = errors.New("coder host: the host runs inside a coder session's turn; start it from a terminal")
 
 // HostInsideTurn says whether this process is a descendant of a bound session turn: of the process a live legacy
-// session token names, or of the worker of a live v2 binding (a bound turn writes only v2 rows).
+// session token names, or of the worker of a live v2 binding (a bound turn writes only v2 rows). A binding query that
+// fails counts as "no" here: this is the legacy bind callback's behaviour, which is left as it was. A caller that must
+// refuse when it cannot tell uses HostInsideTurnErr.
 func (s *Store) HostInsideTurn() bool {
+	in, _ := s.HostInsideTurnErr()
+	return in
+}
+
+// HostInsideTurnErr is HostInsideTurn that also returns the first binding query error, so a caller can fail closed.
+// When a row of the other query already shows the host inside a turn, that answer is true with a nil error.
+func (s *Store) HostInsideTurnErr() (bool, error) {
 	chain, _ := callerChain()
 	in := map[int]bool{}
 	for _, p := range chain {
 		in[p] = true
 	}
+	var firstErr error
 	for _, q := range []string{
 		`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND ` + tsLive("expires_at", s.now()),
 		// the v2 bindings of tokens that are not revoked; rows are read unverified, since a forged one can only make the host refuse
 		`SELECT b.worker_pid, b.worker_stamp FROM process_bindings b WHERE b.worker_pid > 1 AND ` + tsLive("b.expires_at", s.now()) +
 			` AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_id = b.token_id)`,
 	} {
-		if s.chainHits(q, in) {
-			return true
+		hit, err := s.chainHits(q, in)
+		if hit {
+			return true, nil
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return false
+	return false, firstErr
 }
 
-func (s *Store) chainHits(query string, in map[int]bool) bool {
+func (s *Store) chainHits(query string, in map[int]bool) (bool, error) {
 	rows, err := s.db.Query(query)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var pid int
 		var stamp string
 		if rows.Scan(&pid, &stamp) == nil && in[pid] && (stamp == "" || procchain.SameStamp(stamp, BoundStamp(pid))) {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, rows.Err()
 }
 
 // Caller is who a token names.

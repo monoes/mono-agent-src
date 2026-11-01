@@ -488,7 +488,7 @@ func TestTheGateRefusesABoundTurnItCannotLaunch(t *testing.T) {
 		"the service does not start":  func(g *gatedLauncher, svc *countingService) { svc.ensureErr = errors.New("socket refused") },
 		"the service is not running":  func(g *gatedLauncher, svc *countingService) { svc.runningNow = false },
 		"no bound launcher":           func(g *gatedLauncher, svc *countingService) { g.bound = nil },
-		"the host runs inside a turn": func(g *gatedLauncher, svc *countingService) { g.insideTurn = func() bool { return true } },
+		"the host runs inside a turn": func(g *gatedLauncher, svc *countingService) { g.insideTurn = func() (bool, error) { return true, nil } },
 	}
 	for name, mutate := range cases {
 		g, legacy, bound, svc := routedRig(t, on)
@@ -632,9 +632,30 @@ func TestThePeercredSettingIsNotSwitchedOnWhileATurnRuns(t *testing.T) {
 }
 
 // A host that runs inside a coder session's turn is refused before the binding service is started for it.
+func TestTheGateRefusesWhenItCannotTellWhetherTheHostIsInsideATurn(t *testing.T) {
+	g, legacy, bound, svc := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.insideTurn = func() (bool, error) { return false, errors.New("database is locked") }
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || svc.ensured != 0 || len(legacy.calls) != 0 || len(bound.calls) != 0 {
+		t.Fatalf("%v (ensured %d, legacy %d, bound %d)", err, svc.ensured, len(legacy.calls), len(bound.calls))
+	}
+}
+
+func TestTheGateLetsAHostNotInsideATurnThroughTheInsideTurnCheck(t *testing.T) {
+	g, _, _, _ := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.insideTurn = func() (bool, error) { return false, nil }
+	if _, _, err := g.route("p"); err != nil {
+		var r *bindingRefusal
+		if errors.As(err, &r) && strings.Contains(r.msg, "inside a coder session") {
+			t.Fatalf("refused as inside a turn: %v", err)
+		}
+	}
+}
+
 func TestTheGateDoesNotStartTheServiceForAHostInsideATurn(t *testing.T) {
 	g, legacy, bound, svc := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
-	g.insideTurn = func() bool { return true }
+	g.insideTurn = func() (bool, error) { return true, nil }
 	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
 	var r *bindingRefusal
 	if !errors.As(err, &r) || svc.ensured != 0 || len(legacy.calls) != 0 || len(bound.calls) != 0 {

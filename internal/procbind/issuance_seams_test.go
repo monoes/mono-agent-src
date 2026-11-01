@@ -13,8 +13,18 @@ import (
 // Nothing but a test can install a v2 verifier or move the issuance switch: SetV2Verifier and ForTestSetIssuance are
 // called only from _test.go files (the stores install their verifier themselves, by procbind.IssuanceOn, in NewStore).
 func TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch(t *testing.T) {
+	if bad := scanIssuanceSeams(t, filepath.Join("..", "..")); len(bad) > 0 {
+		t.Errorf("non-test code installs a verifier or moves the issuance switch (or could not be checked):\n  %s", strings.Join(bad, "\n  "))
+	}
+}
+
+// scanIssuanceSeams lists the non-test Go files under root that reach SetV2Verifier or ForTestSetIssuance, and those it
+// cannot parse (a file that cannot be read is a failure, not a pass). Any reference to the name counts, called or not: a
+// selector under any import alias, a bare identifier (dot import, in-package), or the function as a value. The
+// wails-app module is scanned too: it can import the internal packages through its replace.
+func scanIssuanceSeams(t *testing.T, root string) []string {
+	t.Helper()
 	guarded := map[string]bool{"SetV2Verifier": true, "ForTestSetIssuance": true}
-	root := filepath.Join("..", "..")
 	var bad []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -22,7 +32,7 @@ func TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "wails-app", "chrome-extension", "scripts", "docs":
+			case ".git", "node_modules", "chrome-extension", "scripts", "docs":
 				return filepath.SkipDir
 			}
 			return nil
@@ -32,13 +42,18 @@ func TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch(t *testing.T) {
 		}
 		f, perr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if perr != nil {
+			bad = append(bad, path+": unparsable: "+perr.Error())
 			return nil
 		}
+		declared := map[*ast.Ident]bool{} // the declarations of the guarded functions themselves are not uses
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok {
+				declared[fd.Name] = true
+			}
+		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			if c, ok := n.(*ast.CallExpr); ok {
-				if s, ok := c.Fun.(*ast.SelectorExpr); ok && guarded[s.Sel.Name] {
-					bad = append(bad, path+": "+s.Sel.Name)
-				}
+			if id, ok := n.(*ast.Ident); ok && guarded[id.Name] && !declared[id] {
+				bad = append(bad, path+": "+id.Name)
 			}
 			return true
 		})
@@ -47,8 +62,37 @@ func TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bad) > 0 {
-		t.Errorf("non-test code installs a verifier or moves the issuance switch:\n  %s", strings.Join(bad, "\n  "))
+	return bad
+}
+
+// Each gap of the scan stays closed: every fixture below must be reported, and clean code must not be.
+func TestTheIssuanceSeamScanCatchesWhatItShould(t *testing.T) {
+	for name, c := range map[string]struct {
+		dir, file, src string
+		want           bool
+	}{
+		"direct call":            {"x", "a.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
+		"aliased import":         {"x", "a.go", "package x\nimport pb \"p\"\nfunc f() { pb.ForTestSetIssuance(true) }\n", true},
+		"dot import":             {"x", "a.go", "package x\nimport . \"p\"\nfunc f() { SetV2Verifier(nil) }\n", true},
+		"method value":           {"x", "a.go", "package x\nimport \"p\"\nvar f = p.ForTestSetIssuance\n", true},
+		"bare value, dot import": {"x", "a.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", true},
+		"bare value, in package": {"x", "a.go", "package x\nfunc f() { g := SetV2Verifier; _ = g }\n", true},
+		"test file bare value":   {"x", "a_test.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", false},
+		"wails-app module":       {"wails-app", "a.go", "package main\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
+		"unparsable file":        {"x", "a.go", "package x\nfunc (", true},
+		"test file is fine":      {"x", "a_test.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", false},
+		"clean code":             {"x", "a.go", "package x\nfunc f() {}\n", false},
+	} {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, c.dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, c.dir, c.file), []byte(c.src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := len(scanIssuanceSeams(t, root)) > 0; got != c.want {
+			t.Errorf("%s: reported = %v, want %v", name, got, c.want)
+		}
 	}
 }
 
