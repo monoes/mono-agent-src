@@ -18,12 +18,17 @@ import (
 // gate ("only the operator can <what>"); the guard test compares the set of them with the call sites
 // in internal/cli/task, so a verb gated in the source but missing here fails the build of this file's
 // guard. atTerminal fakes a terminal on standard input (agents allow has its own terminal rule
-// after the gate).
+// after the gate). A hybrid verb has an agent path next to its operator branch (a lead, a delegated
+// agent): its row is the operator-branch invocation, and a refused agent context reads the
+// operator's delegation settings first (agentMay), so the database file may exist after it.
 type gatedVerb struct {
 	name       string
 	args       []string
 	what       string
 	atTerminal bool
+	hybrid     bool
+	// opensDBForAgents: the verb reads the operator's delegation (agentMay) before refusing an agent, and a mission token is looked up in the database by callerFor.
+	opensDBForAgents bool
 }
 
 // allGatedVerbs is the one place a newly gated verb is listed for the uniform checks below.
@@ -46,6 +51,9 @@ func allGatedVerbs() []gatedVerb {
 		{name: "os install", args: []string{"os", "install"}, what: "install the macOS menu"},
 		{name: "os uninstall", args: []string{"os", "uninstall"}, what: "remove the macOS menu"},
 		{name: "undepend", args: []string{"undepend", "2", "1"}, what: "remove a task's dependencies"},
+		{name: "session approve (operator branch)", args: []string{"session", "approve", "1"}, what: "approve a session's plan", hybrid: true},
+		{name: "approve (operator branch)", args: []string{"approve", "1"}, what: "approve a task", hybrid: true, opensDBForAgents: true},
+		{name: "board (operator branch)", args: []string{"board"}, what: "show the board", hybrid: true, opensDBForAgents: true},
 	}
 }
 
@@ -71,7 +79,7 @@ func TestEveryGatedVerbIsRefusedByTheEnvironmentLayersWithoutOpeningTheDatabase(
 				}
 				_, err := runSendCLI(t, cfg, newTaskCmd(cfg), v.args...)
 				requireOperatorOnly(t, err)
-				if _, statErr := os.Stat(cfg.DBPath); statErr == nil {
+				if _, statErr := os.Stat(cfg.DBPath); statErr == nil && !(v.hybrid && ctxName != "workflow" && ctxName != "chat" && (v.opensDBForAgents || ctxName == "mission-token")) {
 					t.Errorf("the database was opened by a refused %s", ctxName)
 				}
 			})
