@@ -385,4 +385,3 @@ before any code in the area lands (spec section 13 gate).
    comparisons); test T28 still asks for a journal/WAL identity mutation though that check was removed.
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
-
