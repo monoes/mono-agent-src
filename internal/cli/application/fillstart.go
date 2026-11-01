@@ -181,6 +181,9 @@ func (d Deps) submitFill(ctx context.Context, in applyfill.Input, sources []aita
 	if id, _ := ctx.Value(fillTaskIDKey{}).(string); id != "" {
 		args = append(args, "--task-id", id)
 	}
+	if owner, _ := ctx.Value(fillOwnerKey{}).(string); owner != "" {
+		args = append(args, "--owner", owner)
+	}
 	for _, s := range sources {
 		args = append(args, "--context", s.Class+"="+s.Path)
 	}
@@ -218,6 +221,10 @@ func (e *startedTaskError) Unwrap() error { return e.Err }
 
 // fillTaskIDKey carries the id a fill's task must take (a resume holds the tab under it before the task exists).
 type fillTaskIDKey struct{}
+
+// fillOwnerKey carries the private token a resume's submit stores on its task, so the resume can tell that task
+// from another one under the same id.
+type fillOwnerKey struct{}
 
 // refusalOf turns the {"error","code"} line a failed submit printed into a
 // coded error (coder_disabled keeps its oneshot fallback), else err.

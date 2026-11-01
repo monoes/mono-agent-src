@@ -30,7 +30,7 @@ const (
 // Error codes, besides aitask.CodeNoBudget.
 const (
 	CodeUnenforceable = "budget_unenforceable"
-	CodeExceeded      = "budget_exceeded"
+	CodeExceeded      = aitask.CodeBudgetExceeded
 	CodeCapRaise      = "cap_raise_refused"
 )
 
