@@ -190,7 +190,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	launched := false
 	defer func() {
 		if ct != nil && !launched {
-			l.child.revokeToken(ct) // not started: the turn's own wait revokes it otherwise
+			if rerr := l.child.revokeToken(ct); rerr != nil && l.logf != nil { // not started: the turn's own wait revokes it otherwise
+				l.logf("WARNING: %v", rerr)
+			}
 		}
 	}()
 	pipe := missionToken // what goes over the inherited pipe: a mission confirmation, or a child's task token
@@ -264,8 +266,8 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
 	t.ownRevoke = func() error {
 		err := l.revokeTurnTokens(profileID, conversationID, turnID)
-		l.child.revokeToken(ct) // a mission child's separate task token dies with the refusal too (nil-safe)
-		return err
+		// a mission child's separate task token dies with the refusal too (nil-safe)
+		return errors.Join(err, l.child.revokeToken(ct))
 	}
 	go func() {
 		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
@@ -281,8 +283,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
 			t.err = errors.Join(t.err, rerr)
 		}
-		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
-		os.Remove(promptPath)   // before done closes: whoever sees the turn end sees no prompt left
+		if rerr := l.child.revokeToken(ct); rerr != nil { // the child's task token ends with its run (nil-safe); a failure is the turn's error
+			t.err = errors.Join(t.err, rerr)
+		}
+		os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
 		if l.afterExitRevoke != nil {
 			l.afterExitRevoke()
 		}
@@ -310,8 +314,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			// before the mint committed (the bound token is minted after the process exists): that would leave a live
 			// token and registration for a dead worker. End them again now. If the leader is not reaped yet, the
 			// goroutine's revoke comes after the commit.
-			rerr := l.revokeSession(profileID, conversationID)
-			l.child.revokeToken(ct)
+			rerr := errors.Join(l.revokeSession(profileID, conversationID), l.child.revokeToken(ct))
 			if rerr != nil {
 				return nil, errors.Join(errors.New("the turn ended while its credentials were being delivered"), rerr)
 			}
