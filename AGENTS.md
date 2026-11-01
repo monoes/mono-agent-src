@@ -2905,7 +2905,9 @@ Operator-only verbs that are not settings: `task session person inbox|full|appro
 `coder sessions spawn-intents list|resolve`, `coder sessions mission-children enable|disable|set|list|resolve-charge`,
 `coder sessions budget list|grant|decline` and `agent purposes set|reset`.
 What separates "operator" from "agent" in the CLI is the process environment and ancestry (SECURITY.md, "Missions: summary of the
-trust boundaries"): a courtesy layer, not a sandbox.
+trust boundaries"): a courtesy layer, not a sandbox. The coder-session token (`MONOAGENT_SESSION_TOKEN`) marks a process as an agent,
+and the operator branch of `session approve`, `approve` and `board` (the verbs that also have a lead or delegated agent path) refuses a
+process inside a coder turn: restart from your own terminal.
 
 **Where each piece is guarded.**
 
