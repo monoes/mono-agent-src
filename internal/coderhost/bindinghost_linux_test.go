@@ -290,3 +290,56 @@ func TestEnsureRestartsAServiceWhoseServeLoopEnded(t *testing.T) {
 		t.Errorf("restart: %+v then %+v, running %v", old, now, h.Running("p"))
 	}
 }
+
+// A start waiting for the host's lock is bound by its own context: an expired one returns at once and one with a short
+// deadline returns near it, whatever the holder is doing, and neither changes any state.
+func TestEnsureWaitingForTheLockObeysItsOwnContext(t *testing.T) {
+	h, _, _ := bindingRig(t)
+	h.mu.Lock() // a start (or Status, or Shutdown) holding the lock
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			h.mu.Unlock()
+		}
+	}
+	defer release()
+
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	begin := time.Now()
+	if err := h.Ensure(expired, "p"); err == nil || time.Since(begin) > time.Second {
+		t.Errorf("an expired context: %v after %v", err, time.Since(begin))
+	}
+	short, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel2()
+	begin = time.Now()
+	err := h.Ensure(short, "p")
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(begin) > time.Second {
+		t.Errorf("a 100 ms context: %v after %v", err, time.Since(begin))
+	}
+	release()
+	if h.Running("p") {
+		t.Error("a refused wait started a service")
+	}
+	if err := h.Ensure(context.Background(), "p"); err != nil {
+		t.Errorf("the host is not usable after refused waits: %v", err)
+	}
+}
+
+// A deadline that passes after the last step that watched it ends the start: nothing is recorded as running.
+func TestEnsureChecksItsDeadlineBeforePublishing(t *testing.T) {
+	h, _, _ := bindingRig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.beforePublish = cancel
+	if err := h.Ensure(ctx, "p"); err == nil {
+		t.Fatal("Ensure succeeded after its context ended")
+	}
+	if h.Running("p") {
+		t.Error("a service was recorded after the deadline")
+	}
+	h.beforePublish = nil
+	if err := h.Ensure(context.Background(), "p"); err != nil {
+		t.Fatalf("the next start: %v", err)
+	}
+}

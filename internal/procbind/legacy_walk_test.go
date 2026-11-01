@@ -545,30 +545,40 @@ func callsRowKey(t *testing.T, path string, src []byte) []string {
 	dot := dotImportsProcbind(f)
 	var out []string
 	for _, d := range f.Decls {
-		fd, ok := d.(*ast.FuncDecl)
-		if !ok {
+		var root ast.Node
+		name := "<package level>" // a var or const initialiser: a function value kept there is called from anywhere
+		switch x := d.(type) {
+		case *ast.FuncDecl:
+			if x.Body == nil {
+				continue
+			}
+			root, name = x.Body, x.Name.Name
+		case *ast.GenDecl:
+			if x.Tok == token.IMPORT {
+				continue
+			}
+			root = x
+		default:
 			continue
 		}
 		found := false
-		if fd.Body != nil {
-			// any reference counts, not only a call: a function value is a creating call waiting to happen
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.SelectorExpr:
-					if isPkgCall(x, pb, "RowKey") || isPkgCall(x, pb, "AnswerKey") {
-						found = true
-					}
-				case *ast.Ident:
-					// bare names resolve to procbind inside the package itself or through a dot import
-					if (x.Name == "RowKey" || x.Name == "AnswerKey") && (f.Name.Name == "procbind" || dot) {
-						found = true
-					}
+		// any reference counts, not only a call: a function value is a creating call waiting to happen
+		ast.Inspect(root, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				if isPkgCall(x, pb, "RowKey") || isPkgCall(x, pb, "AnswerKey") {
+					found = true
 				}
-				return true
-			})
-		}
+			case *ast.Ident:
+				// bare names resolve to procbind inside the package itself or through a dot import
+				if (x.Name == "RowKey" || x.Name == "AnswerKey") && (f.Name.Name == "procbind" || dot) {
+					found = true
+				}
+			}
+			return true
+		})
 		if found {
-			out = append(out, fd.Name.Name)
+			out = append(out, name)
 		}
 	}
 	return out
@@ -598,6 +608,9 @@ func TestTheRowKeyDetectorFindsOnlyRowKeyCalls(t *testing.T) {
 		"dot import read-only":      {"package x\nimport . \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { RowKeyIfExists(ctx, db, p) }\n", ""},
 		"bare name without the dot": {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { RowKey(ctx, db, p) }\n", ""},
 		"function value":            {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { get := procbind.RowKey; get(ctx, db, p) }\n", "f"},
+		"package-level value":       {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nvar get = procbind.RowKey\n", "<package level>"},
+		"package-level dot import":  {"package x\nimport . \"github.com/monoes/mono-agent/internal/procbind\"\nvar get = AnswerKey\n", "<package level>"},
+		"package-level read-only":   {"package x\nimport \"github.com/monoes/mono-agent/internal/procbind\"\nvar get = procbind.RowKeyIfExists\n", ""},
 		"function value aliased":    {"package x\nimport pb \"github.com/monoes/mono-agent/internal/procbind\"\nfunc f() { use(pb.AnswerKey) }\n", "f"},
 	}
 	for name, c := range cases {
