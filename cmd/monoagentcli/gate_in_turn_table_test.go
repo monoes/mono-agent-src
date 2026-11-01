@@ -155,6 +155,9 @@ func TestEveryPersonGateCallSiteHasARowInTheGatedVerbTable(t *testing.T) {
 	inSource := map[string]bool{}
 	for _, m := range gateCallSite.FindAllStringSubmatch(all, -1) {
 		arg := m[1]
+		if arg == "what" {
+			continue // personGate handing its own parameter to personGateOpening
+		}
 		if arg == "personWhat" {
 			arg = personWhat
 		}
