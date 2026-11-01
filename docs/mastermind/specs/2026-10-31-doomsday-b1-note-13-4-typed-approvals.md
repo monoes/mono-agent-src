@@ -1,6 +1,6 @@
 # B1 design note 13.4: typed approvals bound to the exact effect
 
-Status: **design note and test plan, revision 5, no code.** It closes contract 13.4 of
+Status: **design note and test plan, revision 6, no code.** It closes contract 13.4 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13). It depends on notes 13.1 (the gate and where an
 effect is "issued") and 13.5 (the sequence and the audit chain), and is written for the recommended defaults.
 Wording is class level: this repository is public.
@@ -244,9 +244,20 @@ base64-encoded, percent-encoded, split across chunks or echoed in a header. So:
   - `outcome` is one of a fixed enum: `ok`, `transport-error`, `timeout`, `malformed`, `refused`. **No error
     text, no parser or transport message, no reflected bytes** ever reaches the agent; the host logs the
     details to its own audit row without any response bytes;
-  - `status` is an integer (0 when there was none), `length_bucket` is the body length **quantised into
-    buckets of a size fixed in the charter at entry** (not an unrestricted integer), and `predicate` is a
-    boolean or `null` (no predicate declared, or no body);
+  - `status` is an integer (0 when there was none); `length_bucket` is the body length **quantised into a
+    finite set of buckets** (below); and `predicate` is a boolean or `null` (no predicate declared, or no
+    body);
+  - **the length is capped and the buckets are finite.** The charter fixes at entry `bucket_size` (bytes, a
+    positive integer) and `bucket_count` (a positive integer, at most 16). The host reads **at most
+    `bucket_size × bucket_count` bytes** of the response body (a finite response-length cap); a longer body is
+    not read further. `length_bucket` is `min(ceil(read_bytes / bucket_size), bucket_count)`: the **top
+    bucket saturates** (every body at or above the cap reports `bucket_count`), and a zero-length body reports
+    `0`. So `length_bucket` takes at most `bucket_count + 1` values;
+  - **entry validation.** A charter is **refused at entry** unless `bucket_size`, `bucket_count`, the timing
+    `slot_size` (milliseconds) and `max_attempts` are all **positive, finite integers** within published
+    bounds (`bucket_size` ≥ 1 and ≤ 1 MiB, `bucket_count` 1 to 16, `slot_size` ≥ 100 ms and ≤ 60 s,
+    `max_attempts` 1 to 1000); zero, negative, non-integer, `NaN`/infinite or out-of-range values do not
+    parse (spec 3.1: every constraint is typed and validated at entry);
   - **the predicate is fixed at charter entry** (the marker or pattern is part of the hash) and cannot be
     chosen by the agent or the boss per request.
 - **Retries and attempts are counted.** A **finite budget `max_attempts`** counts **every transport attempt,
@@ -306,10 +317,12 @@ the attempted ones, never secret values.
 | T5c | `send.third_party` with the approved destination and a different payload; `vault.use` with a different request | `args_hash` mismatch; refused |
 | T5d | `install.package` is requested (class C2, **not enabled in B1**) | refused at the allowlist; the version-and-digest binding is specified for a later class only |
 | T5e | `vault.use` for a secret outside the session's agent-access level, line ticked, approval present | refused; no grant or level changes; the value never appears in any agent-visible output |
-| T5f | **positive path, against reflecting destinations:** an approved `vault.use` to fake servers that echo the secret (i) base64-encoded, (ii) percent-encoded, (iii) chunk-split, (iv) in a response header, (v) in `Content-Type`, (vi) in a JSON field | the server received the secret exactly at the injection point; the agent-visible result is **only** `{status: int, length: int, predicate: bool}` for every destination; a type-level test shows no other field can be returned |
-| T5f3 | **reflecting failures:** a destination returns a malformed response whose bytes (and the resulting parser or transport error text) contain the secret; one that resets the connection with the secret in a banner | the agent-visible result is the fixed envelope with `outcome = malformed` or `transport-error`; **no error text** and no reflected byte appears anywhere agent-visible (a type-level test shows `outcome` is an enum) |
-| T5f4 | **delays:** a destination delays its response by an amount derived from secret bits | the result is released at the quantised slot; two different delays within one slot are indistinguishable; the wrapper's maximum duration cuts off the rest |
-| T5f5 | **retries and the budget:** a destination that fails transiently; `max_attempts = 3` | at most 3 transport attempts in total across the run (the retry counts); the next request is refused; an audit row per attempt |
+| T5f | **positive path, against reflecting destinations:** an approved `vault.use` to fake servers that echo the secret (i) base64-encoded, (ii) percent-encoded, (iii) chunk-split, (iv) in a response header, (v) in `Content-Type`, (vi) in a JSON field | the server received the secret exactly at the injection point; the agent-visible result is **only** `{outcome: enum, status: int, length_bucket: int, predicate: bool|null}` for every destination; a type-level test shows no other field can be returned |
+| T5f7 | **length cap and buckets, boundaries:** bodies of 0, 1, `bucket_size`, `bucket_size + 1`, `bucket_size × bucket_count`, and `bucket_size × bucket_count + 1` bytes and a far larger one (a sparse 1 GiB stream) | `0`, `1`, `1`, `2`, `bucket_count`, `bucket_count` (saturated), `bucket_count`; the host reads at most the cap (a counting reader shows no more bytes consumed) |
+| T5f8 | **invalid constraints at entry:** `bucket_size` 0, -1, 2^40, 1.5, `NaN`; `bucket_count` 0 and 17; `slot_size` 0 and 10; `max_attempts` 0, -1 and 100000 | each charter is refused at entry with the field named; nothing is stored |
+| T5f3 | **reflecting failures** (a fake transport that returns the bytes directly, no network): a destination returns a malformed response whose bytes (and the resulting parser or transport error text) contain the secret; one that resets the connection with the secret in a banner | the agent-visible result is the fixed envelope with `outcome = malformed` or `transport-error`; **no error text** and no reflected byte appears anywhere agent-visible (a type-level test shows `outcome` is an enum) |
+| T5f4 | **delays** (deterministic: an injected clock and a fake transport that blocks on a barrier the test releases; no real sleeps): a destination delays its response by an amount derived from secret bits | the result is released at the quantised slot; two different delays within one slot are indistinguishable; the wrapper's maximum duration cuts off the rest |
+| T5f5 | **retries and the budget** (deterministic: a fake transport that fails on the first call and a barrier between attempts): a destination that fails transiently; `max_attempts = 3` | at most 3 transport attempts in total across the run (the retry counts); the next request is refused; an audit row per attempt |
 | T5f6 | a `length` of 1, 2 and 3 bytes with a bucket size of 1 KiB; a `predicate` supplied per request instead of at entry | the same `length_bucket`; the per-request predicate is refused (it must be fixed at entry) |
 | T5f2 | the host-evaluated predicate on a body that contains the secret | the boolean is returned, never the body or a match position |
 | T5g | the approved request with an extra header added at the effect | `args_hash` mismatch; refused |
@@ -402,7 +415,7 @@ the attempted ones, never secret values.
 Two P1 items were open in revision 3. They are closed in this revision and await a P1-only delta review.
 
 1. **P1: the secret-never-leaves claim held only for `status-only`.** Closed: `vault.use` is restricted to
-   `status-only` with host-computed results (an integer status, an integer length, a charter-declared boolean
+   `status-only` with host-computed results (an integer status, a **bucketed** length, a charter-declared boolean
    predicate); header values, body bytes and fields are never returned; the residual side channel is stated
    and bounded by the count per run; test T5f runs against six reflecting destinations and a type-level test
    shows no other field exists (section 5A).
@@ -412,6 +425,14 @@ Two P1 items were open in revision 3. They are closed in this revision and await
    one deterministic outcome per class (T5h1, T5h2).
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
+### 12.0 Closed in revision 6
+
+The delta review of revision 5 found a missing response-length cap, unvalidated constraint values, and a stale
+result type. Closed: a finite response-length cap with a saturating top bucket and an explicit bucket count
+(section 5A; T5f7), validation of `bucket_size`, `bucket_count`, `slot_size` and `max_attempts` at entry
+(T5f8), the result type in T5f corrected to `{outcome, status, length_bucket, predicate}`, and deterministic
+clocks and barriers for T5f3-5.
 
 ### 12.1 Closed in revision 5
 
