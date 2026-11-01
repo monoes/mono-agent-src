@@ -461,4 +461,3 @@ reviewers'.
    test the paused ticket against failure, abort and expiry, **including duplicate calls**.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
-
