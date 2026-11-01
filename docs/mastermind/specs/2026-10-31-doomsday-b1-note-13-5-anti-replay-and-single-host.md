@@ -454,3 +454,36 @@ and await a P1-only delta review.
    the descriptor-versus-path mutation.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.2 Remaining after the delta review of revision 6 (recorded)
+
+Three **P1** items and the P2/P3 items below are **open in this revision**. Each must be resolved in a later
+revision before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewers'.
+
+1. **P1: the three checks are snapshots, not a binding.** Rename the WAL away, put another WAL at its path
+   while SQLite opens it lazily, restore the original before the next check: all three checks pass. A
+   permanent swap after the post-commit check and before the witness append is also unseen. Required: an
+   **actual binding or exclusion mechanism** (hold the files via the pinned descriptors only; check the inode
+   of the **open** descriptors of that connection at each check; **lazy sibling opens** forced at pin time), and
+   tests that hold the replacement **only between checks**. A rename to a different name **without an
+   unlink** need not get the ` (deleted)` suffix, and descriptor-set differences can miss **shared or lazily
+   opened** descriptors. A first B1 step is a capability check of the SQLite driver (a moved-file query, a VFS
+   hook).
+2. **P1: the first-match recovery rule bypasses the pending and anchor checks.** With a complete `pending`, an
+   uncommitted transaction has `D.seq` equal to the last committed seq, so **row 1 wins before rows 2 and 2e**
+   (no abandonment is written) and an **ending transition that must fail closed proceeds**; row 1 also masks
+   rows 8-11 when the head is consistent but the witness or the anchor says ended, newer, missing or
+   unreadable. Required: make ordinary consistency **conditional on all mandatory pending, ending and anchor
+   checks**; test those combinations.
+3. **P1: torn-`committed` classification is not derivable from the framing.** After a complete `pending`, a
+   crash before any byte of `committed`, or after only a prefix of `SYNC`, yields the same parseable state as
+   a `pending` without `committed`; `D.seq = n` is then row 2 or 2e, but the text demands row 13; a partial
+   header cannot authenticate the record type. Required: **deterministic recovery for indistinguishable
+   prefixes** (classify from `D`, not from the fragment), and a test of **every offset in both database
+   states**. The MAC omits the header and length, and the text does not say how a non-chaining record's prior
+   MAC is obtained (T44): carry `prev` inside the authenticated payload and cover `len` in the MAC.
+4. **Also unproved:** the safe hand-off for the legitimate last-close checkpoint and a later **no-host CLI
+   Stop**, and a test with **another process writing and checkpointing**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
