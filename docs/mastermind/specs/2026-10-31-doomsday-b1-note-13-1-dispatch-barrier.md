@@ -358,4 +358,3 @@ code in the area lands (spec section 13 gate).
    entry); T23b detects it, so name that test, or add a failed-`Started` scenario to T29.
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
-
