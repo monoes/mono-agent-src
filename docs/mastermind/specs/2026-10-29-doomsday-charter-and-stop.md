@@ -671,6 +671,32 @@ The reviews of revisions 1 and 2 left these designs unfinished. They are **not**
 closes the contract and a test plan (written as failing tests where possible) must land and pass the
 independent review. B1 work in an area without its note is refused at review.
 
+### 13.0 Gate state at a glance (index)
+
+**No contract is closed yet. B1 code in an area may not start until that area's row reads CLOSED.** A design
+note has been merged for three of the six contracts, as a **draft**; each still lists open blockers recorded
+verbatim from review, and none of the six can close before the operator answers the questions it depends on
+(section 12.5). Rows below are the state after the follow-up note PRs #1279-#1281 (which close the first round of blockers and
+record the second); **note rounds are paused until the operator answers section 12.5**.
+
+| Contract | Area it blocks | Note | State | Open blockers (verbatim in the note) | Depends on (12.5) | Follow-ups |
+|---|---|---|---|---|---|---|
+| **13.1** dispatch barrier | every dispatcher, spawn, the barrier | `2026-10-31-doomsday-b1-note-13-1-dispatch-barrier.md` (PRs #1226, follow-up #1279) | **Draft, not closed.** Revision 5 closed the first three P2s; the delta review found two P1s | **2 P1s + 1 P2:** (1) `Close` can return BARRIER before the abort write runs or fails, and BARRIER overlaps UNKNOWN: keep the ticket non-drained through the abort transaction, publish ABORTED/UNKNOWN and signal the drain atomically, BARRIER excludes every UNKNOWN, pauses before and after the abort write; (2) the context check and the transport entry are not atomic: define the check as the hand-over point and narrow the promise, or synchronise entry with `Close`; P2: the "wrapper ignores `Started`" mutation cannot fail T29 (T23b detects it) | Q7 (discovery via containment), Q8 (the gate is in-host), Q11 (E2 merge steps) | issue #1269 |
+| **13.2** containment with a durable identity | process start, host-down Stop, recovery, `quiescent` | **not written** | **Open.** | the primitive (cgroup or pid namespace), the identity proof before signalling, ownership of a unit after the host dies, crash-safe creation, the fail-closed result when unavailable | **Q7** (the primitive and the adversary boundary) | none yet |
+| **13.3** merge and other begun-effect lifecycles | org runs, worktree merges | **not written** | **Open.** | a begun merge registered, visible and crash-recoverable; Stop's signals and acknowledgements allow it; no new run while it runs; repair after host death | **Q11** (finish or abandon a begun merge) | none yet |
+| **13.4** typed approvals | the boss's answers, every lifted operation | `2026-10-31-doomsday-b1-note-13-4-typed-approvals.md` (PRs #1228, follow-up #1280) | **Draft, not closed.** Revision 4 closed the first two P1s (status-only `vault.use`, sealed descriptors); the delta review found two more P1s | **2 P1s + P2s:** (1) the `vault.use` leakage bound has no request budget: a finite budget counting transport attempts and retries, a length cap or buckets, a predicate fixed at charter entry; (2) "the only channels" is false (response delay, malformed-response error text, retries): an error and result envelope, a timing limit or a narrower claim, tests for failures, delays and retry accounting; P2s: T5h1 asserts sealing before hashing, stale C2 text in 9A and T5d, the `STARTING`-across-consume mismatch with 13.1, `n+1` vs `n+k` in 13.5 | Q3 and Q6 (the boss identity in the record), Q4 (which platform caps and destinations), and the peer-credential binding for process-level caller binding | issue #1270 |
+| **13.5** anti-replay, freshness, single host | the run, audit and registry tables | `2026-10-31-doomsday-b1-note-13-5-anti-replay-and-single-host.md` (PRs #1227, follow-up #1281) | **Draft, not closed.** Revision 4 closed the first three P1s (batch rule, torn-tail repair, database identity); the delta review found three more P1s | **3 P1s + P2s:** (1) the torn-tail repair is not idempotent: crash-safe authenticated framing (a fixed-length repair record) and a test of each partial write; (2) a WAL replaced by rename under open descriptors is not detected by the head: a reliable pinned-file strategy (VFS or equivalent) tested with descriptors open and after reopen; (3) a path-only `stat` does not say which database a new connection holds: bind the check to the opened file and define the cross-process handoff under the lock; P2s: `seq` once per transition vs k rows, `n+1` vs `n+k` in 4A, overlapping rows 1/6 and 5/3, a stale journal/WAL mutation in T28 | Q8 (one host), Q2 (Stop is terminal, generations never reused), and the anchor (12.5 and the note's section 10) | issue #1271 |
+| **13.6** finishing | the finish path | **not written** | **Open.** | freeze and recheck atomic with the closing of admission; trusted criteria (a worker-written test is not evidence of itself); a rubric needs an operator decision workflow, and a rejection or an unavailable operator parks completion | **Q3** (the finishing verifier), **Q6** (the pins), **Q5** (parked person items and rubric decisions) | none yet |
+
+Questions that gate **entry** and the charter rather than one contract: Q1 (depth ceiling, 3.1), Q4 (the
+platform-caps line, 3.1), Q9 (the strength of the acknowledgement, 3.2), Q10 (no mid-run amendment, 3.3).
+Until they are answered the values in the body that they ask about stay provisional (12.4).
+
+**How this table changes.** A row moves to CLOSED when its note has no open blocker, has passed the
+independent review, and the dependent questions are answered. Update this table in the same PR that records the
+closure. Further review rounds on the three drafts resume after the operator answers section 12.5. The
+contracts below are the original statements; the notes are where each is worked out.
+
 **13.1 Dispatch lock and "started" (blocks: every dispatcher, spawn, the barrier).**
 Define exactly what the shared lock covers and when `Dispatch` completes, per effect kind: a process
 start, a local file effect, a remote request. Decide whether the lock is held through the irreversible
