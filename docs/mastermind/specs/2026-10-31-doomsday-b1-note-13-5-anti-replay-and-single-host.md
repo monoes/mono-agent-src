@@ -119,8 +119,9 @@ registration, in any process**, not only at host start:
      WAL mode `-wal` and `-shm` must too. If an expected logical file has no identifiable descriptor, or a
      descriptor cannot be read (`readlink` or `fstat` fails), the check **fails closed** rather than passing by
      omission;
-  3. **how the host finds the descriptors of its own connections.** At each open, the host takes the set of
-     descriptors before and after and attributes the **new** ones to the connection, by logical path;
+  3. **how the host finds the descriptors of its own connection:** by **identity at pin time** (the
+     descriptors whose `fstat` equals the bracketing `stat` of the main file, `-wal` and `-shm`), **not** by a
+     before/after difference of the descriptor set (see the binding below);
   4. the **main database file** must match the identity **recorded once per host life** and **recorded in the
      witness** as a `dbid` record (written under `witness.lock`); another process compares its own opened
      descriptor with the witness's latest `dbid` and refuses on a difference: this is the **cross-process
