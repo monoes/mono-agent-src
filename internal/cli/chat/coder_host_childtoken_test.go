@@ -465,3 +465,65 @@ func TestAChildTurnStartedWithoutATaskTokenFailsBeforeAnythingRuns(t *testing.T)
 		t.Fatal("the runtime was executed for a child without a task token")
 	}
 }
+
+// A task-token revoke that keeps failing is not swallowed: revokeToken retries a few times with a fresh deadline each and
+// then returns the error; a revoke that succeeds on a later attempt is clean.
+func TestRevokeTokenReportsAFailureThatSurvivesEveryAttempt(t *testing.T) {
+	calls := 0
+	m := &childTokenMinter{revokeBackoff: time.Millisecond, revokeOwnerFn: func(context.Context, string) (int, error) {
+		calls++
+		return 0, errors.New("database is locked")
+	}}
+	err := m.revokeToken(&childToken{owner: "run-1"})
+	if err == nil || !strings.Contains(err.Error(), "database is locked") || calls != 4 {
+		t.Fatalf("after %d attempts: %v", calls, err)
+	}
+	calls = 0
+	m.revokeOwnerFn = func(context.Context, string) (int, error) {
+		calls++
+		if calls < 3 {
+			return 0, errors.New("database is locked")
+		}
+		return 1, nil
+	}
+	if err := m.revokeToken(&childToken{owner: "run-1"}); err != nil || calls != 3 {
+		t.Fatalf("a transient failure: %d attempts, %v", calls, err)
+	}
+	if err := (*childTokenMinter)(nil).revokeToken(&childToken{}); err != nil {
+		t.Fatalf("a nil minter: %v", err)
+	}
+}
+
+// A turn whose task token could not be ended when it exited reports it: the failure is the turn's error.
+func TestATurnWhoseTaskTokenCouldNotBeEndedReportsIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script turn")
+	}
+	f := newChildFix(t)
+	f.mint.revokeBackoff = time.Millisecond
+	real := f.mint.tokens.RevokeOwner
+	failing := true
+	f.mint.revokeOwnerFn = func(ctx context.Context, owner string) (int, error) {
+		if failing {
+			return 0, errors.New("database is locked")
+		}
+		return real(ctx, owner)
+	}
+	dir := t.TempDir()
+	l := &execLauncher{bin: fakeChildBin(t, dir), dbPath: f.m.dbPath, instance: "host-test", logDir: filepath.Join(dir, "turns"), child: f.mint}
+	turn, err := l.Start("default", f.child, "master-1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "release"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	werr := turn.Wait()
+	if werr == nil || !strings.Contains(werr.Error(), "could not be ended") {
+		t.Fatalf("the turn ended cleanly with a task token that could not be revoked: %v", werr)
+	}
+	failing = false
+	if err := f.mint.RevokeChildTokens("default", f.child); err != nil { // the next sweep still ends it
+		t.Fatal(err)
+	}
+}

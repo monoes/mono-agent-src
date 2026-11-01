@@ -26,6 +26,12 @@ type LeaderStopper interface {
 type heldSession struct {
 	x     Session
 	cause string
+	// retry, when set, is how a hold for tokens that may be live ends (holdForTokens); a bound turn's hold has none and
+	// is re-checked by recovery.
+	retry func() error
+	// fails and next pace the retries of a hold for tokens: each failure doubles the wait (holdBackoff, at most holdBackoffMax).
+	fails int
+	next  time.Time
 }
 
 // V2Turn says whether the session's turn is a v2 turn, and the leader identity its binding row recorded before the
@@ -63,6 +69,12 @@ func (h *Host) leaderStopper() LeaderStopper {
 	}
 	return procbind.Stopper{StampOf: BoundStamp, Same: procchain.SameStamp}
 }
+
+// holdBackoff is the first wait between retries of a hold for tokens that may be live; it doubles up to holdBackoffMax.
+var (
+	holdBackoff    = 2 * time.Second
+	holdBackoffMax = time.Minute
+)
 
 // stopping is the cause shown for a session whose leader is being stopped right now (the host's lock is released for
 // the stop, which can take two grace periods); it holds the chat and keeps the retry pass away from the session.
@@ -124,6 +136,27 @@ func (h *Host) retryHeld() {
 	}
 	for k, hs := range snapshot {
 		if hs.cause == stopping {
+			continue
+		}
+		if hs.retry != nil { // a hold for tokens that may be live: end them, then settle
+			if time.Now().Before(hs.next) {
+				continue
+			}
+			if err := hs.retry(); err != nil {
+				hs.fails++
+				wait := holdBackoff << min(hs.fails-1, 10)
+				if wait > holdBackoffMax {
+					wait = holdBackoffMax
+				}
+				hs.next = time.Now().Add(wait)
+				h.held[k] = hs
+				if hs.fails&(hs.fails-1) == 0 { // logged at the 1st, 2nd, 4th, 8th ... failure, not at every pass
+					h.logf("coder host: the tokens of %s still cannot be revoked (%d attempts): %v", hs.x.ConversationID, hs.fails, err)
+				}
+				continue
+			}
+			delete(h.held, k)
+			h.settle(hs.x)
 			continue
 		}
 		x := hs.x

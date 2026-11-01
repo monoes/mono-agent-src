@@ -205,11 +205,11 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 		d.kill()
 		if minted {
 			if rerr := revoke(); rerr != nil {
-				err = errors.Join(err, rerr)
+				err = errors.Join(err, &coderhost.TokensLiveError{Err: rerr})
 			}
 			if d.child != nil {
 				if rerr := d.child.revokeOwner(); rerr != nil {
-					err = errors.Join(err, rerr)
+					err = errors.Join(err, &coderhost.TokensLiveError{Err: rerr})
 				}
 			}
 		}
@@ -277,7 +277,7 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 		err = fmt.Errorf("could not bind the turn's token: %w", err)
 		for _, t := range toks {
 			if rerr := b.revokeByID(profile, t.kind, t.id); rerr != nil {
-				err = errors.Join(err, rerr)
+				err = errors.Join(err, &coderhost.TokensLiveError{Err: rerr})
 			}
 		}
 		return undo(err, false)

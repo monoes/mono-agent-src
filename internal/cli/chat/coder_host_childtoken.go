@@ -59,6 +59,10 @@ type childTokenMinter struct {
 	// bindProcess names the turn's process for the token (nil: agenttokens.BindMissionProcess where ancestry is
 	// supported). A hook so a stronger binding (a held pidfd committed before the token is delivered) can replace it.
 	bindProcess func(ctx context.Context, profileID, tokenID string, pid int, stamp string) error
+	// revokeOwnerFn ends an owner's tokens (nil: tokens.RevokeOwner); revokeBackoff is the first wait between attempts (zero:
+	// 50 ms). Both are seams for tests.
+	revokeOwnerFn func(ctx context.Context, owner string) (int, error)
+	revokeBackoff time.Duration
 }
 
 func newChildTokenMinter(db *sql.DB) *childTokenMinter {
@@ -156,19 +160,33 @@ func (m *childTokenMinter) bind(profileID, conversationID string, t *childToken,
 	return nil
 }
 
-// revokeToken ends one run's tokens (the owner is the run).
-func (m *childTokenMinter) revokeToken(t *childToken) {
+// revokeToken ends one run's tokens (the owner is the run). A revoke that still fails after every attempt is returned: a
+// task token may then still be live, and the caller reports it (the turn's error) instead of treating the run as clean.
+func (m *childTokenMinter) revokeToken(t *childToken) error {
 	if m == nil || t == nil {
-		return
+		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	for i := 0; i < 3; i++ {
-		if _, err := m.tokens.RevokeOwner(ctx, t.owner); err == nil {
-			return
+	revoke := m.revokeOwnerFn
+	if revoke == nil {
+		revoke = m.tokens.RevokeOwner
+	}
+	backoff := m.revokeBackoff
+	if backoff <= 0 {
+		backoff = 50 * time.Millisecond
+	}
+	var err error
+	for i := 0; i < 4; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // a fresh deadline for each attempt
+		_, err = revoke(ctx, t.owner)
+		cancel()
+		if err == nil {
+			return nil
 		}
-		time.Sleep(time.Duration(i+1) * 50 * time.Millisecond)
+		if i < 3 {
+			time.Sleep(backoff << i)
+		}
 	}
+	return fmt.Errorf("the task token of the run %s could not be ended: %w", t.owner, err)
 }
 
 // RevokeChildTokens ends every task token minted for the conversation's runs (coderhost.ChildTokenRevoker).

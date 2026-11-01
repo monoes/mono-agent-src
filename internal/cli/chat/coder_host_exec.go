@@ -190,7 +190,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	launched := false
 	defer func() {
 		if ct != nil && !launched {
-			l.child.revokeToken(ct) // not started: the turn's own wait revokes it otherwise
+			if rerr := l.child.revokeToken(ct); rerr != nil && l.logf != nil { // not started: the turn's own wait revokes it otherwise
+				l.logf("WARNING: %v", rerr)
+			}
 		}
 	}()
 	pipe := missionToken // what goes over the inherited pipe: a mission confirmation, or a child's task token
@@ -246,7 +248,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	if err := startProcess(); err != nil {
 		os.Remove(promptPath)
 		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
-			err = errors.Join(err, rerr)
+			err = errors.Join(err, &coderhost.TokensLiveError{Err: rerr})
 		}
 		return nil, err
 	}
@@ -264,7 +266,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
 	t.ownRevoke = func() error {
 		err := l.revokeTurnTokens(profileID, conversationID, turnID)
-		l.child.revokeToken(ct) // a mission child's separate task token dies with the refusal too (nil-safe)
+		// a mission child's separate task token dies with the refusal too (nil-safe)
+		if err = errors.Join(err, l.child.revokeToken(ct)); err != nil {
+			err = &coderhost.TokensLiveError{Err: err}
+		}
 		return err
 	}
 	go func() {
@@ -279,10 +284,12 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
 		// keeps the conversation-wide one.
 		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
-			t.err = errors.Join(t.err, rerr)
+			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr}) // the host holds the session until the token is ended
 		}
-		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
-		os.Remove(promptPath)   // before done closes: whoever sees the turn end sees no prompt left
+		if rerr := l.child.revokeToken(ct); rerr != nil { // the child's task token ends with its run (nil-safe); a failure is the turn's error
+			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr})
+		}
+		os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
 		if l.afterExitRevoke != nil {
 			l.afterExitRevoke()
 		}
@@ -290,50 +297,43 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}()
 	launched = true // the wait goroutine above revokes the child's token from here on
 	if stamp == "" {
-		t.stopAndWait()
-		return nil, errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped")
+		return nil, t.fail(errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped"))
 	}
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
-			t.stopAndWait()
-			return nil, err
+			return nil, t.fail(err)
 		}
 	}
 	if bd != nil {
 		bd.setOnKill(t.markStopping)
 		if err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.BoundStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) }); err != nil {
-			t.stopAndWait()
-			return nil, err
+			return nil, t.fail(err)
 		}
 		if t.isReaped() {
 			// The leader was reaped before this point, so the exit goroutine's revoke has run or is about to, possibly
 			// before the mint committed (the bound token is minted after the process exists): that would leave a live
 			// token and registration for a dead worker. End them again now. If the leader is not reaped yet, the
 			// goroutine's revoke comes after the commit.
-			rerr := l.revokeSession(profileID, conversationID)
-			l.child.revokeToken(ct)
+			rerr := errors.Join(l.revokeSession(profileID, conversationID), l.child.revokeToken(ct))
 			if rerr != nil {
-				return nil, errors.Join(errors.New("the turn ended while its credentials were being delivered"), rerr)
+				return nil, errors.Join(errors.New("the turn ended while its credentials were being delivered"), &coderhost.TokensLiveError{Err: rerr})
 			}
 		}
 	} else if l.bind != nil {
 		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {
 			// the host runs inside a session's turn: no token is bound, so the master tools refuse in this turn
 			if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
-				t.stopAndWait()
-				return nil, rerr
+				return nil, t.fail(&coderhost.TokensLiveError{Err: rerr})
 			}
 			if l.logf != nil {
 				l.logf("WARNING: %v; turn %s runs without a usable session token", err, turnID)
 			}
 		} else if err != nil {
-			t.stopAndWait()
-			return nil, fmt.Errorf("could not bind the session token to the turn: %w", err)
+			return nil, t.fail(fmt.Errorf("could not bind the session token to the turn: %w", err))
 		}
 	}
 	if err := awaitAdmission(logPath, offset, t.done); err != nil {
-		t.stopAndWait()
-		return nil, err
+		return nil, t.fail(err)
 	}
 	return t, nil
 }
@@ -449,6 +449,20 @@ func (l *execLauncher) Finish(profileID, conversationID, turnID, reason string) 
 // stopAndWait stops a turn the host is giving up on and waits (bounded) until its
 // process is gone: the caller then frees the session, and the next turn must not
 // overlap an agent that was slow to die.
+// fail stops the turn and returns err; when the turn's exit could not end its tokens (the exit goroutine's failure, known once the
+// process is gone) that failure is part of what comes back, so the host holds the session instead of settling it.
+func (t *execTurn) fail(err error) error {
+	t.stopAndWait()
+	select {
+	case <-t.done:
+		if coderhost.TokensMayBeLive(t.err) {
+			err = errors.Join(err, t.err)
+		}
+	default:
+	}
+	return err
+}
+
 func (t *execTurn) stopAndWait() {
 	t.Stop()
 	select {
