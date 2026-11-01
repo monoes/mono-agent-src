@@ -359,3 +359,30 @@ Three P1 items were open in revision 3. They are closed in this revision and awa
    and the sibling files are explicitly not identity-checked (section 3A, tests T29, T30, T30b).
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
+### 12.1 Remaining after the delta review of revision 4 (recorded verbatim)
+
+Three **P1** items and the P2s below are **open in this revision**. Each must be resolved in a later revision
+before any code in the area lands (spec section 13 gate).
+
+1. **P1: the torn-tail repair is not idempotent.** A crash after the newline and before the `sealed` line
+   leaves a terminated invalid line, which becomes mid-file damage once anything is appended; a crash partway
+   through the `sealed` line leaves fragment, newline and a partial `sealed` line. Define **crash-safe
+   authenticated framing** (for example a fixed-length authenticated repair record) and exercise each partial
+   write plus a re-read. Section 4A also calls an absent torn `pending` "row 2", but row 2 needs a complete
+   authenticated `pending`.
+2. **P1: a WAL replaced by rename while the host holds the original open still reads the old inode**, and the
+   head still agrees with the witness, so T30b's guaranteed failure does not follow (SQLite warns that a
+   moved or mismatched hot WAL corrupts recovery). Define a **reliable pinned-file strategy** (an SQLite VFS or
+   an equivalent, its lifecycle and reopen) and test the swap **with descriptors open and after reopen**; do
+   not assume a head mismatch detects it.
+3. **P1: a path-only `stat` does not say which database a newly opened connection holds** (a rename between
+   SQLite's open and the check). Bind the check to the **opened file** (`fstat` on the connection's file, as
+   SQLite's own moved-file detection does) and define the **cross-process identity handoff under the lock**;
+   add a barrier test at open and at rename.
+4. **P2:** section 2 still says `seq` increases once per transition (against k rows); section 4A uses `n+1`
+   for a committed batch; rows 1 and 6, and rows 5 and 3, overlap (specify precedence and the MAC
+   comparisons); test T28 still asks for a journal/WAL identity mutation though that check was removed.
+
+Further review rounds resume after the operator answers the open questions (spec section 12.5).
+
