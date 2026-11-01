@@ -92,3 +92,26 @@ func TestAnUnnamedTokenHolderStillReadsAndAddsButMustNameItselfToAct(t *testing.
 		t.Errorf("an unnamed token holder's default list shows the Inbox: %v\n%s", err, out)
 	}
 }
+
+// With the delegation on, a process that holds only the session token and names no agent is
+// refused like the neighbouring verbs refuse an unnamed agent: it gets no board and approves
+// nothing. The same process naming itself (--as) keeps the delegated paths (the test above).
+func TestAnUnnamedTokenHolderIsRefusedTheDelegatedBoardAndApproval(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	ids := []int64{opsAdd(t, db, "captured")}
+	agentsSet(t, db, "default", "allow", "--view", "--approve")
+	setenv(t, "MONOAGENT_SESSION_TOKEN", "tok")
+	for _, args := range [][]string{{"board"}, {"approve", id(ids[0])}} {
+		out, _, err := runTask(t, db, "default", true, "", args...)
+		if exitCode(err) != 3 || strings.Contains(out, "captured") {
+			t.Errorf("task %s: exit %d, output:\n%s", strings.Join(args, " "), exitCode(err), out)
+		}
+		if msg := out; !strings.Contains(msg, "name yourself") {
+			t.Errorf("task %s: no instruction to name yourself:\n%s", strings.Join(args, " "), out)
+		}
+	}
+	if st := opsShow(t, db, ids[0]).Task.Status; st != "inbox" {
+		t.Fatalf("an unnamed token holder approved: status %s", st)
+	}
+}

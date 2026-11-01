@@ -374,7 +374,11 @@ func (d Deps) newTaskBoardCmd() *cobra.Command {
 			}
 			if err != nil && d.agentMay(cmd, caller, func(a tasks.AgentAccess) bool { return a.View }) {
 				// The operator delegated seeing the board (task agents allow --view), read now.
-				operator, err = caller.actor, nil
+				// It must be named, as for approve: a process holding only the session token is
+				// an unnamed agent and gets the same refusal, before the store is called.
+				if operator, err = caller.agent(); err != nil {
+					return err
+				}
 			}
 			if err != nil {
 				// No profile id is known before the database is opened: the command names a placeholder.
