@@ -19,8 +19,8 @@ func TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch(t *testing.T) {
 }
 
 // scanIssuanceSeams lists the non-test Go files under root that reach SetV2Verifier or ForTestSetIssuance, and those it
-// cannot parse (a file that cannot be read is a failure, not a pass). Any selector on the name counts, called or not and
-// whatever the import alias is; so does a bare call, which is what a dot import or an in-package call looks like. The
+// cannot parse (a file that cannot be read is a failure, not a pass). Any reference to the name counts, called or not: a
+// selector under any import alias, a bare identifier (dot import, in-package), or the function as a value. The
 // wails-app module is scanned too: it can import the internal packages through its replace.
 func scanIssuanceSeams(t *testing.T, root string) []string {
 	t.Helper()
@@ -45,16 +45,15 @@ func scanIssuanceSeams(t *testing.T, root string) []string {
 			bad = append(bad, path+": unparsable: "+perr.Error())
 			return nil
 		}
+		declared := map[*ast.Ident]bool{} // the declarations of the guarded functions themselves are not uses
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok {
+				declared[fd.Name] = true
+			}
+		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.SelectorExpr:
-				if guarded[x.Sel.Name] {
-					bad = append(bad, path+": "+x.Sel.Name)
-				}
-			case *ast.CallExpr:
-				if id, ok := x.Fun.(*ast.Ident); ok && guarded[id.Name] {
-					bad = append(bad, path+": "+id.Name)
-				}
+			if id, ok := n.(*ast.Ident); ok && guarded[id.Name] && !declared[id] {
+				bad = append(bad, path+": "+id.Name)
 			}
 			return true
 		})
@@ -72,14 +71,17 @@ func TestTheIssuanceSeamScanCatchesWhatItShould(t *testing.T) {
 		dir, file, src string
 		want           bool
 	}{
-		"direct call":       {"x", "a.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
-		"aliased import":    {"x", "a.go", "package x\nimport pb \"p\"\nfunc f() { pb.ForTestSetIssuance(true) }\n", true},
-		"dot import":        {"x", "a.go", "package x\nimport . \"p\"\nfunc f() { SetV2Verifier(nil) }\n", true},
-		"method value":      {"x", "a.go", "package x\nimport \"p\"\nvar f = p.ForTestSetIssuance\n", true},
-		"wails-app module":  {"wails-app", "a.go", "package main\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
-		"unparsable file":   {"x", "a.go", "package x\nfunc (", true},
-		"test file is fine": {"x", "a_test.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", false},
-		"clean code":        {"x", "a.go", "package x\nfunc f() {}\n", false},
+		"direct call":            {"x", "a.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
+		"aliased import":         {"x", "a.go", "package x\nimport pb \"p\"\nfunc f() { pb.ForTestSetIssuance(true) }\n", true},
+		"dot import":             {"x", "a.go", "package x\nimport . \"p\"\nfunc f() { SetV2Verifier(nil) }\n", true},
+		"method value":           {"x", "a.go", "package x\nimport \"p\"\nvar f = p.ForTestSetIssuance\n", true},
+		"bare value, dot import": {"x", "a.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", true},
+		"bare value, in package": {"x", "a.go", "package x\nfunc f() { g := SetV2Verifier; _ = g }\n", true},
+		"test file bare value":   {"x", "a_test.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", false},
+		"wails-app module":       {"wails-app", "a.go", "package main\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
+		"unparsable file":        {"x", "a.go", "package x\nfunc (", true},
+		"test file is fine":      {"x", "a_test.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", false},
+		"clean code":             {"x", "a.go", "package x\nfunc f() {}\n", false},
 	} {
 		root := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(root, c.dir), 0o755); err != nil {
