@@ -133,7 +133,9 @@ func (h *Host) Recover() error {
 func (h *Host) settle(x Session) {
 	if x.Role == "child" {
 		if err := h.revokeChildTokens(x.ProfileID, x.ConversationID); err != nil { // the run is over: no token of it outlives it
-			h.logf("coder host: the task tokens of the child %s could not be revoked: %v", x.ConversationID, err)
+			// a token that cannot be ended keeps the session unsettled (held, retried at every pass): nothing starts next to it
+			h.holdForTokens(x, "the child's task tokens could not be revoked", h.endTurnTokens(x))
+			return
 		}
 	}
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
@@ -156,11 +158,15 @@ func (h *Host) watch(x Session, t Turn) {
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
-		_ = t.Wait()
+		werr := t.Wait()
 		h.L.Finish(x.ProfileID, x.ConversationID, x.TurnID, "the turn's process ended without finishing the turn")
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		delete(h.live, key(x.ProfileID, x.ConversationID))
+		if TokensMayBeLive(werr) { // the exit could not end the turn's tokens: hold the session, do not settle it
+			h.holdForTokens(x, "the turn ended but its tokens could not be revoked", h.endTurnTokens(x))
+			return
+		}
 		h.settle(x)
 	}()
 }
@@ -353,7 +359,11 @@ func (h *Host) Tick() error {
 				if capped {
 					h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
 				}
-				h.settle(x)
+				if TokensMayBeLive(err) { // a refused or failed launch whose token may still be live: hold, do not settle
+					h.holdForTokens(x, "a launch failed and its tokens could not be revoked", h.endTurnTokens(x))
+				} else {
+					h.settle(x)
+				}
 				h.end(c, CmdFailed, err.Error())
 				continue
 			}

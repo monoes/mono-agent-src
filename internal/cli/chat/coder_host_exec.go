@@ -267,7 +267,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	t.ownRevoke = func() error {
 		err := l.revokeTurnTokens(profileID, conversationID, turnID)
 		// a mission child's separate task token dies with the refusal too (nil-safe)
-		return errors.Join(err, l.child.revokeToken(ct))
+		if err = errors.Join(err, l.child.revokeToken(ct)); err != nil {
+			err = &coderhost.TokensLiveError{Err: err}
+		}
+		return err
 	}
 	go func() {
 		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
@@ -281,10 +284,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
 		// keeps the conversation-wide one.
 		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
-			t.err = errors.Join(t.err, rerr)
+			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr}) // the host holds the session until the token is ended
 		}
 		if rerr := l.child.revokeToken(ct); rerr != nil { // the child's task token ends with its run (nil-safe); a failure is the turn's error
-			t.err = errors.Join(t.err, rerr)
+			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr})
 		}
 		os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
 		if l.afterExitRevoke != nil {

@@ -26,6 +26,9 @@ type LeaderStopper interface {
 type heldSession struct {
 	x     Session
 	cause string
+	// retry, when set, is how a hold for tokens that may be live ends (holdForTokens); a bound turn's hold has none and
+	// is re-checked by recovery.
+	retry func() error
 }
 
 // V2Turn says whether the session's turn is a v2 turn, and the leader identity its binding row recorded before the
@@ -124,6 +127,14 @@ func (h *Host) retryHeld() {
 	}
 	for k, hs := range snapshot {
 		if hs.cause == stopping {
+			continue
+		}
+		if hs.retry != nil { // a hold for tokens that may be live: end them, then settle
+			if err := hs.retry(); err != nil {
+				continue
+			}
+			delete(h.held, k)
+			h.settle(hs.x)
 			continue
 		}
 		x := hs.x

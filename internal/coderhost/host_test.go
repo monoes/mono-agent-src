@@ -16,12 +16,13 @@ type fakeTurn struct {
 	done    chan struct{}
 	once    sync.Once
 	stopped bool
+	waitErr error
 }
 
 func newFakeTurn(pid int) *fakeTurn { return &fakeTurn{pid: pid, done: make(chan struct{})} }
 func (f *fakeTurn) PID() int        { return f.pid }
 func (f *fakeTurn) Stamp() string   { return "stamp" }
-func (f *fakeTurn) Wait() error     { <-f.done; return nil }
+func (f *fakeTurn) Wait() error     { <-f.done; return f.waitErr }
 func (f *fakeTurn) end()            { f.once.Do(func() { close(f.done) }) }
 func (f *fakeTurn) Stop()           { f.stopped = true; f.end() }
 

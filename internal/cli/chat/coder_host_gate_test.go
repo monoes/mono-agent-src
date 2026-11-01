@@ -769,3 +769,40 @@ func TestARefusedTurnThatWillNotExitIsWaitedForOnlyTheBound(t *testing.T) {
 		t.Fatalf("%v after %v", err, time.Since(start))
 	}
 }
+
+// refusableTurn is a legacy turn whose refusal cannot end its tokens.
+type refusableTurn struct{ err error }
+
+func (r *refusableTurn) PID() int      { return 1 }
+func (r *refusableTurn) Stamp() string { return "s" }
+func (r *refusableTurn) Wait() error   { return nil }
+func (r *refusableTurn) Stop()         {}
+func (r *refusableTurn) Refuse() error { return r.err }
+
+// When the refusal of a turn cannot end the turn's tokens, the gate's failure says so to the host (which then holds the
+// session instead of settling it), and it is still a binding refusal for everyone else.
+func TestARefusalThatCouldNotEndTheTokensTellsTheHost(t *testing.T) {
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	legacy.turn = &refusableTurn{err: errors.New("the session token could not be ended")}
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) {
+		t.Fatalf("not a binding refusal: %v", err)
+	}
+	if !coderhost.TokensMayBeLive(err) {
+		t.Fatalf("the failure does not say that a token may be live: %v", err)
+	}
+	// a refusal that ended its tokens cleanly says nothing of the kind
+	legacy.turn = &refusableTurn{}
+	if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true}`, coderConfigName); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Start("p", "c1", "t2", "hi", nil, ""); coderhost.TokensMayBeLive(err) || !errors.As(err, &r) {
+		t.Fatalf("a clean refusal: %v", err)
+	}
+}
