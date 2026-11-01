@@ -362,7 +362,16 @@ func (d Deps) newTaskBoardCmd() *cobra.Command {
 			// the board is the operator's, and an agent is refused before the database is
 			// opened (the store's Board refuses it too).
 			caller := d.callerFor(flagAs(cmd))
-			operator, err := caller.operator("show the board")
+			var operator tasks.Actor
+			var err error
+			if caller.isAgent() {
+				_, err = caller.operator("show the board")
+			} else {
+				// The operator's branch: the shared gate (tokens, operator, not inside a coder turn).
+				if operator, err = d.personGate(cmd, "show the board"); err != nil {
+					return err
+				}
+			}
 			if err != nil && d.agentMay(cmd, caller, func(a tasks.AgentAccess) bool { return a.View }) {
 				// The operator delegated seeing the board (task agents allow --view), read now.
 				operator, err = caller.actor, nil

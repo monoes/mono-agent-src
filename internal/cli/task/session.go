@@ -378,7 +378,7 @@ func (d Deps) newSessionApproveCmd() *cobra.Command {
 	var rev int64
 	cmd := d.oneSession("approve ID [--rev N]", "Approve a draft's plan: its tasks become Ready and the session runs (you, or the lead of its parent when you allow it); pass --rev N when you approve what you read",
 		func(cmd *cobra.Command, store *tasks.Store, p tasks.Profile, id int64) error {
-			actor, err := d.approver(flagAs(cmd))
+			actor, err := d.approver(cmd)
 			if err != nil {
 				return err
 			}
