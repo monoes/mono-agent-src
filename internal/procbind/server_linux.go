@@ -23,6 +23,13 @@ type Registry interface {
 	Lookup(tokenID, profile, scope string) (worker Handle, ok bool)
 }
 
+// LeaseRegistry is the Binder's view: a counted lease on an active entry, which the service checks is still valid
+// immediately before it signs an allow (a revoke, a reap, a close or an expiry during the walk makes it a deny).
+// The *Binder is one. When a Server has both, Leases is used.
+type LeaseRegistry interface {
+	Acquire(tokenID, profile, scope string) (*Lease, bool)
+}
+
 // Server answers verification requests on a unix socket. It learns the caller from the kernel
 // (SO_PEERCRED and a pidfd from SO_PEERPIDFD), never from the request, and walks the host's
 // process table from that pidfd to the registered worker.
@@ -31,6 +38,7 @@ type Server struct {
 	Generation string
 	Key        []byte // the answer key (K_ans)
 	Registry   Registry
+	Leases     LeaseRegistry // when set, used instead of Registry
 	Procs      Procs
 	UID        int           // the only peer uid served
 	Timeout    time.Duration // per connection; 5 s by default
@@ -630,10 +638,25 @@ func (s *Server) serve(c *net.UnixConn, cs *connState) {
 		return
 	}
 	verdict, class := VerdictDeny, "denied"
-	if worker, ok := s.Registry.Lookup(req.TokenID, req.Profile, req.Scope); !ok {
+	var (
+		worker Handle
+		lease  *Lease
+		ok     bool
+	)
+	if s.Leases != nil {
+		if lease, ok = s.Leases.Acquire(req.TokenID, req.Profile, req.Scope); ok {
+			defer lease.Release()
+			worker = lease.Handle()
+		}
+	} else {
+		worker, ok = s.Registry.Lookup(req.TokenID, req.Profile, req.Scope)
+	}
+	if !ok || worker == nil {
 		s.logf("procbind: no active registration for the token")
 	} else if r := Walk(s.Procs, caller, worker); !r.Allowed {
 		s.logf("procbind: walk refused: %s", r.Reason)
+	} else if lease != nil && !lease.Valid() {
+		s.logf("procbind: the registration ended while the walk ran")
 	} else {
 		verdict, class = VerdictAllow, ""
 	}

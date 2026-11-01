@@ -200,3 +200,15 @@ func TestAnswerKeyIfExistsNeverCreatesAKey(t *testing.T) {
 		t.Error("two generations share an answer key")
 	}
 }
+
+// The cause of a refused Check stays visible to errors.Is next to ErrMintRefused (a caller can tell "the conversation is
+// gone" from "the turn moved on" without reading text).
+func TestARefusedMintKeepsItsCauseForErrorsIs(t *testing.T) {
+	cause := errors.New("the turn is not current")
+	r := mintReq()
+	r.Check = func(context.Context, DBTX) error { return cause }
+	err := MintTx(context.Background(), newDB(t), storeKey, r)
+	if !errors.Is(err, ErrMintRefused) || !errors.Is(err, cause) {
+		t.Fatalf("refused mint error %v: want both ErrMintRefused and its cause", err)
+	}
+}
