@@ -486,4 +486,3 @@ revision before any code in the area lands (spec section 13 gate). The recorded 
    Stop**, and a test with **another process writing and checkpointing**.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
-
