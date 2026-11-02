@@ -1,8 +1,10 @@
 package update
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
 
@@ -29,7 +31,10 @@ type AppResult struct {
 	// Daemon is what the update did about a running daemon (DaemonUpdate); absent when none ran
 	// or it already ran this version.
 	Daemon *DaemonUpdate `json:"daemon,omitempty"`
-	Error  string        `json:"error,omitempty"`
+	// StaleCLIs are other mono-agent CLIs older than the release (the one on PATH, the one a daemon service starts): not
+	// changed here, each with the command that updates it.
+	StaleCLIs []StaleCLI `json:"stale_clis,omitempty"`
+	Error     string     `json:"error,omitempty"`
 }
 
 func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
@@ -51,6 +56,12 @@ func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
 		// The files are replaced; a daemon still runs the old ones. The app relays this line.
 		if res.Daemon = d.daemonAfterUpdate(cmd.Context(), res.NewVersion); res.Daemon != nil {
 			progress(res.Daemon.Message)
+		}
+	}
+	if err == nil {
+		res.StaleCLIs = d.staleAfterApp(cmd.Context(), appPath, current, res)
+		for _, s := range res.StaleCLIs {
+			progress(s.Message)
 		}
 	}
 	if d.JSONOutput() {
@@ -92,4 +103,26 @@ func (d Deps) updateApp(cmd *cobra.Command, appPath, current string, force bool,
 		return AppResult{}, err
 	}
 	return AppResult{Success: true, UpToDate: r.UpToDate, NewVersion: r.NewVersion, Restart: r.Restart}, nil
+}
+
+// staleAfterApp lists the CLIs the app update left behind: reported only, since the verified assets are the app's.
+func (d Deps) staleAfterApp(ctx context.Context, appPath, current string, res AppResult) []StaleCLI {
+	ver := res.NewVersion
+	if ver == "" {
+		ver = current
+	}
+	if ver == "" {
+		return nil
+	}
+	skip := []string{}
+	if exe, err := os.Executable(); err == nil {
+		skip = append(skip, exe)
+	}
+	if abs, err := filepath.EvalSymlinks(appPath); err == nil {
+		appPath = abs
+	}
+	if cli, ok := appupdate.SiblingCLI(filepath.Dir(appPath), runtime.GOOS, runtime.GOARCH); ok {
+		skip = append(skip, cli)
+	}
+	return d.staleCLIs(ctx, ver, skip, nil)
 }

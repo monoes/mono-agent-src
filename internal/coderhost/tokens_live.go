@@ -69,15 +69,34 @@ func liveFailures(err error) []*TokensLiveError {
 	return out
 }
 
-// TurnPending returns a channel that closes when EVERY turn that err names as possibly still running has finished (its cleanup
-// included), or nil when err names none. A failure that carries no channel does not hide one that does.
-func TurnPending(err error) <-chan struct{} {
+// TurnsPending returns the channel of every turn that err names as possibly still running (its cleanup unfinished), in the order the
+// failures appear; a failure without a channel does not hide one that has it. It starts no goroutine: the host looks at the channels.
+func TurnsPending(err error) []<-chan struct{} {
 	var chans []<-chan struct{}
 	for _, f := range liveFailures(err) {
 		if f.Ended != nil {
 			chans = append(chans, f.Ended)
 		}
 	}
+	return chans
+}
+
+// allEnded says whether every channel is closed.
+func allEnded(chans []<-chan struct{}) bool {
+	for _, c := range chans {
+		select {
+		case <-c:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// TurnPending returns ONE channel that closes when every pending turn has finished, or nil when err names none. It starts a
+// goroutine when there are several (for a caller that has to block on them); the host uses TurnsPending instead.
+func TurnPending(err error) <-chan struct{} {
+	chans := TurnsPending(err)
 	switch len(chans) {
 	case 0:
 		return nil

@@ -3134,3 +3134,23 @@ and an error only logs: rows past their window can outlast it until the next swe
 of a profile can never be removed, not even after the profile is gone, so that row is kept permanently (one
 small row per profile ever created). A writer of the database who drops the triggers is the same-user database writer
 this document already treats as out of scope.
+
+**What the init audit and the issuance-seam test do not see.** Both are syntax scans (`go/parser`, no type
+information), so a review must not lean on them past what is listed here. The init audit
+(`TestNothingDoesIOBeforeMainInTheLinkedPackages`, `cmd/monoagentcli/init_audit_test.go`) reads the `init()` bodies and
+package-level variable initialisers of the mono-agent packages `go list -deps` links into the binary, for the default
+tags and for `devaccount releasee2e` only, on the build host's GOOS and GOARCH. It follows direct calls, calls to
+functions of the same package and calls `pkg.Fn` into another mono-agent package (also under an import alias); it
+reports a call through a package-level function variable, and a file that does not parse. It does NOT follow method
+calls (the receiver's type is unknown), does not follow a bare call through a dot import of a mono-agent package, and
+recognises the risky standard-library calls (`os.Getenv`, `exec.Command`, `sql.Open`, ...) by the identifier before the
+dot, so `import o "os"; o.Getenv(...)` and a dot import of `os` are not seen. It does not scan `wails-app`, a separate
+module that is not linked into `monoagentcli`, nor files excluded by other tags or platforms, nor third-party or
+standard-library initialisation. `TestTheInitScannerPinsWhatItDoesNotSee` pins those blind spots. The issuance-seam test
+(`TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch`, `internal/procbind/issuance_seams_test.go`) is stricter: it
+reports any identifier named `SetV2Verifier`, `ForTestSetIssuance` or `ForTestSetReady` in a non-test file (a call under
+an alias, a dot import, an in-package use, a method value or a method call), scans `wails-app` too, and fails on a
+file it cannot parse. Being name-based it sees no other route to the same effect (reflection, `go:linkname`, a new
+function that does what the guarded one does), and it skips directories named `scripts`, `docs`, `node_modules` and
+`chrome-extension`. A typed check (`go/types`) would need the whole module graph for every build tag and the separate
+`wails-app` module, which is not worth its cost; the limits above are accepted and documented instead.

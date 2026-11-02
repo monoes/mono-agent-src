@@ -378,7 +378,7 @@ func (h *Host) Tick() error {
 			})
 			if err != nil {
 				if capped {
-					if TurnPending(err) != nil || TurnStarted(err) { // the process was created (it may be running, or have run and ended, and spent): its cap stays, as a started turn's does
+					if len(TurnsPending(err)) > 0 || TurnStarted(err) { // the process was created (it may be running, or have run and ended, and spent): its cap stays, as a started turn's does
 						h.Store.MarkTurnCapStarted(c.ProfileID, c.ConversationID, c.TurnID)
 					} else {
 						h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
@@ -386,7 +386,7 @@ func (h *Host) Tick() error {
 				}
 				if TokensMayBeLive(err) { // a refused or failed launch whose token may still be live: hold, do not settle
 					h.holdForTokens(x, "a launch failed and its tokens could not be revoked", h.endTurnTokens(x))
-					if until := TurnPending(err); until != nil { // the old turn may still be running: wait for it too
+					if until := TurnsPending(err); len(until) > 0 { // an old turn may still be running: wait for it too
 						hs := h.held[k]
 						hs.until = until
 						h.held[k] = hs

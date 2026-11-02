@@ -55,6 +55,12 @@ type Deps struct {
 	RestartBlockers func(ctx context.Context, pid int) (inFlight int, settingsErr, err error)
 	// Installer is the auto-start service manager.
 	Installer func() autostart.Installer
+	// LookPath finds a program on PATH; nil: exec.LookPath. ProbeVersion asks a CLI for its version in a scratch
+	// environment; nil: it runs `<path> --json version` there (stale.go).
+	// SelfPath is the path of the binary an update replaces; nil: where this process was started from.
+	SelfPath     func() (string, error)
+	LookPath     func(name string) (string, error)
+	ProbeVersion func(ctx context.Context, path string) (string, error)
 	// ServicePID is the pid of the process the registered service runs; nil: autostart.ServiceMainPID.
 	ServicePID func(ctx context.Context, in autostart.Installer) (int, error)
 	// VerifyWait and VerifyTick bound the wait for the restarted daemon's heartbeat; zero: 15s and 250ms.
@@ -205,6 +211,7 @@ func (d Deps) run(cmd *cobra.Command) error {
 	}
 	if latest == current {
 		fmt.Printf("Already on latest version (%s)\n", v)
+		d.printStale(d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPathOrEmpty()), nil))
 		// A daemon started before this binary was installed still runs the old code.
 		if du := d.daemonAfterUpdate(cmd.Context(), v); du != nil {
 			fmt.Println(du.Message)
@@ -217,7 +224,11 @@ func (d Deps) run(cmd *cobra.Command) error {
 	fmt.Printf("Update available: %s → %s\n", v, info.Tag)
 
 	assetName := updateAssetName()
-	selfPath, err := selfBinaryPath()
+	selfBinary := selfBinaryPath
+	if d.SelfPath != nil {
+		selfBinary = d.SelfPath
+	}
+	selfPath, err := selfBinary()
 	if err != nil {
 		return fmt.Errorf("locate binary: %w", err)
 	}
@@ -246,6 +257,9 @@ func (d Deps) run(cmd *cobra.Command) error {
 	}
 
 	fmt.Printf("Updated to %s\n", info.Tag)
+	// Other mono-agent CLIs (the one a daemon service starts, the one on PATH) are still old: the daemon's own is replaced
+	// from the verified asset, so that the restart below starts the new code; the rest is reported with its command.
+	d.printStale(d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPath), data))
 	if du := d.daemonAfterUpdate(cmd.Context(), info.Tag); du != nil {
 		fmt.Println(du.Message)
 	}
@@ -389,6 +403,26 @@ func updateAssetNameFor(goos, goarch string) string {
 	return name
 }
 
+func selfPathOrEmpty() string {
+	p, _ := selfBinaryPath()
+	return p
+}
+
+// selfSkip is the paths an update of this binary has just dealt with: this binary, as it is reached and as it really is.
+func (d Deps) selfSkip(self string) []string {
+	skip := []string{self}
+	if exe, err := os.Executable(); err == nil {
+		skip = append(skip, exe)
+	}
+	return skip
+}
+
+func (d Deps) printStale(list []StaleCLI) {
+	for _, s := range list {
+		fmt.Println(s.Message)
+	}
+}
+
 func selfBinaryPath() (string, error) {
 	// Try resolving via argv[0] first (most reliable for installed binaries)
 	arg0 := os.Args[0]
@@ -409,7 +443,11 @@ func selfBinaryPath() (string, error) {
 // created next to target, not in os.TempDir: /tmp is often a separate
 // filesystem (tmpfs), and a rename across filesystems fails with
 // "invalid cross-device link".
-func installBinary(data []byte, target string) error {
+func installBinary(data []byte, target string) error { return installBinaryChecked(data, target, nil) }
+
+// installBinaryChecked is installBinary that first runs check on the new file, next to the target and executable, and
+// installs it only if check passes: a new binary that cannot run never takes the old one's place.
+func installBinaryChecked(data []byte, target string, check func(tmp string) error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), ".monoagentcli-update-*")
 	if err != nil {
 		return fmt.Errorf("temp file: %w", err)
@@ -427,6 +465,12 @@ func installBinary(data []byte, target string) error {
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("chmod: %w", err)
+	}
+	if check != nil {
+		if err := check(tmpPath); err != nil {
+			os.Remove(tmpPath)
+			return fmt.Errorf("the new binary did not pass its check: %w", err)
+		}
 	}
 
 	bak := target + ".bak"

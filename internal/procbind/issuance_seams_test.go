@@ -32,7 +32,7 @@ func scanIssuanceSeams(t *testing.T, root string) []string {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "chrome-extension", "scripts", "docs":
+			case ".git", "node_modules": // docs, scripts and chrome-extension are scanned too: a Go file there is still Go that could import the package
 				return filepath.SkipDir
 			}
 			return nil
@@ -78,6 +78,9 @@ func TestTheIssuanceSeamScanCatchesWhatItShould(t *testing.T) {
 		"bare value, dot import": {"x", "a.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", true},
 		"bare value, in package": {"x", "a.go", "package x\nfunc f() { g := SetV2Verifier; _ = g }\n", true},
 		"test file bare value":   {"x", "a_test.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", false},
+		"docs directory":         {"docs", "a.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
+		"scripts directory":      {"scripts", "a.go", "package x\nimport \"p\"\nfunc f() { p.ForTestSetIssuance(true) }\n", true},
+		"chrome-extension dir":   {"chrome-extension", "a.go", "package x\nimport \"p\"\nfunc f() { p.ForTestSetReady(nil) }\n", true},
 		"wails-app module":       {"wails-app", "a.go", "package main\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
 		"unparsable file":        {"x", "a.go", "package x\nfunc (", true},
 		"test file is fine":      {"x", "a_test.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", false},
