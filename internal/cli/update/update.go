@@ -443,7 +443,11 @@ func selfBinaryPath() (string, error) {
 // created next to target, not in os.TempDir: /tmp is often a separate
 // filesystem (tmpfs), and a rename across filesystems fails with
 // "invalid cross-device link".
-func installBinary(data []byte, target string) error {
+func installBinary(data []byte, target string) error { return installBinaryChecked(data, target, nil) }
+
+// installBinaryChecked is installBinary that first runs check on the new file, next to the target and executable, and
+// installs it only if check passes: a new binary that cannot run never takes the old one's place.
+func installBinaryChecked(data []byte, target string, check func(tmp string) error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), ".monoagentcli-update-*")
 	if err != nil {
 		return fmt.Errorf("temp file: %w", err)
@@ -461,6 +465,12 @@ func installBinary(data []byte, target string) error {
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("chmod: %w", err)
+	}
+	if check != nil {
+		if err := check(tmpPath); err != nil {
+			os.Remove(tmpPath)
+			return fmt.Errorf("the new binary did not pass its check: %w", err)
+		}
 	}
 
 	bak := target + ".bak"

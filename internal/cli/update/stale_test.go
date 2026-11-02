@@ -37,6 +37,7 @@ type staleRig struct {
 	exe      string
 	unit     string
 	versions map[string]string
+	newVer   string // what a freshly written candidate binary (.monoagentcli-update-*) answers
 }
 
 func newStaleRig(t *testing.T, installed bool) *staleRig {
@@ -53,12 +54,15 @@ func newStaleRig(t *testing.T, installed bool) *staleRig {
 	if err := os.WriteFile(unit, []byte("[Service]\nExecStart=\""+exe+"\" daemon\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r := &staleRig{exe: exe, unit: unit, versions: map[string]string{}}
+	r := &staleRig{exe: exe, unit: unit, versions: map[string]string{}, newVer: "0.215.7"}
 	r.d = testDeps(t, "http://127.0.0.1:1")
 	r.d.Installer = func() autostart.Installer { return &fakeAutostart{installed: installed, where: unit} }
 	r.d.ProbeVersion = func(_ context.Context, p string) (string, error) {
 		if v, ok := r.versions[p]; ok {
 			return v, nil
+		}
+		if strings.HasPrefix(filepath.Base(p), ".monoagentcli-update-") && r.newVer != "" {
+			return r.newVer, nil
 		}
 		return "", errors.New("no such fake")
 	}
@@ -157,7 +161,7 @@ func TestACLIAsNewAsTheReleaseOrTheOneJustUpdatedIsLeftOut(t *testing.T) {
 		"newer":        {"0.300.0", nil, 0},
 		"skipped":      {"0.176.0", []string{r.exe}, 0},
 		"found once":   {"0.176.0", nil, 1}, // the daemon's exe and PATH name one file: one entry
-		"a dev build":  {"dev", nil, 0},
+		"a dev build":  {"dev", nil, 1},     // not a version number: could not tell, never replaced
 		"not a number": {"banana", nil, 1},
 	} {
 		r.versions[r.exe] = c.version
@@ -188,7 +192,7 @@ func TestTheVersionProbeRunsInAScratchEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	seen := filepath.Join(dir, "seen")
 	script := filepath.Join(dir, "monoagentcli")
-	body := "#!/bin/sh\nprintf '%s|%s|%s|%s' \"$HOME\" \"$PATH\" \"$SECRET_FROM_THE_ENVIRONMENT\" \"$(ls -A \"$HOME\" | wc -l)\" > " + seen + "\nprintf '{\"version\":\"v0.176.0\"}'\n"
+	body := "#!/bin/sh\nprintf '%s|%s|%s|%s' \"$HOME\" \"$PATH\" \"$SECRET_FROM_THE_ENVIRONMENT\" \"$(ls -A \"$HOME\" | wc -l)\" > " + seen + "\nprintf '{\"version\":\"v0.176.0\",\"build_date\":\"2026-01-01T00:00:00Z\"}'\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -250,17 +254,28 @@ func TestUpdateAppReportsTheStaleCLIsAndLeavesTheBundledOneOut(t *testing.T) {
 	r := newStaleRig(t, true)
 	r.versions[r.exe] = "0.176.0"
 	r.versions[bundled] = "0.176.0"
+	// the daemon service starts the CLI bundled with the app: the update just replaced it, so it is not listed
+	other := filepath.Join(t.TempDir(), "monoagentcli")
+	if err := os.WriteFile(other, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.versions[other] = "0.176.0"
 	d := r.d
+	d.LookPath = func(string) (string, error) { return other, nil } // a PATH CLI that is not the bundled one
 	d.ReleaseClient, d.LatestReleaseURL = testDeps(t, latest).ReleaseClient, latest
+	// the unit names the bundled CLI
+	if err := os.WriteFile(r.unit, []byte("[Service]\nExecStart=\""+bundled+"\" daemon\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	res, progress := runUpdateAppCmd(t, d, "--app", app, "--current", "v1.0.0")
-	if !res.Success || len(res.StaleCLIs) != 1 || res.StaleCLIs[0].Path != r.exe || res.StaleCLIs[0].Action != "stale" {
+	if !res.Success || len(res.StaleCLIs) != 1 || res.StaleCLIs[0].Path != other || res.StaleCLIs[0].Action != "stale" {
 		t.Fatalf("res = %+v", res)
 	}
-	if !strings.Contains(progress, r.exe+" update") {
+	if !strings.Contains(progress, other+" update") {
 		t.Errorf("the progress lines do not carry the command: %s", progress)
 	}
-	if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
-		t.Error("update --app replaced the daemon's exe with nothing verified for it")
+	if b, _ := os.ReadFile(bundled); string(b) != "new-cli" {
+		t.Errorf("the bundled CLI is not the one the app update installed: %q", b)
 	}
 }
 
@@ -334,6 +349,7 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 		t.Fatal(err)
 	}
 	r.versions[r.exe], r.versions[onPath] = "0.176.0", "0.176.0"
+	r.newVer = "9.9.9"
 
 	d := r.d
 	d.LatestReleaseURL = srv.URL + "/latest"
@@ -374,5 +390,243 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 	}
 	if !strings.Contains(out, "replaced it with v9.9.9") || !strings.Contains(out, onPath+" update") {
 		t.Errorf("output does not say what was replaced and what is stale:\n%s", out)
+	}
+}
+
+// --- review findings
+
+func script(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A program that starts a background process holding its output, or prints without end, cannot hold the probe: the probe
+// returns at the timeout, its whole process group is gone, and what it read of the output is bounded.
+func TestTheProbeCannotBeHeldByAProgramItRuns(t *testing.T) {
+	oldT, oldM := probeTimeout, probeMaxOut
+	probeTimeout, probeMaxOut = 400*time.Millisecond, 4<<10
+	defer func() { probeTimeout, probeMaxOut = oldT, oldM }()
+	dir := t.TempDir()
+	d := Deps{}
+
+	pidFile := filepath.Join(dir, "pid")
+	hang := script(t, dir, "hang", "sleep 60 &\necho $! > "+pidFile+"\nprintf '{\"version\":\"1.0.0\",\"build_date\":\"x\"}'\nsleep 60")
+	start := time.Now()
+	if _, err := d.probeVersion(context.Background(), hang); err == nil {
+		t.Fatal("a program that never exits answered")
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("the probe was held for %s", took)
+	}
+	pid, _ := os.ReadFile(pidFile)
+	time.Sleep(100 * time.Millisecond)
+	if out, _ := exec.Command("sh", "-c", "kill -0 "+strings.TrimSpace(string(pid))+" 2>&1").CombinedOutput(); !strings.Contains(string(out), "No such process") {
+		t.Errorf("the background process of the probed program is still running: %q", out)
+	}
+
+	flood := script(t, dir, "flood", "head -c 50000000 /dev/zero | tr '\\0' x")
+	start = time.Now()
+	if _, err := d.probeVersion(context.Background(), flood); err == nil {
+		t.Fatal("endless output counted as a version")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("the probe was held by a flood of output")
+	}
+	cb := &cappedBuffer{max: 10}
+	if n, _ := cb.Write([]byte("0123456789abcdef")); n != 16 || string(cb.b) != "0123456789" {
+		t.Fatalf("capped buffer kept %q (wrote %d)", cb.b, n)
+	}
+}
+
+// Only a real mono-agent answer counts: a version alone, or a text line without the build, is not one, and a version number
+// is bounded so that it cannot overflow a comparison.
+func TestOnlyAMonoagentAnswerWithARealVersionCounts(t *testing.T) {
+	for out, want := range map[string]string{
+		`{"version":"v1.2.3","build_date":"2026-01-01"}`: "1.2.3",
+		"monoagentcli v0.150.2 (built 2026-01-01)":       "0.150.2",
+		`{"version":"1.0"}`:                              "",
+		"monoagentcli 0.1.0":                             "",
+		"GNU bash":                                       "",
+		`{"version":"","build_date":"x"}`:                "",
+	} {
+		got, err := parseProbe(out)
+		if (err == nil) != (want != "") || got != want {
+			t.Errorf("parseProbe(%q) = %q, %v; want %q", out, got, err, want)
+		}
+	}
+	for v, ok := range map[string]bool{"1.2.3": true, "0.215.7": true, "1.2.3-rc.1": true, "1.2": false, "banana": false, "dev": false,
+		"99999999999999999999.0.0": false, "1.2.3\n": false, "1.2.3; rm": false} {
+		if versionOK(v) != ok {
+			t.Errorf("versionOK(%q) = %v", v, !ok)
+		}
+	}
+}
+
+// A program is run to ask its version only if it, and the folder it is in, belong to this user (or root) and no one else
+// can write them; and never when this command runs as root. Otherwise it is reported without being run.
+func TestAProgramIsNotRunToAskItsVersionUnlessItIsSafeToRun(t *testing.T) {
+	setup := func(t *testing.T, dirMode, fileMode os.FileMode) (string, string, *staleRig) {
+		dir := filepath.Join(t.TempDir(), "bin")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(t.TempDir(), "ran")
+		p := script(t, dir, "monoagentcli", "echo ran > "+marker+"\nprintf '{\"version\":\"0.176.0\",\"build_date\":\"x\"}'")
+		if err := os.Chmod(p, fileMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, dirMode); err != nil {
+			t.Fatal(err)
+		}
+		r := newStaleRig(t, false)
+		r.d.ProbeVersion = nil // the real probe
+		r.d.LookPath = func(string) (string, error) { return p, nil }
+		return p, marker, r
+	}
+	ran := func(marker string) bool { _, err := os.Stat(marker); return err == nil }
+
+	t.Run("safe: run, and reported stale", func(t *testing.T) {
+		p, marker, r := setup(t, 0o755, 0o755)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		if !ran(marker) || len(got) != 1 || got[0].Version != "0.176.0" || got[0].Path != p {
+			t.Fatalf("ran %v, stale = %+v", ran(marker), got)
+		}
+	})
+	for name, c := range map[string]struct{ dir, file os.FileMode }{
+		"a folder others can write":    {0o777, 0o755},
+		"a folder the group can write": {0o775, 0o755},
+		"a file others can write":      {0o755, 0o757},
+		"a file the group can write":   {0o755, 0o775},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, marker, r := setup(t, c.dir, c.file)
+			got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+			if ran(marker) {
+				t.Fatal("a program that others can plant was executed")
+			}
+			if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "not run to ask") {
+				t.Fatalf("stale = %+v", got)
+			}
+		})
+	}
+	t.Run("as root nothing is run or replaced", func(t *testing.T) {
+		old := isRoot
+		isRoot = func() bool { return true }
+		defer func() { isRoot = old }()
+		_, marker, r := setup(t, 0o755, 0o755)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		if ran(marker) {
+			t.Fatal("a program was executed by a command running as root")
+		}
+		if len(got) != 1 || !strings.Contains(got[0].Message, "runs as root") {
+			t.Fatalf("stale = %+v", got)
+		}
+		if why := replaceable(r.exe); !strings.Contains(why, "root") {
+			t.Fatalf("replaceable as root: %q", why)
+		}
+	})
+}
+
+func TestTheDaemonExeIsNotReplacedWhenOthersCanWriteItOrItsFolder(t *testing.T) {
+	for name, mod := range map[string]func(r *staleRig) error{
+		"the file":   func(r *staleRig) error { return os.Chmod(r.exe, 0o775) },
+		"the folder": func(r *staleRig) error { return os.Chmod(filepath.Dir(r.exe), 0o777) },
+	} {
+		r := newStaleRig(t, true)
+		r.versions[r.exe] = "0.176.0"
+		if err := mod(r); err != nil {
+			t.Fatal(err)
+		}
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "others can write") {
+			t.Errorf("%s writable: %+v", name, got)
+		}
+		if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
+			t.Errorf("%s writable: the exe was replaced", name)
+		}
+	}
+}
+
+// The CLI of the desktop app, a wrapper in a unit, and one file reached as both the daemon's exe and the PATH CLI.
+func TestTheBundledCLIAWrapperAndASharedFileAreNeverReplaced(t *testing.T) {
+	t.Run("the CLI beside the app", func(t *testing.T) {
+		r := newStaleRig(t, true)
+		r.versions[r.exe] = "0.176.0"
+		if err := os.WriteFile(filepath.Join(filepath.Dir(r.exe), "MonoAgent-linux-amd64"), []byte("app"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset)); len(got) != 0 {
+			t.Fatalf("the CLI of the desktop app was looked at: %+v", got)
+		}
+		if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
+			t.Fatal("the bundled CLI was replaced")
+		}
+	})
+	t.Run("inside a macOS bundle", func(t *testing.T) {
+		if !isBundledCLI("/Applications/MonoAgent.app/Contents/MacOS/monoagentcli") {
+			t.Fatal("a CLI inside an .app is not recognised as the app's")
+		}
+	})
+	t.Run("a wrapper", func(t *testing.T) {
+		r := newStaleRig(t, true)
+		if err := os.WriteFile(r.unit, []byte("[Service]\nExecStart=/usr/bin/env monoagentcli daemon\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r.versions["/usr/bin/env"] = "0.176.0"
+		if got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset)); len(got) != 0 {
+			t.Fatalf("a wrapper named in the unit was treated as a CLI: %+v", got)
+		}
+	})
+	t.Run("one file, two names", func(t *testing.T) {
+		r := newStaleRig(t, true)
+		r.versions[r.exe] = "0.176.0"
+		link := filepath.Join(t.TempDir(), "monoagentcli")
+		if err := os.Symlink(r.exe, link); err != nil {
+			t.Fatal(err)
+		}
+		r.d.LookPath = func(string) (string, error) { return link, nil }
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if len(got) != 1 || got[0].Role != "path" || got[0].Action != "stale" {
+			t.Fatalf("stale = %+v", got)
+		}
+		if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
+			t.Fatal("the PATH CLI was replaced through the daemon's name for it")
+		}
+	})
+}
+
+// The new binary must run and say the released version before it takes the old one's place.
+func TestTheDaemonExeIsKeptWhenTheNewBinaryDoesNotPassItsCheck(t *testing.T) {
+	r := newStaleRig(t, true)
+	r.versions[r.exe] = "0.176.0"
+	r.newVer = "0.1.0" // the candidate says the wrong version
+	got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+	if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "did not pass its check") {
+		t.Fatalf("stale = %+v", got)
+	}
+	if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
+		t.Fatal("the old exe was replaced by a binary that failed its check")
+	}
+	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(r.exe), ".monoagentcli-update-*"))
+	if len(matches) != 0 {
+		t.Fatalf("the failed candidate was left behind: %v", matches)
+	}
+}
+
+func TestShellQuotingOfAPathInACommandTheOperatorPastes(t *testing.T) {
+	for in, want := range map[string]string{
+		"/home/u/bin/monoagentcli":    "/home/u/bin/monoagentcli",
+		"/home/u/my bin/monoagentcli": "'/home/u/my bin/monoagentcli'",
+		"/home/u/it's/monoagentcli":   `'/home/u/it'\''s/monoagentcli'`,
+		"/home/u/100%/monoagentcli":   "'/home/u/100%/monoagentcli'",
+		"/home/u/a\nb/monoagentcli":   "'/home/u/a\nb/monoagentcli'",
+	} {
+		if got := shQuote(in); got != want {
+			t.Errorf("shQuote(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

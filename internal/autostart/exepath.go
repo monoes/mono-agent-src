@@ -2,26 +2,34 @@ package autostart
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-// RegisteredExe is the binary a registered service definition starts: the first word of a systemd unit's ExecStart
-// (a .service file) or the first ProgramArguments string of a launchd plist (a .plist file). where is the path
-// Installer.Status reports for an installed service. It says false for any other file, or one it cannot read or parse:
-// the caller then does not know which binary the service runs.
+// RegisteredExe is the binary a registered service definition starts: the first word of a systemd unit's first ExecStart
+// (a .service file; the prefix characters @ - : + ! are not part of the path) or the first ProgramArguments string of a
+// launchd plist (a .plist file). where is the path Installer.Status reports for an installed service. Drop-in files and
+// later ExecStart lines are not read. It says false for any other file, one it cannot read or parse, or a path that is not
+// absolute (a relative one would be resolved against the PATH or the working folder, not the service's): the caller then
+// does not know which binary the service runs.
 func RegisteredExe(where string) (string, bool) {
 	raw, err := os.ReadFile(where)
 	if err != nil {
 		return "", false
 	}
+	var exe string
+	var ok bool
 	switch {
 	case strings.HasSuffix(where, ".service"):
-		return unitExe(string(raw))
+		exe, ok = unitExe(string(raw))
 	case strings.HasSuffix(where, ".plist"):
-		return plistExe(string(raw))
+		exe, ok = plistExe(string(raw))
 	}
-	return "", false
+	if !ok || !filepath.IsAbs(exe) {
+		return "", false
+	}
+	return exe, true
 }
 
 var execStartLine = regexp.MustCompile(`(?m)^ExecStart=(.*)$`)
@@ -31,7 +39,7 @@ func unitExe(unit string) (string, bool) {
 	if m == nil {
 		return "", false
 	}
-	return systemdUnquoteFirstWord(strings.TrimSpace(m[1]))
+	return systemdUnquoteFirstWord(strings.TrimLeft(strings.TrimSpace(m[1]), "@-:+!"))
 }
 
 // systemdUnquoteFirstWord undoes systemdQuote on the first word of an ExecStart value: a double-quoted word has
@@ -67,6 +75,10 @@ func plistExe(plist string) (string, bool) {
 	if m == nil {
 		return "", false
 	}
-	out := strings.NewReplacer("&lt;", "<", "&gt;", ">", "&quot;", `"`, "&apos;", "'", "&amp;", "&").Replace(strings.TrimSpace(m[1]))
+	raw := strings.TrimSpace(m[1])
+	if strings.HasPrefix(raw, "<![CDATA[") && strings.HasSuffix(raw, "]]>") {
+		raw = strings.TrimSuffix(strings.TrimPrefix(raw, "<![CDATA["), "]]>")
+	}
+	out := strings.NewReplacer("&lt;", "<", "&gt;", ">", "&quot;", `"`, "&apos;", "'", "&amp;", "&").Replace(raw)
 	return out, out != ""
 }

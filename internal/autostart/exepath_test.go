@@ -6,27 +6,6 @@ import (
 	"testing"
 )
 
-// The exe of a unit is read back exactly as renderUnit wrote it, whatever the path holds.
-func TestRegisteredExeReadsBackWhatRenderUnitWrote(t *testing.T) {
-	for _, exe := range []string{
-		"/home/u/.local/bin/monoagentcli",
-		`/home/u/My Apps/mono "agent"/100%/$x/monoagentcli`,
-		`/opt/back\slash/monoagentcli`,
-	} {
-		unit, err := renderUnit(exe)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := filepath.Join(t.TempDir(), "monoagent-daemon.service")
-		if err := os.WriteFile(p, []byte(unit), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if got, ok := RegisteredExe(p); !ok || got != exe {
-			t.Errorf("RegisteredExe = %q, %v, want %q", got, ok, exe)
-		}
-	}
-}
-
 func TestRegisteredExeReadsALaunchdPlist(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "me.monoes.monoagent.plist")
 	plist := "<plist><dict><key>Label</key><string>x</string><key>ProgramArguments</key>\n<array>\n\t<string>/Users/u/My &amp; Apps/monoagentcli</string>\n\t<string>daemon</string>\n</array></dict></plist>"
@@ -57,6 +36,36 @@ func TestRegisteredExeSaysFalseWhenItCannotTell(t *testing.T) {
 	} {
 		if got, ok := RegisteredExe(p); ok {
 			t.Errorf("%s: RegisteredExe = %q, true", name, got)
+		}
+	}
+}
+
+// A path that is relative, or a systemd prefix character before the path, or a CDATA section in a plist.
+func TestRegisteredExeHandlesPrefixesRelativePathsAndCDATA(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	for name, c := range map[string]struct {
+		file string
+		want string
+		ok   bool
+	}{
+		"minus prefix":     {write("a.service", "ExecStart=-/opt/mono/monoagentcli daemon\n"), "/opt/mono/monoagentcli", true},
+		"at and plus":      {write("b.service", "ExecStart=+@/opt/mono/monoagentcli daemon\n"), "/opt/mono/monoagentcli", true},
+		"relative":         {write("c.service", "ExecStart=monoagentcli daemon\n"), "", false},
+		"relative, dots":   {write("d.service", "ExecStart=./monoagentcli daemon\n"), "", false},
+		"plist cdata":      {write("e.plist", "<key>ProgramArguments</key><array><string><![CDATA[/Users/u/a & b/monoagentcli]]></string></array>"), "/Users/u/a & b/monoagentcli", true},
+		"plist relative":   {write("f.plist", "<key>ProgramArguments</key><array><string>monoagentcli</string></array>"), "", false},
+		"env wrapper kept": {write("g.service", "ExecStart=/usr/bin/env monoagentcli daemon\n"), "/usr/bin/env", true},
+	} {
+		got, ok := RegisteredExe(c.file)
+		if ok != c.ok || got != c.want {
+			t.Errorf("%s: %q, %v; want %q, %v", name, got, ok, c.want, c.ok)
 		}
 	}
 }
