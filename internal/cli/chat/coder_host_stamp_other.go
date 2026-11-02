@@ -70,6 +70,19 @@ func pidStamp(pid int) string {
 	return ""
 }
 
+// exitedChildStamp is pidStamp for a child of this process that has already exited and is not yet reaped: its start time is still
+// in /proc and, because nothing has reaped it, its pid cannot name any other process. "" where that cannot be read.
+func exitedChildStamp(pid int) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	f := procStatFields(pid)
+	if len(f) < 20 || (f[0] != "Z" && f[0] != "X") {
+		return ""
+	}
+	return "start:" + f[19] + "@" + bootIdentity()
+}
+
 // processState is the process state letter ("Z" for a zombie), or "" when it
 // cannot be read (which callers treat as running).
 func processState(pid int) string {
