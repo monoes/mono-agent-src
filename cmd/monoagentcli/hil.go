@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 
 	hilcli "github.com/monoes/mono-agent/internal/cli/hil"
+	taskcli "github.com/monoes/mono-agent/internal/cli/task"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/publication"
@@ -36,7 +39,7 @@ func newHILCmd(cfg *globalConfig) *cobra.Command {
 		InvalidInput:    errInvalidInput,
 		WriteJSON:       writeJSONTo,
 		NewTable:        func(w io.Writer, headers []string) *tablewriter.Table { return newPlainTable(w, headers, nil) },
-		RequireOperator: requireOperator,
+		RequireOperator: cfg.requireOperator,
 		SendRunner:      func() hilsend.Runner { return hilSendRunner(cfg) },
 		WorkspaceRoot: func(db *sql.DB) (string, error) {
 			s, err := loadCoderSettings(db)
@@ -94,14 +97,58 @@ var hilSendRunner = func(cfg *globalConfig) hilsend.Runner {
 
 // requireOperator refuses whatever is not the operator's own terminal: it
 // may prepare a send, never decide one, nor approve what agents asked for.
-func requireOperator(what string) error {
+// In this order, like the person gate of the task verbs: a process that holds an agent token (an
+// agent, whatever else its environment says); anything the environment and the operator marker
+// ancestry name as not the operator; a process inside a coder session's turn (a model's shell
+// that carries no marker). A courtesy layer, not proof: SECURITY.md says so.
+func (c *globalConfig) requireOperator(what string) error {
+	for _, key := range taskcli.PersonTokenEnv() {
+		if os.Getenv(key) != "" {
+			return operatorOnlyError("%s is set, so a process holding an agent token is running this command; only the operator can %s; run it in your own terminal", key, what)
+		}
+	}
 	if _, err := callerFor("").operator(what); err != nil {
 		return err
 	}
 	if why := notOperator(); why != "" {
 		return operatorOnlyError("%s: only the operator can %s; run it in your own terminal", why, what)
 	}
+	in, err := c.callerInATurn()
+	if err != nil {
+		return err // fails closed: a process that cannot be placed is not let through
+	}
+	if in {
+		return operatorOnlyError("this command runs inside a coder session's turn, so a model is running it; only the operator can %s; run it in your own terminal", what)
+	}
 	return nil
+}
+
+// callerInATurn says whether this process descends from a recorded coder turn. It never creates
+// the database: no file (a fresh machine, doctor before init) or no coder_sessions table means no
+// turn was ever recorded. A database that cannot be read or queried is an error (the caller refuses).
+func (c *globalConfig) callerInATurn() (bool, error) {
+	if inClientMode() {
+		return false, nil // client mode never opens the local database (client_mode.go)
+	}
+	path := expandPath(c.DBPath)
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	db, err := storage.NewDatabase(path)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'coder_sessions'`).Scan(&n); err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil
+	}
+	return coderhost.NewStore(db.DB).CallerInATurn()
 }
 
 // notOperator says why this process is not the operator's own terminal, or

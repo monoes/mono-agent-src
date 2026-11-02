@@ -137,7 +137,7 @@ func newSandboxFallbackCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 			if cmd.Flags().Changed("set") {
-				if err := requireOperator("set the sandbox fallback, what an agent turn does without a sandbox"); err != nil {
+				if err := cfg.requireOperator("set the sandbox fallback, what an agent turn does without a sandbox"); err != nil {
 					return err
 				}
 				v, ok := monomind.ParseSandboxFallback(set)

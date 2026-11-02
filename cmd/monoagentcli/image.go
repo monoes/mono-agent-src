@@ -20,7 +20,7 @@ func imageDeps(cfg *globalConfig) imagecli.Deps {
 		JSONOutput:      func() bool { return cfg.JSONOutput },
 		ProfileID:       func() string { return cfg.ProfileID },
 		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
-		RequireOperator: requireOperator,
+		RequireOperator: cfg.requireOperator,
 		NotFound:        errNotFound,
 		InvalidInput:    errInvalidInput,
 		WriteJSON:       writeJSONTo,

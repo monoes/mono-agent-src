@@ -17,7 +17,7 @@ func newAitaskCmd(cfg *globalConfig) *cobra.Command {
 		ProfileID:       func() string { return cfg.ProfileID },
 		DBPath:          func() string { return cfg.DBPath },
 		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
-		RequireOperator: requireOperator,
+		RequireOperator: cfg.requireOperator,
 		API:             agentclient.FromEnv,
 	})
 }

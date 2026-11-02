@@ -19,7 +19,7 @@ func chatDeps(cfg *globalConfig) chatcli.Deps {
 		DBPath:            func() string { return cfg.DBPath },
 		OpenDB:            func() (*storage.Database, error) { return initDB(cfg) },
 		ResolveProfileID:  resolveProfileID,
-		RequireOperator:   requireOperator,
+		RequireOperator:   cfg.requireOperator,
 		PublicationPrompt: func() string { return publicationAgentPrompt(cfg) },
 	}
 }

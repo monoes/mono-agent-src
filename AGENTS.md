@@ -2219,6 +2219,13 @@ monoagentcli sandbox fallback --set strictest       # run | strictest | fail; an
   chat journal adds an `agent.sandbox.detail` notice naming the mode that ran).
 - `fail`: `--sandbox-fallback fail`; monomind refuses with `unsupported`, shown as
   a message that names the setting.
+- `--set` is operator-only: it is refused to a process that holds an agent token
+  (`MONOAGENT_SESSION_TOKEN`, `MONOAGENT_TASK_BINDING`, `MONOAGENT_TASK_SESSION`,
+  `MONOAGENT_TASK_ID`) and to a process inside a coder session's turn, whatever else
+  its environment says; run it from your own terminal. The same holds for the other
+  operator-only commands that share this check (`aitask submit`, `application fill start`,
+  coder settings, `hil` send decisions, `media scan on|off`, `workflow apply-fix`,
+  `publication delete`). A courtesy layer, not a barrier (SECURITY.md).
 - `MONOAGENT_SANDBOX_FALLBACK` overrides the saved value. Long-running processes
   re-read the setting per turn (cached one second).
 - It needs monomind with `agent-exec-sandbox-fallback`; without it the setting
