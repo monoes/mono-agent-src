@@ -2068,6 +2068,18 @@ that works a task acts on them. The defences:
   coder session's turn, so those are run from the operator's own terminal, not one
   started inside a turn. A machine with no database yet is not in a turn; a turn
   record that cannot be read refuses.
+  Residuals of this turn layer, stated plainly: (1) it reads the database the
+  process itself names, so a process inside a turn that also carries no agent marker
+  or token and points the CLI at another database (`--db-path`, or another `HOME`)
+  finds no turn record and is not seen (the person gate has the same property; tracked
+  in the follow-up to resolve the database from the host-recorded one); (2) this
+  change covers the commands listed above only: many other operator-only commands
+  (secrets, sign-in, API keys and config, agent mode, automation, extensions,
+  records, the organisation guards, people and profile edits, node runs and
+  publications) still use only the operator marker check and are NOT turn-aware,
+  so this does not make every operator-only command refuse a turn; (3) the test that
+  keeps the wired commands in one table counts wirings per file and misses a method
+  value or a verb that never calls the gate: an inventory, not a coverage proof.
 - **Limits that stop a loop from flooding the board:** 2,000 open
   tasks per profile (every
   task that is not archived, Done ones included; a task that comes back
