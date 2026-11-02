@@ -8,15 +8,18 @@ import (
 	"syscall"
 )
 
+// uidOf is the user id the owner checks compare with; a variable so a test can be another user.
+var uidOf = os.Getuid
+
 func ownedByUser(fi os.FileInfo) bool {
 	st, ok := fi.Sys().(*syscall.Stat_t)
-	return ok && int(st.Uid) == os.Getuid()
+	return ok && int(st.Uid) == uidOf()
 }
 
 // ownedByUserOrRoot: what a program this user may run belongs to.
 func ownedByUserOrRoot(fi os.FileInfo) bool {
 	st, ok := fi.Sys().(*syscall.Stat_t)
-	return ok && (int(st.Uid) == os.Getuid() || st.Uid == 0)
+	return ok && (int(st.Uid) == uidOf() || st.Uid == 0)
 }
 
 // isRoot is a variable so a test can stand in for the root user.

@@ -97,7 +97,7 @@ func TestTheDaemonServicesExeIsOnlyReportedWhenItCannotBeReplacedFromHere(t *tes
 		if err := os.Symlink(real, r.exe); err != nil {
 			t.Fatal(err)
 		}
-		r.versions[r.exe] = "0.176.0"
+		r.versions[r.exe], r.versions[real] = "0.176.0", "0.176.0" // the probe asks the file the name resolves to
 		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
 		if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "symbolic link") || !strings.Contains(got[0].Message, r.exe+" update") {
 			t.Fatalf("stale = %+v", got)
@@ -623,10 +623,174 @@ func TestShellQuotingOfAPathInACommandTheOperatorPastes(t *testing.T) {
 		"/home/u/my bin/monoagentcli": "'/home/u/my bin/monoagentcli'",
 		"/home/u/it's/monoagentcli":   `'/home/u/it'\''s/monoagentcli'`,
 		"/home/u/100%/monoagentcli":   "'/home/u/100%/monoagentcli'",
-		"/home/u/a\nb/monoagentcli":   "'/home/u/a\nb/monoagentcli'",
+		"/home/u/a\nb/monoagentcli":   `$'/home/u/a\x0ab/monoagentcli'`,
+		"/home/u/\x1b[31m/it's/m":     `$'/home/u/\x1b[31m/it\'s/m'`,
 	} {
 		if got := shQuote(in); got != want {
 			t.Errorf("shQuote(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// --- second review
+
+// safeCLI makes <base>/bin/monoagentcli, a script that records that it ran and how it was called, with every folder from
+// base down 0755; it returns the script path and the marker that shows it ran.
+func safeCLI(t *testing.T, base string) (cli, marker string) {
+	t.Helper()
+	dir := filepath.Join(base, "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker = filepath.Join(t.TempDir(), "ran")
+	cli = script(t, dir, "monoagentcli", "echo \"$0\" > "+marker+"\nprintf '{\"version\":\"0.176.0\",\"build_date\":\"x\"}'")
+	return cli, marker
+}
+
+func realProbeRig(t *testing.T, cliOnPath string) *staleRig {
+	t.Helper()
+	r := newStaleRig(t, false)
+	r.d.ProbeVersion = nil
+	r.d.LookPath = func(string) (string, error) { return cliOnPath, nil }
+	return r
+}
+
+// The permission checks and the run use the same file: the one the name resolves to. A link in a folder others can write is
+// not run even though what it points at is safe, and a link in a safe folder runs its target, not the name.
+func TestTheProbeRunsTheFileThePermissionChecksLookedAt(t *testing.T) {
+	base := t.TempDir()
+	cli, marker := safeCLI(t, filepath.Join(base, "real"))
+
+	t.Run("a link in a folder others can write", func(t *testing.T) {
+		linkDir := filepath.Join(t.TempDir(), "linkdir")
+		if err := os.MkdirAll(linkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(linkDir, "monoagentcli")
+		if err := os.Symlink(cli, link); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(linkDir, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		got := realProbeRig(t, link).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatal("a program was run through a link that others can swap")
+		}
+		if len(got) != 1 || !strings.Contains(got[0].Message, "not run to ask") {
+			t.Fatalf("stale = %+v", got)
+		}
+	})
+	t.Run("a link in a safe folder runs its target", func(t *testing.T) {
+		linkDir := filepath.Join(t.TempDir(), "linkdir")
+		if err := os.MkdirAll(linkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(linkDir, "monoagentcli")
+		if err := os.Symlink(cli, link); err != nil {
+			t.Fatal(err)
+		}
+		got := realProbeRig(t, link).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		ran, _ := os.ReadFile(marker)
+		if len(got) != 1 || got[0].Version != "0.176.0" {
+			t.Fatalf("stale = %+v", got)
+		}
+		if strings.TrimSpace(string(ran)) != realPath(cli) {
+			t.Fatalf("the program was run as %q, want the resolved %q", ran, realPath(cli))
+		}
+	})
+}
+
+// Every folder above the program is checked, not only the one that holds it: a grandparent others can write (and that is not
+// sticky) lets them rename the folder below it and put their own file in its place.
+func TestEveryFolderAboveAProgramIsChecked(t *testing.T) {
+	for name, c := range map[string]struct {
+		mode os.FileMode // the grandparent
+		ok   bool
+	}{
+		"others can write the grandparent":       {0o777, false},
+		"the group can write the grandparent":    {0o775, false},
+		"a sticky grandparent others can write":  {0o777 | os.ModeSticky, true},
+		"a grandparent only the owner can write": {0o755, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			grand := filepath.Join(t.TempDir(), "grand")
+			cli, marker := safeCLI(t, filepath.Join(grand, "mid"))
+			if err := os.Chmod(grand, c.mode); err != nil {
+				t.Fatal(err)
+			}
+			defer os.Chmod(grand, 0o755)
+			got := realProbeRig(t, cli).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+			_, ran := os.Stat(marker)
+			if (ran == nil) != c.ok {
+				t.Fatalf("ran = %v, want %v: %+v", ran == nil, c.ok, got)
+			}
+			// the same walk decides whether the daemon's exe may be replaced
+			if why := replaceable(cli); (why == "") != c.ok {
+				t.Fatalf("replaceable = %q, want ok=%v", why, c.ok)
+			}
+		})
+	}
+}
+
+// Ownership: a file or folder of another user is not run or replaced.
+func TestAFileOrFolderOfAnotherUserIsNeitherRunNorReplaced(t *testing.T) {
+	cli, marker := safeCLI(t, t.TempDir())
+	old := uidOf
+	uidOf = func() int { return os.Getuid() + 12345 } // as if this were another user
+	defer func() { uidOf = old }()
+	got := realProbeRig(t, cli).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a program of another user was run")
+	}
+	if len(got) != 1 || !strings.Contains(got[0].Message, "not run to ask") {
+		t.Fatalf("stale = %+v", got)
+	}
+	if why := replaceable(cli); !strings.Contains(why, "not owned by this user") {
+		t.Fatalf("replaceable = %q", why)
+	}
+}
+
+// Only the app's executable makes a CLI "the app's": a note or a folder whose name starts the same does not hide it.
+func TestOnlyTheAppsExecutableMakesACLITheBundledOne(t *testing.T) {
+	for name, c := range map[string]struct {
+		neighbour string
+		dir       bool
+		bundled   bool
+	}{
+		"the linux app":       {"MonoAgent-linux-amd64", false, true},
+		"the windows app":     {"MonoAgent-windows-amd64.exe", false, true},
+		"the macOS binary":    {"MonoAgent", false, true},
+		"a backup folder":     {"MonoAgentBackup", true, false},
+		"a note":              {"MonoAgent-notes.txt", false, false},
+		"another program":     {"MonoAgentX", false, false},
+		"the app, wrong case": {"monoagent-linux-amd64", false, false},
+	} {
+		dir := t.TempDir()
+		cli := filepath.Join(dir, "monoagentcli")
+		if err := os.WriteFile(cli, []byte(oldAsset), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		n := filepath.Join(dir, c.neighbour)
+		if c.dir {
+			_ = os.Mkdir(n, 0o755)
+		} else {
+			_ = os.WriteFile(n, []byte("x"), 0o644)
+		}
+		if got := isBundledCLI(cli); got != c.bundled {
+			t.Errorf("%s: isBundledCLI = %v, want %v", name, got, c.bundled)
+		}
+	}
+}
+
+// A path with control characters is shown quoted, so it cannot write to the terminal.
+func TestAPathWithControlCharactersIsShownQuoted(t *testing.T) {
+	r := newStaleRig(t, false)
+	evil := filepath.Join(t.TempDir(), "a\nb\x1b[31m", "monoagentcli")
+	r.d.LookPath = func(string) (string, error) { return evil, nil }
+	r.versions[evil] = "0.176.0"
+	got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+	if len(got) != 1 || strings.ContainsAny(got[0].Message, "\x1b\n\r") {
+		t.Fatalf("a raw control character reached the message: %q", got)
 	}
 }

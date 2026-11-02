@@ -88,13 +88,13 @@ func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, d
 		cmdline := shQuote(c.path) + " update"
 		couldNot := func(why string) {
 			out = append(out, StaleCLI{Path: c.path, Role: c.role, Action: "stale",
-				Message: fmt.Sprintf("%s: could not tell its version (%s); if it is old, update it with: %s", c.path, why, cmdline)})
+				Message: fmt.Sprintf("%q: could not tell its version (%s); if it is old, update it with: %s", c.path, why, cmdline)})
 		}
 		if why := d.probeRisk(c.path); why != "" {
 			couldNot("not run to ask: " + why)
 			continue
 		}
-		ver, err := d.probeVersion(ctx, c.path)
+		ver, err := d.probeVersion(ctx, real) // the file that was checked, not the name it was found under
 		if err != nil {
 			couldNot(err.Error())
 			continue
@@ -110,17 +110,17 @@ func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, d
 		switch {
 		case c.role == "daemon" && data != nil:
 			if why := replaceable(c.path); why != "" {
-				s.Message = fmt.Sprintf("The daemon's service starts %s (%s), not the updated binary, and it was not replaced: %s. Update it with: %s", c.path, ver, why, cmdline)
+				s.Message = fmt.Sprintf("The daemon's service starts %q (%s), not the updated binary, and it was not replaced: %s. Update it with: %s", c.path, ver, why, cmdline)
 			} else if err := installBinaryChecked(data, c.path, d.newBinaryRuns(ctx, newVersion)); err != nil {
-				s.Message = fmt.Sprintf("The daemon's service starts %s (%s), not the updated binary, and replacing it failed (%v; it was kept). Update it with: %s", c.path, ver, err, cmdline)
+				s.Message = fmt.Sprintf("The daemon's service starts %q (%s), not the updated binary, and replacing it failed (%v; it was kept). Update it with: %s", c.path, ver, err, cmdline)
 			} else {
 				s.Action = "updated"
-				s.Message = fmt.Sprintf("The daemon's service starts %s, which ran %s: replaced it with %s from the verified release.", c.path, ver, newVersion)
+				s.Message = fmt.Sprintf("The daemon's service starts %q, which ran %s: replaced it with %s from the verified release.", c.path, ver, newVersion)
 			}
 		case c.role == "daemon":
-			s.Message = fmt.Sprintf("The daemon's service starts %s (%s), not the updated binary, so a daemon restart runs the old version. Update it with: %s", c.path, ver, cmdline)
+			s.Message = fmt.Sprintf("The daemon's service starts %q (%s), not the updated binary, so a daemon restart runs the old version. Update it with: %s", c.path, ver, cmdline)
 		default:
-			s.Message = fmt.Sprintf("The monoagentcli on your PATH (%s) is %s, older than %s. It is not changed here. Update it with: %s", c.path, ver, newVersion, cmdline)
+			s.Message = fmt.Sprintf("The monoagentcli on your PATH (%q) is %s, older than %s. It is not changed here. Update it with: %s", c.path, ver, newVersion, cmdline)
 		}
 		out = append(out, s)
 	}
@@ -142,11 +142,16 @@ func (d Deps) newBinaryRuns(ctx context.Context, newVersion string) func(tmp str
 	}
 }
 
-// probeRisk says why path must not be run to ask its version, or "" when it may. It is run only by a user who is not root,
-// for a file of this user (or root) that others cannot write, in a folder of this user (or root) that others cannot write.
+// probeRisk says why path must not be run to ask its version, or "" when it may. It is run only by a user who is not root, for
+// a file of this user (or root) that no one else can write, reached through folders that are all of this user or root and
+// that no one else can write: every folder from the root down, for the name it was found under and for the file it resolves
+// to, since a link or a folder that others can change lets them put their program there.
 func (d Deps) probeRisk(path string) string {
 	if d.ProbeVersion != nil {
 		return "" // a test stands in for the program
+	}
+	if runtime.GOOS == "windows" {
+		return "nothing is run to ask on Windows"
 	}
 	if isRoot() {
 		return "this command runs as root and does not execute other programs"
@@ -160,16 +165,37 @@ func (d Deps) probeRisk(path string) string {
 		return "it is not a regular file"
 	}
 	if !ownedByUserOrRoot(fi) || fi.Mode().Perm()&0o022 != 0 {
-		return "it is not owned by you or root, or others can write it"
+		return "it is not owned by you or root, or you or others can write it besides its owner"
 	}
-	dir, err := os.Stat(filepath.Dir(real))
+	for _, p := range []string{path, real} {
+		if why := unsafeAncestor(p); why != "" {
+			return why
+		}
+	}
+	return ""
+}
+
+// unsafeAncestor says why a folder above p cannot be trusted, or "" when every one, up to the root, is of this user or root
+// and cannot be written by the group or others (a sticky folder excepted).
+func unsafeAncestor(p string) string {
+	abs, err := filepath.Abs(p)
 	if err != nil {
 		return err.Error()
 	}
-	if !ownedByUserOrRoot(dir) || dir.Mode().Perm()&0o022 != 0 {
-		return "its folder is not owned by you or root, or others can write it"
+	for dir := filepath.Dir(abs); ; dir = filepath.Dir(dir) {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			return err.Error()
+		}
+		// A folder the group or others can write is fine only when it is sticky (like /tmp): there others cannot rename or
+		// remove what is not theirs, so they cannot swap the path under us.
+		if !ownedByUserOrRoot(fi) || (fi.Mode().Perm()&0o022 != 0 && fi.Mode()&os.ModeSticky == 0) {
+			return fmt.Sprintf("the folder %q is not owned by you or root, or the group or others can write it", dir)
+		}
+		if dir == filepath.Dir(dir) {
+			return ""
+		}
 	}
-	return ""
 }
 
 // replaceable says why path must not be replaced from here, or "" when it may: a regular file (not a link, so nothing else
@@ -192,14 +218,8 @@ func replaceable(path string) string {
 	case fi.Mode().Perm()&0o022 != 0:
 		return "others can write it"
 	}
-	dir, err := os.Stat(filepath.Dir(path))
-	switch {
-	case err != nil:
-		return err.Error()
-	case !ownedByUser(dir):
-		return "its folder is not owned by this user"
-	case dir.Mode().Perm()&0o022 != 0:
-		return "others can write its folder"
+	if why := unsafeAncestor(path); why != "" {
+		return why
 	}
 	return ""
 }
@@ -215,12 +235,16 @@ func isBundledCLI(p string) bool {
 		return false
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "MonoAgent") && !strings.HasPrefix(strings.ToLower(e.Name()), "monoagentcli") {
+		if appExe.MatchString(e.Name()) {
 			return true
 		}
 	}
 	return false
 }
+
+// appExe matches the desktop app's executable by name, as the app update installs it (MonoAgent-linux-amd64,
+// MonoAgent-windows-amd64.exe, MonoAgent): not any file that merely starts with those letters.
+var appExe = regexp.MustCompile(`^MonoAgent(?:-(?:linux|darwin|windows)-(?:amd64|arm64))?(?:\.exe)?$`)
 
 func realPath(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
@@ -336,7 +360,25 @@ func shQuote(s string) string {
 		}
 		return `"` + s + `"`
 	}
-	if !strings.ContainsAny(s, " \t\n\r'\"$`\\&;|<>()*?[]{}!#~%") {
+	if strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		// a control character cannot be shown or pasted safely: spell it out in bash/zsh/ksh quoting
+		var b strings.Builder
+		b.WriteString("$'")
+		for _, r := range s {
+			switch {
+			case r < 0x20 || r == 0x7f:
+				fmt.Fprintf(&b, `\x%02x`, r)
+			case r == '\'' || r == '\\':
+				b.WriteByte('\\')
+				b.WriteRune(r)
+			default:
+				b.WriteRune(r)
+			}
+		}
+		b.WriteString("'")
+		return b.String()
+	}
+	if !strings.ContainsAny(s, " \t'\"$`\\&;|<>()*?[]{}!#~%") {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

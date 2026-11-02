@@ -13,5 +13,6 @@ func ownedByUser(fi os.FileInfo) bool       { return false }
 func ownedByUserOrRoot(fi os.FileInfo) bool { return false }
 
 var isRoot = func() bool { return false }
+var uidOf = func() int { return 0 }
 
 func ownProcessGroup(cmd *exec.Cmd) func() { return func() {} }
