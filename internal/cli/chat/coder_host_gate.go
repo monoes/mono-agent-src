@@ -12,13 +12,12 @@ import (
 
 // gatedLauncher is the coder host's launcher with the peer-credential gate in front. While the setting
 // security.peercred_binding is off it only passes every call on, untouched. While it is on and procbind.Refusal
-// has a cause (this build does not issue bound tokens, the machine cannot run the service, or the service is
-// not up), every turn start is refused with that cause: never a weaker mode. The setting is read at every start,
-// so a hand-edited setting refuses too, and so does one switched on after the host started. A start that is already past
-// this check when the setting is switched on goes on as it was (legacy) and the next start is refused; the window is the
-// few milliseconds between the read and the launch. Today it cannot be reached: "on" cannot be set while IssuanceReady is
-// false (the setter refuses and the gate refuses a hand edit). Before IssuanceReady flips, admission must be synchronized
-// with the setting change (the 3c/4 flip checklist in the wiring note).
+// has a cause (the machine cannot run the service, or the service is not up), every turn start is refused with that
+// cause: never a weaker mode. The setting is read at every start, so a hand-edited setting refuses too, and so does one
+// switched on after the host started. A start that is already past this check when the setting is switched on is checked
+// once more after its process exists and, if the setting is on by then, stopped and refused (the setter also refuses to
+// switch it on while a turn runs). A setting that cannot be read at that second look says nothing about a flip and leaves
+// the healthy turn running: the first read of the same start already said it was off.
 type gatedLauncher struct {
 	inner coderhost.Launcher // the legacy launch
 	// bound is the same launcher with peer-credential binding on (execLauncher.bound set); the gate sends a turn there
@@ -127,10 +126,13 @@ func (g *gatedLauncher) settingIsOnNow() bool {
 			time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
 		}
 	}
+	// Persistently unreadable (a busy or locked database): the read that routed this very start said the setting was off, so nothing
+	// known says it was switched on since. The healthy turn is left running (this runs after EVERY legacy start, for users who never
+	// enabled binding); the next start reads the setting again and refuses if it is on or unreadable.
 	if g.logf != nil {
-		g.logf("coder host: the coder settings could not be read after a turn started; the turn is stopped: %v", err)
+		g.logf("coder host: the coder settings could not be read after a turn started; the turn is left running: %v", err)
 	}
-	return true
+	return false
 }
 
 // refusedTurnWait is how long a refused turn gets to exit after its stop (the stop itself allows hostTurnGrace and then

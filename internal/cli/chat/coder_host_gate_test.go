@@ -657,46 +657,38 @@ func TestTheGateDoesNotStartTheServiceForAHostInsideATurn(t *testing.T) {
 	}
 }
 
-// The re-check after a legacy turn's process exists is a guard against a flip: a settings read that fails once leaves the
-// healthy turn running; one that keeps failing stops it (whether binding is on is then not known).
-func TestAReadFailureAfterATurnStartedStopsItOnlyWhenItPersists(t *testing.T) {
-	for name, c := range map[string]struct {
-		failures int
-		stopped  bool
-	}{"one transient failure": {1, false}, "a persistent failure": {99, true}} {
+// The re-check after a legacy turn's process exists is a guard against a flip, not a gate: a settings read that fails (once, or for good
+// on a busy database) says nothing about a flip, and the read that routed the start said the setting was off, so the healthy legacy turn
+// of a user who never enabled binding keeps running. A read that works and says "on" still stops it (TestATurnStartedWhileTheSettingWasSwitchedOnIsStopped).
+func TestAReadFailureAfterATurnStartedNeverStopsAHealthyLegacyTurn(t *testing.T) {
+	for name, failures := range map[string]int{"one transient failure": 1, "a persistent failure": 99} {
 		g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
 		st := &stopTurn{stopped: make(chan struct{})}
 		legacy.turn = st
 		reads := 0
+		var logged []string
+		g.logf = func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }
 		legacy.onStart = func() {
-			g.load = func(db *sql.DB) (coderSettings, error) { // the first read (the routing) is already done; these are the re-check's
+			g.load = func(db *sql.DB) (coderSettings, error) { // the routing read is done; these are the re-check's
 				reads++
-				if reads <= c.failures {
+				if reads <= failures {
 					return coderSettings{}, errors.New("database is locked")
 				}
 				return loadCoderSettings(db)
 			}
 		}
 		turn, err := g.Start("p", "c1", "t1", "hi", nil, "")
-		if c.stopped {
-			var r *bindingRefusal
-			if !errors.As(err, &r) || turn != nil {
-				t.Errorf("%s: %v %v", name, turn, err)
-			}
-			select {
-			case <-st.stopped:
-			case <-time.After(2 * time.Second):
-				t.Errorf("%s: the turn was not stopped", name)
-			}
-			continue
-		}
 		if err != nil || turn == nil {
 			t.Errorf("%s: the healthy turn was refused: %v %v", name, turn, err)
+			continue
 		}
 		select {
 		case <-st.stopped:
 			t.Errorf("%s: the healthy turn was stopped", name)
 		case <-time.After(100 * time.Millisecond):
+		}
+		if failures == 99 && len(logged) == 0 {
+			t.Errorf("%s: a persistent read failure was not logged", name)
 		}
 	}
 }

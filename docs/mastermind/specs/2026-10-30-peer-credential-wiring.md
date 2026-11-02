@@ -86,6 +86,8 @@ reverted alone**, and so that the setting does not exist until everything it nee
   `TestABoundLeadersChildrenDieWithItsExitEvenWithoutAStop`, `TestMigration152...`. **Accepted gap (the user decided, not built; issue #1310):** a host crash
   between process creation and the identity commit leaves PID 0 and a queued turn may start beside the child. Databases that applied an intermediate,
   never released 152 are unsupported.
+- **Full rollback = revert the constant** (`IssuanceReady = false`): the setter and the gate refuse as before. Switching the setting OFF is always allowed, and
+  v2 tokens already issued still verify until their turn ends after switching off.
 - **Open follow-ups, none blocking:** #1319 (a failed `waitid` falls back to no group kill; the host-death group cleanup), the no-pidfd platform P3, and the
   review P3s #1253, #1254, #1255, #1256, #1257, #1259, #1260.
 - Every writer of the settings is transactional (`updateCoderSettings`): 3b-1 (#1247), `TestThePeercredSettingCannotBeSwitchedOnYet`
