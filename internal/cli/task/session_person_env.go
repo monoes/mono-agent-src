@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -45,7 +46,7 @@ func (d Deps) personGateOpening(cmd *cobra.Command, what string, open func() (*s
 	// checked below as before.
 	named := ""
 	if d.DBPath != nil {
-		named = d.DBPath()
+		named = clicore.ExpandPath(d.DBPath()) // expanded as the hil gate does, so the same file compares equal
 	}
 	if in, err := coderhost.CallerInARegisteredTurn(named); err != nil {
 		return tasks.Actor{}, err // fails closed

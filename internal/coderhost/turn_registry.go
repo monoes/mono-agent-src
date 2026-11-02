@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"syscall"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite" // the driver of the read-only opens below (already linked by internal/storage)
 
@@ -35,6 +37,17 @@ var ErrRegistryUnavailable = errors.New("turn registry unavailable")
 // ErrRegistryUnsafe: the registry directory is a symlink, belongs to someone else or is writable by others.
 var ErrRegistryUnsafe = errors.New("turn registry directory is not private to this user")
 
+// ErrRegistryUnsupported is an ErrRegistryUnavailable for a platform that does not read process ancestry at
+// all: nothing is written or read there, which is the design, not a fault worth printing at every start.
+var ErrRegistryUnsupported = fmt.Errorf("%w: process ancestry cannot be read on this platform", ErrRegistryUnavailable)
+
+// registeredCheckTimeout bounds the whole check of one registered database (its stat, open and queries), so a
+// database on a hung mount cannot wedge every gated verb. Past it the check is an error like any unreadable one.
+var registeredCheckTimeout = 3 * time.Second
+
+// registeredDBCheck is the check of one registered database (a variable so a test can stand in for a hung one).
+var registeredDBCheck = CallerInATurnAt
+
 const (
 	registryEntryMax = 4096
 	registrySubdir   = ".monoagent/coder-hosts"
@@ -49,7 +62,7 @@ var registryDir = defaultRegistryDir
 
 func defaultRegistryDir() (string, error) {
 	if !ancestrySupported {
-		return "", fmt.Errorf("%w: process ancestry cannot be read on this platform", ErrRegistryUnavailable)
+		return "", ErrRegistryUnsupported
 	}
 	if testing.Testing() {
 		return "", fmt.Errorf("%w: a test binary uses SetRegistryDirForTest", ErrRegistryUnavailable)
@@ -91,6 +104,7 @@ type registryEntry struct {
 	DB    string `json:"db"`
 	PID   int    `json:"pid"`
 	Stamp string `json:"stamp"`
+	file  string // the entry's own path (set by the reader; not part of the file)
 }
 
 func entryName(db string) string {
@@ -127,6 +141,9 @@ func checkRegistryDir(dir string) error {
 // called. The entry is one file named by the hash of the canonical path (so the same database twice is one
 // entry), 0600, in a 0700 directory, written atomically. It holds the path, the host's pid and start stamp and
 // nothing else. unregister removes the entry only while it is still this host's.
+// Limit: two hosts on one database share that one entry (the later start overwrites the pid); if the later one
+// exits first the entry is gone while the earlier one still runs, and the gates then see only the database a
+// command names for that host. Entries are one per running host database, and the gate opens each once.
 func RegisterHostDB(path string) (unregister func(), err error) {
 	noop := func() {}
 	dir, err := registryDir()
@@ -198,6 +215,19 @@ func readRegistryEntry(file string) (registryEntry, bool) {
 // and an entry that cannot be read is left out. An unavailable registry is ErrRegistryUnavailable; a missing
 // directory is an empty list; an unsafe directory is ErrRegistryUnsafe.
 func RegisteredHostDBs() ([]string, error) {
+	ents, err := registeredEntries()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(ents))
+	for _, e := range ents {
+		out = append(out, e.DB)
+	}
+	return out, nil
+}
+
+// registeredEntries is RegisteredHostDBs with the entries themselves, one per database, sorted by it.
+func registeredEntries() ([]registryEntry, error) {
 	dir, err := registryDir()
 	if err != nil {
 		return nil, err
@@ -213,17 +243,19 @@ func RegisteredHostDBs() ([]string, error) {
 		return nil, err
 	}
 	seen := map[string]bool{}
-	var out []string
+	var out []registryEntry
 	for _, de := range ents {
 		if !registryName.MatchString(de.Name()) {
 			continue
 		}
-		if e, ok := readRegistryEntry(filepath.Join(dir, de.Name())); ok && !seen[e.DB] {
+		file := filepath.Join(dir, de.Name())
+		if e, ok := readRegistryEntry(file); ok && !seen[e.DB] {
 			seen[e.DB] = true
-			out = append(out, e.DB)
+			e.file = file
+			out = append(out, e)
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].DB < out[j].DB })
 	return out, nil
 }
 
@@ -234,10 +266,16 @@ func CallerInATurnAt(path string) (bool, error) {
 	if !ancestrySupported {
 		return false, nil
 	}
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+	fi, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
 		return false, err
+	}
+	// Only a regular file is opened: opening a FIFO or a device blocks without bound, and busy_timeout does
+	// not cover the open.
+	if !fi.Mode().IsRegular() {
+		return false, fmt.Errorf("%s is not a regular file", path)
 	}
 	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: path}).EscapedPath()+"?mode=ro&_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -254,16 +292,62 @@ func CallerInATurnAt(path string) (bool, error) {
 	return NewStore(db).CallerInATurn()
 }
 
+// checkWithTimeout runs registeredDBCheck on path and gives up after registeredCheckTimeout. A check stuck in
+// a system call cannot be interrupted, so it is abandoned (the CLI exits soon after); the answer is an error.
+func checkWithTimeout(path string) (bool, error) {
+	type result struct {
+		in  bool
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		in, err := registeredDBCheck(path)
+		ch <- result{in, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.in, r.err
+	case <-time.After(registeredCheckTimeout):
+		return false, fmt.Errorf("no answer within %s", registeredCheckTimeout)
+	}
+}
+
+// hostIsGone says whether the process that wrote an entry is certainly not running: its pid now carries a
+// different start stamp (a reused pid) or no process at all. An entry without a recorded stamp, or a pid that
+// cannot be judged, is NOT gone (the caller then fails closed).
+func hostIsGone(e registryEntry) bool {
+	if e.PID <= 0 || e.Stamp == "" {
+		return false
+	}
+	if now := ProcStamp(e.PID); now != "" {
+		return now != e.Stamp
+	}
+	p, err := os.FindProcess(e.PID)
+	return err == nil && errors.Is(p.Signal(syscall.Signal(0)), os.ErrProcessDone)
+}
+
 // CallerInARegisteredTurn is the registry half of the operator gates: whether the caller descends from a turn
 // recorded in any registered host's database, except named (the database the process itself names, which the
-// gate checks its own way; the same file is checked once). A registry that is unavailable or unsafe adds
-// nothing (the gate is then what it was before the registry). A registered database that cannot be read is an
-// error, so the gate refuses.
+// gate checks its own way; the same file is checked once). A registry that is unavailable, unsafe or whose
+// directory cannot be listed adds nothing (the gate is then what it was before the registry; by decision).
+//
+// A registered database that cannot be read (or does not answer within registeredCheckTimeout) is an error, so
+// the gate refuses, and the message names the entry file: if that host is gone the operator deletes it.
+//
+// One exception, for an entry whose recorded host is certainly dead (hostIsGone): its unreadable database is
+// skipped, so a crashed host (typical of one run under a scratch HOME) cannot lock the operator out. Why that
+// is sound: a dead host starts no new turn, so no turn it would still record can begin; what remains is a
+// turn process that outlived it, and that one is found through the rows of this very database, which we
+// cannot read. The residual: such an orphan, whose host died and whose database ALSO became unreadable, is not
+// seen by this layer. Reaching it needs the host to die and the database to fail (or a same-uid process to do
+// both), a process of the same OS user that could instead edit the database or delete the entry, which the
+// courtesy layer already does not stop (SECURITY.md). A database that is readable is always judged, host dead
+// or not, and a live host's unreadable database always refuses.
 func CallerInARegisteredTurn(named string) (bool, error) {
 	if !ancestrySupported {
 		return false, nil
 	}
-	dbs, err := RegisteredHostDBs()
+	ents, err := registeredEntries()
 	if err != nil {
 		return false, nil
 	}
@@ -271,15 +355,18 @@ func CallerInARegisteredTurn(named string) (bool, error) {
 	if named != "" {
 		namedInfo, _ = os.Stat(named)
 	}
-	for _, p := range dbs {
+	for _, e := range ents {
 		if namedInfo != nil {
-			if fi, err := os.Stat(p); err == nil && os.SameFile(namedInfo, fi) {
+			if fi, err := os.Stat(e.DB); err == nil && os.SameFile(namedInfo, fi) {
 				continue
 			}
 		}
-		in, err := CallerInATurnAt(p)
+		in, err := checkWithTimeout(e.DB)
 		if err != nil {
-			return false, fmt.Errorf("turn registry: %s: %w", p, err)
+			if hostIsGone(e) {
+				continue
+			}
+			return false, fmt.Errorf("turn registry: the database %s of a coder host cannot be read (%v); the registry entry for it is %s; if that host is no longer running, delete this file and run the command again", e.DB, err, e.file)
 		}
 		if in {
 			return true, nil

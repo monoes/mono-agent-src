@@ -229,7 +229,10 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			// The gates of the operator-only commands check this database whatever database they are pointed at.
 			// A failure is logged, not fatal: the gates then do what they did before the registry.
 			if unregister, rerr := coderhost.RegisterHostDB(cfg.DBPath()); rerr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "%s turn registry: %v; the operator gates will check only the database a command names\n", time.Now().Format(time.RFC3339), rerr)
+				// a platform that never reads ancestry has no registry by design; only a fault is printed
+				if !errors.Is(rerr, coderhost.ErrRegistryUnsupported) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "%s turn registry: %v; the operator gates will check only the database a command names\n", time.Now().Format(time.RFC3339), rerr)
+				}
 			} else {
 				defer unregister()
 			}

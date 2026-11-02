@@ -1,9 +1,11 @@
 package task
 
 import (
+	"errors"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -83,5 +85,30 @@ func TestPersonGateLetsTheOperatorThroughWithARegistry(t *testing.T) {
 				t.Fatalf("the operator was refused: %v", err)
 			}
 		})
+	}
+}
+
+// The named database is expanded ("~/") the way the hil gate does, so the registry check leaves that same file
+// to the named check instead of reading it twice (here an unreadable one would otherwise refuse as a registered one).
+func TestPersonGateExpandsTheNamedDatabaseBeforeComparingItWithTheRegistered(t *testing.T) {
+	if coderhost.ProcStamp(os.Getpid()) == "" {
+		t.Skip("process ancestry cannot be read here")
+	}
+	coderhost.SetRegistryDirForTest(t, filepath.Join(t.TempDir(), "coder-hosts"))
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	junk := filepath.Join(home, "junk.db")
+	if err := os.WriteFile(junk, []byte(strings.Repeat("not a database ", 500)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unregister, err := coderhost.RegisterHostDB(junk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unregister()
+	d := testDeps(t, "~/junk.db", "default", true)
+	_, err = d.personGateOpening(&cobra.Command{}, "do a thing", func() (*storage.Database, error) { return nil, errors.New("named opened") })
+	if err == nil || err.Error() != "named opened" {
+		t.Fatalf("the registered file must be recognised as the named one: %v", err)
 	}
 }

@@ -2,11 +2,14 @@ package coderhost
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/testdb"
@@ -338,5 +341,129 @@ func TestARegisteredDatabaseThatCannotBeQueriedIsAnError(t *testing.T) {
 	defer un()
 	if in, err := CallerInARegisteredTurn(""); err == nil || in {
 		t.Fatalf("an unreadable registered database must be an error: %v %v", in, err)
+	}
+}
+
+// registerRaw writes an entry for db as the registry would (pid and stamp as given), creating the directory.
+func registerRaw(t *testing.T, dir, db string, pid int, stamp string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(registryEntry{DB: db, PID: pid, Stamp: stamp})
+	file := filepath.Join(dir, entryName(db))
+	writeEntry(t, file, string(raw), 0o600)
+	return file
+}
+
+func gateWithin(t *testing.T, d time.Duration) (bool, error) {
+	t.Helper()
+	type res struct {
+		in  bool
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() { in, err := CallerInARegisteredTurn(""); ch <- res{in, err} }()
+	select {
+	case r := <-ch:
+		return r.in, r.err
+	case <-time.After(d):
+		t.Fatalf("the gate did not answer within %s (a registered database wedged it)", d)
+		return false, nil
+	}
+}
+
+func TestAFifoRegisteredAsADatabaseDoesNotWedgeTheGate(t *testing.T) {
+	needAncestry(t)
+	fifoSupported(t)
+	dir := registryDirOf(t)
+	fifo := filepath.Join(t.TempDir(), "host.db")
+	makeFifo(t, fifo)
+	file := registerRaw(t, dir, canonicalOrSelf(t, fifo), os.Getpid(), ProcStamp(os.Getpid()))
+	// the read itself refuses a non-regular file at once, it does not rely on the timeout
+	start := time.Now()
+	if _, err := CallerInATurnAt(fifo); err == nil || time.Since(start) > 2*time.Second {
+		t.Fatalf("a FIFO must be refused at once: %v after %s", err, time.Since(start))
+	}
+	in, err := gateWithin(t, 6*time.Second)
+	if in || err == nil || !strings.Contains(err.Error(), file) || !strings.Contains(err.Error(), "delete this file") {
+		t.Fatalf("a live host's unreadable database must refuse and name the remedy: %v %v", in, err)
+	}
+}
+
+func TestADirectoryRegisteredAsADatabaseRefusesWithTheRemedy(t *testing.T) {
+	needAncestry(t)
+	dir := registryDirOf(t)
+	d := filepath.Join(t.TempDir(), "dir.db")
+	if err := os.Mkdir(d, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := registerRaw(t, dir, canonicalOrSelf(t, d), os.Getpid(), ProcStamp(os.Getpid()))
+	in, err := gateWithin(t, 6*time.Second)
+	if in || err == nil || !strings.Contains(err.Error(), file) || !strings.Contains(err.Error(), "delete this file") {
+		t.Fatalf("%v %v", in, err)
+	}
+}
+
+func TestAHungDatabaseCheckTimesOutAndFailsClosedWithTheRemedy(t *testing.T) {
+	needAncestry(t)
+	dir := registryDirOf(t)
+	x := testdb.Path(t)
+	file := registerRaw(t, dir, canonicalOrSelf(t, x), os.Getpid(), ProcStamp(os.Getpid()))
+	block := make(chan struct{})
+	defer close(block)
+	prevCheck, prevTimeout := registeredDBCheck, registeredCheckTimeout
+	registeredDBCheck = func(string) (bool, error) { <-block; return false, nil }
+	registeredCheckTimeout = 200 * time.Millisecond
+	defer func() { registeredDBCheck, registeredCheckTimeout = prevCheck, prevTimeout }()
+	in, err := gateWithin(t, 5*time.Second)
+	if in || err == nil || !strings.Contains(err.Error(), file) {
+		t.Fatalf("%v %v", in, err)
+	}
+}
+
+// A registered database that cannot be read refuses while its host lives and is skipped once the host is gone.
+func TestAnUnreadableDatabaseOfADeadHostIsSkippedAndOfALiveHostRefuses(t *testing.T) {
+	needAncestry(t)
+	dir := registryDirOf(t)
+	junk := filepath.Join(t.TempDir(), "junk.db")
+	writeEntry(t, junk, strings.Repeat("not a database ", 500), 0o600)
+	cj := canonicalOrSelf(t, junk)
+	file := registerRaw(t, dir, cj, os.Getpid(), "bogus-stamp") // the pid lives but is not the process the entry recorded
+	if in, err := gateWithin(t, 6*time.Second); in || err != nil {
+		t.Fatalf("a dead host's unreadable database must be skipped: %v %v", in, err)
+	}
+	registerRaw(t, dir, cj, os.Getpid(), ProcStamp(os.Getpid()))
+	if in, err := gateWithin(t, 6*time.Second); in || err == nil || !strings.Contains(err.Error(), file) {
+		t.Fatalf("a live host's unreadable database must refuse: %v %v", in, err)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatal("the reader must never delete an entry")
+	}
+	// a pid that is gone altogether counts as dead too
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Skip("cannot run a child")
+	}
+	registerRaw(t, dir, cj, cmd.Process.Pid, "whatever")
+	if in, err := gateWithin(t, 6*time.Second); in || err != nil {
+		t.Fatalf("an exited host: %v %v", in, err)
+	}
+	// an entry without a recorded stamp cannot be shown dead: it stays fail-closed
+	registerRaw(t, dir, cj, cmd.Process.Pid, "")
+	if _, err := gateWithin(t, 6*time.Second); err == nil {
+		t.Fatal("an entry with no stamp must stay fail-closed")
+	}
+}
+
+// A dead host's database that CAN be read is still judged: only an unreadable one is skipped.
+func TestAReadableDatabaseOfADeadHostIsStillChecked(t *testing.T) {
+	needAncestry(t)
+	dir := registryDirOf(t)
+	x := testdb.Path(t)
+	markTurn(t, x)
+	registerRaw(t, dir, canonicalOrSelf(t, x), os.Getpid(), "bogus-stamp")
+	if in, err := gateWithin(t, 6*time.Second); !in || err != nil {
+		t.Fatalf("%v %v", in, err)
 	}
 }
