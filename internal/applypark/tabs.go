@@ -267,6 +267,18 @@ func (s Store) Release(ctx context.Context, appID, taskID, observed string) (boo
 	return affected(res, err)
 }
 
+// Touch renews the hold of a resume that is still starting its task under taskID, and says whether the tab still
+// was held under it: a hold nobody renews lapses after ResumeHoldTTL, so a slow resume keeps its tab by renewing
+// and a dead one loses it.
+func (s Store) Touch(ctx context.Context, appID, taskID string) (bool, error) {
+	res, err := s.DB.ExecContext(ctx,
+		`UPDATE application_tabs SET updated_at = ?
+		 WHERE application_id = ? AND state = ? AND task_id = ?
+		   AND application_id IN (SELECT id FROM applications WHERE profile_id = ?)`,
+		now(), appID, string(StateActive), taskID, s.Profile)
+	return affected(res, err)
+}
+
 // Holds says whether the tab is still the one taskID was started for: bound to it, and either active or left
 // by the task itself (its fill is over and parked the tab). A tab a sweep parked before the task existed is not.
 func (s Store) Holds(ctx context.Context, appID, taskID string) (bool, error) {
