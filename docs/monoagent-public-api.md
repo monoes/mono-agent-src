@@ -27,7 +27,8 @@ export B=https://telorivaaiapi.monoes.me/v1
 | `GET /v1/models` | List served models (with confinement and capabilities) |
 | `GET /v1/models/{id}` | One model |
 | `POST /v1/chat/completions` | Chat, JSON or `"stream": true` |
-| `POST /v1/images/generations` | Generate images (agy models) |
+| `POST /v1/images/generations` | Generate images (agy models); add `Prefer: respond-async` to get a job id |
+| `GET /v1/images/jobs/{id}` | Status and result of an image job |
 | `GET /health` | Liveness, no key needed |
 
 Without a valid key every `/v1` route answers `401 invalid_api_key`.
@@ -224,6 +225,71 @@ open("out.jpg", "wb").write(base64.b64decode(r.data[0].b64_json))
 - `n` is 1 to 4 (you may get fewer), `size` is `auto` or `WxH` with each side 64
   to 8192 (a preference only). `quality`, `style`, `output_format`,
   `background` and `user` are ignored.
+
+### Image jobs: no connection held open
+
+An image takes 40 to 130 s, longer than a proxy such as Cloudflare keeps a request
+open (about 100 s). Instead of holding the connection, ask for a **job**: send the
+same request with the header `Prefer: respond-async`, then poll.
+
+```bash
+# 1. submit: answered at once, 202
+curl -si $B/images/generations -H "Authorization: Bearer $KEY" -H "Content-Type: application/json"   -H "Prefer: respond-async"   -d '{"model":"antigravity/default","prompt":"A small red circle on a white background."}'
+# HTTP/2 202   Location: /v1/images/jobs/imgjob_...   Retry-After: 5
+# {"id":"imgjob_...","object":"image.job","status":"in_progress","created":1793620000}
+
+# 2. poll every 5 s until status is not in_progress
+curl -s $B/images/jobs/imgjob_... -H "Authorization: Bearer $KEY"
+```
+
+| `status` | Body |
+|---|---|
+| `in_progress` | `{"id","object":"image.job","status":"in_progress","created"}` (`Retry-After: 5`) |
+| `completed` | `{"id","object":"image.job","status":"completed","created","data":[{"b64_json":"..."}]}`, the same `data` as the plain answer |
+| `failed` | `{"id","object":"image.job","status":"failed","created","http_status":502,"error":{"message","type","param","code"}}`: the error the plain request would have answered, with its status in `http_status` |
+
+Rules:
+
+- The request is checked first, so a bad request (400), a refusal (403/404) or a
+  busy server (**429**, with `Retry-After`) is answered at once, not as a job.
+  A job holds one of the server's turn slots until the runtime is done.
+- A job belongs to the key that made it: another key gets `404 job_not_found`.
+- A finished job is kept **30 minutes** and can be read more than once. Jobs are
+  kept in memory, so a restart of the daemon loses them (the poll then says
+  `404 job_not_found`: submit again). At most 64 jobs are kept.
+- Polling a job costs nothing on the runtime. Poll every 5 s; give up after about
+  10 minutes (the turn timeout).
+
+```python
+import requests, time, base64
+H = {"Authorization": f"Bearer {KEY}", "Prefer": "respond-async"}
+j = requests.post(f"{B}/images/generations", headers=H,
+                  json={"model": "antigravity/default", "prompt": "a red circle"}, timeout=30)
+j.raise_for_status()
+url = f"{B}/images/jobs/{j.json()['id']}"
+while True:
+    time.sleep(5)
+    r = requests.get(url, headers={"Authorization": f"Bearer {KEY}"}, timeout=30).json()
+    if r["status"] != "in_progress":
+        break
+if r["status"] == "completed":
+    open("out.jpg", "wb").write(base64.b64decode(r["data"][0]["b64_json"]))
+else:
+    print(r["http_status"], r["error"]["code"], r["error"]["message"])
+```
+
+### Why an image request fails
+
+| Answer | Cause | What to do |
+|---|---|---|
+| `429 rate_limit_exceeded` | All turn slots are busy | Retry after `Retry-After` |
+| `502 image_generation_failed` | The runtime ended without saving an image. Most often **Google's image-model quota** (`429 RESOURCE_EXHAUSTED` on `gemini-3.1-flash-image`, reset in about 10 to 55 minutes; agy does not retry it) | Retry later, spaced out (e.g. every 5 minutes); it will keep failing until the quota resets |
+| `400 image_generation_unsupported` | The runtime replied `NO_IMAGE_TOOL`; agy also does this after a quota error | As above |
+| `524` from Cloudflare, or the client sees a dropped connection | The request ran past about 100 s on the proxied host | Use an image job, or the direct host |
+
+The server log line for a job reads `req=... status=... detail="job imgjob_..."`.
+The quota error itself is only in agy's own logs on the node
+(`~/.gemini/antigravity-cli/log/`, search `RESOURCE_EXHAUSTED`).
 
 ## Sending an image to a model
 

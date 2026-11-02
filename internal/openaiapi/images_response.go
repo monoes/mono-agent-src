@@ -20,11 +20,17 @@ var imageWriteBudget = 2 * time.Minute
 // third more than the images, and building it first would hold the images, the body and
 // a copy of it at once.
 func writeImages(w http.ResponseWriter, created int64, images [][]byte) {
+	writeImagesWith(w, "", created, images)
+}
+
+// writeImagesWith is writeImages with head, JSON members each followed by a comma, in
+// front of "created": the answer of a finished image job names the job.
+func writeImagesWith(w http.ResponseWriter, head string, created int64, images [][]byte) {
 	extendWriteDeadline(w, imageWriteBudget)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	out := bufio.NewWriterSize(w, 64<<10) // a write error is kept, and ends everything after it
-	fmt.Fprintf(out, `{"created":%d,"data":[`, created)
+	fmt.Fprintf(out, `{%s"created":%d,"data":[`, head, created)
 	for i, img := range images {
 		if i > 0 {
 			out.WriteByte(',')

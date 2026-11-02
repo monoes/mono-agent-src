@@ -251,6 +251,14 @@ OPENAI-COMPATIBLE API (/v1)
   image, on the runtime's account. "auto" picks among the image models auto may
   pick: none while --auto-confinement is chat-only, then 404 model_not_found
   saying what to raise.
+  Image jobs: with the header "Prefer: respond-async" POST /v1/images/generations
+  is answered at once, 202 {"id":"imgjob_...","object":"image.job","status":
+  "in_progress"} and a Location header, and GET /v1/images/jobs/{id} says
+  in_progress, or holds the images (completed) or the error the plain request
+  would have answered (failed, with http_status). A refused request (400, 403,
+  404, 429) is answered at once, not as a job. A job holds a turn slot, belongs
+  to its key, is kept 30 minutes in memory after it finished (64 jobs at most)
+  and is lost when the daemon restarts.
 
   The "auto" model lets Jev pick, per request, among the models the listener
   serves (a --context key: among those its own cap allows). It is opt-in per
