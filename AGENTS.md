@@ -2225,7 +2225,9 @@ monoagentcli sandbox fallback --set strictest       # run | strictest | fail; an
   its environment says; run it from your own terminal. The same holds for the other
   operator-only commands that share this check (`aitask submit`, `application fill start`,
   coder settings, `hil` send decisions, `media scan on|off`, `workflow apply-fix`,
-  `publication delete`). A courtesy layer, not a barrier (SECURITY.md).
+  `publication delete`). The turn check reads the database the command names and also every
+  running coder host's database, recorded in `<passwd home>/.monoagent/coder-hosts/` (so `--db-path`
+  or another `HOME` does not hide a turn). A courtesy layer, not a barrier (SECURITY.md).
 - `MONOAGENT_SANDBOX_FALLBACK` overrides the saved value. Long-running processes
   re-read the setting per turn (cached one second).
 - It needs monomind with `agent-exec-sandbox-fallback`; without it the setting
