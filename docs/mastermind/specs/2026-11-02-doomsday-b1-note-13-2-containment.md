@@ -437,3 +437,20 @@ process being collected (the reason for the anchor).
 7. **Kernel and systemd floors** (5.14, a current systemd) need a decision on the minimum supported versions and
    a doctor check that reports them before a user reaches the entry dialog.
 8. **Numbers** `T_term`, `T_kill`, the `rmdir` retry bound: to be measured, not guessed.
+
+### 13.2 Remaining after the delta review of the first draft (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: unrecorded-unit recovery can signal a different service** (section 7, the sweep). When a witness
+   is lost or an intent has no binding, the sweep treats the **name pattern and owner UID** as sufficient
+   authority to end a cgroup. An unrelated same-user service can have a matching name; after witness loss,
+   Stop or recovery finds it and kills its processes although no durable identity binds it to the run. The
+   same failure arises if a once-owned name is removed and reused before the sweep. This bypasses the
+   inode/boot binding of section 5 and violates the stated guarantee that a stranger is never signalled.
+   Required: an **independently verifiable ownership binding** for an unbound name, **or** the unit stays
+   **unproven and `cleanup-pending`** (reported, not killed).
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
