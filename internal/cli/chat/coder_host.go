@@ -260,7 +260,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
-				TitleOf:              func(profileID, id string) string { return chatDisplayTitle(db.DB, profileID, id) },
+				TitleOf:              func(profileID, id string) (string, error) { return chatDisplayTitle(db.DB, profileID, id) },
 			}
 			if hostBuilt != nil {
 				hostBuilt(h)

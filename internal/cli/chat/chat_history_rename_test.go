@@ -125,7 +125,7 @@ func TestChatHistoryRenameRedactsAfterNormalising(t *testing.T) {
 	}
 
 	runChatHistory(t, dbPath, "default", "rename", c.ID, "New chat")
-	if got := chatDisplayTitle(db, "default", c.ID); got != "New chat" {
+	if got, _ := chatDisplayTitle(db, "default", c.ID); got != "New chat" {
 		t.Fatalf("a chat named New chat reads as untitled: %q", got)
 	}
 }

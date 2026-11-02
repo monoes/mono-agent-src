@@ -48,7 +48,7 @@ type Host struct {
 	MeshIdle  time.Duration
 	// TitleOf is a chat's name as the app shows it, which a session without a mesh name of its own
 	// takes (AliasFromTitle). Unset, only a name the person typed counts.
-	TitleOf  func(profileID, conversationID string) string
+	TitleOf  func(profileID, conversationID string) (string, error)
 	meshPrev map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
 
 	// RequireConversations makes the host check that the conversation of a command still exists, and
@@ -567,7 +567,14 @@ func (h *Host) meshSync(ctx context.Context) {
 		}
 		alias := settings.MeshAlias
 		if alias == "" {
-			alias = AliasFromTitle(h.titleOf(x.ProfileID, x.ConversationID)) // "" = the project-and-time name
+			title, err := h.titleOf(x.ProfileID, x.ConversationID)
+			if err != nil { // a read that failed is not an unnamed chat: keep what the mesh was last told
+				if prev, ok := h.meshPrev[key]; ok {
+					want, next[key] = append(want, prev), prev
+				}
+				continue
+			}
+			alias = AliasFromTitle(title) // "" = the project-and-time name
 		}
 		ms := MeshSession{
 			ProfileID: x.ProfileID, ConversationID: x.ConversationID, Cwd: cwd, Started: started.Local(),
@@ -581,7 +588,7 @@ func (h *Host) meshSync(ctx context.Context) {
 	h.Mesh.Sync(ctx, want)
 }
 
-func (h *Host) titleOf(profileID, conversationID string) string {
+func (h *Host) titleOf(profileID, conversationID string) (string, error) {
 	if h.TitleOf != nil {
 		return h.TitleOf(profileID, conversationID)
 	}

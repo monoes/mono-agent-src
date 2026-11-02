@@ -94,7 +94,8 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 			"checkin_triggers": coderhost.CheckinEvents, "mesh_accept": coderhost.MeshAccepts,
 		},
 	}
-	v.DefaultAlias = coderhost.AliasFromTitle(chatDisplayTitle(db.DB, profileID, conv.ID))
+	display, _ := chatDisplayTitle(db.DB, profileID, conv.ID) // unreadable: no default shown
+	v.DefaultAlias = coderhost.AliasFromTitle(display)
 	v.MissionDirections = missionDirectionsView{Effective: settings.EffectiveMissionDirections(), Explicit: settings.MissionDirectionsExplicit()}
 	v.Mission = missionToggleOf(context.Background(), tasks.NewStore(db.DB), profileID, conv, settings.Mission)
 	if x, ok, err := cs.GetSession(profileID, conv.ID); err != nil {

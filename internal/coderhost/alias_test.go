@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -68,9 +69,26 @@ func TestAMeshSessionWithoutAnAliasTakesTheChatsName(t *testing.T) {
 		t.Fatalf("alias = %q, want empty (made by the mesh)", s[0].Alias)
 	}
 	// A TitleOf (the app's derived title) is used when set.
-	h.TitleOf = func(_, id string) string { return "Derived " + id }
+	h.TitleOf = func(_, id string) (string, error) { return "Derived " + id, nil }
 	h.meshSync(context.Background())
 	if s := rm.last(); s[0].Alias != "Derived-c1" {
 		t.Fatalf("alias = %q, want Derived-c1", s[0].Alias)
+	}
+}
+
+// A title that cannot be read keeps the session as the mesh was last told, rather than dropping it to
+// the project-and-time name and back.
+func TestATitleReadThatFailsKeepsThePreviousMeshSession(t *testing.T) {
+	h, _, st := newHost(t)
+	rm := &recordingMesh{}
+	h.Mesh = rm
+	addConversation(t, st, "c1", "/work/c1")
+	st.EnsureSession("p", "c1")
+	h.TitleOf = func(_, _ string) (string, error) { return "steady name", nil }
+	h.meshSync(context.Background())
+	h.TitleOf = func(_, _ string) (string, error) { return "", errors.New("database is locked") }
+	h.meshSync(context.Background())
+	if s := rm.last(); len(s) != 1 || s[0].Alias != "steady-name" {
+		t.Fatalf("after a failed read: %+v, want the previous session steady-name", s)
 	}
 }

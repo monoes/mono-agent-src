@@ -537,12 +537,13 @@ func (s *Store) ConversationInfo(profileID, conversationID string) (cwd, access 
 }
 
 // ConversationTitle is the name the person gave the conversation, "" when it has none.
-func (s *Store) ConversationTitle(profileID, conversationID string) string {
+func (s *Store) ConversationTitle(profileID, conversationID string) (string, error) {
 	var t string
-	if err := s.db.QueryRow(`SELECT title FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&t); err != nil {
-		return ""
+	err := s.db.QueryRow(`SELECT title FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&t)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
 	}
-	return t
+	return t, err
 }
 
 // SetRole links a session into the master/child structure: "solo" (no links),
