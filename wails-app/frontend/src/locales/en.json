@@ -272,6 +272,15 @@
     "notSetup": "The AI agent isn't set up.",
     "noRuntime": "No AI agent is installed."
   },
+  "monomindFix": {
+    "action": "Fix monomind",
+    "confirmBody": "This installs or repairs monomind by running the command below. It downloads and runs an npm package, so only continue if you trust it.",
+    "run": "Run it",
+    "cancel": "Cancel",
+    "running": "Fixing monomind…",
+    "done": "monomind fixed. Checking again.",
+    "failed": "Fixing monomind failed: {{why}}"
+  },
   "toasts": {
     "failed": "Failed: {{op}}",
     "dismiss": "Dismiss"

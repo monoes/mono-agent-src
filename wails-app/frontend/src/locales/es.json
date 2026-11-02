@@ -272,6 +272,15 @@
     "notSetup": "El agente de IA no está configurado.",
     "noRuntime": "No hay ningún agente de IA instalado."
   },
+  "monomindFix": {
+    "action": "Reparar monomind",
+    "confirmBody": "Esto instala o repara monomind ejecutando el comando de abajo. Descarga y ejecuta un paquete de npm, así que continúa solo si confías en él.",
+    "run": "Ejecutar",
+    "cancel": "Cancelar",
+    "running": "Reparando monomind…",
+    "done": "monomind reparado. Comprobando de nuevo.",
+    "failed": "No se pudo reparar monomind: {{why}}"
+  },
   "toasts": {
     "failed": "Error: {{op}}",
     "dismiss": "Descartar"

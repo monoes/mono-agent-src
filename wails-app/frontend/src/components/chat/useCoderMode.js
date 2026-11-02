@@ -58,12 +58,35 @@ export function isCoderConversation(c) {
   return c?.mode === 'coder'
 }
 
-// missingText explains a not-ready status: which monomind capabilities
-// coder mode still needs, or — when monomind has them all — that no coding
+// MAX_PROBE_ERROR bounds the probe failure shown in a pane.
+const MAX_PROBE_ERROR = 200
+
+// monomindUnusable is the probe failure when monomind could not be run at
+// all (not found, a shim that does not resolve, a crash), else ''. That is
+// not an outdated monomind, so nothing is said about capabilities or updates.
+export function monomindUnusable(status) {
+  const err = typeof status?.probeError === 'string' ? status.probeError.replace(/\s+/g, ' ').trim() : ''
+  return err.length > MAX_PROBE_ERROR ? `${err.slice(0, MAX_PROBE_ERROR)}…` : err
+}
+
+// monomindNeedsFix: the status calls for the "Fix monomind" action, either
+// because monomind could not be used or because it lacks capabilities.
+export function monomindNeedsFix(status) {
+  return !!monomindUnusable(status) || (status?.missingCapabilities || []).length > 0
+}
+
+// missingText explains a not-ready status: that monomind could not be used
+// (with the reason), which monomind capabilities coder mode still needs
+// (with the version found), or — when monomind has them all — that no coding
 // runtime is ready.
 export function missingText(status) {
+  const unusable = monomindUnusable(status)
+  if (unusable) return `needs a working monomind (monomind couldn't be used: ${unusable})`
   const missing = status?.missingCapabilities || []
-  if (missing.length) return `needs monomind update (missing: ${missing.join(', ')})`
+  if (missing.length) {
+    const found = status?.monomindVersion ? `found monomind ${status.monomindVersion}, ` : ''
+    return `needs monomind update (${found}missing: ${missing.join(', ')})`
+  }
   if (Array.isArray(status?.runtimes)) return 'needs a coding runtime (claude, codex, opencode, …) installed'
   return 'needs monomind update'
 }

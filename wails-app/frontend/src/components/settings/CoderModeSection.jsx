@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Code2, FolderOpen } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
-import { missingText, coderReady, coderRuntimes, runtimeReadiness } from '../chat/useCoderMode.js'
+import FixMonomindButton from '../FixMonomindButton.jsx'
+import { missingText, monomindNeedsFix, monomindUnusable, coderReady, coderRuntimes, runtimeReadiness } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import CoderDefaultAccess from './CoderDefaultAccess.jsx'
 
@@ -151,7 +152,8 @@ export default function CoderModeSection() {
       )}
       {status && !ready && (
         <div data-testid="coder-needs-update" style={warnText}>
-          Coder mode {missingText(status)}. You can turn it on now; Coder chats start once {status.missingCapabilities?.length || !perRuntime ? 'monomind is updated' : 'a runtime is ready'}.
+          Coder mode {missingText(status)}. You can turn it on now; Coder chats start once {monomindUnusable(status) ? 'monomind works' : status.missingCapabilities?.length || !perRuntime ? 'monomind is updated' : 'a runtime is ready'}.
+          {monomindNeedsFix(status) && <> <FixMonomindButton onDone={load} /></>}
         </div>
       )}
 

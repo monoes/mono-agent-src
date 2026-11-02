@@ -18,12 +18,14 @@ export function useChatSetup(active, setup, onChange) {
   const [scan, setScan] = useState({ done: false, error: '', missing: false, agents: [] })
   const [models, setModels] = useState(null) // null: loading
 
+  const [statusTry, setStatusTry] = useState(0)
   useEffect(() => {
     if (!active) return undefined
     let live = true
     Promise.resolve().then(() => api.coderStatus()).then(s => { if (live) setStatus(s || null) }).catch(() => { if (live) setStatus(null) })
     return () => { live = false }
-  }, [active])
+  }, [active, statusTry])
+  const refreshStatus = useCallback(() => setStatusTry(n => n + 1), [])
 
   const settled = status !== undefined
   const coderOk = !!status?.enabled && coderReady(status)
@@ -94,5 +96,5 @@ export function useChatSetup(active, setup, onChange) {
   else if (!runtime || models === null || !setup.model) state = 'loading'
 
   const retryScan = useCallback(() => setScanTry(n => n + 1), [])
-  return { status, settled, coderOk, access, coder, options, runtime, info, models, efforts, state, scanError: scan.error, retryScan }
+  return { status, settled, coderOk, access, coder, options, runtime, info, models, efforts, state, scanError: scan.error, retryScan, refreshStatus }
 }
