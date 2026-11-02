@@ -212,3 +212,134 @@ func TestEnsureRefusesAHostWithoutARegistry(t *testing.T) {
 		t.Fatalf("Ensure without a Binder: %v (running=%v)", err, h.Running("p"))
 	}
 }
+
+// A slow database does not hold the host forever: the start has its own deadline, past which it fails with nothing
+// listening and no service recorded, and the host is usable again once the database is free.
+func TestEnsureGivesUpWhenTheDatabaseStaysBusy(t *testing.T) {
+	h, _, st := bindingRig(t)
+	h.EnsureTimeout = 300 * time.Millisecond
+	ctx := context.Background()
+	if _, err := procbind.RowKey(ctx, st.db, "p"); err != nil { // the key exists, so only the host-row write can block
+		t.Fatal(err)
+	}
+	blocker, err := st.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blocker.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_, _ = blocker.ExecContext(ctx, `ROLLBACK`)
+			blocker.Close()
+		}
+	}
+	defer release()
+
+	errc := make(chan error, 1)
+	go func() { errc <- h.Ensure(ctx, "p") }()
+	select {
+	case err := <-errc:
+		if err == nil {
+			t.Fatal("Ensure succeeded while the database was locked")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Ensure did not give up on a busy database")
+	}
+	if h.Running("p") {
+		t.Error("a service is recorded after a failed start")
+	}
+	release()
+	if err := h.Ensure(ctx, "p"); err != nil {
+		t.Fatalf("Ensure after the database was free: %v", err)
+	}
+}
+
+// When a service's serve loop ended on its own, Ensure starts over with a new generation (and says it is not running
+// in between).
+func TestEnsureRestartsAServiceWhoseServeLoopEnded(t *testing.T) {
+	h, _, st := bindingRig(t)
+	ctx := context.Background()
+	if err := h.Ensure(ctx, "p"); err != nil {
+		t.Fatal(err)
+	}
+	old := hostRow(t, st, "p")
+	h.mu.Lock()
+	s := h.svcs["p"]
+	h.mu.Unlock()
+	_ = s.l.Close() // ends the serve loop without going through Shutdown
+	select {
+	case <-s.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the serve loop did not end")
+	}
+	if h.Running("p") {
+		t.Error("running after its serve loop ended")
+	}
+	if _, ok := h.Generation("p"); ok {
+		t.Error("a generation is still offered for a service that ended")
+	}
+	if err := h.Ensure(ctx, "p"); err != nil {
+		t.Fatal(err)
+	}
+	now := hostRow(t, st, "p")
+	if now.Seq != old.Seq+1 || now.Generation == old.Generation || !h.Running("p") {
+		t.Errorf("restart: %+v then %+v, running %v", old, now, h.Running("p"))
+	}
+}
+
+// A start waiting for the host's lock is bound by its own context: an expired one returns at once and one with a short
+// deadline returns near it, whatever the holder is doing, and neither changes any state.
+func TestEnsureWaitingForTheLockObeysItsOwnContext(t *testing.T) {
+	h, _, _ := bindingRig(t)
+	h.mu.Lock() // a start (or Status, or Shutdown) holding the lock
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			h.mu.Unlock()
+		}
+	}
+	defer release()
+
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	begin := time.Now()
+	if err := h.Ensure(expired, "p"); err == nil || time.Since(begin) > time.Second {
+		t.Errorf("an expired context: %v after %v", err, time.Since(begin))
+	}
+	short, cancel2 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel2()
+	begin = time.Now()
+	err := h.Ensure(short, "p")
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(begin) > time.Second {
+		t.Errorf("a 100 ms context: %v after %v", err, time.Since(begin))
+	}
+	release()
+	if h.Running("p") {
+		t.Error("a refused wait started a service")
+	}
+	if err := h.Ensure(context.Background(), "p"); err != nil {
+		t.Errorf("the host is not usable after refused waits: %v", err)
+	}
+}
+
+// A deadline that passes after the last step that watched it ends the start: nothing is recorded as running.
+func TestEnsureChecksItsDeadlineBeforePublishing(t *testing.T) {
+	h, _, _ := bindingRig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.beforePublish = cancel
+	if err := h.Ensure(ctx, "p"); err == nil {
+		t.Fatal("Ensure succeeded after its context ended")
+	}
+	if h.Running("p") {
+		t.Error("a service was recorded after the deadline")
+	}
+	h.beforePublish = nil
+	if err := h.Ensure(context.Background(), "p"); err != nil {
+		t.Fatalf("the next start: %v", err)
+	}
+}

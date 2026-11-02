@@ -50,8 +50,11 @@ func (b *browser) install(t *testing.T, dbPath string) {
 	applyfill.Parking = &applyfill.ParkingConfig{Live: read}
 	liveTabs = func(ctx context.Context, d Deps) ([]applypark.LiveTab, error) { return read(ctx, d.ProfileID()) }
 	submitTask = func(_ context.Context, args []string) ([]byte, error) {
-		app, want := "", aitask.NewID()
+		app, want, owner := "", aitask.NewID(), ""
 		for i, a := range args {
+			if a == "--owner" {
+				owner = args[i+1]
+			}
 			if a == "--application" {
 				app = args[i+1]
 			}
@@ -76,7 +79,7 @@ func (b *browser) install(t *testing.T, dbPath string) {
 		defer db.Close()
 		result := fmt.Sprintf(`{"status":"filled","fields":[{"label":"Email","value":"a@b.example","source":"Facts"}],"tabId":%d,"origin":"https://acme.example"}`, tab)
 		task, err := (&aitask.Store{DB: db.DB, Profile: "default"}).Insert(aitask.Task{ID: want, Kind: applyfill.Kind,
-			ConversationID: fmt.Sprintf("conv-%d", tab), Status: b.status, Goal: "g", ApplicationID: app, Access: aitask.AccessWorkspace, BudgetUSD: 1})
+			ConversationID: fmt.Sprintf("conv-%d", tab), Status: b.status, Goal: "g", ApplicationID: app, Owner: owner, Access: aitask.AccessWorkspace, BudgetUSD: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -707,3 +710,190 @@ func TestResumeWhoseReportCannotBeWrittenStands(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write refused") }
+
+// A submit that dies after its task started (no answer read): the resume reports the task that is there and does
+// not undo it, rather than reporting a failed resume.
+func TestResumeWhoseSubmitDiedAfterTheTaskStartedReportsTheTask(t *testing.T) {
+	dbPath := homeDB(t)
+	ids := jobs(t, dbPath, 1)
+	b := &browser{}
+	b.install(t, dbPath)
+	if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+		t.Fatalf("queue: %v (%s)", err, out)
+	}
+	realSubmit := submitTask
+	var taskID string
+	submitTask = func(ctx context.Context, args []string) ([]byte, error) {
+		taskID = flagValues(args, "--task-id")[0]
+		if _, err := realSubmit(ctx, args); err != nil {
+			t.Fatal(err)
+		}
+		return nil, errors.New("signal: killed")
+	}
+	b.status = aitask.StatusRunning
+	_, err := run(t, dbPath, true, "fill", "resume", ids[0])
+	if err == nil || !strings.Contains(err.Error(), taskID) || !strings.Contains(err.Error(), aitask.StatusRunning) {
+		t.Fatalf("resume = %v, want it to name task %s as running", err, taskID)
+	}
+	withDB(t, dbPath, func(db *sql.DB) {
+		task, gerr := (&aitask.Store{DB: db, Profile: "default"}).Get(taskID)
+		tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+		if gerr != nil || task.Status != aitask.StatusRunning || tab.State != applypark.StateActive || tab.TaskID != taskID {
+			t.Fatalf("task = %+v %v, tab = %+v: the started task was undone", task, gerr, tab)
+		}
+	})
+}
+
+// The command says that a resume stands when only its report fails.
+func TestResumeHelpSaysItStandsWhenItsReportFails(t *testing.T) {
+	for _, c := range NewCommand(testDeps("", true)).Commands() {
+		if c.Name() != "fill" {
+			continue
+		}
+		for _, r := range c.Commands() {
+			if r.Name() == "resume" && !strings.Contains(r.Long, "nothing is undone") {
+				t.Fatalf("resume help = %q", r.Long)
+			}
+		}
+	}
+}
+
+// Another submit reserved or made a task under the id this resume asked for (ids are visible in the tab hold and
+// --task-id is the caller's choice). A resume whose own submit then ended without an answer must not cancel it,
+// nor report it as its own: it gives the tab back and leaves the task alone.
+func TestResumeLeavesAnotherSubmitsTaskUnderItsIdAlone(t *testing.T) {
+	for _, status := range []string{aitask.StatusQueued, aitask.StatusRunning} {
+		t.Run(status, func(t *testing.T) {
+			dbPath := homeDB(t)
+			ids := jobs(t, dbPath, 1)
+			b := &browser{}
+			b.install(t, dbPath)
+			if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+				t.Fatalf("queue: %v (%s)", err, out)
+			}
+			var taskID string
+			submitTask = func(_ context.Context, args []string) ([]byte, error) {
+				taskID = flagValues(args, "--task-id")[0]
+				withDB(t, dbPath, func(db *sql.DB) {
+					if _, err := (&aitask.Store{DB: db, Profile: "default"}).Insert(aitask.Task{ID: taskID, Kind: applyfill.Kind,
+						ConversationID: "other", Status: status, Goal: "g", ApplicationID: ids[0], Owner: "someone-else",
+						Access: aitask.AccessWorkspace, BudgetUSD: 1}); err != nil {
+						t.Fatal(err)
+					}
+				})
+				return nil, errors.New("signal: killed")
+			}
+			_, err := run(t, dbPath, true, "fill", "resume", ids[0])
+			if err == nil || strings.Contains(err.Error(), "was made and is") {
+				t.Fatalf("resume = %v: another submit's task was reported as this resume's", err)
+			}
+			withDB(t, dbPath, func(db *sql.DB) {
+				task, gerr := (&aitask.Store{DB: db, Profile: "default"}).Get(taskID)
+				tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+				if gerr != nil || task.Status != status {
+					t.Fatalf("another submit's task was touched: %+v %v", task, gerr)
+				}
+				if tab.State != applypark.StateParked {
+					t.Fatalf("the tab stays held under an id that is not this resume's task: %+v", tab)
+				}
+			})
+		})
+	}
+}
+
+// A submit refused for want of budget leaves the task it made queued. The resume that asked for it cancels its own
+// queued task (owner and application matching) before it gives the tab back, and says so; another submit's task
+// under the same id is untouched.
+func TestResumeRefusedForBudgetCancelsItsOwnQueuedTask(t *testing.T) {
+	for _, mine := range []bool{true, false} {
+		dbPath := homeDB(t)
+		ids := jobs(t, dbPath, 1)
+		b := &browser{}
+		b.install(t, dbPath)
+		if out, err := run(t, dbPath, true, "fill", "queue", ids[0]); err != nil {
+			t.Fatalf("queue: %v (%s)", err, out)
+		}
+		var taskID string
+		submitTask = func(_ context.Context, args []string) ([]byte, error) {
+			taskID = flagValues(args, "--task-id")[0]
+			owner := "someone-else"
+			if mine {
+				owner = flagValues(args, "--owner")[0]
+			}
+			withDB(t, dbPath, func(db *sql.DB) {
+				if _, err := (&aitask.Store{DB: db, Profile: "default"}).Insert(aitask.Task{ID: taskID, Kind: applyfill.Kind,
+					ConversationID: "c", Status: aitask.StatusQueued, Goal: "g", ApplicationID: ids[0], Owner: owner,
+					Access: aitask.AccessWorkspace, BudgetUSD: 1}); err != nil {
+					t.Fatal(err)
+				}
+			})
+			return []byte(`{"error":"no spend cap is set","code":"no_budget"}`), errors.New("exit 3")
+		}
+		_, err := run(t, dbPath, true, "fill", "resume", ids[0])
+		want := aitask.StatusQueued
+		if mine {
+			want = aitask.StatusCancelled
+			if err == nil || !strings.Contains(err.Error(), "cancelled: no budget") {
+				t.Fatalf("resume = %v", err)
+			}
+		}
+		withDB(t, dbPath, func(db *sql.DB) {
+			task, _ := (&aitask.Store{DB: db, Profile: "default"}).Get(taskID)
+			tab, _ := (applypark.Store{DB: db, Profile: "default"}).Get(context.Background(), ids[0])
+			if task.Status != want || tab.State != applypark.StateParked {
+				t.Fatalf("mine=%v: task %s (want %s), tab %+v", mine, task.Status, want, tab)
+			}
+		})
+	}
+}
+
+type fakeRecovery struct {
+	task              aitask.Task
+	getErr, cancelErr error
+	regetErr          error
+	gets              int
+	cancelled         bool
+}
+
+func (f *fakeRecovery) Get(string) (aitask.Task, error) {
+	f.gets++
+	if f.gets == 1 {
+		return f.task, f.getErr
+	}
+	return f.task, f.regetErr
+}
+
+func (f *fakeRecovery) CancelQueuedOwned(string, string, string) (bool, error) {
+	return f.cancelled, f.cancelErr
+}
+
+// When the task's state cannot be established (a failed read or write) the hold is kept and the error surfaced;
+// the tab is never released on a guess.
+func TestRecoverOwnTaskKeepsTheHoldWhenItCannotTell(t *testing.T) {
+	mine := aitask.Task{ID: "at-1", Owner: "o", ApplicationID: "app", Status: aitask.StatusQueued}
+	boom := errors.New("sqlite busy")
+	cases := map[string]*fakeRecovery{
+		"first read fails":  {task: mine, getErr: boom},
+		"cancel fails":      {task: mine, cancelErr: boom},
+		"second read fails": {task: mine, regetErr: boom},
+		"still queued":      {task: mine},
+	}
+	for name, f := range cases {
+		cancelled, kept := recoverOwnTask(f, "app", "at-1", "o", errors.New("cause"))
+		if kept == nil || cancelled {
+			t.Errorf("%s: cancelled=%v kept=%v, want the hold kept with an error", name, cancelled, kept)
+		}
+	}
+	// Established states let the tab go back.
+	if c, kept := recoverOwnTask(&fakeRecovery{task: mine, cancelled: true}, "app", "at-1", "o", nil); !c || kept != nil {
+		t.Errorf("cancelled: %v %v", c, kept)
+	}
+	if c, kept := recoverOwnTask(&fakeRecovery{task: mine, getErr: &aitask.Error{Code: aitask.CodeNotFound}}, "app", "at-1", "o", nil); c || kept != nil {
+		t.Errorf("no task: %v %v", c, kept)
+	}
+	other := mine
+	other.Owner = "x"
+	if c, kept := recoverOwnTask(&fakeRecovery{task: other}, "app", "at-1", "o", nil); c || kept != nil {
+		t.Errorf("another owner's task: %v %v", c, kept)
+	}
+}

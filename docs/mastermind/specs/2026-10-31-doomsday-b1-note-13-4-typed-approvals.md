@@ -1,6 +1,6 @@
 # B1 design note 13.4: typed approvals bound to the exact effect
 
-Status: **design note and test plan, revision 4, no code.** It closes contract 13.4 of
+Status: **design note and test plan, revision 7, no code.** It closes contract 13.4 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13). It depends on notes 13.1 (the gate and where an
 effect is "issued") and 13.5 (the sequence and the audit chain), and is written for the recommended defaults.
 Wording is class level: this repository is public.
@@ -27,7 +27,7 @@ entry dialog renders it in plain words ("any destination", "any path under the w
 | Operation id | Constraint fields | Matching semantics (canonical form) |
 |---|---|---|
 | `send.third_party` | platform (enum), account id (an account of the profile), destination set (explicit handles/addresses/domains, or a named class), count per run, content class | handles and addresses lowercased and normalised per platform; domains lowercased, converted to the ASCII form, matched exactly or by a registrable-domain suffix on a label boundary |
-| `vault.use` | secret names (explicit list), hosts the secret may be sent to | names exact and case-sensitive; hosts as above; a secret name outside the list is refused even if the line is ticked |
+| `vault.use` | secret names (explicit list), hosts the secret may be sent to, a **finite request budget** (`max_attempts`, counting every transport attempt and retry), a **length bucket size**, and at most one **predicate**, fixed at entry | names exact and case-sensitive; hosts as above; a secret name outside the list is refused even if the line is ticked |
 | `spend.grant` | targets (the sessions or roles that may receive), maximum per grant, run ceiling | integer micro-dollars only; the existing carve and ancestor bounds still apply (spec 4.3) |
 | `local.destructive` | path roots, verbs (delete, overwrite), count and bytes per run | roots resolved **at entry** to a directory identity (device and inode); a target is accepted only if it lies **beneath** a root, decided on the **open handle** (section 4A), never on a string; no pattern semantics beyond "under" |
 | `install.package` (**not enabled in B1**, section 4A) | manager (enum), package names, and a **version range as a constraint only** | exact name match; the version actually installed must lie in the range, and the approval binds one exact version and its integrity digest (section 3) |
@@ -147,7 +147,11 @@ revive or kill one.
      the not-revoked check and `current seq <= expires_seq`: both happen or neither.
    - For an **E1/E2/E3** effect, the order is fixed by note 13.1 revision 2: `Admit` → verify and
      re-canonicalise (steps 4.1-4.4) → `BeginStart` (the irrevocable fence on future creation; it refuses once
-     the gate is `CLOSING`) → **consume** (committed) → the start or the hand-over → `Started`. The consume is
+     the gate is `CLOSING`) → **consume** (committed) → the start or the hand-over → `Started`. **For an E3 ticket
+     the consume transaction is the registry write of note 13.1**: it writes the approval's consumed row, the
+     counter delta, the audit row **and** the registry row `started` in one transaction, so `STARTING` lasts for
+     that single bounded local transaction and note 13.1's definition (`STARTING` is only the registry write)
+     holds. For an E1 the consume commits before the held process is created. The consume is
      therefore after the fence and before the effect: an approval can never be spent by a start that Stop has
      already fenced, and a fenced ticket leaves the approval unspent. The consume transaction **also appends
      its audit row** (13.5), and the same not-revoked and `expires_seq` predicates are inside it. Named injection points: `consume.before`, `consume.committed`,
@@ -155,6 +159,42 @@ revive or kill one.
      effect, the approval is spent and the effect did not happen: that is the safe direction, and the agent
      must ask again.
    - Two concurrent presentations of one approval: the primary key admits one; the other gets a refusal.
+
+## 4B. Auto-approval inside the charter's per-ask limits (Q5, answered)
+
+The operator's answer to Q5: the boss **may auto-approve** a giant plan or a critical upward ask **inside
+charter-declared per-ask limits** (spec 3.1: `ask_spend_micro`, `ask_tasks`, `ask_access`, `ask_depth`);
+anything over parks as a person item. This note makes that path as strict as any other approval.
+
+- **Two operations on the allowlist:** `plan.approve{session, rev, digest, tasks, spend, access, depth}` and
+  `ask.answer{ask id, answer class}`. Their constraints are the per-ask limits; a charter without them enables
+  neither (default deny).
+- **The enforcement function re-derives the actual values** from the store at the effect (the plan's task
+  count, the carved spend and the cumulative committed spend, the access level, the depth), never from the
+  approval or from the agent, and refuses if **any** limit is exceeded. The plan digest and revision bind the
+  approval to the exact plan the boss saw; a plan that changed (`plan_changed`) voids it.
+- **Cumulative check.** The limits are also checked against the run's **running totals** of auto-approved spend
+  and tasks, so many small asks cannot add up to what one large ask would have been. (This is a design
+  requirement added here for review; the operator's answer says "per-ask limits".)
+- **The approval record carries the limits it was approved under** (`limit_id` and the values) and the actual
+  values checked, so the audit shows what the boss was allowed and what it was given.
+- **Atomicity of the cumulative check.** The totals are `run_counter_deltas` rows (insert-only); the
+  approval's consume does a **conditional insert `SUM(n) + n <= cap` in the same statement and the same
+  transaction as the consumed row, the audit row and, for an E4 effect, the effect**. Consequences, each a
+  test: **concurrent asks** racing the last unit (exactly the available units succeed); **many small asks**
+  crossing the cap (the crossing ask parks); a **split ask** (one big plan presented as several smaller ones
+  is counted as the sum); a **retry of the same ask** (same approval id; the consumed row's primary key makes
+  it a no-op, so it is not double counted); a **retry of a failed E4 effect** (the whole transaction rolled
+  back, so the counter is unspent); a retry after an E3 consume (the unit was spent at consume and is not
+  returned, the safe direction).
+- **Over a limit:** the request is not refused, it **parks** as a person item exactly as before, and the audit
+  records which limit it exceeded.
+- **Never widened by this path:** a plan whose approval would raise an access level above `ask_access`, grant a
+  credential, or change a never-liftable control (spec 4.2) is not auto-approvable at any value.
+- **Tests:** a plan just inside every limit is approved and audited; just over each limit parks (one test per
+  limit); a plan split into many small asks that cross the cumulative limit parks at the crossing; a plan that
+  changes between the boss's answer and the effect is refused; the approval record shows the limit values; the
+  limits of one run do not apply to another; a mutation test removes each limit check in turn.
 
 ## 4A. Performing the effect on the resolved handle
 
@@ -235,9 +275,58 @@ base64-encoded, percent-encoded, split across chunks or echoed in a header. So:
   receives **no header value, no body bytes and no field**: a header such as `Content-Type`, or a JSON field,
   can reflect the secret as easily as the body can. The earlier transforms that returned header values, field
   paths or capped text are **removed** for this operation;
-- **Residual, stated:** a destination that deliberately reflects the secret can still leak a few bits per
-  request through the status code, the length and the predicate. The `count per run` constraint bounds the
-  number of requests and so the bits; the audit row records each request. This is the only channel left;
+- **The result envelope is fixed and finite.** Whatever happens at the transport, the agent receives exactly
+  `{outcome, status, length_bucket, predicate}`:
+  - `outcome` is one of a fixed enum: `ok`, `transport-error`, `timeout`, `malformed`, `refused`. **No error
+    text, no parser or transport message, no reflected bytes** ever reaches the agent; the host logs the
+    details to its own audit row without any response bytes;
+  - `status` is an integer (0 when there was none); `length_bucket` is the body length **quantised into a
+    finite set of buckets** (below); and `predicate` is a boolean or `null` (no predicate declared, or no
+    body);
+  - **the length is capped and the buckets are finite.** The charter fixes at entry `bucket_size` (bytes, a
+    positive integer) and `bucket_count` (a positive integer, at most 16). The host reads **at most
+    `bucket_size × bucket_count` bytes** of the response body (a finite response-length cap); a longer body is
+    not read further. `length_bucket` is `min(ceil(read_bytes / bucket_size), bucket_count)`: the **top
+    bucket saturates** (every body at or above the cap reports `bucket_count`), and a zero-length body reports
+    `0`. So `length_bucket` takes at most `bucket_count + 1` values;
+  - **entry validation.** A charter is **refused at entry** unless `bucket_size`, `bucket_count`, the timing
+    `slot_size` (milliseconds) and `max_attempts` are all **positive, finite integers** within published
+    bounds (`bucket_size` ≥ 1 and ≤ 1 MiB, `bucket_count` 1 to 16, `max_call_ms` 1000 to 60000, `slot_ms`
+    100 to `max_call_ms`, `max_attempts` 1 to 1000), **and the derived `slots` (below) is at most 64**; zero,
+    negative, non-integer, `NaN`/infinite or out-of-range values do not parse, and **arithmetic is checked
+    before conversion** (a product such as `bucket_size × bucket_count` is computed in a wider type and
+    rejected on overflow, never wrapped) (spec 3.1: every constraint is typed and validated at entry);
+  - **the predicate is fixed at charter entry** (the marker or pattern is part of the hash) and cannot be
+    chosen by the agent or the boss per request.
+- **Retries and attempts are counted.** A **finite budget `max_attempts`** counts **every transport attempt,
+  including a retry**, across the run for this operation; the host does not retry on its own beyond it. When
+  the budget is exhausted the operation is refused (and parks nothing: it is a plain refusal).
+- **Timing: a finite maximum, an exact slot count, a defined release.**
+  - **The call duration is the charter's, never the caller's.** The charter fixes `max_call_ms` (validated
+    above). The wrapper imposes **exactly that** as the call's deadline (note 13.1); a deadline supplied by the
+    agent, the boss or the request is **ignored**.
+  - **The exact slot count.** With `slot_ms` fixed in the charter, the response time is rounded **up** to the
+    next slot boundary: `slot = ceil(response_ms / slot_ms)`, from 1 to `ceil(max_call_ms / slot_ms)`. A call
+    that reaches `max_call_ms` ends as `outcome = timeout` in the **last slot**. So
+    `slots = ceil(max_call_ms / slot_ms)`, a **constant fixed at entry** and at most 64 (6 bits per attempt).
+    The timing channel conveys at most `log2(slots)` bits per attempt, exactly.
+  - **What the agent observes at release.** One attempt is **in flight at a time per operation** (attempts are
+    serialised), so concurrent completions of one operation do not exist. The result of an attempt is released
+    **at the end of its slot**, and results are delivered to the agent **in attempt order** (a later attempt's
+    result is never delivered before an earlier one's, even if its slot ends first, which cannot happen with
+    serialised attempts but is asserted). Across operations, results are released in the order their
+    approvals were issued. The release time therefore reveals nothing beyond the slot number.
+- **The leak bound, stated and not zero.** A destination that deliberately reflects the secret can still
+  convey information through `outcome`, `status`, `length_bucket`, `predicate` and the timing slot. Over a run
+  it is bounded by `max_attempts × (log2 5 + log2 501 + log2 (bucket_count + 1) + log2 3 + log2 slots)` bits
+  (five outcomes, a status of 0 or 100-599, `bucket_count + 1` length values, a predicate of true, false or
+  null, and `slots`); with the maximum validated values that is about 23 bits per attempt and about 23 000
+  bits per run. **This is a bound, not a protection against a destination chosen to encode the secret:** the
+  destination is a host the operator approved to receive that secret, so the residual concerns a destination
+  that is itself hostile to the operator. It is stated, and the attempt budget is how an operator keeps it
+  small. The
+  note **does not claim that these are the only channels** in the sense of zero leakage; it claims the channels
+  are enumerated, finite and budgeted, and each attempt is an audit row.
 - the audit row records the name, host and request hash, never the value.
 
 ## 6. Backends and equivalent paths
@@ -281,12 +370,21 @@ the attempted ones, never secret values.
 | T5a | the name resolves to a public address at the check and to a private or metadata address at the dial (rebinding, pause at `effect.before-start`) | the dial uses the pinned set; refused |
 | T5b | the destination answers with a redirect to an internal address | not followed; refused and audited |
 | T5c | `send.third_party` with the approved destination and a different payload; `vault.use` with a different request | `args_hash` mismatch; refused |
-| T5d | `install.package` approved at version V with digest D; the registry now serves another digest | refused |
+| T5d | `install.package` is requested (class C2, **not enabled in B1**) | refused at the allowlist; the version-and-digest binding is specified for a later class only |
 | T5e | `vault.use` for a secret outside the session's agent-access level, line ticked, approval present | refused; no grant or level changes; the value never appears in any agent-visible output |
-| T5f | **positive path, against reflecting destinations:** an approved `vault.use` to fake servers that echo the secret (i) base64-encoded, (ii) percent-encoded, (iii) chunk-split, (iv) in a response header, (v) in `Content-Type`, (vi) in a JSON field | the server received the secret exactly at the injection point; the agent-visible result is **only** `{status: int, length: int, predicate: bool}` for every destination; a type-level test shows no other field can be returned |
+| T5f | **positive path, against reflecting destinations:** an approved `vault.use` to fake servers that echo the secret (i) base64-encoded, (ii) percent-encoded, (iii) chunk-split, (iv) in a response header, (v) in `Content-Type`, (vi) in a JSON field | the server received the secret exactly at the injection point; the agent-visible result is **only** `{outcome: enum, status: int, length_bucket: int, predicate: bool|null}` for every destination; a type-level test shows no other field can be returned |
+| T5f7 | **length cap and buckets, boundaries, `bucket_count >= 2`:** bodies of 0, 1, `bucket_size`, `bucket_size + 1`, `bucket_size × bucket_count`, and `bucket_size × bucket_count + 1` bytes and a far larger one (a sparse 1 GiB stream) | `0`, `1`, `1`, `2`, `bucket_count`, `bucket_count` (saturated), `bucket_count`; the host reads at most the cap (a counting reader shows no more bytes consumed) |
+| T5f7b | **`bucket_count = 1`:** bodies of 0, 1, `bucket_size`, `bucket_size + 1` and a far larger one | `0`, `1`, `1`, `1` (saturated), `1`; the cap is `bucket_size` |
+| T5f8 | **invalid constraints at entry, per field:** `bucket_size` 0, -1, 2^40, 1.5, `NaN`, `+Inf`; `bucket_count` 0, -1, 17, 2.5, `NaN`, `+Inf`; `max_call_ms` 0, 999, 60001, -1, 1.5, `NaN`, `+Inf`; `slot_ms` 0, 99, -1, 1.5, `NaN`, `+Inf`, and `slot_ms > max_call_ms`; `max_attempts` 0, -1, 1001, 1.5, `NaN`, `+Inf`; **numeric overflow:** `bucket_size = 2^40` with `bucket_count = 2^40` (the product overflows before any conversion); `max_call_ms = 60000` with `slot_ms = 100` (600 slots, over 64) | each charter is refused at entry with the field named; nothing is stored; no arithmetic wraps |
+| T5f9 | **the caller supplies a deadline** (a request that asks for a 1 h deadline) | ignored; the wrapper's deadline is `max_call_ms` |
+| T5f10 | **timing slots (injected clock):** responses at 1, 99 and 100 ms with `slot_ms = 100`; a response at `max_call_ms`; two attempts in sequence | slots 1, 1, 1 (then 2 at 101 ms); the last slot is `timeout`; results are released at the slot boundary and in attempt order |
+| T5f3 | **reflecting failures** (a fake transport that returns the bytes directly, no network): a destination returns a malformed response whose bytes (and the resulting parser or transport error text) contain the secret; one that resets the connection with the secret in a banner | the agent-visible result is the fixed envelope with `outcome = malformed` or `transport-error`; **no error text** and no reflected byte appears anywhere agent-visible (a type-level test shows `outcome` is an enum) |
+| T5f4 | **delays** (deterministic: an injected clock and a fake transport that blocks on a barrier the test releases; no real sleeps): a destination delays its response by an amount derived from secret bits | the result is released at the quantised slot; two different delays within one slot are indistinguishable; the wrapper's maximum duration cuts off the rest |
+| T5f5 | **retries and the budget** (deterministic: a fake transport that fails on the first call and a barrier between attempts): a destination that fails transiently; `max_attempts = 3` | at most 3 transport attempts in total across the run (the retry counts); the next request is refused; an audit row per attempt |
+| T5f6 | a `length` of 1, 2 and 3 bytes with a bucket size of 1 KiB; a `predicate` supplied per request instead of at entry | the same `length_bucket`; the per-request predicate is refused (it must be fixed at entry) |
 | T5f2 | the host-evaluated predicate on a body that contains the secret | the boolean is returned, never the body or a match position |
 | T5g | the approved request with an extra header added at the effect | `args_hash` mismatch; refused |
-| T5h1 | **C1:** content or attachment bytes on the source path changed after the hash was taken (pause at `effect.before-start`) | the effect sends the sealed, verified bytes, unaffected; the sent hash equals `args_hash`; a write to the sealed descriptor fails |
+| T5h1 | **C1:** (a) **sealing is asserted to have succeeded before the hash is taken** (the seals are read back and the hash is refused otherwise); (b) content or attachment bytes on the source path changed after the hash was taken (pause at `effect.before-start`); (c) a same-user process tries to **write through a writable mapping** or to reopen the descriptor (`/proc/<pid>/fd/<n>`) for writing | (a) no hash without seals; (b) the effect sends the sealed, verified bytes, unaffected, and the sent hash equals `args_hash`; (c) the mapping and the reopen fail; a write to the sealed descriptor fails |
 | T5h2 | **C2:** an `install.package` or a browser-driven send is requested | refused at the allowlist: the operation is not enabled in B1 |
 | T5i | proxy environment variables set; an IPv4-mapped IPv6 address of a private range | the proxy is ignored; the mapped address is refused |
 | T5j | `overwrite` with a different content hash; `O_TRUNC` ordering (truncate before the identity check) | refused; truncation only after the checks, on the verified descriptor |
@@ -319,11 +417,12 @@ the attempted ones, never secret values.
 
 ## 9. Branch points that depend on the operator's answers
 
-- **Q3/Q6 (boss and verifier identity).** The approval records the pinned boss identity; if the operator
-  chooses a different pinning policy only that field's meaning changes.
-- **Peer binding (Q7 and the token work).** This note is written for a bearer token (today). If the operator
-  requires process-level caller binding before the mode ships, the enforcement function adds the process check
-  and the limit in section 5 goes away; no record change.
+- **Q3/Q6, answered (boss and verifier identity pinned).** The approval records the pinned boss identity.
+- **Peer binding (Q7, answered: no special isolation, and the token work).** This note is written for a bearer
+  token (today). Process-level caller binding is not required by the operator's answer to Q7; if the peer
+  binding later issues tokens, the enforcement function adds the process check and the limit in section 5
+  goes away; no record change.
+- **Q5, answered: auto-approval inside per-ask limits** (section 4B).
 - **Per-operation human confirmation.** The stronger alternative for some operations (a person confirms each
   one) defeats the point of the mode for those operations; it is available per operation as "never liftable",
   not as a second path.
@@ -332,8 +431,8 @@ the attempted ones, never secret values.
 
 - The unexported `Approved` type can be forged by a zero value in the same package, so the **inventory test is
   the guarantee**, the type is a speed bump.
-- **Browser-driven sends** (a page in the extension's browser) have no dial the host can pin; the approval
-  binds the destination at the page level and no network-level claim is made.
+- **Browser-driven sends** (a page in the extension's browser) are class C2 and **not enabled in B1** (section
+  4A); there is no page-level approval in B1.
 - **Registrable-domain suffix matching** must use the public suffix list **including its private section**
   (so a name on a shared host is not "the same domain" as another tenant); a name the list does not know is
   matched exactly only.
@@ -375,7 +474,7 @@ the attempted ones, never secret values.
 Two P1 items were open in revision 3. They are closed in this revision and await a P1-only delta review.
 
 1. **P1: the secret-never-leaves claim held only for `status-only`.** Closed: `vault.use` is restricted to
-   `status-only` with host-computed results (an integer status, an integer length, a charter-declared boolean
+   `status-only` with host-computed results (an integer status, a **bucketed** length, a charter-declared boolean
    predicate); header values, body bytes and fields are never returned; the residual side channel is stated
    and bounded by the count per run; test T5f runs against six reflecting destinations and a type-level test
    shows no other field exists (section 5A).
@@ -386,28 +485,63 @@ Two P1 items were open in revision 3. They are closed in this revision and await
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
 
-### 12.1 Remaining after the delta review of revision 4 (recorded verbatim)
+### 12.0 Closed in revision 6
 
-Two **P1** items and the P2s below are **open in this revision**. Each must be resolved in a later revision
-before any code in the area lands (spec section 13 gate). Sealing for class C1 was **accepted** by the review
-(F_SEAL_WRITE plus the other seals, applied before hashing).
+The delta review of revision 5 found a missing response-length cap, unvalidated constraint values, and a stale
+result type. Closed: a finite response-length cap with a saturating top bucket and an explicit bucket count
+(section 5A; T5f7), validation of `bucket_size`, `bucket_count`, `slot_size` and `max_attempts` at entry
+(T5f8), the result type in T5f corrected to `{outcome, status, length_bucket, predicate}`, and deterministic
+clocks and barriers for T5f3-5.
 
-1. **P1: the leakage bound has no `vault.use` request count.** The count constraint belongs to
-   `send.third_party`; a charter can approve repeated uses and collect unbounded status, length and predicate
-   observations, and `length` as an unrestricted integer can encode a secret in one response. Fix: a finite
-   `vault.use` **request budget counting actual transport attempts and retries**, a **length cap or
-   quantisation into buckets**, a **predicate constrained at charter entry**; tests for the limits and the
-   retries.
-2. **P1: "these are the only channels" is false.** A reflecting destination can choose a **response delay** by
-   secret bits, or produce a **malformed response** whose transport or parser error includes reflected bytes;
-   retries multiply observations. Specify the **error and result envelope** (sanitised failure results), a
-   **timing limit or a narrowed claim**, and tests for reflecting failures, delays and retry accounting (T5f
-   is success-only).
-3. **P2:** T5h1 should assert that **sealing succeeded before hashing** and try a same-user writable mapping.
-4. **P2:** section 9A still describes browser-driven sends with page-level approvals, and T5d an approved
-   package install, although class C2 is disabled.
-5. **P2:** this note holds an E3 ticket `STARTING` across the approval consume, while note 13.1 says
-   `STARTING` is only the registry write; reconcile the two.
-6. **P2:** note 13.5's torn-`committed` recovery still says `n+1`, against the batch rule `n+k`.
+### 12.1 Closed in revision 5
 
-Further review rounds resume after the operator answers the open questions (spec section 12.5).
+Two P1 items and the P2s were recorded after the delta review of revision 4. They are closed in this revision
+and await a P1-only delta review.
+
+1. **P1: the leakage bound had no `vault.use` request count.** Closed: a finite `max_attempts` budget counting
+   every transport attempt and retry, the length quantised into buckets fixed at entry, and a predicate fixed at
+   entry (sections 2 and 5A; T5f5, T5f6).
+2. **P1: "these are the only channels" was false.** Closed: the claim is withdrawn and replaced by an enumerated,
+   finite, budgeted bound; a fixed result envelope with an enum outcome and no error text; quantised timing
+   slots (section 5A; T5f3, T5f4).
+3. **P2s:** T5h1 now asserts sealing before hashing and tries a writable mapping and a reopen; the stale C2 text
+   in section 9A and in T5d is fixed; the `STARTING`-across-consume mismatch with note 13.1 is reconciled (the
+   E3 consume is the registry write, section 4); the `n+1` versus `n+k` item belongs to note 13.5.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.2 Closed in revision 7
+
+The items recorded after the delta review of revision 6 are closed in this revision and await a P1-only delta
+review.
+
+1. **P1: the timing bound had no established maximum.** Closed: the charter fixes a validated `max_call_ms`
+   (1000 to 60000) and a `slot_ms`, the wrapper's deadline is the charter's and the caller's is ignored, the
+   slot count is the constant `ceil(max_call_ms / slot_ms)` (at most 64, validated at entry), and the
+   release rule is defined (end of slot, attempt order, serialised attempts) (section 5A; T5f9, T5f10).
+2. **P2: `bucket_count = 1`.** Closed: T5f7 states `bucket_count >= 2` and T5f7b covers 1.
+3. **P2: the T5f8 gaps.** Closed: infinity, `NaN`, per-field non-integer and negative cases, and numeric
+   overflow before conversion (T5f8).
+4. **P2: provisional text.** Closed by the merged answers PR (#1285); this note carries no provisional
+   recommendation.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.3 Remaining after the delta review of revision 7 (recorded)
+
+Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
+be resolved before any code in the area lands (spec section 13 gate). The items are recorded from the
+coordinator's summary of the reviewers' findings; the elaboration in each item is the author's, and the
+reviewers' own text is in the review report.
+
+1. **P1: the cross-operation release rule is undefined.** Section 5A says results across operations are
+   released "in the order their approvals were issued", but an earlier approval that **never starts or is
+   cancelled** would block every later release, and the ordering itself is an observable wait. Required: define
+   a **cross-operation release protocol** (or drop the ordering requirement) that accounts for **all
+   observable waits**, including an earlier approval that never starts or is cancelled.
+2. **P1: the observation model is not stated.** Required: state the **observation model** honestly, with
+   **cancellation and error delivery** and **scheduler jitter**, and a **justified bound** on what a destination
+   can convey through them (a call cancelled by `Stop`, a host that is slow to release at a slot boundary);
+   tests for **concurrent operations, cancellation and jitter**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.

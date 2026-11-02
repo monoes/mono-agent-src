@@ -193,8 +193,10 @@ func (d Deps) callerFor(as string) Caller {
 	marker := d.agentContextMarker()
 	// A task binding is itself an agent marker, including a damaged binding:
 	// losing the usual runtime marker must not turn a worker into the operator.
+	// So is the coder-session token: a process that holds it is a lead's, and the
+	// lead is an agent that names itself (session approve checks the token itself).
 	if marker == "" {
-		for _, key := range []string{boundSessionEnv, boundTaskEnv, agenttokens.EnvMissionToken} {
+		for _, key := range []string{boundSessionEnv, boundTaskEnv, agenttokens.EnvMissionToken, coderhost.SessionTokenEnv} {
 			if strings.TrimSpace(d.Getenv(key)) != "" {
 				marker = key
 				break

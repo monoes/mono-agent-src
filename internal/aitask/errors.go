@@ -5,7 +5,10 @@
 // live in internal/cli/aitask.
 package aitask
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Error codes a caller can branch on (Contract A).
 const (
@@ -24,6 +27,7 @@ const (
 	CodeContextSource      = "context_source_refused"
 	CodeUnattendedNoJail   = "unattended_not_confined"
 	CodeNoBudget           = "no_budget"
+	CodeBudgetExceeded     = "budget_exceeded"
 	CodeContextChanged     = "context_changed"
 	CodeCapsChanged        = "capabilities_changed"
 	CodeAccessRaised       = "access_above_kind"
@@ -46,3 +50,15 @@ func errf(code, format string, a ...any) *Error {
 
 // BudgetHint ends every no_budget refusal at start: where a budget is set.
 const BudgetHint = "set a budget in Settings > AI task budgets or run: monoagentcli aitask budget set --scope global --usd USD (operator only)"
+
+// budgetHold marks an Admit refusal that is the budget's: the task stays queued to be started later. Any other
+// admission error (an unenforceable runtime, a database error) is a failed start.
+type budgetHold struct{ error }
+
+func (e *budgetHold) Unwrap() error { return e.error }
+
+// IsBudgetHold says whether err is a refusal for want of budget (no cap set, or the cap is used up).
+func IsBudgetHold(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && (e.Code == CodeNoBudget || e.Code == CodeBudgetExceeded)
+}

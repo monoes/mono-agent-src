@@ -1,6 +1,6 @@
 # B1 design note 13.5: anti-replay, freshness and the single host
 
-Status: **design note and test plan, revision 4, no code.** It closes contract 13.5 of
+Status: **design note and test plan, revision 7, no code.** It closes contract 13.5 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults (Q8: one host only).
 Alternatives that depend on an unanswered question are listed in section 10. Wording is class level: this
 repository is public.
@@ -23,7 +23,7 @@ outcome:
 ## 2. Primitives
 
 - **One transition sequence per generation.** Every row of the chained stream has `seq`, a per-generation
-  integer that increases by exactly 1 per committed transition **across all the streams together**: the run
+  integer that increases by exactly 1 **per row** (a transition of k rows takes k consecutive seqs) **across all the streams together**: the run
   row, registry transitions, audit rows, and the approval, consumption, revocation and counter rows of note
   13.4. It also has a `prev` field: the MAC of the previous row. The MAC covers `(profile, generation, seq,
   prev, fields)`, so the rows form a **hash chain**; removing, reordering or replacing a row breaks it. The
@@ -31,6 +31,7 @@ outcome:
   generation per profile**, and a whole newer generation dropped from the database is caught only by the
   counter, the witness and the anchor (below).
 - **A witness.** A small append-only file in the run directory, mode 0600, independent of the database file.
+  Its records are **self-delimiting and resynchronisable** (section 4A).
   Its line format is `<payload> <MAC>` where the MAC (a key derived from the vault key) covers the payload and
   the previous line's MAC, so a torn, edited or truncated line is detectable (section 4A).
 - **An anchor in the OS secret store.** The store that already holds the vault key keeps one small item per
@@ -101,25 +102,79 @@ registration, in any process**, not only at host start:
   (released at once)**; if
   no live host holds it, no admission or registration is allowed (an outside dispatcher cannot register, the
   CLI cannot admit work). Stop is exempt (section 6): it acts with no host;
-- **file identity, and why it is path-level for the database:** SQLite owns the descriptors of the database,
-  journal and write-ahead-log files, so the process cannot compare `fstat` on them. Instead:
-  1. the process **records the `(device, inode)` of the database file path once per host life**, when it first
-     opens it under `host.lock`;
-  2. at **every transition and every admission** it compares `stat(path)` with the recorded identity; a
-     difference (the file was renamed over, restored or swapped) **fails closed**, even though its own pooled
-     connections still read the old inode;
-  3. **every connection the pool opens or reopens** is checked against the recorded identity before use, and a
-     connection to a different identity is **refused and closed**;
-  4. **WAL mode is pinned**: each new connection sets and verifies `journal_mode=WAL` and refuses to proceed
-     otherwise, so the rollback-journal case (a different set of sibling files) does not arise;
-  5. the `-wal` and `-shm` files are **not identity-checked** (SQLite creates and removes them legitimately);
-     a swapped sibling shows up as a head that disagrees with the witness (rows 4-6), and that is the
-     defence.
+- **File identity, bound to the files the process actually holds open.** SQLite owns the descriptors of the
+  database, the write-ahead log and the shared-memory file, but on Linux (the only supported system) the
+  process can see them in `/proc/self/fd`. The check runs at **every transition and every admission, in every
+  process**, and **right after every connection is opened or reopened**:
+  1. **Associating each descriptor with its logical file, including a moved one.** For every entry of
+     `/proc/self/fd`, take `readlink`. A replaced or moved file resolves to its **original path followed by
+     ` (deleted)`**; the check strips that suffix to get the **logical path** and classifies the descriptor
+     (main database, `-wal`, `-shm`, `-journal`, witness, `host.lock`) by the logical path. A descriptor whose
+     link ended in ` (deleted)`, or whose `fstat` identity differs from `stat(logical path)`, or whose path no
+     longer exists, is a **swapped file: fail closed**. The suffix test is only a hint; the **identity
+     comparison is the test** (a legitimate file whose name happens to end in ` (deleted)` is compared by
+     identity, not by name);
+  2. **fail if an expected descriptor cannot be identified.** The host keeps the **expected set** for its
+     open connections: while any connection is open, the main database must have at least one descriptor, and in
+     WAL mode `-wal` and `-shm` must too. If an expected logical file has no identifiable descriptor, or a
+     descriptor cannot be read (`readlink` or `fstat` fails), the check **fails closed** rather than passing by
+     omission;
+  3. **how the host finds the descriptors of its own connection:** by **identity at pin time** (the
+     descriptors whose `fstat` equals the bracketing `stat` of the main file, `-wal` and `-shm`), **not** by a
+     before/after difference of the descriptor set (see the binding below);
+  4. the **main database file** must match the identity **recorded once per host life** and **recorded in the
+     witness** as a `dbid` record (written under `witness.lock`); another process compares its own opened
+     descriptor with the witness's latest `dbid` and refuses on a difference: this is the **cross-process
+     hand-off**, carried in the witness, never in a variable;
+  5. the journal mode is pinned (`journal_mode=WAL`, verified on every connection) so the set of sibling files
+     is fixed.
 
-  For the **witness** and **`host.lock`**, which this code opens itself, the process compares
-  `fstat(open descriptor)` with `stat(path)` on `(device, inode)` at every transition and admission and fails
-  closed on a difference. A host that keeps a handle to a swapped witness cannot keep admitting, and a CLI that
-  opens the restored database by path finds the head behind the witness.
+- **The binding: chained state lives only on a pinned connection whose files are identified at pin time.**
+  The descriptor checks above are **detection**. The **binding** is the following, and it is what makes a swap
+  between checks harmless.
+  1. **One pinned connection per process, for all chained tables.** The host keeps one pinned connection open
+     for its life; **every read and write of the chained tables goes through it and no pooled connection
+     touches them** (an API that takes the pinned connection enforces this, and the inventory test scans for
+     chained-table access outside it). A short-lived process (the CLI) pins its own connection for its
+     operation. The pool may open and close other connections for non-chained tables; the pinned one is never
+     the last to close during a host life, and the host performs no checkpoint-and-close.
+  2. **The pinning protocol**, under `host.lock` and `witness.lock` where they apply: (a) `stat` the database
+     path → identity `I0`; the host writes `I0` to the witness as `dbid`, and any other process compares its
+     own `I0` with the witness's latest `dbid` and refuses on a difference (the **cross-process hand-off**);
+     (b) open the connection, set and verify `journal_mode=WAL`, and **force the sibling files open** with a
+     read transaction and a trivial write transaction, so `-wal` and `-shm` are never opened lazily later;
+     (c) `stat` the database path again → `I1`, and `stat` the `-wal` and `-shm` paths → `W`, `S`; require
+     `I0 = I1`; (d) scan `/proc/self/fd` and **identify the connection's descriptors by identity**: those whose
+     `fstat` equals `I1`, `W` and `S`; require each of the three to be found at least once. Anything else
+     **fails closed**. The path identity is the same before and after the open and the descriptors match it,
+     so the connection holds exactly the files that were checked. The descriptors are identified **by
+     identity at pin time, not by a before/after difference of the descriptor set**, so shared or lazily
+     opened descriptors cannot be missed (all three files were forced open).
+  3. **A swap between checks cannot redirect the transaction.** After pinning, the connection operates on its
+     **descriptors, not on paths**: a rename or swap of a path cannot make it read or write another file. A WAL
+     renamed away with another WAL placed at its path, or a file swapped and restored between two checks,
+     changes **nothing the connection does**; SQLite does not re-open the siblings while the connection is
+     open. The next check compares `fstat(descriptor)` with `stat(path)` and fails closed on any divergence.
+     A rename to another name **without an unlink** is covered because the comparison is by **identity**, not
+     by the ` (deleted)` suffix.
+  4. **A swap's result is never accepted.** After a permanent swap (even one landing after the post-commit
+     check and before the witness append), the pinned connection keeps writing to the original file and the
+     witness records those commits. A process that opens the database **by path** sees the other file, whose
+     head is behind the witness: rows 4 and 5 fail it closed. No process can admit work on the swapped file,
+     and the pinned host's own next check fails closed.
+  5. **Lifecycle and hand-off.** At an orderly exit the pinned connection closes: SQLite checkpoints and may
+     remove `-wal` and `-shm`; the main file keeps its inode and the witness keeps `dbid`. A later **no-host
+     CLI Stop** pins its own connection by the same protocol and compares `I0` with `dbid`. **Another process
+     that writes or checkpoints** (`wal_checkpoint`) while the host runs changes content in place, not
+     identity: the pinned descriptors stay valid and the chained head moves only through the sequencer.
+  6. **Stated limit:** a same-head in-place replacement that differs only in non-chained tables is not
+     detected (T43).
+  The three checks around the transaction (before `BEGIN`, before `COMMIT`, after `COMMIT` and before the
+  `committed` line) **remain as detection** (T40b-d); they are no longer what binds the transaction to the
+  files.
+
+  For the **witness** and **`host.lock`**, which this code opens itself, the same `fstat(descriptor)` against
+  `stat(path)` comparison applies at every transition and admission.
 
 **What Stop writes when freshness fails.** Stop is never blocked by a failed freshness check, but it does not
 add rows to a chain it cannot trust. It writes: the **marker**; the **token revocation** (the token tables,
@@ -135,6 +190,22 @@ the admission point.
 
 Run on every host start before any work is admitted, on every `doomsday status`, and inside the critical
 section of section 3A.
+
+**The decision procedure.** The rows below are **outcomes**; they are reached in **phases, in this order**, and
+a failure in an earlier phase ends the evaluation. **Row 1 is reachable only in phase 4, after phases 1-3 have
+passed**, so a consistent head can never mask a pending transition, an ending transition, or an anchor that
+says otherwise.
+1. *Witness integrity.* Missing, unreadable, or a damaged chain → row 7.
+2. *Ended and anchor consistency.* The witness says ended while the database says `running` → row 8; the
+   anchor newer or ended → row 9; the anchor missing for an anchor-bound run → row 11; the anchor unreadable →
+   row 10 (hold). `anchor-bound: no` → row 12 (the weaker note, then continue).
+3. *Pending.* If the **last complete authenticated record** is a `pending` with no `committed` after it,
+   classify **by `D` alone**: rows 2, 2e or 3, and rows 4, 5, 6 or 13 when `D` matches none of them.
+4. *Steady state.* If the last complete record is a `committed`: `D.seq` equal and the MAC equal → **row 1**;
+   `D.seq` equal and the MAC different → row 6; `D.seq` lower → row 4; higher → row 5.
+5. *Anything else* → row 13.
+Rows 1 and 6 differ only by the head MAC; row 3 (a complete authenticated `pending` that the database agrees
+with) is decided in phase 3, before row 5 can apply.
 
 | # | Situation | Reading | Action |
 |---|---|---|---|
@@ -157,20 +228,41 @@ section of section 3A.
 ended (13.2), the pane says what was detected. It never means "behave as an ordinary session": lost
 authority blocks execution.
 
-### 4A. The witness line framing
+### 4A. The witness record framing (crash-safe by construction)
 
-Each line is `<payload> <MAC>`, the MAC over the payload and the previous line's MAC. A **torn final line** is
-read as absent **only** if it is the last line: a torn `pending` is row 2, a torn `committed` is row 3
-(derived from `D`) **only if `D` agrees** (`D.seq = n+1` and the MACs match); a torn `committed` line that the database contradicts (`D.seq = n`) is row 13. Any other damage (a bad MAC mid-file, a torn line that is not last) is row 7.
+**Framing.** A record is `SYNC | len | payload | MAC`, with `SYNC` a fixed 8-byte marker, `len` a fixed 4-byte
+length, and `MAC` 32 bytes over **`len || payload`**. The payload carries its **type**, its seq range and its
+own **`prev`** (the MAC of the record its writer saw last), so a record's authenticity does not depend on the
+reader's position. A record is **good** if its MAC verifies; it is **chaining** if its `prev` equals the last
+good record's MAC.
 
-**Append-only repair of a torn tail.** Appending after a torn final line would glue the next line onto the
-fragment. So before any writer appends, under `witness.lock`, it **repairs**: it appends a newline and then a
-`sealed <torn_length> <MAC>` line, where `torn_length` is the number of bytes between the end of the last good
-line and the end of the file, and the MAC chains from the **last good line**. Readers skip exactly
-`torn_length` bytes after the last good line. The file stays append-only (nothing is truncated or edited). The
-repair is **idempotent**: a crash during it leaves either a bare newline (the next writer appends the `sealed`
-line, with `torn_length` measured from the last good line) or a torn `sealed` line (treated as a new torn tail
-and sealed in turn).
+**Reading and resynchronisation.** The reader walks the file from the last good record. If the bytes that
+follow are not a good record, it **scans forward for the next `SYNC`** and accepts a record there only if it is
+good **and chaining**. Everything skipped is a *torn fragment* and
+carries no meaning. A fake `SYNC` inside a fragment fails the MAC and the chain test and is skipped in turn.
+
+**Consequence: no repair step.** A torn tail needs no repair record, and appending after it is safe, because
+the next good record begins with its own `SYNC` and chains from the last good record, whatever bytes lie
+between. The rule is therefore **idempotent by construction**: a crash at any byte offset of an append leaves a
+fragment that is skipped on the next read, and a crash during the next append does the same. Nothing is
+truncated or edited.
+
+**What a torn record means.**
+- A **torn `pending`** is *absent* (it was never complete, so step 5 of the sequencer never ran): the state is
+  row 1, not row 2. **Row 2 requires a complete, authenticated `pending`.**
+- **A torn or missing `committed` is classified from `D`, never from the fragment.** After a complete
+  authenticated `pending` (phase 3), whatever follows it (nothing, a prefix of `SYNC`, a partial header, a
+  partial `committed`) is **the same state**: *a `pending` without a `committed`*. It is then rows 2, 2e or 3
+  by `D` alone (`D.seq = n` → row 2 or 2e; `D.seq = n+k` with the MACs matching → row 3). There is no
+  "torn committed" outcome that depends on how many bytes were written, and a partial header is never
+  trusted to say what record type it begins.
+- **A record whose MAC verifies but that does not chain from the last good record is never accepted as a
+  continuation and never silently skipped.** If its `seq` is not greater than the last good `seq` it is a
+  **replayed** record; if it leaves a gap it is a **fork or a deletion**; either way the file is classified
+  damaged (row 7). The framing's `SYNC` marker is a per-file random 8-byte value written in a file header (so
+  a marker found in a fragment cannot be guessed), and the header itself is authenticated.
+- A bad record that is **followed by a good record that does not chain from the last good one** is damage
+  inside the chain, not a torn tail: row 7.
 
 ## 5. The anchor, entry, and what a restore can and cannot do
 
@@ -289,7 +381,14 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T18 | the database file swapped under a **running** host | the next admission fails closed (3A) |
 | T19 | an outside dispatcher registers after a restore with **no host** running | refused (no live host holds the lock, or the head is behind the witness) |
 | T20 | a source scan: no ordering or freshness path reads a clock; a clock moved back and forward around a transition | no effect |
-| T21 | a torn final witness line (pending, then committed), **then another writer appends**; a crash during the repair; a torn `sealed` line; a torn line mid-file | the repair appends a newline and a `sealed` line recording the torn length, the next line frames cleanly, readers skip the torn bytes, the repair is idempotent; a torn `pending` is row 2, a torn `committed` is row 3 (when the database agrees); mid-file damage is row 7 |
+| T21b | **every byte offset of the `committed` record, in both database states** (`D.seq = n` and `D.seq = n+k`), including only a prefix of `SYNC`, a partial header and a partial payload | the classification is **identical at every offset** for a given `D`: row 2/2e for `D.seq = n`, row 3 for `D.seq = n+k`; never row 13 for a torn `committed` alone |
+| T45 | **swap and restore between two checks**: rename the WAL away, put another WAL at its path while the pinned connection is running, restore the original before the next check; and a **lazy sibling open** schedule (a connection that opens `-wal` only on its first read) | the pinned connection's transactions are unaffected (they use its descriptors); the sibling descriptors were forced open at pin time; the next check compares by identity and fails closed on any divergence; nothing is accepted on the replacement |
+| T46 | a **permanent swap after the post-commit check and before the witness append** | the commit is on the original file and the witness records it; a process opening by path sees a head behind the witness and fails closed (rows 4/5); the host's next check fails closed |
+| T47 | descriptors **shared** with another component of the process, and descriptors opened lazily after pin time (a defect injected) | identified by identity at pin time; an unexpected extra descriptor on a swapped file fails the check; nothing is missed by a before/after difference |
+| T48 | **another process writes and runs `wal_checkpoint(TRUNCATE)`** while the host transitions | the pinned descriptors stay valid; the chained head moves only through the sequencer; no false fail-closed and no missed swap |
+| T49 | **orderly host exit, then a no-host CLI Stop** (the last close checkpoints and removes the siblings) | the CLI pins its own connection by the protocol, compares `I0` with `dbid`, and writes the Stop; a database whose inode differs from `dbid` fails closed |
+| T50 | a decision-procedure matrix: each phase-3 and phase-4 situation crossed with each phase-2 anchor/ended state | the first failing phase decides; row 1 is never returned while a pending, ending or anchor failure exists |
+| T21 | **truncate the witness at every byte offset of an append**, re-open, append another record, re-read; fake `SYNC` markers inside the fragment; a partial record followed by a valid one; a torn `pending`, a torn `committed` | the reader returns exactly the good records, the fragment is skipped, the next record chains from the last good one, the result is the same at every offset (idempotent); a torn `pending` is row 1, a torn `committed` is row 3 when `D` agrees; a bad record before a non-chaining good one is row 7 |
 | T22 | replace `host.lock` or the run directory while the host runs; a child that inherited the lock fd | the inode check fails closed; the launcher leaves no inherited lock descriptor |
 | T23 | host id hand-off after an orderly shutdown, and after an unclean loss | adoption only in the first case, conditional on the old id and the clean record |
 | T24 | a state combination matching no row | row 13: fail closed |
@@ -297,11 +396,19 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T26 | the headless case: no secret service at entry | the run is `anchor-bound: no`; the dialog says so; rows 1-8 decide |
 | T27 | Stop writes a column outside its list | refused by the conditional write |
 | T17b | writer A commits and is paused before step 6 (`committed`); writer B starts | B waits on `witness.lock` (bounded) and cannot append `pending n+2` into the window; the line-MAC chain has no fork; after A releases, B re-reads the head |
+| T40b | a rename of the database at `db.before-begin` | the pre-`BEGIN` check fails closed; no transaction |
+| T40c | a rename at `db.before-commit` | the pre-`COMMIT` check rolls back and fails closed |
+| T40d | a rename at `db.after-commit` (before `committed` is appended) | the post-commit check fails closed; `committed` is **not** appended; the transaction is on the checked (old) file |
+| T42 | a file whose name ends in ` (deleted)`; a replaced file whose link reads `… (deleted)`; an expected `-wal` descriptor that is missing while a connection is open; a descriptor that cannot be read | the first passes (identity equal); the second fails closed; the third and fourth fail closed (cannot be identified) |
+| T43 | the pinned connection: the pool tries to close its last connection; an in-place overwrite of the database file by a copy with the same head | the pool refuses to close the last one; the in-place overwrite with the same head is not detected, and the test records that this is the stated limit |
+| T44 | a record with a valid MAC that does not chain (an older record re-appended; a gap) | never accepted as a continuation, never skipped silently; the file is classified damaged (row 7) |
+| T40 | a rename **between SQLite's open and our check** (pause at `db.after-open`, before the check) | the check compares the opened descriptor with the path and the recorded identity and fails closed |
+| T41 | a CLI process opens the database whose identity differs from the witness's latest `dbid` | refuses |
 | T38 | a **k-row** transition (k = 3: a run row, a registry row, an audit row): crash after row 1, after row 2, after row 3 before `COMMIT`, and after `COMMIT` before `committed` | the first three are a rollback (`D.seq = n`, row 2); the last is row 3 with the **final** seq and head MAC; a database whose seq lies strictly between `n` and `n+k` fails closed (row 13) |
 | T39 | the `pending` line carries `rows=k` and `kind`; a `committed` line whose final seq or head MAC does not match the rows | not accepted; fail closed |
-| T29 | the database file renamed over by a restored copy while the host runs | the next transition or admission compares `stat(path)` with the recorded identity and fails closed; the host does not keep admitting on the old inode |
-| T30 | the database renamed over, then a **forced pool reopen** (close all pooled connections, open a new one) | the new connection is checked against the recorded identity and **refused**; WAL mode is verified on every new connection |
-| T30b | the `-wal` file swapped under the host | no identity check on it by design; the head disagrees with the witness at the next transition and fails closed |
+| T29 | the database file renamed over by a restored copy **while the host holds it open** | the next transition or admission finds a descriptor whose `fstat` differs from `stat(path)` (or the path is gone) and fails closed |
+| T30 | the database renamed over, then a **forced pool reopen** (close all pooled connections, open a new one) | the new connection's descriptor is checked against the recorded `dbid` and **refused**; WAL mode is verified on every new connection |
+| T30b | the `-wal` file renamed over **with descriptors open**, and again **after a reopen** | with descriptors open: the `/proc/self/fd` check fails closed (the descriptor's `stat(path)` differs); after the reopen: the sibling's new identity is recorded only if no descriptor held it before, and a swapped content shows as a head that disagrees with the witness |
 | T31 | the witness renamed over by an older copy while the host runs | fails closed (identity mismatch, then row 5) |
 | T32 | CLI Stop after the database was restored (freshness failed) | writes the marker, the token revocation, the unit kill and a `failed <row>` witness line; **no chained database row** |
 | T33 | entry: the lock order and the `max(counter, witness, anchor)+1` rule under the write lock; anchor write fails at step 1 | `anchor-bound: no` is what the `pending(entry)` line records; no reused number after a crash between steps |
@@ -309,7 +416,7 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T35 | the probe racing a host's start | the host's bounded retry succeeds; no spurious "another host" |
 | T36 | a torn `committed` line while the database says `D.seq = n` | row 13: fail closed |
 | T37 | row 2 with a database head MAC that differs from the pending line's `prev` | not row 2; fail closed |
-| T28 | mutation proof, **one per row and per guard**; also removing the batch comparison of final values (T38), the `sealed` repair (T21), the path-identity compare of the database (T29), the pool-reopen check and the WAL pin (T30), and removing the `witness.lock` span (steps 3-6), the lock order, the `abandoned`-before-`pending` rule, any one of the file-identity comparisons (database, journal/WAL, witness, `host.lock`) | removing: each table row's check (1-13); the `UNIQUE(generation, seq)` constraint; the `prev` condition; the witness-tail check in 3A; the live-host probe; the host-id condition; the lock-inode comparison; the anchor comparison; the entry `max(...)+1` rule; the marker's generation test, each fails a named test |
+| T28 | mutation proof, **one per row and per guard**; also removing the batch comparison of final values (T38), the resynchronisation rule (T21: the chain test on the next good record), the descriptor-versus-path comparison (T29, T30b), the `dbid` comparison (T30, T41), the WAL pin (T30), and removing the `witness.lock` span (steps 3-6), the lock order, the `abandoned`-before-`pending` rule, any one of the file-identity comparisons (database, journal/WAL, witness, `host.lock`) | removing: each table row's check (1-13); the `UNIQUE(generation, seq)` constraint; the `prev` condition; the witness-tail check in 3A; the live-host probe; the host-id condition; the lock-inode comparison; the anchor comparison; the entry `max(...)+1` rule; the marker's generation test, each fails a named test |
 
 ## 9A. Known limits
 
@@ -322,9 +429,9 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 
 ## 10. Branch points that depend on the operator's answers
 
-- **Q8, several hosts.** Written for "one host, refuse a second". If the operator wants several hosts on one
-  state, this note does not apply: it would need database-resident leases with fencing tokens and an outside
-  coordinator, which a local file lock and a local witness cannot give. That is a separate, larger design.
+- **Q8, answered: single host; refuse to start if a second host shares the state database.** This note is
+  written for exactly that. (Several hosts would need database-resident leases with fencing tokens and an
+  outside coordinator; that is not required.)
 - **The anchor.** Whether to require the OS secret store item (this note: best effort, `anchor-bound`
   recorded, never blocks a Stop) or to make it mandatory at entry (stronger rollback detection, refuses to
   run where the store is unavailable). Recommended: best effort now, mandatory only if the operator asks for
@@ -342,7 +449,9 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 7. A writer that carries a host id it should not, and the exact columns Stop may write.
 8. The freshness check (3A) skipped by a process that does not take the critical section.
 
-## 12. Blockers recorded from review, and how this revision closes them
+## 12. Blockers recorded from review, and how each revision closed them
+
+*Revision 4's closures are listed first for the record; **items 2 and 3 below were replaced in revision 5** (see 12.1: the `sealed` repair became resynchronisation, and the path-only identity check became a descriptor-bound one).*
 
 Three P1 items were open in revision 3. They are closed in this revision and await a P1-only delta review.
 
@@ -360,28 +469,77 @@ Three P1 items were open in revision 3. They are closed in this revision and awa
 
 Further review rounds resume after the operator answers the open questions (spec section 12.5).
 
-### 12.1 Remaining after the delta review of revision 4 (recorded verbatim)
+### 12.0 Closed in revision 6
 
-Three **P1** items and the P2s below are **open in this revision**. Each must be resolved in a later revision
-before any code in the area lands (spec section 13 gate).
+The delta review of revision 5 found three P1s. Closed in this revision, awaiting a P1-only delta review:
+(1) the association of each descriptor with its logical file, including a moved one resolving to `… (deleted)`,
+and the fail-closed rule when an expected descriptor cannot be identified (section 3A, T42); (2) a pinned
+database lifecycle with one connection open for the host's life and a stated limit for a same-head in-place
+replacement (T43); (3) a barrier of three checks around the transaction, bound to the connection's own
+descriptors (T40b-d). P3: the authentication rule for a good non-chaining record (T44).
 
-1. **P1: the torn-tail repair is not idempotent.** A crash after the newline and before the `sealed` line
-   leaves a terminated invalid line, which becomes mid-file damage once anything is appended; a crash partway
-   through the `sealed` line leaves fragment, newline and a partial `sealed` line. Define **crash-safe
-   authenticated framing** (for example a fixed-length authenticated repair record) and exercise each partial
-   write plus a re-read. Section 4A also calls an absent torn `pending` "row 2", but row 2 needs a complete
-   authenticated `pending`.
-2. **P1: a WAL replaced by rename while the host holds the original open still reads the old inode**, and the
-   head still agrees with the witness, so T30b's guaranteed failure does not follow (SQLite warns that a
-   moved or mismatched hot WAL corrupts recovery). Define a **reliable pinned-file strategy** (an SQLite VFS or
-   an equivalent, its lifecycle and reopen) and test the swap **with descriptors open and after reopen**; do
-   not assume a head mismatch detects it.
-3. **P1: a path-only `stat` does not say which database a newly opened connection holds** (a rename between
-   SQLite's open and the check). Bind the check to the **opened file** (`fstat` on the connection's file, as
-   SQLite's own moved-file detection does) and define the **cross-process identity handoff under the lock**;
-   add a barrier test at open and at rename.
-4. **P2:** section 2 still says `seq` increases once per transition (against k rows); section 4A uses `n+1`
-   for a committed batch; rows 1 and 6, and rows 5 and 3, overlap (specify precedence and the MAC
-   comparisons); test T28 still asks for a journal/WAL identity mutation though that check was removed.
+### 12.1 Closed in revision 5
 
-Further review rounds resume after the operator answers the open questions (spec section 12.5).
+Three P1 items and the P2s were recorded after the delta review of revision 4. They are closed in this revision
+and await a P1-only delta review.
+
+1. **P1: the torn-tail repair was not idempotent.** Closed: there is no repair step; the framing is `SYNC | len
+   | payload | MAC`, the reader resynchronises to the next good record that chains from the last good one, and
+   a torn `pending` is absent (row 1), not row 2 (section 4A; T21 truncates at every byte offset).
+2. **P1: a WAL replaced by rename under open descriptors was not detected.** Closed: the check compares
+   `fstat(descriptor)` with `stat(path)` for every descriptor the process holds on the database or a sibling
+   (`/proc/self/fd`), at every transition and admission, so the swap is seen while the descriptors are open and
+   after a reopen (section 3A; T29, T30, T30b).
+3. **P1: a path-only `stat` did not say which database a new connection holds.** Closed: the check is bound to
+   the opened descriptor, the main file's identity is recorded in the witness as `dbid` for the cross-process
+   hand-off, and a rename between open and check is a test (section 3A; T40, T41).
+4. **P2s:** `seq` is per row (a transition of k rows takes k seqs); the torn-`committed` rule uses `n+k`; the
+   precedence of rows is stated (top to bottom, first match wins); the stale journal/WAL mutation is replaced by
+   the descriptor-versus-path mutation.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.2 Closed in revision 7
+
+The three P1s recorded after the delta review of revision 6 and the unproved hand-off are closed in this
+revision and await a P1-only delta review.
+
+1. **P1: the three checks were snapshots, not a binding.** Closed: chained state lives only on a pinned
+   connection whose files are identified by identity at pin time, with the siblings forced open; the connection
+   operates on descriptors, so a swap between checks cannot redirect a transaction, and a permanent swap's
+   result is never accepted because a path-opening process sees a head behind the witness (section 3A; T45,
+   T46, T47).
+2. **P1: the first-match rule bypassed the pending and anchor checks.** Closed: a phased decision procedure in
+   which row 1 is reachable only after the integrity, ended/anchor and pending phases have passed (section 4;
+   T50).
+3. **P1: torn-`committed` prefixes were indistinguishable from `pending` without `committed`.** Closed: the
+   classification is from `D` alone, the MAC covers `len || payload`, the payload carries its own `prev`, and a
+   test covers every byte offset in both database states (section 4A; T21b).
+4. **Hand-off and concurrency:** the legitimate last-close checkpoint, a later no-host CLI Stop, and another
+   process writing and checkpointing (section 3A; T48, T49).
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 12.3 Remaining after the delta review of revision 7 (recorded)
+
+Three **P1** items are **open in this revision**; they are folded into the next revision of this note. Each
+must be resolved before any code in the area lands (spec section 13 gate). The items are recorded from the
+coordinator's summary of the reviewers' findings; the elaboration in each item is the author's, and the
+reviewers' own text is in the review report.
+
+1. **P1: the pinned-connection binding has no driver or VFS mechanism.** The note says the pinned connection
+   operates on descriptors, but it does not say how the **SQLite driver** guarantees that the connection uses
+   exactly the descriptors the host identified (the driver may open further files, reopen after an error, or
+   checkpoint at the last close). Required: an **actual driver or VFS binding** between the pinned connection
+   and the identified descriptors, and the **checkpoint and last-close lifecycle** it implies.
+2. **P1: `pending.prev` and the witness predecessor are different MACs.** The `pending` record's `prev` is the
+   **database head MAC**; the chain's predecessor in the witness is the **previous witness record's MAC**. The
+   note uses one word for both. Required: specify **separately authenticated database-head and
+   witness-predecessor fields**.
+3. **P1: the recovery state machine is not total over all record types.** The phased procedure covers
+   `pending` and `committed` but not `abandoned`, `dbid` and `failed` records, nor the **crash points** around
+   them. Required: a **total state machine over all record types** including those crash points, with a
+   **phase-2 tie-break** (the ended/anchor phase versus a pending record), and a fix of the contradiction
+   between test **T36** and **T21b**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.

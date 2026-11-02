@@ -47,7 +47,7 @@ var taskCommandDocs = []cmdDoc{
 	},
 	{
 		Name:  "task board",
-		Short: "The whole board: the five columns, the counts and the revision (the operator; an AI agent uses task list, unless the operator allowed viewing with task agents allow)",
+		Short: "The whole board: the five columns, the counts and the revision (the operator, from their own terminal, not inside a coder turn; an AI agent uses task list, unless the operator allowed viewing with task agents allow)",
 		Usage: "monoagentcli [--profile P] task board [--done-limit N] [--session N]",
 		Flags: `  --done-limit int  Show at most this many Done cards (default 50; 0 shows them all)
   --session string  Show this task session's board instead of the personal one`,
@@ -83,7 +83,7 @@ var taskCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task approve",
-		Short:    "Move Inbox tasks to Ready, where an AI agent may take them (the operator; a named AI agent only if the operator allowed approving with task agents allow; all or none)",
+		Short:    "Move Inbox tasks to Ready, where an AI agent may take them (the operator, from their own terminal, not inside a coder turn; a named AI agent only if the operator allowed approving with task agents allow; all or none)",
 		Usage:    "monoagentcli [--profile P] task approve ID... [--top] [--as NAME]",
 		Flags:    `  --top  Put the tasks at the top of Ready, the first id on top, instead of at the bottom`,
 		Examples: []string{"monoagentcli --profile work task approve 12 13", "monoagentcli --profile work task approve 12 13 --top"},

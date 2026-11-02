@@ -1,6 +1,6 @@
 # B1 design note 13.1: the dispatch barrier and what "started" means
 
-Status: **design note and test plan, revision 5, no code.** It closes contract 13.1 of
+Status: **design note and test plan, revision 8, no code.** It closes contract 13.1 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults. Revision 2 answers the
 first independent review of this note: the gate is an explicit **ticket state machine** (not a read-write
 lock), a **timed-out close is not a barrier**, a **future start is fenced**, outside dispatchers may no
@@ -42,7 +42,8 @@ There is no "default to E3 at run time": an effect that is not routed through th
 One in-host object per run generation. Names are illustrative.
 
 **Gate states:** `OPEN` → `CLOSING` → `CLOSED`. **Ticket states:** `ADMITTED` → `STARTING` → `STARTED`; or
-`ABORTED`, `FENCED`, `UNKNOWN`.
+`STARTING` → `ABORTING` → `ABORTED` | `UNKNOWN`; or `FENCED`. **`STARTING` and `ABORTING` are the two
+non-drained states**: a ticket in either is still doing (or about to do) something that `Close` must wait for.
 
 One plain mutex `mu` guards the gate state and the ticket table. **It is held only for the few instructions
 of a state change; it is never held across a registry write, a start, a request, or any callback, and no gate
@@ -54,14 +55,41 @@ that tells it what it may do.
 
 - **`Admit(op)`**: takes `mu`; if the gate is not `OPEN`, returns a refusal **immediately** (it cannot wait
   behind a closer: `mu` is never held while waiting); otherwise creates a ticket `ADMITTED` and returns it.
-- **`BeginStart(ticket)`**: takes `mu`; if the gate is not `OPEN` or the ticket is not `ADMITTED`, the ticket
-  becomes `FENCED` and the call refuses. Otherwise the ticket becomes `STARTING`. **The OS start call, or the
+- **`BeginStart(ticket)`**: takes `mu` and applies **exactly one** of three rules, by the ticket's current
+  state: (a) the ticket is `ADMITTED` and the gate is `OPEN` — **or the ticket is a continuation ticket whose
+  operation is still within its bound** — → the ticket becomes `STARTING` and the call succeeds; (b) the ticket is `ADMITTED` and the gate is not `OPEN` → the ticket becomes `FENCED` and the call
+  refuses; (c) **the ticket is in any other state** (including a **repeated call on a `STARTING` ticket**) →
+  the call **refuses and leaves the ticket unchanged**. A duplicate `BeginStart` therefore can never turn a
+  `STARTING` ticket into `FENCED` while its first caller goes on to create a process; `Close` keeps waiting
+  for that ticket. **The OS start call, or the
   hand-over to the transport, is allowed only after `BeginStart` returned success.** This is the irrevocable
   fence on future creation.
+- **Begun operations and `AdmitContinuation(op, step)`** (the continuation exception for a begun merge, spec
+  5.4, Q11).
+  - **Registration.** `Started` of the **first step** of an E2 operation, when it makes the ticket `STARTED`
+    (the gate is `OPEN` by the rule above), **also registers the operation** in the gate's table of *begun
+    operations* with state **`CONTINUING`**, its fixed list of remaining steps and a deadline `T_merge` from
+    an **injected clock**, **in the same critical section under `mu`**. Registration therefore happens while the
+    gate is open and **before any `Close` can observe the gate closing**.
+  - **Membership of the drain.** A `CONTINUING` operation is a **member of what `Close` waits for**, like a
+    `STARTING` ticket (section 4.1, `Close`): `Close` does not drain while an operation is `CONTINUING`.
+  - **Admission.** `AdmitContinuation` takes `mu` and **succeeds only if** `op` is `CONTINUING`, `step` is that
+    operation's **next registered step**, and `T_merge` has not passed. It works while the gate is `CLOSING` or
+    `CLOSED`, and creates an ordinary ticket for that step (`ADMITTED`, flagged *continuation*); `BeginStart`
+    and `Started` accept a continuation ticket of a `CONTINUING` operation within its bound (the rules above).
+    It refuses a new operation, a step out of order, a step outside the list, and any step after the bound.
+  - **Leaving `CONTINUING`** (each transition under `mu`, **signalling the drain**): the last step's ticket
+    `STARTED` and its work ended → `FINISHED`; any step's ticket `ABORTED` or `UNKNOWN`, or a step's work
+    failing → `INCOMPLETE`; `T_merge` passing → `INCOMPLETE` and the remaining steps are withdrawn (a step
+    already `STARTING` or running resolves by the ordinary ticket rules). A continuation ticket that is
+    `STARTING`, `ABORTING` or `UNKNOWN` counts exactly like any other ticket for the drain, for the BARRIER
+    and CLOSED-WITH-UNKNOWN outcomes, and for quiescence.
 - **`Started(ticket, handle)`**: writes the registry row (outside `mu`), then takes `mu`. **If the gate is
   `OPEN`, the ticket becomes `STARTED`. If the gate is by then `CLOSING` or `CLOSED`, the ticket is marked
   `late` and goes to `ABORTED`, and the registry row is marked aborted.** `STARTED` therefore means exactly
-  "`Started` completed while the gate was open".
+  "`Started` completed while the gate was open", **except for a continuation ticket**: a continuation ticket
+  of a begun operation within its bound becomes `STARTED` even when the gate is `CLOSING` or `CLOSED` (that is
+  the exception), and a continuation ticket past the bound is `late` like any other.
   - **E1:** a `late` ticket's caller **kills the held process**, which never ran, and reports.
   - **E3: a `late` ticket must not enter the transport.** The wrapper enters the transport only after
     `Started` returned `STARTED`, and checks the context immediately before the call.
@@ -81,20 +109,41 @@ that tells it what it may do.
   registers it, calls `Started`, and only then releases it. A late ticket or a failed registry write kills a
   process that **never ran**. (The primitive that holds and contains is contract 13.2; this note requires
   only the order create-held, register, `Started`, release.)
-- **`Abort(ticket)`**: idempotent: `ADMITTED` or `STARTING` → `ABORTED`; any other state is left unchanged.
-  A dispatcher wrapper runs it in a `defer` with `recover`, so a panic resolves the ticket.
+- **`Abort(ticket)`**: idempotent, **by the ticket's state**: from `ADMITTED` (nothing started, nothing
+  consumed) → `ABORTED` directly; from **`STARTING`** (a `BeginStart` has happened, an approval may have been
+  consumed, a held process may exist) → **`ABORTING`** and the same durable abort transaction as a late
+  ticket (the abort and audit row, `aborted-after-consume` if an approval was consumed), ending in `ABORTED` or
+  `UNKNOWN`; from any other state it is left unchanged. A dispatcher wrapper runs it in a `defer` with
+  `recover`, so **a panic after `BeginStart` or after the consume takes the `STARTING` path** and is never
+  resolved by a direct `STARTING` → `ABORTED` flip. A repeated `Abort` on an `ABORTING` ticket is a no-op.
 - **`Close()`**: takes `mu`; sets the gate `CLOSING` (so every later `Admit` and `BeginStart` refuses); copies
-  the set `S` of tickets in `STARTING`; releases `mu`. It then waits for `S` to drain on a channel with a
-  deadline from an **injected clock**. Concurrent or repeated `Close` calls wait on the same drain and return
-  the same result (idempotent).
+  the set `S` of tickets in `STARTING` **or `ABORTING`**; releases `mu`. It then waits on a condition
+  signalled **under `mu`** by every transition out of a non-drained state, with a deadline from an
+  **injected clock**. **The drain predicate is evaluated live, under `mu`, at each signal, and is not a frozen
+  snapshot:** it holds when no ticket (including a continuation ticket created after `Close` began) is
+  `STARTING` or `ABORTING` **and no begun operation is `CONTINUING`**. `S` is kept only to name the starters
+  for the outcome table. Concurrent or repeated `Close` calls wait on the same drain and return the same
+  result (idempotent).
+- **The abort transaction (closes the drain race).** When `Started` finds the gate not open it takes `mu`,
+  moves the ticket `STARTING` → **`ABORTING`** (still non-drained) and releases `mu`; the abort and audit
+  write then runs **outside `mu`**; on completion the writer takes `mu`, moves the ticket to **`ABORTED`**
+  (success) or **`UNKNOWN`** (failure), **and signals the drain in the same critical section**. A ticket
+  therefore leaves the drained set only after its abort write has either succeeded or failed, and `Close`
+  cannot return before that.
 
 ### 4.2 The outcome of `Close`
 
 | Outcome | Condition | Meaning |
 |---|---|---|
-| **BARRIER** | `S` drained before the deadline | the gate is `CLOSED`; **through the host gate**, no E1 process is created and no E3 ticket is admitted or fenced-in from now on; every ticket is `STARTED` (it completed `Started` while the gate was open), `ABORTED` (a `STARTING` ticket that reached `Started` late), `FENCED`, or still `ADMITTED` (it will be `FENCED` at its `BeginStart`). An E3 ticket already `STARTED` may be on the wire (admitted-before-Stop) |
-| **CLOSED-WITH-UNKNOWN(U)** | `S` drained, but a ticket in `U` is `UNKNOWN` because a registry or abort write failed | **not a barrier.** No new work is admitted, no held process ran and no E3 dialled, but the registry does not say so durably; the run is `cleanup-pending` until the write succeeds (retried on a schedule) |
+| **BARRIER** | `S` drained before the deadline **and no ticket of the run is `UNKNOWN`, now or from before `Close`** | the gate is `CLOSED`; **through the host gate**, no E1 process is created and no E3 ticket is admitted or fenced-in from now on; every ticket is `STARTED` (it completed `Started` while the gate was open), `ABORTED` (a `STARTING` ticket that reached `Started` late), `FENCED`, or still `ADMITTED` (it will be `FENCED` at its `BeginStart`). An E3 ticket already `STARTED` may **enter the transport after BARRIER** (admitted-before-Stop, section 4.3) |
+| **CLOSED-WITH-UNKNOWN(U)** | `S` drained, but at least one ticket in `U` is `UNKNOWN` (a registry or abort write failed, **including one that failed before `Close`**) | **not a barrier.** No new work is admitted, no held process ran and no E3 dialled, but the registry does not say so durably; the run is `cleanup-pending` until the write succeeds (retried on a schedule) |
+| **CLOSED-WITH-UNKNOWN on deadline** | the deadline passed with a ticket still `ABORTING` (its abort write has not finished) | **not a barrier.** The ticket cannot create anything (the gate is closed, the held process is killed or the transport not entered), but its abort is not durable yet; it is counted as `UNKNOWN` for the outcome and resolves to `ABORTED` or `UNKNOWN` when the write finishes or fails (the drain is signalled then) |
+| **CLOSED-WITH-OPERATION(O)** | the deadline passed with a begun operation still `CONTINUING`, and no ticket `STARTING` | **not a barrier.** The gate is `CLOSED` to new work; the operation continues **only through its continuation tickets** within `T_merge`; the run stays `cleanup-pending`; the outcome resolves when the operation leaves `CONTINUING` (and becomes BARRIER if no ticket is `UNKNOWN`) |
 | **CLOSED-WITH-STARTERS(S′)** | the deadline passed with `S′ ⊆ S` still `STARTING` | **not a barrier.** The gate is `CLOSED` to new work, but each ticket in `S′` is `UNKNOWN` and can still create a process |
+
+**Precedence when more than one applies** (the strongest statement wins): CLOSED-WITH-STARTERS, then
+CLOSED-WITH-UNKNOWN (either form), then CLOSED-WITH-OPERATION, then BARRIER. A deadline with a ticket
+`STARTING` and another `ABORTING` at once is CLOSED-WITH-STARTERS, and the `ABORTING` ticket is listed with it.
 
 The spec's no-later-start promise (5.2) is made **only** for the BARRIER outcome. For
 CLOSED-WITH-STARTERS the promise is: no ticket outside `S′` can start; each ticket in `S′` is recorded
@@ -103,13 +152,23 @@ cannot be `quiescent` while any exists.
 
 ### 4.3 The E3 ticket lifecycle, and who cancels what
 
+**Reconciled with note 13.4.** For an E3 effect that has an approval, the approval's consume transaction **is**
+the registry write: it writes the consumed row, the counter delta, the audit row and the registry row `started`
+in one local transaction (note 13.4, sections 4 and 4B). So an E3 ticket is `STARTING` for exactly that single
+bounded local transaction, and never across a network call; there is no state in which the consume is held
+across `STARTING` beyond it.
+
 - An E3 ticket is `STARTING` **only while its registry row is being written**, a bounded local write. Then it
   is `STARTED` and the transport call is entered. It is never `STARTING` during the network call, so a model
   call or a slow lookup longer than `T_close`, or `T_hung`, neither makes `Close` return
   CLOSED-WITH-STARTERS nor makes the host terminate itself.
-- A `STARTED` E3 ticket that has not yet been dialled when `Close` runs has its **context cancelled by
-  `Close`**; the wrapper checks the context immediately before entering the transport and does not enter if it
-  is cancelled. If it had already entered, it is *admitted-before-Stop* and reported.
+- **The promise for E3 is narrowed to admission.** `STARTED` is the **hand-over and admission point**: a
+  ticket that is `STARTED` was admitted while the gate was open and is *admitted-before-Stop*, **whether or not
+  it has entered the transport**. A `STARTED` E3 ticket that has not yet entered the transport when `Close`
+  runs has its context cancelled by `Close`, and the wrapper checks the context immediately before entering;
+  that check is **best effort, not atomic with the entry**: a wrapper that read an uncancelled context, paused,
+  and then entered after `Close` cancelled it is still admitted-before-Stop and is reported as such. The note
+  makes **no claim that BARRIER prevents a `STARTED` E3 from entering the transport**.
 - An E3 ticket that is **`STARTING` when `Close` runs** is not cancelled (that would race its registry write);
   it is `late` at `Started` and aborted, and the transport is never entered.
 - **Cancellation.** After setting `CLOSING`, `Close` cancels the **contexts of `STARTED` E3 tickets** (spec
@@ -230,7 +289,7 @@ point a test can block and release; production builds compile them to no-ops.
 
 Points: `admit.before`, `admit.after`, `beginstart.before`, `beginstart.after`, `start.inside` (inside the
 start call), `started.before-registry`, `started.after-registry`, `release.before` (the held child not yet
-released), `transport.before-enter` (the last instant before the transport is entered), `close.set-closing`, `close.drained`, `scan.done` (containment scan finished), `marker.created`,
+released), `transport.before-ctx-check` (before the wrapper reads its context), `transport.after-ctx-check` (after it read an uncancelled context, before it enters), `transport.before-enter` (the last instant before the transport is entered), `abort.before-write`, `abort.after-write`, `close.set-closing`, `close.drained`, `scan.done` (containment scan finished), `marker.created`,
 `marker.observed`, `gate.closed`, `db.intent.committed`, `host.exit`, and for the recovery gates
 `clean.removed`, `fsync.file`, `fsync.dir`, `secret.read`, and for outside dispatchers `outside.registered`,
 `outside.marker-read`, `outside.act`.
@@ -264,9 +323,24 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
 | T20 | add a file that calls `exec` directly | the boundary test fails |
 | T21 | add an unregistered dispatcher / import `net/http` in a new file | the boundary test fails; a charter cannot be entered |
 | T22 | E3 call in flight for 10 times `T_hung` while `Close` runs | BARRIER, the host does **not** exit, the context is cancelled |
-| T23 | E3 ticket `STARTED`, not yet dialled, when `Close` runs | `Close` cancels its context; the wrapper does not enter the transport; if the test lets it enter first, it is reported admitted-before-Stop |
+| T23 | E3 ticket `STARTED`, not yet dialled, when `Close` runs | `Close` **cancels its context** (asserted); whether the transport is then entered depends on the wrapper's check and is pinned by T29a (not entered) and T29b (entered, admitted-before-Stop); this test asserts only the cancellation and the state |
 | T23b | E3 ticket paused at `started.before-registry` (`STARTING`); `Close`; release | `Started` sees the gate not open: the ticket is `ABORTED`, the registry row is marked aborted, and a counting fake transport shows it was **never entered** |
-| T29 | an E3 ticket is `STARTED`, paused at `transport.before-enter`; `Close`; release | `Close` cancelled its context; the wrapper checks the context and the result of `Started` and does not enter the transport (a counting fake transport shows zero entries); if the test releases it past the check, it is reported admitted-before-Stop |
+| T29a | an E3 ticket is `STARTED`; `Close` runs and cancels its context **before** the wrapper checks it (pause at `transport.before-ctx-check`, then release) | the wrapper sees the cancelled context and does not enter the transport (a counting fake transport shows zero entries) |
+| T29b | the same, but the pause is at `transport.after-ctx-check`, **after** the wrapper read an uncancelled context and before the entry; `Close` cancels and returns BARRIER; release | the transport **is** entered (counting fake transport shows one entry) and the entry is reported admitted-before-Stop; the test pins that BARRIER does not prevent it |
+| T29c | a failed-`Started` scenario: the wrapper is run with `Started` returning late/aborted | the wrapper never calls the transport (T23b also covers this); with the mutation "wrapper ignores `Started`" this test fails |
+| T32 | **duplicate calls:** `BeginStart` called twice on one ticket (concurrently, and sequentially), with `Close` running and the first caller about to start | the second call refuses and the ticket stays `STARTING`; `Close` waits for it; the first caller creates its held process or is aborted through `ABORTING`; the ticket is never `FENCED` after a successful first `BeginStart` |
+| T33b | the deferred panic abort is paused at `abort.before-write` while a concurrent `Close` runs | `Close` does **not** return BARRIER before the durable abort write finishes; when it finishes (success) the drain signals and `Close` returns BARRIER; on failure CLOSED-WITH-UNKNOWN |
+| T35 | **continuation, schedule (a):** a begun merge paused between step 1 and step 2; `Close` called | `Close` does not return BARRIER (the operation is `CONTINUING`); step 2 runs through its continuation ticket; the drain resolves when the operation is `FINISHED` and `Close` returns BARRIER (or CLOSED-WITH-OPERATION at the deadline) |
+| T36 | **continuation, schedule (b):** `Close` called while another ticket is `STARTING`; the operation proceeds to its next step before that ticket drains | `Close` still waits (the live predicate includes the operation); no step is created after a BARRIER that was returned |
+| T37 | a continuation step's ticket goes `ABORTING` then `UNKNOWN`; a step fails | the operation is `INCOMPLETE`; CLOSED-WITH-UNKNOWN; the run is `cleanup-pending` |
+| T38 | `T_merge` expires (injected clock) with the operation `CONTINUING` and a step not yet admitted | the operation is `INCOMPLETE`, the remaining steps are withdrawn, the drain signals; CLOSED-WITH-OPERATION resolves |
+| T39 | a new operation, a step out of order, a step outside the list, and a step after `T_merge` presented to `AdmitContinuation` | each refused |
+| T40 | a deadline with a ticket `STARTING` and another `ABORTING` | CLOSED-WITH-STARTERS, listing both |
+| T33 | a panic after `BeginStart`; a panic after the approval consume (note 13.4); the abort write failing in the deferred abort | the deferred `Abort` takes the `STARTING` → `ABORTING` path: durable abort transaction, `aborted-after-consume` if an approval was consumed, `UNKNOWN` on write failure; never a direct flip to `ABORTED` |
+| T34 | `Close` deadline expires while a ticket is `ABORTING` (clock advanced, abort write paused at `abort.before-write`) | outcome CLOSED-WITH-UNKNOWN (deadline); when the write completes the ticket becomes `ABORTED` and the outcome resolves; if it fails, `UNKNOWN` |
+| T30a | `Close` runs while a late ticket is `ABORTING` (pause at `abort.before-write`); release | `Close` does not return until the abort write has finished; the ticket is `ABORTED` and `Close` returns BARRIER |
+| T30b | the same with the abort write failing (pause at `abort.after-write`, then fail) | the ticket is `UNKNOWN`, the drain is signalled in the same critical section, and `Close` returns CLOSED-WITH-UNKNOWN, never BARRIER |
+| T30c | a ticket that was `UNKNOWN` **before** `Close` (an earlier failed registry write), and a drain that otherwise completes | CLOSED-WITH-UNKNOWN, not BARRIER |
 | T30 | the write that marks a late ticket `ABORTED` fails | the ticket is `UNKNOWN`, the process is killed or the transport not entered, `Close` returns CLOSED-WITH-UNKNOWN, the run stays `cleanup-pending`; when the write succeeds the state resolves |
 | T31 | a consumed approval whose ticket is aborted (gate closed between `BeginStart` and `Started`) | the effect did not happen, the approval is spent, the audit row `aborted-after-consume` exists |
 | T23c | the same, with the registry write failing | the ticket is `UNKNOWN`, no dial, the run stays `cleanup-pending` until it is resolved |
@@ -274,7 +348,7 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
 | T25 | `T_hung` exit with an unwritable fail-closed record | the host exits anyway; the next start reads an unclean loss; the CLI ran the unit sweep on the host's exit |
 | T26 | an outside dispatcher registers, then is refused | it writes `ended`; quiescence is not blocked; a stuck live one is resolved by killing its named identity |
 | T27 | a third-party SDK that uses `net/http` called from a non-allowlisted file | the transitive boundary test fails |
-| T28 | mutation proof | removing: the wrapper's check of the result of `Started` before entering the transport (the "wrapper ignores `Started`" mutation, which must fail T23b and T29), the `OPEN` check in `Admit`, the fence in `BeginStart`, the `late` check in `Started` (for E1 and for E3), the cancel pass over `STARTED` E3 contexts in `Close`, the `late` kill, the `UNKNOWN` quiescence block, the copy of `S` in `Close`, the `T_hung` exit, the boundary allowlist check, the outside registration scan, the conditional in an E4 write, or a registration condition fails a named test |
+| T28 | mutation proof | removing: the operation's membership in the drain predicate (must fail T35 and T36), the live (non-frozen) evaluation of the predicate (T36), the registration of the operation under the same critical section as `Started` (T35), the `T_merge` withdrawal (T38), the precedence order (T40), the rule that a repeated `BeginStart` leaves the ticket unchanged (T32), the `STARTING` path of `Abort` (T33), the wrapper's check of the result of `Started` before entering the transport (the "wrapper ignores `Started`" mutation, which must fail T23b and T29c), the `OPEN` check in `Admit`, the fence in `BeginStart`, the `late` check in `Started` (for E1 and for E3), the cancel pass over `STARTED` E3 contexts in `Close`, the `late` kill, the `UNKNOWN` quiescence block, the copy of `S` in `Close`, the `T_hung` exit, the boundary allowlist check, the outside registration scan, the conditional in an E4 write, or a registration condition fails a named test |
 
 ## 9A. Known limits
 
@@ -299,13 +373,13 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
 
 ## 11. Branch points that depend on the operator's answers
 
-- **Q7 (containment primitive, adversary boundary).** Resolution of `UNKNOWN` and `late` tickets uses
-  containment (13.2) for discovery. If the operator requires stronger OS isolation first, the gate is
-  unchanged and only discovery changes.
-- **Q11 (a merge in progress).** E2 is written for "a begun operation is registered and finishes or is
-  cancelled at a step boundary"; if the answer is "abandon a begun merge", E2 becomes "cancel at the next step
-  boundary".
-- **Q8 (single host).** The gate is in-host by design.
+- **Q7, answered: no special isolation.** Resolution of `UNKNOWN` and `late` tickets uses containment (13.2)
+  for discovery; there is no stronger OS-isolation requirement. A full-access same-user worker acting
+  directly is beyond hard Stop and the entry dialog says so.
+- **Q11, answered: a begun merge finishes (reported); a not-yet-begun merge does not start.** E2 is written for
+  exactly that: a begun operation is registered and runs to its end, a not-yet-begun one is refused at its
+  `BeginStart`.
+- **Q8, answered: single host.** The gate is in-host by design.
 
 ## 12. For the reviewer to attack
 
@@ -324,37 +398,66 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
 
 ## 13. Blockers recorded from review, and how this revision closes them
 
-Revision 4 was reviewed with no P1. Its three P2 items are closed in this revision and await a P1-only delta
-review. The original statements are kept in the history of this file.
+Revision 5 was reviewed twice: the first review's three P2s were closed in revision 5; the delta review found
+two P1s and one P2. They are closed in this revision and await a P1-only delta review.
 
-1. **Note 13.4 T18b contradiction; audit row for a consumed-but-aborted approval.** Closed: section 4.1
-   states the single reading and the audit row `aborted-after-consume`; note 13.4's T18b is corrected in the
-   same pass; test T31.
-2. **A `transport.before-enter` hook and the "wrapper ignores `Started`" mutation.** Closed: the hook is in
-   the list of points, test T29 uses it, and the mutation is named in T28.
-3. **The abort-write failure rule and `UNKNOWN` in the BARRIER row.** Closed: the rule is in section 4.1, the
-   outcome CLOSED-WITH-UNKNOWN is in section 4.2, and test T30 covers it.
+1. **P1: `Close` could return BARRIER before the abort write ran or failed, and BARRIER overlapped UNKNOWN.**
+   Closed: a late ticket goes `STARTING` → `ABORTING` (non-drained) → `ABORTED` or `UNKNOWN`, the transition and
+   the drain signal happen together under `mu`, `Close` waits for both `STARTING` and `ABORTING`, and BARRIER
+   now requires that **no ticket of the run is `UNKNOWN`**, including one from before `Close` (sections 4.1,
+   4.2; tests T30a-c, with pauses `abort.before-write` and `abort.after-write`).
+2. **P1: the context check and the transport entry are not atomic.** Closed by **narrowing the promise**:
+   `STARTED` is the hand-over and admission point for E3; a `STARTED` ticket is admitted-before-Stop whether or
+   not it has entered the transport; the check before entry is best effort; BARRIER makes no claim about
+   preventing entry (section 4.3). T29a-c pin both outcomes.
+3. **P2: the "wrapper ignores `Started`" mutation could not fail T29.** Closed: T29c is the failed-`Started`
+   scenario and T23b covers the late ticket; the mutation is named against both.
 
-Further review rounds resume after the operator answers the open questions (spec section 12.5).
+4. **P1 (revision 6 delta): a repeated `BeginStart` on a `STARTING` ticket turned it `FENCED`.** Closed:
+   `BeginStart` applies exactly one of three rules by state and a call on any ticket not `ADMITTED` refuses
+   and leaves it unchanged (section 4.1; T32).
+5. **P1 (revision 6 delta): a panic after `BeginStart` or the consume resolved the ticket directly.** Closed:
+   `Abort` from `STARTING` takes the `ABORTING` durable transaction (section 4.1; T33).
+6. **P2s:** deadline expiry with a ticket still `ABORTING` (outcome row and T34), the T23 versus T29b
+   contradiction (T23 now asserts only the cancellation), distinct pause points for T29a and T29b
+   (`transport.before-ctx-check`, `transport.after-ctx-check`).
 
-### 13.1 Remaining after the delta review of revision 5 (recorded verbatim)
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
 
-Two **P1** items and one P2 are **open in this revision**. Each must be resolved in a later revision before any
-code in the area lands (spec section 13 gate).
+### 13.1 Closed in revision 8
 
-1. **P1: `Close` can return BARRIER before the abort write runs or fails.** `Started` flips the late ticket to
-   `ABORTED` under `mu`, but the abort and audit write cannot hold `mu`, and `Close` waits only for the
-   `STARTING` set to drain. The BARRIER predicate also overlaps the UNKNOWN outcome: the set can be drained
-   with an `UNKNOWN` ticket. Fix: keep the ticket in a **non-drained state through the abort transaction**;
-   publish `ABORTED` or `UNKNOWN` and **signal the drain atomically under the mutex**; make BARRIER explicitly
-   **exclude every `UNKNOWN`** (including one from before `Close`); add deterministic pauses before and after
-   the abort write (failure plus a concurrent `Close`).
-2. **P1: the context check and the transport entry are not atomic.** A `STARTED` E3 wrapper checks an
-   uncancelled context, pauses, `Close` cancels and returns BARRIER, and the wrapper still enters the
-   transport. T29 accepts the past-the-check case as admitted-before-Stop, which contradicts the stated
-   guarantee. Either define the check as the hand-over and admission point and **narrow the promise**, or
-   **synchronise entry with `Close`** (a bounded hand-over); test a pause after the check and before entry.
-3. **P2:** the mutation "wrapper ignores `Started`" cannot fail T29 as written (the context check still blocks
-   entry); T23b detects it, so name that test, or add a failed-`Started` scenario to T29.
+The items recorded after the delta review of revision 7 are closed in this revision and await a P1-only delta
+review.
 
-Further review rounds resume after the operator answers the open questions (spec section 12.5).
+1. **P1: the continuation exception conflicted with `BeginStart`, `Started` and BARRIER.** Closed by
+   **synchronising continuations with the drain**: a begun operation is registered under `mu` while the gate is
+   `OPEN` (before any `Close` can observe a closing gate), is a member of the drain, and the drain predicate
+   is evaluated live; continuation tickets obey the ordinary ticket rules and count for BARRIER, CLOSED-WITH-
+   UNKNOWN and quiescence; the lifecycle (`CONTINUING` → `FINISHED`/`INCOMPLETE`), the `T_merge` bound and the
+   outcome CLOSED-WITH-OPERATION are defined; both race schedules are tests (section 4.1, 4.2; T35-T39).
+2. **P2: T33 did not pause the deferred panic abort during a concurrent `Close`.** Closed: T33b.
+3. **P2: the E3 `STARTING` duration contradicted note 13.4.** Closed: section 4.3 states that the E3 consume is
+   the registry write.
+4. **P3: `STARTING` and `ABORTING` at once.** Closed: the precedence order and T40.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.1 Remaining after the delta review of revision 8 (recorded)
+
+Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
+be resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the
+reviewers'.
+
+1. **P1: a continuation starter created after the snapshot has no deadline outcome.** `S` is a snapshot taken
+   when `Close` begins, while the drain predicate is live; a continuation ticket that becomes `STARTING` after
+   the snapshot is waited for by the predicate but is in no outcome row at the deadline (the outcome table
+   names `S′ ⊆ S`). Required: define the deadline outcome over **all live starters, not the snapshot**;
+   **re-evaluate the whole predicate on every resolution**; test that schedule together with the deadline.
+2. **P1: an admitted continuation can start after its operation became `INCOMPLETE` and after BARRIER.** A
+   continuation ticket is `ADMITTED` when the operation leaves `CONTINUING` (a step failed or aborted, or
+   `T_merge` expired) and the ticket is paused; after BARRIER it can still call `BeginStart` and create a
+   process. Required: **withdraw every admitted continuation ticket on every terminal transition** of the
+   operation (`FINISHED`, `INCOMPLETE`, expiry); `BeginStart` must **check `CONTINUING` atomically** under `mu`;
+   test the paused ticket against failure, abort and expiry, **including duplicate calls**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.

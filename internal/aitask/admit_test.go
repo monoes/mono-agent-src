@@ -2,7 +2,6 @@ package aitask
 
 import (
 	"context"
-	"errors"
 	"testing"
 )
 
@@ -13,7 +12,7 @@ func TestStartIsHeldByTheAdmitHook(t *testing.T) {
 	refuse := true
 	s.Admit = func(context.Context, Task) (float64, error) {
 		if refuse {
-			return 0, errors.New("over budget")
+			return 0, &Error{Code: CodeBudgetExceeded, Message: "over budget"}
 		}
 		return 1, nil
 	}

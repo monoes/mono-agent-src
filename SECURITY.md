@@ -2052,7 +2052,13 @@ that works a task acts on them. The defences:
   injected text; it does not stop one that deliberately unsets its
   environment, as with org signing. Its cost: nothing can be approved
   from inside an agent's own shell, so the user approves in a terminal
-  of their own.
+  of their own. The coder-session token (`MONOAGENT_SESSION_TOKEN`) is such a
+  marker too: a process that holds it is an agent and names itself (a lead's
+  `session approve` is judged on its verified token). The operator branch of the
+  three verbs that also have an agent path (`session approve`, `approve`,
+  `board`) takes the same gate as the person verbs, so a process inside a coder
+  turn is refused there as well, and the operator restarts from their own
+  terminal. Like the rest of this layer, a courtesy, not a barrier.
 - **Limits that stop a loop from flooding the board:** 2,000 open
   tasks per profile (every
   task that is not archived, Done ones included; a task that comes back

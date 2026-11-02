@@ -1,6 +1,8 @@
 package task
 
 import (
+	"github.com/spf13/cobra"
+
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -10,10 +12,14 @@ import (
 // then fails the store's rule) with the chat added from its verified coder-session token (ownChat).
 // The store takes only this Actor, never a label from the environment: Conversation is set here and
 // by the in-process mission lead (dynorg) from trusted code, nowhere else.
-func (d Deps) approver(as string) (tasks.Actor, error) {
-	caller := d.callerFor(as)
-	if !caller.isAgent() || caller.asBlank || caller.envBlank || caller.actor.Name == "" {
-		// The operator, or an agent that has not named itself: the latter is refused as an agent.
+func (d Deps) approver(cmd *cobra.Command) (tasks.Actor, error) {
+	caller := d.callerFor(flagAs(cmd))
+	if !caller.isAgent() {
+		// The operator's branch: the shared gate (tokens, operator, not inside a coder turn).
+		return d.personGate(cmd, "approve a session's plan")
+	}
+	if caller.asBlank || caller.envBlank || caller.actor.Name == "" {
+		// An agent that has not named itself is refused as an agent.
 		return caller.operator("approve a session's plan")
 	}
 	actor, err := d.namedAgent(caller)
