@@ -24,7 +24,7 @@ func newPublicationCmd(cfg *globalConfig) *cobra.Command {
 		NewTable: func(w io.Writer, headers []string) *tablewriter.Table {
 			return newPlainTable(w, headers, nil)
 		},
-		Operator: requireOperator,
+		Operator: cfg.requireOperator,
 		RequireApproval: func(approvalID string, e publication.Entry) (func(), error) {
 			return requirePublicationApproval(cfg, approvalID, e)
 		},

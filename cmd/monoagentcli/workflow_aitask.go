@@ -14,7 +14,7 @@ func newWorkflowAitaskCmds(cfg *globalConfig) []*cobra.Command {
 		JSONOutput:      func() bool { return cfg.JSONOutput },
 		ProfileID:       func() string { return cfg.ProfileID },
 		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
-		RequireOperator: requireOperator,
+		RequireOperator: cfg.requireOperator,
 		WorkflowStore:   openWorkflowStore,
 		Wire:            func() { wireAitaskKinds(cfg) },
 	})

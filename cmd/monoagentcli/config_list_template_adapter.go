@@ -16,7 +16,7 @@ func newConfigCmd(cfg *globalConfig) *cobra.Command {
 	return configcli.NewCommand(configcli.Deps{
 		JSONOutput:      func() bool { return cfg.JSONOutput },
 		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
-		RequireOperator: requireOperator,
+		RequireOperator: cfg.requireOperator,
 	})
 }
 

@@ -106,12 +106,12 @@ func TestHybridVerbsRefuseTheOperatorInsideACoderTurn(t *testing.T) {
 // The other caller of the shared caller resolution outside the task package: a process holding only
 // the session token is no longer the operator for the sandbox-fallback setter.
 func TestRequireOperatorRefusesAProcessHoldingOnlyTheSessionToken(t *testing.T) {
-	sendEnv(t)
-	if err := requireOperator("do the thing"); err != nil {
+	cfg := sendEnv(t)
+	if err := cfg.requireOperator("do the thing"); err != nil {
 		t.Fatalf("the operator was refused: %v", err)
 	}
 	t.Setenv(coderhost.SessionTokenEnv, "session-token")
-	err := requireOperator("do the thing")
+	err := cfg.requireOperator("do the thing")
 	if err == nil || clicore.ExitCodeFor(err) != 3 {
 		t.Fatalf("a session-token holder passed requireOperator: %v", err)
 	}

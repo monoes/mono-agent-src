@@ -14,6 +14,10 @@ import (
 // an agent, whatever else its environment says, and an agent never acts as the person.
 var personTokenEnv = []string{coderhost.SessionTokenEnv, agenttokens.EnvMissionToken, boundSessionEnv, boundTaskEnv}
 
+// PersonTokenEnv is personTokenEnv for the CLI's other operator-only gate (cmd/monoagentcli
+// requireOperator), which must refuse the same variables: one list, not two copies.
+func PersonTokenEnv() []string { return append([]string(nil), personTokenEnv...) }
+
 // personGate is the whole gate of a person verb, in this order: the environment holds no agent token
 // (read before anything else, so a mission token is not even looked up in the database), the caller
 // is the operator, and the process is not inside a coder turn. Both are a courtesy layer, not
