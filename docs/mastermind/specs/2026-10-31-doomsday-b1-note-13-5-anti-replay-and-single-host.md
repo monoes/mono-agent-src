@@ -500,7 +500,22 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
   refused (the caller retries).
 - The shared-lock probe can briefly make a host's exclusive attempt fail (retried, T35).
 - The filesystem allowlist is deliberately narrow; a refused type is reported with its name.
-- These and the open items are tracked in issue #1271.
+- This design does not yet bound the witness: it is append-only and grows for the life of a run.
+- These limits and the open follow-ups below are tracked in issue #1271.
+
+Open follow-ups (none blocks this note; each needs its own design or a decision before any code):
+
+- **Witness rotation and size bound.** Rotation (a checkpoint line that carries the head, the old file kept
+  until the next committed transition), its recovery rule and a size bound are not defined here.
+- **Cost of two fsyncs per transition.** To be measured; whether a burst of audit rows may share one witness
+  line (one `seq` range) without weakening the recovery table is undecided.
+- **Anchor at entry.** Whether it becomes mandatory is the operator's decision (section 10); the wording of
+  the entry dialog for the home-directory restore limit (section 8) follows from that decision.
+- **Filesystem allowlist.** To be reviewed against the machines in use, with a clear report of a refused type.
+- **Key rotation.** Rotating the vault key ends the run (the witness MAC is derived from it); the operator
+  procedure is not written yet.
+- **Several hosts on one state** is out of scope (Q8); database leases with fencing tokens and an outside
+  coordinator would be a separate note, written only if the operator asks for it.
 
 ## 10. Branch points that depend on the operator's answers
 
