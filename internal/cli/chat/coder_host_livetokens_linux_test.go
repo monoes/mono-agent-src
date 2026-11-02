@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -293,5 +294,58 @@ while [ ! -e "$d/release" ]; do sleep 0.05; done
 	}
 	if syscall.Kill(child, 0) == nil {
 		t.Error("a child of a bound turn outlived its leader's exit")
+	}
+}
+
+// When the hold on a bound leader fails (waitid), Start's turn is ended: the leader and what it left in its group are dead.
+func TestABoundTurnWhoseHoldFailsIsKilledWithItsGroup(t *testing.T) {
+	old := holdLeader
+	var dir atomic.Value          // the rig's directory, set before Start
+	holdLeader = func(int) bool { // fails only once the script has forked its child, so the group has a member to kill
+		d, _ := dir.Load().(string)
+		for i := 0; i < 500; i++ {
+			if _, err := os.Stat(filepath.Join(d, "child")); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return false
+	}
+	t.Cleanup(func() { holdLeader = old })
+	script := `d=$(dirname "$0")
+sleep 300 </dev/null >/dev/null 2>&1 &
+echo $! > "$d/child"
+echo $$ > "$d/pid"
+cat <&3 > "$d/frame"
+while :; do sleep 0.05; done
+`
+	r := newBoundRig(t, script)
+	dir.Store(r.dir)
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil && turn != nil {
+		done := make(chan struct{})
+		go func() { _ = turn.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the turn kept running after its hold failed")
+		}
+	}
+	var child int
+	for i := 0; i < 300 && child == 0; i++ {
+		if b, rerr := os.ReadFile(filepath.Join(r.dir, "child")); rerr == nil {
+			child, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if child == 0 {
+		t.Fatal("the child never started")
+	}
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	for i := 0; i < 300 && syscall.Kill(child, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(child, 0) == nil {
+		t.Error("the group's child outlived a turn whose hold failed")
 	}
 }

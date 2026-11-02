@@ -44,8 +44,20 @@ type Stopper struct {
 	Grace time.Duration
 
 	// seams for tests
-	openPidfd func(pid int) (int, error)
-	signal    func(fd int, sig unix.Signal) error
+	openPidfd   func(pid int) (int, error)
+	signal      func(fd int, sig unix.Signal) error
+	signalGroup func(fd int, sig unix.Signal) error
+}
+
+// pidfdSignalProcessGroup is PIDFD_SIGNAL_PROCESS_GROUP (Linux 6.9): the signal goes to the process group of the process the pidfd
+// names, never to a group that merely has the same number now.
+const pidfdSignalProcessGroup = 4
+
+func (s Stopper) sendGroup(fd int, sig unix.Signal) error {
+	if s.signalGroup != nil {
+		return s.signalGroup(fd, sig)
+	}
+	return unix.PidfdSendSignal(fd, sig, nil, pidfdSignalProcessGroup)
 }
 
 func (s Stopper) open(pid int) (int, error) {
@@ -143,6 +155,28 @@ func (s Stopper) StopLeader(pid int, stamp string) StopResult {
 	grace := s.Grace
 	if grace <= 0 {
 		grace = 15 * time.Second
+	}
+	// A leader that leads its own process group (a bound turn is started with a session of its own): the whole group is killed at once
+	// through the pidfd, so the children it left behind die with it. This is recovery of a turn whose host died, so there is nobody to
+	// receive a graceful exit; a leader that does not lead a group, or a kernel without group signals through a pidfd, keeps the ladder below.
+	if pg, perr := unix.Getpgid(pid); perr == nil && pg == pid {
+		switch gerr := s.sendGroup(fd, unix.SIGKILL); {
+		case gerr == nil:
+			exited, werr := waitExit(fd, grace)
+			if werr != nil {
+				return held("the turn's process could not be waited for (%v)", errnoText(werr))
+			}
+			if exited {
+				return StopResult{Outcome: StopStopped}
+			}
+			return held("the turn's process group did not exit after SIGKILL")
+		case errors.Is(gerr, unix.ESRCH): // it exited since the check
+			return StopResult{Outcome: StopStopped}
+		case errors.Is(gerr, unix.EINVAL), errors.Is(gerr, unix.ENOSYS):
+			// group signals through a pidfd are not supported here: the leader-only ladder follows
+		default:
+			return held("the turn's process group could not be signalled (%v)", errnoText(gerr))
+		}
 	}
 	for _, step := range []struct {
 		sig  unix.Signal

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -159,6 +160,27 @@ func TestAKilledTurnIsNeverSignalledByNumberAgain(t *testing.T) {
 		time.Sleep(60 * time.Millisecond) // the stop goroutine's afterDone
 		if terms, kills := s.n(); terms != 0 || kills != 0 {
 			t.Errorf("%s: a killed turn was signalled by number: %d terminations, %d kills", name, terms, kills)
+		}
+	}
+}
+
+// A bound leader whose exit cannot be observed unreaped (waitid failed) is ended, not left running with a group nobody may signal: the
+// leader is killed through the process handle and, only when that found it still ours, its group; nothing is signalled by number again.
+func TestAHoldThatFailedEndsTheTurnAndNeverSignalsByNumberAgain(t *testing.T) {
+	for name, tc := range map[string]struct {
+		killErr   error
+		wantKills int
+	}{"the leader was still ours": {nil, 1}, "the leader was already gone": {errors.New("os: process already finished"), 0}} {
+		var s sigLog
+		turn := newSigTurn(&s, true)
+		turn.holdFailed(func() error { return tc.killErr })
+		turn.Stop()
+		turn.killGroupIfHeld()
+		turn.markReaped()
+		close(turn.done)
+		time.Sleep(60 * time.Millisecond)
+		if terms, kills := s.n(); terms != 0 || kills != tc.wantKills {
+			t.Errorf("%s: %d terminations, %d kills, want 0 and %d", name, terms, kills, tc.wantKills)
 		}
 	}
 }
