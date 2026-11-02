@@ -11,11 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -489,5 +491,37 @@ func TestCoderStatusOutdatedMonomind(t *testing.T) {
 	out, _ = runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--mode", "coder", "--new-workspace")
 	if !strings.Contains(out, "found 9.0.0") {
 		t.Fatalf("message should say what was found: %s", out)
+	}
+}
+
+// Text from a failing monomind is shown to people: escape sequences, bidi
+// overrides and zero-width characters are dropped, and the cut is by rune.
+func TestProbeErrorTextIsSanitized(t *testing.T) {
+	in := "\x1b[31mboom\x07\u202eevil\u200b\u2066x\ufeff\u2060\n\tdone"
+	if got := probeErrorText(errors.New(in)); got != "boomevilx done" {
+		t.Fatalf("got %q", got)
+	}
+	multi := strings.Repeat("é世", maxProbeErrorLen)
+	got := probeErrorText(errors.New(multi))
+	if !utf8.ValidString(got) || len([]rune(got)) != maxProbeErrorLen+1 || !strings.HasPrefix(got, strings.Repeat("é世", maxProbeErrorLen/2)) {
+		t.Fatalf("cut is not by rune: %d runes", len([]rune(got)))
+	}
+}
+
+func TestOutdatedMessageBoundsTheFoundVersion(t *testing.T) {
+	msg := errNeedsMonomindUpdate([]string{"init-json"}, "\x1b[2J"+strings.Repeat("9", 500)).Error()
+	if strings.ContainsRune(msg, '\x1b') || len(msg) > 400 {
+		t.Fatalf("unbounded version in %q", msg)
+	}
+}
+
+// The confirmation in the app names the package health.MonomindPackage.
+func TestFixMonomindButtonNamesThePackage(t *testing.T) {
+	src, err := os.ReadFile("../../../wails-app/frontend/src/components/FixMonomindButton.jsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "npm install -g "+health.MonomindPackage) {
+		t.Fatalf("FixMonomindButton.jsx must name %s", health.MonomindPackage)
 	}
 }

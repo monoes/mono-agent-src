@@ -18,14 +18,14 @@ export function useChatSetup(active, setup, onChange) {
   const [scan, setScan] = useState({ done: false, error: '', missing: false, agents: [] })
   const [models, setModels] = useState(null) // null: loading
 
-  const [statusTry, setStatusTry] = useState(0)
   useEffect(() => {
     if (!active) return undefined
     let live = true
     Promise.resolve().then(() => api.coderStatus()).then(s => { if (live) setStatus(s || null) }).catch(() => { if (live) setStatus(null) })
     return () => { live = false }
-  }, [active, statusTry])
-  const refreshStatus = useCallback(() => setStatusTry(n => n + 1), [])
+  }, [active])
+  // refreshStatus reads the status again and resolves to it (null when it could not be read).
+  const refreshStatus = useCallback(() => Promise.resolve().then(() => api.coderStatus()).then(s => { setStatus(s || null); return s || null }).catch(() => { setStatus(null); return null }), [])
 
   const settled = status !== undefined
   const coderOk = !!status?.enabled && coderReady(status)

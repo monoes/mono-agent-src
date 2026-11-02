@@ -66,7 +66,8 @@ const MAX_PROBE_ERROR = 200
 // not an outdated monomind, so nothing is said about capabilities or updates.
 export function monomindUnusable(status) {
   const err = typeof status?.probeError === 'string' ? status.probeError.replace(/\s+/g, ' ').trim() : ''
-  return err.length > MAX_PROBE_ERROR ? `${err.slice(0, MAX_PROBE_ERROR)}…` : err
+  const points = Array.from(err) // by code point: a slice could split a surrogate pair
+  return points.length > MAX_PROBE_ERROR ? `${points.slice(0, MAX_PROBE_ERROR).join('')}…` : err
 }
 
 // monomindNeedsFix: the status calls for the "Fix monomind" action, either

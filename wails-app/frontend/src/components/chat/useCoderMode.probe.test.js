@@ -11,6 +11,11 @@ describe('missingText', () => {
   it('cuts a long probe error', () => {
     expect(monomindUnusable({ probeError: 'x'.repeat(500) })).toHaveLength(201)
   })
+  it('cuts by code point, never inside a surrogate pair', () => {
+    const cut = monomindUnusable({ probeError: 'x'.repeat(199) + '😀' + 'tail' })
+    expect(cut).toBe('x'.repeat(199) + '😀…')
+    expect(cut).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/)
+  })
   it('a monomind that ran but lacks capabilities needs an update and says what was found', () => {
     const st = { ready: false, missingCapabilities: ['init-json'], probeError: '', monomindVersion: '2.1.0' }
     expect(missingText(st)).toBe('needs monomind update (found monomind 2.1.0, missing: init-json)')

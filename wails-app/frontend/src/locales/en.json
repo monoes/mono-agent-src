@@ -274,12 +274,14 @@
   },
   "monomindFix": {
     "action": "Fix monomind",
-    "confirmBody": "This installs or repairs monomind by running the command below. It downloads and runs an npm package, so only continue if you trust it.",
+    "confirmBody": "This installs or repairs monomind by running the command below. It downloads and runs an npm package, so only continue if you trust it. An install may not fix a PATH or version-manager (shim) problem; if monomind still cannot be used afterwards, this says so.",
     "run": "Run it",
     "cancel": "Cancel",
     "running": "Fixing monomind…",
     "done": "monomind fixed. Checking again.",
-    "failed": "Fixing monomind failed: {{why}}"
+    "failed": "Fixing monomind failed: {{why}}",
+    "busy": "Already running elsewhere.",
+    "still": "Installed, but still: {{why}}"
   },
   "toasts": {
     "failed": "Failed: {{op}}",

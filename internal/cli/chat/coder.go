@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -345,12 +347,37 @@ func probeErrorText(err error) string {
 	if err != nil {
 		msg = err.Error()
 	}
-	msg = strings.Join(strings.Fields(msg), " ")
-	if r := []rune(msg); len(r) > maxProbeErrorLen {
-		msg = string(r[:maxProbeErrorLen]) + "…"
-	}
-	return msg
+	return shortLine(msg, maxProbeErrorLen)
 }
+
+// terminalSequence matches ANSI escape sequences (CSI, and OSC up to BEL or
+// ST), whose parameters would otherwise stay behind as visible text.
+var terminalSequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?`)
+
+// shortLine makes text from monomind safe to show: control characters
+// (escape sequences, BEL) and invisible format characters (bidi overrides,
+// zero-width) are dropped, whitespace collapsed, and the result cut to max
+// runes.
+func shortLine(text string, max int) string {
+	text = terminalSequence.ReplaceAllString(text, "")
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return ' '
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, text)
+	text = strings.Join(strings.Fields(text), " ")
+	if r := []rune(text); len(r) > max {
+		text = string(r[:max]) + "…"
+	}
+	return text
+}
+
+// maxVersionLen bounds a monomind version shown in a message.
+const maxVersionLen = 40
 
 // coderError is a coder-mode refusal with a machine-readable code for --json.
 type coderError struct {
@@ -368,7 +395,7 @@ func errCoderDisabled() error {
 }
 
 func errNeedsMonomindUpdate(missing []string, found string) error {
-	if found == "" {
+	if found = shortLine(found, maxVersionLen); found == "" {
 		found = "unknown version"
 	}
 	return &coderError{code: "needs_monomind_update", err: &clicore.Error{Code: 1,

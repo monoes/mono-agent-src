@@ -67,7 +67,7 @@ export default function CoderModeSection() {
   const apply = (st) => { setStatus(st); setForm(formFrom(st)) }
 
   const load = useCallback(async () => {
-    try { apply(await api.coderStatus()); setLoadErr('') } catch (e) { setLoadErr(errMsg(e)) }
+    try { const st = await api.coderStatus(); apply(st); setLoadErr(''); return st } catch (e) { setLoadErr(errMsg(e)); return null }
   }, [])
   useEffect(() => { load() }, [load])
 
