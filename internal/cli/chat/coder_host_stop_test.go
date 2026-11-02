@@ -75,10 +75,13 @@ func TestABoundTurnsGroupIsNotSignalledByNumberAfterTheReap(t *testing.T) {
 
 	s = sigLog{}
 	late := newSigTurn(&s, true)
-	late.settle() // the leader exited (held, not yet reaped), nobody stopped it
-	late.Stop()   // a stop in that window still ends the stragglers
-	if terms, kills := s.n(); terms != 1 || kills != 1 {
-		t.Fatalf("stopped between the exit and the reap: %d terminations, %d kills, want 1 and 1", terms, kills)
+	late.settle() // the leader exited, nobody stopped it, and it is about to be reaped (cmd.Wait runs next): the group is killed now
+	late.Stop()   // the pid and group are free the moment it is reaped, and the reap is not atomic with markReaped: nothing more is signalled
+	late.killGroupIfHeld()
+	close(late.done)
+	time.Sleep(50 * time.Millisecond)
+	if terms, kills := s.n(); terms != 0 || kills != 1 {
+		t.Fatalf("a strict turn that exited before any Stop: %d terminations, %d kills, want 0 and exactly the one kill at the exit", terms, kills)
 	}
 
 	s = sigLog{}
@@ -89,8 +92,8 @@ func TestABoundTurnsGroupIsNotSignalledByNumberAfterTheReap(t *testing.T) {
 	reaped.killGroupIfHeld()
 	close(reaped.done)
 	time.Sleep(50 * time.Millisecond)
-	if terms, kills := s.n(); terms != 0 || kills != 0 {
-		t.Fatalf("stopped after the reap: %d terminations, %d kills, want none", terms, kills)
+	if terms, kills := s.n(); terms != 0 || kills != 1 {
+		t.Fatalf("stopped after the reap: %d terminations, %d kills, want 0 and the one kill at the exit", terms, kills)
 	}
 
 	s = sigLog{}
@@ -140,4 +143,22 @@ func TestABoundTurnWhoseLeaderCannotBeHeldIsStoppedLikeAnOrdinaryOne(t *testing.
 	turn.markReaped()
 	close(turn.done)
 	waitKills(t, &s, 1)
+}
+
+// A turn the launcher killed itself (its identity could not be recorded) is never signalled by number again: not by Stop, not at the end
+// of the grace, not after the reap. The waiter reaps it, and its pid and group may be reused from then on.
+func TestAKilledTurnIsNeverSignalledByNumberAgain(t *testing.T) {
+	for name, strict := range map[string]bool{"ordinary": false, "bound": true} {
+		var s sigLog
+		turn := newSigTurn(&s, strict)
+		turn.markKilled()
+		turn.Stop()
+		turn.killGroupIfHeld()
+		turn.markReaped()
+		close(turn.done)
+		time.Sleep(60 * time.Millisecond) // the stop goroutine's afterDone
+		if terms, kills := s.n(); terms != 0 || kills != 0 {
+			t.Errorf("%s: a killed turn was signalled by number: %d terminations, %d kills", name, terms, kills)
+		}
+	}
 }

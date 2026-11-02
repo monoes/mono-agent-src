@@ -222,3 +222,49 @@ func TestARefuseThatCannotEndAChildsTaskTokenReturnsTheError(t *testing.T) {
 		t.Error("the task token is still live after the retry")
 	}
 }
+
+// End to end with the real launcher: a turn that survives its stop and never admits fails its start; the launcher had recorded the
+// process on the session, so a NEW host over the same database adopts the live process instead of settling beside it.
+func TestARestartAfterAFailedStartAdoptsTheSurvivingProcess(t *testing.T) {
+	oldGrace, oldWait, oldAdmit := hostTurnGrace, hostTurnWait, admissionWait
+	hostTurnGrace, hostTurnWait, admissionWait = time.Hour, func() time.Duration { return 150 * time.Millisecond }, 300*time.Millisecond
+	t.Cleanup(func() { hostTurnGrace, hostTurnWait, admissionWait = oldGrace, oldWait, oldAdmit })
+	r := newBoundRig(t, "") // for the database and the store
+	bin, dir := scriptBin(t, "trap '' TERM\necho $$ > \"$(dirname \"$0\")/pid\"\nwhile [ ! -e \"$(dirname \"$0\")/release\" ]; do sleep 0.05; done\n")
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(dir, "release"), []byte("x"), 0o600) })
+	store := r.store
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, revokeTurn: store.RevokeTurnSessionTokensErr, onProcess: store.RecordTurnProcess}
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || coderhost.TurnPending(err) == nil {
+		t.Fatalf("a surviving, never admitted turn: %v", err)
+	}
+	var pid int
+	if b, rerr := os.ReadFile(filepath.Join(dir, "pid")); rerr == nil {
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	if pid == 0 || syscall.Kill(pid, 0) != nil {
+		t.Fatalf("the surviving process is not alive (pid %d)", pid)
+	}
+	row, ok, gerr := store.GetSession("default", "c1")
+	if gerr != nil || !ok || row.TurnPID != pid || row.TurnStamp == "" {
+		t.Fatalf("the launcher did not record the process on the session: %+v %v %v", row, ok, gerr)
+	}
+	// a new host over the same database, with the real launcher, adopts it
+	h2 := &coderhost.Host{Store: store, L: l}
+	if err := h2.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	cur, _, _ := store.GetSession("default", "c1")
+	if cur.TurnID != "t1" || cur.TurnPID != pid {
+		t.Fatalf("the restarted host settled the session beside the surviving process: %+v", cur)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "release"), []byte("x"), 0o600); err != nil { // the process ends
+		t.Fatal(err)
+	}
+	h2.Wait()
+	cur, _, _ = store.GetSession("default", "c1")
+	if cur.TurnID != "" {
+		t.Errorf("the adopted turn was not settled once its process ended: %+v", cur)
+	}
+}

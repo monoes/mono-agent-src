@@ -203,9 +203,14 @@ func (h *Host) retryHeld() {
 		if err != nil {
 			continue
 		}
-		if !isV2 { // the turn is no longer one (settled elsewhere): nothing to hold
-			delete(h.held, k)
-			continue
+		if !isV2 {
+			// A bound launch recorded before its token existed has no v2 row to find: it stays held, and is stopped again, until the
+			// leader is confirmed gone. Only a session that no longer names a bound turn (settled elsewhere) has nothing to hold.
+			if !(x.TurnBound && x.TurnPID > 1 && x.TurnID != "") {
+				delete(h.held, k)
+				continue
+			}
+			pid, stamp = x.TurnPID, x.TurnStamp
 		}
 		h.recoverV2(x, pid, stamp)
 	}

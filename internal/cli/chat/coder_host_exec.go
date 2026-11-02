@@ -48,6 +48,10 @@ type execLauncher struct {
 	// environment, a typed frame over a pipe, the token bound to the process before anything is delivered. Nil is the
 	// launch exactly as it was.
 	bound *boundLaunch
+	// onProcess, when set, makes the started process's identity durable (the session's turn_pid and turn_stamp) the moment the
+	// process exists, before anything else of the start can fail. If it fails, the start fails and the process is stopped: a process
+	// whose identity cannot be recorded is not allowed to run, because a host restart could not find it.
+	onProcess func(profileID, conversationID, turnID string, pid int, stamp string, bound bool) error
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -275,33 +279,54 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 		return err
 	}
-	go func() {
-		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
-			t.settle()
-		}
-		t.err = cmd.Wait()
-		t.markReaped()
-		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
-		// revoke is retried; a revoke that still fails is reported as the turn's error.
-		// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
-		// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
-		// keeps the conversation-wide one.
-		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
-			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr}) // the host holds the session until the token is ended
-		}
-		if rerr := l.child.revokeToken(ct); rerr != nil { // the child's task token ends with its run (nil-safe); a failure is the turn's error
-			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr})
-		}
-		os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
-		if l.afterExitRevoke != nil {
-			l.afterExitRevoke()
-		}
-		close(t.done)
-	}()
-	launched = true // the wait goroutine above revokes the child's token from here on
+	// The waiter (which reaps the child and ends its tokens) starts only AFTER the process's identity is recorded: until then nothing
+	// can reap the child, so its pid and group are still its own and can be signalled safely if the record fails.
+	startWaiter := func() {
+		go func() {
+			if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
+				t.settle()
+			}
+			t.err = cmd.Wait()
+			t.markReaped()
+			// before done closes: a session that sees its turn end has no token left. The turn is held here while the
+			// revoke is retried; a revoke that still fails is reported as the turn's error.
+			// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
+			// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
+			// keeps the conversation-wide one.
+			if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
+				t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr}) // the host holds the session until the token is ended
+			}
+			if rerr := l.child.revokeToken(ct); rerr != nil { // the child's task token ends with its run (nil-safe); a failure is the turn's error
+				t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr})
+			}
+			os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
+			if l.afterExitRevoke != nil {
+				l.afterExitRevoke()
+			}
+			close(t.done)
+		}()
+		launched = true // the wait goroutine revokes the child's token from here on
+	}
 	if stamp == "" {
+		startWaiter()
 		return nil, t.fail(errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped"))
 	}
+	// KNOWN GAP (accepted for now, not built; design sketch on issue #1310): a host crash between the process being created above and
+	// this identity commit leaves the session with PID 0. Recovery then cannot adopt the child, treats the turn as gone and settles, and a
+	// queued turn may start beside it. Closing it needs a durable launch intent written BEFORE the spawn (a per-turn nonce, or an
+	// enumerable unit); build it if it ever occurs.
+	if l.onProcess != nil {
+		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp, bd != nil); err != nil {
+			// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
+			// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
+			_ = cmd.Process.Kill()
+			_ = killGroup(t.pid)
+			t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
+			startWaiter()  // reaps it and ends its tokens
+			return nil, t.fail(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
+		}
+	}
+	startWaiter()
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
 			return nil, t.fail(err)
@@ -494,6 +519,8 @@ type execTurn struct {
 	// exit is observed without reaping it, its stragglers are killed in that window, and the group is never signalled
 	// by number after the reap.
 	strict bool
+	// killed is set when the launcher killed the turn itself before the waiter started: no number-based group signal is sent after it.
+	killed bool
 
 	// ownRevoke ends this turn's own tokens (its session token and a mission child's task token) at once, for a refusal.
 	ownRevoke func() error
@@ -527,9 +554,12 @@ func (t *execTurn) settle() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.held, t.exited = true, true
-	if t.stopping {
-		_ = t.killGrp()
-	}
+	// A bound turn's leader has exited and is still unreaped, so its group is still ours: whatever it left running in the group is killed
+	// NOW, whether or not a Stop ever comes (a stop that arrives later may find nothing it is allowed to signal, and token revocation does not
+	// stop processes). A behaviour difference of bound mode: background processes of a bound turn do not outlive its leader.
+	_ = t.killGrp()
+	// From here the leader is about to be reaped (cmd.Wait runs next, outside the lock) and its pid and group are free the moment it is: no
+	// later Stop, grace expiry or afterDone may signal them by number, in the gap before markReaped as much as after it.
 }
 
 // markReaped records that cmd.Wait returned. For a strict turn whose leader was held, no group signal by number
@@ -558,14 +588,27 @@ func (t *execTurn) markStopping() {
 
 // pinned says whether the group may be signalled by number: always for an ordinary turn (as before), and for a strict
 // one until its held leader is reaped. The caller holds t.mu.
-func (t *execTurn) pinned() bool { return !(t.strict && t.held && t.reaped) }
+func (t *execTurn) pinned() bool {
+	if t.killed { // killed by the launcher before anything could reap it: nothing is signalled by number again
+		return false
+	}
+	return !(t.strict && t.held) // a strict turn whose leader has exited is about to be reaped (settle ran): its group is no longer ours
+}
+
+// markKilled records that the launcher killed the turn itself (a failed identity record) while nothing could have reaped it: the pid
+// and group may be reused as soon as the waiter reaps the child, so no later Stop, grace expiry or afterDone signals them by number.
+func (t *execTurn) markKilled() {
+	t.mu.Lock()
+	t.killed = true
+	t.mu.Unlock()
+}
 
 // afterDone is what the stop goroutine does once the leader has been reaped: the stragglers of the group are killed now,
 // as they always were; a strict turn's were killed before the reap.
 func (t *execTurn) afterDone() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !(t.strict && t.held) {
+	if !(t.strict && t.held) && !t.killed {
 		_ = t.killGrp()
 	}
 }
@@ -575,7 +618,7 @@ func (t *execTurn) afterDone() {
 func (t *execTurn) killGroupIfHeld() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.pinned() && !t.exited {
+	if t.pinned() {
 		_ = t.killGrp()
 	}
 }
@@ -600,9 +643,6 @@ func (t *execTurn) Stop() {
 		t.stopping = true
 		if t.pinned() {
 			_ = t.terminateGrp() // t is this process's child: its pid is its own until cmd.Wait reaps it
-			if t.exited {        // a strict turn's leader already ended and is held unreaped: its stragglers go now
-				_ = t.killGrp()
-			}
 		}
 		t.mu.Unlock()
 		grace := hostTurnGrace // read here: the goroutine below can outlive a test that swaps it
