@@ -606,13 +606,15 @@ func (h *Host) meshSync(ctx context.Context) {
 		alias := settings.MeshAlias
 		if alias == "" {
 			title, err := h.titleOf(x.ProfileID, x.ConversationID)
-			if err != nil { // a read that failed is not an unnamed chat: keep what the mesh was last told
-				if prev, ok := h.meshPrev[key]; ok {
-					want, next[key] = append(want, prev), prev
+			if err != nil { // a read that failed is not an unnamed chat: keep the alias the mesh was last told
+				prev, ok := h.meshPrev[key]
+				if !ok {
+					continue
 				}
-				continue
+				alias = prev.Alias // the rest of the session is built from what was read now
+			} else {
+				alias = AliasFromTitle(title) // "" = the project-and-time name
 			}
-			alias = AliasFromTitle(title) // "" = the project-and-time name
 		}
 		ms := MeshSession{
 			ProfileID: x.ProfileID, ConversationID: x.ConversationID, Cwd: cwd, Started: started.Local(),
