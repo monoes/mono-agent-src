@@ -39,8 +39,12 @@ func TestAStartThatFailsToCreateTheProcessAndCannotEndTheTokenSaysSo(t *testing.
 	dir := t.TempDir()
 	l := &execLauncher{bin: filepath.Join(dir, "no-such-binary"), dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
 		tokens: func(string, string, string) (string, error) { return "mst-x", nil }, revoke: failingRevoke}
-	if _, err := l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !coderhost.TokensMayBeLive(err) {
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || !coderhost.TokensMayBeLive(err) {
 		t.Fatalf("a failed process creation whose revoke failed: %v", err)
+	}
+	if coderhost.TurnStarted(err) {
+		t.Error("a failure before any process existed is reported as a started turn")
 	}
 }
 
@@ -51,6 +55,9 @@ func TestAnAdmissionFailureWhoseExitCannotEndTheTokenSaysSo(t *testing.T) {
 	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
 	if err == nil || !strings.Contains(err.Error(), "does not exist") || !coderhost.TokensMayBeLive(err) {
 		t.Fatalf("an admission failure whose exit revoke failed: %v", err)
+	}
+	if !coderhost.TurnStarted(err) {
+		t.Error("an admission failure after the process was created is not reported as a started turn")
 	}
 }
 
@@ -145,5 +152,146 @@ func TestAStartWhoseCleanupOutlastsTheWaitSaysTheTokenMayBeLive(t *testing.T) {
 	case <-pending:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the old turn was never reported finished")
+	}
+}
+
+// The launcher records the process the moment it exists, before admission; a record that cannot be written fails the start and the
+// process is stopped (a process whose identity cannot be kept is not allowed to run). This is a behaviour change of the ordinary
+// launcher: a failing session store now fails a start that used to succeed.
+func TestTheLauncherRecordsTheProcessFirstAndStopsItWhenItCannot(t *testing.T) {
+	bin, dir := scriptBin(t, "echo $$ > \"$(dirname \"$0\")/pid\"\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 30\n")
+	var recordedPID int
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		tokens: func(string, string, string) (string, error) { return "mst-x", nil }, revoke: func(string, string) error { return nil },
+		onProcess: func(_, _, turn string, pid int, stamp string, _ bool) error {
+			recordedPID = pid
+			if stamp == "" || turn != "t1" {
+				t.Errorf("stamp %q turn %q", stamp, turn)
+			}
+			return errors.New("the session store is unavailable")
+		}}
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || !strings.Contains(err.Error(), "could not record the turn's process") {
+		t.Fatalf("a start whose process could not be recorded: %v", err)
+	}
+	if recordedPID == 0 {
+		t.Fatal("the record was never asked for")
+	}
+	for i := 0; i < 300 && syscall.Kill(recordedPID, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(recordedPID, 0) == nil {
+		_ = syscall.Kill(recordedPID, syscall.SIGKILL)
+		t.Error("the process whose identity could not be recorded is still running")
+	}
+}
+
+// A process whose identity cannot be recorded is killed AT ONCE, not asked to leave: a child that ignores SIGTERM is dead too, long
+// before the stop's grace period (which is an hour here) would have killed it.
+func TestAProcessThatCannotBeRecordedIsKilledEvenWhenItIgnoresTerm(t *testing.T) {
+	oldGrace := hostTurnGrace
+	hostTurnGrace = time.Hour
+	t.Cleanup(func() { hostTurnGrace = oldGrace })
+	bin, dir := scriptBin(t, "trap '' TERM\necho $$ > \"$(dirname \"$0\")/pid\"\nwhile true; do sleep 0.05; done\n")
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		tokens: func(string, string, string) (string, error) { return "mst-x", nil }, revoke: func(string, string) error { return nil },
+		onProcess: func(_, _, _ string, pid int, _ string, _ bool) error {
+			for i := 0; i < 200; i++ { // the script writes its pid before it is the process the test looks at: wait for the trap to be set
+				if _, err := os.Stat(filepath.Join(dir, "pid")); err == nil {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			return errors.New("the session store is unavailable")
+		}}
+	start := time.Now()
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || !strings.Contains(err.Error(), "could not record the turn's process") {
+		t.Fatalf("%v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Errorf("the start waited %v for a process that ignores SIGTERM", time.Since(start))
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "pid"))
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	if pid == 0 {
+		t.Fatal("the script never wrote its pid")
+	}
+	for i := 0; i < 200 && syscall.Kill(pid, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(pid, 0) == nil {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		t.Error("a process that ignores SIGTERM survived the failed record")
+	}
+}
+
+// A bound launch is recorded as bound (with the plain stamp), an ordinary one is not.
+func TestABoundLaunchIsRecordedAsBound(t *testing.T) {
+	r := newBoundRig(t, "")
+	var recorded string
+	var recordedBound bool
+	r.l.onProcess = func(_, _, _ string, _ int, stamp string, bound bool) error {
+		recorded, recordedBound = stamp, bound
+		return nil
+	}
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+	if !recordedBound || !strings.HasPrefix(recorded, "start:") {
+		t.Errorf("a bound launch was recorded as bound=%v with the stamp %q", recordedBound, recorded)
+	}
+	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n")
+	var plainBound = true
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		revoke: func(string, string) error { return nil }, onProcess: func(_, _, _ string, _ int, _ string, bound bool) error { plainBound = bound; return nil }}
+	pt, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pt.Wait()
+	if plainBound {
+		t.Error("an ordinary launch was recorded as bound")
+	}
+}
+
+// A bound turn's leader exits naturally leaving a child in its process group, with no Stop ever coming: the child is killed with the
+// exit (token revocation does not stop processes), so no later turn of the conversation can start beside it.
+func TestABoundLeadersChildrenDieWithItsExitEvenWithoutAStop(t *testing.T) {
+	script := `d=$(dirname "$0")
+sleep 300 </dev/null >/dev/null 2>&1 &
+echo $! > "$d/child"
+echo $$ > "$d/pid"
+cat <&3 > "$d/frame"
+while [ ! -e "$d/release" ]; do sleep 0.05; done
+`
+	r := newBoundRig(t, script)
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var child int
+	for i := 0; i < 300 && child == 0; i++ {
+		if b, rerr := os.ReadFile(filepath.Join(r.dir, "child")); rerr == nil {
+			child, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if child == 0 || syscall.Kill(child, 0) != nil {
+		t.Fatalf("the turn's child is not running (pid %d)", child)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	if err := os.WriteFile(r.release, []byte("x"), 0o600); err != nil { // the leader exits on its own
+		t.Fatal(err)
+	}
+	_ = turn.Wait()
+	for i := 0; i < 300 && syscall.Kill(child, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(child, 0) == nil {
+		t.Error("a child of a bound turn outlived its leader's exit")
 	}
 }

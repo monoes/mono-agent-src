@@ -24,6 +24,8 @@ export function useChatSetup(active, setup, onChange) {
     Promise.resolve().then(() => api.coderStatus()).then(s => { if (live) setStatus(s || null) }).catch(() => { if (live) setStatus(null) })
     return () => { live = false }
   }, [active])
+  // refreshStatus reads the status again and resolves to it (null when it could not be read).
+  const refreshStatus = useCallback(() => Promise.resolve().then(() => api.coderStatus()).then(s => { setStatus(s || null); return s || null }).catch(() => { setStatus(null); return null }), [])
 
   const settled = status !== undefined
   const coderOk = !!status?.enabled && coderReady(status)
@@ -94,5 +96,5 @@ export function useChatSetup(active, setup, onChange) {
   else if (!runtime || models === null || !setup.model) state = 'loading'
 
   const retryScan = useCallback(() => setScanTry(n => n + 1), [])
-  return { status, settled, coderOk, access, coder, options, runtime, info, models, efforts, state, scanError: scan.error, retryScan }
+  return { status, settled, coderOk, access, coder, options, runtime, info, models, efforts, state, scanError: scan.error, retryScan, refreshStatus }
 }

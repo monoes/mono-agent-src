@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"math"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -46,6 +48,7 @@ func (s *Store) tx(ctx context.Context, fn func(x dbx) error) error {
 	}
 	defer conn.Close()
 	if err := s.beginImmediate(ctx, conn); err != nil {
+		noteDirtyConn(err, 2)
 		return fmt.Errorf("tasks: begin: %w", err)
 	}
 	committed := false
@@ -64,6 +67,23 @@ func (s *Store) tx(ctx context.Context, fn func(x dbx) error) error {
 	}
 	committed = true
 	return nil
+}
+
+// noteDirtyConn logs, once per occurrence and without changing what the caller does, that a pooled connection
+// was handed out still inside a transaction (SQLite's refusal to begin one within one), with the store method
+// that met it. Some earlier user of the pool left it so; this names the victim, the log of a second occurrence
+// is what narrows the culprit down (#1315). skip is how many frames up the store method is.
+func noteDirtyConn(err error, skip int) {
+	if err == nil || !strings.Contains(err.Error(), "cannot start a transaction within a transaction") {
+		return
+	}
+	where := "unknown"
+	if pc, _, _, ok := runtime.Caller(skip); ok {
+		if f := runtime.FuncForPC(pc); f != nil {
+			where = f.Name()
+		}
+	}
+	log.Printf("tasks: a pooled database connection was returned inside an open transaction; met by %s", where)
 }
 
 // Taking the write lock waits up to the connection's busy timeout (5 s). A writer
@@ -108,6 +128,7 @@ func (s *Store) snapshot(ctx context.Context, fn func(x dbx) error) error {
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN"); err != nil {
+		noteDirtyConn(err, 2)
 		return fmt.Errorf("tasks: begin: %w", err)
 	}
 	defer func() { _, _ = conn.ExecContext(context.Background(), "ROLLBACK") }()

@@ -335,6 +335,10 @@ func TestTheProductionHostInstallsTheGate(t *testing.T) {
 	if _, err := g.Start("default", "c", "t", "m", nil, ""); err == nil {
 		t.Error("the production gate let a start through with the setting on")
 	}
+	// the production launcher makes a started process's identity durable (a restart during a failed start must find it)
+	if l, ok := g.inner.(*execLauncher); !ok || l.onProcess == nil {
+		t.Errorf("the production launcher %T does not record the process it starts", g.inner)
+	}
 	cancel()
 	<-errc
 }
@@ -879,5 +883,17 @@ func TestARefusalWhoseRefusedTurnCouldNotCleanUpIsNotClean(t *testing.T) {
 	var r *bindingRefusal
 	if !errors.As(err, &r) || !coderhost.TokensMayBeLive(err) {
 		t.Fatalf("a refusal whose turn's cleanup failed: %v", err)
+	}
+}
+
+// A refusal comes after the refused turn's process was created, so it is a start that happened (the host keeps the turn's spend
+// cap), whether or not the cleanup was clean.
+func TestARefusalIsAStartThatHappened(t *testing.T) {
+	st := &slowTurn{exit: make(chan struct{})}
+	close(st.exit)
+	err := refuseWith(t, st)
+	var r *bindingRefusal
+	if !errors.As(err, &r) || !coderhost.TurnStarted(err) {
+		t.Fatalf("a clean refusal: %v (started %v)", err, coderhost.TurnStarted(err))
 	}
 }

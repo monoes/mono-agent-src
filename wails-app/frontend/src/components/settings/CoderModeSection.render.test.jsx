@@ -5,8 +5,18 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import ConfirmHost from '../ConfirmDialog.jsx'
 import CoderModeSection, { CODER_RISK_TITLE } from './CoderModeSection.jsx'
 
+vi.mock('react-i18next', async () => {
+  const en = (await import('../../locales/en.json')).default
+  const t = (key, o = {}) => String(key.split('.').reduce((n, k) => n?.[k], en) ?? key).replace(/{{(\w+)}}/g, (_, k) => o[k])
+  return { useTranslation: () => ({ t, i18n: { language: 'en' } }) }
+})
+
+const mockRunFix = vi.fn()
+vi.mock('../../lib/health.js', () => ({ runFix: (...a) => mockRunFix(...a) }))
+
 const App = {}
 beforeEach(() => {
+  mockRunFix.mockReset()
   for (const k of ['CoderStatus', 'CoderEnable', 'CoderDisable', 'CoderSet', 'PickCoderFolder']) App[k] = vi.fn()
   window.go = { main: { App } }
 })
@@ -104,9 +114,28 @@ describe('CoderModeSection', () => {
     expect(screen.getByTestId('coder-needs-update')).toHaveTextContent('Coder chats start once a runtime is ready')
   })
 
+  it('a monomind that could not be run shows the reason, not an update', async () => {
+    mount(status({ ready: false, missingCapabilities: [], monomindVersion: '', probeError: 'monomind: command not found' }))
+    const box = await screen.findByTestId('coder-needs-update')
+    expect(box).toHaveTextContent("monomind couldn't be used: monomind: command not found")
+    expect(box).not.toHaveTextContent('needs monomind update')
+    expect(screen.getByRole('button', { name: 'Fix monomind' })).toBeInTheDocument()
+  })
+
+  it('Fix monomind confirms with the command, runs the fix, and reloads the status', async () => {
+    mockRunFix.mockResolvedValue({ ok: true })
+    mount(status({ ready: false, missingCapabilities: [], monomindVersion: '', probeError: 'shim not found' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix monomind' }))
+    expect(await screen.findByRole('dialog')).toHaveTextContent('monoagentcli doctor fix monomind.install')
+    App.CoderStatus.mockResolvedValue(status())
+    fireEvent.click(screen.getByRole('button', { name: 'Run it' }))
+    await waitFor(() => expect(mockRunFix).toHaveBeenCalledWith('monomind.install', expect.any(Function)))
+    await waitFor(() => expect(App.CoderStatus).toHaveBeenCalledTimes(2))
+  })
+
   it('says monomind needs an update when not ready, and still allows turning it on', async () => {
     mount(status({ ready: false, missingCapabilities: ['agent-exec-tool-activity', 'init-json'] }))
-    expect(await screen.findByTestId('coder-needs-update')).toHaveTextContent('needs monomind update (missing: agent-exec-tool-activity, init-json)')
+    expect(await screen.findByTestId('coder-needs-update')).toHaveTextContent('needs monomind update (found monomind 1.2.3, missing: agent-exec-tool-activity, init-json)')
     expect(screen.getByRole('checkbox', { name: 'Coder mode' })).not.toBeDisabled()
   })
 
