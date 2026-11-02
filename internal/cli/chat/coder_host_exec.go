@@ -311,6 +311,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		startWaiter()
 		return nil, t.fail(errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped"))
 	}
+	// KNOWN GAP (accepted for now, not built; design sketch on issue #1310): a host crash between the process being created above and
+	// this identity commit leaves the session with PID 0. Recovery then cannot adopt the child, treats the turn as gone and settles, and a
+	// queued turn may start beside it. Closing it needs a durable launch intent written BEFORE the spawn (a per-turn nonce, or an
+	// enumerable unit); build it if it ever occurs.
 	if l.onProcess != nil {
 		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp, bd != nil); err != nil {
 			// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
