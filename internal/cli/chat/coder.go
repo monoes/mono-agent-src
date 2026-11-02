@@ -189,14 +189,26 @@ func loadCoderSettings(db *sql.DB) (coderSettings, error) {
 	return loadCoderSettingsFrom(context.Background(), db)
 }
 
-func loadCoderSettingsFrom(ctx context.Context, db settingsRW) (coderSettings, error) {
-	var raw string
-	err := db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
+// readCoderRow is the one read of the coder settings row; found is false when nothing is stored. Every reader goes through it,
+// so the configs table has the one read and the one write of this file (writeguard_test.go counts the statements).
+func readCoderRow(ctx context.Context, db settingsRW) (raw string, found bool, err error) {
+	err = db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return coderSettings{}.withDefaults(), nil
+		return "", false, nil
 	}
 	if err != nil {
-		return coderSettings{}, fmt.Errorf("reading coder settings: %w", err)
+		return "", false, fmt.Errorf("reading coder settings: %w", err)
+	}
+	return raw, true, nil
+}
+
+func loadCoderSettingsFrom(ctx context.Context, db settingsRW) (coderSettings, error) {
+	raw, found, err := readCoderRow(ctx, db)
+	if err != nil {
+		return coderSettings{}, err
+	}
+	if !found {
+		return coderSettings{}.withDefaults(), nil
 	}
 	var s coderSettings
 	if err := json.Unmarshal([]byte(raw), &s); err != nil {
@@ -638,13 +650,12 @@ var retiredCoderKeys = map[string]bool{}
 // storedUnknownCoderKeys returns the stored settings' fields this version does not know, as they were stored. Nothing
 // stored has none. Something stored that is not a JSON object is an error: it is not overwritten blindly.
 func storedUnknownCoderKeys(ctx context.Context, db settingsRW) (map[string]json.RawMessage, error) {
-	var raw string
-	err := db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
+	raw, found, err := readCoderRow(ctx, db)
 	if err != nil {
-		return nil, fmt.Errorf("reading coder settings: %w", err)
+		return nil, err
+	}
+	if !found {
+		return nil, nil
 	}
 	var all map[string]json.RawMessage
 	if strings.TrimSpace(raw) != "" && json.Unmarshal([]byte(raw), &all) != nil {
@@ -684,8 +695,8 @@ func knownCoderKey(k string) bool {
 
 // unknownCoderKeyNames is every stored key this version does not know and has not retired, in key order, for `coder status`.
 func unknownCoderKeyNames(ctx context.Context, db settingsRW) []string {
-	var raw string
-	if db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw) != nil {
+	raw, found, err := readCoderRow(ctx, db)
+	if err != nil || !found {
 		return nil
 	}
 	var all map[string]json.RawMessage
