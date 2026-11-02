@@ -277,7 +277,9 @@ func historyTitle(goal, firstPrompt, cwd string) string {
 	}
 	if cwd != "" {
 		if b := filepath.Base(cwd); b != "." && b != string(filepath.Separator) {
-			return b
+			if b = oneLine(redactTitleText(b)); b != "" {
+				return truncateRunes(b, histTitleMax)
+			}
 		}
 	}
 	return histNewChat
