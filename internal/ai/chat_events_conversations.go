@@ -196,7 +196,8 @@ const MaxConversationTitle = 80
 // dropped, cut to MaxConversationTitle characters. "" clears the name.
 func CleanConversationTitle(s string) string {
 	s = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+		// Control and format characters (bidi overrides, zero-width) are invisible in a name.
+		if (unicode.IsControl(r) && !unicode.IsSpace(r)) || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 		return r
