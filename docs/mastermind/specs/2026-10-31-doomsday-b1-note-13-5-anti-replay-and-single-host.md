@@ -613,3 +613,26 @@ delta review.
    phase-2 tie-break; T36 is corrected to agree with T21b (T52-T54).
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.5 Remaining after the delta review of revision 8 (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: the fallback does not bind SQLite's file opens** (section 3B). With no VFS hook, a WAL can be
+   replaced between the identity checks, SQLite can reopen it internally and complete an operation, and the
+   original can be restored before the next check. The fallback only discards the connection **after an error
+   is returned**; it does not establish that every internal reopen returns an error before any database
+   operation or admission. The replacement can therefore affect the result without an identity mismatch,
+   contrary to the binding and freshness guarantee. Error-injection tests cannot establish the missing
+   exclusion for all library opens.
+2. **P1: a torn failure record from another writer need not leave a refusal** (section 4B). While the host
+   remains alive, an outside dispatcher detects a temporarily restored older database and crashes while
+   appending `failed`; the original database is then restored. The torn record is ignored, there is no Stop
+   marker, and the host has not suffered an unclean loss. The next writer sees the previous committed witness
+   and a matching database and can admit work, although the stated state machine makes a freshness failure
+   generation-terminal. Required: **a durable refusal, or a host-loss/marker protocol, for failures in every
+   writer**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
