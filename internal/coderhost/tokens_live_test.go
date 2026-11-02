@@ -472,3 +472,68 @@ func TestRunWaitsForARetryInFlightBeforeItReturns(t *testing.T) {
 		t.Fatal("Run did not return after the retry finished")
 	}
 }
+
+// A failure without a channel does not hide a later one that has it, and several pending turns are all waited for.
+func TestTurnPendingSeesEveryChannelInAJoinedError(t *testing.T) {
+	if TurnPending(errors.New("plain")) != nil || TurnPending(&TokensLiveError{Err: errors.New("no channel")}) != nil {
+		t.Fatal("a failure without a pending turn reported one")
+	}
+	first, second := make(chan struct{}), make(chan struct{})
+	err := errors.Join(
+		&TokensLiveError{Err: errors.New("the first failure carries no channel")},
+		fmt.Errorf("wrapped: %w", errors.Join(errors.New("x"), &TokensLiveError{Err: errors.New("pending"), Ended: first})),
+		&TokensLiveError{Err: errors.New("another"), Ended: second})
+	pending := TurnPending(err)
+	if pending == nil {
+		t.Fatal("the pending channel was hidden behind the first failure")
+	}
+	close(first)
+	select {
+	case <-pending:
+		t.Fatal("reported finished while one pending turn was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(second)
+	select {
+	case <-pending:
+	case <-time.After(3 * time.Second):
+		t.Fatal("never reported finished")
+	}
+}
+
+func turnCapRows(t *testing.T, st *Store, turn string) (rows, started int) {
+	t.Helper()
+	if err := st.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(started), 0) FROM coder_session_turn_caps WHERE conversation_id = 'c1' AND turn_id = ?`, turn).Scan(&rows, &started); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+// A start that failed with its process possibly still running keeps the turn's spend cap (marked started, as a running turn's);
+// a start that failed before any process existed drops it.
+func TestAStartErrorKeepsTheCapOfATurnThatMayStillBeRunning(t *testing.T) {
+	for name, c := range map[string]struct {
+		err     error
+		rows    int
+		started int
+	}{
+		"the old turn may still be running": {&TokensLiveError{Err: errors.New("not ended"), Ended: make(chan struct{})}, 1, 1},
+		"no process existed":                {errors.New("could not start"), 0, 0},
+	} {
+		h, l, st := newHost(t)
+		if _, err := st.EnsureSession("p", "c1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetBudget("p", "c1", 10); err != nil {
+			t.Fatal(err)
+		}
+		l.startErr = c.err
+		send(t, st, "c1", "t1", "hello")
+		if err := h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+		if rows, started := turnCapRows(t, st, "t1"); rows != c.rows || started != c.started {
+			t.Errorf("%s: cap rows %d started %d, want %d and %d", name, rows, started, c.rows, c.started)
+		}
+	}
+}

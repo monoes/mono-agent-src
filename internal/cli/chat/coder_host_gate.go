@@ -163,22 +163,35 @@ func (g *gatedLauncher) launch(profile string, start func(coderhost.Launcher) (c
 			turn.Stop()
 		}
 		exited := make(chan struct{})
+		var waitErr error
 		go func() {
-			if werr := turn.Wait(); werr != nil && g.logf != nil {
-				g.logf("coder host: the refused turn ended with an error: %v", werr)
-			}
+			waitErr = turn.Wait()
 			close(exited)
 		}()
+		var live []error
+		if refuseErr != nil {
+			live = append(live, &coderhost.TokensLiveError{Err: refuseErr})
+		}
 		select {
 		case <-exited:
+			if waitErr != nil {
+				if g.logf != nil {
+					g.logf("coder host: the refused turn ended with an error: %v", waitErr)
+				}
+				if coderhost.TokensMayBeLive(waitErr) { // its cleanup could not end the tokens
+					live = append(live, waitErr)
+				}
+			}
 		case <-time.After(refusedTurnWait):
 			if g.logf != nil {
 				g.logf("coder host: the refused turn is still running after %v", refusedTurnWait)
 			}
+			// it may still be running and its cleanup has not finished: the host holds the session until the exit channel closes
+			live = append(live, &coderhost.TokensLiveError{Err: errors.New("the refused turn had not ended"), Ended: exited})
 		}
 		ref := &bindingRefusal{"the turn was not started: peer-credential binding was switched on while it started; send again"}
-		if refuseErr != nil { // a token of the refused turn may still be live: the host must hold the session, not settle it
-			return nil, &tokensLiveRefusal{ref: ref, live: &coderhost.TokensLiveError{Err: refuseErr}}
+		if len(live) > 0 { // a token of the refused turn may still be live: the host must hold the session, not settle it
+			return nil, &tokensLiveRefusal{ref: ref, live: errors.Join(live...)}
 		}
 		return nil, ref
 	}

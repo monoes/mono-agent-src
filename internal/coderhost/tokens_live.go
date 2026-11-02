@@ -32,13 +32,53 @@ func TokensMayBeLive(err error) bool {
 	return err != nil && errors.As(err, &t) && t.TokensMayBeLive()
 }
 
-// TurnPending returns the channel that closes when the turn behind err has finished, or nil when err names no pending turn.
-func TurnPending(err error) <-chan struct{} {
-	var t *TokensLiveError
-	if errors.As(err, &t) {
-		return t.Ended
+// liveFailures lists every TokensLiveError anywhere in err's tree (joined errors included), not only the first one errors.As finds.
+func liveFailures(err error) []*TokensLiveError {
+	var out []*TokensLiveError
+	var walk func(error)
+	walk = func(e error) {
+		if e == nil {
+			return
+		}
+		if t, ok := e.(*TokensLiveError); ok {
+			out = append(out, t)
+		}
+		switch u := e.(type) {
+		case interface{ Unwrap() []error }:
+			for _, c := range u.Unwrap() {
+				walk(c)
+			}
+		case interface{ Unwrap() error }:
+			walk(u.Unwrap())
+		}
 	}
-	return nil
+	walk(err)
+	return out
+}
+
+// TurnPending returns a channel that closes when EVERY turn that err names as possibly still running has finished (its cleanup
+// included), or nil when err names none. A failure that carries no channel does not hide one that does.
+func TurnPending(err error) <-chan struct{} {
+	var chans []<-chan struct{}
+	for _, f := range liveFailures(err) {
+		if f.Ended != nil {
+			chans = append(chans, f.Ended)
+		}
+	}
+	switch len(chans) {
+	case 0:
+		return nil
+	case 1:
+		return chans[0]
+	}
+	all := make(chan struct{})
+	go func() {
+		for _, c := range chans {
+			<-c
+		}
+		close(all)
+	}()
+	return all
 }
 
 // holdForTokens keeps the session unsettled, with retry as the way to end its tokens; retryHeld calls it at every pass and

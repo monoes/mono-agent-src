@@ -370,7 +370,11 @@ func (h *Host) Tick() error {
 			})
 			if err != nil {
 				if capped {
-					h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
+					if TurnPending(err) != nil { // the process may be running and spending: its cap stays, as a started turn's does
+						h.Store.MarkTurnCapStarted(c.ProfileID, c.ConversationID, c.TurnID)
+					} else {
+						h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
+					}
 				}
 				if TokensMayBeLive(err) { // a refused or failed launch whose token may still be live: hold, do not settle
 					h.holdForTokens(x, "a launch failed and its tokens could not be revoked", h.endTurnTokens(x))
