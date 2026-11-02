@@ -319,7 +319,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			// goroutine's revoke comes after the commit.
 			rerr := errors.Join(l.revokeSession(profileID, conversationID), l.child.revokeToken(ct))
 			if rerr != nil {
-				return nil, errors.Join(errors.New("the turn ended while its credentials were being delivered"), &coderhost.TokensLiveError{Err: rerr})
+				return nil, &coderhost.StartedError{Err: errors.Join(errors.New("the turn ended while its credentials were being delivered"), &coderhost.TokensLiveError{Err: rerr})}
 			}
 		}
 	} else if l.bind != nil {
@@ -455,6 +455,10 @@ func (l *execLauncher) Finish(profileID, conversationID, turnID, reason string) 
 // fail stops the turn and returns err; when the turn's exit could not end its tokens (the exit goroutine's failure, known once the
 // process is gone) that failure is part of what comes back, so the host holds the session instead of settling it.
 func (t *execTurn) fail(err error) error {
+	return &coderhost.StartedError{Err: t.failWith(err)} // the process exists: the turn started, whatever else failed
+}
+
+func (t *execTurn) failWith(err error) error {
 	if !t.stopAndWait() {
 		// The turn had not ended, and its exit's cleanup had not run, when the wait gave up: its tokens may still be live.
 		// The host holds the session until they are ended (the late exit also ends the turn's own tokens).

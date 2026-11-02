@@ -191,9 +191,9 @@ func (g *gatedLauncher) launch(profile string, start func(coderhost.Launcher) (c
 		}
 		ref := &bindingRefusal{"the turn was not started: peer-credential binding was switched on while it started; send again"}
 		if len(live) > 0 { // a token of the refused turn may still be live: the host must hold the session, not settle it
-			return nil, &tokensLiveRefusal{ref: ref, live: errors.Join(live...)}
+			return nil, &coderhost.StartedError{Err: &tokensLiveRefusal{ref: ref, live: errors.Join(live...)}}
 		}
-		return nil, ref
+		return nil, &coderhost.StartedError{Err: ref} // the refused turn's process was created and ended: its cap stays
 	}
 	return turn, nil
 }

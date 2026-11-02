@@ -474,6 +474,16 @@ func TestRunWaitsForARetryInFlightBeforeItReturns(t *testing.T) {
 }
 
 // A failure without a channel does not hide a later one that has it, and several pending turns are all waited for.
+func TestTurnStartedSeesThroughWrapping(t *testing.T) {
+	base := &StartedError{Err: errors.New("failed after the process was created")}
+	if !TurnStarted(base) || !TurnStarted(fmt.Errorf("w: %w", base)) || !TurnStarted(errors.Join(errors.New("x"), base)) {
+		t.Fatal("a failure after the process was created was not recognised")
+	}
+	if TurnStarted(errors.New("could not start")) || TurnStarted(nil) {
+		t.Fatal("a failure before any process existed was taken for a started turn")
+	}
+}
+
 func TestTurnPendingSeesEveryChannelInAJoinedError(t *testing.T) {
 	if TurnPending(errors.New("plain")) != nil || TurnPending(&TokensLiveError{Err: errors.New("no channel")}) != nil {
 		t.Fatal("a failure without a pending turn reported one")
@@ -518,6 +528,7 @@ func TestAStartErrorKeepsTheCapOfATurnThatMayStillBeRunning(t *testing.T) {
 		started int
 	}{
 		"the old turn may still be running": {&TokensLiveError{Err: errors.New("not ended"), Ended: make(chan struct{})}, 1, 1},
+		"it started and already ended":      {&StartedError{Err: errors.New("the refusal came after the process exited")}, 1, 1},
 		"no process existed":                {errors.New("could not start"), 0, 0},
 	} {
 		h, l, st := newHost(t)

@@ -373,7 +373,7 @@ func (h *Host) Tick() error {
 			})
 			if err != nil {
 				if capped {
-					if TurnPending(err) != nil { // the process may be running and spending: its cap stays, as a started turn's does
+					if TurnPending(err) != nil || TurnStarted(err) { // the process was created (it may be running, or have run and ended, and spent): its cap stays, as a started turn's does
 						h.Store.MarkTurnCapStarted(c.ProfileID, c.ConversationID, c.TurnID)
 					} else {
 						h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)

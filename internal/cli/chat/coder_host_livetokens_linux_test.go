@@ -39,8 +39,12 @@ func TestAStartThatFailsToCreateTheProcessAndCannotEndTheTokenSaysSo(t *testing.
 	dir := t.TempDir()
 	l := &execLauncher{bin: filepath.Join(dir, "no-such-binary"), dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
 		tokens: func(string, string, string) (string, error) { return "mst-x", nil }, revoke: failingRevoke}
-	if _, err := l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !coderhost.TokensMayBeLive(err) {
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || !coderhost.TokensMayBeLive(err) {
 		t.Fatalf("a failed process creation whose revoke failed: %v", err)
+	}
+	if coderhost.TurnStarted(err) {
+		t.Error("a failure before any process existed is reported as a started turn")
 	}
 }
 
@@ -51,6 +55,9 @@ func TestAnAdmissionFailureWhoseExitCannotEndTheTokenSaysSo(t *testing.T) {
 	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
 	if err == nil || !strings.Contains(err.Error(), "does not exist") || !coderhost.TokensMayBeLive(err) {
 		t.Fatalf("an admission failure whose exit revoke failed: %v", err)
+	}
+	if !coderhost.TurnStarted(err) {
+		t.Error("an admission failure after the process was created is not reported as a started turn")
 	}
 }
 
