@@ -3,6 +3,8 @@ package coderhost
 import (
 	"errors"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // RecordTurnProcess writes the identity of the CURRENT turn's process once; it never touches a newer turn's row, and repeating the
@@ -112,4 +114,90 @@ func TestARestartDuringAHoldAdoptsTheProcessTheLauncherRecorded(t *testing.T) {
 	}
 	l2.turn("t2").end()
 	h2.Wait()
+}
+
+// pid 0 and negative pids, and a session that has no row, are refused: nothing is written.
+func TestRecordTurnProcessRefusesBadInputAndEmptyRows(t *testing.T) {
+	_, _, st := newHost(t)
+	for _, pid := range []int{0, -1, 1} {
+		if err := st.RecordTurnProcess("p", "c1", "t1", pid, "stamp"); err == nil {
+			t.Errorf("pid %d was accepted", pid)
+		}
+	}
+	if err := st.RecordTurnProcess("p", "no-such-conversation", "t1", 777, "stamp"); err == nil {
+		t.Error("a session with no row accepted a process")
+	}
+	if _, err := st.EnsureSession("p", "c1"); err != nil { // a row with no current turn
+		t.Fatal(err)
+	}
+	if err := st.RecordTurnProcess("p", "c1", "t1", 777, "stamp"); err == nil {
+		t.Error("a session with no current turn accepted a process")
+	}
+	if got := state(t, st, "c1"); got.TurnPID != 0 || got.TurnStamp != "" {
+		t.Errorf("the row was changed: %+v", got)
+	}
+}
+
+func TestSplitTurnStampSeparatesTheBoundDiscriminator(t *testing.T) {
+	if s, b := SplitTurnStamp(BoundStampPrefix + "start:5"); s != "start:5" || !b {
+		t.Errorf("bound: %q %v", s, b)
+	}
+	if s, b := SplitTurnStamp("start:5"); s != "start:5" || b {
+		t.Errorf("plain: %q %v", s, b)
+	}
+}
+
+// A bound launch's process was recorded before its token existed and the host died: recovery STOPS it (by its identity, as for any
+// bound turn) and settles; it does not adopt it as a legacy turn.
+func TestRecoveryStopsABoundLaunchRecordedBeforeItsTokenExisted(t *testing.T) {
+	h, l, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTurnProcess("p", "c1", "t1", 4242, BoundStampPrefix+"start:99"); err != nil {
+		t.Fatal(err)
+	}
+	l.alive[4242] = newFakeTurn(4242) // the legacy path WOULD adopt this
+	fs := &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopStopped}}}
+	h.Stopper = fs
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.calls) != 1 || fs.calls[0] != [2]any{4242, "start:99"} {
+		t.Errorf("the stopper was called with %v, want the recorded pid and the plain stamp", fs.calls)
+	}
+	if h.live[key("p", "c1")] != nil {
+		t.Error("a bound launch was adopted as a legacy turn")
+	}
+	if got := state(t, st, "c1"); got.TurnID != "" || got.State != StateIdle {
+		t.Errorf("not settled after the stop: %+v", got)
+	}
+}
+
+// A bound launch whose process cannot be confirmed gone is held, not settled.
+func TestRecoveryHoldsABoundLaunchItCannotConfirmGone(t *testing.T) {
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTurnProcess("p", "c1", "t1", 4242, BoundStampPrefix+"start:99"); err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopHeld, Cause: "it did not exit after SIGKILL"}}}
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(t, st, "c1"); got.TurnID != "t1" || len(h.Held()) != 1 {
+		t.Errorf("the session was settled with a bound leader that may still run: %+v held=%v", got, h.Held())
+	}
 }

@@ -185,3 +185,71 @@ func TestTheLauncherRecordsTheProcessFirstAndStopsItWhenItCannot(t *testing.T) {
 		t.Error("the process whose identity could not be recorded is still running")
 	}
 }
+
+// A process whose identity cannot be recorded is killed AT ONCE, not asked to leave: a child that ignores SIGTERM is dead too, long
+// before the stop's grace period (which is an hour here) would have killed it.
+func TestAProcessThatCannotBeRecordedIsKilledEvenWhenItIgnoresTerm(t *testing.T) {
+	oldGrace := hostTurnGrace
+	hostTurnGrace = time.Hour
+	t.Cleanup(func() { hostTurnGrace = oldGrace })
+	bin, dir := scriptBin(t, "trap '' TERM\necho $$ > \"$(dirname \"$0\")/pid\"\nwhile true; do sleep 0.05; done\n")
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		tokens: func(string, string, string) (string, error) { return "mst-x", nil }, revoke: func(string, string) error { return nil },
+		onProcess: func(_, _, _ string, pid int, _ string) error {
+			for i := 0; i < 200; i++ { // the script writes its pid before it is the process the test looks at: wait for the trap to be set
+				if _, err := os.Stat(filepath.Join(dir, "pid")); err == nil {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			return errors.New("the session store is unavailable")
+		}}
+	start := time.Now()
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || !strings.Contains(err.Error(), "could not record the turn's process") {
+		t.Fatalf("%v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Errorf("the start waited %v for a process that ignores SIGTERM", time.Since(start))
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "pid"))
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	if pid == 0 {
+		t.Fatal("the script never wrote its pid")
+	}
+	for i := 0; i < 200 && syscall.Kill(pid, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(pid, 0) == nil {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		t.Error("a process that ignores SIGTERM survived the failed record")
+	}
+}
+
+// A bound launch is recorded as bound, an ordinary one is not.
+func TestABoundLaunchIsRecordedAsBound(t *testing.T) {
+	r := newBoundRig(t, "")
+	var recorded string
+	r.l.onProcess = func(_, _, _ string, _ int, stamp string) error { recorded = stamp; return nil }
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+	if !strings.HasPrefix(recorded, coderhost.BoundStampPrefix) {
+		t.Errorf("a bound launch was recorded with the stamp %q", recorded)
+	}
+	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n")
+	var plain string
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		revoke: func(string, string) error { return nil }, onProcess: func(_, _, _ string, _ int, stamp string) error { plain = stamp; return nil }}
+	pt, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pt.Wait()
+	if plain == "" || strings.HasPrefix(plain, coderhost.BoundStampPrefix) {
+		t.Errorf("an ordinary launch was recorded with the stamp %q", plain)
+	}
+}

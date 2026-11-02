@@ -464,6 +464,18 @@ func (s *Store) SweepOrphans() (int, error) {
 	return total, nil
 }
 
+// BoundStampPrefix marks a recorded turn stamp as the one of a BOUND launch (the launcher records it before the token is minted, when
+// no v2 row exists yet to say so). Recovery stops such a process by its pidfd and settles, as it does for any bound turn, and never adopts it.
+const BoundStampPrefix = "bound:"
+
+// SplitTurnStamp returns the process start stamp inside a recorded turn stamp and whether the launch was a bound one.
+func SplitTurnStamp(recorded string) (stamp string, bound bool) {
+	if rest, ok := strings.CutPrefix(recorded, BoundStampPrefix); ok {
+		return rest, true
+	}
+	return recorded, false
+}
+
 // RecordTurnProcess makes the identity of a turn's process durable on the session: the launcher calls it as soon as the process
 // exists, so a host that restarts before the start has finished still finds the pid and the start stamp (and adopts or stops the
 // process) instead of settling the session beside it. It writes only for the session's CURRENT turn and only once: a newer turn's

@@ -307,7 +307,14 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		return nil, t.fail(errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped"))
 	}
 	if l.onProcess != nil {
-		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp); err != nil {
+		recorded := stamp
+		if bd != nil { // a bound launch is recorded as such: its token does not exist yet, and recovery must stop it, not adopt it
+			recorded = coderhost.BoundStampPrefix + stamp
+		}
+		if err := l.onProcess(profileID, conversationID, turnID, t.pid, recorded); err != nil {
+			// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
+			// leader and group, not asked to leave, so a child that ignores SIGTERM does not survive either.
+			t.killNow()
 			return nil, t.fail(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
 		}
 	}
@@ -477,6 +484,17 @@ func (t *execTurn) failWith(err error) error {
 		err = errors.Join(err, t.err)
 	}
 	return err
+}
+
+// killNow kills the turn's leader and its group without the grace period. The leader is this process's own child and unreaped
+// (the exit goroutine waits for it), so its pid still names it.
+func (t *execTurn) killNow() {
+	t.markStopping()
+	t.mu.Lock()
+	if t.pinned() {
+		_ = t.killGrp()
+	}
+	t.mu.Unlock()
 }
 
 // stopAndWait stops the turn and waits (bounded) for its exit, cleanup included; false when the bound ran out first.
@@ -763,7 +781,8 @@ func hostHeldTurns(cfg *Deps) (skip func(ai.Turn) bool, closeFn func()) {
 			return false
 		}
 		now := stampOf(x.TurnPID) // unreadable now: still alive, so spared
-		return now == "" || now == x.TurnStamp
+		recorded, _ := coderhost.SplitTurnStamp(x.TurnStamp)
+		return now == "" || now == recorded
 	}, func() { db.Close() }
 }
 

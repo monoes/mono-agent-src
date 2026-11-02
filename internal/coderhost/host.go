@@ -118,6 +118,11 @@ func (h *Host) Recover() error {
 			h.recoverV2(x, pid, stamp)
 			continue
 		}
+		// A bound launch whose identity was recorded before its token existed (the host died between the two): stop it, never adopt it.
+		if stamp, bound := SplitTurnStamp(x.TurnStamp); bound && x.TurnPID > 1 {
+			h.recoverV2(x, x.TurnPID, stamp)
+			continue
+		}
 		if t := h.L.Adopt(x.TurnPID, x.TurnStamp); t != nil && x.TurnPID > 0 {
 			h.live[key(x.ProfileID, x.ConversationID)] = t
 			h.watch(x, t)
