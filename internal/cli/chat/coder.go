@@ -636,7 +636,7 @@ const (
 var retiredCoderKeys = map[string]bool{}
 
 // storedUnknownCoderKeys returns the stored settings' fields this version does not know, as they were stored. Nothing
-// stored, or something that is not a JSON object, has none: the write is then the struct's alone.
+// stored has none. Something stored that is not a JSON object is an error: it is not overwritten blindly.
 func storedUnknownCoderKeys(ctx context.Context, db settingsRW) (map[string]json.RawMessage, error) {
 	var raw string
 	err := db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
@@ -647,8 +647,9 @@ func storedUnknownCoderKeys(ctx context.Context, db settingsRW) (map[string]json
 		return nil, fmt.Errorf("reading coder settings: %w", err)
 	}
 	var all map[string]json.RawMessage
-	if json.Unmarshal([]byte(raw), &all) != nil {
-		return nil, nil
+	if strings.TrimSpace(raw) != "" && json.Unmarshal([]byte(raw), &all) != nil {
+		// Not a settings object: a write now would replace whatever it is without a trace.
+		return nil, errors.New("the stored coder settings are not a JSON object; refusing to overwrite them (fix or remove the coder_mode config row)")
 	}
 	names := make([]string, 0, len(all))
 	for k := range all {

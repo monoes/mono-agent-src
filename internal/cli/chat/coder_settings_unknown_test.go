@@ -100,25 +100,39 @@ func TestSavingTheCoderSettingsStillRemovesAKnownFieldTurnedOff(t *testing.T) {
 	}
 }
 
-// With nothing stored, or something that is not an object, the write is the struct's alone.
-func TestSavingTheCoderSettingsWithNothingUsableStoredWritesTheStructAlone(t *testing.T) {
-	for name, stored := range map[string]string{"nothing": "", "not an object": `["x"]`, "not json": `{`} {
+// With nothing stored the write is the struct's alone; something stored that is not a JSON object is refused, not overwritten.
+func TestSavingTheCoderSettingsWithNothingStoredWritesTheStructAlone(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := saveCoderSettings(db.DB, coderSettings{Enabled: true}.withDefaults()); err != nil {
+		t.Fatal(err)
+	}
+	got := storedCoderJSON(t, dbPath)
+	if string(got["enabled"]) != "true" || len(got) < 5 {
+		t.Fatalf("stored = %v", got)
+	}
+}
+
+func TestSavingTheCoderSettingsRefusesToOverwriteSomethingThatIsNotAnObject(t *testing.T) {
+	for name, stored := range map[string]string{"an array": `["x"]`, "not json": `{`, "a string": `"text"`} {
 		t.Run(name, func(t *testing.T) {
 			dbPath := newChatCLITestDB(t)
-			if stored != "" {
-				putRawCoderSettings(t, dbPath, stored)
-			}
+			putRawCoderSettings(t, dbPath, stored)
 			db, err := storage.NewDatabase(dbPath)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer db.Close()
-			if err := saveCoderSettings(db.DB, coderSettings{Enabled: true}.withDefaults()); err != nil {
-				t.Fatal(err)
+			if err := saveCoderSettings(db.DB, coderSettings{Enabled: true}.withDefaults()); err == nil {
+				t.Fatal("something that is not a settings object was overwritten")
 			}
-			got := storedCoderJSON(t, dbPath)
-			if string(got["enabled"]) != "true" || len(got) < 5 {
-				t.Fatalf("stored = %v", got)
+			var raw string
+			if err := db.DB.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw); err != nil || raw != stored {
+				t.Fatalf("the stored value changed: %q (%v)", raw, err)
 			}
 		})
 	}
