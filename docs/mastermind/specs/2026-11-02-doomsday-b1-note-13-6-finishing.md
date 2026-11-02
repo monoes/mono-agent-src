@@ -633,3 +633,19 @@ evidence) fails T17 and T41. A guarantee whose mutation does not fail a test is 
    runtime that cannot report it cannot be a verifier (section 9).
 7. **A name for the operator verbs** (`doomsday finish`, `--reverify`, `rubric`) and the pane wording, to be
    settled with the CLI conventions before implementation.
+
+### 13.6 Remaining after the delta review of the first draft (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: the commit predicate does not require the verifier review** (the `finish-commit` condition). A
+   machine-only round can write all the passing evidence, then crash before the required model review is
+   recorded. On recovery every listed `finish-commit` condition can hold: the evidence contains the pinned
+   tuple, but that is not a bound, completed review with an `ok` outcome. The conditional insert can therefore
+   finish without the review that section 9 requires, including when the verifier is unavailable or would
+   have blocked. Required: a **current-round, freeze- and digest-bound completed review with no blocker** in
+   the commit predicate, and tests for **a crash before and during that review**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
