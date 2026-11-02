@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -187,14 +189,26 @@ func loadCoderSettings(db *sql.DB) (coderSettings, error) {
 	return loadCoderSettingsFrom(context.Background(), db)
 }
 
-func loadCoderSettingsFrom(ctx context.Context, db settingsRW) (coderSettings, error) {
-	var raw string
-	err := db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
+// readCoderRow is the one read of the coder settings row; found is false when nothing is stored. Every reader goes through it,
+// so the configs table has the one read and the one write of this file (writeguard_test.go counts the statements).
+func readCoderRow(ctx context.Context, db settingsRW) (raw string, found bool, err error) {
+	err = db.QueryRowContext(ctx, `SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return coderSettings{}.withDefaults(), nil
+		return "", false, nil
 	}
 	if err != nil {
-		return coderSettings{}, fmt.Errorf("reading coder settings: %w", err)
+		return "", false, fmt.Errorf("reading coder settings: %w", err)
+	}
+	return raw, true, nil
+}
+
+func loadCoderSettingsFrom(ctx context.Context, db settingsRW) (coderSettings, error) {
+	raw, found, err := readCoderRow(ctx, db)
+	if err != nil {
+		return coderSettings{}, err
+	}
+	if !found {
+		return coderSettings{}.withDefaults(), nil
 	}
 	var s coderSettings
 	if err := json.Unmarshal([]byte(raw), &s); err != nil {
@@ -216,6 +230,16 @@ func saveCoderSettingsTo(ctx context.Context, db settingsRW, s coderSettings) er
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
+		return err
+	}
+	// The row is written whole, so a field a newer version stored and this one does not know would be lost by any save
+	// (an older CLI that changes one setting would silently reset what a newer version set). Keep those; the fields this
+	// version knows are written from the struct alone, so turning one off still removes it.
+	extra, err := storedUnknownCoderKeys(ctx, db)
+	if err != nil {
+		return err
+	}
+	if b, err = withExtraKeys(b, extra); err != nil {
 		return err
 	}
 	_, err = db.ExecContext(ctx, `INSERT INTO configs (name, config_data, created_at, updated_at)
@@ -278,6 +302,8 @@ func updateCoderSettings(ctx context.Context, db *sql.DB, change func(s *coderSe
 // stays "claude" for app versions that only know that one.
 type coderStatus struct {
 	coderSettings
+	// UnknownSettings are the stored settings fields this version does not know (a newer version's, or a hand edit).
+	UnknownSettings     []string `json:"unknownSettings,omitempty"`
 	Ready               bool     `json:"ready"`
 	MissingCapabilities []string `json:"missingCapabilities"`
 	MonomindVersion     string   `json:"monomindVersion"`
@@ -500,6 +526,11 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				return err
 			}
 			st := currentCoderStatus(cmd, s)
+			kctx := cmd.Context()
+			if kctx == nil {
+				kctx = context.Background()
+			}
+			st.UnknownSettings = unknownCoderKeyNames(kctx, db.DB)
 			if cfg.JSONOutput() {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(st)
 			}
@@ -508,6 +539,21 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
 			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s (off by default; switching it on is the operator's, on a machine that can run the binding service)\n", onOff(bool(st.PeercredBinding)))
+			if len(st.UnknownSettings) > 0 {
+				shown := st.UnknownSettings
+				more := ""
+				if len(shown) > 5 {
+					shown, more = shown[:5], fmt.Sprintf(" and %d more", len(shown)-5)
+				}
+				quoted := make([]string, len(shown))
+				for i, k := range shown {
+					if len(k) > 40 {
+						k = k[:40] + "…"
+					}
+					quoted[i] = fmt.Sprintf("%q", k)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "warning: the stored settings hold %s%s, which this version does not know: saved by another version of monoagentcli, or by hand. They are kept up to a limit but not acted on. Update this monoagentcli (`monoagentcli update`) so it and the daemon run the same version.\n", strings.Join(quoted, ", "), more)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s (off by default; best-effort hardening, not isolation: the host network is shared and the host root is read-only)\n", st.Box)
 			if st.ProbeError != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "monomind couldn't be used: %s\n", st.ProbeError)
@@ -570,4 +616,128 @@ func expandHome(p string) string {
 		}
 	}
 	return p
+}
+
+// coderSettingKeys are the JSON keys this version of coderSettings reads and writes.
+var coderSettingKeys = func() map[string]bool {
+	keys := map[string]bool{}
+	t := reflect.TypeOf(coderSettings{})
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if f.PkgPath != "" || name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		keys[name] = true
+	}
+	return keys
+}()
+
+// How many stored fields this version does not know it keeps, and their total size: a bound, so a stored blob cannot grow
+// the row on every save. Past it the keys last in key order are not carried.
+const (
+	maxKeptCoderKeys  = 64
+	maxKeptCoderBytes = 64 << 10
+)
+
+// retiredCoderKeys are fields an earlier version wrote and none reads any more: they are not carried. To retire a field,
+// remove it from coderSettings and add its key here.
+var retiredCoderKeys = map[string]bool{}
+
+// storedUnknownCoderKeys returns the stored settings' fields this version does not know, as they were stored. Nothing
+// stored has none. Something stored that is not a JSON object is an error: it is not overwritten blindly.
+func storedUnknownCoderKeys(ctx context.Context, db settingsRW) (map[string]json.RawMessage, error) {
+	raw, found, err := readCoderRow(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	var all map[string]json.RawMessage
+	if strings.TrimSpace(raw) != "" && json.Unmarshal([]byte(raw), &all) != nil {
+		// Not a settings object: a write now would replace whatever it is without a trace.
+		return nil, errors.New("the stored coder settings are not a JSON object; refusing to overwrite them (fix or remove the coder_mode config row)")
+	}
+	names := make([]string, 0, len(all))
+	for k := range all {
+		if !knownCoderKey(k) && !retiredCoderKeys[k] {
+			names = append(names, k)
+		}
+	}
+	sort.Strings(names)
+	extra := map[string]json.RawMessage{}
+	size := 0
+	for _, k := range names {
+		if len(extra) >= maxKeptCoderKeys || size+len(k)+len(all[k]) > maxKeptCoderBytes {
+			break
+		}
+		extra[k] = all[k]
+		size += len(k) + len(all[k])
+	}
+	return extra, nil
+}
+
+// knownCoderKey says whether k names a field of coderSettings. encoding/json matches a field whatever the case of its key,
+// so a key that differs from a known one only in case IS that field: it is not carried, because kept beside the struct's
+// own key it would win on the next read.
+func knownCoderKey(k string) bool {
+	for known := range coderSettingKeys {
+		if strings.EqualFold(k, known) {
+			return true
+		}
+	}
+	return false
+}
+
+// unknownCoderKeyNames is every stored key this version does not know and has not retired, in key order, for `coder status`.
+func unknownCoderKeyNames(ctx context.Context, db settingsRW) []string {
+	raw, found, err := readCoderRow(ctx, db)
+	if err != nil || !found {
+		return nil
+	}
+	var all map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &all) != nil {
+		return nil
+	}
+	var names []string
+	for k := range all {
+		if !knownCoderKey(k) && !retiredCoderKeys[k] {
+			names = append(names, k)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// withExtraKeys adds the extra fields to the JSON object b, after its own, in key order.
+func withExtraKeys(b []byte, extra map[string]json.RawMessage) ([]byte, error) {
+	if len(extra) == 0 {
+		return b, nil
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(b) < 2 || b[len(b)-1] != '}' {
+		return nil, errors.New("coder settings did not marshal to an object")
+	}
+	out := append([]byte(nil), b[:len(b)-1]...)
+	for _, k := range keys {
+		kb, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		if len(out) > 1 {
+			out = append(out, ',')
+		}
+		out = append(out, kb...)
+		out = append(out, ':')
+		out = append(out, extra[k]...)
+	}
+	return append(out, '}'), nil
 }
