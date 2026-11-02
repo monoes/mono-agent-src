@@ -55,6 +55,10 @@ type Deps struct {
 	RestartBlockers func(ctx context.Context, pid int) (inFlight int, settingsErr, err error)
 	// Installer is the auto-start service manager.
 	Installer func() autostart.Installer
+	// LookPath finds a program on PATH; nil: exec.LookPath. ProbeVersion asks a CLI for its version in a scratch
+	// environment; nil: it runs `<path> --json version` there (stale.go).
+	LookPath     func(name string) (string, error)
+	ProbeVersion func(ctx context.Context, path string) (string, error)
 	// ServicePID is the pid of the process the registered service runs; nil: autostart.ServiceMainPID.
 	ServicePID func(ctx context.Context, in autostart.Installer) (int, error)
 	// VerifyWait and VerifyTick bound the wait for the restarted daemon's heartbeat; zero: 15s and 250ms.
@@ -205,6 +209,7 @@ func (d Deps) run(cmd *cobra.Command) error {
 	}
 	if latest == current {
 		fmt.Printf("Already on latest version (%s)\n", v)
+		d.printStale(d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPathOrEmpty()), nil))
 		// A daemon started before this binary was installed still runs the old code.
 		if du := d.daemonAfterUpdate(cmd.Context(), v); du != nil {
 			fmt.Println(du.Message)
@@ -246,6 +251,9 @@ func (d Deps) run(cmd *cobra.Command) error {
 	}
 
 	fmt.Printf("Updated to %s\n", info.Tag)
+	// Other mono-agent CLIs (the one a daemon service starts, the one on PATH) are still old: the daemon's own is replaced
+	// from the verified asset, so that the restart below starts the new code; the rest is reported with its command.
+	d.printStale(d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPath), data))
 	if du := d.daemonAfterUpdate(cmd.Context(), info.Tag); du != nil {
 		fmt.Println(du.Message)
 	}
@@ -387,6 +395,26 @@ func updateAssetNameFor(goos, goarch string) string {
 		name += ".exe"
 	}
 	return name
+}
+
+func selfPathOrEmpty() string {
+	p, _ := selfBinaryPath()
+	return p
+}
+
+// selfSkip is the paths an update of this binary has just dealt with: this binary, as it is reached and as it really is.
+func (d Deps) selfSkip(self string) []string {
+	skip := []string{self}
+	if exe, err := os.Executable(); err == nil {
+		skip = append(skip, exe)
+	}
+	return skip
+}
+
+func (d Deps) printStale(list []StaleCLI) {
+	for _, s := range list {
+		fmt.Println(s.Message)
+	}
 }
 
 func selfBinaryPath() (string, error) {
