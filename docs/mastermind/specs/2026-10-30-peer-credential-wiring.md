@@ -75,8 +75,13 @@ reverted alone**, and so that the setting does not exist until everything it nee
   only its own turn's tokens: PR #1283: `TestADelayedExitCleanupNeverTouchesALaterTurnsToken`,
   `TestARefusedChildsTaskTokenIsDeadWhileItsProcessStillRuns`, `TestRevokingOneTurnLeavesTheFollowingTurnsV2TokenAndRegistration`,
   `TestARefusedTurnIsWaitedForBeforeTheRefusalReturns`.
-- A task token that cannot be ended is reported, not swallowed (four attempts, each with its own deadline, the error joined
-  into the turn's error): `TestRevokeTokenReportsAFailureThatSurvivesEveryAttempt`, `TestATurnWhoseTaskTokenCouldNotBeEndedReportsIt`.
+- A token that cannot be ended is reported, not swallowed, and the host holds the session instead of settling it (PR #1294, in
+  review): `TestRevokeTokenReportsAFailureThatSurvivesEveryAttempt`, `TestATurnWhoseTaskTokenCouldNotBeEndedReportsIt`,
+  `TestAnExitThatCouldNotEndTheTokensHoldsTheSessionUntilItCan`, `TestRecoveryEndsTheTokensOfATurnWhoseProcessIsGone`,
+  `TestAHoldWaitsForTheOldTurnToFinishBeforeAQueuedTurnStarts`, `TestRunWaitsForARetryInFlightBeforeItReturns`.
+- **OPEN, blocking: a host restart during a hold for a failed start can settle beside the old process** (issue #1310): the
+  process's pid and stamp must be made durable before the start returns. It exists on master in the legacy launcher today and
+  is listed here so the user decides on it at the flip prompt with it in front of them.
 - Every writer of the settings is transactional (`updateCoderSettings`): 3b-1 (#1247), `TestThePeercredSettingCannotBeSwitchedOnYet`
   and the writers' tests there.
 - The guard walk (`TestEveryLegacyTokenEndIsRevokedInV2OrReviewed`), the `RowKey`/`AnswerKey` tripwire
