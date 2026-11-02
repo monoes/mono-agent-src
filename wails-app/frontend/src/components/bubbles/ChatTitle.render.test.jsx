@@ -15,6 +15,7 @@ const { api, chatAccess, budget } = vi.hoisted(() => ({
     coderWorkspaceList: vi.fn(), getAgentRuntimeModels: vi.fn(), getProfiles: vi.fn(), listChatConversations: vi.fn(),
     browserPermissions: vi.fn(), setChatOrgMode: vi.fn(), getActiveProfile: vi.fn(),
     getCoderSessionSettings: vi.fn(), setCoderSessionSettings: vi.fn(),
+    getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
   },
 }))
 vi.mock('../../services/api.js', () => ({
