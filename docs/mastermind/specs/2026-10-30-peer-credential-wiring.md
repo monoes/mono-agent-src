@@ -75,17 +75,19 @@ reverted alone**, and so that the setting does not exist until everything it nee
   only its own turn's tokens: PR #1283: `TestADelayedExitCleanupNeverTouchesALaterTurnsToken`,
   `TestARefusedChildsTaskTokenIsDeadWhileItsProcessStillRuns`, `TestRevokingOneTurnLeavesTheFollowingTurnsV2TokenAndRegistration`,
   `TestARefusedTurnIsWaitedForBeforeTheRefusalReturns`.
-- A token that cannot be ended is reported, not swallowed, and the host holds the session instead of settling it (PR #1294, in
-  review): `TestRevokeTokenReportsAFailureThatSurvivesEveryAttempt`, `TestATurnWhoseTaskTokenCouldNotBeEndedReportsIt`,
+- A token that cannot be ended is reported, not swallowed, and the host holds the session instead of settling it (PR #1294, merged):
+  `TestRevokeTokenReportsAFailureThatSurvivesEveryAttempt`, `TestATurnWhoseTaskTokenCouldNotBeEndedReportsIt`,
   `TestAnExitThatCouldNotEndTheTokensHoldsTheSessionUntilItCan`, `TestRecoveryEndsTheTokensOfATurnWhoseProcessIsGone`,
   `TestAHoldWaitsForTheOldTurnToFinishBeforeAQueuedTurnStarts`, `TestRunWaitsForARetryInFlightBeforeItReturns`.
-- **OPEN, closing before the flip: the spend cap of a turn that started and already ended.** A start error used to drop the turn's
-  recorded cap unless the old turn was still pending; the fix (branch `fix/cap-kept-for-started-turn`, PR after #1294) marks every
-  failure after the process was created and keeps the cap of a started turn: `TestAStartErrorKeepsTheCapOfATurnThatMayStillBeRunning`,
+- The spend cap of a turn that started and already ended is kept (PR #1317, merged): `TestAStartErrorKeepsTheCapOfATurnThatMayStillBeRunning`,
   `TestARefusalIsAStartThatHappened`.
-- **OPEN, blocking: a host restart during a hold for a failed start can settle beside the old process** (issue #1310): the
-  process's pid and stamp must be made durable before the start returns. It exists on master in the legacy launcher today and
-  is listed here so the user decides on it at the flip prompt with it in front of them.
+- A started process's identity is made durable before the start can fail, so a restart during a hold adopts or stops it (PR #1320 and
+  migration 152, merged): `TestARestartAfterAFailedStartAdoptsTheSurvivingProcess`, `TestAPreTokenBoundHoldSurvivesTheNextTickAndBlocksTheQueue`,
+  `TestABoundLeadersChildrenDieWithItsExitEvenWithoutAStop`, `TestMigration152...`. **Accepted gap (the user decided, not built; issue #1310):** a host crash
+  between process creation and the identity commit leaves PID 0 and a queued turn may start beside the child. Databases that applied an intermediate,
+  never released 152 are unsupported.
+- **Open follow-ups, none blocking:** #1319 (a failed `waitid` falls back to no group kill; the host-death group cleanup), the no-pidfd platform P3, and the
+  review P3s #1253, #1254, #1255, #1256, #1257, #1259, #1260.
 - Every writer of the settings is transactional (`updateCoderSettings`): 3b-1 (#1247), `TestThePeercredSettingCannotBeSwitchedOnYet`
   and the writers' tests there.
 - The guard walk (`TestEveryLegacyTokenEndIsRevokedInV2OrReviewed`), the `RowKey`/`AnswerKey` tripwire
