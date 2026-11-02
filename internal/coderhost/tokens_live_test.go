@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 func TestTokensMayBeLiveSeesThroughWrapping(t *testing.T) {
@@ -546,5 +549,117 @@ func TestAStartErrorKeepsTheCapOfATurnThatMayStillBeRunning(t *testing.T) {
 		if rows, started := turnCapRows(t, st, "t1"); rows != c.rows || started != c.started {
 			t.Errorf("%s: cap rows %d started %d, want %d and %d", name, rows, started, c.rows, c.started)
 		}
+	}
+}
+
+// Several old turns named by one failure are ALL waited for, with no goroutine: the host looks at the channels, and the session
+// is released only when the last one has finished.
+func TestAHoldWaitsForEveryOldTurnTheFailureNames(t *testing.T) {
+	h, l, st := newHost(t)
+	if _, err := st.EnsureSession("p", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	a, b := make(chan struct{}), make(chan struct{})
+	l.startErr = errors.Join(&TokensLiveError{Err: errors.New("first"), Ended: a}, &TokensLiveError{Err: errors.New("second"), Ended: b})
+	send(t, st, "c1", "t1", "first")
+	if err := h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Held()) != 1 {
+		t.Fatalf("held = %v", h.Held())
+	}
+	l.startErr = nil
+	close(a)
+	for i := 0; i < 2; i++ {
+		if err := h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+		h.WaitRetries()
+	}
+	if len(h.Held()) != 1 {
+		t.Fatalf("released while the second old turn had not finished: %v", h.Held())
+	}
+	close(b)
+	for i := 0; i < 2; i++ {
+		if err := h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+		h.WaitRetries()
+	}
+	if len(h.Held()) != 0 {
+		t.Errorf("still held after both finished: %v", h.Held())
+	}
+	if got := state(t, st, "c1"); got.TurnID != "" {
+		t.Errorf("not settled: %+v", got)
+	}
+}
+
+func TestTurnsPendingReturnsEveryChannelWithoutAGoroutine(t *testing.T) {
+	a, b := make(chan struct{}), make(chan struct{})
+	chans := TurnsPending(errors.Join(&TokensLiveError{Err: errors.New("x")}, &TokensLiveError{Err: errors.New("y"), Ended: a}, &TokensLiveError{Err: errors.New("z"), Ended: b}))
+	if len(chans) != 2 || allEnded(chans) {
+		t.Fatalf("channels %d, ended %v", len(chans), allEnded(chans))
+	}
+	close(a)
+	if allEnded(chans) {
+		t.Fatal("reported ended with one turn still running")
+	}
+	close(b)
+	if !allEnded(chans) {
+		t.Fatal("not reported ended after both finished")
+	}
+	if TurnsPending(errors.New("plain")) != nil {
+		t.Error("a plain error named a pending turn")
+	}
+}
+
+// A held bound session whose lookup keeps failing is not skipped silently: the failures are counted, shown with the hold, and logged
+// (at powers of two, not at every pass), and the session stays held.
+func TestAHeldSessionWhoseLookupKeepsFailingIsCountedAndLogged(t *testing.T) {
+	h, l, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTurnProcess("p", "c1", "t1", 4242, "start:99", true); err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopHeld, Cause: "it did not exit"}}}
+	var logs []string
+	h.Logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`ALTER TABLE coder_session_tokens_v2 RENAME TO coder_session_tokens_v2_gone`); err != nil { // the lookup now fails
+		t.Fatal(err)
+	}
+	for i := 0; i < 9; i++ {
+		if err := h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held := h.Held()
+	shown := false
+	for _, cause := range held { // the map is keyed by the session's host key
+		shown = strings.Contains(cause, "failed attempts")
+	}
+	if len(held) != 1 || !shown {
+		t.Fatalf("the hold does not show the failing lookups: %v", held)
+	}
+	n := 0
+	for _, l := range logs {
+		if strings.Contains(l, "cannot be looked up") {
+			n++
+		}
+	}
+	if n < 1 || n > 4 { // attempts 1, 2, 4, 8 of 9: logged at powers of two, not at every pass
+		t.Errorf("logged %d times for 9 failing passes: %v", n, logs)
+	}
+	if got := state(t, st, "c1"); got.TurnID != "t1" || len(l.started) != 0 {
+		t.Errorf("the session was released while its lookups fail: %+v started=%v", got, l.started)
 	}
 }
