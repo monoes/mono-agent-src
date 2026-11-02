@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/procbind"
@@ -36,7 +37,7 @@ type heldSession struct {
 	inflight bool
 	// until, when set, is open while the turn the hold is about may still be running (its exit and cleanup unfinished): the retry
 	// waits for it, and the session is not settled, nor a new turn started, before it closes.
-	until <-chan struct{}
+	until []<-chan struct{}
 }
 
 // V2Turn says whether the session's turn is a v2 turn, and the leader identity its binding row recorded before the
@@ -177,14 +178,12 @@ func (h *Host) retryHeld() {
 			continue
 		}
 		if hs.retry != nil { // a hold for tokens that may be live: end them (off the lock, one goroutine per hold), then settle
-			if hs.until != nil {
-				select {
-				case <-hs.until: // the old turn has finished
-					hs.until = nil
-					h.held[k] = hs
-				default:
-					continue // it may still be running: nothing is revoked-and-settled next to it
+			if len(hs.until) > 0 {
+				if !allEnded(hs.until) {
+					continue // an old turn may still be running: nothing is revoked-and-settled next to it
 				}
+				hs.until = nil // every old turn has finished
+				h.held[k] = hs
 			}
 			if hs.inflight || time.Now().Before(hs.next) {
 				continue
@@ -201,6 +200,11 @@ func (h *Host) retryHeld() {
 		}
 		isV2, pid, stamp, err := h.Store.V2Turn(x.ProfileID, x.ConversationID, x.TurnID)
 		if err != nil {
+			hs.fails++ // the hold stays; the failure is counted and logged at powers of two, not at every pass
+			h.held[k] = hs
+			if hs.fails&(hs.fails-1) == 0 {
+				h.logf("coder host: the held turn of %s cannot be looked up (%d attempts): %v", x.ConversationID, hs.fails, err)
+			}
 			continue
 		}
 		if !isV2 {
@@ -223,6 +227,9 @@ func (h *Host) Held() map[string]string {
 	out := map[string]string{}
 	for k, hs := range h.held {
 		out[k] = hs.cause
+		if hs.fails > 0 {
+			out[k] += fmt.Sprintf(" (%d failed attempts)", hs.fails)
+		}
 	}
 	return out
 }
