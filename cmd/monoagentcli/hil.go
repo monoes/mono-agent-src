@@ -131,6 +131,16 @@ func (c *globalConfig) callerInATurn() (bool, error) {
 		return false, nil // client mode never opens the local database (client_mode.go)
 	}
 	path := expandPath(c.DBPath)
+	// The database the process names is only half of the question: --db-path or another HOME must not hide a
+	// turn, so every running coder host's database (the turn registry) is checked too. An override only adds checks.
+	if in, err := coderhost.CallerInARegisteredTurn(path); err != nil || in {
+		return in, err
+	}
+	return callerInATurnNamed(path)
+}
+
+// callerInATurnNamed is the check of the database the process names, as it was before the registry.
+func callerInATurnNamed(path string) (bool, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	} else if err != nil {

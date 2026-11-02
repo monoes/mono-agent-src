@@ -226,6 +226,13 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
+			// The gates of the operator-only commands check this database whatever database they are pointed at.
+			// A failure is logged, not fatal: the gates then do what they did before the registry.
+			if unregister, rerr := coderhost.RegisterHostDB(cfg.DBPath()); rerr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s turn registry: %v; the operator gates will check only the database a command names\n", time.Now().Format(time.RFC3339), rerr)
+			} else {
+				defer unregister()
+			}
 			exe, err := hostExecutable()
 			if err != nil {
 				return err
@@ -298,6 +305,9 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 
 func hostStatus(cfg *Deps) map[string]any {
 	st := map[string]any{"running": hostRunning(cfg)}
+	if why := coderhost.RegistryStatus(); why != "" {
+		st["turnRegistry"] = why // the operator gates then check only the database a command names
+	}
 	if info, ok := readHostInfo(cfg); ok && st["running"] == true {
 		st["pid"], st["instance"], st["startedAt"] = info.PID, info.Instance, info.StartedAt
 		// the binding services' state is the operator's: an agent is not told what is registered

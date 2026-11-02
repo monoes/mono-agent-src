@@ -40,6 +40,18 @@ func (d Deps) personGateOpening(cmd *cobra.Command, what string, open func() (*s
 	if err != nil {
 		return tasks.Actor{}, err
 	}
+	// The database the process names is only half of the question: --db-path or another HOME must not hide a
+	// turn, so every running coder host's database (the turn registry) is checked first; the named one is
+	// checked below as before.
+	named := ""
+	if d.DBPath != nil {
+		named = d.DBPath()
+	}
+	if in, err := coderhost.CallerInARegisteredTurn(named); err != nil {
+		return tasks.Actor{}, err // fails closed
+	} else if in {
+		return tasks.Actor{}, d.operatorOnlyError("this command runs inside a coder session's turn, so a model is running it; only the operator can %s; run it in your own terminal", what)
+	}
 	db, err := open()
 	if err != nil {
 		return tasks.Actor{}, err
