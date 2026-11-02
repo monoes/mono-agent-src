@@ -1,6 +1,6 @@
 # B1 design note 13.5: anti-replay, freshness and the single host
 
-Status: **design note and test plan, revision 7, no code.** It closes contract 13.5 of
+Status: **design note and test plan, revision 8, no code.** It closes contract 13.5 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults (Q8: one host only).
 Alternatives that depend on an unanswered question are listed in section 10. Wording is class level: this
 repository is public.
@@ -59,10 +59,10 @@ unbounded wait.
    the `committed` line of this transition is appended before any other writer can append anything.
 1. `BEGIN IMMEDIATE` (the database write lock).
 2. Under both locks, **read the head** `(seq n, head MAC)` and **verify freshness** (section 3A).
-3. **Append `pending <n+1>..<n+k> kind=<kind> rows=<k> prev=<head MAC>` to the witness and fsync.** A
+3. **Append `pending <n+1>..<n+k> kind=<kind> rows=<k> dbhead=<head MAC>` to the witness and fsync.** (`dbhead` is the **database head MAC** read in step 2; it is a different field from the witness record's own `wprev`, section 4A.) A
    transition writes **k ≥ 1 rows** (a run row with registry and audit rows, an approval with its counter
-   deltas) and takes the seqs `n+1 … n+k` in order. The line carries the **row count and the kind**; `prev` is
-   the head MAC the first new row will carry.
+   deltas) and takes the seqs `n+1 … n+k` in order. The line carries the **row count and the kind**; `dbhead` is
+   the head MAC the first new row will carry as its database `prev`.
 4. Write the k rows, each with `UNIQUE(generation, seq)` and a condition that its `prev` is the previous
    row's MAC (the first one the head MAC read in step 2), as conditional inserts **in one transaction**.
 5. `COMMIT` (this releases the database write lock). The transaction is atomic: either all k rows exist or
@@ -186,6 +186,43 @@ So a database swapped under a running host, or a restored `running` row with no 
 first writer that tries finds the head behind the witness and fails closed. The headline guarantee holds at
 the admission point.
 
+## 3B. The driver binding
+
+The binding of section 3A (the pinned connection operates on descriptors, not on paths) must be guaranteed by
+the SQLite layer, not only observed. The driver in use is the pure-Go `modernc.org/sqlite`. The mechanism is
+decided by a **capability check that is the first task of B1**, with two specified outcomes:
+
+1. **Preferred: a host-owned VFS.** If the driver exposes its VFS interface (the `modernc.org/sqlite/vfs`
+   package), the host registers a VFS that **opens the files itself**. Then the binding holds **by
+   construction**: the VFS `xOpen`s the main database, `-wal`, `-shm` and `-journal` **once per logical file
+   per pinned connection**, keeps the file handles, and serves every read, write, lock and sync through those
+   handles. A rename of a path has no effect on the connection. A second `xOpen` of an already-held logical
+   file returns the held handle (for `-wal`/`-shm`) or is **refused** (for the main file); an `xOpen` of a
+   path whose `(device, inode)` differs from the recorded identity is refused, and `xDelete` of a held file is
+   refused. The identity of each handle is recorded in the VFS at `xOpen`, so section 3A's identification by
+   scanning `/proc/self/fd` becomes a **cross-check**, not the mechanism.
+2. **Fallback: no VFS hook.** Then the binding is by **identification plus an assumption that is tested**:
+   the siblings are forced open at pin time and identified by identity (section 3A), and the pinned connection
+   **never closes during the host's life, so the library has no reason to open them again**. Any event that
+   could make SQLite reopen a file (an I/O error, a `SQLITE_READONLY_RECOVERY` or `SQLITE_BUSY_RECOVERY`
+   return, a failed checkpoint) makes the host **discard the pinned connection and fail closed**; it never
+   reopens automatically. The claim is then **weaker and is stated as such**: the design detects a swap and
+   refuses to continue after one, and it does not by construction prevent a library-initiated reopen. The
+   assumption is covered by tests that induce each reopen-causing error (T51).
+
+**Checkpoint and last-close lifecycle (both outcomes).**
+- While the pinned connection is open, SQLite checkpoints through its own handles (`wal_autocheckpoint` is set
+  to a fixed value; the host runs only `PASSIVE` checkpoints on the pinned connection). Another process's
+  `wal_checkpoint` changes content in place and never the identity of a held file.
+- At an orderly exit the host **closes the pinned connection first**: SQLite performs its last-close
+  checkpoint and may delete `-wal`/`-shm` (through the VFS in outcome 1, which allows the delete of a file it
+  holds for the closing connection). The host then verifies that `-wal`/`-shm` are either absent or have the
+  recorded identity, and only then writes the clean-shutdown record. A failed checkpoint or delete at close
+  means **no clean record** (the next start reads an unclean loss).
+- A short-lived process (the CLI) pins its own connection by the same protocol and closes it before exit; a
+  no-host CLI Stop opens, compares the main file's identity with `dbid`, writes the marker and the witness
+  line, and closes.
+
 ## 4. Recovery: comparing the database head `D` with the witness
 
 Run on every host start before any work is admitted, on every `doomsday status`, and inside the critical
@@ -210,9 +247,9 @@ with) is decided in phase 3, before row 5 can apply.
 | # | Situation | Reading | Action |
 |---|---|---|---|
 | 1 | `D.seq` = last `committed` of the witness | consistent | proceed |
-| 2 | witness has `pending n+1..n+k` with no `committed`, `D.seq = n`, the database head MAC **equals the pending line's `prev` MAC**, and the transition is **not** an ending one | crash before the commit | append `abandoned n+1`, proceed |
+| 2 | witness has `pending n+1..n+k` with no `committed`, `D.seq = n`, the database head MAC **equals the pending record's `dbhead`**, and the transition is **not** an ending one | crash before the commit | append `abandoned n+1`, proceed |
 | 2e | the same, but the transition is an ending one (`stop-requested` or later) | a Stop was being recorded; or a one-step rollback made to look like row 2 | **fail closed** (the marker covers the Stop) |
-| 3 | witness has `pending n+1..n+k`, `D.seq = n+k` (the **final** seq), the first new row's `prev` equals the pending line's `prev`, and the head MAC equals the chain computed over the k rows | crash after the commit | append `committed n+k <final head MAC>`, proceed |
+| 3 | witness has `pending n+1..n+k`, `D.seq = n+k` (the **final** seq), the first new row's database `prev` equals the pending record's `dbhead`, and the head MAC equals the chain computed over the k rows | crash after the commit | append `committed n+k <final head MAC>`, proceed |
 | 4 | `D.seq` < last `committed` | **database rolled back** | fail closed |
 | 5 | `D.seq` is greater than the witness's last `committed`, or than the **final seq** of its last `pending`, and is not row 3 (this includes **exactly one ahead with no `pending` line**) | witness older than the database, lost or restored; or a transition committed without step 3 | fail closed |
 | 6 | `D.seq` = witness but the head MAC differs | a replaced row, or a fork | fail closed |
@@ -231,14 +268,16 @@ authority blocks execution.
 ### 4A. The witness record framing (crash-safe by construction)
 
 **Framing.** A record is `SYNC | len | payload | MAC`, with `SYNC` a fixed 8-byte marker, `len` a fixed 4-byte
-length, and `MAC` 32 bytes over **`len || payload`**. The payload carries its **type**, its seq range and its
-own **`prev`** (the MAC of the record its writer saw last), so a record's authenticity does not depend on the
-reader's position. A record is **good** if its MAC verifies; it is **chaining** if its `prev` equals the last
-good record's MAC.
+length, and `MAC` 32 bytes over **`len || payload`**. The payload carries its **type**, its seq range, and
+**two separately named and separately authenticated MAC fields**: **`wprev`**, the MAC of the **previous
+witness record** (the witness chain), and, for the record types that concern the database, **`dbhead`**, the
+**database head MAC** the writer read under the lock. Both are inside the payload and so inside the MAC; no
+code reads one as the other. A record is **good** if its MAC verifies; it is **chaining** if its `wprev`
+equals the last good record's MAC.
 
 **Reading and resynchronisation.** The reader walks the file from the last good record. If the bytes that
 follow are not a good record, it **scans forward for the next `SYNC`** and accepts a record there only if it is
-good **and chaining**. Everything skipped is a *torn fragment* and
+good **and chaining** (by `wprev`). Everything skipped is a *torn fragment* and
 carries no meaning. A fake `SYNC` inside a fragment fails the MAC and the chain test and is skipped in turn.
 
 **Consequence: no repair step.** A torn tail needs no repair record, and appending after it is safe, because
@@ -263,6 +302,36 @@ truncated or edited.
   a marker found in a fragment cannot be guessed), and the header itself is authenticated.
 - A bad record that is **followed by a good record that does not chain from the last good one** is damage
   inside the chain, not a torn tail: row 7.
+
+### 4B. The record types and the total state machine
+
+**Record types:** `header` (the per-file random `SYNC` and the key check), `dbid` (the database identity,
+written under `witness.lock` at host start and at entry), `pending`, `committed`, `abandoned` (written when a
+holder finds a pending whose commit did not happen, carries the last committed seq `n`), `failed` (written
+when freshness fails or Stop acts on a failed row; carries the row number that fired).
+
+**The state is a function of the last complete record `X` (torn tails are absent) and of `D`.**
+
+| `X` | Meaning | Next record allowed | Classification by `D` |
+|---|---|---|---|
+| `header`, `dbid`, `committed(n)`, `abandoned(n)` | **Open** at seq `n` (a `dbid` is transparent: classify by the last non-`dbid` record) | `dbid`, `pending`, `failed` | `D.seq = n` and the MAC equal → row 1; MAC different → row 6; `D.seq < n` → row 4; `D.seq > n` → row 5 |
+| `pending(n+1..n+k)` | **Pending** | `committed`, `abandoned`, `failed` | `D.seq = n` and `dbhead` matches → row 2 (row 2e if an ending transition); `D.seq = n+k` and the chain matches → row 3; otherwise rows 4, 5, 6 or 13 |
+| `failed` | **Refused**: the generation is fail-closed | `failed` only (a new generation starts with the `pending(kind=entry)` of the next generation) | none; nothing is admitted |
+
+**Crash points.** A crash during the append of any record leaves a torn tail, which is absent, so the state is
+the previous row of the table; a crash after a witness append and before the next step leaves exactly the
+states above: after `pending` and before the commit → Pending with `D = n`; after the commit and before
+`committed` → Pending with `D = n+k`; after `abandoned` and before the holder's own `pending` → Open; during
+`failed` → the previous state, **and the unclean-loss rule or the marker still fails the generation closed**,
+so a torn `failed` never opens anything.
+
+**The phase-2 tie-break.** Phase 2 (the ended and anchor consistency checks of section 4) **wins over a
+pending record**: if phase 2 fails closed while `X` is a `pending` (whatever `D` is), the generation is
+refused, **no `abandoned` or `committed` repair is appended** (the chain is not extended on an untrusted
+state), and a `failed <row>` line records which row fired. The pending stays unresolved and inert.
+
+**Every (`X`, `D`) combination is classified**, and anything the table does not name is row 13. Tests: the full
+matrix (T52), the crash point of every record type (T53), the phase-2 tie-break (T54).
 
 ## 5. The anchor, entry, and what a restore can and cannot do
 
@@ -381,6 +450,12 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T18 | the database file swapped under a **running** host | the next admission fails closed (3A) |
 | T19 | an outside dispatcher registers after a restore with **no host** running | refused (no live host holds the lock, or the head is behind the witness) |
 | T20 | a source scan: no ordering or freshness path reads a clock; a clock moved back and forward around a transition | no effect |
+| T51 | **fallback binding:** induce each reopen-causing error on the pinned connection (an injected I/O error, a read-only-recovery return, a failed checkpoint) | the host discards the pinned connection and fails closed; it never reopens automatically; with the VFS outcome, a second `xOpen` of the main file is refused and a rename has no effect on the connection |
+| T52 | the (`X`, `D`) matrix: every last-record type crossed with `D` below, equal with equal MAC, equal with different MAC, ahead by one, ahead by k, and unrelated | each is classified exactly as the table says; none is unclassified; row 13 only for combinations the table does not name |
+| T53 | a crash at every append of every record type (`dbid`, `pending`, `committed`, `abandoned`, `failed`), at every byte offset | the state is the previous row; a torn `failed` still fails the generation closed through the marker or the unclean rule |
+| T54 | the phase-2 tie-break: the witness says ended (or the anchor is newer) with a `pending` as the last record, for `D = n` and `D = n+k` | the generation is refused, **no repair record is appended**, a `failed <row>` line is written |
+| T55 | `dbhead` and `wprev` swapped or equal-valued in a forged record | the MAC covers both named fields; a record whose `wprev` is used where `dbhead` is expected is not accepted; classification uses each field only in its own role |
+| T56 | orderly exit: the last-close checkpoint fails; `-wal` is left with a different identity | no clean record is written; the next start reads an unclean loss |
 | T21b | **every byte offset of the `committed` record, in both database states** (`D.seq = n` and `D.seq = n+k`), including only a prefix of `SYNC`, a partial header and a partial payload | the classification is **identical at every offset** for a given `D`: row 2/2e for `D.seq = n`, row 3 for `D.seq = n+k`; never row 13 for a torn `committed` alone |
 | T45 | **swap and restore between two checks**: rename the WAL away, put another WAL at its path while the pinned connection is running, restore the original before the next check; and a **lazy sibling open** schedule (a connection that opens `-wal` only on its first read) | the pinned connection's transactions are unaffected (they use its descriptors); the sibling descriptors were forced open at pin time; the next check compares by identity and fails closed on any divergence; nothing is accepted on the replacement |
 | T46 | a **permanent swap after the post-commit check and before the witness append** | the commit is on the original file and the witness records it; a process opening by path sees a head behind the witness and fails closed (rows 4/5); the host's next check fails closed |
@@ -414,8 +489,8 @@ and the commit); no sleeps. Concurrency tests run as **two real processes** with
 | T33 | entry: the lock order and the `max(counter, witness, anchor)+1` rule under the write lock; anchor write fails at step 1 | `anchor-bound: no` is what the `pending(entry)` line records; no reused number after a crash between steps |
 | T34 | a release build asked to add a filesystem type (env, flag, setting) | refused; only the `testfs` build tag extends the list |
 | T35 | the probe racing a host's start | the host's bounded retry succeeds; no spurious "another host" |
-| T36 | a torn `committed` line while the database says `D.seq = n` | row 13: fail closed |
-| T37 | row 2 with a database head MAC that differs from the pending line's `prev` | not row 2; fail closed |
+| T36 | a torn `committed` line while the database says `D.seq = n` | row 2 (row 2e for an ending transition), as T21b: **never row 13** (classified from `D`, not from the fragment) |
+| T37 | row 2 with a database head MAC that differs from the pending record's `dbhead` | not row 2; fail closed |
 | T28 | mutation proof, **one per row and per guard**; also removing the batch comparison of final values (T38), the resynchronisation rule (T21: the chain test on the next good record), the descriptor-versus-path comparison (T29, T30b), the `dbid` comparison (T30, T41), the WAL pin (T30), and removing the `witness.lock` span (steps 3-6), the lock order, the `abandoned`-before-`pending` rule, any one of the file-identity comparisons (database, journal/WAL, witness, `host.lock`) | removing: each table row's check (1-13); the `UNIQUE(generation, seq)` constraint; the `prev` condition; the witness-tail check in 3A; the live-host probe; the host-id condition; the lock-inode comparison; the anchor comparison; the entry `max(...)+1` rule; the marker's generation test, each fails a named test |
 
 ## 9A. Known limits
@@ -520,26 +595,44 @@ revision and await a P1-only delta review.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
 
-### 12.3 Remaining after the delta review of revision 7 (recorded)
+### 12.3 Closed in revision 8
 
-Three **P1** items are **open in this revision**; they are folded into the next revision of this note. Each
-must be resolved before any code in the area lands (spec section 13 gate). The items are recorded from the
-coordinator's summary of the reviewers' findings; the elaboration in each item is the author's, and the
-reviewers' own text is in the review report.
+The three P1s recorded after the delta review of revision 7 are closed in this revision and await a P1-only
+delta review.
 
-1. **P1: the pinned-connection binding has no driver or VFS mechanism.** The note says the pinned connection
-   operates on descriptors, but it does not say how the **SQLite driver** guarantees that the connection uses
-   exactly the descriptors the host identified (the driver may open further files, reopen after an error, or
-   checkpoint at the last close). Required: an **actual driver or VFS binding** between the pinned connection
-   and the identified descriptors, and the **checkpoint and last-close lifecycle** it implies.
-2. **P1: `pending.prev` and the witness predecessor are different MACs.** The `pending` record's `prev` is the
-   **database head MAC**; the chain's predecessor in the witness is the **previous witness record's MAC**. The
-   note uses one word for both. Required: specify **separately authenticated database-head and
-   witness-predecessor fields**.
-3. **P1: the recovery state machine is not total over all record types.** The phased procedure covers
-   `pending` and `committed` but not `abandoned`, `dbid` and `failed` records, nor the **crash points** around
-   them. Required: a **total state machine over all record types** including those crash points, with a
-   **phase-2 tie-break** (the ended/anchor phase versus a pending record), and a fix of the contradiction
-   between test **T36** and **T21b**.
+1. **P1: the pinned-connection binding had no driver or VFS mechanism.** Closed: section 3B. A host-owned
+   VFS binds the connection by construction (one `xOpen` per logical file, refusal of a second open or a
+   different identity); a specified fallback weakens the claim explicitly and discards the pinned connection on
+   any reopen-causing error; the checkpoint and last-close lifecycle is defined (T51, T56).
+2. **P1: `pending.prev` and the witness predecessor were different MACs under one name.** Closed: `dbhead` and
+   `wprev` are separately named and separately authenticated payload fields; rows 2 and 3 use `dbhead`, the
+   chain uses `wprev` (sections 3 and 4A; T55).
+3. **P1: the recovery state machine was not total over all record types.** Closed: section 4B lists the record
+   types (`header`, `dbid`, `pending`, `committed`, `abandoned`, `failed`), the allowed successors, the
+   classification of every (last record, `D`) combination, the crash point of each record type, and the
+   phase-2 tie-break; T36 is corrected to agree with T21b (T52-T54).
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.5 Remaining after the delta review of revision 8 (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: the fallback does not bind SQLite's file opens** (section 3B). With no VFS hook, a WAL can be
+   replaced between the identity checks, SQLite can reopen it internally and complete an operation, and the
+   original can be restored before the next check. The fallback only discards the connection **after an error
+   is returned**; it does not establish that every internal reopen returns an error before any database
+   operation or admission. The replacement can therefore affect the result without an identity mismatch,
+   contrary to the binding and freshness guarantee. Error-injection tests cannot establish the missing
+   exclusion for all library opens.
+2. **P1: a torn failure record from another writer need not leave a refusal** (section 4B). While the host
+   remains alive, an outside dispatcher detects a temporarily restored older database and crashes while
+   appending `failed`; the original database is then restored. The torn record is ignored, there is no Stop
+   marker, and the host has not suffered an unclean loss. The next writer sees the previous committed witness
+   and a matching database and can admit work, although the stated state machine makes a freshness failure
+   generation-terminal. Required: **a durable refusal, or a host-loss/marker protocol, for failures in every
+   writer**.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
