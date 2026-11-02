@@ -319,6 +319,8 @@ describe('bounds', () => {
     mount('`n.md`')
     fireEvent.click(await screen.findByRole('button', { name: 'n.md' }))
     const dialog = await screen.findByRole('dialog')
+    // the dialog's effect moves the focus in and then registers its Tab handler: wait for the focus, or the Tab below can come first
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
     const buttons = dialog.querySelectorAll('button')
     const last = buttons[buttons.length - 1]
     last.focus()

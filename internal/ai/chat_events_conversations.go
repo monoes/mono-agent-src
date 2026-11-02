@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/monoes/mono-agent/internal/coderspend"
@@ -185,6 +187,49 @@ func (s *AIStore) SetConversationOrgMode(id, profileID, mode string) error {
 		return ErrConversationNotFound
 	}
 	return nil
+}
+
+// MaxConversationTitle is the longest name a person can give a conversation, in characters.
+const MaxConversationTitle = 80
+
+// NormalizeConversationTitle is a typed title as one line, not yet cut: control and format characters
+// dropped, whitespace collapsed. Redaction runs on this, so a secret cannot hide behind an invisible character.
+func NormalizeConversationTitle(s string) string {
+	s = strings.Map(func(r rune) rune {
+		// Control and format characters (bidi overrides, zero-width) are invisible in a name.
+		if (unicode.IsControl(r) && !unicode.IsSpace(r)) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// CleanConversationTitle is NormalizeConversationTitle cut to MaxConversationTitle characters.
+// "" clears the name.
+func CleanConversationTitle(s string) string {
+	s = NormalizeConversationTitle(s)
+	if r := []rune(s); len(r) > MaxConversationTitle {
+		s = strings.TrimSpace(string(r[:MaxConversationTitle]))
+	}
+	return s
+}
+
+// SetConversationTitle gives a conversation a name of the person's own ("" takes it back).
+// The caller redacts it first; this stores the cleaned line. The chat keeps its place in the history.
+func (s *AIStore) SetConversationTitle(id, profileID, title string) (string, error) {
+	if profileID == "" {
+		return "", ErrProfileRequired
+	}
+	title = CleanConversationTitle(title)
+	res, err := s.db.Exec(`UPDATE ai_chat_conversations SET title = ? WHERE id = ? AND profile_id = ?`, title, id, profileID)
+	if err != nil {
+		return "", fmt.Errorf("set title: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrConversationNotFound
+	}
+	return title, nil
 }
 
 // BindConversationSession records a runtime-reported resumable session id

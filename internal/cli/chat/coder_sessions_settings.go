@@ -24,7 +24,10 @@ type sessionSettingsView struct {
 	OperatorOnly   []string            `json:"operatorOnly"`
 	Allowed        map[string][]string `json:"allowed"`
 	Changed        []string            `json:"changed,omitempty"`
-	Mission        missionToggleView   `json:"mission"`
+	// DefaultAlias is the mesh name the session takes while mesh_alias is empty: the chat's name with
+	// dashes for spaces. Empty when it has no name yet (the host then makes one from the project and time).
+	DefaultAlias string            `json:"defaultAlias"`
+	Mission      missionToggleView `json:"mission"`
 	// MissionDirections is K as the cap reads it: Effective (not set or 0 is the default of 3) and whether the
 	// operator chose it (Explicit; an explicit 0 counts).
 	MissionDirections missionDirectionsView `json:"missionDirections"`
@@ -91,6 +94,8 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 			"checkin_triggers": coderhost.CheckinEvents, "mesh_accept": coderhost.MeshAccepts,
 		},
 	}
+	display, _ := chatDisplayTitle(db.DB, profileID, conv.ID) // unreadable: no default shown
+	v.DefaultAlias = coderhost.AliasFromTitle(display)
 	v.MissionDirections = missionDirectionsView{Effective: settings.EffectiveMissionDirections(), Explicit: settings.MissionDirectionsExplicit()}
 	v.Mission = missionToggleOf(context.Background(), tasks.NewStore(db.DB), profileID, conv, settings.Mission)
 	if x, ok, err := cs.GetSession(profileID, conv.ID); err != nil {

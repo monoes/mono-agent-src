@@ -1,6 +1,6 @@
 # B1 design note 13.4: typed approvals bound to the exact effect
 
-Status: **design note and test plan, revision 7, no code.** It closes contract 13.4 of
+Status: **design note and test plan, revision 8, no code.** It closes contract 13.4 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13). It depends on notes 13.1 (the gate and where an
 effect is "issued") and 13.5 (the sequence and the audit chain), and is written for the recommended defaults.
 Wording is class level: this repository is public.
@@ -310,15 +310,48 @@ base64-encoded, percent-encoded, split across chunks or echoed in a header. So:
     that reaches `max_call_ms` ends as `outcome = timeout` in the **last slot**. So
     `slots = ceil(max_call_ms / slot_ms)`, a **constant fixed at entry** and at most 64 (6 bits per attempt).
     The timing channel conveys at most `log2(slots)` bits per attempt, exactly.
-  - **What the agent observes at release.** One attempt is **in flight at a time per operation** (attempts are
-    serialised), so concurrent completions of one operation do not exist. The result of an attempt is released
-    **at the end of its slot**, and results are delivered to the agent **in attempt order** (a later attempt's
-    result is never delivered before an earlier one's, even if its slot ends first, which cannot happen with
-    serialised attempts but is asserted). Across operations, results are released in the order their
-    approvals were issued. The release time therefore reveals nothing beyond the slot number.
+  - **The release protocol: no cross-operation ordering.** The earlier rule "across operations, results are
+    released in the order their approvals were issued" is **withdrawn**: an earlier approval that never starts,
+    is cancelled, or stalls would block every later release, and the ordering would itself be an observable
+    wait. Instead:
+    1. **Each attempt has its own release time**, computed from its own start: the host records the attempt's
+       start instant `t0` on its monotonic clock when the ticket is `STARTED`, and the result is released at
+       `t0 + slot × slot_ms` where `slot` is the slot index derived from **the response's arrival instant on
+       the same clock** (or `slots` at timeout). No attempt waits for any other attempt or operation (**no
+       head-of-line blocking**).
+    2. **Attempts of one operation are serialised** (one in flight at a time): the next attempt is accepted
+       only after the previous one's result has been released, and this is the only ordering.
+    3. **Therefore the only waits an observer can see** are: (a) the agent's own wait for its attempt (slot
+       index, bounded by `slots`); (b) the host's scheduling jitter on the release instant (below); (c) an
+       immediate `refused` outcome when the approval is revoked, expired, not yet issued, or its budget is
+       exhausted: **independent of any destination**; and (d) no delivery at all when the run is stopped.
+    4. **An approval that never starts, or is cancelled before it starts,** has no attempt and therefore no
+       release time; it blocks nothing.
+  - **The observation model, with cancellation, errors and jitter.**
+    - **What is delivered:** per attempt, exactly `{outcome, status, length_bucket, predicate}` (the fixed
+      envelope) at the release instant. Errors are enum outcomes only; no message, no reflected byte.
+    - **Cancellation.** (i) *Stop* revokes the run's tokens and closes the barrier: an attempt in flight is
+      cancelled by its context and **no result is delivered** (the agent is stopped); the host records an
+      audit row `cancelled`. (ii) *Rescind or `expires_seq`* before the start: `refused`, immediately (item
+      3c). (iii) *Rescind after the start:* the attempt runs to its slot and the result is delivered
+      (the approval was valid when it started). A cancellation therefore never converts a destination's
+      behaviour into a different observable than the fixed envelope plus the slot.
+    - **Scheduler jitter.** The slot index is computed from **arrival instants on the host's monotonic clock**,
+      not from the delivery instant, so jitter in the host's timer or goroutine scheduling **cannot change the
+      slot**; it can only shift the delivery instant of a result whose slot is already fixed. The agent can
+      measure the delivery instant to the microsecond, so the question is whether the destination can
+      influence the jitter. The host does bounded work between arrival and release (the body is read to at
+      most the cap and discarded in constant memory, the predicate is evaluated on at most the cap), so a
+      destination's influence on the host's timer is limited to loading the host through that bounded work.
+      **Stated residual:** a destination can try to modulate the host's load and so the jitter of the release
+      instant; that channel is not quantised, it is second-order, its capacity is not bounded by `slots`,
+      and it is **limited only by `max_attempts` and by the bounded work per attempt**. The note makes no
+      stronger claim. A mitigation that does not change the guarantee: the release instant is rounded
+      **up to the next multiple of `slot_ms / 4`** so that small jitter does not show.
 - **The leak bound, stated and not zero.** A destination that deliberately reflects the secret can still
   convey information through `outcome`, `status`, `length_bucket`, `predicate` and the timing slot. Over a run
   it is bounded by `max_attempts × (log2 5 + log2 501 + log2 (bucket_count + 1) + log2 3 + log2 slots)` bits
+  **plus the unquantised load-jitter channel of the observation model, which this formula does not cover**
   (five outcomes, a status of 0 or 100-599, `bucket_count + 1` length values, a predicate of true, false or
   null, and `slots`); with the maximum validated values that is about 23 bits per attempt and about 23 000
   bits per run. **This is a bound, not a protection against a destination chosen to encode the secret:** the
@@ -377,6 +410,11 @@ the attempted ones, never secret values.
 | T5f7b | **`bucket_count = 1`:** bodies of 0, 1, `bucket_size`, `bucket_size + 1` and a far larger one | `0`, `1`, `1`, `1` (saturated), `1`; the cap is `bucket_size` |
 | T5f8 | **invalid constraints at entry, per field:** `bucket_size` 0, -1, 2^40, 1.5, `NaN`, `+Inf`; `bucket_count` 0, -1, 17, 2.5, `NaN`, `+Inf`; `max_call_ms` 0, 999, 60001, -1, 1.5, `NaN`, `+Inf`; `slot_ms` 0, 99, -1, 1.5, `NaN`, `+Inf`, and `slot_ms > max_call_ms`; `max_attempts` 0, -1, 1001, 1.5, `NaN`, `+Inf`; **numeric overflow:** `bucket_size = 2^40` with `bucket_count = 2^40` (the product overflows before any conversion); `max_call_ms = 60000` with `slot_ms = 100` (600 slots, over 64) | each charter is refused at entry with the field named; nothing is stored; no arithmetic wraps |
 | T5f9 | **the caller supplies a deadline** (a request that asks for a 1 h deadline) | ignored; the wrapper's deadline is `max_call_ms` |
+| T5f11 | **concurrent operations:** operation A's destination stalls to `max_call_ms`; operation B's destination answers in slot 1, started after A | B's result is released at the end of slot 1, **not** held behind A; A's result (`timeout`) is released at `slots`; no ordering between them |
+| T5f12 | **an approval that never starts / is cancelled:** an earlier approval is issued and never presented; another is rescinded before its start; a later approval runs | the later approval's release is unaffected; the rescinded one yields `refused` immediately |
+| T5f13 | **cancellation by Stop** while an attempt is in flight | no result is delivered; tokens are revoked; the audit row `cancelled` exists; **rescind after the start:** the attempt completes and is delivered |
+| T5f14 | **scheduler jitter (injected clock and a jitter source):** a response arriving 1 ms before and 1 ms after a slot boundary, with the delivery instant jittered by up to 50 ms either way | the slot index follows the **arrival** instant on the monotonic clock; the delivered result values are identical across jitter values; the release instant is rounded to a multiple of `slot_ms / 4` |
+| T5f15 | **errors:** malformed response, reset connection, TLS failure, DNS failure | the fixed envelope with an enum outcome; no message; the attempt counts toward `max_attempts` |
 | T5f10 | **timing slots (injected clock):** responses at 1, 99 and 100 ms with `slot_ms = 100`; a response at `max_call_ms`; two attempts in sequence | slots 1, 1, 1 (then 2 at 101 ms); the last slot is `timeout`; results are released at the slot boundary and in attempt order |
 | T5f3 | **reflecting failures** (a fake transport that returns the bytes directly, no network): a destination returns a malformed response whose bytes (and the resulting parser or transport error text) contain the secret; one that resets the connection with the secret in a banner | the agent-visible result is the fixed envelope with `outcome = malformed` or `transport-error`; **no error text** and no reflected byte appears anywhere agent-visible (a type-level test shows `outcome` is an enum) |
 | T5f4 | **delays** (deterministic: an injected clock and a fake transport that blocks on a barrier the test releases; no real sleeps): a destination delays its response by an amount derived from secret bits | the result is released at the quantised slot; two different delays within one slot are indistinguishable; the wrapper's maximum duration cuts off the rest |
@@ -527,21 +565,36 @@ review.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
 
-### 12.3 Remaining after the delta review of revision 7 (recorded)
+### 12.3 Closed in revision 8
 
-Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
-be resolved before any code in the area lands (spec section 13 gate). The items are recorded from the
-coordinator's summary of the reviewers' findings; the elaboration in each item is the author's, and the
-reviewers' own text is in the review report.
+The two P1s recorded after the delta review of revision 7 are closed in this revision and await a P1-only
+delta review.
 
-1. **P1: the cross-operation release rule is undefined.** Section 5A says results across operations are
-   released "in the order their approvals were issued", but an earlier approval that **never starts or is
-   cancelled** would block every later release, and the ordering itself is an observable wait. Required: define
-   a **cross-operation release protocol** (or drop the ordering requirement) that accounts for **all
-   observable waits**, including an earlier approval that never starts or is cancelled.
-2. **P1: the observation model is not stated.** Required: state the **observation model** honestly, with
-   **cancellation and error delivery** and **scheduler jitter**, and a **justified bound** on what a destination
-   can convey through them (a call cancelled by `Stop`, a host that is slow to release at a slot boundary);
-   tests for **concurrent operations, cancellation and jitter**.
+1. **P1: the cross-operation release rule was undefined.** Closed: the ordering requirement is **withdrawn**;
+   each attempt has its own release time from its own start, there is no head-of-line blocking, an approval
+   that never starts or is cancelled has no release time, and the only waits an observer can see are listed
+   (section 5A; T5f11, T5f12).
+2. **P1: the observation model was not stated.** Closed: section 5A states what is delivered, the cancellation
+   cases (Stop delivers nothing, rescind before start is an immediate `refused`, rescind after start
+   completes), error delivery as enum outcomes, and scheduler jitter with an honest residual (the
+   load-modulated release instant is unquantised and bounded only by `max_attempts` and bounded work per
+   attempt), with tests (T5f13-T5f15).
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.4 Remaining after the delta review of revision 8 (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: response arrival does not establish when the envelope is ready** (section 5A, the release
+   protocol). A destination sends headers immediately, then delays the body or EOF until an arbitrarily chosen
+   instant before `max_call_ms`. If "response arrival" means the headers, the slot and release are fixed before
+   the host can compute `length_bucket` and `predicate`; if the host waits for the body, delivery follows the
+   destination's unquantised delay, while releasing on time cannot provide the required envelope. The bounded
+   byte count does not bound the **time to receive** those bytes. Required: define arrival as the **completion
+   of the capped body read** (including errors and timeout), or specify an equivalent deadline and quantisation
+   protocol; test a **delayed and chunked body across slot boundaries**.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
