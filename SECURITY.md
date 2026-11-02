@@ -2080,6 +2080,14 @@ that works a task acts on them. The defences:
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
   value or a verb that never calls the gate: an inventory, not a coverage proof.
+  A bound worker's v2 task token (`mat2-`) is delivered through the credential frame
+  into an in-process stash, so no environment variable carries it and neither the
+  token-variable layer nor the marker check can see it; the only process that holds
+  the stash is the turn's own leader, which the launcher records as the session's turn
+  (a mission child's included) before it delivers the frame, so this turn layer is the
+  one that refuses it, and its commands and shells get the token through
+  `MONOAGENT_TASK_BINDING`, which the token-variable layer refuses
+  (`TestTheProcessHoldingAV2TaskTokenIsRefusedByTheTurnAncestry`).
 - **Limits that stop a loop from flooding the board:** 2,000 open
   tasks per profile (every
   task that is not archived, Done ones included; a task that comes back
