@@ -154,3 +154,34 @@ func TestAStartWhoseCleanupOutlastsTheWaitSaysTheTokenMayBeLive(t *testing.T) {
 		t.Fatal("the old turn was never reported finished")
 	}
 }
+
+// The launcher records the process the moment it exists, before admission; a record that cannot be written fails the start and the
+// process is stopped (a process whose identity cannot be kept is not allowed to run). This is a behaviour change of the ordinary
+// launcher: a failing session store now fails a start that used to succeed.
+func TestTheLauncherRecordsTheProcessFirstAndStopsItWhenItCannot(t *testing.T) {
+	bin, dir := scriptBin(t, "echo $$ > \"$(dirname \"$0\")/pid\"\necho '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 30\n")
+	var recordedPID int
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		tokens: func(string, string, string) (string, error) { return "mst-x", nil }, revoke: func(string, string) error { return nil },
+		onProcess: func(_, _, turn string, pid int, stamp string) error {
+			recordedPID = pid
+			if stamp == "" || turn != "t1" {
+				t.Errorf("stamp %q turn %q", stamp, turn)
+			}
+			return errors.New("the session store is unavailable")
+		}}
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || !strings.Contains(err.Error(), "could not record the turn's process") {
+		t.Fatalf("a start whose process could not be recorded: %v", err)
+	}
+	if recordedPID == 0 {
+		t.Fatal("the record was never asked for")
+	}
+	for i := 0; i < 300 && syscall.Kill(recordedPID, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(recordedPID, 0) == nil {
+		_ = syscall.Kill(recordedPID, syscall.SIGKILL)
+		t.Error("the process whose identity could not be recorded is still running")
+	}
+}

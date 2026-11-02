@@ -48,6 +48,10 @@ type execLauncher struct {
 	// environment, a typed frame over a pipe, the token bound to the process before anything is delivered. Nil is the
 	// launch exactly as it was.
 	bound *boundLaunch
+	// onProcess, when set, makes the started process's identity durable (the session's turn_pid and turn_stamp) the moment the
+	// process exists, before anything else of the start can fail. If it fails, the start fails and the process is stopped: a process
+	// whose identity cannot be recorded is not allowed to run, because a host restart could not find it.
+	onProcess func(profileID, conversationID, turnID string, pid int, stamp string) error
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -301,6 +305,11 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	launched = true // the wait goroutine above revokes the child's token from here on
 	if stamp == "" {
 		return nil, t.fail(errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped"))
+	}
+	if l.onProcess != nil {
+		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp); err != nil {
+			return nil, t.fail(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
+		}
 	}
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {

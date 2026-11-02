@@ -464,6 +464,32 @@ func (s *Store) SweepOrphans() (int, error) {
 	return total, nil
 }
 
+// RecordTurnProcess makes the identity of a turn's process durable on the session: the launcher calls it as soon as the process
+// exists, so a host that restarts before the start has finished still finds the pid and the start stamp (and adopts or stops the
+// process) instead of settling the session beside it. It writes only for the session's CURRENT turn and only once: a newer turn's
+// row is never touched, and a repeat of the same record is a no-op.
+func (s *Store) RecordTurnProcess(profileID, conversationID, turnID string, pid int, stamp string) error {
+	if pid <= 1 {
+		return fmt.Errorf("coder host: %d is not a turn's pid", pid)
+	}
+	res, err := s.db.Exec(`UPDATE coder_sessions SET turn_pid = ?, turn_stamp = ?, updated_at = ?
+		WHERE profile_id = ? AND conversation_id = ? AND turn_id = ? AND turn_pid = 0`, pid, stamp, s.stamp(), profileID, conversationID, turnID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		return nil
+	}
+	cur, ok, err := s.GetSession(profileID, conversationID)
+	if err != nil {
+		return err
+	}
+	if ok && cur.TurnID == turnID && cur.TurnPID == pid && cur.TurnStamp == stamp {
+		return nil // already recorded
+	}
+	return fmt.Errorf("coder host: the session of %s no longer names turn %s without a process", conversationID, turnID)
+}
+
 // SaveSession writes a session's state and current turn.
 func (s *Store) SaveSession(x Session) error {
 	if x.TurnPID < 0 || x.TurnPID == 1 {

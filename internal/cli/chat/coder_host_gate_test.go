@@ -345,6 +345,10 @@ func TestTheProductionHostInstallsTheGate(t *testing.T) {
 	if _, err := g.Start("default", "c", "t", "m", nil, ""); err == nil {
 		t.Error("the production gate let a start through with the setting on")
 	}
+	// the production launcher makes a started process's identity durable (a restart during a failed start must find it)
+	if l, ok := g.inner.(*execLauncher); !ok || l.onProcess == nil {
+		t.Errorf("the production launcher %T does not record the process it starts", g.inner)
+	}
 	cancel()
 	<-errc
 }
