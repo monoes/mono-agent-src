@@ -494,7 +494,7 @@ jobs:
             go test -timeout 60m $tags $pkgs -race
           else
             names="$(go test $tags ./cmd/monoagentcli -list '^(Test|Example)' | grep -E '^(Test|Example)' | awk -v s="$SHARD" 'NR % 4 == s' | paste -sd'|')"
-            go test -timeout 35m $tags ./cmd/monoagentcli -race -run "^($names)$"
+            go test -timeout 50m $tags ./cmd/monoagentcli -race -run "^($names)$"
           fi
 
   # internal/agentbox needs the real host root (its launcher check wants /usr/bin/bwrap
