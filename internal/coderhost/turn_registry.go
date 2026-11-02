@@ -300,8 +300,9 @@ func checkWithTimeout(path string) (bool, error) {
 		err error
 	}
 	ch := make(chan result, 1)
+	check := registeredDBCheck // read here, not in the goroutine: an abandoned goroutine must not read the package var after a test restored it
 	go func() {
-		in, err := registeredDBCheck(path)
+		in, err := check(path)
 		ch <- result{in, err}
 	}()
 	select {
