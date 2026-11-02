@@ -550,9 +550,10 @@ func (t *execTurn) settle() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.held, t.exited = true, true
-	if t.stopping {
-		_ = t.killGrp()
-	}
+	// A bound turn's leader has exited and is still unreaped, so its group is still ours: whatever it left running in the group is killed
+	// NOW, whether or not a Stop ever comes (a stop that arrives later may find nothing it is allowed to signal, and token revocation does not
+	// stop processes). A behaviour difference of bound mode: background processes of a bound turn do not outlive its leader.
+	_ = t.killGrp()
 	// From here the leader is about to be reaped (cmd.Wait runs next, outside the lock) and its pid and group are free the moment it is: no
 	// later Stop, grace expiry or afterDone may signal them by number, in the gap before markReaped as much as after it.
 }

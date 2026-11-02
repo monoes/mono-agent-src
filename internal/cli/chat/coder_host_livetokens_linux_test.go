@@ -257,3 +257,41 @@ func TestABoundLaunchIsRecordedAsBound(t *testing.T) {
 		t.Error("an ordinary launch was recorded as bound")
 	}
 }
+
+// A bound turn's leader exits naturally leaving a child in its process group, with no Stop ever coming: the child is killed with the
+// exit (token revocation does not stop processes), so no later turn of the conversation can start beside it.
+func TestABoundLeadersChildrenDieWithItsExitEvenWithoutAStop(t *testing.T) {
+	script := `d=$(dirname "$0")
+sleep 300 </dev/null >/dev/null 2>&1 &
+echo $! > "$d/child"
+echo $$ > "$d/pid"
+cat <&3 > "$d/frame"
+while [ ! -e "$d/release" ]; do sleep 0.05; done
+`
+	r := newBoundRig(t, script)
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var child int
+	for i := 0; i < 300 && child == 0; i++ {
+		if b, rerr := os.ReadFile(filepath.Join(r.dir, "child")); rerr == nil {
+			child, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if child == 0 || syscall.Kill(child, 0) != nil {
+		t.Fatalf("the turn's child is not running (pid %d)", child)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	if err := os.WriteFile(r.release, []byte("x"), 0o600); err != nil { // the leader exits on its own
+		t.Fatal(err)
+	}
+	_ = turn.Wait()
+	for i := 0; i < 300 && syscall.Kill(child, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(child, 0) == nil {
+		t.Error("a child of a bound turn outlived its leader's exit")
+	}
+}

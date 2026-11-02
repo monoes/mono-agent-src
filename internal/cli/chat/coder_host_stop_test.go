@@ -75,13 +75,13 @@ func TestABoundTurnsGroupIsNotSignalledByNumberAfterTheReap(t *testing.T) {
 
 	s = sigLog{}
 	late := newSigTurn(&s, true)
-	late.settle() // the leader exited, nobody stopped it, and it is about to be reaped (cmd.Wait runs next)
-	late.Stop()   // the pid and group are free the moment it is reaped, and the reap is not atomic with markReaped: nothing is signalled
+	late.settle() // the leader exited, nobody stopped it, and it is about to be reaped (cmd.Wait runs next): the group is killed now
+	late.Stop()   // the pid and group are free the moment it is reaped, and the reap is not atomic with markReaped: nothing more is signalled
 	late.killGroupIfHeld()
 	close(late.done)
 	time.Sleep(50 * time.Millisecond)
-	if terms, kills := s.n(); terms != 0 || kills != 0 {
-		t.Fatalf("stopped after the exit of a strict turn: %d terminations, %d kills, want none", terms, kills)
+	if terms, kills := s.n(); terms != 0 || kills != 1 {
+		t.Fatalf("a strict turn that exited before any Stop: %d terminations, %d kills, want 0 and exactly the one kill at the exit", terms, kills)
 	}
 
 	s = sigLog{}
@@ -92,8 +92,8 @@ func TestABoundTurnsGroupIsNotSignalledByNumberAfterTheReap(t *testing.T) {
 	reaped.killGroupIfHeld()
 	close(reaped.done)
 	time.Sleep(50 * time.Millisecond)
-	if terms, kills := s.n(); terms != 0 || kills != 0 {
-		t.Fatalf("stopped after the reap: %d terminations, %d kills, want none", terms, kills)
+	if terms, kills := s.n(); terms != 0 || kills != 1 {
+		t.Fatalf("stopped after the reap: %d terminations, %d kills, want 0 and the one kill at the exit", terms, kills)
 	}
 
 	s = sigLog{}
