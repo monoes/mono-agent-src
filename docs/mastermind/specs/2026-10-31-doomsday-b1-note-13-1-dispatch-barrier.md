@@ -1,6 +1,6 @@
 # B1 design note 13.1: the dispatch barrier and what "started" means
 
-Status: **design note and test plan, revision 8, no code.** It closes contract 13.1 of
+Status: **design note and test plan, revision 9, no code.** It closes contract 13.1 of
 `2026-10-29-doomsday-charter-and-stop.md` (section 13) for the recommended defaults. Revision 2 answers the
 first independent review of this note: the gate is an explicit **ticket state machine** (not a read-write
 lock), a **timed-out close is not a barrier**, a **future start is fenced**, outside dispatchers may no
@@ -78,6 +78,18 @@ that tells it what it may do.
     `CLOSED`, and creates an ordinary ticket for that step (`ADMITTED`, flagged *continuation*); `BeginStart`
     and `Started` accept a continuation ticket of a `CONTINUING` operation within its bound (the rules above).
     It refuses a new operation, a step out of order, a step outside the list, and any step after the bound.
+    **At most one continuation ticket per step exists:** a repeated `AdmitContinuation(op, step)` returns the
+    **same** ticket, never a second one.
+  - **Withdrawal on every terminal transition.** When an operation leaves `CONTINUING` for **any** reason
+    (`FINISHED`, `INCOMPLETE` by a failing or aborted step, `INCOMPLETE` by `T_merge` expiry), **under the
+    same `mu` section** every continuation ticket of that operation that is still **`ADMITTED` is moved to
+    `FENCED` (withdrawn)**. A continuation ticket already `STARTING`, `ABORTING` or `STARTED` is unaffected and
+    resolves by the ordinary rules.
+  - **The `BeginStart` check is atomic.** For a continuation ticket, `BeginStart` takes `mu` and, in that one
+    critical section, verifies **that its operation is `CONTINUING`, that `T_merge` has not passed (the
+    injected clock) and that the ticket is still `ADMITTED`**; any failure fences or refuses per the three
+    rules, and nothing else is read outside `mu`. A ticket paused before `BeginStart` while its operation
+    fails, aborts or expires, then released, is therefore refused, **also after BARRIER**.
   - **Leaving `CONTINUING`** (each transition under `mu`, **signalling the drain**): the last step's ticket
     `STARTED` and its work ended → `FINISHED`; any step's ticket `ABORTED` or `UNKNOWN`, or a step's work
     failing → `INCOMPLETE`; `T_merge` passing → `INCOMPLETE` and the remaining steps are withdrawn (a step
@@ -116,14 +128,20 @@ that tells it what it may do.
   `UNKNOWN`; from any other state it is left unchanged. A dispatcher wrapper runs it in a `defer` with
   `recover`, so **a panic after `BeginStart` or after the consume takes the `STARTING` path** and is never
   resolved by a direct `STARTING` → `ABORTED` flip. A repeated `Abort` on an `ABORTING` ticket is a no-op.
-- **`Close()`**: takes `mu`; sets the gate `CLOSING` (so every later `Admit` and `BeginStart` refuses); copies
-  the set `S` of tickets in `STARTING` **or `ABORTING`**; releases `mu`. It then waits on a condition
-  signalled **under `mu`** by every transition out of a non-drained state, with a deadline from an
-  **injected clock**. **The drain predicate is evaluated live, under `mu`, at each signal, and is not a frozen
-  snapshot:** it holds when no ticket (including a continuation ticket created after `Close` began) is
-  `STARTING` or `ABORTING` **and no begun operation is `CONTINUING`**. `S` is kept only to name the starters
-  for the outcome table. Concurrent or repeated `Close` calls wait on the same drain and return the same
-  result (idempotent).
+- **`Close()`**: takes `mu`; sets the gate `CLOSING` (so every later `Admit` and `BeginStart` refuses);
+  releases `mu`. There is **no snapshot of tickets**. It then waits on a condition signalled **under `mu`**
+  by every transition out of a non-drained state, with a deadline from an **injected clock**.
+  - **The live set `L`.** At any instant, under `mu`, `L` is the set of **all live starters**: every ticket
+    (including a continuation ticket created after `Close` began) that is `STARTING` or `ABORTING`, every
+    begun operation that is `CONTINUING`, and every ticket that is `UNKNOWN` (now or from before `Close`).
+    The drain predicate and **every outcome** of section 4.2 are defined over `L` and **evaluated live under
+    `mu`**, never over a frozen set.
+  - **Re-evaluation.** The whole outcome is **recomputed under `mu` on every transition** that can change
+    `L` (a ticket leaving `STARTING`/`ABORTING`, an abort write finishing or failing, an operation leaving
+    `CONTINUING`, a continuation ticket being admitted, started or withdrawn) **and when the deadline fires**.
+    `Close` returns the outcome computed at the deadline, and the gate **keeps publishing** the current outcome
+    afterwards (a later resolution can improve it, up to BARRIER, and is recorded).
+  - Concurrent or repeated `Close` calls wait on the same predicate and return the same result (idempotent).
 - **The abort transaction (closes the drain race).** When `Started` finds the gate not open it takes `mu`,
   moves the ticket `STARTING` → **`ABORTING`** (still non-drained) and releases `mu`; the abort and audit
   write then runs **outside `mu`**; on completion the writer takes `mu`, moves the ticket to **`ABORTED`**
@@ -135,20 +153,21 @@ that tells it what it may do.
 
 | Outcome | Condition | Meaning |
 |---|---|---|
-| **BARRIER** | `S` drained before the deadline **and no ticket of the run is `UNKNOWN`, now or from before `Close`** | the gate is `CLOSED`; **through the host gate**, no E1 process is created and no E3 ticket is admitted or fenced-in from now on; every ticket is `STARTED` (it completed `Started` while the gate was open), `ABORTED` (a `STARTING` ticket that reached `Started` late), `FENCED`, or still `ADMITTED` (it will be `FENCED` at its `BeginStart`). An E3 ticket already `STARTED` may **enter the transport after BARRIER** (admitted-before-Stop, section 4.3) |
-| **CLOSED-WITH-UNKNOWN(U)** | `S` drained, but at least one ticket in `U` is `UNKNOWN` (a registry or abort write failed, **including one that failed before `Close`**) | **not a barrier.** No new work is admitted, no held process ran and no E3 dialled, but the registry does not say so durably; the run is `cleanup-pending` until the write succeeds (retried on a schedule) |
-| **CLOSED-WITH-UNKNOWN on deadline** | the deadline passed with a ticket still `ABORTING` (its abort write has not finished) | **not a barrier.** The ticket cannot create anything (the gate is closed, the held process is killed or the transport not entered), but its abort is not durable yet; it is counted as `UNKNOWN` for the outcome and resolves to `ABORTED` or `UNKNOWN` when the write finishes or fails (the drain is signalled then) |
-| **CLOSED-WITH-OPERATION(O)** | the deadline passed with a begun operation still `CONTINUING`, and no ticket `STARTING` | **not a barrier.** The gate is `CLOSED` to new work; the operation continues **only through its continuation tickets** within `T_merge`; the run stays `cleanup-pending`; the outcome resolves when the operation leaves `CONTINUING` (and becomes BARRIER if no ticket is `UNKNOWN`) |
-| **CLOSED-WITH-STARTERS(S′)** | the deadline passed with `S′ ⊆ S` still `STARTING` | **not a barrier.** The gate is `CLOSED` to new work, but each ticket in `S′` is `UNKNOWN` and can still create a process |
+| **BARRIER** | `L` is empty: no ticket is `STARTING`, `ABORTING` or `UNKNOWN` and no begun operation is `CONTINUING` | the gate is `CLOSED`; **through the host gate**, no E1 process is created and no E3 ticket is admitted or fenced-in from now on; every ticket is `STARTED` (it completed `Started` while the gate was open), `ABORTED`, `FENCED`, **withdrawn** (section 4.1), or still `ADMITTED` (it will be `FENCED` at its `BeginStart`). An E3 ticket already `STARTED` may **enter the transport after BARRIER** (admitted-before-Stop, section 4.3) |
+| **CLOSED-WITH-UNKNOWN(U)** | `L` contains at least one `UNKNOWN` ticket (a registry or abort write failed, **including one that failed before `Close`**) and no starter | **not a barrier.** No new work is admitted, no held process ran and no E3 dialled, but the registry does not say so durably; the run is `cleanup-pending` until the write succeeds (retried on a schedule) |
+| **CLOSED-WITH-UNKNOWN on deadline** | at the deadline `L` contains a ticket still `ABORTING` (its abort write has not finished) and no `STARTING` ticket | **not a barrier.** The ticket cannot create anything (the gate is closed, the held process is killed or the transport not entered), but its abort is not durable yet; it is counted as `UNKNOWN` for the outcome and resolves to `ABORTED` or `UNKNOWN` when the write finishes or fails |
+| **CLOSED-WITH-OPERATION(O)** | at the deadline `L` contains a begun operation still `CONTINUING` and no starter | **not a barrier.** The gate is `CLOSED` to new work; the operation continues **only through its continuation tickets** within `T_merge`; the run stays `cleanup-pending`; the outcome resolves when the operation leaves `CONTINUING` |
+| **CLOSED-WITH-STARTERS(L′)** | at the deadline `L′ ⊆ L` is the set of **all** tickets that are `STARTING` (of any origin, **including a continuation ticket created after `Close` began**) | **not a barrier.** The gate is `CLOSED` to new work, but each ticket in `L′` is `UNKNOWN` and can still create a process |
 
 **Precedence when more than one applies** (the strongest statement wins): CLOSED-WITH-STARTERS, then
 CLOSED-WITH-UNKNOWN (either form), then CLOSED-WITH-OPERATION, then BARRIER. A deadline with a ticket
 `STARTING` and another `ABORTING` at once is CLOSED-WITH-STARTERS, and the `ABORTING` ticket is listed with it.
 
 The spec's no-later-start promise (5.2) is made **only** for the BARRIER outcome. For
-CLOSED-WITH-STARTERS the promise is: no ticket outside `S′` can start; each ticket in `S′` is recorded
+CLOSED-WITH-STARTERS the promise is: no ticket outside `L′` can start; each ticket in `L′` is recorded
 durably in the registry as `unknown` with the dispatcher's identity and the point it had reached; the run
-cannot be `quiescent` while any exists.
+cannot be `quiescent` while any exists. The outcome is **recomputed on every resolution** (section 4.1,
+re-evaluation), so a ticket that resolves after the deadline moves the published outcome toward BARRIER.
 
 ### 4.3 The E3 ticket lifecycle, and who cancels what
 
@@ -181,8 +200,9 @@ across `STARTING` beyond it.
 
 ## 5. Resolving the unknown: no false quiescence
 
-Because `BeginStart` is a fence, after `Close` returns the set of possible late creators is exactly `S′`: a
-finite, named set. A ticket in `S′` is resolved only when its starter is **proven unable to create**:
+Because `BeginStart` is a fence, after `Close` returns the set of possible late creators is the live set's `STARTING` members `L′`
+(continuation tickets of a `CONTINUING` operation included): a finite, named set. A ticket in `L′` is resolved
+only when its starter is **proven unable to create**:
 
 1. it reports (`Started` and then the kill, or `Abort`), or its dispatcher wrapper's `done` signal fires (the
    goroutine has ended, including by panic); then any process it created is killed through the handle or found
@@ -330,6 +350,10 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
 | T29c | a failed-`Started` scenario: the wrapper is run with `Started` returning late/aborted | the wrapper never calls the transport (T23b also covers this); with the mutation "wrapper ignores `Started`" this test fails |
 | T32 | **duplicate calls:** `BeginStart` called twice on one ticket (concurrently, and sequentially), with `Close` running and the first caller about to start | the second call refuses and the ticket stays `STARTING`; `Close` waits for it; the first caller creates its held process or is aborted through `ABORTING`; the ticket is never `FENCED` after a successful first `BeginStart` |
 | T33b | the deferred panic abort is paused at `abort.before-write` while a concurrent `Close` runs | `Close` does **not** return BARRIER before the durable abort write finishes; when it finishes (success) the drain signals and `Close` returns BARRIER; on failure CLOSED-WITH-UNKNOWN |
+| T41 | **withdrawal:** a continuation ticket is `ADMITTED` and paused at `beginstart.before`; the operation becomes `INCOMPLETE` by (a) a failing step, (b) an aborted step, (c) `T_merge` expiry (injected clock); `Close` returns BARRIER; release | the ticket was moved to `FENCED` at the terminal transition; `BeginStart` refuses; **no process is created, also after BARRIER**; the same for `FINISHED` |
+| T42 | **duplicate calls:** `AdmitContinuation(op, step)` twice; `BeginStart` twice on the continuation ticket, concurrently with a terminal transition and with `Close` | one ticket; the second `BeginStart` refuses and changes nothing; no second process; no ticket `FENCED` after a successful first `BeginStart` |
+| T43 | **a starter created after `Close` began, and the deadline:** `Close` called while ticket A is `STARTING`; the operation then admits and starts continuation ticket B (`STARTING`); the clock reaches the deadline | the outcome is CLOSED-WITH-STARTERS listing **A and B**; B is not missing because it was not in a snapshot |
+| T44 | **re-evaluation on resolution:** after the deadline, A and B resolve one at a time; then the operation finishes | the published outcome is recomputed at each step and reaches BARRIER only when `L` is empty and no ticket is `UNKNOWN` |
 | T35 | **continuation, schedule (a):** a begun merge paused between step 1 and step 2; `Close` called | `Close` does not return BARRIER (the operation is `CONTINUING`); step 2 runs through its continuation ticket; the drain resolves when the operation is `FINISHED` and `Close` returns BARRIER (or CLOSED-WITH-OPERATION at the deadline) |
 | T36 | **continuation, schedule (b):** `Close` called while another ticket is `STARTING`; the operation proceeds to its next step before that ticket drains | `Close` still waits (the live predicate includes the operation); no step is created after a BARRIER that was returned |
 | T37 | a continuation step's ticket goes `ABORTING` then `UNKNOWN`; a step fails | the operation is `INCOMPLETE`; CLOSED-WITH-UNKNOWN; the run is `cleanup-pending` |
@@ -348,7 +372,7 @@ host process at a named point (SIGKILL), with a real held child in a real unit.
 | T25 | `T_hung` exit with an unwritable fail-closed record | the host exits anyway; the next start reads an unclean loss; the CLI ran the unit sweep on the host's exit |
 | T26 | an outside dispatcher registers, then is refused | it writes `ended`; quiescence is not blocked; a stuck live one is resolved by killing its named identity |
 | T27 | a third-party SDK that uses `net/http` called from a non-allowlisted file | the transitive boundary test fails |
-| T28 | mutation proof | removing: the operation's membership in the drain predicate (must fail T35 and T36), the live (non-frozen) evaluation of the predicate (T36), the registration of the operation under the same critical section as `Started` (T35), the `T_merge` withdrawal (T38), the precedence order (T40), the rule that a repeated `BeginStart` leaves the ticket unchanged (T32), the `STARTING` path of `Abort` (T33), the wrapper's check of the result of `Started` before entering the transport (the "wrapper ignores `Started`" mutation, which must fail T23b and T29c), the `OPEN` check in `Admit`, the fence in `BeginStart`, the `late` check in `Started` (for E1 and for E3), the cancel pass over `STARTED` E3 contexts in `Close`, the `late` kill, the `UNKNOWN` quiescence block, the copy of `S` in `Close`, the `T_hung` exit, the boundary allowlist check, the outside registration scan, the conditional in an E4 write, or a registration condition fails a named test |
+| T28 | mutation proof | removing: the withdrawal of `ADMITTED` continuation tickets on a terminal transition (T41), the atomic `CONTINUING`/`T_merge` check in `BeginStart` (T41, T42), the single-ticket-per-step rule (T42), the outcome over all live starters (T43), the re-evaluation on every resolution (T44), the operation's membership in the drain predicate (must fail T35 and T36), the live (non-frozen) evaluation of the predicate (T36), the registration of the operation under the same critical section as `Started` (T35), the `T_merge` withdrawal (T38), the precedence order (T40), the rule that a repeated `BeginStart` leaves the ticket unchanged (T32), the `STARTING` path of `Abort` (T33), the wrapper's check of the result of `Started` before entering the transport (the "wrapper ignores `Started`" mutation, which must fail T23b and T29c), the `OPEN` check in `Admit`, the fence in `BeginStart`, the `late` check in `Started` (for E1 and for E3), the cancel pass over `STARTED` E3 contexts in `Close`, the `late` kill, the `UNKNOWN` quiescence block, the copy of `S` in `Close`, the `T_hung` exit, the boundary allowlist check, the outside registration scan, the conditional in an E4 write, or a registration condition fails a named test |
 
 ## 9A. Known limits
 
@@ -442,22 +466,20 @@ review.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
 
-### 13.1 Remaining after the delta review of revision 8 (recorded)
+### 13.1 Closed in revision 9
 
-Two **P1** items are **open in this revision**; they are folded into the next revision of this note. Each must
-be resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the
-reviewers'.
+The two P1s recorded after the delta review of revision 8 are closed in this revision and await a P1-only
+delta review.
 
-1. **P1: a continuation starter created after the snapshot has no deadline outcome.** `S` is a snapshot taken
-   when `Close` begins, while the drain predicate is live; a continuation ticket that becomes `STARTING` after
-   the snapshot is waited for by the predicate but is in no outcome row at the deadline (the outcome table
-   names `S′ ⊆ S`). Required: define the deadline outcome over **all live starters, not the snapshot**;
-   **re-evaluate the whole predicate on every resolution**; test that schedule together with the deadline.
-2. **P1: an admitted continuation can start after its operation became `INCOMPLETE` and after BARRIER.** A
-   continuation ticket is `ADMITTED` when the operation leaves `CONTINUING` (a step failed or aborted, or
-   `T_merge` expired) and the ticket is paused; after BARRIER it can still call `BeginStart` and create a
-   process. Required: **withdraw every admitted continuation ticket on every terminal transition** of the
-   operation (`FINISHED`, `INCOMPLETE`, expiry); `BeginStart` must **check `CONTINUING` atomically** under `mu`;
-   test the paused ticket against failure, abort and expiry, **including duplicate calls**.
+1. **P1: a continuation starter created after the snapshot had no deadline outcome.** Closed: there is no
+   snapshot; the outcome is defined over the **live set `L` of all live starters** (any ticket `STARTING`,
+   `ABORTING` or `UNKNOWN`, any operation `CONTINUING`), evaluated under `mu`, **recomputed on every
+   resolution and at the deadline**, and the gate keeps publishing the current outcome (sections 4.1, 4.2;
+   T43, T44).
+2. **P1: an admitted continuation could start after its operation became `INCOMPLETE` and after BARRIER.**
+   Closed: every `ADMITTED` continuation ticket is **withdrawn (`FENCED`) on every terminal transition** of its
+   operation, under the same `mu` section; `BeginStart` checks `CONTINUING` and `T_merge` **atomically** under
+   `mu`; one ticket per step; tests for the paused ticket against failure, abort and expiry, including
+   duplicate calls (section 4.1; T41, T42).
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
