@@ -5,6 +5,8 @@ package update
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/autostart"
 )
@@ -32,6 +35,7 @@ const (
 type staleRig struct {
 	d        Deps
 	exe      string
+	unit     string
 	versions map[string]string
 }
 
@@ -49,7 +53,7 @@ func newStaleRig(t *testing.T, installed bool) *staleRig {
 	if err := os.WriteFile(unit, []byte("[Service]\nExecStart=\""+exe+"\" daemon\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r := &staleRig{exe: exe, versions: map[string]string{}}
+	r := &staleRig{exe: exe, unit: unit, versions: map[string]string{}}
 	r.d = testDeps(t, "http://127.0.0.1:1")
 	r.d.Installer = func() autostart.Installer { return &fakeAutostart{installed: installed, where: unit} }
 	r.d.ProbeVersion = func(_ context.Context, p string) (string, error) {
@@ -297,4 +301,78 @@ func captureStdout(t *testing.T, f func()) string {
 	wr.Close()
 	os.Stdout = old
 	return <-done
+}
+
+// The whole `update`, against a fake release: this binary and the daemon service's exe are both replaced from the verified
+// asset, the exe before the daemon is restarted, so that the restart runs the new code; the CLI on PATH is only reported.
+func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.T) {
+	asset := updateAssetName()
+	sum := sha256.Sum256([]byte(newAsset))
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"%s/sums"}]}`, asset, srv.URL, srv.URL)
+		case "/bin":
+			_, _ = w.Write([]byte(newAsset))
+		case "/sums":
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	r := newStaleRig(t, true)
+	self := filepath.Join(t.TempDir(), "monoagentcli")
+	if err := os.WriteFile(self, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	onPath := filepath.Join(t.TempDir(), "on-path", "monoagentcli")
+	if err := os.MkdirAll(filepath.Dir(onPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(onPath, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.versions[r.exe], r.versions[onPath] = "0.176.0", "0.176.0"
+
+	d := r.d
+	d.LatestReleaseURL = srv.URL + "/latest"
+	d.Version = func() string { return "v1.0.0" }
+	d.JSONOutput = func() bool { return false }
+	d.SelfPath = func() (string, error) { return self, nil }
+	d.LookPath = func(string) (string, error) { return onPath, nil }
+	hb := &fakeHeartbeat{}
+	hb.write(os.Getpid(), "v1.0.0")
+	d.Heartbeat = hb.read
+	fake := &fakeAutostart{installed: true, where: r.unit}
+	var exeAtRestart string
+	fake.onRestart = func() {
+		b, _ := os.ReadFile(r.exe)
+		exeAtRestart = string(b)
+		hb.write(os.Getpid(), "v9.9.9")
+	}
+	d.Installer = func() autostart.Installer { return fake }
+	d.ServicePID = func(context.Context, autostart.Installer) (int, error) { return os.Getpid(), nil }
+	d.VerifyWait, d.VerifyTick = 300*time.Millisecond, 10*time.Millisecond
+
+	out := captureStdout(t, func() {
+		if err := d.run(NewCommand(d)); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if b, _ := os.ReadFile(self); string(b) != newAsset {
+		t.Errorf("this binary was not replaced: %q", b)
+	}
+	if b, _ := os.ReadFile(r.exe); string(b) != newAsset {
+		t.Errorf("the daemon service's exe was not replaced: %q", b)
+	}
+	if fake.restarted != 1 || exeAtRestart != newAsset {
+		t.Errorf("the daemon restarted %d times; its exe at that moment was %q, want the new one", fake.restarted, exeAtRestart)
+	}
+	if b, _ := os.ReadFile(onPath); string(b) != oldAsset {
+		t.Error("the CLI on PATH was replaced")
+	}
+	if !strings.Contains(out, "replaced it with v9.9.9") || !strings.Contains(out, onPath+" update") {
+		t.Errorf("output does not say what was replaced and what is stale:\n%s", out)
+	}
 }

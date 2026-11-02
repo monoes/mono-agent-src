@@ -57,6 +57,8 @@ type Deps struct {
 	Installer func() autostart.Installer
 	// LookPath finds a program on PATH; nil: exec.LookPath. ProbeVersion asks a CLI for its version in a scratch
 	// environment; nil: it runs `<path> --json version` there (stale.go).
+	// SelfPath is the path of the binary an update replaces; nil: where this process was started from.
+	SelfPath     func() (string, error)
 	LookPath     func(name string) (string, error)
 	ProbeVersion func(ctx context.Context, path string) (string, error)
 	// ServicePID is the pid of the process the registered service runs; nil: autostart.ServiceMainPID.
@@ -222,7 +224,11 @@ func (d Deps) run(cmd *cobra.Command) error {
 	fmt.Printf("Update available: %s → %s\n", v, info.Tag)
 
 	assetName := updateAssetName()
-	selfPath, err := selfBinaryPath()
+	selfBinary := selfBinaryPath
+	if d.SelfPath != nil {
+		selfBinary = d.SelfPath
+	}
+	selfPath, err := selfBinary()
 	if err != nil {
 		return fmt.Errorf("locate binary: %w", err)
 	}
