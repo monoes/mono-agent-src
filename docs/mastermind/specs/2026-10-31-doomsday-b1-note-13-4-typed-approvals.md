@@ -581,3 +581,20 @@ delta review.
    attempt), with tests (T5f13-T5f15).
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.4 Remaining after the delta review of revision 8 (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: response arrival does not establish when the envelope is ready** (section 5A, the release
+   protocol). A destination sends headers immediately, then delays the body or EOF until an arbitrarily chosen
+   instant before `max_call_ms`. If "response arrival" means the headers, the slot and release are fixed before
+   the host can compute `length_bucket` and `predicate`; if the host waits for the body, delivery follows the
+   destination's unquantised delay, while releasing on time cannot provide the required envelope. The bounded
+   byte count does not bound the **time to receive** those bytes. Required: define arrival as the **completion
+   of the capped body read** (including errors and timeout), or specify an equivalent deadline and quantisation
+   protocol; test a **delayed and chunked body across slot boundaries**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
