@@ -283,8 +283,12 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// can reap the child, so its pid and group are still its own and can be signalled safely if the record fails.
 	startWaiter := func() {
 		go func() {
-			if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
-				t.settle()
+			if t.strict {
+				if holdLeader(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
+					t.settle()
+				} else {
+					t.holdFailed(cmd.Process.Kill) // its exit cannot be observed without reaping it: end it now, while it is still ours
+				}
 			}
 			t.err = cmd.Wait()
 			t.markReaped()
@@ -593,6 +597,21 @@ func (t *execTurn) pinned() bool {
 		return false
 	}
 	return !(t.strict && t.held) // a strict turn whose leader has exited is about to be reaped (settle ran): its group is no longer ours
+}
+
+// holdLeader waits for a bound leader's exit without reaping it (a seam: tests make it fail).
+var holdLeader = awaitExitNoReap
+
+// holdFailed handles a bound leader whose exit cannot be observed unreaped (waitid failed). Its group could then only be signalled by
+// number after the reap, with a reused-group risk, so the turn is ended instead: the leader is killed through the Go process handle (a
+// no-op once it is done) and, only if that found it still ours, its group; nothing is signalled by number again.
+func (t *execTurn) holdFailed(killLeader func() error) {
+	if err := killLeader(); err == nil {
+		t.mu.Lock()
+		_ = t.killGrp()
+		t.mu.Unlock()
+	}
+	t.markKilled()
 }
 
 // markKilled records that the launcher killed the turn itself (a failed identity record) while nothing could have reaped it: the pid

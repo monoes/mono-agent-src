@@ -155,3 +155,65 @@ func TestStopLeaderDoesNotMistakeAProcessOfAnotherBootForTheLeader(t *testing.T)
 		}
 	}
 }
+
+// startGroup starts a process that leads a process group of its own (as a bound turn does) with a child in that group.
+func startGroup(t *testing.T) (pid, child int, done <-chan struct{}) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", `sleep 60 & echo $! ; wait`)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 32)
+	n, _ := out.Read(buf)
+	child, _ = strconv.Atoi(strings.TrimSpace(string(buf[:n])))
+	ch := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(ch) }()
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); <-ch })
+	return cmd.Process.Pid, child, ch
+}
+
+func gone(pid int) bool {
+	for i := 0; i < 300; i++ {
+		if syscall.Kill(pid, 0) == syscall.ESRCH {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+// Recovery of a group leader ends its whole group through the pidfd: what the leader left behind dies with it.
+func TestStopLeaderKillsTheWholeGroupOfAGroupLeader(t *testing.T) {
+	pid, child, done := startGroup(t)
+	if r := testStopper().StopLeader(pid, stampFor(pid)); r.Outcome != StopStopped || !exited(done) {
+		t.Fatalf("%+v", r)
+	}
+	if !gone(child) {
+		t.Error("the leader's child outlived the recovery stop")
+	}
+}
+
+// A kernel without group signals through a pidfd falls back to the leader-only ladder.
+func TestStopLeaderFallsBackWhenGroupSignalsAreUnsupported(t *testing.T) {
+	pid, _, done := startGroup(t)
+	s := testStopper()
+	s.signalGroup = func(int, unix.Signal) error { return unix.EINVAL }
+	if r := s.StopLeader(pid, stampFor(pid)); r.Outcome != StopStopped || !exited(done) {
+		t.Fatalf("%+v", r)
+	}
+}
+
+// A process that does not lead its own group is never group-signalled: the group is not its own to kill.
+func TestStopLeaderNeverGroupSignalsAProcessThatLeadsNoGroup(t *testing.T) {
+	pid, done := startChild(t, "sleep 60")
+	s := testStopper()
+	s.signalGroup = func(int, unix.Signal) error { t.Error("a group signal was sent for a non-leader"); return nil }
+	if r := s.StopLeader(pid, stampFor(pid)); r.Outcome != StopStopped || !exited(done) {
+		t.Fatalf("%+v", r)
+	}
+}
