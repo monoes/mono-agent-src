@@ -66,19 +66,40 @@ reverted alone**, and so that the setting does not exist until everything it nee
 | 5 | **3c** launch ordering, the typed pipe frame, restart/downgrade handling, and the **setting**, whose setter refuses unless `procbind.IssuanceReady` (a constant flipped in this PR only) | yes, only when the operator sets the setting | yes |
 | 6 | **3e** retention sweep | n/a | n/a |
 
-**Flip checklist (before `procbind.IssuanceReady` becomes true, in the PR that flips it).**
-- Turn admission and the setting change (decided): **the setter refuses `on` while any coder turn is running**
-  (a session with a turn in flight: it was admitted unbound and holds legacy tokens, which the stores keep
-  accepting), with a message telling the operator to wait for those turns or stop them. That is the rule; the gate's
-  re-check after a legacy turn's process exists stays as a second guard for the few milliseconds between the setter's
-  check and a start that read the setting as off (such a turn is stopped and refused). A transient failure to read the
-  settings in that re-check leaves the healthy turn running. Both are tested (`coder_host_gate_test.go`).
-- **Blocking until the refused-turn fix has merged:** a legacy turn that the post-start re-check refuses must be waited for
-  (bounded) before the refusal returns, because the host starts the next turn at once and the old process's exit revokes
-  the conversation's tokens. The fix is the follow-up PR "the gate waits for a refused turn"; `IssuanceReady` must not flip
-  before it is in.
-- Every writer of the settings is transactional (`updateCoderSettings`), so no concurrent writer can undo the field.
-- The guard walk, the `RowKey` tripwire and the revoke-by-owner callers (3c-3c) have merged.
+**Flip checklist (before `procbind.IssuanceReady` becomes true, in the PR that flips it). Every item is cleared or, where noted, accepted by the user; the evidence is named.**
+- Turn admission and the setting change: the setter refuses `on` while any coder turn is running (counted in the transaction
+  that saves the setting), and the gate's re-check after a legacy turn's process exists is the second guard (it FAILS OPEN: a re-read of the settings that cannot be read leaves the healthy turn running, because the read that routed the start already said off; it matters only for a flip made by something other than the setter, together with an unreadable database at that moment, and the next start refuses if the setting is on or unreadable). Wiring PR #1277:
+  `TestThePeercredSettingIsNotSwitchedOnWhileATurnRuns`, `TestATurnStartedWhileTheSettingWasSwitchedOnIsStopped`,
+  `TestAReadFailureAfterATurnStartedNeverStopsAHealthyLegacyTurn`.
+- A refused turn is waited for, its own tokens (session and a child's task token) are ended at once, and its late exit ends
+  only its own turn's tokens: PR #1283: `TestADelayedExitCleanupNeverTouchesALaterTurnsToken`,
+  `TestARefusedChildsTaskTokenIsDeadWhileItsProcessStillRuns`, `TestRevokingOneTurnLeavesTheFollowingTurnsV2TokenAndRegistration`,
+  `TestARefusedTurnIsWaitedForBeforeTheRefusalReturns`.
+- A token that cannot be ended is reported, not swallowed, and the host holds the session instead of settling it (PR #1294, merged):
+  `TestRevokeTokenReportsAFailureThatSurvivesEveryAttempt`, `TestATurnWhoseTaskTokenCouldNotBeEndedReportsIt`,
+  `TestAnExitThatCouldNotEndTheTokensHoldsTheSessionUntilItCan`, `TestRecoveryEndsTheTokensOfATurnWhoseProcessIsGone`,
+  `TestAHoldWaitsForTheOldTurnToFinishBeforeAQueuedTurnStarts`, `TestRunWaitsForARetryInFlightBeforeItReturns`.
+- The spend cap of a turn that started and already ended is kept (PR #1317, merged): `TestAStartErrorKeepsTheCapOfATurnThatMayStillBeRunning`,
+  `TestARefusalIsAStartThatHappened`.
+- A started process's identity is made durable before the start can fail, so a restart during a hold adopts or stops it (PR #1320 and
+  migration 152, merged): `TestARestartAfterAFailedStartAdoptsTheSurvivingProcess`, `TestAPreTokenBoundHoldSurvivesTheNextTickAndBlocksTheQueue`,
+  `TestABoundLeadersChildrenDieWithItsExitEvenWithoutAStop`, `TestMigration152...`. **Accepted gap (the user decided, not built; issue #1310):** a host crash
+  between process creation and the identity commit leaves PID 0 and a queued turn may start beside the child. Databases that applied an intermediate,
+  never released 152 are unsupported.
+- **Full rollback = revert the constant** (`IssuanceReady = false`): the setter and the gate refuse as before. Switching the setting OFF is always allowed, and
+  v2 tokens already issued still verify until their turn ends after switching off.
+- **Open follow-ups, none blocking:** #1319 (a failed `waitid` falls back to no group kill; the host-death group cleanup), the no-pidfd platform P3, and the
+  review P3s #1253, #1254, #1255, #1256, #1257, #1259, #1260.
+- Every writer of the settings is transactional (`updateCoderSettings`): 3b-1 (#1247), `TestThePeercredSettingCannotBeSwitchedOnYet`
+  and the writers' tests there.
+- The guard walk (`TestEveryLegacyTokenEndIsRevokedInV2OrReviewed`), the `RowKey`/`AnswerKey` tripwire
+  (`TestIssuanceStaysOffUntilTheRevocationGuardsExist`, active now that the constant is true) and the revoke-by-owner callers
+  (3c-3c, 3c-5) have merged.
+- The previous released binary against a database holding v2 tokens: the CI smoke job (PR #1290), green on master's push run.
+- The end to end proofs run against the real constant (no issuance seam): `TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot`,
+  `TestABoundChildPassesItsOwnTaskGateAndIsRefusedOnceRetired`.
+- The setting stays OFF by default; switching it on is the operator's, and a machine that cannot run the service refuses
+  (`TestAMachineThatCannotRunTheServiceRefusesTheSettingAndEveryStart`).
 
 Each step is tested with the setting forced on in a test build where the step has a setting-visible effect
 (steps 3 to 5), including the intermediate states: the setter refuses before step 5, and a host started with the

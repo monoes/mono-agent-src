@@ -18,9 +18,7 @@ func withSeams(t *testing.T, issuance bool, readyErr error) {
 
 // While issuance is off, the answer is a refusal whatever else is true; the gate reads the constant, not a setting.
 func TestRefusalWhileIssuanceIsOff(t *testing.T) {
-	if IssuanceReady {
-		t.Skip("issuance is on")
-	}
+	withSeams(t, false, nil)
 	for _, running := range []bool{false, true} {
 		if got := Refusal(running); !strings.Contains(got, "does not issue bound tokens") {
 			t.Errorf("running=%v: %q", running, got)

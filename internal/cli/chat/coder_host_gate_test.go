@@ -105,9 +105,7 @@ func TestTheGatePassesEverythingOnWhileTheSettingIsOff(t *testing.T) {
 // With the setting on, however it was written (including by hand, and including values that are not a plain true),
 // no turn starts while the build cannot issue bound tokens, and the launcher is not called.
 func TestTheGateRefusesEveryStartWhileTheSettingIsOn(t *testing.T) {
-	if procbind.IssuanceReady {
-		t.Skip("issuance is on")
-	}
+	procbind.ForTestSetIssuance(t, false) // the build that does not issue bound tokens
 	for name, raw := range map[string]string{
 		"true":            `{"peercredBinding":true}`,
 		"a string":        `{"peercredBinding":"true"}`,
@@ -147,9 +145,7 @@ func TestTheGateRefusesEveryStartWhileTheSettingIsOn(t *testing.T) {
 // The setting is read at every start: a host that began with it off refuses once it is switched on, and starts again
 // once it is off.
 func TestTheGateReadsTheSettingAtEveryStart(t *testing.T) {
-	if procbind.IssuanceReady {
-		t.Skip("issuance is on")
-	}
+	procbind.ForTestSetIssuance(t, false) // the build that does not issue bound tokens
 	g, inner := gateRig(t, `{"enabled":true}`)
 	if _, err := g.Start("p", "c", "t1", "m", nil, ""); err != nil {
 		t.Fatal(err)
@@ -183,9 +179,7 @@ func TestTheGateRefusesWhenTheSettingCannotBeRead(t *testing.T) {
 
 // The setter: only the operator, only on or off, and "on" is refused while the build cannot issue bound tokens.
 func TestThePeercredSettingCannotBeSwitchedOnYet(t *testing.T) {
-	if procbind.IssuanceReady {
-		t.Skip("issuance is on")
-	}
+	procbind.ForTestSetIssuance(t, false) // the build that does not issue bound tokens
 	asOperator(t)
 	dbPath := newChatCLITestDB(t)
 	if out, code := runCoderCLI(t, dbPath, "status"); code != 0 || strings.Contains(out, "peercredBinding") {
@@ -224,9 +218,7 @@ func (f *fakeService) Running(string) bool                      { f.asked++; ret
 // The service is never started while it is off or while this build cannot issue bound tokens: the gate asks
 // procbind first and only then the service.
 func TestTheGateNeverStartsTheServiceWhileItIsNotAllowed(t *testing.T) {
-	if procbind.IssuanceReady {
-		t.Skip("issuance is on")
-	}
+	procbind.ForTestSetIssuance(t, false) // the build that does not issue bound tokens
 	for name, raw := range map[string]string{"off": `{"enabled":true}`, "on": `{"peercredBinding":true}`} {
 		g, _ := gateRig(t, raw)
 		svc := &fakeService{}
@@ -242,9 +234,7 @@ func TestTheGateNeverStartsTheServiceWhileItIsNotAllowed(t *testing.T) {
 // The setting is read in ONE conservative way by the gate, `coder status` and the setter: a duplicated key, a key in
 // another letter case and a junk value all count as on if any occurrence is not a plain false or null.
 func TestTheSettingIsReadTheSameConservativeWayEverywhere(t *testing.T) {
-	if procbind.IssuanceReady {
-		t.Skip("issuance is on")
-	}
+	procbind.ForTestSetIssuance(t, false) // the build that does not issue bound tokens
 	for name, raw := range map[string]string{
 		"true then null":         `{"peercredBinding":true,"peercredBinding":null}`,
 		"true then false":        `{"peercredBinding":true,"peercredBinding":false}`,
@@ -667,46 +657,38 @@ func TestTheGateDoesNotStartTheServiceForAHostInsideATurn(t *testing.T) {
 	}
 }
 
-// The re-check after a legacy turn's process exists is a guard against a flip: a settings read that fails once leaves the
-// healthy turn running; one that keeps failing stops it (whether binding is on is then not known).
-func TestAReadFailureAfterATurnStartedStopsItOnlyWhenItPersists(t *testing.T) {
-	for name, c := range map[string]struct {
-		failures int
-		stopped  bool
-	}{"one transient failure": {1, false}, "a persistent failure": {99, true}} {
+// The re-check after a legacy turn's process exists is a guard against a flip, not a gate: a settings read that fails (once, or for good
+// on a busy database) says nothing about a flip, and the read that routed the start said the setting was off, so the healthy legacy turn
+// of a user who never enabled binding keeps running. A read that works and says "on" still stops it (TestATurnStartedWhileTheSettingWasSwitchedOnIsStopped).
+func TestAReadFailureAfterATurnStartedNeverStopsAHealthyLegacyTurn(t *testing.T) {
+	for name, failures := range map[string]int{"one transient failure": 1, "a persistent failure": 99} {
 		g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
 		st := &stopTurn{stopped: make(chan struct{})}
 		legacy.turn = st
 		reads := 0
+		var logged []string
+		g.logf = func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }
 		legacy.onStart = func() {
-			g.load = func(db *sql.DB) (coderSettings, error) { // the first read (the routing) is already done; these are the re-check's
+			g.load = func(db *sql.DB) (coderSettings, error) { // the routing read is done; these are the re-check's
 				reads++
-				if reads <= c.failures {
+				if reads <= failures {
 					return coderSettings{}, errors.New("database is locked")
 				}
 				return loadCoderSettings(db)
 			}
 		}
 		turn, err := g.Start("p", "c1", "t1", "hi", nil, "")
-		if c.stopped {
-			var r *bindingRefusal
-			if !errors.As(err, &r) || turn != nil {
-				t.Errorf("%s: %v %v", name, turn, err)
-			}
-			select {
-			case <-st.stopped:
-			case <-time.After(2 * time.Second):
-				t.Errorf("%s: the turn was not stopped", name)
-			}
-			continue
-		}
 		if err != nil || turn == nil {
 			t.Errorf("%s: the healthy turn was refused: %v %v", name, turn, err)
+			continue
 		}
 		select {
 		case <-st.stopped:
 			t.Errorf("%s: the healthy turn was stopped", name)
 		case <-time.After(100 * time.Millisecond):
+		}
+		if failures == 99 && len(logged) == 0 {
+			t.Errorf("%s: a persistent read failure was not logged", name)
 		}
 	}
 }
@@ -771,6 +753,26 @@ func TestARefusedTurnThatWillNotExitIsWaitedForOnlyTheBound(t *testing.T) {
 	var r *bindingRefusal
 	if !errors.As(err, &r) || time.Since(start) < 100*time.Millisecond || time.Since(start) > 3*time.Second {
 		t.Fatalf("%v after %v", err, time.Since(start))
+	}
+}
+
+// With the build issuing bound tokens (the constant), a machine that cannot run the binding service still refuses: the
+// setter will not switch the setting on, and a hand-edited "on" refuses every start with the machine's cause, never a weaker mode.
+func TestAMachineThatCannotRunTheServiceRefusesTheSettingAndEveryStart(t *testing.T) {
+	procbind.ForTestSetReady(t, errors.New("the kernel has no pidfd for sockets"))
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	if out, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on"); code != 3 {
+		t.Fatalf("switching binding on on a machine that cannot run it: exit %d: %s", code, out)
+	}
+	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
+		t.Fatalf("the refused setter changed the setting: %s", out)
+	}
+	g, inner := gateRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.svc = &fakeService{}
+	_, err := g.Start("p", "c", "t", "m", nil, "")
+	if err == nil || !strings.Contains(err.Error(), "this machine cannot run it") || len(inner.calls) != 0 {
+		t.Fatalf("a hand-edited on on a machine that cannot run it: %v (launcher calls %d)", err, len(inner.calls))
 	}
 }
 

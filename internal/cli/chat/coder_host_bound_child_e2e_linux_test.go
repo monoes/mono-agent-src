@@ -31,7 +31,6 @@ func TestHelperBoundChildE2E(t *testing.T) {
 		t.Skip("helper process only")
 	}
 	files := os.Getenv(e2eFiles)
-	procbind.ForTestSetIssuance(t, true)                                // this process stands in for a build that issues bound tokens: its stores verify v2 secrets
 	fmt.Println(`{"admitted":true,"existed":false,"turn":{"id":"t1"}}`) // the admission line the launcher waits for
 	if err := coderhost.StashCredFrame(); err != nil {
 		e2eWrite(files, "frame", "error: "+err.Error())
@@ -74,7 +73,6 @@ func TestABoundChildPassesItsOwnTaskGateAndIsRefusedOnceRetired(t *testing.T) {
 	if !procbind.PeerPidfdSupported() {
 		t.Skip("the machine cannot run the binding service")
 	}
-	procbind.ForTestSetIssuance(t, true)
 	f := newChildFix(t)
 	files := t.TempDir()
 	runtimeDir, err := os.MkdirTemp("", "e2e")
