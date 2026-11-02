@@ -2,6 +2,9 @@ package coderhost
 
 import "strings"
 
+// maxAliasLen is the longest mesh name the hub takes.
+const maxAliasLen = 64
+
 // AliasFromTitle is a chat's name as a mesh alias: spaces become dashes, anything the hub would not
 // take is dropped, repeats collapse, and the result starts with a letter or digit and is at most 64
 // characters. "" when nothing usable is left (the caller falls back to the project-and-time name).
@@ -24,8 +27,8 @@ func AliasFromTitle(title string) string {
 		}
 	}
 	out := strings.TrimLeft(b.String(), "._-")
-	if len(out) > 64 {
-		out = out[:64]
+	if len(out) > maxAliasLen {
+		out = out[:maxAliasLen]
 	}
 	return strings.TrimRight(out, "-")
 }

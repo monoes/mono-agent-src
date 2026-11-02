@@ -256,7 +256,7 @@ func likeEscape(s string) string {
 // the row cannot be read): the name the person typed, else the history's derived one.
 func chatDisplayTitle(db historyQuerier, profileID, id string) string {
 	rows, err := queryHistoryRows(db, profileID, historyFilter{id: id}, 1)
-	if err != nil || len(rows) == 0 || rows[0].Title == histNewChat {
+	if err != nil || len(rows) == 0 || (rows[0].Title == histNewChat && !rows[0].Renamed) {
 		return ""
 	}
 	return rows[0].Title

@@ -565,7 +565,7 @@ func newChatHistoryRenameCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer closeDB()
-			stored, err := store.SetConversationTitle(args[0], profileID, redactTitleText(title))
+			stored, err := store.SetConversationTitle(args[0], profileID, redactTitleText(ai.NormalizeConversationTitle(title)))
 			if err != nil {
 				return chatStoreErr(err)
 			}

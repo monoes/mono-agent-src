@@ -192,9 +192,9 @@ func (s *AIStore) SetConversationOrgMode(id, profileID, mode string) error {
 // MaxConversationTitle is the longest name a person can give a conversation, in characters.
 const MaxConversationTitle = 80
 
-// CleanConversationTitle is a typed title as one line: whitespace collapsed, control characters
-// dropped, cut to MaxConversationTitle characters. "" clears the name.
-func CleanConversationTitle(s string) string {
+// NormalizeConversationTitle is a typed title as one line, not yet cut: control and format characters
+// dropped, whitespace collapsed. Redaction runs on this, so a secret cannot hide behind an invisible character.
+func NormalizeConversationTitle(s string) string {
 	s = strings.Map(func(r rune) rune {
 		// Control and format characters (bidi overrides, zero-width) are invisible in a name.
 		if (unicode.IsControl(r) && !unicode.IsSpace(r)) || unicode.Is(unicode.Cf, r) {
@@ -202,7 +202,13 @@ func CleanConversationTitle(s string) string {
 		}
 		return r
 	}, s)
-	s = strings.Join(strings.Fields(s), " ")
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// CleanConversationTitle is NormalizeConversationTitle cut to MaxConversationTitle characters.
+// "" clears the name.
+func CleanConversationTitle(s string) string {
+	s = NormalizeConversationTitle(s)
 	if r := []rune(s); len(r) > MaxConversationTitle {
 		s = strings.TrimSpace(string(r[:MaxConversationTitle]))
 	}

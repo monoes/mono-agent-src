@@ -108,3 +108,24 @@ func TestSessionSettingsShowTheDefaultMeshName(t *testing.T) {
 		t.Fatalf("default = %q, want meta-challenge", got)
 	}
 }
+
+// An invisible character inside a secret's keyword must not get it past the redaction, and a chat
+// the person named "New chat" is named, not untitled.
+func TestChatHistoryRenameRedactsAfterNormalising(t *testing.T) {
+	noOrgs(t)
+	dbPath := newChatCLITestDB(t)
+	store, db := openTestChatStore(t, dbPath), rawDB(t, dbPath)
+	c := seedConv(t, store, db, ai.AccessScoped, "2026-10-22T10:00:00Z")
+
+	out, _ := runChatHistory(t, dbPath, "default", "rename", c.ID, "pass\u200bword: hunter2xyz")
+	var stored string
+	db.QueryRow(`SELECT title FROM ai_chat_conversations WHERE id = ?`, c.ID).Scan(&stored)
+	if strings.Contains(stored, "hunter2xyz") || strings.Contains(out, "hunter2xyz") {
+		t.Fatalf("a secret behind a format character was stored or returned: %q / %s", stored, out)
+	}
+
+	runChatHistory(t, dbPath, "default", "rename", c.ID, "New chat")
+	if got := chatDisplayTitle(db, "default", c.ID); got != "New chat" {
+		t.Fatalf("a chat named New chat reads as untitled: %q", got)
+	}
+}
