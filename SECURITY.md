@@ -2076,11 +2076,26 @@ that works a task acts on them. The defences:
   and the gate checks the union of the database the process names and every
   registered one, so `--db-path`, another `HOME`, a clean environment or an empty
   or missing database no longer hide a turn. An override can only add checks, never
-  remove one; a registered database that cannot be read refuses, a missing file or
-  table is not a turn, and the registry is read-only (a stale entry left by a host
-  that crashed is harmless and is never deleted by a reader: the turn rows' start
-  stamps fail the ancestry check). Registered databases are opened read-only and never
-  migrated. A user the system has no home directory for (on Linux without cgo, a
+  remove one; a missing file or table is not a turn, and the registry is read-only
+  (a reader never deletes an entry). A registered database that cannot be read
+  (corrupt, on an unmounted path, not a regular file such as a FIFO or a directory, or
+  silent for 3 seconds) refuses the command while its host is running, with a message
+  that names the entry file: if that host is no longer running, delete that file (under
+  `<passwd home>/.monoagent/coder-hosts/`) and run the command again. If the entry's
+  recorded host is certainly dead (its pid is gone or reused, by the start stamp), an
+  unreadable database is skipped instead, so a crashed host cannot lock the operator
+  out; a dead host's readable database is still judged (its turn rows' start stamps
+  fail the ancestry check unless a turn process outlived it). That skip leaves one
+  residual: a turn process that outlived its dead host AND whose database is also
+  unreadable is not seen. Registered databases are opened read-only and never
+  migrated, and only when they are regular files. Entries are one per running host
+  database and the gate opens each once; two hosts on one database share one entry (the
+  later start overwrites it, and if that one exits first the other is no longer
+  registered). A registry directory that cannot be listed adds nothing, like an
+  unavailable one. A host run under a scratch `HOME` still registers in the real
+  passwd-home registry (the registry directory is never taken from `$HOME` or from any
+  variable a model could set), so a developer's scratch-`HOME` host leaves a stale entry
+  there; it is harmless (skipped once the host is dead). A user the system has no home directory for (on Linux without cgo, a
   uid `/etc/passwd` has no entry for, as in some containers) has no registry: the gate
   then reads only the database the process names, as it did before, and `coder host
   status` shows `turnRegistry` with the reason. A registry directory that is a
@@ -2088,7 +2103,9 @@ that works a task acts on them. The defences:
   not read (not Linux) nothing is written or read, as before. A host that cannot write its
   entry logs it and still starts.
   Residuals of this turn layer, stated plainly:
-  (1) it is a courtesy layer: a process of the same OS user that deletes or edits a
+  (1) it is a courtesy layer (a confined coder turn sees `<passwd home>/.monoagent` as
+  a tmpfs in the compatible box and read-only in the strict box, so it cannot edit the
+  registry; an unconfined `run` turn can): a process of the same OS user that deletes or edits a
   registry entry or the database, uses ptrace, runs a second build of the binary, or
   detaches from the turn's process tree is not seen, and the `/proc` view of a
   process in its own user and mount namespace can differ; a verdict from the kernel
