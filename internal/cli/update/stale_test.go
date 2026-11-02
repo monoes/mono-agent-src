@@ -720,15 +720,17 @@ func TestEveryFolderAboveAProgramIsChecked(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer os.Chmod(grand, 0o755)
-			got := realProbeRig(t, cli).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
-			_, ran := os.Stat(marker)
-			if (ran == nil) != c.ok {
-				t.Fatalf("ran = %v, want %v: %+v", ran == nil, c.ok, got)
-			}
-			// the same walk decides whether the daemon's exe may be replaced
-			if why := replaceable(cli); (why == "") != c.ok {
-				t.Fatalf("replaceable = %q, want ok=%v", why, c.ok)
-			}
+			within(t, 10*time.Second, func() {
+				got := realProbeRig(t, cli).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+				_, ran := os.Stat(marker)
+				if (ran == nil) != c.ok {
+					t.Errorf("ran = %v, want %v: %+v", ran == nil, c.ok, got)
+				}
+				// the same walk decides whether the daemon's exe may be replaced
+				if why := replaceable(cli); (why == "") != c.ok {
+					t.Errorf("replaceable = %q, want ok=%v", why, c.ok)
+				}
+			})
 		})
 	}
 }
@@ -793,4 +795,72 @@ func TestAPathWithControlCharactersIsShownQuoted(t *testing.T) {
 	if len(got) != 1 || strings.ContainsAny(got[0].Message, "\x1b\n\r") {
 		t.Fatalf("a raw control character reached the message: %q", got)
 	}
+}
+
+// --- third review (tests only)
+
+// within fails the test, rather than hanging it, when f takes longer than d.
+func within(t *testing.T, d time.Duration, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); f() }()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("still running after %s", d)
+	}
+}
+
+// A link in a safe folder that points at a file in an UNSAFE folder is not run: the folders of the resolved file are walked as
+// well as those of the name.
+func TestALinkInASafeFolderToAFileInAnUnsafeOneIsNotRun(t *testing.T) {
+	unsafeBase := filepath.Join(t.TempDir(), "unsafe")
+	cli, marker := safeCLI(t, unsafeBase)
+	if err := os.Chmod(filepath.Dir(cli), 0o777); err != nil { // the folder that holds the file
+		t.Fatal(err)
+	}
+	defer os.Chmod(filepath.Dir(cli), 0o755)
+	linkDir := filepath.Join(t.TempDir(), "safe")
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkDir, "monoagentcli")
+	if err := os.Symlink(cli, link); err != nil {
+		t.Fatal(err)
+	}
+	within(t, 10*time.Second, func() {
+		got := realProbeRig(t, link).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("a program in a folder others can write was run through a link in a safe one")
+		}
+		if len(got) != 1 || !strings.Contains(got[0].Message, "not run to ask") {
+			t.Errorf("stale = %+v", got)
+		}
+	})
+}
+
+// A folder above the program that belongs to another user is refused, though the file itself is the user's: the owner is
+// compared for the ancestors too. The first owner comparison (the file's) sees this user; the later ones (the folders') see
+// another.
+func TestAFolderOfAnotherUserAboveAProgramIsRefused(t *testing.T) {
+	cli, marker := safeCLI(t, t.TempDir())
+	old := uidOf
+	calls := 0
+	uidOf = func() int {
+		calls++
+		if calls == 1 {
+			return os.Getuid()
+		}
+		return os.Getuid() + 12345
+	}
+	defer func() { uidOf = old }()
+	within(t, 10*time.Second, func() {
+		got := realProbeRig(t, cli).d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("a program under a folder of another user was run")
+		}
+		if len(got) != 1 || !strings.Contains(got[0].Message, "the folder") {
+			t.Errorf("stale = %+v", got)
+		}
+	})
 }
