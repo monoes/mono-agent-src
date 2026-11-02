@@ -92,6 +92,9 @@ type Gateway struct {
 	// call left its runtime session (tools_store.go).
 	conts *contStore
 
+	// jobs are the image requests answered with a job id (images_jobs.go).
+	jobs *imageJobs
+
 	// shutdownCtx ends when the server is stopping: every turn in flight
 	// watches it, so closing a listener cannot leave an agent CLI running.
 	shutdownCtx context.Context
@@ -147,6 +150,7 @@ func New(d Deps, c Config) (*Gateway, error) {
 	}
 	g.shutdownCtx, g.shutdown = context.WithCancel(context.Background())
 	g.conts = newContStore(func() time.Time { return g.now() })
+	g.jobs = newImageJobs(func() time.Time { return g.now() })
 	g.cleanSlots() // only now: nothing of another process can be running in them
 	_ = os.RemoveAll(filepath.Join(cfg.ScratchRoot, tmpDirName))
 	if cfg.ImagesOff() {
