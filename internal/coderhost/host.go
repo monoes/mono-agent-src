@@ -35,10 +35,12 @@ type Launcher interface {
 // Host carries commands out. Run it from one process only (the caller holds
 // the single-instance lock).
 type Host struct {
-	Store *Store
-	L     Launcher
-	Poll  time.Duration
-	Logf  func(format string, args ...any)
+	// retries counts the retries of holds that are running (off the lock); Run waits for them before it returns.
+	retries sync.WaitGroup
+	Store   *Store
+	L       Launcher
+	Poll    time.Duration
+	Logf    func(format string, args ...any)
 
 	// Mesh, when set, keeps the sessions visible on monomind's mesh and hands waiting
 	// messages to the next turn (see Mesh). MeshEvery is how often it is brought up
@@ -46,7 +48,10 @@ type Host struct {
 	Mesh      Mesh
 	MeshEvery time.Duration
 	MeshIdle  time.Duration
-	meshPrev  map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
+	// TitleOf is a chat's name as the app shows it, which a session without a mesh name of its own
+	// takes (AliasFromTitle). Unset, only a name the person typed counts.
+	TitleOf  func(profileID, conversationID string) (string, error)
+	meshPrev map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
 
 	// RequireConversations makes the host check that the conversation of a command still exists, and
 	// sweep away sessions and commands of deleted ones. `coder host run` sets it; unit tests that
@@ -123,6 +128,12 @@ func (h *Host) Recover() error {
 		}
 		if x.TurnID != "" {
 			h.L.Finish(x.ProfileID, x.ConversationID, x.TurnID, "the coder host restarted and the turn's process was gone")
+			// The old host never ran its exit's revocation: the turn's own tokens are ended here before the session is settled, or
+			// the session is held (its turn id stays on the session, so a later restart finds it again).
+			if err := h.endTurnTokens(x)(); err != nil {
+				h.holdForTokens(x, "the turn's tokens could not be revoked at recovery", h.endTurnTokens(x))
+				continue
+			}
 		}
 		h.settle(x)
 	}
@@ -133,9 +144,16 @@ func (h *Host) Recover() error {
 func (h *Host) settle(x Session) {
 	if x.Role == "child" {
 		if err := h.revokeChildTokens(x.ProfileID, x.ConversationID); err != nil { // the run is over: no token of it outlives it
-			h.logf("coder host: the task tokens of the child %s could not be revoked: %v", x.ConversationID, err)
+			// a token that cannot be ended keeps the session unsettled (held, retried at every pass): nothing starts next to it
+			h.holdForTokens(x, "the child's task tokens could not be revoked", h.endTurnTokens(x))
+			return
 		}
 	}
+	h.clearSession(x)
+}
+
+// clearSession clears the session's turn once its tokens are known to be ended. Callers hold mu.
+func (h *Host) clearSession(x Session) {
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
 		x = cur
 	}
@@ -156,11 +174,15 @@ func (h *Host) watch(x Session, t Turn) {
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
-		_ = t.Wait()
+		werr := t.Wait()
 		h.L.Finish(x.ProfileID, x.ConversationID, x.TurnID, "the turn's process ended without finishing the turn")
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		delete(h.live, key(x.ProfileID, x.ConversationID))
+		if TokensMayBeLive(werr) { // the exit could not end the turn's tokens: hold the session, do not settle it
+			h.holdForTokens(x, "the turn ended but its tokens could not be revoked", h.endTurnTokens(x))
+			return
+		}
 		h.settle(x)
 	}()
 }
@@ -351,9 +373,22 @@ func (h *Host) Tick() error {
 			})
 			if err != nil {
 				if capped {
-					h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
+					if TurnPending(err) != nil { // the process may be running and spending: its cap stays, as a started turn's does
+						h.Store.MarkTurnCapStarted(c.ProfileID, c.ConversationID, c.TurnID)
+					} else {
+						h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
+					}
 				}
-				h.settle(x)
+				if TokensMayBeLive(err) { // a refused or failed launch whose token may still be live: hold, do not settle
+					h.holdForTokens(x, "a launch failed and its tokens could not be revoked", h.endTurnTokens(x))
+					if until := TurnPending(err); until != nil { // the old turn may still be running: wait for it too
+						hs := h.held[k]
+						hs.until = until
+						h.held[k] = hs
+					}
+				} else {
+					h.settle(x)
+				}
 				h.end(c, CmdFailed, err.Error())
 				continue
 			}
@@ -457,6 +492,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := h.Recover(); err != nil {
 		return err
 	}
+	defer h.retries.Wait() // no retry of a hold outlives Run: the registry and the database are closed after it returns
 	poll := h.Poll
 	if poll <= 0 {
 		poll = 500 * time.Millisecond
@@ -562,9 +598,20 @@ func (h *Host) meshSync(ctx context.Context) {
 		if x.Parent != "" {
 			related = append(related, x.Parent)
 		}
+		alias := settings.MeshAlias
+		if alias == "" {
+			title, err := h.titleOf(x.ProfileID, x.ConversationID)
+			if err != nil { // a read that failed is not an unnamed chat: keep what the mesh was last told
+				if prev, ok := h.meshPrev[key]; ok {
+					want, next[key] = append(want, prev), prev
+				}
+				continue
+			}
+			alias = AliasFromTitle(title) // "" = the project-and-time name
+		}
 		ms := MeshSession{
 			ProfileID: x.ProfileID, ConversationID: x.ConversationID, Cwd: cwd, Started: started.Local(),
-			Task: string(x.State), Alias: settings.MeshAlias, // nothing about its work, its folder's path or its access level
+			Task: string(x.State), Alias: alias, // nothing about its work, its folder's path or its access level
 			Accept: settings.MeshAccept, Related: related,
 		}
 		next[key] = ms
@@ -572,6 +619,13 @@ func (h *Host) meshSync(ctx context.Context) {
 	}
 	h.meshPrev = next
 	h.Mesh.Sync(ctx, want)
+}
+
+func (h *Host) titleOf(profileID, conversationID string) (string, error) {
+	if h.TitleOf != nil {
+		return h.TitleOf(profileID, conversationID)
+	}
+	return h.Store.ConversationTitle(profileID, conversationID)
 }
 
 // meshSessionFor is the mesh's view of one session as it is right now, for reading

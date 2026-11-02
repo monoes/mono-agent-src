@@ -840,3 +840,29 @@ func TestAStoppedRelativeIsNotWaitedFor(t *testing.T) {
 		t.Fatalf("a stopped master is still a relative: %v", bs.Related)
 	}
 }
+
+// Two sessions whose long chat names give the same 64-character alias both join: the suffix of the
+// second fits inside the hub's limit.
+func TestATakenLongAliasStaysWithinTheHubLimit(t *testing.T) {
+	h := newFakeHub()
+	m := newMesh(h)
+	a, b := sess("c1"), sess("c2")
+	a.Alias = AliasFromTitle(strings.Repeat("long-chat-name ", 8) + "one")
+	b.Alias = AliasFromTitle(strings.Repeat("long-chat-name ", 8) + "two")
+	if a.Alias != b.Alias || len(a.Alias) != 64 {
+		t.Fatalf("setup: %q / %q", a.Alias, b.Alias)
+	}
+	m.Sync(bg, []MeshSession{a, b})
+	n := 0
+	for _, r := range h.requests {
+		if r["op"] == "hello" {
+			if al := r["alias"].(string); len(al) > 64 {
+				t.Fatalf("alias of %d characters", len(al))
+			}
+			n++
+		}
+	}
+	if len(h.agents) != 2 {
+		t.Fatalf("joined %d of 2: %v (%d hellos)", len(h.agents), h.agents, n)
+	}
+}

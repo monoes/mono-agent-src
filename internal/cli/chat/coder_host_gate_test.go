@@ -779,3 +779,105 @@ func TestAMachineThatCannotRunTheServiceRefusesTheSettingAndEveryStart(t *testin
 		t.Fatalf("a hand-edited on on a machine that cannot run it: %v (launcher calls %d)", err, len(inner.calls))
 	}
 }
+
+// refusableTurn is a legacy turn whose refusal cannot end its tokens.
+type refusableTurn struct{ err error }
+
+func (r *refusableTurn) PID() int      { return 1 }
+func (r *refusableTurn) Stamp() string { return "s" }
+func (r *refusableTurn) Wait() error   { return nil }
+func (r *refusableTurn) Stop()         {}
+func (r *refusableTurn) Refuse() error { return r.err }
+
+// When the refusal of a turn cannot end the turn's tokens, the gate's failure says so to the host (which then holds the
+// session instead of settling it), and it is still a binding refusal for everyone else.
+func TestARefusalThatCouldNotEndTheTokensTellsTheHost(t *testing.T) {
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	legacy.turn = &refusableTurn{err: errors.New("the session token could not be ended")}
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) {
+		t.Fatalf("not a binding refusal: %v", err)
+	}
+	if !coderhost.TokensMayBeLive(err) {
+		t.Fatalf("the failure does not say that a token may be live: %v", err)
+	}
+	// a refusal that ended its tokens cleanly says nothing of the kind
+	legacy.turn = &refusableTurn{}
+	if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true}`, coderConfigName); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Start("p", "c1", "t2", "hi", nil, ""); coderhost.TokensMayBeLive(err) || !errors.As(err, &r) {
+		t.Fatalf("a clean refusal: %v", err)
+	}
+}
+
+// slowTurn is a legacy turn whose process takes its time to exit after the stop, and whose exit may report a cleanup failure.
+type slowTurn struct {
+	exit    chan struct{}
+	waitErr error
+}
+
+func (s *slowTurn) PID() int      { return 1 }
+func (s *slowTurn) Stamp() string { return "s" }
+func (s *slowTurn) Wait() error   { <-s.exit; return s.waitErr }
+func (s *slowTurn) Stop()         {}
+func (s *slowTurn) Refuse() error { return nil }
+
+func refuseWith(t *testing.T, turn coderhost.Turn) error {
+	t.Helper()
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	legacy.turn = turn
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	return err
+}
+
+// A refusal that gives up waiting for the refused turn says the turn may still be running and hands the host the channel that
+// closes when it has finished, so the host does not settle the session or start the next turn before that.
+func TestARefusalThatTimedOutWaitingHandsTheHostTheExitChannel(t *testing.T) {
+	old := refusedTurnWait
+	refusedTurnWait = 100 * time.Millisecond
+	t.Cleanup(func() { refusedTurnWait = old })
+	st := &slowTurn{exit: make(chan struct{})}
+	err := refuseWith(t, st)
+	var r *bindingRefusal
+	if !errors.As(err, &r) || !coderhost.TokensMayBeLive(err) {
+		t.Fatalf("the refusal after a timeout: %v", err)
+	}
+	pending := coderhost.TurnPending(err)
+	if pending == nil {
+		t.Fatal("the refusal names no pending turn")
+	}
+	select {
+	case <-pending:
+		t.Fatal("reported finished while the refused turn still runs")
+	default:
+	}
+	close(st.exit)
+	select {
+	case <-pending:
+	case <-time.After(3 * time.Second):
+		t.Fatal("never reported finished after the refused turn exited")
+	}
+}
+
+// A refused turn whose exit cleanup failed is not a clean refusal, even though the wait finished in time.
+func TestARefusalWhoseRefusedTurnCouldNotCleanUpIsNotClean(t *testing.T) {
+	st := &slowTurn{exit: make(chan struct{}), waitErr: &coderhost.TokensLiveError{Err: errors.New("the token could not be ended")}}
+	close(st.exit)
+	err := refuseWith(t, st)
+	var r *bindingRefusal
+	if !errors.As(err, &r) || !coderhost.TokensMayBeLive(err) {
+		t.Fatalf("a refusal whose turn's cleanup failed: %v", err)
+	}
+}
