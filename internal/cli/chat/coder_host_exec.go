@@ -55,6 +55,9 @@ type execLauncher struct {
 // hostID is what makes a host-owned name safe to put in a file name and a flag.
 var hostID = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
+// hostTurnWait is how long stopAndWait waits for the exit of a stopped turn (a seam for tests).
+var hostTurnWait = func() time.Duration { return hostTurnGrace + 5*time.Second }
+
 // hostTurnGrace is how long a stopped turn gets to end before it is killed.
 var hostTurnGrace = 15 * time.Second
 
@@ -452,22 +455,25 @@ func (l *execLauncher) Finish(profileID, conversationID, turnID, reason string) 
 // fail stops the turn and returns err; when the turn's exit could not end its tokens (the exit goroutine's failure, known once the
 // process is gone) that failure is part of what comes back, so the host holds the session instead of settling it.
 func (t *execTurn) fail(err error) error {
-	t.stopAndWait()
-	select {
-	case <-t.done:
-		if coderhost.TokensMayBeLive(t.err) {
-			err = errors.Join(err, t.err)
-		}
-	default:
+	if !t.stopAndWait() {
+		// The turn had not ended, and its exit's cleanup had not run, when the wait gave up: its tokens may still be live.
+		// The host holds the session until they are ended (the late exit also ends the turn's own tokens).
+		return errors.Join(err, &coderhost.TokensLiveError{Err: errors.New("the turn had not ended when its start was given up on, so its tokens may still be live")})
+	}
+	if coderhost.TokensMayBeLive(t.err) {
+		err = errors.Join(err, t.err)
 	}
 	return err
 }
 
-func (t *execTurn) stopAndWait() {
+// stopAndWait stops the turn and waits (bounded) for its exit, cleanup included; false when the bound ran out first.
+func (t *execTurn) stopAndWait() bool {
 	t.Stop()
 	select {
 	case <-t.done:
-	case <-time.After(hostTurnGrace + 5*time.Second):
+		return true
+	case <-time.After(hostTurnWait()):
+		return false
 	}
 }
 

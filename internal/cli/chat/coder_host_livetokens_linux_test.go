@@ -113,3 +113,22 @@ while [ ! -e "$d/release" ]; do sleep 0.05; done
 		t.Fatalf("a leader that died before the commit, revoke failing: %v", err)
 	}
 }
+
+// A cleanup that has not finished when the start gives up waiting is a possibly-live token, not a clean failure.
+func TestAStartWhoseCleanupOutlastsTheWaitSaysTheTokenMayBeLive(t *testing.T) {
+	oldWait := hostTurnWait
+	hostTurnWait = func() time.Duration { return 150 * time.Millisecond }
+	t.Cleanup(func() { hostTurnWait = oldWait })
+	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 30\n")
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		tokens:     func(string, string, string) (string, error) { return "mst-x", nil },
+		revoke:     func(string, string) error { return nil },
+		revokeTurn: func(string, string, string) error { <-release; return nil }, // the exit's cleanup hangs
+		bind:       func(string, string, string, int, string) error { return errors.New("the token could not be bound") }}
+	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || !coderhost.TokensMayBeLive(err) || !strings.Contains(err.Error(), "could not be bound") {
+		t.Fatalf("a start whose cleanup had not finished: %v", err)
+	}
+}

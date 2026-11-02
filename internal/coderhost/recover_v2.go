@@ -32,6 +32,8 @@ type heldSession struct {
 	// fails and next pace the retries of a hold for tokens: each failure doubles the wait (holdBackoff, at most holdBackoffMax).
 	fails int
 	next  time.Time
+	// inflight is set while a retry runs (off the host's lock), so no second one starts for the hold.
+	inflight bool
 }
 
 // V2Turn says whether the session's turn is a v2 turn, and the leader identity its binding row recorded before the
@@ -128,6 +130,35 @@ func (h *Host) recoverV2(x Session, pid int, stamp string) {
 	h.settle(x)
 }
 
+// runHoldRetry ends the tokens of a hold without the host's lock (the revocation can take as long as its deadline) and then,
+// under the lock, settles the session or schedules the next try.
+func (h *Host) runHoldRetry(k string, hs heldSession) {
+	defer h.wg.Done()
+	err := hs.retry()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cur, ok := h.held[k]
+	if !ok {
+		return
+	}
+	if err != nil {
+		cur.inflight = false
+		cur.fails++
+		wait := holdBackoff << min(cur.fails-1, 10)
+		if wait > holdBackoffMax {
+			wait = holdBackoffMax
+		}
+		cur.next = time.Now().Add(wait)
+		h.held[k] = cur
+		if cur.fails&(cur.fails-1) == 0 { // logged at the 1st, 2nd, 4th, 8th ... failure, not at every pass
+			h.logf("coder host: the tokens of %s still cannot be revoked (%d attempts): %v", hs.x.ConversationID, cur.fails, err)
+		}
+		return
+	}
+	delete(h.held, k)
+	h.settle(hs.x)
+}
+
 // retryHeld re-checks every held session once. Callers hold mu.
 func (h *Host) retryHeld() {
 	snapshot := make(map[string]heldSession, len(h.held))
@@ -138,25 +169,14 @@ func (h *Host) retryHeld() {
 		if hs.cause == stopping {
 			continue
 		}
-		if hs.retry != nil { // a hold for tokens that may be live: end them, then settle
-			if time.Now().Before(hs.next) {
+		if hs.retry != nil { // a hold for tokens that may be live: end them (off the lock, one goroutine per hold), then settle
+			if hs.inflight || time.Now().Before(hs.next) {
 				continue
 			}
-			if err := hs.retry(); err != nil {
-				hs.fails++
-				wait := holdBackoff << min(hs.fails-1, 10)
-				if wait > holdBackoffMax {
-					wait = holdBackoffMax
-				}
-				hs.next = time.Now().Add(wait)
-				h.held[k] = hs
-				if hs.fails&(hs.fails-1) == 0 { // logged at the 1st, 2nd, 4th, 8th ... failure, not at every pass
-					h.logf("coder host: the tokens of %s still cannot be revoked (%d attempts): %v", hs.x.ConversationID, hs.fails, err)
-				}
-				continue
-			}
-			delete(h.held, k)
-			h.settle(hs.x)
+			hs.inflight = true
+			h.held[k] = hs
+			h.wg.Add(1)
+			go h.runHoldRetry(k, hs)
 			continue
 		}
 		x := hs.x
