@@ -168,7 +168,7 @@ func (m *HubMesh) join(ctx context.Context, s MeshSession) *joined {
 	for n := 1; n <= maxAliasTries; n++ {
 		alias := base
 		if n > 1 {
-			alias = fmt.Sprintf("%s-%d", base, n)
+			alias = suffixedAlias(base, n)
 		}
 		hello["alias"] = alias
 		reply, err := m.callWithHub(ctx, hello)
@@ -433,4 +433,13 @@ func firstString(vs ...any) string {
 		}
 	}
 	return ""
+}
+
+// suffixedAlias is base-n within the hub's 64 characters: the base is cut to leave room for the suffix.
+func suffixedAlias(base string, n int) string {
+	suffix := fmt.Sprintf("-%d", n)
+	if room := maxAliasLen - len(suffix); len(base) > room {
+		base = strings.TrimRight(base[:room], "-._")
+	}
+	return base + suffix
 }
