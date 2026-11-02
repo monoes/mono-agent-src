@@ -11,11 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -430,4 +432,96 @@ func startBackground(t *testing.T, name string, args ...string) int {
 	go func() { c.Wait(); close(reaped) }()
 	t.Cleanup(func() { c.Process.Kill(); <-reaped })
 	return c.Process.Pid
+}
+
+// A monomind that cannot be run is not an outdated one: the probe failure
+// is reported on its own and nothing is listed as missing.
+func TestCoderStatusProbeFailure(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	old := capabilityProbe
+	capabilityProbe = func(*cobra.Command) (*monomind.CapabilitySet, error) {
+		return nil, errors.New("monomind: command not found\n  (mise shim)")
+	}
+	t.Cleanup(func() { capabilityProbe = old })
+	withCoderScan(t)
+
+	out, code := runCoderCLI(t, dbPath, "status")
+	if code != 0 {
+		t.Fatalf("status: exit %d %s", code, out)
+	}
+	var st coderStatus
+	decodeChatJSON(t, out, &st)
+	if st.Ready || st.ProbeError != "monomind: command not found (mise shim)" || len(st.MissingCapabilities) != 0 || st.MonomindVersion != "" {
+		t.Fatalf("probe failure: %+v", st)
+	}
+	if !strings.Contains(out, `"missingCapabilities":[]`) {
+		t.Fatalf("missingCapabilities must stay an empty list: %s", out)
+	}
+
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	out, code = runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--mode", "coder", "--new-workspace")
+	if code != 1 || !strings.Contains(out, `"code":"monomind_unusable"`) || strings.Contains(out, "needs_monomind_update") {
+		t.Fatalf("create: exit %d %s", code, out)
+	}
+}
+
+// A long probe failure is cut.
+func TestProbeErrorTextIsBounded(t *testing.T) {
+	got := probeErrorText(errors.New(strings.Repeat("x", 1000)))
+	if n := len([]rune(got)); n != maxProbeErrorLen+1 {
+		t.Fatalf("length %d", n)
+	}
+}
+
+// A monomind that runs but lacks capabilities is still an outdated one:
+// what is missing and the version found are reported, no probe error.
+func TestCoderStatusOutdatedMonomind(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	withCoderCaps(t, monomind.CapAgentExecFullAccess)
+	out, code := runCoderCLI(t, dbPath, "status")
+	if code != 0 {
+		t.Fatalf("status: exit %d %s", code, out)
+	}
+	var st coderStatus
+	decodeChatJSON(t, out, &st)
+	if st.Ready || st.ProbeError != "" || st.MonomindVersion != "9.0.0" || len(st.MissingCapabilities) == 0 {
+		t.Fatalf("outdated monomind: %+v", st)
+	}
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	out, _ = runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--mode", "coder", "--new-workspace")
+	if !strings.Contains(out, "found 9.0.0") {
+		t.Fatalf("message should say what was found: %s", out)
+	}
+}
+
+// Text from a failing monomind is shown to people: escape sequences, bidi
+// overrides and zero-width characters are dropped, and the cut is by rune.
+func TestProbeErrorTextIsSanitized(t *testing.T) {
+	in := "\x1b[31mboom\x07\u202eevil\u200b\u2066x\ufeff\u2060\n\tdone"
+	if got := probeErrorText(errors.New(in)); got != "boomevilx done" {
+		t.Fatalf("got %q", got)
+	}
+	multi := strings.Repeat("é世", maxProbeErrorLen)
+	got := probeErrorText(errors.New(multi))
+	if !utf8.ValidString(got) || len([]rune(got)) != maxProbeErrorLen+1 || !strings.HasPrefix(got, strings.Repeat("é世", maxProbeErrorLen/2)) {
+		t.Fatalf("cut is not by rune: %d runes", len([]rune(got)))
+	}
+}
+
+func TestOutdatedMessageBoundsTheFoundVersion(t *testing.T) {
+	msg := errNeedsMonomindUpdate([]string{"init-json"}, "\x1b[2J"+strings.Repeat("9", 500)).Error()
+	if strings.ContainsRune(msg, '\x1b') || len(msg) > 400 {
+		t.Fatalf("unbounded version in %q", msg)
+	}
+}
+
+// The confirmation in the app names the package health.MonomindPackage.
+func TestFixMonomindButtonNamesThePackage(t *testing.T) {
+	src, err := os.ReadFile("../../../wails-app/frontend/src/components/FixMonomindButton.jsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "npm install -g "+health.MonomindPackage) {
+		t.Fatalf("FixMonomindButton.jsx must name %s", health.MonomindPackage)
+	}
 }

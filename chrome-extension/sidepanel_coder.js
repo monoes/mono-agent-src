@@ -52,7 +52,7 @@
     "extension-ask": "Ask coder",
   };
   // coder.queue's refusals that no other job would escape (the CLI's codes).
-  const REFUSALS = new Set(["coder_disabled", "needs_monomind_update", "coder_runtime_unsupported"]);
+  const REFUSALS = new Set(["coder_disabled", "needs_monomind_update", "monomind_unusable", "coder_runtime_unsupported"]);
   const NOTICES = {
     offline: "MonoAgent isn't connected, so nothing can go to the coder. This comes back when the bridge does.",
     update: "This MonoAgent can't take work for the coder yet. Update MonoAgent, then reopen this panel.",

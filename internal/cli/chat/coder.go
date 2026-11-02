@@ -9,14 +9,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -275,11 +278,15 @@ func updateCoderSettings(ctx context.Context, db *sql.DB, change func(s *coderSe
 // stays "claude" for app versions that only know that one.
 type coderStatus struct {
 	coderSettings
-	Ready               bool                    `json:"ready"`
-	MissingCapabilities []string                `json:"missingCapabilities"`
-	MonomindVersion     string                  `json:"monomindVersion"`
-	Runtime             string                  `json:"runtime"`
-	Runtimes            []monomind.CoderRuntime `json:"runtimes"`
+	Ready               bool     `json:"ready"`
+	MissingCapabilities []string `json:"missingCapabilities"`
+	MonomindVersion     string   `json:"monomindVersion"`
+	// ProbeError is why monomind could not be run (not found, a shim that
+	// does not resolve, a crash); empty when it answered. While it is set,
+	// MissingCapabilities stays empty: nothing is known to be missing.
+	ProbeError string                  `json:"probeError"`
+	Runtime    string                  `json:"runtime"`
+	Runtimes   []monomind.CoderRuntime `json:"runtimes"`
 	// DefaultAccessSource says whether defaultAccess is the built-in default
 	// or one the operator set.
 	DefaultAccessSource string `json:"defaultAccessSource"`
@@ -310,11 +317,16 @@ func currentCoderStatus(cmd *cobra.Command, s coderSettings) coderStatus {
 		st.MonomindVersion = set.Version
 		st.caps = set
 	}
-	st.MissingCapabilities = monomind.MissingCoderCapabilities(set)
-	if st.MissingCapabilities == nil {
-		st.MissingCapabilities = []string{}
+	st.MissingCapabilities = []string{}
+	if err != nil || set == nil {
+		st.ProbeError = probeErrorText(err)
+	} else {
+		st.MissingCapabilities = monomind.MissingCoderCapabilities(set)
+		if st.MissingCapabilities == nil {
+			st.MissingCapabilities = []string{}
+		}
 	}
-	st.Ready = len(st.MissingCapabilities) == 0
+	st.Ready = st.ProbeError == "" && len(st.MissingCapabilities) == 0
 	var scan *monomind.ScanResult
 	if err == nil {
 		// A failed scan leaves claude alone, as before per-runtime support.
@@ -324,6 +336,48 @@ func currentCoderStatus(cmd *cobra.Command, s coderSettings) coderStatus {
 	st.Runtimes = monomind.CoderRuntimes(scan, st.caps)
 	return st
 }
+
+// maxProbeErrorLen bounds the probe failure shown to people.
+const maxProbeErrorLen = 300
+
+// probeErrorText is the capability probe's failure as one short line for
+// the status; a nil error with no capability set (nothing to read) says so.
+func probeErrorText(err error) string {
+	msg := "monomind gave no capability list"
+	if err != nil {
+		msg = err.Error()
+	}
+	return shortLine(msg, maxProbeErrorLen)
+}
+
+// terminalSequence matches ANSI escape sequences (CSI, and OSC up to BEL or
+// ST), whose parameters would otherwise stay behind as visible text.
+var terminalSequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?`)
+
+// shortLine makes text from monomind safe to show: control characters
+// (escape sequences, BEL) and invisible format characters (bidi overrides,
+// zero-width) are dropped, whitespace collapsed, and the result cut to max
+// runes.
+func shortLine(text string, max int) string {
+	text = terminalSequence.ReplaceAllString(text, "")
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return ' '
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, text)
+	text = strings.Join(strings.Fields(text), " ")
+	if r := []rune(text); len(r) > max {
+		text = string(r[:max]) + "…"
+	}
+	return text
+}
+
+// maxVersionLen bounds a monomind version shown in a message.
+const maxVersionLen = 40
 
 // coderError is a coder-mode refusal with a machine-readable code for --json.
 type coderError struct {
@@ -340,9 +394,19 @@ func errCoderDisabled() error {
 		Msg: "coder mode is disabled — enable it in Settings or with `monoagentcli coder enable --yes-i-understand`"}}
 }
 
-func errNeedsMonomindUpdate(missing []string) error {
+func errNeedsMonomindUpdate(missing []string, found string) error {
+	if found = shortLine(found, maxVersionLen); found == "" {
+		found = "unknown version"
+	}
 	return &coderError{code: "needs_monomind_update", err: &clicore.Error{Code: 1,
-		Msg: fmt.Sprintf("coder mode needs a newer monomind (missing capabilities: %v) — update monomind: `npm install -g @monoes/monomindcli@latest`", missing)}}
+		Msg: fmt.Sprintf("coder mode needs a newer monomind (found %s, missing capabilities: %v) — update monomind: `npm install -g %s`", found, missing, health.MonomindPackage)}}
+}
+
+// errMonomindUnusable refuses because monomind could not be run at all,
+// which an update does not necessarily fix.
+func errMonomindUnusable(probeError string) error {
+	return &coderError{code: "monomind_unusable", err: &clicore.Error{Code: 1,
+		Msg: fmt.Sprintf("monomind couldn't be used: %s — repair it with `monoagentcli doctor --fix --yes` (or `npm install -g %s`)", probeError, health.MonomindPackage)}}
 }
 
 // errCoderRuntime refuses a runtime monomind won't run with full access:
@@ -375,8 +439,11 @@ func requireCoderReady(cmd *cobra.Command, db *sql.DB, runtime string) (coderSet
 		return s, coderStatus{}, monomind.CoderRuntime{}, clicore.InvalidInput("coder mode refuses to run as root")
 	}
 	st := currentCoderStatus(cmd, s)
+	if st.ProbeError != "" {
+		return s, st, monomind.CoderRuntime{}, errMonomindUnusable(st.ProbeError)
+	}
 	if !st.Ready {
-		return s, st, monomind.CoderRuntime{}, errNeedsMonomindUpdate(st.MissingCapabilities)
+		return s, st, monomind.CoderRuntime{}, errNeedsMonomindUpdate(st.MissingCapabilities, st.MonomindVersion)
 	}
 	if runtime == "" {
 		runtime = monomind.DefaultCoderRuntime
@@ -442,8 +509,10 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
 			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s (off by default; it cannot be switched on in this build yet)\n", onOff(bool(st.PeercredBinding)))
 			fmt.Fprintf(cmd.OutOrStdout(), "sandbox (box) for coding-access turns: %s (off by default; best-effort hardening, not isolation: the host network is shared and the host root is read-only)\n", st.Box)
-			if !st.Ready {
-				fmt.Fprintf(cmd.OutOrStdout(), "missing monomind capabilities: %v\n", st.MissingCapabilities)
+			if st.ProbeError != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "monomind couldn't be used: %s\n", st.ProbeError)
+			} else if !st.Ready {
+				fmt.Fprintf(cmd.OutOrStdout(), "missing monomind capabilities: %v (found monomind %s)\n", st.MissingCapabilities, st.MonomindVersion)
 			}
 			for _, r := range st.Runtimes {
 				if r.FullAccess {
