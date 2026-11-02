@@ -871,3 +871,15 @@ func TestARefusalWhoseRefusedTurnCouldNotCleanUpIsNotClean(t *testing.T) {
 		t.Fatalf("a refusal whose turn's cleanup failed: %v", err)
 	}
 }
+
+// A refusal comes after the refused turn's process was created, so it is a start that happened (the host keeps the turn's spend
+// cap), whether or not the cleanup was clean.
+func TestARefusalIsAStartThatHappened(t *testing.T) {
+	st := &slowTurn{exit: make(chan struct{})}
+	close(st.exit)
+	err := refuseWith(t, st)
+	var r *bindingRefusal
+	if !errors.As(err, &r) || !coderhost.TurnStarted(err) {
+		t.Fatalf("a clean refusal: %v (started %v)", err, coderhost.TurnStarted(err))
+	}
+}

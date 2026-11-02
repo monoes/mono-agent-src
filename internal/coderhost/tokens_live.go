@@ -26,6 +26,19 @@ func (e *TokensLiveError) Unwrap() error { return e.Err }
 // TokensMayBeLive reports that the failure leaves a token possibly live.
 func (e *TokensLiveError) TokensMayBeLive() bool { return true }
 
+// StartedError wraps a launch failure that came AFTER the turn's process was created: the turn started (and may have spent) even
+// though the start failed. A failure without it means no process ever existed.
+type StartedError struct{ Err error }
+
+func (e *StartedError) Error() string { return e.Err.Error() }
+func (e *StartedError) Unwrap() error { return e.Err }
+
+// TurnStarted says whether err (or anything it wraps) is a failure after the turn's process was created.
+func TurnStarted(err error) bool {
+	var s *StartedError
+	return err != nil && errors.As(err, &s)
+}
+
 // TokensMayBeLive says whether err (or anything it wraps) says a token of the turn may still be live.
 func TokensMayBeLive(err error) bool {
 	var t interface{ TokensMayBeLive() bool }
