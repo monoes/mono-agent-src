@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -208,9 +209,14 @@ func resolveShim(kind, shim, name string) (string, error) {
 	out, err := cmd.Output()
 	var path string
 	if err != nil {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ctx.Err() != nil {
+			return "", fmt.Errorf("%s is a %s shim, and `%s which %s` failed: %w", shim, kind, kind, name, err)
+		}
 		if path = inactiveInstall(kind, name); path == "" {
 			return "", whichFailure(kind, shim, name, err)
 		}
+		slog.Warn(fmt.Sprintf("monomind: `%s which %s` failed (%v); using the installed copy %s, which is not for the active version", kind, name, err, path))
 	} else {
 		path = strings.TrimSpace(strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
 	}
@@ -291,14 +297,21 @@ func scrubManagerEnv(env []string) []string {
 // directory or any project file). Deterministic tie-break: the highest
 // version wins; equal versions (mise's "26" and "26.13" alias links) keep
 // the first found, with dirs read in name order and the earlier installs
-// dir first.
+// dir first. Only the first data dir that has an installs dir is read
+// (env override first, as managerDataDirs orders them), so a stale legacy
+// dir cannot outrank the real one. Known limits: versions are not ranked
+// across tools (node/26 vs npm-monomind/2), and the Windows layout is not
+// handled.
 func inactiveInstall(kind, name string) string {
 	if kind != managerMise {
 		return ""
 	}
 	best, bestVer := "", ""
 	for _, root := range installsDirs(kind) {
-		tools, _ := os.ReadDir(root)
+		tools, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
 		for _, tool := range tools {
 			versions, _ := os.ReadDir(filepath.Join(root, tool.Name()))
 			for _, ver := range versions {
@@ -312,13 +325,15 @@ func inactiveInstall(kind, name string) string {
 				}
 			}
 		}
+		break
 	}
 	return best
 }
 
 // versionLess orders version strings part by part (split on . - + _):
 // numeric parts numerically, and a numeric part above a non-numeric one
-// ("latest"), a longer version above its prefix.
+// ("latest"), a longer version above its prefix unless the extra part is a
+// pre-release tag (26.13.0-rc.1 ranks below 26.13.0).
 func versionLess(a, b string) bool {
 	split := func(s string) []string {
 		return strings.FieldsFunc(s, func(r rune) bool { return r == '.' || r == '-' || r == '+' || r == '_' })
@@ -340,7 +355,15 @@ func versionLess(a, b string) bool {
 			return pa[i] < pb[i]
 		}
 	}
-	return len(pa) < len(pb)
+	switch {
+	case len(pa) < len(pb): // b has more parts: a pre-release tail ranks below a
+		_, err := strconv.Atoi(pb[len(pa)])
+		return err == nil
+	case len(pa) > len(pb): // a is the longer: below b when its tail is a pre-release
+		_, err := strconv.Atoi(pa[len(pb)])
+		return err != nil
+	}
+	return false
 }
 
 // whichFailure is the error for a failed `<manager> which name` when no

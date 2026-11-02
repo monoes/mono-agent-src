@@ -142,3 +142,55 @@ func TestWhichSuccessUnchangedByFallback(t *testing.T) {
 		t.Fatalf("pinPath = %q, %v; want which's answer %s", got, err, active)
 	}
 }
+
+func TestVersionLessPreReleaseBelowRelease(t *testing.T) {
+	for _, c := range [][2]string{
+		{"26.13.0-rc.1", "26.13.0"}, {"26.14.0-rc.1", "26.14.0"}, {"26.13.0-beta", "26.13.0"},
+		{"26.13.0", "26.13.0.1"}, {"26.13", "26.13.0"}, {"latest", "1"}, {"26.13.0", "26.14.0-rc.1"},
+	} {
+		if !versionLess(c[0], c[1]) || versionLess(c[1], c[0]) {
+			t.Errorf("want %s < %s", c[0], c[1])
+		}
+	}
+	if versionLess("1.0", "1.0") {
+		t.Error("equal versions are not less")
+	}
+}
+
+func TestInactiveFallbackReleaseBeatsPreRelease(t *testing.T) {
+	f := newInactiveFixture(t, notActive)
+	f.install(t, "node/26.13.0-rc.1/bin/monomind", "", 0o755)
+	want := f.install(t, "node/26.13.0/bin/monomind", "", 0o755)
+	if got, err := pinPath(f.shim, "monomind"); err != nil || got != want {
+		t.Fatalf("pinPath = %q, %v; want %s", got, err, want)
+	}
+}
+
+// A stale legacy data dir (rtx) never outranks the first one that has installs.
+func TestInactiveFallbackStopsAtFirstInstallsDir(t *testing.T) {
+	f := newInactiveFixture(t, notActive)
+	want := f.install(t, "node/22.0.0/bin/monomind", "", 0o755)
+	legacy := filepath.Join(os.Getenv("HOME"), ".local", "share", "rtx", "installs", "node", "30.0.0", "bin", "monomind")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := pinPath(f.shim, "monomind"); err != nil || got != want {
+		t.Fatalf("pinPath = %q, %v; want %s", got, err, want)
+	}
+}
+
+// A mise that cannot start is not a "which failed" case: no fallback.
+func TestInactiveFallbackNotForStartFailure(t *testing.T) {
+	f := newInactiveFixture(t, notActive)
+	f.install(t, "node/26.8.1/bin/monomind", "", 0o755)
+	mise, _ := filepath.EvalSymlinks(f.shim)
+	if err := os.WriteFile(mise, []byte("#!/nonexistent/interp\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := pinPath(f.shim, "monomind"); err == nil {
+		t.Fatalf("pinPath = %q, nil; want the start failure", got)
+	}
+}
