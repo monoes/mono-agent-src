@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -137,7 +138,162 @@ func TestCoderStatusSaysWhenTheStoredSettingsHoldFieldsItDoesNotKnow(t *testing.
 		t.Fatal(err)
 	}
 	text := out.String()
-	if !strings.Contains(text, "anotherNewOne") || !strings.Contains(text, "fieldFromTheFuture") || !strings.Contains(text, "newer version") {
+	if !strings.Contains(text, "anotherNewOne") || !strings.Contains(text, "fieldFromTheFuture") || !strings.Contains(text, "does not know") {
 		t.Fatalf("status does not warn about the unknown fields:\n%s", text)
+	}
+}
+
+// encoding/json reads a field whatever the case of its key, so a stored key that differs from a known one only in case is
+// that field, not an unknown one: keeping it beside the struct's own key would let it win on the next read.
+func TestSavingTheCoderSettingsDropsACaseVariantOfAKnownKey(t *testing.T) {
+	t.Run("turned off stays off", func(t *testing.T) {
+		dbPath := newChatCLITestDB(t)
+		putRawCoderSettings(t, dbPath, `{"PEERCREDBINDING":true,"ENABLED":true,"SENDAPPROVAL":false,"keep":1}`)
+		db, err := storage.NewDatabase(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		s, err := loadCoderSettings(db.DB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.PeercredBinding, s.Enabled = false, false
+		on := true
+		s.SendApproval = &on
+		if err := saveCoderSettings(db.DB, s); err != nil {
+			t.Fatal(err)
+		}
+		back, err := loadCoderSettings(db.DB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bool(back.PeercredBinding) || back.Enabled || back.SendApproval == nil || !*back.SendApproval {
+			t.Fatalf("a case variant won on read-back: %+v", back)
+		}
+		got := storedCoderJSON(t, dbPath)
+		for _, k := range []string{"PEERCREDBINDING", "ENABLED", "SENDAPPROVAL"} {
+			if _, ok := got[k]; ok {
+				t.Errorf("the case variant %s was kept", k)
+			}
+		}
+		if string(got["keep"]) != "1" {
+			t.Errorf("the unknown key was dropped: %v", got)
+		}
+	})
+	t.Run("turned on stays on", func(t *testing.T) {
+		dbPath := newChatCLITestDB(t)
+		putRawCoderSettings(t, dbPath, `{"ENABLED":false}`)
+		db, err := storage.NewDatabase(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		s, err := loadCoderSettings(db.DB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Enabled = true
+		if err := saveCoderSettings(db.DB, s); err != nil {
+			t.Fatal(err)
+		}
+		back, err := loadCoderSettings(db.DB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !back.Enabled {
+			t.Fatal("a stored ENABLED:false won over the enabled the operator just set")
+		}
+	})
+}
+
+// The unknown fields kept are bounded, so a stored blob cannot grow the row on every save; the ones kept are the first in key
+// order.
+func TestSavingTheCoderSettingsBoundsTheUnknownFieldsItKeeps(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	var b strings.Builder
+	b.WriteString(`{"enabled":true`)
+	for i := 0; i < maxKeptCoderKeys*3; i++ {
+		fmt.Fprintf(&b, `,"k%04d":%d`, i, i)
+	}
+	b.WriteString(`}`)
+	putRawCoderSettings(t, dbPath, b.String())
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s, err := loadCoderSettings(db.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveCoderSettings(db.DB, s); err != nil {
+		t.Fatal(err)
+	}
+	got := storedCoderJSON(t, dbPath)
+	kept := 0
+	for k := range got {
+		if strings.HasPrefix(k, "k") {
+			kept++
+		}
+	}
+	if kept != maxKeptCoderKeys {
+		t.Fatalf("kept %d unknown keys, want the cap %d", kept, maxKeptCoderKeys)
+	}
+	if _, ok := got["k0000"]; !ok {
+		t.Error("the first key in key order was not kept")
+	}
+}
+
+// A retired key is not carried any more.
+func TestSavingTheCoderSettingsDoesNotCarryARetiredKey(t *testing.T) {
+	old := retiredCoderKeys
+	retiredCoderKeys = map[string]bool{"oldRetiredField": true}
+	defer func() { retiredCoderKeys = old }()
+	dbPath := newChatCLITestDB(t)
+	putRawCoderSettings(t, dbPath, `{"enabled":true,"oldRetiredField":1,"stays":2}`)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s, _ := loadCoderSettings(db.DB)
+	if err := saveCoderSettings(db.DB, s); err != nil {
+		t.Fatal(err)
+	}
+	got := storedCoderJSON(t, dbPath)
+	if _, ok := got["oldRetiredField"]; ok {
+		t.Error("a retired key was carried")
+	}
+	if string(got["stays"]) != "2" {
+		t.Errorf("another unknown key was dropped: %v", got)
+	}
+}
+
+// The status carries the names of the unknown fields for the GUI too, and the warning quotes them: a key name is data.
+func TestCoderStatusJSONCarriesTheUnknownFieldNamesAndTheWarningQuotesThem(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	withCoderCaps(t)
+	putRawCoderSettings(t, dbPath, "{\"enabled\":true,\"evil\\u001b[31m\\nname\":1}")
+	out, code := runCoderCLI(t, dbPath, "status")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var st struct {
+		Unknown []string `json:"unknownSettings"`
+	}
+	if err := json.Unmarshal([]byte(out), &st); err != nil || len(st.Unknown) != 1 {
+		t.Fatalf("status json has no unknownSettings: %s (%v)", out, err)
+	}
+	cmd := newCoderCmd(testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: false}))
+	var text strings.Builder
+	cmd.SetOut(&text)
+	cmd.SetArgs([]string{"status"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsRune(text.String(), 0x1b) || strings.Contains(text.String(), "evil\n") {
+		t.Fatalf("a key name reached the terminal raw:\n%q", text.String())
 	}
 }
