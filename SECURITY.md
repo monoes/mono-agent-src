@@ -2059,6 +2059,15 @@ that works a task acts on them. The defences:
   `board`) takes the same gate as the person verbs, so a process inside a coder
   turn is refused there as well, and the operator restarts from their own
   terminal. Like the rest of this layer, a courtesy, not a barrier.
+  The CLI's other operator-only gate (`sandbox fallback --set`, `aitask submit`,
+  `application fill start`, the coder-mode and coder-session settings, `config set`
+  of a reserved row, `hil` send decisions and always-allow rules, `media scan on|off`,
+  `workflow apply-fix` and `save-draft`, the doctor's workflow-file fixes and
+  `publication delete|redact`) takes the same two layers first: a process that holds
+  an agent token variable (the list above) is refused, and so is a process inside a
+  coder session's turn, so those are run from the operator's own terminal, not one
+  started inside a turn. A machine with no database yet is not in a turn; a turn
+  record that cannot be read refuses.
 - **Limits that stop a loop from flooding the board:** 2,000 open
   tasks per profile (every
   task that is not archived, Done ones included; a task that comes back
