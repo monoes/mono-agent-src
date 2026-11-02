@@ -270,6 +270,11 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
+	if stamp == "" {
+		// A turn that exits at once (a refusal, a missing binary) is already a zombie here, which stampOf does not read; it is our own
+		// unreaped child, so its start time still names it. It is then reaped by the waiter and fails with its real exit status.
+		stamp = exitedChildStamp(cmd.Process.Pid)
+	}
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
 	t.ownRevoke = func() error {
 		err := l.revokeTurnTokens(profileID, conversationID, turnID)

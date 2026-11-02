@@ -297,6 +297,31 @@ while [ ! -e "$d/release" ]; do sleep 0.05; done
 	}
 }
 
+// A turn that has already exited (still unreaped, so a zombie) when the launcher reads its start time is identified all the same and
+// ends with its real status, instead of being failed as one that "could not be identified".
+func TestATurnThatExitedBeforeItsStartTimeWasReadIsStillIdentified(t *testing.T) {
+	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n")
+	old := stampOf
+	stampOf = func(pid int) string { // the read comes after the exit: wait until the child is a zombie
+		for i := 0; i < 500 && processState(pid) != "Z"; i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+		return old(pid)
+	}
+	t.Cleanup(func() { stampOf = old })
+	var recorded string
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		revoke: func(string, string) error { return nil }, onProcess: func(_, _, _ string, _ int, stamp string, _ bool) error { recorded = stamp; return nil }}
+	turn, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatalf("a turn that exited at once was refused: %v", err)
+	}
+	_ = turn.Wait()
+	if !strings.HasPrefix(recorded, "start:") {
+		t.Errorf("the exited turn was recorded with the stamp %q", recorded)
+	}
+}
+
 // When the hold on a bound leader fails (waitid), Start's turn is ended: the leader and what it left in its group are dead.
 func TestABoundTurnWhoseHoldFailsIsKilledWithItsGroup(t *testing.T) {
 	old := holdLeader
