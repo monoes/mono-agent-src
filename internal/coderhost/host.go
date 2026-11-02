@@ -428,6 +428,13 @@ func (h *Host) Tick() error {
 				return err
 			}
 			t := h.live[k]
+			if hs, held := h.held[k]; held && t == nil {
+				// A held leader (or tokens) is what a stop is about: the retry is brought forward, not refused as "no turn is running".
+				hs.next = time.Time{}
+				h.held[k] = hs
+				h.end(c, CmdDone, "")
+				continue
+			}
 			if t == nil && dropped == 0 {
 				h.end(c, CmdFailed, "no turn is running and nothing is queued")
 				continue

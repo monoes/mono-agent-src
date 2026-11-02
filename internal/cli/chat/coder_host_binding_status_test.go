@@ -69,11 +69,37 @@ func TestThePublisherRewritesTheInfoFileWhenTheBindingStateChanges(t *testing.T)
 	info := &hostInfo{PID: 1, Instance: "host-test"}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { defer close(done); publishBindingStatus(ctx, info, infoPath, binding) }()
+	go func() { defer close(done); publishBindingStatus(ctx, info, infoPath, binding, nil) }()
 	time.Sleep(100 * time.Millisecond)
 	if _, err := os.Stat(infoPath); err == nil {
 		t.Error("the info file was written although nothing changed")
 	}
 	cancel()
 	<-done
+}
+
+// Held sessions reach the info file (and `coder host status` for the operator only) when they appear.
+func TestThePublisherPublishesHeldSessionsAndStatusShowsThemToTheOperatorOnly(t *testing.T) {
+	old := bindingPublishEvery
+	bindingPublishEvery = 10 * time.Millisecond
+	t.Cleanup(func() { bindingPublishEvery = old })
+	dir := t.TempDir()
+	infoPath := filepath.Join(dir, hostInfoFile)
+	info := &hostInfo{PID: 1, Instance: "host-test"}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	held := func() map[string]string { return map[string]string{"p c1": "it did not exit after SIGKILL"} }
+	go func() { defer close(done); publishBindingStatus(ctx, info, infoPath, &coderhost.BindingHost{}, held) }()
+	var got hostInfo
+	for i := 0; i < 200; i++ {
+		if raw, err := os.ReadFile(infoPath); err == nil && json.Unmarshal(raw, &got) == nil && len(got.Held) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if got.Held["p c1"] == "" {
+		t.Fatalf("the held session was not published: %+v", got)
+	}
 }

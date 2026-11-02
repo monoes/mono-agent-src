@@ -264,6 +264,7 @@ func TestAPreTokenBoundHoldSurvivesTheNextTickAndBlocksTheQueue(t *testing.T) {
 	if err := h.Tick(); err != nil { // the retry: still held
 		t.Fatal(err)
 	}
+	h.WaitRetries() // the leader retry runs off the pass
 	if len(h.Held()) != 1 || len(l.started) != 0 {
 		t.Fatalf("after the next tick: held=%v started=%v", h.Held(), l.started)
 	}
@@ -278,6 +279,7 @@ func TestAPreTokenBoundHoldSurvivesTheNextTickAndBlocksTheQueue(t *testing.T) {
 	if err := h.Tick(); err != nil { // the leader is confirmed gone: settled
 		t.Fatal(err)
 	}
+	h.WaitRetries()                  // the leader retry runs off the pass
 	if err := h.Tick(); err != nil { // and the queued send runs
 		t.Fatal(err)
 	}
