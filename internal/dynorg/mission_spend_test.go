@@ -51,6 +51,9 @@ func TestMissionSpendIsRecordedWhileTheWorkerRuns(t *testing.T) {
 	if got := r.session().SpentUSD; !spendNear(got, 10) {
 		t.Fatalf("spent %v after the halt: the worker's cost is counted once", got)
 	}
+	// The halt pauses the session and stops the worker, and only then says so: the state and the worker's end can
+	// be seen before the notice is out, so wait for it, then check it is the only one.
+	eventually(t, "the halt notice", func() bool { return countNotices(r.em, "mission.budget_halt") >= 1 })
 	if n := countNotices(r.em, "mission.budget_halt"); n != 1 {
 		t.Fatalf("halt notices %d", n)
 	}
