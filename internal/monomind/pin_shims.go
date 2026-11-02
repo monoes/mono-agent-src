@@ -2,11 +2,14 @@ package monomind
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -204,10 +207,19 @@ func resolveShim(kind, shim, name string) (string, error) {
 	cmd.Dir = neutralDir()
 	cmd.Env = scrubManagerEnv(os.Environ())
 	out, err := cmd.Output()
+	var path string
 	if err != nil {
-		return "", fmt.Errorf("%s is a %s shim, and `%s which %s` failed: %w", shim, kind, kind, name, err)
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ctx.Err() != nil {
+			return "", fmt.Errorf("%s is a %s shim, and `%s which %s` failed: %w", shim, kind, kind, name, err)
+		}
+		if path = inactiveInstall(kind, name); path == "" {
+			return "", whichFailure(kind, shim, name, err)
+		}
+		slog.Warn(fmt.Sprintf("monomind: `%s which %s` failed (%v); using the installed copy %s, which is not for the active version", kind, name, err, path))
+	} else {
+		path = strings.TrimSpace(strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
 	}
-	path := strings.TrimSpace(strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
 	if !filepath.IsAbs(path) {
 		return "", fmt.Errorf("`%s which %s` gave %q, not an absolute path", kind, name, path)
 	}
@@ -268,4 +280,99 @@ func scrubManagerEnv(env []string) []string {
 		out = append(out, kv)
 	}
 	return out
+}
+
+// inactiveInstall finds name among the manager's own installs when
+// `<manager> which name` fails because the binary belongs to a version
+// that is not active (an npm global under a node that is no longer the
+// global one). Only mise is scanned. It reads installs/<tool>/<version>/bin/<name>
+// (node's npm globals, a tool's own bin, npm-<name>), prefers the highest
+// version, and applies the same checks as a `which` answer: the file must be
+// executable and resolve under an installs dir. Nothing is executed and no
+// project directory takes part. "" when nothing qualifies.
+//
+// Guarantees kept from #301: the result is an executable file that resolves
+// under the manager's installs dir; the shim is never executed; a project
+// cannot choose it (only the manager's data dirs are read, never the working
+// directory or any project file). Deterministic tie-break: the highest
+// version wins; equal versions (mise's "26" and "26.13" alias links) keep
+// the first found, with dirs read in name order and the earlier installs
+// dir first. Only the first data dir that has an installs dir is read
+// (env override first, as managerDataDirs orders them), so a stale legacy
+// dir cannot outrank the real one. Known limits: versions are not ranked
+// across tools (node/26 vs npm-monomind/2), and the Windows layout is not
+// handled.
+func inactiveInstall(kind, name string) string {
+	if kind != managerMise {
+		return ""
+	}
+	best, bestVer := "", ""
+	for _, root := range installsDirs(kind) {
+		tools, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, tool := range tools {
+			versions, _ := os.ReadDir(filepath.Join(root, tool.Name()))
+			for _, ver := range versions {
+				path := filepath.Join(root, tool.Name(), ver.Name(), "bin", name)
+				real, err := filepath.EvalSymlinks(path)
+				if err != nil || !isExecutableFile(real) || !within(real, root) {
+					continue
+				}
+				if best == "" || versionLess(bestVer, ver.Name()) {
+					best, bestVer = path, ver.Name()
+				}
+			}
+		}
+		break
+	}
+	return best
+}
+
+// versionLess orders version strings part by part (split on . - + _):
+// numeric parts numerically, and a numeric part above a non-numeric one
+// ("latest"), a longer version above its prefix unless the extra part is a
+// pre-release tag (26.13.0-rc.1 ranks below 26.13.0).
+func versionLess(a, b string) bool {
+	split := func(s string) []string {
+		return strings.FieldsFunc(s, func(r rune) bool { return r == '.' || r == '-' || r == '+' || r == '_' })
+	}
+	pa, pb := split(a), split(b)
+	for i := 0; i < len(pa) && i < len(pb); i++ {
+		na, ea := strconv.Atoi(pa[i])
+		nb, eb := strconv.Atoi(pb[i])
+		switch {
+		case ea == nil && eb == nil:
+			if na != nb {
+				return na < nb
+			}
+		case ea == nil:
+			return false
+		case eb == nil:
+			return true
+		case pa[i] != pb[i]:
+			return pa[i] < pb[i]
+		}
+	}
+	switch {
+	case len(pa) < len(pb): // b has more parts: a pre-release tail ranks below a
+		_, err := strconv.Atoi(pb[len(pa)])
+		return err == nil
+	case len(pa) > len(pb): // a is the longer: below b when its tail is a pre-release
+		_, err := strconv.Atoi(pa[len(pb)])
+		return err != nil
+	}
+	return false
+}
+
+// whichFailure is the error for a failed `<manager> which name` when no
+// installed copy was found either: it keeps the manager's own words.
+func whichFailure(kind, shim, name string, err error) error {
+	var ee *exec.ExitError
+	if kind == managerMise && errors.As(err, &ee) {
+		msg := strings.TrimSpace(string(ee.Stderr))
+		return fmt.Errorf("%s is a %s shim, and `%s which %s` failed: %v: %s. Scanning %s for an installed %s found none; if it is installed for a version that is not active, run `npm install -g %s@latest` under the active node, or `mise use -g`", shim, kind, kind, name, err, msg, strings.Join(installsDirs(kind), ", "), name, name)
+	}
+	return fmt.Errorf("%s is a %s shim, and `%s which %s` failed: %w", shim, kind, kind, name, err)
 }
