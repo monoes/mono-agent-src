@@ -416,3 +416,62 @@ func TestAStopOnAHeldSessionIsAcceptedAndBringsTheRetryForward(t *testing.T) {
 		t.Error("the stop did not bring the retry forward")
 	}
 }
+
+// Two passes that run before the first retry goroutine has the lock start ONE stop between them (the in-flight flag).
+func TestTwoPassesBeforeTheRetryRunsStartOneStop(t *testing.T) {
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTurnProcess("p", "c1", "t1", 4242, "start:99", true); err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopHeld, Cause: "it did not exit"}}}
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	fs := &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopHeld, Cause: "it did not exit"}}}
+	h.Stopper = fs
+	h.mu.Lock()
+	h.retryHeld() // the goroutine is queued behind the lock this test holds
+	h.retryHeld() // a second pass in that window
+	h.mu.Unlock()
+	h.WaitRetries()
+	if len(fs.calls) != 1 {
+		t.Errorf("%d stops for one held session across two passes, want 1", len(fs.calls))
+	}
+}
+
+type panicStopper struct{}
+
+func (panicStopper) StopLeader(int, string) procbind.StopResult { panic("stop blew up") }
+
+// A panic in the unlocked stop leaves the host lock held (as its caller expects), not released: the deferred unlock of the caller is the
+// only one that runs.
+func TestAPanicInTheLeaderStopLeavesTheHostLockHeldForItsCaller(t *testing.T) {
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = panicStopper{}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("the panic was swallowed")
+			}
+		}()
+		h.mu.Lock()
+		defer h.mu.Unlock() // the caller's own unlock must be valid: a double unlock would be a fatal error, not a panic
+		h.recoverV2(x, 4242, "start:99")
+	}()
+	if !h.mu.TryLock() {
+		t.Fatal("the host lock was left locked after the panic unwound")
+	}
+	h.mu.Unlock()
+}

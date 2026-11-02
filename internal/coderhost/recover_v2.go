@@ -213,8 +213,8 @@ func (h *Host) retryLeader(k string, hs heldSession) {
 	defer h.retries.Done()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if cur, ok := h.held[k]; !ok || cur.retry != nil {
-		return // settled or replaced since the pass looked
+	if cur, ok := h.held[k]; !ok || cur.retry != nil || cur.cause == stopping {
+		return // settled, replaced or already being stopped since the pass looked
 	}
 	x := hs.x
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
