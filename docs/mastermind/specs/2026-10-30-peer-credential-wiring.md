@@ -79,6 +79,10 @@ reverted alone**, and so that the setting does not exist until everything it nee
   review): `TestRevokeTokenReportsAFailureThatSurvivesEveryAttempt`, `TestATurnWhoseTaskTokenCouldNotBeEndedReportsIt`,
   `TestAnExitThatCouldNotEndTheTokensHoldsTheSessionUntilItCan`, `TestRecoveryEndsTheTokensOfATurnWhoseProcessIsGone`,
   `TestAHoldWaitsForTheOldTurnToFinishBeforeAQueuedTurnStarts`, `TestRunWaitsForARetryInFlightBeforeItReturns`.
+- **OPEN, closing before the flip: the spend cap of a turn that started and already ended.** A start error used to drop the turn's
+  recorded cap unless the old turn was still pending; the fix (branch `fix/cap-kept-for-started-turn`, PR after #1294) marks every
+  failure after the process was created and keeps the cap of a started turn: `TestAStartErrorKeepsTheCapOfATurnThatMayStillBeRunning`,
+  `TestARefusalIsAStartThatHappened`.
 - **OPEN, blocking: a host restart during a hold for a failed start can settle beside the old process** (issue #1310): the
   process's pid and stamp must be made durable before the start returns. It exists on master in the legacy launcher today and
   is listed here so the user decides on it at the flip prompt with it in front of them.
