@@ -104,7 +104,7 @@ func (g *Gateway) handleImages(p Policy) func(http.ResponseWriter, *http.Request
 		if res.SandboxStatus != "" {
 			w.Header().Set("X-Monoagent-Sandbox", res.SandboxStatus)
 		}
-		writeImages(w, time.Now().Unix(), imgs)
+		writeImages(w, time.Now().Unix(), imgs, usageFrom(res))
 	}
 }
 

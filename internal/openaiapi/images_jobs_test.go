@@ -64,8 +64,9 @@ func TestImageJobCompletes(t *testing.T) {
 	var out struct {
 		ID, Status string
 		Data       []map[string]string
+		Usage      *usage
 	}
-	if err := json.Unmarshal(done.Body.Bytes(), &out); err != nil || out.Status != "completed" || out.ID != acc.ID || len(out.Data) != 1 || out.Data[0]["b64_json"] == "" {
+	if err := json.Unmarshal(done.Body.Bytes(), &out); err != nil || out.Status != "completed" || out.ID != acc.ID || len(out.Data) != 1 || out.Data[0]["b64_json"] == "" || out.Usage == nil || out.Usage.PromptTokens != 40000 {
 		t.Fatalf("finished body %s (%v)", done.Body, err)
 	}
 	// still there for a second read
@@ -152,7 +153,7 @@ func TestImageJobStoreEvictsOldFinishedJobs(t *testing.T) {
 	now := time.Unix(1000, 0)
 	s := newImageJobs(func() time.Time { return now })
 	j, _ := s.add("k")
-	s.finish(j, [][]byte{{1}}, nil)
+	s.finish(j, [][]byte{{1}}, nil, nil)
 	now = now.Add(imageJobTTL + time.Second)
 	s.add("k")
 	if _, ok := s.get("k", j.id); ok {

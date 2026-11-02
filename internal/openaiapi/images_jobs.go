@@ -34,6 +34,7 @@ type imageJob struct {
 	done      bool
 	finished  time.Time
 	images    [][]byte
+	usage     *usage // the turn's tokens and cost, when the runtime reported them; also for a failed job
 	err       *apiError
 }
 
@@ -107,10 +108,10 @@ func (s *imageJobs) add(keyID string) (*imageJob, bool) {
 }
 
 // finish records the end of a job.
-func (s *imageJobs) finish(j *imageJob, images [][]byte, e *apiError) {
+func (s *imageJobs) finish(j *imageJob, images [][]byte, e *apiError, u *usage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	j.images, j.err, j.done, j.finished = images, e, true, s.now()
+	j.images, j.err, j.usage, j.done, j.finished = images, e, u, true, s.now()
 }
 
 // get returns the job of key with id, nil when there is none (or it is another key's).
@@ -139,7 +140,7 @@ func (g *Gateway) runImageJob(j *imageJob, pr Principal, begin time.Time, model,
 	defer cancel()
 	status, detail := http.StatusOK, ""
 	defer func() { g.logRequest(pr, begin, model, status, "", autoBy, "job "+j.id+detail) }()
-	_, imgs, note, e, gone := g.makeImages(ctx, m, eff, pr, slot, release, n, size, prompt)
+	res, imgs, note, e, gone := g.makeImages(ctx, m, eff, pr, slot, release, n, size, prompt)
 	switch {
 	case gone: // the server stopped
 		status = 499
@@ -149,7 +150,7 @@ func (g *Gateway) runImageJob(j *imageJob, pr Principal, begin time.Time, model,
 	case note != "":
 		detail = " " + note
 	}
-	g.jobs.finish(j, imgs, e)
+	g.jobs.finish(j, imgs, e, usageFrom(res))
 }
 
 // handleImageJob is GET /v1/images/jobs/{id}.
@@ -173,9 +174,14 @@ func (g *Gateway) handleImageJob() func(http.ResponseWriter, *http.Request, Prin
 				Error json.RawMessage `json:"error"`
 			}
 			_ = json.Unmarshal(j.err.body(), &env)
-			fmt.Fprintf(w, `{%s"status":"failed","created":%d,"http_status":%d,"error":%s}`+"\n", head, j.created, j.err.Status, env.Error)
+			tail := ""
+			if j.usage != nil {
+				b, _ := json.Marshal(j.usage)
+				tail = `,"usage":` + string(b)
+			}
+			fmt.Fprintf(w, `{%s"status":"failed","created":%d,"http_status":%d,"error":%s%s}`+"\n", head, j.created, j.err.Status, env.Error, tail)
 		default:
-			writeImagesWith(w, head+`"status":"completed",`, j.created, j.images)
+			writeImagesWith(w, head+`"status":"completed",`, j.created, j.images, j.usage)
 		}
 	}
 }

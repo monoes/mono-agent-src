@@ -78,7 +78,7 @@ func TestCompletionJSONShape(t *testing.T) {
 
 	c.Usage = &usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7}
 	b, _ = json.Marshal(c)
-	if !strings.Contains(string(b), `"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":7}`) {
+	if !strings.Contains(string(b), `"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":7,"cost_usd":null}`) {
 		t.Errorf("usage shape: %s", b)
 	}
 }
