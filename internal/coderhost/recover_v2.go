@@ -34,6 +34,9 @@ type heldSession struct {
 	next  time.Time
 	// inflight is set while a retry runs (off the host's lock), so no second one starts for the hold.
 	inflight bool
+	// until, when set, is open while the turn the hold is about may still be running (its exit and cleanup unfinished): the retry
+	// waits for it, and the session is not settled, nor a new turn started, before it closes.
+	until <-chan struct{}
 }
 
 // V2Turn says whether the session's turn is a v2 turn, and the leader identity its binding row recorded before the
@@ -133,7 +136,7 @@ func (h *Host) recoverV2(x Session, pid int, stamp string) {
 // runHoldRetry ends the tokens of a hold without the host's lock (the revocation can take as long as its deadline) and then,
 // under the lock, settles the session or schedules the next try.
 func (h *Host) runHoldRetry(k string, hs heldSession) {
-	defer h.wg.Done()
+	defer h.retries.Done()
 	err := hs.retry()
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -156,8 +159,12 @@ func (h *Host) runHoldRetry(k string, hs heldSession) {
 		return
 	}
 	delete(h.held, k)
-	h.settle(hs.x)
+	h.clearSession(hs.x) // the retry ended the child's tokens as well: they are not revoked a second time under the lock
 }
+
+// WaitRetries blocks until every retry of a hold that is running has finished (Run does it before it returns, so none outlives the
+// registry and the database the host's owner closes after Run). It is separate from Wait, which is about turn watchers.
+func (h *Host) WaitRetries() { h.retries.Wait() }
 
 // retryHeld re-checks every held session once. Callers hold mu.
 func (h *Host) retryHeld() {
@@ -170,12 +177,21 @@ func (h *Host) retryHeld() {
 			continue
 		}
 		if hs.retry != nil { // a hold for tokens that may be live: end them (off the lock, one goroutine per hold), then settle
+			if hs.until != nil {
+				select {
+				case <-hs.until: // the old turn has finished
+					hs.until = nil
+					h.held[k] = hs
+				default:
+					continue // it may still be running: nothing is revoked-and-settled next to it
+				}
+			}
 			if hs.inflight || time.Now().Before(hs.next) {
 				continue
 			}
 			hs.inflight = true
 			h.held[k] = hs
-			h.wg.Add(1)
+			h.retries.Add(1)
 			go h.runHoldRetry(k, hs)
 			continue
 		}

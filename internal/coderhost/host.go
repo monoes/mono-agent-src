@@ -35,10 +35,12 @@ type Launcher interface {
 // Host carries commands out. Run it from one process only (the caller holds
 // the single-instance lock).
 type Host struct {
-	Store *Store
-	L     Launcher
-	Poll  time.Duration
-	Logf  func(format string, args ...any)
+	// retries counts the retries of holds that are running (off the lock); Run waits for them before it returns.
+	retries sync.WaitGroup
+	Store   *Store
+	L       Launcher
+	Poll    time.Duration
+	Logf    func(format string, args ...any)
 
 	// Mesh, when set, keeps the sessions visible on monomind's mesh and hands waiting
 	// messages to the next turn (see Mesh). MeshEvery is how often it is brought up
@@ -144,6 +146,11 @@ func (h *Host) settle(x Session) {
 			return
 		}
 	}
+	h.clearSession(x)
+}
+
+// clearSession clears the session's turn once its tokens are known to be ended. Callers hold mu.
+func (h *Host) clearSession(x Session) {
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
 		x = cur
 	}
@@ -367,6 +374,11 @@ func (h *Host) Tick() error {
 				}
 				if TokensMayBeLive(err) { // a refused or failed launch whose token may still be live: hold, do not settle
 					h.holdForTokens(x, "a launch failed and its tokens could not be revoked", h.endTurnTokens(x))
+					if until := TurnPending(err); until != nil { // the old turn may still be running: wait for it too
+						hs := h.held[k]
+						hs.until = until
+						h.held[k] = hs
+					}
 				} else {
 					h.settle(x)
 				}
@@ -473,6 +485,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := h.Recover(); err != nil {
 		return err
 	}
+	defer h.retries.Wait() // no retry of a hold outlives Run: the registry and the database are closed after it returns
 	poll := h.Poll
 	if poll <= 0 {
 		poll = 500 * time.Millisecond

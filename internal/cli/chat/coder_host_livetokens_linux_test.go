@@ -120,8 +120,7 @@ func TestAStartWhoseCleanupOutlastsTheWaitSaysTheTokenMayBeLive(t *testing.T) {
 	hostTurnWait = func() time.Duration { return 150 * time.Millisecond }
 	t.Cleanup(func() { hostTurnWait = oldWait })
 	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nsleep 30\n")
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
+	release := make(chan struct{}, 1)
 	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
 		tokens:     func(string, string, string) (string, error) { return "mst-x", nil },
 		revoke:     func(string, string) error { return nil },
@@ -130,5 +129,21 @@ func TestAStartWhoseCleanupOutlastsTheWaitSaysTheTokenMayBeLive(t *testing.T) {
 	_, err := l.Start("default", "c1", "t1", "hi", nil, "")
 	if err == nil || !coderhost.TokensMayBeLive(err) || !strings.Contains(err.Error(), "could not be bound") {
 		t.Fatalf("a start whose cleanup had not finished: %v", err)
+	}
+	// the failure also says when the old turn is finished: not yet, and once its cleanup is released, yes
+	pending := coderhost.TurnPending(err)
+	if pending == nil {
+		t.Fatal("the failure names no pending turn")
+	}
+	select {
+	case <-pending:
+		t.Fatal("the old turn is reported finished while its cleanup hangs")
+	default:
+	}
+	release <- struct{}{}
+	select {
+	case <-pending:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the old turn was never reported finished")
 	}
 }

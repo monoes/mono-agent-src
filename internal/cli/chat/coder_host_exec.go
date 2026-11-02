@@ -458,7 +458,7 @@ func (t *execTurn) fail(err error) error {
 	if !t.stopAndWait() {
 		// The turn had not ended, and its exit's cleanup had not run, when the wait gave up: its tokens may still be live.
 		// The host holds the session until they are ended (the late exit also ends the turn's own tokens).
-		return errors.Join(err, &coderhost.TokensLiveError{Err: errors.New("the turn had not ended when its start was given up on, so its tokens may still be live")})
+		return errors.Join(err, &coderhost.TokensLiveError{Err: errors.New("the turn had not ended when its start was given up on, so its tokens may still be live"), Ended: t.done})
 	}
 	if coderhost.TokensMayBeLive(t.err) {
 		err = errors.Join(err, t.err)

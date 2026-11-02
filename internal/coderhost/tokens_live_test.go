@@ -1,8 +1,10 @@
 package coderhost
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -48,7 +50,7 @@ func TestAnExitThatCouldNotEndTheTokensHoldsTheSessionUntilItCan(t *testing.T) {
 	if err := h.Tick(); err != nil { // the real retry (RevokeTurnSessionTokensErr) succeeds at this pass: nothing to revoke
 		t.Fatal(err)
 	}
-	h.Wait() // the retry runs off the lock: wait for it
+	h.WaitRetries() // the retry runs off the lock: wait for it
 	if got := state(t, st, "c1"); got.TurnID == "t1" {
 		t.Fatalf("the session was never settled once the tokens could be ended: %+v", got)
 	}
@@ -82,7 +84,7 @@ func TestALaunchFailureWithLiveTokensHoldsTheSessionAndTheRetryEndsThem(t *testi
 	if err := h.Tick(); err != nil { // the retry ends the token and settles the session
 		t.Fatal(err)
 	}
-	h.Wait() // the retry runs off the lock: wait for it
+	h.WaitRetries() // the retry runs off the lock: wait for it
 	if got := legacyTokens(t, st, "c1"); got != 0 {
 		t.Errorf("the refused turn's token is still live after the retry: %d", got)
 	}
@@ -123,7 +125,7 @@ func TestSettleDoesNotClearAChildWhoseTaskTokensCannotBeRevoked(t *testing.T) {
 	if err := h.Tick(); err != nil {
 		t.Fatal(err)
 	}
-	h.Wait()
+	h.WaitRetries()
 	if got := state(t, st, "c1"); got.TurnID != "" || len(h.Held()) != 0 {
 		t.Errorf("not settled once the revoke worked: %+v held=%v", got, h.Held())
 	}
@@ -188,7 +190,7 @@ func TestRecoveryHoldsAChildWhoseTaskTokensCannotBeEnded(t *testing.T) {
 	if err := h.Tick(); err != nil {
 		t.Fatal(err)
 	}
-	h.Wait()
+	h.WaitRetries()
 	if got := state(t, st, "c1"); got.TurnID != "" || len(h.Held()) != 0 {
 		t.Errorf("not settled once the tokens could be ended: %+v held=%v", got, h.Held())
 	}
@@ -230,7 +232,7 @@ func TestAHoldForTokensIsRetriedWithABackoffNotAtEveryPass(t *testing.T) {
 	if err := h.Tick(); err != nil { // the first retry is due at once (no failure of the retry yet)
 		t.Fatal(err)
 	}
-	h.Wait() // the retry runs off the lock: wait for it
+	h.WaitRetries() // the retry runs off the lock: wait for it
 	after := calls
 	for i := 0; i < 5; i++ {
 		if err := h.Tick(); err != nil {
@@ -305,8 +307,168 @@ func TestTheRetryOfAHoldRunsOutsideTheHostLock(t *testing.T) {
 	case <-time.After(150 * time.Millisecond):
 	}
 	close(b.release)
-	h.Wait()
+	h.WaitRetries()
 	if got := state(t, st, "c1"); got.TurnID != "" || len(h.Held()) != 0 {
 		t.Errorf("not settled after the retry finished: %+v held=%v", got, h.Held())
+	}
+}
+
+type sequenceChildTokens struct {
+	errs  []error // the n-th call returns errs[n]; later calls succeed
+	calls *int
+}
+
+func (c sequenceChildTokens) RevokeChildTokens(string, string) error {
+	n := *c.calls
+	*c.calls++
+	if n < len(c.errs) {
+		return c.errs[n]
+	}
+	return nil
+}
+
+// After a successful off-lock retry the session is cleared without revoking the child's tokens a second time under the lock
+// (a second revoke that is slow or fails must not stall the host or put the session back on hold).
+func TestASuccessfulRetryDoesNotRevokeTheChildTokensAgainUnderTheLock(t *testing.T) {
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = 'm' WHERE conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	x = state(t, st, "c1")
+	calls := 0
+	// call 0: the first settle fails (the hold); call 1: the retry succeeds; call 2 would be settle's own second revoke, which fails
+	h.ChildTokens = sequenceChildTokens{errs: []error{errors.New("locked"), nil, errors.New("locked again")}, calls: &calls}
+	h.mu.Lock()
+	h.settle(x)
+	h.mu.Unlock()
+	if err := h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	h.WaitRetries()
+	if calls != 2 {
+		t.Errorf("the child's tokens were revoked %d times, want 2 (the failing settle and the retry)", calls)
+	}
+	if got := state(t, st, "c1"); got.TurnID != "" || len(h.Held()) != 0 {
+		t.Errorf("the session was not settled by the successful retry: %+v held=%v", got, h.Held())
+	}
+}
+
+// A hold about a turn that may still be running (its exit cleanup unfinished) is not retried, settled, or released to a queued
+// turn until that turn has finished, even though the revocation itself would succeed.
+func TestAHoldWaitsForTheOldTurnToFinishBeforeAQueuedTurnStarts(t *testing.T) {
+	h, l, st := newHost(t)
+	if _, err := st.EnsureSession("p", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan struct{})
+	l.startErr = &TokensLiveError{Err: errors.New("the turn had not ended"), Ended: ended}
+	send(t, st, "c1", "t1", "first")
+	if err := h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Held()) != 1 {
+		t.Fatalf("held = %v", h.Held())
+	}
+	l.startErr = nil
+	send(t, st, "c1", "t2", "queued behind the old turn")
+	for i := 0; i < 3; i++ { // the revocation would succeed, but the old turn has not finished
+		if err := h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+		h.WaitRetries()
+	}
+	if got := state(t, st, "c1"); got.TurnID != "t1" || len(h.Held()) != 1 || len(l.started) != 0 {
+		t.Fatalf("the session was released while the old turn had not finished: %+v held=%v started=%v", got, h.Held(), l.started)
+	}
+	close(ended) // the old turn finished
+	for i := 0; i < 3; i++ {
+		if err := h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+		h.WaitRetries()
+	}
+	if len(h.Held()) != 0 || len(l.started) != 1 {
+		t.Errorf("the queued turn did not start after the old one finished: held=%v started=%v", h.Held(), l.started)
+	}
+	l.turn("t2").end()
+	h.Wait()
+}
+
+// switchChildTokens fails until told to block, then blocks every call until released.
+type switchChildTokens struct {
+	mu      sync.Mutex
+	block   bool
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c *switchChildTokens) setBlock() { c.mu.Lock(); c.block = true; c.mu.Unlock() }
+
+func (c *switchChildTokens) RevokeChildTokens(string, string) error {
+	c.mu.Lock()
+	block := c.block
+	c.mu.Unlock()
+	if !block {
+		return errors.New("database is locked")
+	}
+	select {
+	case c.started <- struct{}{}:
+	default:
+	}
+	<-c.release
+	return nil
+}
+
+// Run does not return while the retry of a hold is still running: the registry and the database are closed right after it.
+func TestRunWaitsForARetryInFlightBeforeItReturns(t *testing.T) {
+	h, _, st := newHost(t)
+	h.Poll = 10 * time.Millisecond
+	x, err := st.EnsureSession("p", "c1") // idle while Run recovers: the hold is made after Run is up
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = 'm' WHERE conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	sw := &switchChildTokens{started: make(chan struct{}, 4), release: make(chan struct{})}
+	h.ChildTokens = sw
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	returned := make(chan error, 1)
+	go func() { returned <- h.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond) // Recover is done and the loop is ticking
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	x = state(t, st, "c1")
+	h.mu.Lock()
+	h.settle(x) // the child's task tokens cannot be revoked: held
+	h.mu.Unlock()
+	sw.setBlock()
+	select {
+	case <-sw.started: // a pass started the retry, which is stuck in the revocation
+	case <-time.After(5 * time.Second):
+		t.Fatal("the retry never started")
+	}
+	cancel()
+	select {
+	case <-returned:
+		t.Fatal("Run returned while a retry was still running")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(sw.release)
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after the retry finished")
 	}
 }

@@ -7,7 +7,12 @@ import (
 // TokensLiveError marks a failure after which a token of a turn may still be live: the revoke at its end, or at its refusal,
 // did not succeed. The host does not settle the session on it (no new turn starts next to a live token); it holds the session
 // and retries the revocation at every pass until it succeeds.
-type TokensLiveError struct{ Err error }
+type TokensLiveError struct {
+	Err error
+	// Ended, when set, is closed once the turn this failure is about has finished, its exit cleanup included. While it is open the
+	// old turn may still be running, so the host does not settle the session or start another turn, whatever the retry says.
+	Ended <-chan struct{}
+}
 
 func (e *TokensLiveError) Error() string {
 	if e.Err == nil {
@@ -25,6 +30,15 @@ func (e *TokensLiveError) TokensMayBeLive() bool { return true }
 func TokensMayBeLive(err error) bool {
 	var t interface{ TokensMayBeLive() bool }
 	return err != nil && errors.As(err, &t) && t.TokensMayBeLive()
+}
+
+// TurnPending returns the channel that closes when the turn behind err has finished, or nil when err names no pending turn.
+func TurnPending(err error) <-chan struct{} {
+	var t *TokensLiveError
+	if errors.As(err, &t) {
+		return t.Ended
+	}
+	return nil
 }
 
 // holdForTokens keeps the session unsettled, with retry as the way to end its tokens; retryHeld calls it at every pass and
