@@ -304,3 +304,40 @@ func init() { _ = os.Args }
 		t.Errorf("found %v, want %v", got, want)
 	}
 }
+
+// documented limit (SECURITY.md); if this starts failing because the audit got smarter, update the docs.
+// The audit is a syntax scan: it does not see a method call (receiver types are unknown), a call through an aliased
+// import of a standard-library package, or a dot import (of a standard-library or a mono-agent package). Every
+// initialiser below does I/O before main, and none is reported. The control, an aliased mono-agent import, is followed.
+func TestTheInitScannerPinsWhatItDoesNotSee(t *testing.T) {
+	got := initIO(map[string][]byte{
+		"m/m.go": []byte(`package m
+import "os"
+type T struct{}
+func (T) Load() string { return os.Getenv("M") }
+func Fetch() string { return os.Getenv("F") }
+`),
+		"a/a.go": []byte(`package a
+import (
+	"github.com/monoes/mono-agent/m"
+	o "os"
+	. "os"
+	. "github.com/monoes/mono-agent/m"
+)
+var t m.T
+var method = t.Load()
+var literalMethod = m.T{}.Load()
+var aliasedStd = o.Getenv("A")
+var dotStd = Getenv("D")
+var dotAgent = Fetch()
+`),
+		"b/b.go": []byte(`package b
+import mm "github.com/monoes/mono-agent/m"
+var control = mm.Fetch()
+`),
+	})
+	want := []string{"b/b.go var control: os.Getenv (via Fetch)"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("found %v, want only the control %v: the documented blind spots changed", got, want)
+	}
+}
