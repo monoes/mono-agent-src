@@ -1398,6 +1398,7 @@ export namespace main {
 	    cwd: string;
 	    orgMode: string;
 	    workflowContext: string;
+	    renamed: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConversationRecord(source);
@@ -1417,6 +1418,7 @@ export namespace main {
 	        this.cwd = source["cwd"];
 	        this.orgMode = source["orgMode"];
 	        this.workflowContext = source["workflowContext"];
+	        this.renamed = source["renamed"];
 	    }
 	}
 	export class Conversation {
@@ -1583,6 +1585,7 @@ export namespace main {
 	    id: string;
 	    kind: string;
 	    title: string;
+	    renamed: boolean;
 	    status: string;
 	    updatedAt: string;
 	    runtime: string;
@@ -1610,6 +1613,7 @@ export namespace main {
 	        this.id = source["id"];
 	        this.kind = source["kind"];
 	        this.title = source["title"];
+	        this.renamed = source["renamed"];
 	        this.status = source["status"];
 	        this.updatedAt = source["updatedAt"];
 	        this.runtime = source["runtime"];

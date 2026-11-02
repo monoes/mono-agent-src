@@ -64,8 +64,8 @@ export function useVerifiedAccess(bubble, store) {
     const access = accessOfConversation(rec)
     if (!access) throw new Error('no access level in the record')
     const patch = { access, orgMode: rec.orgMode === 'dynamic' ? 'dynamic' : '', verified: true }
-    // The title is the backend's redacted one; a chat in a folder keeps the folder's name.
-    if (!rec.cwd && typeof rec.title === 'string') patch.title = rec.title
+    // The title is the backend's redacted one; a chat in a folder keeps the folder's name unless the person named it.
+    if ((!rec.cwd || rec.renamed) && typeof rec.title === 'string') patch.title = rec.title
     store.patchBubble(key, patch)
     setFailed(false)
   }).catch(() => setFailed(true)), [key, conversationId, store])

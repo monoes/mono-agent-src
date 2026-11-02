@@ -22,6 +22,9 @@ export const chatAccessApi = {
   // effort, cwd, orgMode, title (redacted), workflowContext}. The pane never
   // decides what a change means from a cached level; it asks here first.
   record: id => call(() => GoApp.GetChatConversationRecord(id)),
+  // Gives the chat a name of the person's own; '' takes it back. Resolves the stored name (cleaned,
+  // redacted, cut to length), '' when the name was cleared.
+  rename: (id, title) => call(() => GoApp.RenameChatConversation(id, title)),
   // {conversation, previousAccess, lowered: null | {stopped, survivors:[{pid,
   // command, reason}], workersDropped, taskRevoked}}, or a refusal that is not
   // an error: {ok:false, code:'access_changed'|'expected_required', current}.

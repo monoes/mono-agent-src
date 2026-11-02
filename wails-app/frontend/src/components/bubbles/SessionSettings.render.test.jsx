@@ -240,4 +240,43 @@ describe('SessionSettings', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not read the session settings.')
     expect(screen.queryByTestId('pane-session')).toBeNull()
   })
+
+  describe('the mesh name', () => {
+    it('shows the name the session takes by default as the placeholder, next to its own label', async () => {
+      api.getCoderSessionSettings.mockResolvedValue(view({ defaultAlias: 'meta-challenge' }))
+      await shown()
+      const box = screen.getByLabelText('Mesh name')
+      expect(box).toHaveAttribute('placeholder', 'meta-challenge')
+      expect(box).toHaveValue('')
+      // The label and its box sit together, so a wrapping row never parts them or pairs the box with the next label.
+      expect(box.parentElement).toContainElement(screen.getByText('Mesh name'))
+      expect(box.parentElement).not.toContainElement(screen.getByText('Accepts messages from'))
+      expect(screen.getByText(/Other agents use this name to address this chat/)).toBeInTheDocument()
+    })
+
+    it('says the name is automatic when the chat has none yet', async () => {
+      await shown()
+      expect(screen.getByLabelText('Mesh name')).toHaveAttribute('placeholder', 'automatic (made from the project and time)')
+    })
+
+    it('saves what was typed with dashes for spaces, and an empty box as no name', async () => {
+      api.setCoderSessionSettings.mockResolvedValue(view({}, { mesh_alias: 'meta-challenge' }))
+      await shown()
+      const box = screen.getByLabelText('Mesh name')
+      fireEvent.change(box, { target: { value: 'meta challenge' } })
+      fireEvent.blur(box)
+      await waitFor(() => expect(api.setCoderSessionSettings).toHaveBeenCalledWith('c1', { mesh_alias: 'meta-challenge' }, ''))
+      api.setCoderSessionSettings.mockClear()
+      api.setCoderSessionSettings.mockResolvedValue(view())
+      fireEvent.change(screen.getByLabelText('Mesh name'), { target: { value: '   ' } })
+      fireEvent.blur(screen.getByLabelText('Mesh name'))
+      await waitFor(() => expect(api.setCoderSessionSettings).toHaveBeenCalledWith('c1', { mesh_alias: '' }, ''))
+    })
+
+    it('is off while the session is hidden from other agents', async () => {
+      api.getCoderSessionSettings.mockResolvedValue(view({}, { mesh_visible: false }))
+      await shown()
+      expect(screen.getByLabelText('Mesh name')).toBeDisabled()
+    })
+  })
 })
