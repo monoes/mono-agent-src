@@ -431,3 +431,63 @@ func startBackground(t *testing.T, name string, args ...string) int {
 	t.Cleanup(func() { c.Process.Kill(); <-reaped })
 	return c.Process.Pid
 }
+
+// A monomind that cannot be run is not an outdated one: the probe failure
+// is reported on its own and nothing is listed as missing.
+func TestCoderStatusProbeFailure(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	old := capabilityProbe
+	capabilityProbe = func(*cobra.Command) (*monomind.CapabilitySet, error) {
+		return nil, errors.New("monomind: command not found\n  (mise shim)")
+	}
+	t.Cleanup(func() { capabilityProbe = old })
+	withCoderScan(t)
+
+	out, code := runCoderCLI(t, dbPath, "status")
+	if code != 0 {
+		t.Fatalf("status: exit %d %s", code, out)
+	}
+	var st coderStatus
+	decodeChatJSON(t, out, &st)
+	if st.Ready || st.ProbeError != "monomind: command not found (mise shim)" || len(st.MissingCapabilities) != 0 || st.MonomindVersion != "" {
+		t.Fatalf("probe failure: %+v", st)
+	}
+	if !strings.Contains(out, `"missingCapabilities":[]`) {
+		t.Fatalf("missingCapabilities must stay an empty list: %s", out)
+	}
+
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	out, code = runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--mode", "coder", "--new-workspace")
+	if code != 1 || !strings.Contains(out, `"code":"monomind_unusable"`) || strings.Contains(out, "needs_monomind_update") {
+		t.Fatalf("create: exit %d %s", code, out)
+	}
+}
+
+// A long probe failure is cut.
+func TestProbeErrorTextIsBounded(t *testing.T) {
+	got := probeErrorText(errors.New(strings.Repeat("x", 1000)))
+	if n := len([]rune(got)); n != maxProbeErrorLen+1 {
+		t.Fatalf("length %d", n)
+	}
+}
+
+// A monomind that runs but lacks capabilities is still an outdated one:
+// what is missing and the version found are reported, no probe error.
+func TestCoderStatusOutdatedMonomind(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	withCoderCaps(t, monomind.CapAgentExecFullAccess)
+	out, code := runCoderCLI(t, dbPath, "status")
+	if code != 0 {
+		t.Fatalf("status: exit %d %s", code, out)
+	}
+	var st coderStatus
+	decodeChatJSON(t, out, &st)
+	if st.Ready || st.ProbeError != "" || st.MonomindVersion != "9.0.0" || len(st.MissingCapabilities) == 0 {
+		t.Fatalf("outdated monomind: %+v", st)
+	}
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	out, _ = runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--mode", "coder", "--new-workspace")
+	if !strings.Contains(out, "found 9.0.0") {
+		t.Fatalf("message should say what was found: %s", out)
+	}
+}
