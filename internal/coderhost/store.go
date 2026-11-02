@@ -109,8 +109,11 @@ type Session struct {
 	TurnID         string `json:"turnId,omitempty"`
 	TurnPID        int    `json:"turnPid,omitempty"`
 	TurnStamp      string `json:"-"`
-	CreatedAt      string `json:"createdAt"`
-	UpdatedAt      string `json:"updatedAt"`
+	// TurnBound says the recorded process was started with peer-credential binding (migration 152). It is set together with the pid
+	// by RecordTurnProcess, before the token exists, and tells recovery to stop the process instead of adopting it.
+	TurnBound bool   `json:"-"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 }
 
 // Store is the coder_sessions and coder_session_commands tables.
@@ -379,14 +382,14 @@ func (s *Store) setCommandIfPending(id int64, status, errText string) (bool, err
 	return n == 1, nil
 }
 
-const sessionCols = `profile_id, conversation_id, state, role, parent_conversation_id, unattended, turn_id, turn_pid, turn_stamp, created_at, updated_at`
+const sessionCols = `profile_id, conversation_id, state, role, parent_conversation_id, unattended, turn_id, turn_pid, turn_stamp, turn_bound, created_at, updated_at`
 
 func scanSession(sc interface{ Scan(...any) error }) (Session, error) {
 	var x Session
 	var state string
-	var un int
-	err := sc.Scan(&x.ProfileID, &x.ConversationID, &state, &x.Role, &x.Parent, &un, &x.TurnID, &x.TurnPID, &x.TurnStamp, &x.CreatedAt, &x.UpdatedAt)
-	x.State, x.Unattended = State(state), un != 0
+	var un, bound int
+	err := sc.Scan(&x.ProfileID, &x.ConversationID, &state, &x.Role, &x.Parent, &un, &x.TurnID, &x.TurnPID, &x.TurnStamp, &bound, &x.CreatedAt, &x.UpdatedAt)
+	x.State, x.Unattended, x.TurnBound = State(state), un != 0, bound != 0
 	return x, err
 }
 
@@ -464,28 +467,20 @@ func (s *Store) SweepOrphans() (int, error) {
 	return total, nil
 }
 
-// BoundStampPrefix marks a recorded turn stamp as the one of a BOUND launch (the launcher records it before the token is minted, when
-// no v2 row exists yet to say so). Recovery stops such a process by its pidfd and settles, as it does for any bound turn, and never adopts it.
-const BoundStampPrefix = "bound:"
-
-// SplitTurnStamp returns the process start stamp inside a recorded turn stamp and whether the launch was a bound one.
-func SplitTurnStamp(recorded string) (stamp string, bound bool) {
-	if rest, ok := strings.CutPrefix(recorded, BoundStampPrefix); ok {
-		return rest, true
-	}
-	return recorded, false
-}
-
 // RecordTurnProcess makes the identity of a turn's process durable on the session: the launcher calls it as soon as the process
 // exists, so a host that restarts before the start has finished still finds the pid and the start stamp (and adopts or stops the
 // process) instead of settling the session beside it. It writes only for the session's CURRENT turn and only once: a newer turn's
 // row is never touched, and a repeat of the same record is a no-op.
-func (s *Store) RecordTurnProcess(profileID, conversationID, turnID string, pid int, stamp string) error {
+func (s *Store) RecordTurnProcess(profileID, conversationID, turnID string, pid int, stamp string, bound bool) error {
 	if pid <= 1 {
 		return fmt.Errorf("coder host: %d is not a turn's pid", pid)
 	}
-	res, err := s.db.Exec(`UPDATE coder_sessions SET turn_pid = ?, turn_stamp = ?, updated_at = ?
-		WHERE profile_id = ? AND conversation_id = ? AND turn_id = ? AND turn_pid = 0`, pid, stamp, s.stamp(), profileID, conversationID, turnID)
+	b := 0
+	if bound {
+		b = 1
+	}
+	res, err := s.db.Exec(`UPDATE coder_sessions SET turn_pid = ?, turn_stamp = ?, turn_bound = ?, updated_at = ?
+		WHERE profile_id = ? AND conversation_id = ? AND turn_id = ? AND turn_pid = 0`, pid, stamp, b, s.stamp(), profileID, conversationID, turnID)
 	if err != nil {
 		return err
 	}
@@ -496,7 +491,7 @@ func (s *Store) RecordTurnProcess(profileID, conversationID, turnID string, pid 
 	if err != nil {
 		return err
 	}
-	if ok && cur.TurnID == turnID && cur.TurnPID == pid && cur.TurnStamp == stamp {
+	if ok && cur.TurnID == turnID && cur.TurnPID == pid && cur.TurnStamp == stamp && cur.TurnBound == bound {
 		return nil // already recorded
 	}
 	return fmt.Errorf("coder host: the session of %s no longer names turn %s without a process", conversationID, turnID)
@@ -507,8 +502,12 @@ func (s *Store) SaveSession(x Session) error {
 	if x.TurnPID < 0 || x.TurnPID == 1 {
 		return fmt.Errorf("coder host: %d is not a turn's pid", x.TurnPID)
 	}
-	_, err := s.db.Exec(`UPDATE coder_sessions SET state = ?, turn_id = ?, turn_pid = ?, turn_stamp = ?, updated_at = ? WHERE profile_id = ? AND conversation_id = ?`,
-		string(x.State), x.TurnID, x.TurnPID, x.TurnStamp, s.stamp(), x.ProfileID, x.ConversationID)
+	bound := 0
+	if x.TurnBound {
+		bound = 1
+	}
+	_, err := s.db.Exec(`UPDATE coder_sessions SET state = ?, turn_id = ?, turn_pid = ?, turn_stamp = ?, turn_bound = ?, updated_at = ? WHERE profile_id = ? AND conversation_id = ?`,
+		string(x.State), x.TurnID, x.TurnPID, x.TurnStamp, bound, s.stamp(), x.ProfileID, x.ConversationID)
 	return err
 }
 

@@ -51,7 +51,7 @@ type execLauncher struct {
 	// onProcess, when set, makes the started process's identity durable (the session's turn_pid and turn_stamp) the moment the
 	// process exists, before anything else of the start can fail. If it fails, the start fails and the process is stopped: a process
 	// whose identity cannot be recorded is not allowed to run, because a host restart could not find it.
-	onProcess func(profileID, conversationID, turnID string, pid int, stamp string) error
+	onProcess func(profileID, conversationID, turnID string, pid int, stamp string, bound bool) error
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -279,45 +279,49 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 		return err
 	}
-	go func() {
-		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
-			t.settle()
-		}
-		t.err = cmd.Wait()
-		t.markReaped()
-		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
-		// revoke is retried; a revoke that still fails is reported as the turn's error.
-		// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
-		// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
-		// keeps the conversation-wide one.
-		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
-			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr}) // the host holds the session until the token is ended
-		}
-		if rerr := l.child.revokeToken(ct); rerr != nil { // the child's task token ends with its run (nil-safe); a failure is the turn's error
-			t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr})
-		}
-		os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
-		if l.afterExitRevoke != nil {
-			l.afterExitRevoke()
-		}
-		close(t.done)
-	}()
-	launched = true // the wait goroutine above revokes the child's token from here on
+	// The waiter (which reaps the child and ends its tokens) starts only AFTER the process's identity is recorded: until then nothing
+	// can reap the child, so its pid and group are still its own and can be signalled safely if the record fails.
+	startWaiter := func() {
+		go func() {
+			if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
+				t.settle()
+			}
+			t.err = cmd.Wait()
+			t.markReaped()
+			// before done closes: a session that sees its turn end has no token left. The turn is held here while the
+			// revoke is retried; a revoke that still fails is reported as the turn's error.
+			// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
+			// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
+			// keeps the conversation-wide one.
+			if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
+				t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr}) // the host holds the session until the token is ended
+			}
+			if rerr := l.child.revokeToken(ct); rerr != nil { // the child's task token ends with its run (nil-safe); a failure is the turn's error
+				t.err = errors.Join(t.err, &coderhost.TokensLiveError{Err: rerr})
+			}
+			os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
+			if l.afterExitRevoke != nil {
+				l.afterExitRevoke()
+			}
+			close(t.done)
+		}()
+		launched = true // the wait goroutine revokes the child's token from here on
+	}
 	if stamp == "" {
+		startWaiter()
 		return nil, t.fail(errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped"))
 	}
 	if l.onProcess != nil {
-		recorded := stamp
-		if bd != nil { // a bound launch is recorded as such: its token does not exist yet, and recovery must stop it, not adopt it
-			recorded = coderhost.BoundStampPrefix + stamp
-		}
-		if err := l.onProcess(profileID, conversationID, turnID, t.pid, recorded); err != nil {
+		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp, bd != nil); err != nil {
 			// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
-			// leader and group, not asked to leave, so a child that ignores SIGTERM does not survive either.
-			t.killNow()
+			// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
+			_ = cmd.Process.Kill()
+			_ = killGroup(t.pid)
+			startWaiter() // reaps it and ends its tokens
 			return nil, t.fail(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
 		}
 	}
+	startWaiter()
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
 			return nil, t.fail(err)
@@ -484,17 +488,6 @@ func (t *execTurn) failWith(err error) error {
 		err = errors.Join(err, t.err)
 	}
 	return err
-}
-
-// killNow kills the turn's leader and its group without the grace period. The leader is this process's own child and unreaped
-// (the exit goroutine waits for it), so its pid still names it.
-func (t *execTurn) killNow() {
-	t.markStopping()
-	t.mu.Lock()
-	if t.pinned() {
-		_ = t.killGrp()
-	}
-	t.mu.Unlock()
 }
 
 // stopAndWait stops the turn and waits (bounded) for its exit, cleanup included; false when the bound ran out first.
@@ -781,8 +774,7 @@ func hostHeldTurns(cfg *Deps) (skip func(ai.Turn) bool, closeFn func()) {
 			return false
 		}
 		now := stampOf(x.TurnPID) // unreadable now: still alive, so spared
-		recorded, _ := coderhost.SplitTurnStamp(x.TurnStamp)
-		return now == "" || now == recorded
+		return now == "" || now == x.TurnStamp
 	}, func() { db.Close() }
 }
 

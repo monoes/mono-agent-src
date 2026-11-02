@@ -119,8 +119,8 @@ func (h *Host) Recover() error {
 			continue
 		}
 		// A bound launch whose identity was recorded before its token existed (the host died between the two): stop it, never adopt it.
-		if stamp, bound := SplitTurnStamp(x.TurnStamp); bound && x.TurnPID > 1 {
-			h.recoverV2(x, x.TurnPID, stamp)
+		if x.TurnBound && x.TurnPID > 1 {
+			h.recoverV2(x, x.TurnPID, x.TurnStamp)
 			continue
 		}
 		if t := h.L.Adopt(x.TurnPID, x.TurnStamp); t != nil && x.TurnPID > 0 {
@@ -159,7 +159,7 @@ func (h *Host) clearSession(x Session) {
 	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
 		x = cur
 	}
-	x.TurnID, x.TurnPID, x.TurnStamp = "", 0, ""
+	x.TurnID, x.TurnPID, x.TurnStamp, x.TurnBound = "", 0, "", false
 	if x.State != StatePaused {
 		x.State = StateIdle
 		if h.Store.OpenParked(x.ProfileID, x.ConversationID) > 0 {
@@ -325,7 +325,7 @@ func (h *Host) Tick() error {
 			}
 			// The turn is recorded before it starts, without a pid yet, so the
 			// app's startup sweep sees it as the host's while it is admitted.
-			x.State, x.TurnID, x.TurnPID, x.TurnStamp = StateRunning, c.TurnID, 0, ""
+			x.State, x.TurnID, x.TurnPID, x.TurnStamp, x.TurnBound = StateRunning, c.TurnID, 0, "", false
 			if err := h.Store.SaveSession(x); err != nil {
 				h.end(c, CmdFailed, "could not record the session: "+err.Error())
 				return err
@@ -400,7 +400,7 @@ func (h *Host) Tick() error {
 			if c.Issuer != "" && !HostMade(c.TurnID) {
 				h.Store.MarkHostTurn(c.ProfileID, c.ConversationID, c.TurnID) // counts like a master- turn
 			}
-			x.TurnPID, x.TurnStamp = t.PID(), t.Stamp()
+			x.TurnPID, x.TurnStamp, x.TurnBound = t.PID(), t.Stamp(), false // the token exists now: the v2 rows say what the turn is
 			if err := h.Store.SaveSession(x); err != nil {
 				t.Stop()
 				h.end(c, CmdFailed, startedMarker+" but could not record the session: "+err.Error())
