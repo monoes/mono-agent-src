@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os/exec"
 	"sync"
 	"testing"
 
@@ -49,6 +50,7 @@ type fakeAutostart struct {
 	restarted  int
 	restartErr error
 	onRestart  func()
+	where      string // what Status reports as the service definition; default a path that does not exist
 }
 
 func (f *fakeAutostart) Install(context.Context) (autostart.Result, error) {
@@ -56,6 +58,9 @@ func (f *fakeAutostart) Install(context.Context) (autostart.Result, error) {
 }
 func (f *fakeAutostart) Uninstall(context.Context) error { return nil }
 func (f *fakeAutostart) Status(context.Context) (bool, string) {
+	if f.where != "" {
+		return f.installed, f.where
+	}
 	return f.installed, "/x/monoagent-daemon.service"
 }
 func (f *fakeAutostart) Start(context.Context) error { f.started++; return nil }
@@ -91,6 +96,8 @@ func testDeps(t *testing.T, latestURL string) Deps {
 			return 0, nil, nil
 		},
 		Installer: func() autostart.Installer { return &fakeAutostart{} },
+		// no monoagentcli on PATH, so an update test never runs a program of the machine it runs on
+		LookPath: func(string) (string, error) { return "", exec.ErrNotFound },
 		ServicePID: func(context.Context, autostart.Installer) (int, error) {
 			return 0, fmt.Errorf("no service in tests")
 		},
