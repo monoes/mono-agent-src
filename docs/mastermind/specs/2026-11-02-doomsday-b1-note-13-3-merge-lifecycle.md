@@ -396,3 +396,21 @@ Each removal below must fail the named test, and the proof is recorded in the PR
 6. **The choice not to continue cleanup after Stop** (section 8) is a design choice for the reviewer to attack.
 7. **The `HEAD`-pin change to the merge** (section 11) and the **durable registry rows from the merge path**
    need the authenticated stream of 13.5 to exist; this note cannot land code before that stream does.
+
+### 13.3 Remaining after the delta review of the first draft (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: recovery makes an unproven process terminal and does not revisit it** (sections on recovery and the
+   run-start rule). A host dies with its merge `git` process still alive or of unknown identity. Recovery writes
+   `INCOMPLETE(needs-operator)` and promises to repeat the process check at the next start, but recovery only
+   selects `CONTINUING` operations, and the new-run rule releases `INCOMPLETE` operations. The next start
+   therefore cannot perform the promised recheck through this recovery, and the design lets the old run stop
+   blocking a new run while its process may still be modifying the repository. This conflicts with the spec's
+   requirement to keep unknown T2 processes in `cleanup-pending` until proven gone. Required: **retain durable
+   live-process membership and block quiescence and new runs independently of the operation's repair state**,
+   and specify **how later reconciliation revisits it**.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
