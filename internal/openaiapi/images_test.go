@@ -107,6 +107,7 @@ func decodeImages(t *testing.T, rec *httptest.ResponseRecorder) (created int64, 
 	if err := json.Unmarshal(rec.Body.Bytes(), &top); err != nil {
 		t.Fatalf("not JSON: %v", err)
 	}
+	delete(top, "usage") // checked by TestImagesReportUsage
 	if len(top) != 2 || top["created"] == nil || top["data"] == nil {
 		t.Fatalf("the response has keys %v, want exactly created and data", slices.Sorted(maps.Keys(top)))
 	}
@@ -485,5 +486,22 @@ func TestImagesOneRequestsFilesNeverReachTheNext(t *testing.T) {
 		if len(names) != 1 || !regexp.MustCompile(`^out-[a-z2-7]{16}$`).MatchString(names[0]) {
 			t.Errorf("turn %d started among %v, want its own output folder and nothing else", i+1, names)
 		}
+	}
+}
+
+func TestImagesReportUsage(t *testing.T) {
+	h := newHarness(t, func(ctx context.Context, o monomind.ExecOptions, onEvent func(monomind.Event)) (*monomind.TurnResult, error) {
+		res, err := imageTurn("image-1.png", onePNG("image-1.png"))(ctx, o, onEvent)
+		if res != nil {
+			res.CostUSD, res.HasCostUSD = 0.0123, true // as a runtime that reports a cost leaves it
+		}
+		return res, err
+	})
+	secret := h.key(t, "default", "app", false)
+	rec := postImages(h, anyPolicy, secret, `{"model":"codex","prompt":"x"}`)
+	var out struct{ Usage *usage }
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Usage == nil || out.Usage.PromptTokens != 40000 || out.Usage.CompletionTokens != 500 ||
+		out.Usage.TotalTokens != 40500 || out.Usage.CostUSD == nil || *out.Usage.CostUSD != 0.0123 {
+		t.Fatalf("usage in %s (%v)", rec.Body, err)
 	}
 }

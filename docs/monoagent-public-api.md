@@ -194,6 +194,23 @@ the service.
   (including `image_url`, audio and files).
 - Body limit: 2 MiB (64 KiB for image requests).
 
+## Tokens and cost
+
+Every chat response, the last chunk of a stream with `stream_options.include_usage`,
+every image response and every image job (finished or failed) carries a `usage`
+object with what the turn used, as the runtime reported it:
+
+```json
+"usage": {"prompt_tokens": 40000, "completion_tokens": 500, "total_tokens": 40500, "cost_usd": 0.0123}
+```
+
+- `cost_usd` is the cost the runtime itself reported, in US dollars, and **`null`
+  when it reported none**. Nothing is estimated from a price table. Runtimes on a
+  subscription often report none.
+- The whole object is absent when the runtime reported neither tokens nor cost.
+- It is per request. Adding up a session is the client's job: sum the `usage` of
+  its requests.
+
 ## Generate images (agy)
 
 ```bash
@@ -210,7 +227,7 @@ r = c.images.generate(model="antigravity/default", prompt="A small red circle on
 open("out.jpg", "wb").write(base64.b64decode(r.data[0].b64_json))
 ```
 
-- Response: `{"created": ..., "data": [{"b64_json": "..."}]}`. Only `b64_json` is
+- Response: `{"created": ..., "data": [{"b64_json": "..."}], "usage": {...}}` (`usage` as below). Only `b64_json` is
   returned (`response_format: "url"` and `stream: true` are 400). The runtime
   picks the format; a test returned a 1024x1024 JPEG, so check the first bytes.
 - Use an agy model (`antigravity/...`, capability `image`). Claude models cannot

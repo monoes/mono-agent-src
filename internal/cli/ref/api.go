@@ -225,7 +225,7 @@ OPENAI-COMPATIBLE API (/v1)
   SECURITY.md. The log line adds tools=<n> leg=first|resume|replay.
 
   Images: POST /v1/images/generations {model, prompt, n, size, response_format}
-  answers {"created":..., "data":[{"b64_json":"..."}]}: base64 only (response_format
+  answers {"created":..., "data":[{"b64_json":"..."}], "usage":{...}}: base64 only (response_format
   "url" and stream true are 400 unsupported_parameter). n is 1 to 4, size is
   auto or WxH with each side 64 to 8192, quality, style, output_format,
   background and user are ignored, the body is capped at 64 KiB. Which runtimes
