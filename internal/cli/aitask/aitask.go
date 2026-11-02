@@ -216,6 +216,8 @@ func (c *cli) submit() *cobra.Command {
 	f.Float64Var(&budget, "budget-usd", 0, "Spend cap in USD (default: the coder budget); 0 means no spend and is refused, never unlimited")
 	f.StringVar(&in.ID, "task-id", "", "The id the task takes (as made by the caller that already holds a tab under it)")
 	_ = f.MarkHidden("task-id")
+	f.StringVar(&in.Owner, "owner", "", "A private token of the caller, stored with the task so it can recognise its own")
+	_ = f.MarkHidden("owner")
 	f.BoolVar(&in.QueueOnly, "queue-only", false, "Create the task but do not start it (aitask start does)")
 	return cmd
 }

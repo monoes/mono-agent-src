@@ -30,6 +30,8 @@ type fakeLauncher struct {
 	// refuse, when set, is what Enforceable and CreateConversation answer.
 	refuse   error
 	attempts int
+	// onCreate runs inside CreateConversation, after Submit has checked its id and before it has stored the task.
+	onCreate func()
 }
 
 func (f *fakeLauncher) Enforceable(string, string) error { return f.refuse }
@@ -40,6 +42,9 @@ func (f *fakeLauncher) DefaultBudget(context.Context) (float64, error) { return 
 func (f *fakeLauncher) Policy(context.Context) (string, error)         { return f.policy, nil }
 func (f *fakeLauncher) CreateConversation(_ context.Context, _, kind, access string) (Conversation, error) {
 	f.attempts++
+	if f.onCreate != nil {
+		f.onCreate()
+	}
 	if f.refuse != nil {
 		return Conversation{}, f.refuse
 	}
