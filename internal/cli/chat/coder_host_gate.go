@@ -108,9 +108,11 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	return g.bound, true, nil
 }
 
-// settingIsOnNow reads the setting again after a legacy turn's process exists. It is a guard against a flip in between.
-// A read that fails is tried again a few times (a transient failure says nothing about a flip and must not stop a healthy
-// turn); one that keeps failing counts as on, since whether binding is on is then not known: the turn is stopped and refused.
+// settingIsOnNow reads the setting again after a legacy turn's process exists. It is a guard against a flip in between,
+// not a gate, and it FAILS OPEN: a read that fails is tried again a few times, and one that keeps failing (a busy or locked
+// database) is taken as "off" for this turn, because the read that routed the very start already said so and nothing known
+// says it was switched on since. The healthy turn keeps running; the next start reads the setting again and refuses if it
+// is on or unreadable. A read that works and says "on" stops the turn and refuses the start.
 func (g *gatedLauncher) settingIsOnNow() bool {
 	load := g.load
 	if load == nil {
@@ -130,7 +132,7 @@ func (g *gatedLauncher) settingIsOnNow() bool {
 	// known says it was switched on since. The healthy turn is left running (this runs after EVERY legacy start, for users who never
 	// enabled binding); the next start reads the setting again and refuses if it is on or unreadable.
 	if g.logf != nil {
-		g.logf("coder host: the coder settings could not be read after a turn started; the turn is left running: %v", err)
+		g.logf("coder host: the coder settings could not be read after a turn started; binding is assumed off for this turn and it is left running: %v", err)
 	}
 	return false
 }

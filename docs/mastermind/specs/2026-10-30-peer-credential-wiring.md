@@ -66,11 +66,11 @@ reverted alone**, and so that the setting does not exist until everything it nee
 | 5 | **3c** launch ordering, the typed pipe frame, restart/downgrade handling, and the **setting**, whose setter refuses unless `procbind.IssuanceReady` (a constant flipped in this PR only) | yes, only when the operator sets the setting | yes |
 | 6 | **3e** retention sweep | n/a | n/a |
 
-**Flip checklist (before `procbind.IssuanceReady` becomes true, in the PR that flips it). Every item is cleared; the evidence is named.**
+**Flip checklist (before `procbind.IssuanceReady` becomes true, in the PR that flips it). Every item is cleared or, where noted, accepted by the user; the evidence is named.**
 - Turn admission and the setting change: the setter refuses `on` while any coder turn is running (counted in the transaction
-  that saves the setting), and the gate's re-check after a legacy turn's process exists is the second guard. Wiring PR #1277:
+  that saves the setting), and the gate's re-check after a legacy turn's process exists is the second guard (it FAILS OPEN: a re-read of the settings that cannot be read leaves the healthy turn running, because the read that routed the start already said off; it matters only for a flip made by something other than the setter, together with an unreadable database at that moment, and the next start refuses if the setting is on or unreadable). Wiring PR #1277:
   `TestThePeercredSettingIsNotSwitchedOnWhileATurnRuns`, `TestATurnStartedWhileTheSettingWasSwitchedOnIsStopped`,
-  `TestAReadFailureAfterATurnStartedStopsItOnlyWhenItPersists`.
+  `TestAReadFailureAfterATurnStartedNeverStopsAHealthyLegacyTurn`.
 - A refused turn is waited for, its own tokens (session and a child's task token) are ended at once, and its late exit ends
   only its own turn's tokens: PR #1283: `TestADelayedExitCleanupNeverTouchesALaterTurnsToken`,
   `TestARefusedChildsTaskTokenIsDeadWhileItsProcessStillRuns`, `TestRevokingOneTurnLeavesTheFollowingTurnsV2TokenAndRegistration`,
