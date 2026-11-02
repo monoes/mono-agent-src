@@ -483,3 +483,19 @@ delta review.
    duplicate calls (section 4.1; T41, T42).
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### 13.1 Remaining after the delta review of revision 9 (recorded)
+
+One or two **P1** items are **open in this revision**; they are folded into the next revision. Each must be
+resolved before any code in the area lands (spec section 13 gate). The recorded wording follows the reviewer's
+summary of its finding; the reviewers' own text is in the review report.
+
+1. **P1: the live set `L′` is not the complete set of later creators when a continuing operation remains.**
+   If `Close` times out with starter A while operation O is still `CONTINUING`, it returns
+   `CLOSED-WITH-STARTERS({A})`; before `T_merge`, O may admit and start continuation ticket B, which is
+   **outside the returned set**. B can create a process, contrary to the stated guarantee (sections 4.2 and 5
+   claim the returned set names every possible later creator), and a recovery procedure that relies on the
+   named set can miss it. Required: **specify and track future continuation starters until O terminates**,
+   including their **hung-starter handling**, and test a **deadline-after-admission** schedule.
+
+Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
