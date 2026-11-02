@@ -3,6 +3,8 @@
 package chat
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -161,5 +163,62 @@ func TestARefusedChildsTaskTokenIsDeadWhileItsProcessStillRuns(t *testing.T) {
 	}
 	if live() != 0 {
 		t.Error("the refused child's task token is still live while its process runs")
+	}
+}
+
+// A refused child whose task token cannot be ended says so from Refuse (the error is not swallowed), and the token is
+// dead once the revoke works again.
+func TestARefuseThatCannotEndAChildsTaskTokenReturnsTheError(t *testing.T) {
+	f := newChildFix(t)
+	f.mint.revokeBackoff = time.Millisecond
+	real := f.mint.tokens.RevokeOwner
+	failing := true
+	f.mint.revokeOwnerFn = func(ctx context.Context, owner string) (int, error) {
+		if failing {
+			return 0, errors.New("database is locked")
+		}
+		return real(ctx, owner)
+	}
+	dir := t.TempDir()
+	bin := fakeChildBin(t, dir)
+	b, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte(strings.Replace(string(b), "#!/bin/sh\n", "#!/bin/sh\ntrap '' TERM\n", 1)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldGrace := hostTurnGrace
+	hostTurnGrace = time.Hour
+	t.Cleanup(func() { hostTurnGrace = oldGrace; _ = os.WriteFile(filepath.Join(dir, "release"), []byte("x"), 0o600) })
+	store := coderhost.NewStore(f.db.DB)
+	l := &execLauncher{bin: bin, dbPath: f.m.dbPath, instance: "host-test", logDir: filepath.Join(dir, "turns"), child: f.mint,
+		revoke: store.RevokeSessionTokensErr, revokeTurn: store.RevokeTurnSessionTokensErr, revokeBackoff: time.Millisecond}
+	turn, err := l.Start("default", f.child, "master-1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf := turn.(interface{ Refuse() error })
+	rerr := rf.Refuse()
+	if rerr == nil || !coderhost.TokensMayBeLive(rerr) || !strings.Contains(rerr.Error(), "could not be ended") {
+		t.Fatalf("Refuse with a task token that cannot be ended: %v", rerr)
+	}
+	owner := dynorg.TurnOwner("default", f.child, "master-1")
+	live := func() int {
+		var n int
+		if err := f.db.DB.QueryRow(`SELECT COUNT(*) FROM agent_tokens WHERE mission_owner = ? AND revoked_at IS NULL`, owner).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if live() == 0 {
+		t.Fatal("the task token is already dead although every revoke failed")
+	}
+	failing = false
+	if rerr := rf.Refuse(); rerr != nil { // the retry succeeds: the token is dead
+		t.Fatalf("the retry: %v", rerr)
+	}
+	if live() != 0 {
+		t.Error("the task token is still live after the retry")
 	}
 }
