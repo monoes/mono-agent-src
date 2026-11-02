@@ -122,12 +122,14 @@ func TestAHeldBoundTurnBlocksTheChatUntilItsLeaderIsConfirmedGone(t *testing.T) 
 	if err := h.Tick(); err != nil { // second Held answer: still held, the send waits, no turn starts
 		t.Fatal(err)
 	}
+	h.WaitRetries() // the leader retry runs off the pass
 	if len(l.started) != 0 {
 		t.Fatalf("a turn started on a held chat: %v", l.started)
 	}
 	if err := h.Tick(); err != nil { // the leader is confirmed gone: the session is settled
 		t.Fatal(err)
 	}
+	h.WaitRetries() // the leader retry runs off the pass
 	if x := state(t, st, "c1"); x.TurnID != "" || x.State != StateIdle {
 		t.Fatalf("the session was not settled once the leader was confirmed gone: %+v", x)
 	}
@@ -271,6 +273,7 @@ func TestAChildWhoseTaskTokensCannotBeRevokedStaysHeld(t *testing.T) {
 	if err := h.Tick(); err != nil {
 		t.Fatal(err)
 	}
+	h.WaitRetries() // the leader retry runs off the pass
 	if x := state(t, st, "c1"); x.TurnID != "" {
 		t.Errorf("the session was not settled once its tokens could be revoked: %+v", x)
 	}
@@ -309,5 +312,107 @@ func TestStoppingAChildDoesNotSettleAHeldBoundTurn(t *testing.T) {
 	}
 	if len(l.finished) != 0 || len(h.Held()) != 1 {
 		t.Errorf("finished=%v held=%v", l.finished, h.Held())
+	}
+}
+
+// A leader that will not exit does not stall the pass: Tick returns while the stop is still running, and no second stop starts for the
+// held session meanwhile.
+func TestAHeldLeadersRetryDoesNotStallTheTick(t *testing.T) {
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTurnProcess("p", "c1", "t1", 4242, "start:99", true); err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopHeld, Cause: "it did not exit"}}}
+	if err := h.Recover(); err != nil { // the hold
+		t.Fatal(err)
+	}
+	bs := &countingBlockStopper{entered: make(chan struct{}, 8), release: make(chan struct{})}
+	h.Stopper = bs
+	ticked := make(chan error, 1)
+	go func() { ticked <- h.Tick() }()
+	select {
+	case err := <-ticked:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		close(bs.release)
+		t.Fatal("Tick waited for the leader stop")
+	}
+	<-bs.entered
+	if err := h.Tick(); err != nil { // the stop is still running
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(bs.release)
+	h.WaitRetries()
+	bs.mu.Lock()
+	calls := bs.calls
+	bs.mu.Unlock()
+	if calls != 1 {
+		t.Errorf("%d stops ran for one held session, want 1", calls)
+	}
+}
+
+type countingBlockStopper struct {
+	mu      sync.Mutex
+	calls   int
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *countingBlockStopper) StopLeader(int, string) procbind.StopResult {
+	b.mu.Lock()
+	b.calls++
+	b.mu.Unlock()
+	b.entered <- struct{}{}
+	<-b.release
+	return procbind.StopResult{Outcome: procbind.StopHeld, Cause: "it did not exit"}
+}
+
+// A stop of a session whose bound leader is held is accepted and brings the retry forward; it is not refused as "no turn is running".
+func TestAStopOnAHeldSessionIsAcceptedAndBringsTheRetryForward(t *testing.T) {
+	h, _, st := newHost(t)
+	x, err := st.EnsureSession("p", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTurnProcess("p", "c1", "t1", 4242, "start:99", true); err != nil {
+		t.Fatal(err)
+	}
+	h.Stopper = &fakeStopper{results: []procbind.StopResult{{Outcome: procbind.StopHeld, Cause: "it did not exit"}}}
+	if err := h.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	hs := h.held[key("p", "c1")]
+	hs.next = time.Now().Add(time.Hour) // a paced retry
+	h.held[key("p", "c1")] = hs
+	h.mu.Unlock()
+	stop := enqueue(t, st, Command{ConversationID: "c1", Kind: KindStop})
+	if err := h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	h.WaitRetries()
+	if c, _, _ := st.GetCommand(stop.ID); c.Status != CmdDone {
+		t.Errorf("a stop of a held session ended as %q, want done", c.Status)
+	}
+	h.mu.Lock()
+	next := h.held[key("p", "c1")].next
+	h.mu.Unlock()
+	if next.After(time.Now()) {
+		t.Error("the stop did not bring the retry forward")
 	}
 }

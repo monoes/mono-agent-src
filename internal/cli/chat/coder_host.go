@@ -46,6 +46,9 @@ type hostInfo struct {
 	// Binding is the peer-credential binding services the host runs, per profile: counts and states only (never a
 	// token, hash, generation or key). `coder host status` shows it to the operator and to no one else.
 	Binding []coderhost.BindingStatus `json:"binding,omitempty"`
+	// Held lists the sessions whose bound turn recovery cannot confirm gone (or whose tokens it cannot end), with the cause, by session.
+	// Operator-only in `coder host status`, like Binding.
+	Held map[string]string `json:"held,omitempty"`
 }
 
 func hostDir(cfg *Deps) string {
@@ -281,7 +284,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			published := make(chan struct{})
 			go func() {
 				defer close(published)
-				publishBindingStatus(ctx, &info, infoPath, binding)
+				publishBindingStatus(ctx, &info, infoPath, binding, h.Held)
 			}()
 			logf("coder host %s started (pid %d)", info.Instance, info.PID)
 			err = h.Run(ctx)
@@ -304,6 +307,9 @@ func hostStatus(cfg *Deps) map[string]any {
 		if len(info.Binding) > 0 && clicore.RequireOperator(cfg.RequireOperator, "see the binding services of the coder host") == nil {
 			st["binding"] = info.Binding
 		}
+		if len(info.Held) > 0 && clicore.RequireOperator(cfg.RequireOperator, "see the held sessions of the coder host") == nil {
+			st["held"] = info.Held
+		}
 	}
 	return st
 }
@@ -311,9 +317,9 @@ func hostStatus(cfg *Deps) map[string]any {
 // bindingPublishEvery is how often the binding services' state is compared with what was last published.
 var bindingPublishEvery = 2 * time.Second
 
-// publishBindingStatus rewrites the host info file (atomically) whenever the binding services' state changes, until
-// ctx is done.
-func publishBindingStatus(ctx context.Context, info *hostInfo, infoPath string, binding *coderhost.BindingHost) {
+// publishBindingStatus rewrites the host info file (atomically) whenever the binding services' state or the held sessions
+// (held, nil for none) change, until ctx is done.
+func publishBindingStatus(ctx context.Context, info *hostInfo, infoPath string, binding *coderhost.BindingHost, held func() map[string]string) {
 	last := ""
 	t := time.NewTicker(bindingPublishEvery)
 	defer t.Stop()
@@ -324,12 +330,16 @@ func publishBindingStatus(ctx context.Context, info *hostInfo, infoPath string, 
 		case <-t.C:
 		}
 		now := binding.Status()
-		cur, _ := json.Marshal(now)
-		if string(cur) == last || (last == "" && len(now) == 0) {
+		var heldNow map[string]string
+		if held != nil {
+			heldNow = held()
+		}
+		cur, _ := json.Marshal([]any{now, heldNow})
+		if string(cur) == last || (last == "" && len(now) == 0 && len(heldNow) == 0) {
 			continue
 		}
 		last = string(cur)
-		info.Binding = now
+		info.Binding, info.Held = now, heldNow
 		raw, err := json.Marshal(info)
 		if err != nil {
 			continue

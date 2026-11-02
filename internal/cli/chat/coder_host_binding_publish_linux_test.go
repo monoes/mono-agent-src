@@ -62,7 +62,7 @@ func TestThePublisherShowsARunningServiceAndItsCounts(t *testing.T) {
 	info := &hostInfo{PID: 1, Instance: "host-test"}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { defer close(done); publishBindingStatus(ctx, info, infoPath, binding) }()
+	go func() { defer close(done); publishBindingStatus(ctx, info, infoPath, binding, nil) }()
 	t.Cleanup(func() { cancel(); <-done })
 
 	if err := binding.Ensure(context.Background(), "default"); err != nil {

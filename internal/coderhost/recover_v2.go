@@ -109,8 +109,10 @@ func (h *Host) recoverV2(x Session, pid int, stamp string) {
 	revokeErr := h.Store.RevokeSessionTokensErr(x.ProfileID, x.ConversationID)
 	hold(stopping)
 	h.mu.Unlock()
-	r := h.leaderStopper().StopLeader(pid, stamp)
-	h.mu.Lock()
+	r := func() procbind.StopResult {
+		defer h.mu.Lock() // a panic in the stop leaves the lock held, as its caller expects
+		return h.leaderStopper().StopLeader(pid, stamp)
+	}()
 	if r.Outcome == procbind.StopHeld {
 		hold(r.Cause)
 		return
@@ -194,30 +196,51 @@ func (h *Host) retryHeld() {
 			go h.runHoldRetry(k, hs)
 			continue
 		}
-		x := hs.x
-		if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
-			x = cur
-		}
-		isV2, pid, stamp, err := h.Store.V2Turn(x.ProfileID, x.ConversationID, x.TurnID)
-		if err != nil {
-			hs.fails++ // the hold stays; the failure is counted and logged at powers of two, not at every pass
-			h.held[k] = hs
-			if hs.fails&(hs.fails-1) == 0 {
-				h.logf("coder host: the held turn of %s cannot be looked up (%d attempts): %v", x.ConversationID, hs.fails, err)
-			}
+		if hs.inflight { // a leader stop for this session is already running off the pass
 			continue
 		}
-		if !isV2 {
-			// A bound launch recorded before its token existed has no v2 row to find: it stays held, and is stopped again, until the
-			// leader is confirmed gone. Only a session that no longer names a bound turn (settled elsewhere) has nothing to hold.
-			if !(x.TurnBound && x.TurnPID > 1 && x.TurnID != "") {
-				delete(h.held, k)
-				continue
-			}
-			pid, stamp = x.TurnPID, x.TurnStamp
-		}
-		h.recoverV2(x, pid, stamp)
+		hs.inflight = true
+		h.held[k] = hs
+		h.retries.Add(1)
+		go h.retryLeader(k, hs)
 	}
+}
+
+// retryLeader re-checks one held bound turn, off the pass: the leader stop can take two grace periods, so it must not stall Tick (and with
+// it every other session). It takes the host's lock itself; recoverV2 releases it for the stop, and the session's inflight flag keeps a
+// second stop from starting meanwhile.
+func (h *Host) retryLeader(k string, hs heldSession) {
+	defer h.retries.Done()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if cur, ok := h.held[k]; !ok || cur.retry != nil {
+		return // settled or replaced since the pass looked
+	}
+	x := hs.x
+	if cur, ok, err := h.Store.GetSession(x.ProfileID, x.ConversationID); err == nil && ok {
+		x = cur
+	}
+	isV2, pid, stamp, err := h.Store.V2Turn(x.ProfileID, x.ConversationID, x.TurnID)
+	if err != nil {
+		cur := h.held[k]
+		cur.inflight = false
+		cur.fails++ // the hold stays; the failure is counted and logged at powers of two, not at every pass
+		h.held[k] = cur
+		if cur.fails&(cur.fails-1) == 0 {
+			h.logf("coder host: the held turn of %s cannot be looked up (%d attempts): %v", x.ConversationID, cur.fails, err)
+		}
+		return
+	}
+	if !isV2 {
+		// A bound launch recorded before its token existed has no v2 row to find: it stays held, and is stopped again, until the
+		// leader is confirmed gone. Only a session that no longer names a bound turn (settled elsewhere) has nothing to hold.
+		if !(x.TurnBound && x.TurnPID > 1 && x.TurnID != "") {
+			delete(h.held, k)
+			return
+		}
+		pid, stamp = x.TurnPID, x.TurnStamp
+	}
+	h.recoverV2(x, pid, stamp)
 }
 
 // Held lists the held sessions and why, for `doctor` and the status of the host.
