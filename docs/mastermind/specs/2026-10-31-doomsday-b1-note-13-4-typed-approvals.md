@@ -40,6 +40,8 @@ Rules common to all rows:
 - canonicalisation is one function per field type, shared by entry, approval and effect, with the cases in the
   test plan; no field is compared as a raw string;
 - "within a root" is decided on the **resolved** path at the effect, never on the string that was approved.
+- the per-platform handle and address rules are kept as an inventory in B1; the rules and their tests must
+  exist before a platform's `send.third_party` is enabled, and a platform without a rule stays off.
 
 ## 3. The approval record
 
@@ -455,6 +457,8 @@ the attempted ones, never secret values.
 
 ## 9. Branch points that depend on the operator's answers
 
+The numbers below are the questions of spec section 12.5 (`2026-10-29-doomsday-charter-and-stop.md`).
+
 - **Q3/Q6, answered (boss and verifier identity pinned).** The approval records the pinned boss identity.
 - **Peer binding (Q7, answered: no special isolation, and the token work).** This note is written for a bearer
   token (today). Process-level caller binding is not required by the operator's answer to Q7; if the peer
@@ -480,6 +484,9 @@ the attempted ones, never secret values.
   not ended; it applies its window after the run ends.
 - Counting rows (the delta rows) grow with use; the counters are summed per generation and the sum is checked
   against the cap in the same statement.
+- Open, not decided here (issue #1270): the counter rule for a runtime that reports no cost; the list of
+  `host.setting` keys that are not on the never-liftable list, to be reviewed separately; and whether the pane
+  surfaces a sudden rise in consumed rows (the same-user denial case above).
 - These and the open items are tracked in issue #1270.
 
 ## 10. What this note does not claim
