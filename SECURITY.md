@@ -2087,7 +2087,14 @@ that works a task acts on them. The defences:
   out; a dead host's readable database is still judged (its turn rows' start stamps
   fail the ancestry check unless a turn process outlived it). That skip leaves one
   residual: a turn process that outlived its dead host AND whose database is also
-  unreadable is not seen. Registered databases are opened read-only and never
+  unreadable is not seen. A second residual is the pid namespace: a host registered in
+  one pid namespace and read from another (a container, `bwrap --unshare-pid`,
+  `systemd-run`) has a pid that does not exist there, or that carries another start
+  stamp, so the host is judged dead and its unreadable database is skipped (a readable
+  one is always judged). This is limited by the registry being hidden inside the boxes
+  (the compat box mounts a tmpfs over `<home>/.monoagent`; the strict box is read-only)
+  and by the ancestry check itself, which already fails across namespaces.
+  Registered databases are opened read-only and never
   migrated, and only when they are regular files. Entries are one per running host
   database and the gate opens each once; two hosts on one database share one entry (the
   later start overwrites it, and if that one exits first the other is no longer

@@ -381,9 +381,18 @@ func TestAFifoRegisteredAsADatabaseDoesNotWedgeTheGate(t *testing.T) {
 	makeFifo(t, fifo)
 	file := registerRaw(t, dir, canonicalOrSelf(t, fifo), os.Getpid(), ProcStamp(os.Getpid()))
 	// the read itself refuses a non-regular file at once, it does not rely on the timeout
+	// A watchdog makes a missing regular-file check fail in 5 s instead of hanging to the test timeout. The
+	// goroutine stuck opening the FIFO may leak until the test process ends; that is acceptable in a test.
 	start := time.Now()
-	if _, err := CallerInATurnAt(fifo); err == nil || time.Since(start) > 2*time.Second {
-		t.Fatalf("a FIFO must be refused at once: %v after %s", err, time.Since(start))
+	done := make(chan error, 1)
+	go func() { _, err := CallerInATurnAt(fifo); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil || time.Since(start) > 2*time.Second {
+			t.Fatalf("a FIFO must be refused at once: %v after %s", err, time.Since(start))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the gate hung on a non-regular registered file")
 	}
 	in, err := gateWithin(t, 6*time.Second)
 	if in || err == nil || !strings.Contains(err.Error(), file) || !strings.Contains(err.Error(), "delete this file") {
