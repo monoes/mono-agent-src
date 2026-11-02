@@ -55,3 +55,34 @@ func TestMigration152RecordsWhetherTheTurnProcessWasABoundLaunch(t *testing.T) {
 		}
 	})
 }
+
+// A row written by the unreleased development head that kept the discriminator as a "bound:" prefix on the stamp is translated: the
+// prefix is stripped and the flag set; plain stamps are left alone.
+func TestMigration152TranslatesThePrefixedStampOfAnUnreleasedHead(t *testing.T) {
+	db, err := NewDatabase(filepath.Join(t.TempDir(), "monoagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	applyMigrationsBelow(t, db, 152)
+	for conv, stamp := range map[string]string{"prefixed": "bound:start:5@boot", "plain": "start:6"} {
+		if _, err := db.DB.Exec(`INSERT INTO coder_sessions (profile_id, conversation_id, state, role, turn_id, turn_pid, turn_stamp, created_at, updated_at) VALUES ('default', ?, 'running', 'solo', 't1', 777, ?, 'n', 'n')`, conv, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for run := 1; run <= 2; run++ { // twice: the translation is idempotent
+		if err := db.ApplyMigrations(); err != nil {
+			t.Fatalf("apply migrations, run %d: %v", run, err)
+		}
+		for conv, want := range map[string]struct {
+			stamp string
+			bound int
+		}{"prefixed": {"start:5@boot", 1}, "plain": {"start:6", 0}} {
+			var stamp string
+			var bound int
+			if err := db.DB.QueryRow(`SELECT turn_stamp, turn_bound FROM coder_sessions WHERE conversation_id = ?`, conv).Scan(&stamp, &bound); err != nil || stamp != want.stamp || bound != want.bound {
+				t.Errorf("run %d, %s: stamp %q bound %d (%v), want %q and %d", run, conv, stamp, bound, err, want.stamp, want.bound)
+			}
+		}
+	}
+}

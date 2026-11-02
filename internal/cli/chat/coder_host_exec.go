@@ -317,7 +317,8 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
 			_ = cmd.Process.Kill()
 			_ = killGroup(t.pid)
-			startWaiter() // reaps it and ends its tokens
+			t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
+			startWaiter()  // reaps it and ends its tokens
 			return nil, t.fail(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
 		}
 	}
@@ -514,6 +515,8 @@ type execTurn struct {
 	// exit is observed without reaping it, its stragglers are killed in that window, and the group is never signalled
 	// by number after the reap.
 	strict bool
+	// killed is set when the launcher killed the turn itself before the waiter started: no number-based group signal is sent after it.
+	killed bool
 
 	// ownRevoke ends this turn's own tokens (its session token and a mission child's task token) at once, for a refusal.
 	ownRevoke func() error
@@ -550,6 +553,8 @@ func (t *execTurn) settle() {
 	if t.stopping {
 		_ = t.killGrp()
 	}
+	// From here the leader is about to be reaped (cmd.Wait runs next, outside the lock) and its pid and group are free the moment it is: no
+	// later Stop, grace expiry or afterDone may signal them by number, in the gap before markReaped as much as after it.
 }
 
 // markReaped records that cmd.Wait returned. For a strict turn whose leader was held, no group signal by number
@@ -578,14 +583,27 @@ func (t *execTurn) markStopping() {
 
 // pinned says whether the group may be signalled by number: always for an ordinary turn (as before), and for a strict
 // one until its held leader is reaped. The caller holds t.mu.
-func (t *execTurn) pinned() bool { return !(t.strict && t.held && t.reaped) }
+func (t *execTurn) pinned() bool {
+	if t.killed { // killed by the launcher before anything could reap it: nothing is signalled by number again
+		return false
+	}
+	return !(t.strict && t.held) // a strict turn whose leader has exited is about to be reaped (settle ran): its group is no longer ours
+}
+
+// markKilled records that the launcher killed the turn itself (a failed identity record) while nothing could have reaped it: the pid
+// and group may be reused as soon as the waiter reaps the child, so no later Stop, grace expiry or afterDone signals them by number.
+func (t *execTurn) markKilled() {
+	t.mu.Lock()
+	t.killed = true
+	t.mu.Unlock()
+}
 
 // afterDone is what the stop goroutine does once the leader has been reaped: the stragglers of the group are killed now,
 // as they always were; a strict turn's were killed before the reap.
 func (t *execTurn) afterDone() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !(t.strict && t.held) {
+	if !(t.strict && t.held) && !t.killed {
 		_ = t.killGrp()
 	}
 }
@@ -595,7 +613,7 @@ func (t *execTurn) afterDone() {
 func (t *execTurn) killGroupIfHeld() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.pinned() && !t.exited {
+	if t.pinned() {
 		_ = t.killGrp()
 	}
 }
@@ -620,9 +638,6 @@ func (t *execTurn) Stop() {
 		t.stopping = true
 		if t.pinned() {
 			_ = t.terminateGrp() // t is this process's child: its pid is its own until cmd.Wait reaps it
-			if t.exited {        // a strict turn's leader already ended and is held unreaped: its stragglers go now
-				_ = t.killGrp()
-			}
 		}
 		t.mu.Unlock()
 		grace := hostTurnGrace // read here: the goroutine below can outlive a test that swaps it
