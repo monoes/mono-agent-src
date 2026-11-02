@@ -154,7 +154,17 @@ you ran task agents allow --approve; then a named agent (--as NAME) may approve,
 the history records it as that agent, marked as delegated.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			caller := d.callerFor(flagAs(cmd))
-			actor, err := caller.operator("approve a task")
+			var actor tasks.Actor
+			var err error
+			if caller.isAgent() {
+				_, err = caller.operator("approve a task")
+			} else {
+				// The operator's branch: the shared gate (tokens, operator, not inside a coder turn).
+				actor, err = d.personGate(cmd, "approve a task")
+				if err != nil {
+					return err
+				}
+			}
 			if err != nil {
 				// An agent is refused, unless the operator delegated approving (task agents allow
 				// --approve), read now. Then it must be named: the history says who approved.

@@ -69,6 +69,9 @@ WHO MAY DO WHAT
   with exit 3 and the code operator_only (board and approve unless delegated, see
   below). board shows the Inbox, so an agent uses "task list". os install and
   os uninstall change the Services menu of the user's Mac, outside the board.
+  The coder-session token (MONOAGENT_SESSION_TOKEN) marks a process as an agent, and
+  the operator's branch of session approve, approve and board refuses a process inside
+  a coder turn: restart from your own terminal.
   os status only lists those menus: an agent may run it.
   What is not the operator's own terminal is refused those too, though no agent named
   itself: the chat's runs (MONOAGENT_AI_CALLER), a process a workflow node started
