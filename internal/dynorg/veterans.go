@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 )
 
@@ -38,6 +39,20 @@ type Veteran struct {
 	Report     string
 	Outcome    string
 	AllowSpawn bool
+	// Builtin and Purposes are what the purpose sets saw when it was staffed:
+	// whether the role was built-in, and the purposes whose sets limited it
+	// (comma-separated). A veteran kept without them is unmapped.
+	Builtin  bool
+	Purposes string
+	// MissionSession and MissionTask are the mission task an executor worked (0: none, and always 0
+	// for a verifier), so the operator can retire its stored row (tasks.RetireWorker).
+	MissionSession, MissionTask int64
+	// MissionClaims is the claim number of the task the worker started under: a retirement made at that
+	// number or a later one retires it, a worker that took the task later has a higher number.
+	MissionClaims int64
+	// Retired: the operator retired this worker. It is not given back to the lead, but it still takes its id
+	// out of the sequence, so a new worker does not reuse it.
+	Retired bool
 }
 
 // remember hands w to Config.Remember once a run of it ended: only a
@@ -55,7 +70,11 @@ func (c *Conductor) keep(w *worker, force bool) {
 		ID: w.id, ParentID: parentID(w), Role: w.staff.Role, AgentType: w.staff.AgentType, Category: w.staff.Category,
 		Access: w.staff.Access, Runtime: w.model.Runtime, Model: w.model.Model, Effort: w.staff.Effort,
 		Session: w.session, Cwd: w.cwd, Report: w.report, Outcome: w.status, AllowSpawn: w.allowSpawn,
+		Builtin: w.staff.Builtin, Purposes: strings.Join(w.staff.sides, ","),
 	}
+	var gen int
+	v.MissionSession, v.MissionTask, gen, _ = w.missionIdentity()
+	v.MissionClaims = int64(gen)
 	for _, s := range w.staff.Skills {
 		v.Skills = append(v.Skills, s.Name)
 	}
@@ -89,6 +108,12 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 		if v.ID == "" || c.workers[v.ID] != nil {
 			continue
 		}
+		if v.Retired {
+			if n, err := strconv.Atoi(strings.TrimPrefix(v.ID, "w")); err == nil && n > c.seq {
+				c.seq = n
+			}
+			continue
+		}
 		var parent *worker
 		if v.ParentID != "" {
 			if parent = c.workers[v.ParentID]; parent == nil || !parent.veteran {
@@ -96,7 +121,10 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 			}
 		}
 		model, ready := c.veteranModel(v)
-		st := Staff{Role: v.Role, AgentType: v.AgentType, Category: v.Category, Access: v.Access, Effort: v.Effort, Model: model}
+		st := Staff{Role: v.Role, AgentType: v.AgentType, Category: v.Category, Access: v.Access, Effort: v.Effort, Model: model, Builtin: v.Builtin}
+		if v.Purposes != "" {
+			st.sides = strings.Split(v.Purposes, ",")
+		}
 		for _, s := range v.Skills {
 			st.Skills = append(st.Skills, Skill{Name: s})
 		}
@@ -104,7 +132,7 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 			id: v.ID, staff: st, model: st.Model, status: chatevents.AgentIdle, report: v.Report, session: v.Session,
 			changed: map[string]bool{}, started: c.cfg.Now(), parent: parent, allowSpawn: v.AllowSpawn && parent == nil,
 			mustConfine: parent != nil && parent.staff.Access == ProfileResearch, veteran: true, cwd: v.Cwd,
-			notReady: !ready,
+			notReady: !ready, missionSession: v.MissionSession, missionTask: v.MissionTask, missionGen: int(v.MissionClaims),
 		}
 		if err := c.veteranBlockedLocked(w); err != nil {
 			w.errText = err.Error()
@@ -166,5 +194,61 @@ func (c *Conductor) veteranBlockedLocked(w *worker) error {
 	case c.cfg.Staffer.fitAccess(w.staff.Access) != w.staff.Access:
 		return fmt.Errorf("%s works with %s access, which the user turned off (app access); spawn a new worker", w.id, w.staff.Access)
 	}
+	return c.veteranPurposeErrLocked(w)
+}
+
+// veteranPurposeErrLocked rechecks a worker's model (a veteran's, or one
+// staffed earlier in this turn: both have recorded sides) against the operator's
+// CURRENT sets, read fresh (fail closed) at every follow-up: narrowing a set
+// after the worker was staffed refuses it rather than leaving it on its old
+// model. The purposes are the ones recorded when it was staffed; a veteran
+// that was not built-in, or was kept by a build that recorded none, is
+// unmapped (every purpose the operator restricted applies), and a record that
+// names an unknown purpose is refused.
+func (c *Conductor) veteranPurposeErrLocked(w *worker) error {
+	if c.cfg.Staffer == nil {
+		return nil
+	}
+	sides := w.staff.sides
+	if !w.staff.Builtin || len(sides) == 0 {
+		sides = agentpurposes.IDs()
+	}
+	for _, id := range sides {
+		if _, ok := agentpurposes.Lookup(id); !ok {
+			return fmt.Errorf("%s's purpose record is unreadable (%q); spawn a new worker", w.id, id)
+		}
+	}
+	all, err := c.cfg.Staffer.settings()
+	if err != nil {
+		return fmt.Errorf("%s can't be messaged: %w", w.id, err)
+	}
+	for _, id := range sides {
+		if !c.cfg.Staffer.permits(all, id, w.model) {
+			return fmt.Errorf("%s runs on %s, which the operator's model set for %s no longer allows; the operator can change it with `agent purposes`, or spawn a new worker", w.id, w.model.Key(), id)
+		}
+	}
 	return nil
+}
+
+// NextWorkerSeq is the highest worker number among ids ("w7" is 7), 0 when none: the counter a conductor starts from so that
+// its next worker (w8) takes none of them.
+func NextWorkerSeq(ids []string) int {
+	seq := 0
+	for _, id := range ids {
+		if n, err := strconv.Atoi(strings.TrimPrefix(id, "w")); err == nil && n > seq {
+			seq = n
+		}
+	}
+	return seq
+}
+
+// ReserveWorkerIDs keeps the next worker's id clear of every stored worker of the conversation. AddVeterans does it for the
+// ones it is given, which are only the latest; this covers all of them.
+func (c *Conductor) ReserveWorkerIDs(ids []string) {
+	n := NextWorkerSeq(ids)
+	c.mu.Lock()
+	if n > c.seq {
+		c.seq = n
+	}
+	c.mu.Unlock()
 }

@@ -191,3 +191,28 @@ func TestTaskSessionArgumentsAreChecked(t *testing.T) {
 	_ = ta
 	_ = b
 }
+
+func TestTaskSessionViewsCarryTheTreeFields(t *testing.T) {
+	f := newTaskFixture(t, taskSetup{readOnly: true})
+	parent, _ := f.sessionWith(true, false, "step")
+	kid, err := f.Store.CreateSession(opCtx, "default", tasks.SessionInput{Title: "Look into it", ParentSessionID: parent.ID, Kind: "research"}, sessOperator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[int64]map[string]any{}
+	for _, s := range f.doc("task_session_list", map[string]any{})["sessions"].([]any) {
+		m := s.(map[string]any)
+		byID[int64(m["id"].(float64))] = m
+	}
+	root, child := byID[parent.ID], byID[kid.ID]
+	if _, has := root["parent_session_id"]; has || root["kind"] != "board" || root["depth"] != float64(1) || root["approval_basis"] != "operator" {
+		t.Fatalf("a top-level session: %v", root)
+	}
+	if child["parent_session_id"] != float64(parent.ID) || child["kind"] != "research" || child["depth"] != float64(2) || child["approval_basis"] != "" {
+		t.Fatalf("a child session: %v", child)
+	}
+	got := f.doc("task_session_get", map[string]any{"id": kid.ID})["session"].(map[string]any)
+	if got["parent_session_id"] != float64(parent.ID) || got["kind"] != "research" || got["depth"] != float64(2) {
+		t.Fatalf("task_session_get: %v", got)
+	}
+}

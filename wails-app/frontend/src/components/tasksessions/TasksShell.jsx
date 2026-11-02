@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTaskSessions } from '../../lib/useTaskSessions.js'
 import { useReportTarget } from '../../lib/useReportTarget.js'
@@ -19,6 +19,7 @@ export default function TasksShell({ isActive = true, Board, sessionHint = null,
   const { t } = useTranslation()
   const [selectedId, setSelectedId] = useState(sessionHint)
   const [view, setView] = useState('board')
+  const treeUi = useRef({ collapsed: new Set(), refocus: false }) // what the session tree keeps across the board's remounts
   const s = useTaskSessions(isActive, selectedId)
   const { openDraft } = useSendToCoder() || {}
   useEffect(() => { if (sessionHint) { setSelectedId(sessionHint); setView('board') } }, [sessionHint])
@@ -32,7 +33,7 @@ export default function TasksShell({ isActive = true, Board, sessionHint = null,
   // A hint for another session than the one on show opens nothing here.
   const openTask = found && found.sessionId === selectedId ? found.taskId : null
 
-  const switcher = <SessionSwitcher sessions={s.sessions} selectedId={selectedId} onSelect={choose} error={s.listError} onRetry={s.reload} />
+  const switcher = <SessionSwitcher sessions={s.sessions} selectedId={selectedId} onSelect={choose} error={s.listError} onRetry={s.reload} onCreate={s.create} onRename={s.rename} treeUi={treeUi} />
   // A hinted session is the selection from the first paint: while the list loads the page says so, never Personal.
   if (selectedId && !session && !s.loaded) {
     return <div className="page" style={{ padding: 16 }} data-testid="ts-loading">{t('tasks.loading')}</div>
@@ -42,7 +43,7 @@ export default function TasksShell({ isActive = true, Board, sessionHint = null,
   }
   const header = (
     <SessionHeader
-      session={session} view={view} onView={setView} onAct={s.act} onBudget={s.setBudget}
+      sessions={s.sessions} session={session} view={view} onView={setView} onAct={s.act} onBudget={s.setBudget}
       notice={s.notice} onClearNotice={s.clearNotice}
       onOpenConversation={openDraft ? (id) => openDraft({ conversationId: id }) : null}
     />

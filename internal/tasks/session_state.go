@@ -2,47 +2,11 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
 )
-
-// ApproveSession is the operator's approval of the plan: the session's draft tasks move
-// to Ready, in their order, and the session runs. Only the operator may, and only a draft
-// that holds a task: an agent cannot approve its own plan.
-func (s *Store) ApproveSession(ctx context.Context, profileID string, id int64, actor Actor) (Session, error) {
-	if actor.Kind != Human {
-		return Session{}, operatorOnly("approve a session's plan")
-	}
-	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		if se.State != SessionDraft || se.Archived {
-			return sessionNotReady("session #%d is %s: only a draft is approved", id, se.State)
-		}
-		ids, _, err := s.sessionColumn(ctx, x, id, StatusInbox)
-		if err != nil {
-			return err
-		}
-		// Inbox cards stack newest on top; the plan's order is the order they were added.
-		slices.Sort(ids)
-		if se.Counts.Total == 0 {
-			return invalid("session #%d has no tasks: plan some before approving", id)
-		}
-		for _, tid := range ids {
-			cur, err := s.getTx(ctx, x, profileID, tid)
-			if err != nil {
-				return err
-			}
-			if err := s.moveTx(ctx, x, profileID, cur, StatusReady, Placement{Bottom: true}, actor, "moved", "approved with the plan"); err != nil {
-				return err
-			}
-		}
-		stamp := s.stamp()
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = 'running', approved_by = ?, approved_at = ? WHERE id = ?`, actor.Label(), stamp, id); err != nil {
-			return fmt.Errorf("tasks: approving session #%d: %w", id, err)
-		}
-		return s.sessionEvent(ctx, x, id, actor, "approved", fmt.Sprintf("%d tasks to Ready", len(ids)))
-	})
-}
 
 // sessionColumn lists the ids and positions of a session's cards in one column.
 func (s *Store) sessionColumn(ctx context.Context, x dbx, id int64, st Status) ([]int64, []int64, error) {
@@ -91,20 +55,26 @@ func (s *Store) transition(ctx context.Context, profileID string, id int64, acto
 		if !slices.Contains(from, se.State) || se.Archived {
 			return sessionNotReady("session #%d is %s: it cannot %s now", id, se.State, kind)
 		}
-		if to == SessionStopped || kind == "close" {
-			why := "the session was stopped"
-			if kind == "close" {
-				why = "the session was closed"
-			}
-			if err := s.releaseClaims(ctx, x, profileID, id, actor, why); err != nil {
-				return err
-			}
-		}
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = ? WHERE id = ?`, string(to), id); err != nil {
-			return fmt.Errorf("tasks: %s session #%d: %w", kind, id, err)
-		}
-		return s.sessionEvent(ctx, x, id, actor, kind, note)
+		return s.endTx(ctx, x, profileID, id, actor, to, kind, note)
 	})
+}
+
+// endTx moves session id to a new state inside a write: a stop or a close releases the
+// session's claims first.
+func (s *Store) endTx(ctx context.Context, x dbx, profileID string, id int64, actor Actor, to SessionState, kind, note string) error {
+	if to == SessionStopped || kind == "close" {
+		why := "the session was stopped"
+		if kind == "close" {
+			why = "the session was closed"
+		}
+		if err := s.releaseClaims(ctx, x, profileID, id, actor, why); err != nil {
+			return err
+		}
+	}
+	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET state = ? WHERE id = ?`, string(to), id); err != nil {
+		return fmt.Errorf("tasks: %s session #%d: %w", kind, id, err)
+	}
+	return s.sessionEvent(ctx, x, id, actor, kind, note)
 }
 
 // releaseClaims takes every claim of the session's tasks back: the tasks go to Ready.
@@ -183,11 +153,27 @@ func (s *Store) ArchiveSession(ctx context.Context, profileID string, id int64, 
 		if se.State == SessionRunning || se.State == SessionPaused {
 			return sessionNotReady("session #%d is %s: stop it before archiving", id, se.State)
 		}
-		if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET archived_at = ? WHERE id = ?`, s.stamp(), id); err != nil {
-			return fmt.Errorf("tasks: archiving session #%d: %w", id, err)
+		all, err := s.subtree(ctx, x, profileID, id)
+		if err != nil {
+			return err
 		}
-		return s.sessionEvent(ctx, x, id, actor, "archived", "")
+		if open := openIn(all); len(open) > 0 {
+			return sessionNotReady("%s", openChildrenMessage(id, open))
+		}
+		// Only finished sessions are below it: they go with it, without a prompt.
+		if _, err := s.archiveBelow(ctx, x, profileID, all, actor); err != nil {
+			return err
+		}
+		return s.archiveTx(ctx, x, id, actor, "")
 	})
+}
+
+// archiveTx hides session id inside a write and records the event.
+func (s *Store) archiveTx(ctx context.Context, x dbx, id int64, actor Actor, note string) error {
+	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET archived_at = ? WHERE id = ?`, s.stamp(), id); err != nil {
+		return fmt.Errorf("tasks: archiving session #%d: %w", id, err)
+	}
+	return s.sessionEvent(ctx, x, id, actor, "archived", note)
 }
 
 // UpdateSession changes a session's budget, caps, access level or auto-close setting.
@@ -213,8 +199,8 @@ func (s *Store) ChangeSession(ctx context.Context, profileID string, id int64, u
 	if u.AccessLevel != nil && !validAccess(*u.AccessLevel) {
 		return Session{}, invalid("unknown access level %q (use %s)", echo(*u.AccessLevel), strings.Join(AccessLevels, ", "))
 	}
-	if u.BudgetUSD != nil && (!finite(*u.BudgetUSD) || *u.BudgetUSD < 0) {
-		return Session{}, invalid("the budget is an amount in dollars, 0 or more")
+	if u.BudgetUSD != nil && (!finite(*u.BudgetUSD) || *u.BudgetUSD < 0 || *u.BudgetUSD > MaxBudgetUSD) {
+		return Session{}, invalid("the budget is an amount in dollars, 0 to %.0f", MaxBudgetUSD)
 	}
 	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
 		if update {
@@ -260,6 +246,16 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 		auto = *u.AutoCloseVerified
 		changed = append(changed, fmt.Sprintf("auto_close_verified %t", auto))
 	}
+	if se.ParentSessionID != 0 {
+		if err := s.withinParentUpdate(ctx, x, se, u); err != nil {
+			return err
+		}
+	}
+	if u.BudgetUSD != nil {
+		if err := s.budgetFloor(ctx, x, se, budget); err != nil {
+			return err
+		}
+	}
 	on := 0
 	if auto {
 		on = 1
@@ -269,7 +265,67 @@ func (s *Store) applyUpdate(ctx context.Context, x dbx, se Session, u SessionUpd
 		maxTasks, maxDepth, maxRetries, budget, level, on, id); err != nil {
 		return fmt.Errorf("tasks: updating session #%d: %w", id, err)
 	}
-	return s.sessionEvent(ctx, x, id, actor, "limits", strings.Join(changed, ", "))
+	if err := s.sessionEvent(ctx, x, id, actor, "limits", strings.Join(changed, ", ")); err != nil {
+		return err
+	}
+	return s.clampChildren(ctx, x, id, actor, lowered{
+		level:    slices.Index(AccessLevels, level) < slices.Index(AccessLevels, se.AccessLevel),
+		maxTasks: maxTasks < se.MaxTasks,
+		maxDepth: maxDepth < se.MaxDepth,
+		budget:   budget > 0 && (se.BudgetUSD <= 0 || budget < se.BudgetUSD),
+	})
+}
+
+// withinCeiling is nil when the session's own limits are within the ceiling above it: a session
+// that is not (a store edited by hand) is not started.
+func withinCeiling(se Session, c ceiling) error {
+	switch {
+	case slices.Index(AccessLevels, se.AccessLevel) > slices.Index(AccessLevels, c.level):
+		return limit("session #%d has access %q, above the %q of a session above it: the operator lowers it first", se.ID, se.AccessLevel, c.level)
+	case se.MaxTasks > c.maxTasks:
+		return limit("session #%d has max tasks %d, above the %d of a session above it: the operator lowers it first", se.ID, se.MaxTasks, c.maxTasks)
+	case se.MaxDepth > c.maxDepth:
+		return limit("session #%d has max depth %d, above the %d of a session above it: the operator lowers it first", se.ID, se.MaxDepth, c.maxDepth)
+	case c.budget > 0 && se.BudgetUSD > c.budget:
+		return limit("session #%d has budget $%.2f, above the $%.2f of a session above it: the operator lowers it first", se.ID, se.BudgetUSD, c.budget)
+	}
+	return nil
+}
+
+// withinParentUpdate holds an update of a child to the rule its creation followed: what u raises may
+// not pass the ceiling above it (the lowest access, task cap, depth cap and nonzero budget on the whole
+// chain of ancestors, closed ones included), and under an ancestor with a budget the child's budget is
+// above 0 (0 is no cap) and at most that. Each child is checked by itself: the sum
+// of the children's budgets is not checked against the parent's.
+func (s *Store) withinParentUpdate(ctx context.Context, x dbx, se Session, u SessionUpdate) error {
+	top, err := s.ceilingAt(ctx, x, se.ProfileID, se.ParentSessionID)
+	if err != nil {
+		return err
+	}
+	par, err := s.sessionTx(ctx, x, se.ProfileID, se.ParentSessionID)
+	if err != nil {
+		return err
+	}
+	par = top.asParent(par)
+	if u.AccessLevel != nil && slices.Index(AccessLevels, *u.AccessLevel) > slices.Index(AccessLevels, par.AccessLevel) {
+		return limit("access %q is above the parent session #%d's %q", *u.AccessLevel, par.ID, par.AccessLevel)
+	}
+	if u.MaxTasks != nil && *u.MaxTasks > par.MaxTasks {
+		return limit("max tasks %d is above the parent session #%d's %d", *u.MaxTasks, par.ID, par.MaxTasks)
+	}
+	if u.MaxDepth != nil && *u.MaxDepth > par.MaxDepth {
+		return limit("max depth %d is above the parent session #%d's %d", *u.MaxDepth, par.ID, par.MaxDepth)
+	}
+	if u.BudgetUSD == nil || par.BudgetUSD <= 0 {
+		return nil
+	}
+	if *u.BudgetUSD == 0 {
+		return limit("budget $0.00 (no cap) is refused under the parent session #%d's $%.2f: name an amount of at most that", par.ID, par.BudgetUSD)
+	}
+	if *u.BudgetUSD > par.BudgetUSD {
+		return limit("budget $%.2f is above the parent session #%d's $%.2f", *u.BudgetUSD, par.ID, par.BudgetUSD)
+	}
+	return nil
 }
 
 // AddSessionSpend adds usd to what the session has spent. Only the operator's process
@@ -281,16 +337,61 @@ func (s *Store) AddSessionSpend(ctx context.Context, profileID string, id int64,
 	if !finite(usd) || usd <= 0 {
 		return Session{}, invalid("spend is an amount in dollars above 0")
 	}
-	return s.sessionWrite(ctx, profileID, id, func(x dbx, se Session) error {
-		return s.applySpend(ctx, x, id, usd, note, actor)
+	return s.sessionWriteIf(ctx, profileID, id, func(x dbx, se Session) (bool, error) {
+		return toMicros(usd) != 0, s.applySpend(ctx, x, id, usd, note, actor)
 	})
 }
 
+// Tx is the transaction AddSessionSpendWith hands its callback: the one the spend is written in.
+type Tx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// AddSessionSpendWith is AddSessionSpend with a record written in the same transaction: also runs after the meter
+// is updated and, if it fails, the spend is rolled back with it. A caller that must record "this was charged"
+// exactly once uses it, so the meter and the record are never apart.
+func (s *Store) AddSessionSpendWith(ctx context.Context, profileID string, id int64, usd float64, note string, actor Actor, also func(ctx context.Context, x Tx) error) (Session, error) {
+	if actor.Kind != Human {
+		return Session{}, operatorOnly("record a session's spend")
+	}
+	if !finite(usd) || usd <= 0 {
+		return Session{}, invalid("spend is an amount in dollars above 0")
+	}
+	return s.sessionWriteIf(ctx, profileID, id, func(x dbx, se Session) (bool, error) {
+		if err := s.applySpend(ctx, x, id, usd, note, actor); err != nil {
+			return false, err
+		}
+		return toMicros(usd) != 0, also(ctx, x)
+	})
+}
+
+// applySpend adds an operator's amount to the session's spend through the micro-dollar grid, the same one the
+// reservations use: next = spent + usd, each rounded to whole micro-dollars, so spent stays a multiple of 1e-6
+// (a legacy total off the grid snaps to the nearest micro-dollar on this write). An amount under half a micro-dollar
+// is a zero charge: nothing is written and no event is recorded. A total (or one amount) beyond MaxBudgetUSD is
+// refused before anything is written: a figure past it is a typo or an overflow in the making, never a real
+// bill. Spending past the session's own budget is not refused; it is recorded as it happened.
 func (s *Store) applySpend(ctx context.Context, x dbx, id int64, usd float64, note string, actor Actor) error {
-	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET spent_usd = spent_usd + ? WHERE id = ?`, usd, id); err != nil {
+	if !finite(usd) || usd > MaxBudgetUSD {
+		return limit("spend of $%g is beyond the supported $%g: check the figure", usd, MaxBudgetUSD)
+	}
+	m := toMicros(usd)
+	if m == 0 {
+		return nil
+	}
+	var spent float64
+	if err := x.QueryRowContext(ctx, `SELECT spent_usd FROM task_sessions WHERE id = ?`, id).Scan(&spent); err != nil {
+		return sessionLookup(err, id)
+	}
+	next := fromMicros(toMicros(spent) + m)
+	if next > MaxBudgetUSD {
+		return limit("spend of $%g would take session #%d to $%g, beyond the supported $%g", usd, id, next, MaxBudgetUSD)
+	}
+	if _, err := x.ExecContext(ctx, `UPDATE task_sessions SET spent_usd = ? WHERE id = ?`, next, id); err != nil {
 		return fmt.Errorf("tasks: recording spend of session #%d: %w", id, err)
 	}
-	return s.sessionEvent(ctx, x, id, actor, "spend", fmt.Sprintf("$%.4f %s", usd, note))
+	return s.sessionEvent(ctx, x, id, actor, "spend", fmt.Sprintf("$%.6f %s", fromMicros(m), note))
 }
 
 // overBudget refuses work on a session that has spent its budget (0: none set).

@@ -111,6 +111,41 @@ export function layoutBubbles(bubbles, expandedKey, max = MAX_VISIBLE) {
   return { visible, overflow: rest }
 }
 
+// The dock's vertical budget. A bubble takes SLOT px (50 + the 10 gap); one with an
+// orbit takes ORBIT_EXTRA more (the arc's margin above and below). FIXED is what the
+// dock keeps for the rest of the column: the bottom and top gaps, "+", a tray row
+// and the grip.
+export const DOCK_SLOT = 60
+export const DOCK_ORBIT_EXTRA = 132
+export const DOCK_FIXED = 172
+
+// fitDock decides which of the already laid-out bubbles the window is tall enough for.
+// items: [{ key, orbit }] in dock order (orbit: the bubble has circles around it);
+// chip: the list already has a "+N" bubble, which takes a slot. The expanded bubble is
+// served first, then the rest in order. A bubble that fits only without its circles is
+// shown without them (plain); one that fits not at all goes to the overflow list, so
+// the "+" and the tray row are never pushed off the top of the window. At least one
+// bubble stays. Returns { visible, overflow, plain } as key lists (plain a Set).
+export function fitDock(items, expandedKey, height, chip = false) {
+  const need = items.reduce((n, it) => n + DOCK_SLOT + (it.orbit ? DOCK_ORBIT_EXTRA : 0), 0)
+  const room = height - DOCK_FIXED - (chip ? DOCK_SLOT : 0)
+  if (need <= room) return { visible: items.map(i => i.key), overflow: [], plain: new Set() }
+  const budget = room - DOCK_SLOT // the "+N" bubble this will need
+  const order = [...items].sort((a, b) => (b.key === expandedKey) - (a.key === expandedKey))
+  const keep = new Set()
+  const plain = new Set()
+  let used = 0
+  for (const it of order) {
+    const full = DOCK_SLOT + (it.orbit ? DOCK_ORBIT_EXTRA : 0)
+    if (used + full <= budget) { keep.add(it.key); used += full } else if (used + DOCK_SLOT <= budget || keep.size === 0) { keep.add(it.key); plain.add(it.key); used += DOCK_SLOT }
+  }
+  return {
+    visible: items.filter(i => keep.has(i.key)).map(i => i.key),
+    overflow: items.filter(i => !keep.has(i.key)).map(i => i.key),
+    plain,
+  }
+}
+
 // moveBubble returns bubbles with the one at `from` moved to index `to`.
 export function moveBubble(bubbles, fromKey, toKey) {
   const from = bubbles.findIndex(b => b.key === fromKey)
@@ -196,7 +231,8 @@ export function loadState(storage = globalThis.localStorage, profileId = '') {
 
 export function saveState(state, storage = globalThis.localStorage, profileId = '') {
   try {
-    const bubbles = state.bubbles.filter(b => b.conversationId || (b.kind === 'org' && b.orgName))
+    // A lite pane (an agent opened from an orbit) is reached from its parent's orbit and is not kept.
+    const bubbles = state.bubbles.filter(b => !b.lite && (b.conversationId || (b.kind === 'org' && b.orgName)))
       .map(b => (b.kind === 'org'
         ? { kind: 'org', orgName: b.orgName, runId: b.runId || '', finished: !!b.finished }
         : {

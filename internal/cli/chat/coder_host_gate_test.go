@@ -1,0 +1,771 @@
+package chat
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/storage"
+)
+
+// fakeLauncher records what the gate passes on.
+type fakeLauncher struct {
+	onStart func()
+	calls   [][]any
+	turn    coderhost.Turn
+	err     error
+	adopted []any
+}
+
+func (f *fakeLauncher) Start(p, c, turn, msg string, att []string, mt string) (coderhost.Turn, error) {
+	if f.onStart != nil {
+		f.onStart()
+	}
+	f.calls = append(f.calls, []any{"Start", p, c, turn, msg, att, mt})
+	return f.turn, f.err
+}
+
+func (f *fakeLauncher) StartCapped(p, c, turn, msg string, att []string, mt string, capUSD float64) (coderhost.Turn, error) {
+	f.calls = append(f.calls, []any{"StartCapped", p, c, turn, msg, att, mt, capUSD})
+	return f.turn, f.err
+}
+
+func (f *fakeLauncher) Adopt(pid int, stamp string) coderhost.Turn {
+	f.adopted = append(f.adopted, pid, stamp)
+	return f.turn
+}
+
+func (f *fakeLauncher) Finish(p, c, turn, reason string) {
+	f.calls = append(f.calls, []any{"Finish", p, c, turn, reason})
+}
+
+type fakeTurn struct{ coderhost.Turn }
+
+func gateRig(t *testing.T, rawSettings string) (*gatedLauncher, *fakeLauncher) {
+	t.Helper()
+	db, err := storage.NewDatabase(newChatCLITestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if rawSettings != "" {
+		if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			ON CONFLICT(name) DO UPDATE SET config_data = excluded.config_data`, coderConfigName, rawSettings); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inner := &fakeLauncher{turn: fakeTurn{}}
+	return &gatedLauncher{inner: inner, db: db.DB}, inner
+}
+
+// With the setting off in every way it can be absent or false, the gate is a pass-through: the same calls reach the
+// launcher with the same arguments and the launcher's own results come back, for Start, StartCapped, Adopt and Finish.
+func TestTheGatePassesEverythingOnWhileTheSettingIsOff(t *testing.T) {
+	for name, raw := range map[string]string{
+		"no coder settings": "",
+		"field absent":      `{"enabled":true}`,
+		"explicit false":    `{"enabled":true,"peercredBinding":false}`,
+		"null":              `{"enabled":true,"peercredBinding":null}`,
+	} {
+		g, inner := gateRig(t, raw)
+		turn, err := g.Start("p", "c1", "t1", "hello", []string{"a.txt"}, "mission")
+		if err != nil || turn == nil {
+			t.Fatalf("%s: Start: %v %v", name, turn, err)
+		}
+		if _, err := g.StartCapped("p", "c1", "t2", "again", nil, "", 1.5); err != nil {
+			t.Fatalf("%s: StartCapped: %v", name, err)
+		}
+		g.Adopt(42, "stamp")
+		g.Finish("p", "c1", "t1", "done")
+		want := [][]any{
+			{"Start", "p", "c1", "t1", "hello", []string{"a.txt"}, "mission"},
+			{"StartCapped", "p", "c1", "t2", "again", []string(nil), "", 1.5},
+			{"Finish", "p", "c1", "t1", "done"},
+		}
+		if !reflect.DeepEqual(inner.calls, want) || !reflect.DeepEqual(inner.adopted, []any{42, "stamp"}) {
+			t.Errorf("%s: the launcher saw %v / %v", name, inner.calls, inner.adopted)
+		}
+		// the launcher's own error is returned as it is
+		inner.err = errors.New("the launcher failed")
+		if _, err := g.Start("p", "c1", "t3", "x", nil, ""); err == nil || err.Error() != "the launcher failed" {
+			t.Errorf("%s: the launcher's error was changed: %v", name, err)
+		}
+	}
+}
+
+// With the setting on, however it was written (including by hand, and including values that are not a plain true),
+// no turn starts while the build cannot issue bound tokens, and the launcher is not called.
+func TestTheGateRefusesEveryStartWhileTheSettingIsOn(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	for name, raw := range map[string]string{
+		"true":            `{"peercredBinding":true}`,
+		"a string":        `{"peercredBinding":"true"}`,
+		"a number":        `{"peercredBinding":1}`,
+		"an object":       `{"peercredBinding":{}}`,
+		"yes":             `{"peercredBinding":"yes"}`,
+		"on with others":  `{"enabled":true,"box":"strict","peercredBinding":true}`,
+		"unreadable json": `{"peercredBinding":`,
+	} {
+		g, inner := gateRig(t, raw)
+		for _, start := range []func() error{
+			func() error { _, err := g.Start("p", "c1", "t1", "hi", nil, ""); return err },
+			func() error { _, err := g.StartCapped("p", "c1", "t1", "hi", nil, "", 2); return err },
+		} {
+			err := start()
+			var r *bindingRefusal
+			if !errors.As(err, &r) {
+				t.Errorf("%s: not refused: %v", name, err)
+				continue
+			}
+			if strings.Contains(err.Error(), "/") || strings.Contains(strings.ToLower(err.Error()), "key") {
+				t.Errorf("%s: the refusal names a path or a key: %q", name, err)
+			}
+			if name != "unreadable json" && !strings.Contains(err.Error(), "does not issue bound tokens") {
+				t.Errorf("%s: the refusal does not say why: %q", name, err)
+			}
+			if name != "unreadable json" && !strings.Contains(err.Error(), "coder set --peercred-binding off") {
+				t.Errorf("%s: the refusal does not say how to turn it off: %q", name, err)
+			}
+		}
+		if len(inner.calls) != 0 {
+			t.Errorf("%s: a launcher call got through: %v", name, inner.calls)
+		}
+	}
+}
+
+// The setting is read at every start: a host that began with it off refuses once it is switched on, and starts again
+// once it is off.
+func TestTheGateReadsTheSettingAtEveryStart(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	g, inner := gateRig(t, `{"enabled":true}`)
+	if _, err := g.Start("p", "c", "t1", "m", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	set := func(raw string) {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, raw, coderConfigName); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set(`{"enabled":true,"peercredBinding":true}`)
+	if _, err := g.Start("p", "c", "t2", "m", nil, ""); err == nil {
+		t.Fatal("a start went through after the setting was switched on")
+	}
+	set(`{"enabled":true}`)
+	if _, err := g.Start("p", "c", "t3", "m", nil, ""); err != nil {
+		t.Fatalf("a start was refused after the setting was switched off: %v", err)
+	}
+	if len(inner.calls) != 2 {
+		t.Errorf("the launcher saw %d starts, want 2", len(inner.calls))
+	}
+}
+
+// A database that cannot be read refuses (whether the setting is on is not known); it does not guess "off".
+func TestTheGateRefusesWhenTheSettingCannotBeRead(t *testing.T) {
+	g, inner := gateRig(t, "")
+	g.db.Close()
+	if _, err := g.Start("p", "c", "t1", "m", nil, ""); err == nil || len(inner.calls) != 0 {
+		t.Fatalf("a start went through with an unreadable database: %v", err)
+	}
+}
+
+// The setter: only the operator, only on or off, and "on" is refused while the build cannot issue bound tokens.
+func TestThePeercredSettingCannotBeSwitchedOnYet(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	if out, code := runCoderCLI(t, dbPath, "status"); code != 0 || strings.Contains(out, "peercredBinding") {
+		t.Fatalf("default status (%d): %s", code, out)
+	}
+	for _, bad := range []string{"yes", "true", "", "ON"} {
+		if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding="+bad); code != 3 {
+			t.Errorf("--peercred-binding=%q accepted (exit %d)", bad, code)
+		}
+	}
+	if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on"); code != 3 {
+		t.Errorf("switching binding on was not refused (exit %d)", code)
+	}
+	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
+		t.Errorf("the refused setter changed the setting: %s", out)
+	}
+	// off is accepted and clears a hand-edited true
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: true})
+	if out, _ := runCoderCLI(t, dbPath, "status"); !strings.Contains(out, `"peercredBinding":true`) {
+		t.Fatalf("status hides a hand-edited setting: %s", out)
+	}
+	if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=off"); code != 0 {
+		t.Fatalf("switching binding off: exit %d", code)
+	}
+	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
+		t.Errorf("off did not clear the setting: %s", out)
+	}
+}
+
+// fakeService counts what the gate asks of the binding service.
+type fakeService struct{ ensured, asked int }
+
+func (f *fakeService) Ensure(_ context.Context, _ string) error { f.ensured++; return nil }
+func (f *fakeService) Running(string) bool                      { f.asked++; return true }
+
+// The service is never started while it is off or while this build cannot issue bound tokens: the gate asks
+// procbind first and only then the service.
+func TestTheGateNeverStartsTheServiceWhileItIsNotAllowed(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	for name, raw := range map[string]string{"off": `{"enabled":true}`, "on": `{"peercredBinding":true}`} {
+		g, _ := gateRig(t, raw)
+		svc := &fakeService{}
+		g.svc = svc
+		_, _ = g.Start("p", "c", "t", "m", nil, "")
+		_, _ = g.StartCapped("p", "c", "t", "m", nil, "", 1)
+		if svc.ensured != 0 || svc.asked != 0 {
+			t.Errorf("%s: the service was asked (%d ensure, %d running)", name, svc.ensured, svc.asked)
+		}
+	}
+}
+
+// The setting is read in ONE conservative way by the gate, `coder status` and the setter: a duplicated key, a key in
+// another letter case and a junk value all count as on if any occurrence is not a plain false or null.
+func TestTheSettingIsReadTheSameConservativeWayEverywhere(t *testing.T) {
+	if procbind.IssuanceReady {
+		t.Skip("issuance is on")
+	}
+	for name, raw := range map[string]string{
+		"true then null":         `{"peercredBinding":true,"peercredBinding":null}`,
+		"true then false":        `{"peercredBinding":true,"peercredBinding":false}`,
+		"false then true":        `{"peercredBinding":false,"peercredBinding":true}`,
+		"other letter case":      `{"peercredBinding":false,"PeercredBinding":true}`,
+		"junk then false":        `{"peercredBinding":"on","peercredBinding":false}`,
+		"false then junk string": `{"peercredBinding":false,"peercredBinding":"yes"}`,
+	} {
+		g, inner := gateRig(t, raw)
+		if _, err := g.Start("p", "c", "t", "m", nil, ""); err == nil || len(inner.calls) != 0 {
+			t.Errorf("%s (gate): a start went through: %v", name, err)
+		}
+		var s coderSettings
+		if err := json.Unmarshal([]byte(raw), &s); err != nil || !bool(s.PeercredBinding) {
+			t.Errorf("%s (status decoding): on=%v err=%v", name, s.PeercredBinding, err)
+		}
+	}
+	// plain false and null, in any number, stay off
+	for name, raw := range map[string]string{
+		"false twice":    `{"peercredBinding":false,"peercredBinding":false}`,
+		"null and false": `{"peercredBinding":null,"peercredBinding":false}`,
+	} {
+		g, inner := gateRig(t, raw)
+		if _, err := g.Start("p", "c", "t", "m", nil, ""); err != nil || len(inner.calls) != 1 {
+			t.Errorf("%s: a start was refused: %v", name, err)
+		}
+	}
+}
+
+// `coder set --peercred-binding off` overwrites any stored junk, including a duplicated key, and leaves the key once.
+func TestOffOverwritesAJunkSetting(t *testing.T) {
+	asOperator(t)
+	for name, raw := range map[string]string{
+		"a string":      `{"enabled":true,"peercredBinding":"on"}`,
+		"a number":      `{"enabled":true,"peercredBinding":7}`,
+		"an object":     `{"enabled":true,"peercredBinding":{"x":1}}`,
+		"duplicated on": `{"enabled":true,"peercredBinding":true,"peercredBinding":true}`,
+	} {
+		dbPath := newChatCLITestDB(t)
+		db, err := storage.NewDatabase(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			ON CONFLICT(name) DO UPDATE SET config_data = excluded.config_data`, coderConfigName, raw); err != nil {
+			t.Fatal(err)
+		}
+		if out, _ := runCoderCLI(t, dbPath, "status"); !strings.Contains(out, `"peercredBinding":true`) {
+			t.Errorf("%s: status does not show a junk setting as on: %s", name, out)
+		}
+		if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=off"); code != 0 {
+			t.Errorf("%s: off was refused (exit %d)", name, code)
+		}
+		var stored string
+		if err := db.DB.QueryRow(`SELECT config_data FROM configs WHERE name = ?`, coderConfigName).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(stored, "peercredBinding") {
+			t.Errorf("%s: the stored settings still carry the key: %s", name, stored)
+		}
+		db.Close()
+	}
+}
+
+// The production `coder host run` installs the gate: the host it builds launches through a gatedLauncher, which
+// refuses a start when the setting is on. Putting the bare launcher back fails this test.
+func TestTheProductionHostInstallsTheGate(t *testing.T) {
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: true}) // hand-edited on
+	builtc := make(chan *coderhost.Host, 1)
+	old := hostBuilt
+	hostBuilt = func(h *coderhost.Host) { builtc <- h }
+	t.Cleanup(func() { hostBuilt = old })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) }) // the host registers its launcher process-wide; later tests expect none
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	var built *coderhost.Host
+	select {
+	case built = <-builtc:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host was not built: %v", <-errc)
+	}
+	g, ok := built.L.(*gatedLauncher)
+	if !ok {
+		cancel()
+		<-errc
+		t.Fatalf("the production host launches through %T, not the gate", built.L)
+	}
+	if _, err := g.Start("default", "c", "t", "m", nil, ""); err == nil {
+		t.Error("the production gate let a start through with the setting on")
+	}
+	cancel()
+	<-errc
+}
+
+// Valid JSON with another field of the wrong type is a settings object that cannot be read as a whole: the gate
+// refuses, whatever the one field it cares about says.
+func TestTheGateRefusesWhenTheWholeSettingsObjectIsUnreadable(t *testing.T) {
+	for name, raw := range map[string]string{
+		"junk field, binding false": `{"enabled":"junk","peercredBinding":false}`,
+		"junk field, no binding":    `{"maxTurns":"many"}`,
+		"junk field, binding null":  `{"timeout":7,"peercredBinding":null}`,
+	} {
+		g, inner := gateRig(t, raw)
+		if _, err := g.Start("p", "c", "t", "m", nil, ""); err == nil || len(inner.calls) != 0 {
+			t.Errorf("%s: a start went through: %v", name, err)
+		}
+	}
+}
+
+// Two writers of the settings cannot undo each other: each reads and writes inside one write transaction, so a
+// `coder set --box` racing an operator's peer-credential change keeps both. A barrier makes both read before either
+// writes, if the transaction lets them.
+func TestConcurrentSettingsWritersKeepEachOthersChanges(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	for round := 0; round < 10; round++ {
+		var arrived sync.WaitGroup
+		arrived.Add(2)
+		meet := func() { // both readers have read; gives up after a while if the other cannot get that far
+			arrived.Done()
+			done := make(chan struct{})
+			go func() { arrived.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { meet(); s.Box = BoxCompat; return nil })
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { meet(); s.PeercredBinding = true; return nil })
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+		wg.Wait()
+		got, err := loadCoderSettings(db.DB)
+		if err != nil || got.Box != BoxCompat || !bool(got.PeercredBinding) {
+			t.Fatalf("round %d: one writer undid the other: box=%q binding=%v (%v)", round, got.Box, got.PeercredBinding, err)
+		}
+		// reset for the next round
+		if _, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { s.Box, s.PeercredBinding = "", false; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a change that fails leaves the stored settings as they were
+	before, _ := loadCoderSettings(db.DB)
+	if _, err := updateCoderSettings(context.Background(), db.DB, func(s *coderSettings) error { s.Box = BoxStrict; return errors.New("refused") }); err == nil {
+		t.Fatal("the failing change succeeded")
+	}
+	if after, _ := loadCoderSettings(db.DB); after.Box != before.Box {
+		t.Errorf("a failed change was stored: %q", after.Box)
+	}
+}
+
+// ---- routing with issuance on (the test seam stands in for the flipped constant) ----
+
+type stopTurn struct {
+	stopped chan struct{}
+}
+
+func (s *stopTurn) PID() int      { return 1 }
+func (s *stopTurn) Stamp() string { return "s" }
+func (s *stopTurn) Wait() error   { <-s.stopped; return nil }
+func (s *stopTurn) Stop()         { close(s.stopped) }
+
+type countingService struct {
+	ensured    int
+	ensureErr  error
+	runningNow bool
+}
+
+func (c *countingService) Ensure(context.Context, string) error { c.ensured++; return c.ensureErr }
+func (c *countingService) Running(string) bool                  { return c.runningNow }
+
+func routedRig(t *testing.T, raw string) (*gatedLauncher, *fakeLauncher, *fakeLauncher, *countingService) {
+	t.Helper()
+	if !procbind.PeerPidfdSupported() {
+		t.Skip("the machine cannot run the binding service")
+	}
+	procbind.ForTestSetIssuance(t, true)
+	g, legacy := gateRig(t, raw)
+	bound := &fakeLauncher{turn: fakeTurn{}}
+	svc := &countingService{runningNow: true}
+	g.bound, g.svc = bound, svc
+	return g, legacy, bound, svc
+}
+
+// With the setting off a turn goes to the legacy launcher and the service is never touched; with it on and nothing in the
+// way it goes to the bound launcher, after the service was started for its profile.
+func TestTheGateRoutesATurnByTheSetting(t *testing.T) {
+	g, legacy, bound, svc := routedRig(t, `{"enabled":true}`)
+	if _, err := g.Start("p", "c1", "t1", "hi", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.calls) != 1 || len(bound.calls) != 0 || svc.ensured != 0 {
+		t.Fatalf("off: legacy %d, bound %d, ensured %d", len(legacy.calls), len(bound.calls), svc.ensured)
+	}
+	if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.StartCapped("p", "c1", "t2", "hi", nil, "mission", 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.calls) != 1 || len(bound.calls) != 1 || svc.ensured != 1 {
+		t.Fatalf("on: legacy %d, bound %d, ensured %d", len(legacy.calls), len(bound.calls), svc.ensured)
+	}
+	if got := bound.calls[0]; got[0] != "StartCapped" || got[1] != "p" || got[6] != "mission" || got[7] != 2.0 {
+		t.Errorf("the bound launcher saw %v", got)
+	}
+}
+
+// With the setting on, every reason the bound launch cannot go ahead is a refusal and starts nothing: the service does
+// not start, it is not running, there is no bound launcher, the host runs inside a turn.
+func TestTheGateRefusesABoundTurnItCannotLaunch(t *testing.T) {
+	const on = `{"enabled":true,"peercredBinding":true}`
+	cases := map[string]func(g *gatedLauncher, svc *countingService){
+		"the service does not start":  func(g *gatedLauncher, svc *countingService) { svc.ensureErr = errors.New("socket refused") },
+		"the service is not running":  func(g *gatedLauncher, svc *countingService) { svc.runningNow = false },
+		"no bound launcher":           func(g *gatedLauncher, svc *countingService) { g.bound = nil },
+		"the host runs inside a turn": func(g *gatedLauncher, svc *countingService) { g.insideTurn = func() (bool, error) { return true, nil } },
+	}
+	for name, mutate := range cases {
+		g, legacy, bound, svc := routedRig(t, on)
+		mutate(g, svc)
+		_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+		var r *bindingRefusal
+		if !errors.As(err, &r) || len(legacy.calls) != 0 || len(bound.calls) != 0 {
+			t.Errorf("%s: %v (legacy %d, bound %d)", name, err, len(legacy.calls), len(bound.calls))
+		}
+	}
+}
+
+// A turn that was routed to the legacy launcher while the setting was off, and whose setting was switched on while it
+// started, is stopped and refused: no turn runs unbound after the setting says bound.
+func TestATurnStartedWhileTheSettingWasSwitchedOnIsStopped(t *testing.T) {
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	st := &stopTurn{stopped: make(chan struct{})}
+	legacy.turn = st
+	legacy.onStart = func() { // the operator switches it on between the routing and the end of the start
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	turn, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || turn != nil {
+		t.Fatalf("%v %v", turn, err)
+	}
+	select {
+	case <-st.stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the unbound turn was not stopped")
+	}
+	// and a start that stays off is left alone
+	g2, legacy2, _, _ := routedRig(t, `{"enabled":true}`)
+	st2 := &stopTurn{stopped: make(chan struct{})}
+	legacy2.turn = st2
+	if turn, err := g2.Start("p", "c1", "t1", "hi", nil, ""); err != nil || turn == nil {
+		t.Fatalf("a turn with the setting still off: %v %v", turn, err)
+	}
+	select {
+	case <-st2.stopped:
+		t.Fatal("a turn with the setting off was stopped")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+type scriptedService struct {
+	err     error
+	running bool
+}
+
+func (s scriptedService) Ensure(context.Context, string) error { return s.err }
+func (s scriptedService) Running(string) bool                  { return s.running }
+
+// With binding switched on and everything else allowing it, a service that cannot be started, or that starts but is
+// not running, refuses the turn (never a weaker mode); the operator gets the generic refusal and the reason is logged.
+func TestTheGateRefusesWhenTheServiceCannotBeStartedOrIsNotRunning(t *testing.T) {
+	for name, c := range map[string]struct {
+		svc     scriptedService
+		logged  bool
+		refusal string
+	}{
+		"ensure fails":          {scriptedService{err: errors.New("the binding service socket was refused")}, true, "its service is not running"},
+		"ensure ok but not up":  {scriptedService{running: false}, false, "its service is not running"},
+		"ensure ok and running": {scriptedService{running: true}, false, ""},
+	} {
+		g, inner := gateRig(t, `{"peercredBinding":true}`)
+		var logs []string
+		g.logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+		g.svc = c.svc
+		g.bound = &fakeLauncher{turn: fakeTurn{}}
+		g.reason = func(running bool) string { // issuance and the machine allow it; only the service decides
+			if !running {
+				return "its service is not running"
+			}
+			return ""
+		}
+		_, err := g.Start("p", "c", "t", "m", nil, "")
+		switch {
+		case c.refusal != "" && (err == nil || !strings.Contains(err.Error(), c.refusal)):
+			t.Errorf("%s: %v, want a refusal naming %q", name, err, c.refusal)
+		case c.refusal != "" && len(inner.calls) != 0:
+			t.Errorf("%s: a turn was started anyway", name)
+		case c.refusal == "" && err != nil:
+			t.Errorf("%s: refused: %v", name, err)
+		}
+		if c.logged != (len(logs) == 1) {
+			t.Errorf("%s: logged %v, want logged=%v", name, logs, c.logged)
+		}
+		if c.logged && strings.Contains(err.Error(), "socket") {
+			t.Errorf("%s: the operator's refusal carries the internal reason: %v", name, err)
+		}
+	}
+}
+
+// With issuance on (the test seam) the setter still refuses "on" while a coder turn is running: that turn holds legacy
+// tokens and was admitted unbound. With none running it is accepted; a running turn does not stop "off".
+func TestThePeercredSettingIsNotSwitchedOnWhileATurnRuns(t *testing.T) {
+	if !procbind.PeerPidfdSupported() {
+		t.Skip("the machine cannot run the binding service")
+	}
+	procbind.ForTestSetIssuance(t, true)
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	st := coderhost.NewStore(db.DB)
+	x, err := st.EnsureSession("default", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = coderhost.StateRunning, "t1"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on")
+	if code != 3 {
+		t.Fatalf("on with a turn running: exit %d: %s", code, out)
+	}
+	if out, _ := runCoderCLI(t, dbPath, "status"); strings.Contains(out, `"peercredBinding":true`) {
+		t.Fatalf("the refused setter changed the setting: %s", out)
+	}
+	x.State, x.TurnID = coderhost.StateIdle, ""
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=on"); code != 0 {
+		t.Fatalf("on with no turn running: exit %d: %s", code, out)
+	}
+	x.State, x.TurnID = coderhost.StateRunning, "t2"
+	if err := st.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := runCoderCLI(t, dbPath, "set", "--peercred-binding=off"); code != 0 {
+		t.Fatalf("off with a turn running: exit %d", code)
+	}
+}
+
+// A host that runs inside a coder session's turn is refused before the binding service is started for it.
+func TestTheGateRefusesWhenItCannotTellWhetherTheHostIsInsideATurn(t *testing.T) {
+	g, legacy, bound, svc := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.insideTurn = func() (bool, error) { return false, errors.New("database is locked") }
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || svc.ensured != 0 || len(legacy.calls) != 0 || len(bound.calls) != 0 {
+		t.Fatalf("%v (ensured %d, legacy %d, bound %d)", err, svc.ensured, len(legacy.calls), len(bound.calls))
+	}
+}
+
+func TestTheGateLetsAHostNotInsideATurnThroughTheInsideTurnCheck(t *testing.T) {
+	g, _, _, _ := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.insideTurn = func() (bool, error) { return false, nil }
+	if _, _, err := g.route("p"); err != nil {
+		var r *bindingRefusal
+		if errors.As(err, &r) && strings.Contains(r.msg, "inside a coder session") {
+			t.Fatalf("refused as inside a turn: %v", err)
+		}
+	}
+}
+
+func TestTheGateDoesNotStartTheServiceForAHostInsideATurn(t *testing.T) {
+	g, legacy, bound, svc := routedRig(t, `{"enabled":true,"peercredBinding":true}`)
+	g.insideTurn = func() (bool, error) { return true, nil }
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || svc.ensured != 0 || len(legacy.calls) != 0 || len(bound.calls) != 0 {
+		t.Fatalf("%v (ensured %d, legacy %d, bound %d)", err, svc.ensured, len(legacy.calls), len(bound.calls))
+	}
+}
+
+// The re-check after a legacy turn's process exists is a guard against a flip: a settings read that fails once leaves the
+// healthy turn running; one that keeps failing stops it (whether binding is on is then not known).
+func TestAReadFailureAfterATurnStartedStopsItOnlyWhenItPersists(t *testing.T) {
+	for name, c := range map[string]struct {
+		failures int
+		stopped  bool
+	}{"one transient failure": {1, false}, "a persistent failure": {99, true}} {
+		g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+		st := &stopTurn{stopped: make(chan struct{})}
+		legacy.turn = st
+		reads := 0
+		legacy.onStart = func() {
+			g.load = func(db *sql.DB) (coderSettings, error) { // the first read (the routing) is already done; these are the re-check's
+				reads++
+				if reads <= c.failures {
+					return coderSettings{}, errors.New("database is locked")
+				}
+				return loadCoderSettings(db)
+			}
+		}
+		turn, err := g.Start("p", "c1", "t1", "hi", nil, "")
+		if c.stopped {
+			var r *bindingRefusal
+			if !errors.As(err, &r) || turn != nil {
+				t.Errorf("%s: %v %v", name, turn, err)
+			}
+			select {
+			case <-st.stopped:
+			case <-time.After(2 * time.Second):
+				t.Errorf("%s: the turn was not stopped", name)
+			}
+			continue
+		}
+		if err != nil || turn == nil {
+			t.Errorf("%s: the healthy turn was refused: %v %v", name, turn, err)
+		}
+		select {
+		case <-st.stopped:
+			t.Errorf("%s: the healthy turn was stopped", name)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// slowExitTurn is a turn whose process takes its time to exit after the stop.
+type slowExitTurn struct{ exit chan struct{} }
+
+func (s *slowExitTurn) PID() int      { return 1 }
+func (s *slowExitTurn) Stamp() string { return "s" }
+func (s *slowExitTurn) Wait() error   { <-s.exit; return nil }
+func (s *slowExitTurn) Stop()         {}
+
+// A turn refused because the setting was switched on while it started is waited for before the refusal is returned: the
+// host starts the next turn as soon as the refusal comes back, and the old process's exit must not find it running.
+func TestARefusedTurnIsWaitedForBeforeTheRefusalReturns(t *testing.T) {
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	st := &slowExitTurn{exit: make(chan struct{})}
+	legacy.turn = st
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	returned := make(chan error, 1)
+	go func() {
+		_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+		returned <- err
+	}()
+	select {
+	case err := <-returned:
+		t.Fatalf("the refusal came back while the refused turn was still running: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(st.exit) // the old process exits
+	select {
+	case err := <-returned:
+		var r *bindingRefusal
+		if !errors.As(err, &r) {
+			t.Fatalf("%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refusal never came back after the turn exited")
+	}
+}
+
+// A refused turn that will not exit does not hold the host forever: the refusal comes back after the bound.
+func TestARefusedTurnThatWillNotExitIsWaitedForOnlyTheBound(t *testing.T) {
+	old := refusedTurnWait
+	refusedTurnWait = 100 * time.Millisecond
+	t.Cleanup(func() { refusedTurnWait = old })
+	g, legacy, _, _ := routedRig(t, `{"enabled":true}`)
+	st := &slowExitTurn{exit: make(chan struct{})}
+	t.Cleanup(func() { close(st.exit) })
+	legacy.turn = st
+	legacy.onStart = func() {
+		if _, err := g.db.Exec(`UPDATE configs SET config_data = ? WHERE name = ?`, `{"enabled":true,"peercredBinding":true}`, coderConfigName); err != nil {
+			t.Error(err)
+		}
+	}
+	start := time.Now()
+	_, err := g.Start("p", "c1", "t1", "hi", nil, "")
+	var r *bindingRefusal
+	if !errors.As(err, &r) || time.Since(start) < 100*time.Millisecond || time.Since(start) > 3*time.Second {
+		t.Fatalf("%v after %v", err, time.Since(start))
+	}
+}

@@ -32,7 +32,7 @@ beforeEach(() => {
   Object.values(api).forEach(f => f.mockReset())
   Object.values(sess).forEach(f => f.mockReset())
   ask.answer = true
-  listed = [session(1, 'running'), session(2, 'draft')]
+  listed = [session(1, 'running'), session(2, 'draft', { rev: 5 })]
   api.board.mockResolvedValue({ rev: 1, counts: {}, tasks: { inbox: [card(1)], ready: [card(3)] } })
   api.agentShell.mockResolvedValue('')
   api.show.mockResolvedValue({ task: card(1), events: [] })
@@ -65,11 +65,12 @@ describe('Tasks with sessions', () => {
     expect(sess.board).not.toHaveBeenCalled()
   })
 
-  it('shows no switcher when there are no sessions', async () => {
+  it('shows only Personal and New session when there are no sessions', async () => {
     listed = []
     mount()
     expect(await screen.findByText('Task 1')).toBeInTheDocument()
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'New session' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -164,8 +165,17 @@ describe('Tasks with sessions', () => {
     expect(screen.queryByTestId('ts-approve')).not.toBeInTheDocument()
     await choose(/Mission 2/)
     fireEvent.click(await screen.findByTestId('ts-approve'))
-    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(2))
+    await waitFor(() => expect(sess.approve).toHaveBeenCalledWith(2, 5))
     expect(sess.pause).not.toHaveBeenCalled()
+  })
+
+  it('says the plan changed, and reloads, when the draft moved since the board showed it', async () => {
+    sess.approve.mockResolvedValue({ error: 'the plan of session #2 changed', code: 'plan_changed' })
+    mount()
+    await choose(/Mission 2/)
+    fireEvent.click(await screen.findByTestId('ts-approve'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/plan changed/i)
+    await waitFor(() => expect(sess.list.mock.calls.length).toBeGreaterThan(1))
   })
 
   it('pauses, and stops only after the confirmation', async () => {

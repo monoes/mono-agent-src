@@ -128,6 +128,11 @@ type TurnAttachment struct {
 	Path string `json:"path"`
 	Mime string `json:"mime"`
 	Size int64  `json:"size"`
+	// Dev and Ino identify the copy as the host made it (the device and inode of the file). Deleting
+	// the conversation removes a copy only if it still is that file. Zero where the platform has no
+	// such identity and on copies made before it was recorded: those are never removed.
+	Dev uint64 `json:"dev,omitempty"`
+	Ino uint64 `json:"ino,omitempty"`
 }
 
 // SessionBoundPayload is session.bound's payload — the runtime-assigned

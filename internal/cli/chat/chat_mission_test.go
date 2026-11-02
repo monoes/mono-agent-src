@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -26,7 +27,7 @@ func TestMissionConfigGates(t *testing.T) {
 		t.Errorf("confirmed workspace: %+v", m)
 	}
 	// An open session of the conversation keeps it confirmed on a later turn.
-	if _, err := tasks.NewStore(db).CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1"}, tasks.Actor{Kind: tasks.Human}); err != nil {
+	if _, err := tasks.NewStore(db).CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1", Kind: tasks.SessionKindMission}, tasks.Actor{Kind: tasks.Human}); err != nil {
 		t.Fatal(err)
 	}
 	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}); m == nil || !m.Planning() {
@@ -90,7 +91,7 @@ func TestMissionConfigClosedSessionDoesNotConfirm(t *testing.T) {
 	ctx := context.Background()
 	st := tasks.NewStore(db)
 	op := tasks.Actor{Kind: tasks.Human}
-	se, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1"}, op)
+	se, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: "c1", Kind: tasks.SessionKindMission}, op)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,8 +119,8 @@ func TestSessionConversationValidationAcceptsHostCoderConversations(t *testing.T
 	defer db.Close()
 	st := tasks.NewStore(db.DB)
 	ctx := context.Background()
-	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: conv.ID} // the lead links its own chat
-	opOther := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: "no-such-chat"}
+	op := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: conv.ID, MissionPlanner: true} // the lead links its own chat
+	opOther := tasks.Actor{Kind: tasks.Agent, Name: missionActor, Conversation: "no-such-chat", MissionPlanner: true}
 	if _, err := st.CreateSession(ctx, "default", tasks.SessionInput{Title: "M", ConversationID: conv.ID}, op); err != nil {
 		t.Fatalf("a coder conversation was refused: %v", err)
 	}
@@ -128,5 +129,94 @@ func TestSessionConversationValidationAcceptsHostCoderConversations(t *testing.T
 	}
 	if _, err := st.CreateSession(ctx, "other-profile", tasks.SessionInput{Title: "M3", ConversationID: conv.ID}, op); err == nil {
 		t.Fatal("another profile's conversation was accepted")
+	}
+}
+
+func TestMissionConfigTheOperatorsToggleConfirmsFromTheFirstTurn(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	cs := coderhost.NewStore(db)
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}); m == nil || m.Planning() {
+		t.Fatalf("toggle off: %+v", m)
+	}
+	s, _ := cs.GetSettings("default", "c1")
+	s.Mission = true
+	if err := cs.SaveSettings("default", "c1", s); err != nil {
+		t.Fatal(err)
+	}
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding"}); m == nil || !m.Planning() {
+		t.Errorf("toggle on, no session: %+v", m)
+	}
+	if m := missionConfig(ctx, db, "default", "c2", coderTurn{access: "coding"}); m == nil || m.Planning() {
+		t.Errorf("another conversation confirmed: %+v", m)
+	}
+	// the access floor still holds with the toggle on
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "scoped"}); m != nil {
+		t.Errorf("scoped access got a mission setup: %+v", m)
+	}
+}
+
+func TestMissionConfigCarriesTheOperatorsDirectionCount(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true}); m == nil || m.MaxDirections != 0 {
+		t.Fatalf("no setting: %+v", m)
+	}
+	st := coderhost.NewStore(db)
+	set, _, err := coderhost.DefaultSettings().Apply([]byte(`{"mission_directions":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveSettings("default", "c1", set); err != nil {
+		t.Fatal(err)
+	}
+	if m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true}); m == nil || m.MaxDirections != 2 {
+		t.Fatalf("the setting did not reach the lead: %+v", m)
+	}
+	if m := missionConfig(ctx, db, "default", "c2", coderTurn{access: "coding", missionConfirmed: true}); m == nil || m.MaxDirections != 0 {
+		t.Fatalf("another conversation got it: %+v", m)
+	}
+}
+
+// K is the operator's CURRENT setting: the lead's reader follows a change made after the turn began, and an
+// unreadable setting is an error, never the default.
+func TestMissionConfigReadsTheCurrentDirectionCountAndFailsOnAnUnreadableOne(t *testing.T) {
+	db := testdb.Open(t).DB
+	ctx := context.Background()
+	st := coderhost.NewStore(db)
+	save := func(doc string) {
+		t.Helper()
+		set, _, err := coderhost.DefaultSettings().Apply([]byte(doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SaveSettings("default", "c1", set); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(`{"mission_directions":3}`)
+	m := missionConfig(ctx, db, "default", "c1", coderTurn{access: "coding", missionConfirmed: true})
+	if m == nil || m.DirectionsK == nil {
+		t.Fatalf("the lead has no live reader of K: %+v", m)
+	}
+	if k, err := m.DirectionsK(ctx, nil); err != nil || k != 3 {
+		t.Fatalf("k %d %v", k, err)
+	}
+	save(`{"mission_directions":1}`) // lowered while the turn runs
+	if k, err := m.DirectionsK(ctx, nil); err != nil || k != 1 {
+		t.Fatalf("after the change: k %d %v", k, err)
+	}
+	if k, err := m.DirectionsK(ctx, db); err != nil || k != 1 {
+		t.Fatalf("through a given connection: k %d %v", k, err)
+	}
+	save(`{"mission_directions":0}`) // explicit 0: the default
+	if k, err := m.DirectionsK(ctx, nil); err != nil || k != 3 {
+		t.Fatalf("explicit 0: k %d %v", k, err)
+	}
+	if _, err := db.Exec(`UPDATE coder_sessions SET settings = '{not json' WHERE profile_id = 'default' AND conversation_id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	if k, err := m.DirectionsK(ctx, nil); err == nil {
+		t.Fatalf("an unreadable setting gave k=%d", k)
 	}
 }

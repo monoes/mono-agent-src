@@ -67,6 +67,7 @@ func execWithAllFiles(t *testing.T, bin string) {
 func TestExecWritesItsFilesInAPrivateFolderByDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	bin, record := recordingMonomind(t)
 
 	execWithAllFiles(t, bin)
@@ -81,7 +82,7 @@ func TestExecWritesItsFilesInAPrivateFolderByDefault(t *testing.T) {
 			t.Errorf("%s is not in the private folder %s", f, private)
 		}
 	}
-	if fi, err := os.Stat(private); err != nil || fi.Mode().Perm() != 0o700 {
+	if fi, err := os.Stat(private); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700) { // Windows has no Unix modes
 		t.Errorf("the private folder must be 0700: %v %v", fi, err)
 	}
 	if left, _ := os.ReadDir(private); len(left) != 0 {
@@ -94,6 +95,7 @@ func TestExecWritesItsFilesInAPrivateFolderByDefault(t *testing.T) {
 func TestExecFallsBackToTheSystemTempDirectory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if err := os.WriteFile(filepath.Join(home, ".monoagent"), []byte("a file, not a folder"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +116,7 @@ func TestExecFallsBackToTheSystemTempDirectory(t *testing.T) {
 func TestPrivateFolderSweepsStaleFilesOnly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	private := filepath.Join(home, ".monoagent", "tmp")
 	if err := os.MkdirAll(private, 0o700); err != nil {
 		t.Fatal(err)
@@ -149,6 +152,7 @@ func TestPrivateFolderSweepsStaleFilesOnly(t *testing.T) {
 func TestPrivateFolderIsTightenedTo0700(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	private := filepath.Join(home, ".monoagent", "tmp")
 	if err := os.MkdirAll(private, 0o755); err != nil {
 		t.Fatal(err)
@@ -160,7 +164,7 @@ func TestPrivateFolderIsTightenedTo0700(t *testing.T) {
 
 	execWithAllFiles(t, bin)
 
-	if fi, err := os.Stat(private); err != nil || fi.Mode().Perm() != 0o700 {
+	if fi, err := os.Stat(private); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700) {
 		t.Errorf("the folder holding prompts must be 0700: %v %v", fi, err)
 	}
 }

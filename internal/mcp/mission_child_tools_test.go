@@ -31,7 +31,7 @@ func newMissionChildFixture(t *testing.T, approve bool) *missionChildFixture {
 	sf := newSessionFixture(t)
 	m := &missionChildFixture{sessionFixture: sf}
 	var err error
-	if m.se, err = sf.f.Store.CreateSession(opCtx, sf.profile, tasks.SessionInput{Title: "mission", Goal: "g", ConversationID: sf.master}, sessOperator); err != nil {
+	if m.se, err = sf.f.Store.CreateSession(opCtx, sf.profile, tasks.SessionInput{Title: "mission", Goal: "g", ConversationID: sf.master, Kind: tasks.SessionKindMission}, sessOperator); err != nil {
 		t.Fatal(err)
 	}
 	for i, dst := range []*tasks.Task{&m.t1, &m.t2} {
@@ -55,7 +55,7 @@ func newMissionChildFixture(t *testing.T, approve bool) *missionChildFixture {
 	if err := sf.store.SetRole(sf.profile, m.other, "master", ""); err != nil {
 		t.Fatal(err)
 	}
-	if m.otherSe, err = sf.f.Store.CreateSession(opCtx, sf.profile, tasks.SessionInput{Title: "theirs", Goal: "g", ConversationID: m.other}, sessOperator); err != nil {
+	if m.otherSe, err = sf.f.Store.CreateSession(opCtx, sf.profile, tasks.SessionInput{Title: "theirs", Goal: "g", ConversationID: m.other, Kind: tasks.SessionKindMission}, sessOperator); err != nil {
 		t.Fatal(err)
 	}
 	if m.otherTask, err = sf.f.Store.AddSessionTask(opCtx, sf.profile, m.otherSe.ID, tasks.SessionTaskInput{Title: "theirs", Acceptance: "done when it is"}, sessOperator); err != nil {
@@ -106,12 +106,15 @@ func TestLeadMarksItsOwnTaskAndStatusShowsNoTaskText(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"state": "marked"`) || !strings.Contains(out, `"size": "large"`) {
 		t.Fatalf("mark = %v %s", err, out)
 	}
-	if !strings.Contains(out, "not available yet") { // no launcher can start a child session in this process
-		t.Fatalf("the mark does not say that child sessions are not available yet: %s", out)
+	if !strings.Contains(out, "off (operator setting)") { // the operator's switch is off until they enable it
+		t.Fatalf("the mark does not say that child sessions are off: %s", out)
 	}
 	out, err = m.as(t, m.tokM, "mission_child_status", nil)
 	if err != nil || !strings.Contains(out, fmt.Sprintf(`"taskId": %d`, m.t1.ID)) {
 		t.Fatalf("status = %v %s", err, out)
+	}
+	if !strings.Contains(out, `"switch": "children: off (operator setting)"`) {
+		t.Fatalf("the status does not show the switch: %s", out)
 	}
 	if strings.Contains(out, "ignore previous instructions") {
 		t.Fatalf("task text in the status: %s", out)

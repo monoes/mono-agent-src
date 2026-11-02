@@ -2,13 +2,18 @@ package ai
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
+	"github.com/monoes/mono-agent/internal/coderspend"
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // CreateConversation creates and returns a new app-level conversation
@@ -307,12 +312,25 @@ func (s *AIStore) DeleteConversationGuarded(id, profileID string, guard func(ctx
 	})
 }
 
+// ConversationOwner is the owner of the mission tokens the runs of a conversation mint (dynorg.ConversationOwner,
+// which this package cannot import; internal/cli/chat pins the two equal in a test).
+func ConversationOwner(profileID, conversationID string) string {
+	h := sha256.Sum256([]byte(profileID + "\x00" + conversationID))
+	return "conv-" + hex.EncodeToString(h[:8])
+}
+
 // deleteConversationInTx is the body of DeleteConversation; guard, when not nil, runs in the transaction first.
 func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx context.Context, conn *sql.Conn) (bool, error)) error {
 	if profileID == "" {
 		return ErrProfileRequired
 	}
 	ctx := context.Background()
+
+	// The row keys of the v2 tokens are derived before the write transaction (deriving may write).
+	keyFor, err := procbind.Revoker{DB: s.db}.Keys(ctx, []procbind.Kind{procbind.KindSession, procbind.KindMission}, procbind.Scope{Profile: profileID, Session: id, Owner: ConversationOwner(profileID, id)})
+	if err != nil {
+		return fmt.Errorf("delete conversation: %w", err)
+	}
 
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
@@ -360,6 +378,11 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 	if activeCount > 0 {
 		return ErrTurnActive
 	}
+	// A mission child's spend is written down before the usage it is computed from goes: unconditionally, so no
+	// caller (or older binary) can delete a child without it. A failure aborts the delete.
+	if err := coderspend.Snapshot(ctx, conn, profileID, id); err != nil {
+		return fmt.Errorf("record the child's spend: %w", err)
+	}
 	if _, err := conn.ExecContext(ctx, `DELETE FROM ai_chat_events WHERE conversation_id = ? AND profile_id = ?`, id, profileID); err != nil {
 		return fmt.Errorf("delete events: %w", err)
 	}
@@ -381,11 +404,21 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 	}
 	for _, q := range []string{
 		// A scoped agent token bound to a task of this conversation ends with it.
+		// procbind:legacy-only a bound API token has no v2 form: the v2 families are mission and session tokens.
 		`UPDATE agent_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE bound_conversation = ?1 AND profile_id = ?2 AND revoked_at IS NULL`,
 		`DELETE FROM coder_session_commands WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_decisions WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_questions WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_person_items WHERE conversation_id = ? AND profile_id = ?`,
+		// Asks: the asker's own rows go with its chat (its person item went above). A normal ask addressed TO this chat
+		// is void (nobody reads it any more, the asker's slot is free again; the asker is not told, because a note
+		// needs the host's queue, which this package cannot reach). A critical ask goes to the person, not to this
+		// chat, so it stays.
+		// The question it asked may still wait in the recipient's queue (the ask row names the command): it holds the
+		// full text and has no ask left to answer, so it goes too, before the rows that name it.
+		`DELETE FROM coder_session_commands WHERE status = 'pending' AND profile_id = ?2 AND id IN (SELECT command_id FROM coder_session_asks WHERE asker_conv = ?1 AND profile_id = ?2 AND command_id != 0)`,
+		`DELETE FROM coder_session_asks WHERE asker_conv = ?1 AND profile_id = ?2`,
+		`UPDATE coder_session_asks SET status = 'void' WHERE ancestor_conv = ?1 AND profile_id = ?2 AND importance = 'normal' AND status = 'open'`,
 		`DELETE FROM coder_session_turn_caps WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_tokens WHERE conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_session_host_turns WHERE conversation_id = ? AND profile_id = ?`,
@@ -400,6 +433,12 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		`DELETE FROM coder_mission_events WHERE profile_id = ?2 AND session_id IN (SELECT session_id FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2)`,
 		`DELETE FROM coder_mission_children WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
 		`DELETE FROM coder_mission_policy WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
+		// A budget request the conversation made as a lead goes with it; one that named it as the target (a child's
+		// cap) closes (void) and stays as the lead's record, so it can never be granted.
+		`DELETE FROM coder_budget_requests WHERE lead_conversation_id = ?1 AND profile_id = ?2`,
+		`UPDATE coder_budget_requests SET status = 'void', answered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE target_conversation_id = ?1 AND profile_id = ?2 AND status = 'open'`,
+		// The spawn advisory's remembered refusal belongs to the lead that was refused.
+		`DELETE FROM coder_spawn_advice WHERE spawner = ?1 AND profile_id = ?2`,
 		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE parent_conversation_id = ? AND profile_id = ?`,
 		`DELETE FROM coder_sessions WHERE conversation_id = ? AND profile_id = ?`,
 		// The answers its questions were given.
@@ -408,6 +447,21 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		if _, err := conn.ExecContext(ctx, q, id, profileID); err != nil {
 			return fmt.Errorf("delete coder session: %w", err)
 		}
+	}
+	// The conversation's v2 tokens are revoked in this same transaction, whichever form of delete runs it: the
+	// session tokens of the conversation and the mission tokens its runs minted (the owner, with or without a run
+	// suffix). If that cannot be written the delete is rolled back (decision K1), so a delete never leaves a live
+	// v2 token behind.
+	var refs []procbind.TokenRef
+	for _, sel := range []procbind.Selector{
+		{Profile: profileID, Session: id, Kind: procbind.KindSession},
+		{Profile: profileID, Owner: ConversationOwner(profileID, id), Kind: procbind.KindMission},
+	} {
+		got, err := procbind.RevokeTx(ctx, conn, keyFor, sel, "conversation deleted", time.Now())
+		if err != nil {
+			return fmt.Errorf("revoke the v2 tokens: %w", err)
+		}
+		refs = append(refs, got...)
 	}
 	// Its spawn log goes with it as a parent. A deleted CHILD's row stays: removing it would hand its
 	// master the rate slot back, so spawn-and-delete could outrun the spawn rate limit (the row ages out).
@@ -418,5 +472,6 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 		return fmt.Errorf("commit delete conversation: %w", err)
 	}
 	committed = true
+	procbind.Drop(s.binder, refs)
 	return nil
 }

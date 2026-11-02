@@ -77,6 +77,13 @@ func TestConfigRowsUnderAReservedPrefixAreTheOperatorsAlone(t *testing.T) {
 			t.Fatal(perr)
 		}
 		real := os.Stdout
+		// Drain the pipe while the command runs: output larger than the pipe buffer
+		// would otherwise block the writer forever.
+		drained := make(chan []byte, 1)
+		go func() {
+			b, _ := io.ReadAll(r)
+			drained <- b
+		}()
 		os.Stdout = w
 		cmd := NewCommand(d)
 		cmd.SetOut(w)
@@ -86,7 +93,7 @@ func TestConfigRowsUnderAReservedPrefixAreTheOperatorsAlone(t *testing.T) {
 		err := cmd.Execute()
 		os.Stdout = real
 		w.Close()
-		b, _ := io.ReadAll(r)
+		b := <-drained
 		return string(b), err
 	}
 	row := "coder-mission-confirm/default/c1/t1/7"
@@ -95,7 +102,8 @@ func TestConfigRowsUnderAReservedPrefixAreTheOperatorsAlone(t *testing.T) {
 		t.Fatalf("the operator's write: %v", err)
 	}
 	agent := build(false, true, nil)
-	for _, name := range []string{row, "Coder-Mission-Confirm/default/c1/t1/8", " CODER-MISSION-CONFIRM/x", "coder-mission-confirm/"} {
+	for _, name := range []string{row, "Coder-Mission-Confirm/default/c1/t1/8", " CODER-MISSION-CONFIRM/x", "coder-mission-confirm/",
+		"file-cleanup/default/c1", " File-Cleanup/x", "FILE-CLEANUP/"} {
 		for _, args := range [][]string{{"set", name, "forged"}, {"delete", name}, {"get", name}} {
 			if _, err := run(agent, args...); clicore.ExitCodeFor(err) != 3 {
 				t.Errorf("config %v by a non-operator: %v", args, err)

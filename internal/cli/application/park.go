@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -155,7 +156,8 @@ func (d Deps) newFillResumeCmd() *cobra.Command {
 		Short: "Have the coder take a parked application up again (a new task)",
 		Long: "Starts a new " + applyfill.Kind + " task for an application whose tab is parked or lost, and binds the tab to " +
 			"that task alone: until the task is over no other task can act on it. The agent never touches a parked tab unless " +
-			"you resume it. Refused while the application has a task still open.\n\n" + clicore.OperatorOnlyHelp,
+			"you resume it. Refused while the application has a task still open. Once the task is started and the tab bound the " +
+			"resume stands: if writing its report then fails (a closed stdout), the command exits with an error but nothing is undone.\n\n" + clicore.OperatorOnlyHelp,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := d.requireOperator("resume a parked application"); err != nil {
@@ -168,10 +170,6 @@ func (d Deps) newFillResumeCmd() *cobra.Command {
 	clicore.WithJSONErrors(d.JSONOutput, cmd)
 	return cmd
 }
-
-// resumePending marks a tab claimed for a task that has no id yet: no task
-// matches it, so nothing can act on the tab while the new task is created.
-const resumePending = "resume-pending"
 
 func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	ctx := cmd.Context()
@@ -191,28 +189,136 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	if tab == nil || (tab.State != applypark.StateParked && tab.State != applypark.StateLost) {
 		return d.InvalidInput("application %s has no parked or lost tab: use `application fill start` to fill it", id)
 	}
-	hold := tab.State == applypark.StateParked
-	if hold {
-		if err := tabs.SetState(ctx, id, applypark.StateActive, resumePending); err != nil {
+	parked := tab.State == applypark.StateParked
+	taskID := aitask.NewID()
+	owner := aitask.NewToken()
+	if parked {
+		// The tab is held under the id the task will take, so no placeholder and no second write: the hold becomes
+		// the task's own the moment it exists.
+		if held, err := tabs.Claim(ctx, id, tab.TaskID, taskID); err != nil {
 			return err
+		} else if !held {
+			return d.InvalidInput("application %s's tab changed while it was resumed: look at it again", id)
 		}
 	}
-	taskID, err := d.startFill(ctx, id, runtime)
-	if err != nil {
-		if hold {
-			_ = tabs.SetState(ctx, id, applypark.StateParked, tab.TaskID)
+	if _, err := d.startFill(context.WithValue(context.WithValue(ctx, fillTaskIDKey{}, taskID), fillOwnerKey{}, owner), id, runtime); err != nil {
+		// Also for a lost tab: a submit that answered with another task made one that must not keep running.
+		var owned []string
+		var wrong *wrongTaskError
+		var started *startedTaskError
+		if errors.As(err, &wrong) {
+			owned = append(owned, wrong.Got)
 		}
-		return err
+		if errors.As(err, &started) {
+			owned = append(owned, started.ID)
+		}
+		if len(owned) == 0 {
+			cancelled, kept := recoverOwnTask(&aitask.Store{DB: db.DB, Profile: d.ProfileID()}, id, taskID, owner, err)
+			if kept != nil {
+				return kept
+			}
+			if cancelled && isBudgetRefusal(err) {
+				err = fmt.Errorf("%w (cancelled: no budget; the resume's queued task %s was cancelled)", err, taskID)
+			}
+		}
+		return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, owned, err)
 	}
-	if hold {
-		if err := tabs.SetState(ctx, id, applypark.StateActive, taskID); err != nil {
-			return err
+	if parked {
+		if ok, err := tabs.Holds(ctx, id, taskID); err != nil || !ok {
+			// The hold went stale before the task existed and the sweep gave the tab back; whoever has it keeps it.
+			// The submit answered with our id, so the task is ours to stop.
+			if err == nil {
+				err = d.InvalidInput("the resume of application %s took longer than %s and its tab was given back: resume it again", id, applypark.ResumeHoldTTL)
+			}
+			return d.giveBack(ctx, db.DB, tabs, id, taskID, "", []string{taskID}, err)
 		}
 	}
 	if err := applypark.ClearObserved(ctx, db.DB, id); err != nil {
-		return err
+		// The task is started and linked; the resume is reported as failed, so it is undone, not left running.
+		return d.giveBack(ctx, db.DB, tabs, id, taskID, tab.TaskID, []string{taskID}, err)
 	}
-	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": taskID, "tabId": tab.TabID, "tabState": map[bool]string{true: "active", false: "lost"}[hold]})
+	return d.writeJSON(cmd, map[string]any{"applicationId": id, "taskId": taskID, "tabId": tab.TabID, "tabState": map[bool]string{true: "active", false: "lost"}[parked]})
+}
+
+func hasCode(err error, code string) bool {
+	var e *aitask.Error
+	return errors.As(err, &e) && e.Code == code
+}
+
+// recoveryTasks is what recoverOwnTask needs of the task table.
+type recoveryTasks interface {
+	Get(id string) (aitask.Task, error)
+	CancelQueuedOwned(id, owner, applicationID string) (bool, error)
+}
+
+// isBudgetRefusal says whether err is a submit's coded refusal for want of budget (the task it made stays queued).
+func isBudgetRefusal(err error) bool {
+	var c *coded
+	if !errors.As(err, &c) {
+		return false
+	}
+	code, _ := c.fields["code"].(string)
+	return code == aitask.CodeNoBudget || code == aitask.CodeBudgetExceeded
+}
+
+// recoverOwnTask looks at what a submit that answered with no task left under the id this resume asked for. It
+// acts only on a task this resume made (its application and its private owner token): a task another submit made
+// under the same id is left alone. A queued task of ours is cancelled in one statement that holds only while it is
+// still queued (cancelled says it was). kept is the error to return, with the tab still held, when the resume
+// must not go on to give the tab back: the task is running under the hold, or its state could not be established
+// (a failed read or write): the hold is never released on a guess.
+func recoverOwnTask(tasks recoveryTasks, id, taskID, owner string, cause error) (cancelled bool, kept error) {
+	unknown := func(err error) error {
+		return fmt.Errorf("could not tell what the submit for application %s left as task %s, so the tab stays held: %w (%v)", id, taskID, err, cause)
+	}
+	task, err := tasks.Get(taskID)
+	if err != nil {
+		if hasCode(err, aitask.CodeNotFound) {
+			return false, nil
+		}
+		return false, unknown(err)
+	}
+	if task.Owner == "" || task.Owner != owner || task.ApplicationID != id {
+		return false, nil
+	}
+	if task.Status == aitask.StatusQueued {
+		done, cerr := tasks.CancelQueuedOwned(taskID, owner, id)
+		if cerr != nil {
+			return false, unknown(cerr)
+		}
+		if done {
+			return true, nil
+		}
+		if task, err = tasks.Get(taskID); err != nil {
+			return false, unknown(err)
+		}
+		if task.Status == aitask.StatusQueued {
+			return false, unknown(errors.New("the task is still queued"))
+		}
+	}
+	if task.Status == aitask.StatusRunning || task.Status == aitask.StatusNeedsUser {
+		return false, fmt.Errorf("the submit for application %s ended without an answer, but task %s was made and is %s; the tab stays with it (%v)", id, taskID, task.Status, cause)
+	}
+	return false, nil
+}
+
+// giveBack undoes a resume that did not get its task running: the tab goes back to parked while it is still held
+// under the resume's task id, and the tasks in owned are cancelled. owned is only what this resume's own submit
+// answered with (the id it asked for, or the one it made instead); nothing is cancelled for a refusal or a
+// failure that answered with no task, so a task that merely shares an id is never touched. cause is what went
+// wrong; an error of the undo itself is reported with it, never dropped.
+func (d Deps) giveBack(ctx context.Context, db *sql.DB, tabs applypark.Store, id, taskID, observed string, owned []string, cause error) error {
+	errs := []error{cause}
+	if _, err := tabs.Release(ctx, id, taskID, observed); err != nil {
+		errs = append(errs, fmt.Errorf("giving the tab back: %w", err))
+	}
+	svc := &aitask.Service{Store: &aitask.Store{DB: db, Profile: d.ProfileID()}}
+	for _, tid := range owned {
+		if _, err := svc.Cancel(tid); err != nil && !hasCode(err, aitask.CodeTaskClosed) && !hasCode(err, aitask.CodeNotFound) {
+			errs = append(errs, fmt.Errorf("task %s was started and could not be cancelled: %w", tid, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (d Deps) newFillQueueCmd() *cobra.Command {

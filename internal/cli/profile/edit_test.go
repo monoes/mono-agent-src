@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 
@@ -165,6 +166,11 @@ var seedOverrides = map[string]map[string]any{
 	"coder_session_commands":  {"kind": "send"},
 	"coder_session_decisions": {"made_by": "model"},
 	"coder_mission_children":  {"origin": "lead", "state": "marked"},
+	"coder_budget_requests":   {"target": "lead", "status": "open"},
+	// 149: a live reservation, with stamps in the one text form its CHECK accepts. Deleting the profile (or its
+	// session) removes the row, which is how a reservation's money comes back; there is no rule to retain it.
+	"task_session_reservations": {"session_id": 1, "state": "live", "lease_until": "2026-10-05T12:00:00Z", "heartbeat_at": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z", "bounded": 1},
+	"coder_session_asks":        {"importance": "normal"},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a
@@ -201,7 +207,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 			continue
 		}
 		for _, col := range []string{"profile_id", "workflow_id", "execution_id", "parent_execution_id", "child_execution_id", "profile_key"} {
-			if hasColumn(ctx, db.DB, tbl, col) && notProfileOwned[tbl] == "" {
+			if hasColumn(ctx, db.DB, tbl, col) && notProfileOwned[tbl] == "" && retainedOnDelete[tbl] == "" {
 				t.Errorf("table %s has a %s column but no delete rule covers it: add it to derivedScope (or to notProfileOwned with a reason)", tbl, col)
 			}
 		}
@@ -214,14 +220,18 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 		t.Fatal(err)
 	}
+	// a reservation is on a session of its own profile (a trigger holds it), so session 1 is this profile's
+	if _, err := conn.ExecContext(ctx, `INSERT INTO task_sessions (id, profile_id, title, created_by, created_at, updated_at) VALUES (1, ?, 's', 'you', 'x', 'x')`, id); err != nil {
+		t.Fatal(err)
+	}
 	before := map[string]int{}
 	for _, e := range scope {
 		conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+e.Table+`"`).Scan(new(int))
 		var n int
 		conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+e.Table+`"`).Scan(&n)
 		before[e.Table] = n
-		if e.Table == "settings" || e.Table == "workflow_publications" {
-			continue // publications block the delete (TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen)
+		if e.Table == "settings" || e.Table == "configs" || e.Table == "workflow_publications" {
+			continue // publications block the delete (TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen); settings and configs are seeded by key below
 		}
 		cols, vals := []string{}, []any{}
 		var pkCols int // a lone INTEGER primary key is the rowid; part of a composite one needs a value
@@ -262,8 +272,14 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 			t.Errorf("seeding %s: %v (teach this test to fill it, so the delete is checked for it)", e.Table, err)
 		}
 	}
+	before["task_sessions"]-- // session 1 above is the profile's too, and was counted as already there
 	for _, kv := range [][2]string{{"task_agent_access:" + id, "1"}, {"jev." + id + ".chat.model", "m"}, {"jev.someone-else.chat.model", "keep"}} {
 		if _, err := conn.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`, kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"agent_purposes." + id + ".coding", "agent_purposes.someone-else.coding"} {
+		if _, err := conn.ExecContext(ctx, `INSERT INTO configs (name, config_data) VALUES (?, '{}')`, name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -293,7 +309,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	}
 	defer db.Close()
 	for _, e := range scope {
-		if e.Table == "settings" || e.Table == "workflow_publications" {
+		if e.Table == "settings" || e.Table == "configs" || e.Table == "workflow_publications" {
 			continue
 		}
 		var n int
@@ -309,11 +325,122 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 	if len(keys) != 1 || keys[0] != "jev.someone-else.chat.model" {
 		t.Errorf("settings left after the delete: %v, want only another profile's jev key", keys)
 	}
+	if names, _ := queryStrings(ctx, db.DB, `SELECT name FROM configs WHERE name LIKE 'agent_purposes.%'`); len(names) != 1 || names[0] != "agent_purposes.someone-else.coding" {
+		t.Errorf("agent purpose rows left after the delete: %v, want only another profile's", names)
+	}
 	if _, err := os.Stat(wfFile); !os.IsNotExist(err) {
 		t.Errorf("the profile's workflow file was left behind: %v", err)
 	}
 	if _, err := keyring.Get("monoagent-vault", "kek-"+id); err != keyring.ErrNotFound {
 		t.Errorf("the profile's vault key was left in the keychain: %v", err)
+	}
+}
+
+// The peer-credential binding tables are insert-only, so a profile delete cannot remove their rows (and
+// must not fail because of them): it succeeds and leaves them for the retention sweep.
+func TestProfileDeleteLeavesTheInsertOnlyBindingRowsAndSucceeds(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp := time.Now().UTC().Add(time.Hour).Format("2006-01-02T15:04:05.000Z")
+	for _, q := range []string{
+		`INSERT INTO agent_tokens_v2 (id, profile_id, token_hash, created_at, expires_at, version, mac) VALUES ('m1', ?, 'h1', '2026-10-30T00:00:00.000Z', ?, 2, 'm')`,
+		`INSERT INTO coder_session_tokens_v2 (id, profile_id, token_hash, conversation_id, turn_id, created_at, expires_at, version, mac) VALUES ('s1', ?, 'h2', 'c', 't', '2026-10-30T00:00:00.000Z', ?, 2, 'm')`,
+		`INSERT INTO process_bindings (token_id, profile_id, scope, mode, worker_pid, worker_stamp, host_generation, version, created_at, expires_at, mac) VALUES ('m1', ?, 's', 'peercred', 1, 's', 'g', 2, '2026-10-30T00:00:00.000Z', ?, 'm')`,
+		`INSERT INTO token_revocations_v2 (token_kind, token_id, profile_id, reason, created_at, mac) VALUES ('mission', 'm1', ?, 'r', ?, 'm')`,
+		`INSERT INTO procbind_host (profile_id, seq, generation, started_at, mac) VALUES (?, 1, 'g', ?, 'm')`,
+	} {
+		if _, err := db.DB.Exec(q, id, exp); err != nil {
+			t.Fatalf("seeding: %v", err)
+		}
+	}
+	db.Close()
+	keptOf := func(out string) map[string]int {
+		var res profileImpact
+		if err := json.Unmarshal([]byte(out), &res); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+		got := map[string]int{}
+		for _, k := range res.KeptUntilRetention {
+			got[k.Table] = k.Rows
+		}
+		return got
+	}
+	noteOf := func(out string) string {
+		var res profileImpact
+		_ = json.Unmarshal([]byte(out), &res)
+		return res.KeptNote
+	}
+	checkNote := func(what, note string) {
+		for _, want := range []string{"newest host-start row", "permanently", "retention sweep", "mission-token sweep"} {
+			if !strings.Contains(note, want) {
+				t.Errorf("%s: the note %q lacks %q", what, note, want)
+			}
+		}
+		if strings.Contains(note, "all of them") {
+			t.Errorf("%s: the note claims every row is removed: %q", what, note)
+		}
+	}
+	// The seeded profile has no data key (the rows were inserted directly), so its live session token cannot be
+	// revoked: it is inert, and the delete writes no revocation row for it. Every retained table keeps one row.
+	checkKept := func(what string, got map[string]int, revocations int) {
+		for tbl := range retainedOnDelete {
+			want := 1
+			if tbl == "token_revocations_v2" {
+				want = revocations
+			}
+			if got[tbl] != want {
+				t.Errorf("%s does not say that %s keeps %d row(s) (kept: %v)", what, tbl, want, got)
+			}
+		}
+	}
+	// the summary and the delete's own output both say which rows stay, and why they do
+	sum, err := runCaptured(t, dbPath, "delete", id, "--summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkKept("delete --summary", keptOf(sum), 1)
+	checkNote("delete --summary", noteOf(sum))
+	out, err := runCaptured(t, dbPath, "delete", id, "--yes-delete-profile", "doomed")
+	if err != nil {
+		t.Fatalf("the delete failed because of insert-only rows: %v", err)
+	}
+	checkKept("the delete output", keptOf(out), 1)
+	checkNote("the delete output", noteOf(out))
+	db, err = storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for tbl := range retainedOnDelete {
+		var n int
+		want := 1
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM "`+tbl+`" WHERE profile_id = ?`, id).Scan(&n); err != nil || n != want {
+			t.Errorf("%s: %d row(s) after the profile delete, want the %d retained (%v)", tbl, n, want, err)
+		}
+	}
+	var gone int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM profiles WHERE id = ?`, id).Scan(&gone); err != nil || gone != 0 {
+		t.Errorf("the profile itself is still there: %d %v", gone, err)
+	}
+}
+
+// The retention sweep exists (procbind.PurgeRetained), but it runs with the mission-token sweep and never removes a
+// profile's newest host row: no reason may promise more than that.
+func TestRetainedReasonsSayWhenTheSweepRunsAndWhatItKeeps(t *testing.T) {
+	for tbl, why := range retainedOnDelete {
+		if strings.Contains(why, "not shipped") || strings.Contains(why, "does not exist") {
+			t.Errorf("%s: %q says the sweep does not exist", tbl, why)
+		}
+		if tbl != "procbind_host" && !strings.Contains(why, "mission-token sweep") {
+			t.Errorf("%s: %q does not say when the sweep runs", tbl, why)
+		}
+	}
+	if !strings.Contains(retainedOnDelete["procbind_host"], "kept permanently") {
+		t.Errorf("the host log's newest row is kept permanently, and its reason must say so: %q", retainedOnDelete["procbind_host"])
 	}
 }
 

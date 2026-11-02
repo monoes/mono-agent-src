@@ -30,6 +30,8 @@ type fakeLauncher struct {
 	// refuse, when set, is what Enforceable and CreateConversation answer.
 	refuse   error
 	attempts int
+	// onCreate runs inside CreateConversation, after Submit has checked its id and before it has stored the task.
+	onCreate func()
 }
 
 func (f *fakeLauncher) Enforceable(string, string) error { return f.refuse }
@@ -40,6 +42,9 @@ func (f *fakeLauncher) DefaultBudget(context.Context) (float64, error) { return 
 func (f *fakeLauncher) Policy(context.Context) (string, error)         { return f.policy, nil }
 func (f *fakeLauncher) CreateConversation(_ context.Context, _, kind, access string) (Conversation, error) {
 	f.attempts++
+	if f.onCreate != nil {
+		f.onCreate()
+	}
 	if f.refuse != nil {
 		return Conversation{}, f.refuse
 	}
@@ -567,11 +572,13 @@ func TestStartHandsTheTurnAVerifiedReadOnlySnapshot(t *testing.T) {
 	if b, _ := os.ReadFile(file); string(b) != "the posting" {
 		t.Fatalf("snapshot holds %q", b)
 	}
-	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o400 {
-		t.Errorf("snapshot file mode %v", fi.Mode().Perm())
-	}
-	if fi, _ := os.Stat(snap); fi.Mode().Perm() != 0o500 {
-		t.Errorf("snapshot dir mode %v", fi.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no Unix modes
+		if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o400 {
+			t.Errorf("snapshot file mode %v", fi.Mode().Perm())
+		}
+		if fi, _ := os.Stat(snap); fi.Mode().Perm() != 0o500 {
+			t.Errorf("snapshot dir mode %v", fi.Mode().Perm())
+		}
 	}
 	if err := os.WriteFile(file, []byte("x"), 0o600); err == nil && os.Getuid() != 0 {
 		t.Error("the snapshot is writable")
@@ -790,4 +797,42 @@ func TestKindCeilingAndRegisterGuards(t *testing.T) {
 		}
 	}()
 	Register(Kind{Name: "ceiling-below-default", DefaultAccess: AccessWorkspace, MaxAccess: AccessQA})
+}
+
+func TestSubmitTakesTheIdItIsGivenAndRefusesOne(t *testing.T) {
+	s, _ := newService(t)
+	for _, bad := range []string{"x", "at-123", "at-ZZZZZZZZZZZZZZZZ", "at-0123456789ABCDEF"} {
+		if _, err := s.Submit(context.Background(), SubmitInput{ID: bad, Goal: "g"}); code(err) != CodeInvalidInput {
+			t.Errorf("id %q: %v", bad, err)
+		}
+	}
+	task, err := s.Submit(context.Background(), SubmitInput{ID: "at-0123456789abcdef", Kind: "generic", Goal: "g"})
+	if err != nil || task.ID != "at-0123456789abcdef" {
+		t.Fatalf("task = %+v, err = %v", task, err)
+	}
+	if !ValidID(NewID()) {
+		t.Fatal("NewID makes an id ValidID refuses")
+	}
+}
+
+// A task id already in use is refused before anything is made: no second conversation, and the first task's
+// context folder is not written over.
+func TestSubmitRefusesATaskIdInUseBeforeMakingAnything(t *testing.T) {
+	s, l := newService(t)
+	in := SubmitInput{ID: "at-0123456789abcdef", Kind: "generic", Goal: "first"}
+	first, err := s.Submit(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := l.created
+	in.Goal = "second"
+	if _, err := s.Submit(context.Background(), in); code(err) != CodeInvalidInput {
+		t.Fatalf("a second submit with the same id: %v", err)
+	}
+	if l.created != made {
+		t.Errorf("a refused submit made %d conversation(s)", l.created-made)
+	}
+	if got, err := s.Store.Get(first.ID); err != nil || got.Goal != "first" {
+		t.Fatalf("the first task changed: %+v %v", got, err)
+	}
 }

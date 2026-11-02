@@ -71,6 +71,7 @@ func TestProjectsUnder(t *testing.T) {
 	mk("node_modules/pkg")                                       // skipped dir
 	os.MkdirAll(filepath.Join(root, "docs", ".monomind"), 0o755) // bare .monomind: not initialized
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	got := ProjectsUnder(root)
 	want := []string{filepath.Join(root, "codes", "app")}

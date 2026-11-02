@@ -138,6 +138,18 @@ export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
 
+export function AgentPurposeReset(arg1) {
+  return window['go']['main']['App']['AgentPurposeReset'](arg1);
+}
+
+export function AgentPurposeSet(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['AgentPurposeSet'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
+export function AgentPurposesList() {
+  return window['go']['main']['App']['AgentPurposesList']();
+}
+
 export function AgentRoster() {
   return window['go']['main']['App']['AgentRoster']();
 }
@@ -248,6 +260,10 @@ export function ChooseProfileFolder() {
 
 export function ChooseWorkflowFile() {
   return window['go']['main']['App']['ChooseWorkflowFile']();
+}
+
+export function ClassifyChatPath(arg1, arg2) {
+  return window['go']['main']['App']['ClassifyChatPath'](arg1, arg2);
 }
 
 export function ClearAITaskBudget(arg1, arg2) {
@@ -368,6 +384,10 @@ export function DeleteChatConversation(arg1) {
 
 export function DeleteChatConversations(arg1) {
   return window['go']['main']['App']['DeleteChatConversations'](arg1);
+}
+
+export function DeleteChatConversationsAnyway(arg1) {
+  return window['go']['main']['App']['DeleteChatConversationsAnyway'](arg1);
 }
 
 export function DeleteOrgDesign(arg1) {
@@ -520,6 +540,10 @@ export function GetChatConversationRecord(arg1) {
 
 export function GetChatEvents(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetChatEvents'](arg1, arg2, arg3, arg4);
+}
+
+export function GetChatMissionToggle(arg1) {
+  return window['go']['main']['App']['GetChatMissionToggle'](arg1);
 }
 
 export function GetChatTurns(arg1, arg2, arg3) {
@@ -1190,6 +1214,30 @@ export function PauseOrgAutonomy(arg1, arg2) {
   return window['go']['main']['App']['PauseOrgAutonomy'](arg1, arg2);
 }
 
+export function PersonItemAnswerAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAnswerAsk'](arg1, arg2);
+}
+
+export function PersonItemApprove(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PersonItemApprove'](arg1, arg2, arg3);
+}
+
+export function PersonItemAsk(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemAsk'](arg1, arg2);
+}
+
+export function PersonItemDeny(arg1, arg2) {
+  return window['go']['main']['App']['PersonItemDeny'](arg1, arg2);
+}
+
+export function PersonItemShow(arg1) {
+  return window['go']['main']['App']['PersonItemShow'](arg1);
+}
+
+export function PersonItemsList() {
+  return window['go']['main']['App']['PersonItemsList']();
+}
+
 export function PickCoderFolder() {
   return window['go']['main']['App']['PickCoderFolder']();
 }
@@ -1224,6 +1272,10 @@ export function ReadHILScreenshot(arg1) {
 
 export function ReadJSONFile(arg1) {
   return window['go']['main']['App']['ReadJSONFile'](arg1);
+}
+
+export function ReadChatMarkdown(arg1, arg2) {
+  return window['go']['main']['App']['ReadChatMarkdown'](arg1, arg2);
 }
 
 export function ReadWorkspaceImage(arg1, arg2) {
@@ -1290,6 +1342,10 @@ export function RerecordSelector(arg1, arg2) {
   return window['go']['main']['App']['RerecordSelector'](arg1, arg2);
 }
 
+export function ResolveChatPath(arg1, arg2) {
+  return window['go']['main']['App']['ResolveChatPath'](arg1, arg2);
+}
+
 export function ResolveOrgChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ResolveOrgChat'](arg1, arg2, arg3, arg4);
 }
@@ -1308,6 +1364,10 @@ export function ResumeOrgAutonomy(arg1) {
 
 export function ResumeApplicationFill(arg1) {
   return window['go']['main']['App']['ResumeApplicationFill'](arg1);
+}
+
+export function RevealChatPath(arg1, arg2) {
+  return window['go']['main']['App']['RevealChatPath'](arg1, arg2);
 }
 
 export function RevealProfileFolder(arg1) {
@@ -1436,6 +1496,10 @@ export function SetBrowserSiteRule(arg1, arg2) {
 
 export function SetChatAccess(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SetChatAccess'](arg1, arg2, arg3, arg4);
+}
+
+export function SetChatMissionToggle(arg1, arg2) {
+  return window['go']['main']['App']['SetChatMissionToggle'](arg1, arg2);
 }
 
 export function SetChatOrgMode(arg1, arg2) {
@@ -1594,8 +1658,16 @@ export function TaskSessionApprove(arg1) {
   return window['go']['main']['App']['TaskSessionApprove'](arg1);
 }
 
+export function TaskSessionApproveAt(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionApproveAt'](arg1, arg2);
+}
+
 export function TaskSessionArchive(arg1) {
   return window['go']['main']['App']['TaskSessionArchive'](arg1);
+}
+
+export function TaskSessionArchiveCascade(arg1) {
+  return window['go']['main']['App']['TaskSessionArchiveCascade'](arg1);
 }
 
 export function TaskSessionBoard(arg1, arg2) {
@@ -1610,6 +1682,10 @@ export function TaskSessionClose(arg1, arg2) {
   return window['go']['main']['App']['TaskSessionClose'](arg1, arg2);
 }
 
+export function TaskSessionCreate(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['TaskSessionCreate'](arg1, arg2, arg3, arg4);
+}
+
 export function TaskSessionPause(arg1) {
   return window['go']['main']['App']['TaskSessionPause'](arg1);
 }
@@ -1620,6 +1696,10 @@ export function TaskSessionPlan(arg1) {
 
 export function TaskSessionPulse(arg1) {
   return window['go']['main']['App']['TaskSessionPulse'](arg1);
+}
+
+export function TaskSessionRename(arg1, arg2) {
+  return window['go']['main']['App']['TaskSessionRename'](arg1, arg2);
 }
 
 export function TaskSessionResume(arg1) {

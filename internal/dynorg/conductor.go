@@ -69,9 +69,11 @@ type Conductor struct {
 	mu sync.Mutex
 	// closeMu serialises mission_finish proposals (mission_close.go).
 	closeMu sync.Mutex
-	workers map[string]*worker
-	order   []string
-	spawned int
+	// beforeRecord is a test seam: it runs right before mission_evaluate/mission_reevaluate write their record.
+	beforeRecord func()
+	workers      map[string]*worker
+	order        []string
+	spawned      int
 	// taskRuns: tasks that already had a worker this turn; a retry of one does not count
 	// against Limits.MaxAgents in a mission turn (mission_cap.go).
 	taskRuns map[int64]bool
@@ -174,6 +176,15 @@ type worker struct {
 	merged                    bool // org_merge brought its branch into the chat folder
 	// task is the mission task it works, if any (mission_exec.go).
 	task *missionBind
+	// retired: the operator retired this mission worker (mission_retire.go); it takes no follow-up.
+	retired bool
+	// missionSession and missionTask are the mission task a veteran worked in an earlier turn. A veteran
+	// has no task binding (it runs as an ordinary agent), but the operator can still retire it, and a
+	// later save writes the same link back.
+	missionSession, missionTask int64
+	// missionGen is the claim number of the task this worker started under (0 until its first run mints a
+	// token), so a later claim by another worker cannot undo its retirement.
+	missionGen int
 }
 
 // MaxFollowups caps org_message runs per worker, so follow-ups can't stand
@@ -329,8 +340,12 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 			return WorkerInfo{}, err
 		}
 	}
+	claimNo := 0
 	if task != nil && !task.verifier { // a verifier holds no claim: it only checks
-		if err := c.missionClaim(ctx, task); err != nil {
+		// The claim returns its own number, taken in the transaction that wrote it: nothing that happens to the task
+		// afterwards (given back, retired, claimed by another worker) can change it.
+		var err error
+		if claimNo, err = c.missionClaimN(ctx, task); err != nil {
 			return WorkerInfo{}, err
 		}
 	}
@@ -347,7 +362,7 @@ func (c *Conductor) spawn(ctx context.Context, req SpawnRequest, parent *worker)
 		model: st.Model, status: chatevents.AgentQueued, changed: map[string]bool{}, started: c.cfg.Now(),
 		parent: parent, allowSpawn: req.AllowSpawn && parent == nil, cwd: c.cfg.Cwd,
 		mustConfine: parent != nil && st.Access == ProfileResearch && parent.staff.Access == ProfileResearch,
-		task:        task,
+		task:        task, missionGen: claimNo,
 	}
 	c.workers[w.id] = w
 	c.order = append(c.order, w.id)
@@ -447,6 +462,12 @@ func (c *Conductor) message(ctx context.Context, from *worker, id, text string) 
 	if strings.TrimSpace(text) == "" {
 		return WorkerInfo{}, fmt.Errorf("text is required")
 	}
+	if err := c.retiredRefusal(ctx, id); err != nil {
+		return WorkerInfo{}, err
+	}
+	if afterFollowupCheck != nil {
+		afterFollowupCheck()
+	}
 	c.mu.Lock()
 	var w *worker
 	for {
@@ -499,6 +520,9 @@ func (c *Conductor) followupCheckLocked(from *worker, id string) (*worker, error
 	}
 	if err := c.veteranBlockedLocked(w); err != nil {
 		return nil, err
+	}
+	if w.retired {
+		return nil, retiredError(id)
 	}
 	if running(w.status) {
 		return nil, fmt.Errorf("%s is still working; org_wait for it first", id)

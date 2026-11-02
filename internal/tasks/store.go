@@ -16,6 +16,8 @@ type Store struct {
 	now func() time.Time
 	// checker validates commit evidence where git is available (SetEvidenceChecker).
 	checker EvidenceChecker
+	// approval reads the operator's approval settings and person items (SetApprovalSource); unset, an agent never approves.
+	approval ApprovalSource
 }
 
 // NewStore returns a Store over a migrated database.
@@ -28,6 +30,9 @@ type dbx interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
+
+// Queryer is dbx for a caller outside the package: the connection of a transaction a hook runs in.
+type Queryer = dbx
 
 func (s *Store) stamp() string { return s.now().UTC().Format(timeFmt) }
 

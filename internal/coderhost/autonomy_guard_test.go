@@ -30,7 +30,7 @@ var approvalWriters = []string{
 	"Approve", "ApproveSession", "ApprovedBy", "DecideSubmitItem", "DecideSiteItem", "HoldUpload", "HoldFill", "Hold",
 	"Confirmed", "MissionConfig", "MissionAccess",
 	// operator-only settings, access and budget raises, tree shape
-	"SaveSettings", "SetUnattended", "SetBudget", "carveBudget", "SetRole", "Spawn", "SetChild", "OperatorOnly", "capAccess", "childAccess",
+	"SaveSettings", "UpdateSettings", "SetUnattended", "SetBudget", "carveBudget", "SetRole", "Spawn", "SetChild", "OperatorOnly", "capAccess", "childAccess",
 	"SetCommand", // ending or re-marking a command is the host loop's
 }
 
@@ -178,12 +178,19 @@ func looksLikeSQL(s string) bool {
 // rule and added, with the test above or its own, covering it.
 func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 	want := map[string]int{ // call sites per function
-		"checkin.go:checkinOne":            1, // Enqueue: a host check-in (checkin- turn id)
+		"store.go:EnqueueWithCheckin":      1, // enqueueOn (in the check-in's transaction): a host check-in (checkin- turn id, no issuer; it approves nothing), written with its baseline
 		"children_control.go:SendToChild":  1, // Enqueue: a master's send (master- turn id, issuer)
 		"children_control.go:ControlChild": 1, // Enqueue: pause/resume/stop by a master
 		"children.go:spawnWith":            1, // Enqueue: a master's first message to a new child
 		"parked_deliver.go:deliver":        1, // Enqueue: an answer note (answer- turn id)
+		"person_deny.go:tellDenied":        1, // Enqueue: the lead told a plan was turned down (answer-p-deny- turn id keyed by item and round, no issuer; it approves nothing)
+		"person_plan.go:TellLeadAboutPlan": 1, // Enqueue: the person's own words about a giant plan (answer-p turn id, no issuer; it approves nothing: only the operator's CLI verbs call it)
+		"ask_ancestor.go:publishAsk":       1, // enqueueOn (in the ask's transaction): a normal ask to an ancestor lead (ask-q- turn id, no issuer, sealed text, no authority)
+		"store.go:Enqueue":                 1, // enqueueOn: Enqueue is the same insert on the store's own handle
+		"ask_reply.go:closeAndDeliver":     1, // enqueueOn (in the answer's transaction): the sealed reply to the asker (ask-r- from an ancestor lead, ask-p- from the person)
 		"missionchild.go:queueCascadeStop": 1, // Enqueue: a stop of a mission child whose lead or mission ended (no send, no issuer)
+		"sessionspawn.go:SpawnSession":     1, // Enqueue: a lead's first message to the session it spawned (master- turn id, issuer)
+		"treecascade.go:queueCascade":      1, // Enqueue: the host's own pause or resume of a descendant of a paused session (no send, no issuer)
 		"missionchild.go:reconcileChild":   1, // Enqueue: a pause of a paused mission's child (no send, no issuer); its resume goes through enqueueCascadeResume (store.go), which a person's pause stops
 	}
 	// Only the parked-question code may deliver an answer, apply a default or write the ledger.
@@ -199,10 +206,10 @@ func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				// every selector, so a method value (f := s.Enqueue) counts as a call
 				if sel, ok := n.(*ast.SelectorExpr); ok {
-					if sel.Sel.Name == "Enqueue" {
+					if sel.Sel.Name == "Enqueue" || sel.Sel.Name == "enqueueOn" {
 						got[file+":"+fd.Name.Name]++
 					}
-					if ownedByParked[sel.Sel.Name] && !strings.HasPrefix(file, "parked") && !strings.HasPrefix(file, "ledger") && file+":"+fd.Name.Name != "producer.go:RecordOwn" {
+					if ownedByParked[sel.Sel.Name] && !strings.HasPrefix(file, "parked") && !strings.HasPrefix(file, "ledger") && file+":"+fd.Name.Name != "producer.go:RecordOwn" && file+":"+fd.Name.Name != "ask_ancestor.go:recordAsk" {
 						t.Errorf("%s:%s uses %s, which only the parked-question code may", file, fd.Name.Name, sel.Sel.Name)
 					}
 				}

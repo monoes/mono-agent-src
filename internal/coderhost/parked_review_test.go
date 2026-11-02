@@ -189,7 +189,7 @@ func TestClosedQuestionsArePrunedNewestKeptAndListedNewestFirst(t *testing.T) {
 	addConversation(t, st, "a", "/w/a")
 	open, _ := st.Park("p", "a", "risky_action", "still open", nil, "", false)
 	for i := 0; i < MaxClosedQuestions+7; i++ {
-		if _, err := st.db.Exec(`INSERT INTO coder_session_questions (profile_id, conversation_id, class, question, status, created_at) VALUES ('p', 'a', 'risky_action', ?, 'answered', 'x')`, fmt.Sprint("old-", i)); err != nil {
+		if _, err := st.db.Exec(`INSERT INTO coder_session_questions (profile_id, conversation_id, class, question, status, created_at, answered_at) VALUES ('p', 'a', 'risky_action', ?, 'answered', 'x', ?)`, fmt.Sprint("old-", i), t0.Add(-2*MaxSendAge).UTC().Format(timeLayout)); err != nil {
 			t.Fatal(err)
 		}
 	}

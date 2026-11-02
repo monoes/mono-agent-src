@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  STATUS, emptySummary, applyChatEvent, summaryFromTurns, totalCost, costEstimated, layoutBubbles, moveBubble,
+  STATUS, emptySummary, applyChatEvent, summaryFromTurns, totalCost, costEstimated, layoutBubbles, moveBubble, fitDock,
   loadState, saveState, STORAGE_KEY, shouldCollapseOnBackdrop, monogram, newDraftKey, orgBubble, isOrgBubble,
   profileFolderName,
 } from './coderBubbles.js'
@@ -57,6 +57,43 @@ describe('summaryFromTurns', () => {
     expect(summaryFromTurns([{ id: 't9', status: 'failed' }]).status).toBe(STATUS.error)
     expect(summaryFromTurns([{ id: 't9', status: 'completed' }]).status).toBe(STATUS.idle)
     expect(summaryFromTurns([]).status).toBe(STATUS.idle)
+  })
+})
+
+describe('fitDock', () => {
+  const it4 = (orbits) => orbits.map((o, i) => ({ key: `k${i}`, orbit: o }))
+  it('keeps everything when the window is tall enough', () => {
+    const r = fitDock(it4([true, false]), '', 800)
+    expect(r.visible).toEqual(['k0', 'k1'])
+    expect(r.overflow).toEqual([])
+  })
+  it('at 800px four missions with orbits and a plain chat fit by dropping the later circles, so "+" and the tray stay on screen', () => {
+    const r = fitDock(it4([true, true, true, true, false]), '', 800)
+    const used = r.visible.reduce((n, k) => n + 60 + (r.plain.has(k) || k === 'k4' ? 0 : 132), 0) + (r.overflow.length ? 60 : 0)
+    expect(used).toBeLessThanOrEqual(800 - 172)
+    expect([...r.plain]).toEqual(['k2', 'k3', 'k4'].filter(k => r.plain.has(k)))
+    expect(r.plain.has('k0')).toBe(false)
+    expect([...r.visible, ...r.overflow].sort()).toEqual(['k0', 'k1', 'k2', 'k3', 'k4'])
+  })
+  it('moves the rest into the overflow list when even plain bubbles do not fit', () => {
+    const r = fitDock(it4([true, true, true, true, true, true]), '', 480)
+    expect(r.overflow.length).toBeGreaterThan(0)
+    expect(r.visible.length * 60 + (r.visible.length ? 132 : 0) + 60).toBeLessThanOrEqual(480 - 172 + 132 + 60)
+  })
+  it('serves the expanded bubble first and keeps dock order among the visible', () => {
+    const r = fitDock(it4([true, true, true, true]), 'k3', 600)
+    expect(r.visible).toContain('k3')
+    expect(r.plain.has('k3')).toBe(false)
+    expect(r.visible).toEqual([...r.visible].sort())
+  })
+  it('drops a bubble\'s circles before it drops the bubble', () => {
+    const r = fitDock(it4([true, true]), '', 172 + 192 + 60 + 60)
+    expect(r.visible).toEqual(['k0', 'k1'].slice(0, r.visible.length))
+    expect(r.plain.size + r.visible.length).toBeGreaterThan(0)
+  })
+  it('never leaves an empty dock', () => {
+    const r = fitDock(it4([true, true]), '', 100)
+    expect(r.visible).toHaveLength(1)
   })
 })
 

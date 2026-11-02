@@ -33,6 +33,11 @@ func (s *Store) recordCarveRefused(profileID string, sessionID, taskID int64, le
 // BEGIN IMMEDIATE transaction, so no reservation can take the conversation between the check and the delete;
 // a conversation another row owns is left alone (ai.ErrConversationGuarded).
 func (s *Store) deleteIfNotOwnedByAnother(profileID string, sessionID, taskID, generation int64, conv string) error {
+	return s.deleteIfNotOwnedByAnotherAnd(profileID, sessionID, taskID, generation, conv, nil)
+}
+
+// deleteIfNotOwnedByAnotherAnd also asks extra (when set), in the same transaction, whether the delete may go on.
+func (s *Store) deleteIfNotOwnedByAnotherAnd(profileID string, sessionID, taskID, generation int64, conv string, extra func(context.Context, *sql.Conn) (bool, error)) error {
 	store, err := ai.NewAIStore(s.db)
 	if err != nil {
 		return err
@@ -41,6 +46,12 @@ func (s *Store) deleteIfNotOwnedByAnother(profileID string, sessionID, taskID, g
 		var n int
 		err := c.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_mission_children WHERE profile_id = ? AND (child_conversation_id = ? OR pending_conversation_id = ?)
 			AND NOT (session_id = ? AND task_id = ? AND generation = ?)`, profileID, conv, conv, sessionID, taskID, generation).Scan(&n)
-		return n == 0, err
+		if err != nil || n != 0 {
+			return false, err
+		}
+		if extra == nil {
+			return true, nil
+		}
+		return extra(ctx, c)
 	})
 }

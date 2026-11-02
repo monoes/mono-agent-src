@@ -1,6 +1,9 @@
 package chat
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -8,13 +11,14 @@ import (
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // `coder set`: coder mode's defaults, every flag of which is the operator's.
 
 // operatorCoderFlags are the `coder set` flags only the operator changes:
 // where a full-access chat works and the caps on how far it goes.
-var operatorCoderFlags = []string{"workspace-root", "max-turns", "timeout", "budget-usd", "org-max-agents", "org-max-concurrent", "org-budget-usd", "default-access", "box"}
+var operatorCoderFlags = []string{"workspace-root", "max-turns", "timeout", "budget-usd", "org-max-agents", "org-max-concurrent", "org-budget-usd", "default-access", "box", "peercred-binding"}
 
 // operatorOrgFlags are the dynamic-org `coder set` flags only the operator
 // changes, and why: what Jev (TypeSafe) is asked about the workers' briefs,
@@ -43,6 +47,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 		appAcc   string
 		defAcc   string
 		box      string
+		peercred string
 	)
 	c := coderSettingsCmd(cfg, "set", "Change coder mode's defaults", func(cmd *cobra.Command, s *coderSettings) error {
 		f := cmd.Flags()
@@ -138,6 +143,31 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 			}
 			s.Box = box
 		}
+		if f.Changed("peercred-binding") {
+			if peercred != "on" && peercred != "off" {
+				return clicore.InvalidInput("--peercred-binding must be on or off")
+			}
+			if peercred == "on" {
+				if why := procbind.Refusal(true); why != "" { // the service is the host's to start; the rest must hold now
+					return clicore.InvalidInput("peer-credential binding cannot be switched on: %s", why)
+				}
+				// A turn that is running now was admitted unbound and holds legacy tokens, which the stores keep accepting:
+				// the switch is made when none runs, so that no turn is left outside it. The count is read inside the
+				// transaction that saves the setting.
+				ctx := cmd.Context()
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				n, err := liveTurns(ctx, s.tx)
+				if err != nil {
+					return fmt.Errorf("could not check for running coder turns: %w", err)
+				}
+				if n > 0 {
+					return clicore.InvalidInput("peer-credential binding cannot be switched on while %d coder turn(s) are running without it: wait for them to finish or stop them, then switch it on", n)
+				}
+			}
+			s.PeercredBinding = bindingFlag(peercred == "on")
+		}
 		if f.Changed("send-approval") {
 			if err := clicore.RequireOperator(cfg.RequireOperator, "change the send-approval setting"); err != nil {
 				return err
@@ -167,6 +197,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 	c.Flags().StringVar(&appAcc, "app-access", "", "on (default) or off: what agents are told and offered, not what they can do. Off, coder prompts carry no profile summary and a dynamic org's workers are not offered the workspace profile (MonoAgent's tasks, documents, people, vault, workflows and apps) or told about those surfaces; the coder lead keeps full access, a worker with a shell can still run monoagentcli, operator-only commands and the send gate still apply, and with a Jev key set a worker's brief still goes to Jev, whatever the router (operator only)")
 	c.Flags().StringVar(&defAcc, "default-access", "", "scoped, coding, workspace or full (default full): the level an operator-run chat creation without --access makes when coder mode is ready; an agent-run creation stays scoped (operator only)")
 	c.Flags().StringVar(&box, "box", "", "off (default), compat or strict: run a coding-access coder turn inside the agent sandbox (Linux, bubblewrap). Best-effort hardening, not isolation: the turn shares the host network and the host root is mounted read-only, so only the named locations are hidden. Workspace and full access turns need the user's database, which the sandbox hides, so they are refused while this is on (operator only)")
+	c.Flags().StringVar(&peercred, "peercred-binding", "", "on or off (default off): bind a turn's tokens to the turn's process through the kernel-checked binding service. It can be switched on only where this build and this machine can run it (today it cannot: switching it on is refused), and a setting that is on anyway refuses every turn rather than run weaker (operator only)")
 	c.Flags().StringVar(&root, "workspace-root", "", "Folder new test workspaces are created in (operator only)")
 	c.Flags().IntVar(&maxTurns, "max-turns", 0, "Agent turn cap per message (operator only)")
 	c.Flags().StringVar(&timeout, "timeout", "", "Wall-clock cap per message (e.g. 60m; operator only)")
@@ -178,4 +209,13 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 	c.Flags().StringVar(&router, "org-router", "", "Dynamic org (coder.router): who picks a worker's role and skills when the lead doesn't: auto (default; monomind pick when confident, else Jev, else the lead), jev or model (the lead names roles from org_roster; operator only)")
 	c.Flags().StringVar(&writers, "org-writers", "", "Dynamic org: shared (default; one writer at a time under the write lease) or isolated (each writer gets its own git worktree and branch, merged by the lead; its checkpoint commits skip git hooks, so merged work never passed pre-commit, and the worktrees under .monoagent-worktrees/ are visible to tools that ignore git excludes; operator only)")
 	return c
+}
+
+// liveTurns counts the coder sessions with a turn in flight (a turn id, or a process the host started).
+func liveTurns(ctx context.Context, q interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}) (int, error) {
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM coder_sessions WHERE turn_id <> '' OR turn_pid > 0`).Scan(&n)
+	return n, err
 }

@@ -4,7 +4,7 @@ import { Check, MessageSquare, Pause, Play, Square, Archive, CircleCheck } from 
 import { confirm } from '../ConfirmDialog.jsx'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
-import { actionsFor, nearBudget, progress, spendParts } from '../../lib/taskSessionModel.js'
+import { actionsFor, nearBudget, openBelow, progress, spendParts } from '../../lib/taskSessionModel.js'
 
 const ICONS = { approve: Check, pause: Pause, resume: Play, stop: Square, close: CircleCheck, archive: Archive }
 
@@ -13,7 +13,7 @@ const ICONS = { approve: Check, pause: Pause, resume: Play, stop: Square, close:
 // and the Board/Plan toggle. Every action is the CLI's call; a refusal shows
 // in the alert. Open conversation only shows when the session has one and the
 // app can open it.
-export default function SessionHeader({ session, view, onView, onAct, onBudget, notice, onClearNotice, onOpenConversation }) {
+export default function SessionHeader({ sessions = [], session, view, onView, onAct, onBudget, notice, onClearNotice, onOpenConversation }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [usd, setUsd] = useState('')
@@ -24,8 +24,11 @@ export default function SessionHeader({ session, view, onView, onAct, onBudget, 
     // Stop is for good (every claim released): ask first.
     if (verb === 'stop' && !(await confirm(t('tasks.session.confirmStop')))) return
     if (verb === 'close' && !(await confirm(t('tasks.session.confirmClose')))) return
+    // Archiving a session with open sessions below it archives them too: say which, ask first.
+    const open = verb === 'archive' ? openBelow(sessions, session.id) : []
+    if (open.length && !(await confirm(t('tasks.session.confirmArchiveCascade', { count: open.length, titles: open.map(s => s.title).join('; ') })))) return
     setBusy(true)
-    try { await onAct(verb, session.id) } finally { setBusy(false) }
+    try { await onAct(open.length ? 'archiveCascade' : verb, session.id) } finally { setBusy(false) }
   }
   const saveBudget = async (e) => {
     e.preventDefault()
@@ -78,7 +81,7 @@ export default function SessionHeader({ session, view, onView, onAct, onBudget, 
           <span className="ts-hint">{t('tasks.session.budgetHint')}</span>
         </form>
       )}
-      {notice && <div role="alert" onClick={onClearNotice}>{t('tasks.refused', { error: notice.error })}</div>}
+      {notice && <div role="alert" onClick={onClearNotice}>{notice.code === 'plan_changed' ? t('personItem.planChanged') : t('tasks.refused', { error: notice.error })}</div>}
     </section>
   )
 }

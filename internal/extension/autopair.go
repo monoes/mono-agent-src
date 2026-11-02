@@ -435,6 +435,7 @@ func (s *Server) handlePairClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	token, entry, err := addPairedBrowser(PairedBrowser{
 		Label: label, Origin: origin, Agent: agent, Instance: req.Instance,
+		Restricted: true, // a new browser runs no profile until the owner allows one (a rotation keeps its own limit)
 	}, mintOpts{RotateToken: req.Token})
 	if err != nil {
 		if errors.Is(err, ErrInstancePaired) || errors.Is(err, ErrBrowserLimit) {

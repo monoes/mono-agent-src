@@ -2,6 +2,7 @@ package browserctl
 
 import (
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/testhome"
@@ -69,6 +70,7 @@ func TestContextKeyAndGroupTitle(t *testing.T) {
 
 func TestStateRoundTrip(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	if st := LoadState("human"); st.TabID != 0 {
 		t.Fatalf("fresh state = %+v", st)
 	}
@@ -81,7 +83,7 @@ func TestStateRoundTrip(t *testing.T) {
 	}
 	dir, _ := StateDir()
 	fi, err := os.Stat(dir + "/conv-1.json")
-	if err != nil || fi.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) { // Windows has no Unix modes
 		t.Fatalf("state file: %v, %v", fi, err)
 	}
 }

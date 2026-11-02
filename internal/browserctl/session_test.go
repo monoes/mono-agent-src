@@ -19,6 +19,7 @@ import (
 func setEnv(t *testing.T, agent bool) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	for _, k := range browserctl.AgentContextEnv() {
 		t.Setenv(k, "")
 	}

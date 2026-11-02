@@ -72,6 +72,12 @@ export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:s
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function AgentPurposeReset(arg1:string):Promise<string>;
+
+export function AgentPurposeSet(arg1:string,arg2:Array<string>,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:number):Promise<string>;
+
+export function AgentPurposesList():Promise<string>;
+
 export function AgentRoster():Promise<string>;
 
 export function AgentRosterAdd(arg1:string,arg2:string):Promise<string>;
@@ -127,6 +133,8 @@ export function ChooseInstructionsFile():Promise<string>;
 export function ChooseProfileFolder():Promise<string>;
 
 export function ChooseWorkflowFile():Promise<string>;
+
+export function ClassifyChatPath(arg1:string,arg2:string):Promise<main.ChatPathClass>;
 
 export function ClearAITaskBudget(arg1:string,arg2:string):Promise<string>;
 
@@ -187,6 +195,8 @@ export function DaemonRestart():Promise<main.DaemonRestartResult>;
 export function DeleteChatConversation(arg1:string):Promise<string>;
 
 export function DeleteChatConversations(arg1:Array<string>):Promise<main.DeleteChatResult>;
+
+export function DeleteChatConversationsAnyway(arg1:Array<string>):Promise<main.DeleteChatResult>;
 
 export function DeleteOrgDesign(arg1:string):Promise<string>;
 
@@ -263,6 +273,8 @@ export function GetCaptureView(arg1:string):Promise<main.CaptureView>;
 export function GetChatConversationRecord(arg1:string):Promise<main.ChatConversationRecord>;
 
 export function GetChatEvents(arg1:string,arg2:string,arg3:number,arg4:number):Promise<string>;
+
+export function GetChatMissionToggle(arg1:string):Promise<string>;
 
 export function GetChatTurns(arg1:string,arg2:string,arg3:number):Promise<string>;
 
@@ -597,6 +609,18 @@ export function InstallExtension():Promise<main.ExtensionInfo>;
 
 export function PauseOrgAutonomy(arg1:string,arg2:string):Promise<string>;
 
+export function PersonItemAnswerAsk(arg1:number,arg2:string):Promise<string>;
+
+export function PersonItemApprove(arg1:number,arg2:number,arg3:string):Promise<string>;
+
+export function PersonItemAsk(arg1:number,arg2:string):Promise<string>;
+
+export function PersonItemDeny(arg1:number,arg2:string):Promise<string>;
+
+export function PersonItemShow(arg1:number):Promise<string>;
+
+export function PersonItemsList():Promise<string>;
+
 export function PickCoderFolder():Promise<string>;
 
 export function PlatformNames():Promise<Record<string, string>>;
@@ -614,6 +638,8 @@ export function QueueStart(arg1:string,arg2:string):Promise<string>;
 export function ReadHILScreenshot(arg1:string):Promise<string>;
 
 export function ReadJSONFile(arg1:string):Promise<Record<string, any>>;
+
+export function ReadChatMarkdown(arg1:string,arg2:string):Promise<string>;
 
 export function ReadWorkspaceImage(arg1:string,arg2:string):Promise<string>;
 
@@ -647,6 +673,8 @@ export function RenameChatConversation(arg1:string,arg2:string):Promise<string>;
 
 export function RerecordSelector(arg1:string,arg2:string):Promise<string>;
 
+export function ResolveChatPath(arg1:string,arg2:string):Promise<main.ChatPathInfo>;
+
 export function ResolveOrgChat(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<string>;
 
 export function RestoreAutomation(arg1:string):Promise<string>;
@@ -656,6 +684,8 @@ export function RestoreExcludedDocument(arg1:string):Promise<void>;
 export function ResumeOrgAutonomy(arg1:string):Promise<string>;
 
 export function ResumeApplicationFill(arg1:string):Promise<main.AITask>;
+
+export function RevealChatPath(arg1:string,arg2:string):Promise<void>;
 
 export function RevealProfileFolder(arg1:string):Promise<void>;
 
@@ -720,6 +750,8 @@ export function SetBrowserPermission(arg1:string,arg2:string):Promise<string>;
 export function SetBrowserSiteRule(arg1:string,arg2:string):Promise<string>;
 
 export function SetChatAccess(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<main.AccessChange>;
+
+export function SetChatMissionToggle(arg1:string,arg2:boolean):Promise<string>;
 
 export function SetChatOrgMode(arg1:string,arg2:string):Promise<string>;
 
@@ -798,7 +830,11 @@ export function TaskPulse():Promise<Record<string, any>>;
 
 export function TaskSessionApprove(arg1:number):Promise<string>;
 
+export function TaskSessionApproveAt(arg1:number,arg2:number):Promise<string>;
+
 export function TaskSessionArchive(arg1:number):Promise<string>;
+
+export function TaskSessionArchiveCascade(arg1:number):Promise<string>;
 
 export function TaskSessionBoard(arg1:number,arg2:number):Promise<string>;
 
@@ -806,11 +842,15 @@ export function TaskSessionBudget(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionClose(arg1:number,arg2:string):Promise<string>;
 
+export function TaskSessionCreate(arg1:string,arg2:string,arg3:number,arg4:string):Promise<string>;
+
 export function TaskSessionPause(arg1:number):Promise<string>;
 
 export function TaskSessionPlan(arg1:number):Promise<string>;
 
 export function TaskSessionPulse(arg1:number):Promise<Record<string, any>>;
+
+export function TaskSessionRename(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionResume(arg1:number):Promise<string>;
 

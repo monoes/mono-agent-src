@@ -4,6 +4,8 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 
 vi.mock('../../services/api.js', () => ({ api: { openURL: vi.fn() } }))
+// jsdom events are never trusted; stand in for the user's own click.
+vi.mock('./chatLinks.js', async (orig) => ({ ...(await orig()), isUserGesture: () => true }))
 import { api } from '../../services/api.js'
 
 import { ChatTimeline } from './ChatTimeline.jsx'
@@ -73,10 +75,10 @@ describe('ChatMarkdown', () => {
     expect(api.openURL).not.toHaveBeenCalled()
   })
 
-  it('isAllowedURL accepts only http/https/mailto and rejects everything else', () => {
+  it('isAllowedURL accepts only http/https and rejects everything else', () => {
     expect(isAllowedURL('https://example.com')).toBe(true)
     expect(isAllowedURL('http://example.com')).toBe(true)
-    expect(isAllowedURL('mailto:a@b.com')).toBe(true)
+    expect(isAllowedURL('mailto:a@b.com')).toBe(false)
     expect(isAllowedURL('javascript:alert(1)')).toBe(false)
     expect(isAllowedURL('data:text/html,<script>1</script>')).toBe(false)
     expect(isAllowedURL('file:///etc/passwd')).toBe(false)

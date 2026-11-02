@@ -450,9 +450,9 @@ func init() {
 	workflow.AgentTextScrubber = RedactText
 }
 
-// agentTokenShape is the shape of a scoped agent token (agenttokens.Prefix and 32 random bytes in
+// agentTokenShape is the shape of a scoped agent token (agenttokens.Prefix, or a v2 prefix, and 32 random bytes in
 // base64url): whatever has it is hidden whoever it belongs to, whether or not the caller presented it.
-var agentTokenShape = regexp.MustCompile(`mat-[A-Za-z0-9_-]{16,}`)
+var agentTokenShape = regexp.MustCompile(`m[as]t2?-[A-Za-z0-9_-]{16,}`)
 
 // RedactAgentTokens replaces everything shaped like an agent token.
 func RedactAgentTokens(s string) string { return agentTokenShape.ReplaceAllString(s, RedactedValue) }

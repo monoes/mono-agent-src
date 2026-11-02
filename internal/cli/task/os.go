@@ -133,7 +133,7 @@ another profile is never replaced.`,
 			// As P1's operator commands do: an agent is refused first, on every platform; then the
 			// arguments are counted (cobra's Args would be exit 1 with no --json document); then the
 			// platform is checked.
-			if _, err := d.callerFor(flagAs(cmd)).operator("install the macOS menu"); err != nil {
+			if _, err := d.personGateOpening(cmd, "install the macOS menu", d.OpenDBUnresolved); err != nil {
 				return err
 			}
 			if len(args) != 0 {
@@ -338,7 +338,7 @@ prints it. Only a menu task os install wrote is removed; nothing to remove is
 not an error.`,
 		Example: `  monoagentcli --profile Work task os uninstall`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := d.callerFor(flagAs(cmd)).operator("remove the macOS menu"); err != nil {
+			if _, err := d.personGateOpening(cmd, "remove the macOS menu", d.OpenDBUnresolved); err != nil {
 				return err
 			}
 			if len(args) != 0 {

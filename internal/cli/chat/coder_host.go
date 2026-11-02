@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // `coder host`: the process that keeps coder sessions going when the app and
@@ -38,6 +40,12 @@ type hostInfo struct {
 	Stamp     string `json:"stamp"`
 	Instance  string `json:"instance"`
 	StartedAt string `json:"startedAt"`
+	// ChildTokens says this host mints a mission child's task token (coder_host_childtoken.go). A host without it
+	// (one built earlier) is not one a lead may hand a child session to.
+	ChildTokens bool `json:"childTokens,omitempty"`
+	// Binding is the peer-credential binding services the host runs, per profile: counts and states only (never a
+	// token, hash, generation or key). `coder host status` shows it to the operator and to no one else.
+	Binding []coderhost.BindingStatus `json:"binding,omitempty"`
 }
 
 func hostDir(cfg *Deps) string {
@@ -136,6 +144,38 @@ func newCoderHostCmd(cfg *Deps) *cobra.Command {
 	return cmd
 }
 
+// hostBuilt is a test seam: it sees the host just built, before it runs, so a test can prove which launcher the
+// production wiring installs.
+var hostBuilt func(h *coderhost.Host)
+
+// retentionSweepEvery is how often the host runs the sweep of the retained v2 rows after the first one at its start.
+var retentionSweepEvery = time.Hour
+
+// purgeRetainedEvery runs procbind.PurgeRetained now and then every interval until ctx is done. A failure is logged
+// and never ends the host or the loop.
+func purgeRetainedEvery(ctx context.Context, db *sql.DB, logf func(string, ...any), interval time.Duration) {
+	run := func() {
+		p, err := procbind.PurgeRetained(ctx, db)
+		if err != nil {
+			logf("coder host: the retention sweep of the binding tables stopped early: %v", err)
+		}
+		if p.Total() > 0 {
+			logf("coder host: the retention sweep removed %d row(s) of the binding tables", p.Total())
+		}
+	}
+	run()
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
+}
+
 func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 	var poll time.Duration
 	cmd := &cobra.Command{
@@ -170,7 +210,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			if ownStamp == "" {
 				return fmt.Errorf("cannot read this process's start time, so `host stop` and a later host could not tell it from another process; not starting")
 			}
-			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339)}
+			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339), ChildTokens: true}
 			raw, _ := json.Marshal(info)
 			infoPath := filepath.Join(hostDir(cfg), hostInfoFile)
 			if err := os.WriteFile(infoPath+".tmp", raw, 0o600); err != nil { // renamed into place: a reader never sees half of it
@@ -194,27 +234,60 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), time.Now().Format(time.RFC3339)+" "+f+"\n", a...)
 			}
 			store := coderhost.NewStore(db.DB)
+			children := newChildTokenMinter(db.DB)
+			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)
+			binding := &coderhost.BindingHost{DB: db.DB, Binder: procbind.NewBinder(time.Now), Logf: logf}
+			defer binding.Shutdown() // revokes every registration and closes every socket
+			legacyLauncher := &execLauncher{bin: exe, child: children, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
+				tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokensErr, revokeTurn: store.RevokeTurnSessionTokensErr, bind: func(p, c, turn string, pid int, stamp string) error {
+					if store.HostInsideTurn() {
+						return coderhost.ErrHostInsideTurn
+					}
+					return store.BindSessionToken(p, c, turn, pid, stamp)
+				}}
+			// The same launcher with peer-credential binding on. The gate sends a turn here only when the setting is on and
+			// nothing is in the way; newBoundLaunch also points the stores that end tokens at the registry, so a revocation
+			// ends the live entry.
+			boundCopy := *legacyLauncher
+			boundCopy.bound = newBoundLaunch(db.DB, binding, binding.Binder, store, children)
+			var boundLauncher coderhost.Launcher = &boundCopy
+			if boundCopy.bound == nil {
+				boundLauncher = nil
+			}
 			h := &coderhost.Host{
-				Store: store,
-				L: &execLauncher{bin: exe, dbPath: cfg.DBPath(), instance: info.Instance, logDir: filepath.Join(hostDir(cfg), "turns"), logf: logf,
-					tokens: store.IssueSessionToken, revoke: store.RevokeSessionTokens, bind: func(p, c, turn string, pid int, stamp string) error {
-						if store.HostInsideTurn() {
-							return coderhost.ErrHostInsideTurn
-						}
-						return store.BindSessionToken(p, c, turn, pid, stamp)
-					}},
+				Store: store, ChildTokens: children,
+				L:                    &gatedLauncher{db: db.DB, svc: binding, logf: logf, inner: legacyLauncher, bound: boundLauncher, insideTurn: store.HostInsideTurnErr},
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
 				TitleOf:              func(profileID, id string) string { return chatDisplayTitle(db.DB, profileID, id) },
+			}
+			if hostBuilt != nil {
+				hostBuilt(h)
 			}
 			if meshEnabled() {
 				h.Mesh = &coderhost.HubMesh{StartHub: func(ctx context.Context) error { return startMeshHub(ctx, hostDir(cfg)) }, Logf: logf}
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			// The retention sweep of the v2 tables (procbind.PurgeRetained) runs at the start and then about once an hour.
+			// It reads no key and never fails the host: an error is logged and the host carries on.
+			purged := make(chan struct{})
+			go func() {
+				defer close(purged)
+				purgeRetainedEvery(ctx, db.DB, logf, retentionSweepEvery)
+			}()
+			// the services' state is republished into the host info file when it changes
+			published := make(chan struct{})
+			go func() {
+				defer close(published)
+				publishBindingStatus(ctx, &info, infoPath, binding)
+			}()
 			logf("coder host %s started (pid %d)", info.Instance, info.PID)
 			err = h.Run(ctx)
+			stop()
+			<-purged    // the sweep does not outlive the host
+			<-published // no write of the info file after the deferred remove
 			logf("coder host stopped; running turns keep going")
 			return err
 		},
@@ -227,8 +300,44 @@ func hostStatus(cfg *Deps) map[string]any {
 	st := map[string]any{"running": hostRunning(cfg)}
 	if info, ok := readHostInfo(cfg); ok && st["running"] == true {
 		st["pid"], st["instance"], st["startedAt"] = info.PID, info.Instance, info.StartedAt
+		// the binding services' state is the operator's: an agent is not told what is registered
+		if len(info.Binding) > 0 && clicore.RequireOperator(cfg.RequireOperator, "see the binding services of the coder host") == nil {
+			st["binding"] = info.Binding
+		}
 	}
 	return st
+}
+
+// bindingPublishEvery is how often the binding services' state is compared with what was last published.
+var bindingPublishEvery = 2 * time.Second
+
+// publishBindingStatus rewrites the host info file (atomically) whenever the binding services' state changes, until
+// ctx is done.
+func publishBindingStatus(ctx context.Context, info *hostInfo, infoPath string, binding *coderhost.BindingHost) {
+	last := ""
+	t := time.NewTicker(bindingPublishEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		now := binding.Status()
+		cur, _ := json.Marshal(now)
+		if string(cur) == last || (last == "" && len(now) == 0) {
+			continue
+		}
+		last = string(cur)
+		info.Binding = now
+		raw, err := json.Marshal(info)
+		if err != nil {
+			continue
+		}
+		if os.WriteFile(infoPath+".tmp", raw, 0o600) == nil {
+			_ = os.Rename(infoPath+".tmp", infoPath)
+		}
+	}
 }
 
 func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
@@ -243,6 +352,11 @@ func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
 			}
 			if st["running"] == true {
 				fmt.Fprintf(cmd.OutOrStdout(), "running  pid %v  since %v\n", st["pid"], st["startedAt"])
+				if b, ok := st["binding"].([]coderhost.BindingStatus); ok {
+					for _, x := range b {
+						fmt.Fprintf(cmd.OutOrStdout(), "binding service  profile %s  running %v  start %d  registrations: %d pending, %d active, %d revoked\n", x.Profile, x.Running, x.Start, x.Pending, x.Active, x.Revoked)
+					}
+				}
 			} else {
 				fmt.Fprintln(cmd.OutOrStdout(), "not running")
 			}

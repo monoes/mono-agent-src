@@ -7,8 +7,8 @@ func addSession(t *testing.T, st *Store, profile, conv, state, archived string) 
 	if _, err := st.db.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES (?, ?)`, profile, profile); err != nil {
 		t.Fatal(err)
 	}
-	res, err := st.db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, state, archived_at, created_by, created_at, updated_at)
-		VALUES (?, ?, 't', ?, ?, 'x', 'n', 'n')`, profile, conv, state, archived)
+	res, err := st.db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, state, archived_at, created_by, created_at, updated_at, kind)
+		VALUES (?, ?, 't', ?, ?, 'x', 'n', 'n', 'mission')`, profile, conv, state, archived)
 	if err != nil {
 		t.Fatal(err)
 	}

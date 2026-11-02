@@ -426,7 +426,7 @@ func TestEveryCoderSetFlagIsTheOperators(t *testing.T) {
 		"send-approval": "false", "app-access": "off", "workspace-root": t.TempDir(), "max-turns": "5",
 		"timeout": "5m", "budget-usd": "1", "org-max-agents": "2", "org-max-concurrent": "2",
 		"org-budget-usd": "1", "org-model-picker": "lead", "org-router": "jev", "org-writers": "isolated",
-		"default-access": "coding", "box": "strict",
+		"default-access": "coding", "box": "strict", "peercred-binding": "off",
 	}
 	before, err := runSendCLI(t, cfg, newCoderSetCmd(cfg))
 	if err != nil {

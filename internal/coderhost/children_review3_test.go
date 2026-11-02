@@ -242,6 +242,22 @@ func TestHostInsideTurnIgnoresExpiredRowsAndAStaleStamp(t *testing.T) {
 	}
 }
 
+func TestHostInsideTurnErrReportsAFailingQueryAndHostInsideTurnKeepsSayingNo(t *testing.T) {
+	st := newStoreT(t)
+	if in, err := st.HostInsideTurnErr(); in || err != nil {
+		t.Fatalf("a healthy store with no binding: %v, %v", in, err)
+	}
+	if _, err := st.db.Exec(`ALTER TABLE process_bindings RENAME TO process_bindings_gone`); err != nil {
+		t.Fatal(err)
+	}
+	if in, err := st.HostInsideTurnErr(); in || err == nil {
+		t.Fatalf("a failing v2 query must be reported: %v, %v", in, err)
+	}
+	if st.HostInsideTurn() {
+		t.Fatal("the legacy callback's answer on a query error changed")
+	}
+}
+
 func TestAHeldMasterMessageDoesNotHoldUpAPersonsMessage(t *testing.T) {
 	h, l, st := newHost(t)
 	m, _ := master(t, st, "coding")

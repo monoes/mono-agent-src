@@ -86,7 +86,7 @@ func newCoderSessionsSpawnCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer mc.close()
-			out, err := mc.store.Spawn(mc.caller, coderhost.SpawnRequest{Message: message, Access: access, Cwd: cwd, BudgetUSD: budget})
+			out, err := mc.store.SpawnPlain(mc.caller, coderhost.SpawnRequest{Message: message, Access: access, Cwd: cwd, BudgetUSD: budget})
 			if err != nil {
 				return masterErr(err)
 			}
@@ -165,7 +165,7 @@ func masterControl(cfg *Deps, cmd *cobra.Command, target string, kind coderhost.
 
 func masterSet(cfg *Deps, cmd *cobra.Command, target, patch string, others bool) error {
 	if others || patch == "" {
-		return clicore.OperatorOnly("a master changes only agent-adjustable settings, with --patch; role, parent, unattended and budget are the operator's")
+		return clicore.OperatorOnly("a master changes only agent-adjustable settings, with --patch; role, parent, unattended, mission and budget are the operator's")
 	}
 	mc, err := openMasterCall(cfg)
 	if err != nil {

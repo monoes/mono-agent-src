@@ -40,6 +40,9 @@ type childFact struct {
 type snapshot struct {
 	Children []childFact  `json:"children"`
 	Mission  *missionFact `json:"mission,omitempty"` // the master's own open task session, if any
+	// EnqFail marks a snapshot kept after a check-in that could not be queued: its changes are still unannounced, so
+	// the next try is by the timer (the interval), not at once by an event.
+	EnqFail bool `json:"enqFail,omitempty"`
 }
 
 // checkinPass looks at every master once. It never runs a turn: it queues a send.
@@ -96,11 +99,14 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	// The mission is read only when a look is about to be recorded or acted on, after the cheap early
 	// returns; a failed read keeps the last look's value so a transient error does not read as a change.
 	withMission := func() {
-		mission, ok := h.missionOf(m.ProfileID, m.ConversationID)
+		var was snapshot
+		_ = json.Unmarshal([]byte(prev.Snapshot), &was)
+		mission, ok := h.missionSince(m.ProfileID, m.ConversationID, was.Mission)
 		if !ok {
-			var was snapshot
-			_ = json.Unmarshal([]byte(prev.Snapshot), &was)
 			mission = was.Mission
+		} else if mission != nil {
+			mission.carryStalls(was.Mission)
+			mission.Reeval = reevalReasons(was.Mission, mission)
 		}
 		cur.Mission = mission
 		curJSON, _ = json.Marshal(cur)
@@ -134,12 +140,12 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	var before snapshot
 	_ = json.Unmarshal([]byte(prev.Snapshot), &before)
 	events := triggeredEvents(before, cur, settings.CheckinTriggers)
-	if lastFailed {
-		events = nil // after a check-in turn that did not complete, only the timer, not events, brings the next
+	if lastFailed || before.EnqFail {
+		events = nil // after a check-in turn that did not complete, or one that could not be queued, only the timer brings the next
 	}
 	interval := time.Duration(settings.CheckinMinutes) * time.Minute
 	due := settings.CheckinMinutes > 0 && now.Sub(last) >= interval && (!lastFailed || now.Sub(lastTurnEnd) >= interval)
-	changed := string(curJSON) != prev.Snapshot
+	changed := lookChanged(cur, prev.Snapshot)
 
 	switch {
 	case len(events) > 0:
@@ -163,19 +169,25 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	if len(events) > 0 {
 		reason = strings.Join(events, ", ")
 	}
-	// Recorded first: if the record cannot be written, nothing is queued, so a write that
-	// keeps failing cannot turn into a check-in every pass.
-	if err := remember(); err != nil {
-		h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
-		return
-	}
 	turn := make([]byte, 8)
 	_, _ = rand.Read(turn)
-	if _, err := h.Store.Enqueue(Command{
+	// The check-in and the new baseline are written in ONE transaction: either both stand or neither does. A reason is
+	// therefore never used up by a check-in that was not sent, and never sent twice for want of a baseline that was not
+	// saved (a failure or a crash between two writes cannot leave the command queued with the old baseline).
+	if _, err := h.Store.EnqueueWithCheckin(Command{
 		ProfileID: m.ProfileID, ConversationID: m.ConversationID, Kind: KindSend,
 		TurnID: "checkin-" + hex.EncodeToString(turn), Message: digestText(reason, cur),
-	}); err != nil {
+	}, Checkin{At: nowStr, Snapshot: string(curJSON)}); err != nil {
 		h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
+		// Nothing was queued and the look is not recorded: the changes it found (a re-evaluation reason among them)
+		// are found again at the next look. Only the time moves on, and the old snapshot is marked so that an event does
+		// not bring the retry before the interval: a queue that keeps failing is tried once per interval.
+		retry := before
+		retry.EnqFail = true
+		b, _ := json.Marshal(retry)
+		if err := h.Store.SaveCheckin(m.ProfileID, m.ConversationID, Checkin{At: nowStr, Snapshot: string(b)}); err != nil {
+			h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
+		}
 	}
 }
 

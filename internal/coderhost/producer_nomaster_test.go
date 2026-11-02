@@ -181,7 +181,7 @@ func TestNoMasterRiskyParkMakesOneItemAnsweredOnce(t *testing.T) {
 	if left, _ := st.OpenPersonItems("p"); len(left) != 0 {
 		t.Fatalf("answered item still open: %+v", left)
 	}
-	if err := st.addPersonItem("p", "solo", "budget_request", "risky_action", 1); err == nil {
+	if err := st.addPersonItem("p", "solo", "no_such_kind", "risky_action", 1); err == nil {
 		t.Fatal("an unknown kind was accepted")
 	}
 }

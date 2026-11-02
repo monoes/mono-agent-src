@@ -67,6 +67,7 @@ func TestFind_NvmInstallInvisibleToGUIPath(t *testing.T) {
 		}
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv(EnvOverride, "")
 	t.Setenv("PATH", "/usr/bin:/bin")
 
@@ -112,6 +113,7 @@ func TestFindAll_ListsShadowedCopies(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv(EnvOverride, "")
 	sys := t.TempDir()
 	old := filepath.Join(sys, "monomind")

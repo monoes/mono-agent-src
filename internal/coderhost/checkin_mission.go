@@ -24,11 +24,33 @@ type missionFact struct {
 	ChildRun    int `json:"childRun,omitempty"`
 	ChildQueued int `json:"childQueued,omitempty"`
 	ChildFailed int `json:"childFailed,omitempty"`
+	// ChildrenOff: marks exist but the operator's switch is off, so none starts (ChildMarked of them).
+	ChildrenOff bool `json:"childrenOff,omitempty"`
+	ChildMarked int  `json:"-"`
 	// Open is the work a lead can move: tasks not started or in progress, plus tasks handed back to review
 	// that nobody has passed and that are not blocked. It is computed from disjoint statuses (a task keeps
 	// verified=1 after the operator closes it, so Done and Verified overlap and must not be summed). It is
 	// not part of the digest or of the change signal.
 	Open int `json:"-"`
+	// What the re-evaluation triggers compare (checkin_reeval.go): the OPEN direction sessions with their numbers,
+	// the open research sessions, a cursor for each kind (the newest session id seen, so a session created after it
+	// is new) and the share of the budget the tree spent. All are numbers from the host's rows, omitted when there are
+	// none so that an older digest still compares equal. V says the snapshot has them (an older one has not: its
+	// baseline is unknown); Sess is the mission session they were read for.
+	V            int       `json:"v,omitempty"`
+	Sess         int64     `json:"sess,omitempty"`
+	Dirs         []dirFact `json:"dirs,omitempty"`
+	DirCur       int64     `json:"dirCur,omitempty"`
+	ResearchOpen []int64   `json:"researchOpen,omitempty"`
+	ResearchCur  int64     `json:"researchCur,omitempty"`
+	OpenCapped   bool      `json:"openCapped,omitempty"` // more than MaxOpenSessions were open: the oldest are not followed
+	SpentPct     int       `json:"spentPct,omitempty"`
+	// Found at this look by comparing with the last (never stored): re-evaluation reasons, and the changes they are
+	// made of.
+	Reeval      []string `json:"-"`
+	NewDone     int      `json:"-"` // directions that finished since the last look
+	NewStopped  int      `json:"-"` // directions that were stopped or failed since the last look
+	NewResearch int      `json:"-"` // research sessions that finished since the last look
 }
 
 var (
@@ -56,11 +78,16 @@ func MissionChildrenReady() bool {
 // false when the read failed (the caller keeps what it had). It is read-only and asks the database only
 // for this profile's sessions of this conversation, not for every session of the profile.
 func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok bool) {
+	return h.missionSince(profileID, conversationID, nil)
+}
+
+// missionSince is missionOf that also finds what changed in the directions and research since the last look (was).
+func (h *Host) missionSince(profileID, conversationID string, was *missionFact) (m *missionFact, ok bool) {
 	db := h.Store.db
 	var id int64
 	var state string
 	err := db.QueryRow(`SELECT id, state FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND archived_at = ''
-		AND state IN ('draft','running','paused') ORDER BY id DESC LIMIT 1`, profileID, conversationID).Scan(&id, &state)
+		AND state IN ('draft','running','paused') AND `+LeadSessionSQL+` ORDER BY id DESC LIMIT 1`, profileID, conversationID).Scan(&id, &state)
 	if err == sql.ErrNoRows {
 		return nil, true
 	}
@@ -107,6 +134,15 @@ func (h *Host) missionOf(profileID, conversationID string) (m *missionFact, ok b
 		return nil, false
 	}
 	f.ChildRun, f.ChildQueued, f.ChildFailed = cc.Live, cc.Queued, cc.Failed
+	if err = h.fillDirections(f, id, was); err != nil {
+		return nil, false
+	}
+	if on, err := h.Store.MissionChildrenEnabled(); err != nil {
+		return nil, false
+	} else if !on {
+		f.ChildrenOff, f.ChildMarked = cc.Queued > 0, cc.Queued
+		f.ChildQueued = 0 // the operator's switch is off: a mark is stored and starts nothing
+	}
 	if !MissionChildrenReady() {
 		f.ChildQueued = 0 // nothing starts while the launcher cannot bind a child: a mark is not a queued session
 	}
@@ -119,11 +155,14 @@ func missionLine(m *missionFact) string {
 		return ""
 	}
 	kids := ""
+	if m.ChildrenOff {
+		kids = fmt.Sprintf(" Task child sessions: off (operator setting), %d marked task(s) run in your turn.", m.ChildMarked)
+	}
 	if m.ChildRun+m.ChildQueued+m.ChildFailed > 0 {
 		kids = fmt.Sprintf(" Task child sessions: %d running, %d queued, %d failed.", m.ChildRun, m.ChildQueued, m.ChildFailed)
 	}
 	return fmt.Sprintf("Mission (your task session): %s; %d of %d task(s) done, %d in review, %d verified, %d blocked.%s Closing tasks and approving a plan stay the operator's.\n",
-		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked, kids)
+		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked, kids) + reevalLine(m.Reeval)
 }
 
 // open says whether a running mission still has work the lead can move (see missionFact.Open). A blocked task

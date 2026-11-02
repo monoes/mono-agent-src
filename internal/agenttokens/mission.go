@@ -3,11 +3,16 @@ package agenttokens
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // A mission token ties one process to what it may act on. A conductor mints one for each
@@ -99,6 +104,12 @@ func (s *Store) CreateMission(ctx context.Context, profileID string, b MissionBi
 // profile than profileID, and, for a token bound to a process (mission_process.go), a caller
 // that is not that process or one of its descendants.
 func (s *Store) VerifyMission(ctx context.Context, profileID, presented string) (Token, error) {
+	if strings.HasPrefix(presented, procbind.TaskPrefixV2) {
+		return s.verifyMissionV2(ctx, profileID, presented)
+	}
+	if strings.HasPrefix(presented, procbind.SessionPrefixV2) {
+		return Token{}, ErrInvalid // a session token of the v2 family is no mission token: it never meets the legacy lookup
+	}
 	t, err := s.verify(ctx, presented)
 	if err != nil {
 		return Token{}, err
@@ -118,13 +129,43 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 	if owner == "" {
 		return 0, nil
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE mission_owner = ? AND revoked_at IS NULL`,
-		s.now().UTC().Format(timeFmt), owner)
+	n := 0
+	legacy := map[string]bool{}
+	refs, err := s.revokeBothRefs(ctx, procbind.Selector{Owner: owner, ExactOwner: true}, func(conn *sql.Conn) error {
+		rows, err := conn.QueryContext(ctx, `SELECT id FROM agent_tokens WHERE mission_owner = ? AND revoked_at IS NULL`, owner)
+		if err != nil {
+			return fmt.Errorf("listing mission tokens: %w", err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			legacy[id] = true
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		res, err := conn.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = ? WHERE mission_owner = ? AND revoked_at IS NULL`,
+			s.now().UTC().Format(timeFmt), owner)
+		if err != nil {
+			return fmt.Errorf("revoking mission tokens: %w", err)
+		}
+		c, _ := res.RowsAffected()
+		n = int(c)
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("revoking mission tokens: %w", err)
+		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	for _, r := range refs { // a bound run holds only a v2 token: it counts too (a twin of a legacy token does not count twice)
+		if !legacy[r.TokenID] {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // SweepMissions is what a conductor does when it starts or resumes. group names the runs of one
@@ -133,14 +174,14 @@ func (s *Store) RevokeOwner(ctx context.Context, owner string) (int, error) {
 // that ended without revoking: a crash or a kill), leaves the tokens of a run that is still
 // running (a second conductor of the conversation must not end the first one's workers) and
 // those of self, and purges the mission tokens that have expired, so the list does not grow.
-// A nil live reports no owner as running. It returns how many tokens it revoked.
+// A nil live reports no owner as running. It returns how many tokens it revoked; a failing owner does not stop the rest, and the errors are joined.
 func (s *Store) SweepMissions(ctx context.Context, group, self string, live func(ctx context.Context, owner string) bool) (int, error) {
 	if group == "" {
 		return 0, nil
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT DISTINCT mission_owner FROM agent_tokens WHERE revoked_at IS NULL AND mission_session > 0
-		   AND (mission_owner = ? OR mission_owner LIKE ?) AND mission_owner <> ?`, group, group+"/%", self)
+		   AND (mission_owner = ?1 OR substr(mission_owner, 1, length(?1) + 1) = ?1 || '/') AND mission_owner <> ?2`, group, self)
 	if err != nil {
 		return 0, fmt.Errorf("listing mission token owners: %w", err)
 	}
@@ -157,7 +198,39 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	// The v2 mission tokens of the group's runs: a bound turn has no legacy token, so its run is found here (the
+	// revocation of an owner revokes both forms).
+	v2, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT mission_owner FROM agent_tokens_v2 t WHERE mission_session > 0
+		   AND (mission_owner = ?1 OR substr(mission_owner, 1, length(?1) + 1) = ?1 || '/') AND mission_owner <> ?2
+		   AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_kind = 'mission' AND r.token_id = t.id)`, group, self)
+	if err != nil {
+		return 0, fmt.Errorf("listing v2 mission token owners: %w", err)
+	}
+	have := map[string]bool{}
+	for _, o := range owners {
+		have[o] = true
+	}
+	for v2.Next() {
+		var o string
+		if err := v2.Scan(&o); err != nil {
+			v2.Close()
+			return 0, err
+		}
+		if !have[o] {
+			have[o] = true
+			owners = append(owners, o)
+		}
+	}
+	v2.Close()
+	if err := v2.Err(); err != nil {
+		return 0, err
+	}
+	// A failing owner does not stop the others: every owner is tried, so a failure leaves only its own
+	// tokens live until the next sweep, and the errors are joined.
+	sort.Strings(owners)
 	total := 0
+	var errs []error
 	for _, o := range owners {
 		if live != nil && live(ctx, o) {
 			continue
@@ -165,13 +238,36 @@ func (s *Store) SweepMissions(ctx context.Context, group, self string, live func
 		n, err := s.RevokeOwner(ctx, o)
 		total += n
 		if err != nil {
-			return total, err
+			errs = append(errs, fmt.Errorf("revoking mission tokens of %q: %w", o, err))
 		}
 	}
 	if _, err := s.db.ExecContext(ctx, purgeExpiredMissions, s.now().UTC().Format(timeFmt)); err != nil {
-		return total, fmt.Errorf("purging expired mission tokens: %w", err)
+		errs = append(errs, fmt.Errorf("purging expired mission tokens: %w", err))
 	}
-	return total, nil
+	s.purgeV2(ctx)
+	return total, errors.Join(errs...)
 }
 
+// purgeInterval is how often a store runs the v2 retention sweep: a sweep of an idle database is cheap, but this
+// runs on every conversation delete too.
+const purgeInterval = time.Hour
+
+// purgeV2 removes the v2 binding rows that are past retention (procbind.PurgeRetained, 3e). It never fails the
+// sweep it runs in: an error is logged and the rows wait for the next one. This process's clock only limits how
+// often it runs; what counts as old is decided by the database's clock.
+func (s *Store) purgeV2(ctx context.Context) {
+	s.mu.Lock()
+	now := s.now()
+	if !s.lastPurge.IsZero() && now.Sub(s.lastPurge) < purgeInterval {
+		s.mu.Unlock()
+		return
+	}
+	s.lastPurge = now
+	s.mu.Unlock()
+	if _, err := procbind.PurgeRetained(ctx, s.db); err != nil {
+		log.Printf("agenttokens: v2 retention sweep: %v", err)
+	}
+}
+
+// procbind:legacy-only an expired token is denied by its expiry; the v2 rows of expired tokens follow their own retention (3e).
 const purgeExpiredMissions = `DELETE ` + `FROM agent_tokens WHERE mission_session > 0 AND expires_at IS NOT NULL AND expires_at < ?`

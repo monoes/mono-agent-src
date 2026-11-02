@@ -31,11 +31,25 @@ type execLauncher struct {
 	bin, dbPath, instance, logDir string
 	logf                          func(string, ...any)
 	// tokens mints the session token a turn gets in its environment (nil: none), and revoke drops
-	// a session's tokens when its turn ends.
+	// a session's tokens when its turn ends; an error means a token may still be live (revokeSession retries it, then reports it).
 	tokens func(profileID, conversationID, turnID string) (string, error)
-	revoke func(profileID, conversationID string)
+	revoke func(profileID, conversationID string) error
+	// revokeTurn drops ONE turn's tokens (nil: the conversation's, as revoke does); used for a turn the gate refused, whose late
+	// exit must not revoke a newer turn's token.
+	revokeTurn func(profileID, conversationID, turnID string) error
+	// revokeBackoff is the first wait between revoke attempts (zero: 200 ms; tests shorten it).
+	revokeBackoff time.Duration
 	// bind names the turn's process for its token, right after the turn starts.
 	bind func(profileID, conversationID, turnID string, pid int, stamp string) error
+	// child mints a mission child's task token for its turn and binds it to the turn's process (nil: none; see
+	// coder_host_childtoken.go).
+	child *childTokenMinter
+	// bound, when set, launches turns with peer-credential binding (coder_host_bound_linux.go): no token in the
+	// environment, a typed frame over a pipe, the token bound to the process before anything is delivered. Nil is the
+	// launch exactly as it was.
+	bound *boundLaunch
+	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
+	afterExitRevoke func()
 }
 
 // hostID is what makes a host-owned name safe to put in a file name and a flag.
@@ -43,6 +57,54 @@ var hostID = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
 // hostTurnGrace is how long a stopped turn gets to end before it is killed.
 var hostTurnGrace = 15 * time.Second
+
+// revokeSession ends the session's tokens, trying a few times: a failure leaves a live token after its turn.
+func (l *execLauncher) revokeSession(profileID, conversationID string) error {
+	if l.revoke == nil {
+		return nil
+	}
+	backoff := l.revokeBackoff
+	if backoff <= 0 {
+		backoff = 200 * time.Millisecond
+	}
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if err = l.revoke(profileID, conversationID); err == nil {
+			return nil
+		}
+		if l.logf != nil {
+			l.logf("WARNING: ending the session token of %s failed (attempt %d): %v", conversationID, attempt+1, err)
+		}
+		if attempt < 3 {
+			time.Sleep(backoff << attempt)
+		}
+	}
+	return fmt.Errorf("the session token of %s could not be ended: %w", conversationID, err)
+}
+
+// revokeTurnTokens ends one turn's tokens, trying a few times like revokeSession.
+func (l *execLauncher) revokeTurnTokens(profileID, conversationID, turnID string) error {
+	if l.revokeTurn == nil {
+		return l.revokeSession(profileID, conversationID)
+	}
+	backoff := l.revokeBackoff
+	if backoff <= 0 {
+		backoff = 200 * time.Millisecond
+	}
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if err = l.revokeTurn(profileID, conversationID, turnID); err == nil {
+			return nil
+		}
+		if l.logf != nil {
+			l.logf("WARNING: ending the session token of turn %s of %s failed (attempt %d): %v", turnID, conversationID, attempt+1, err)
+		}
+		if attempt < 3 {
+			time.Sleep(backoff << attempt)
+		}
+	}
+	return fmt.Errorf("the session token of turn %s of %s could not be ended: %w", turnID, conversationID, err)
+}
 
 func (l *execLauncher) args(profileID string, rest ...string) []string {
 	return append([]string{"--db-path", l.dbPath, "--profile", profileID, "--json"}, rest...)
@@ -113,6 +175,32 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	if missionToken != "" && !hostID.MatchString(missionToken) {
 		return nil, fmt.Errorf("the mission confirmation is not a valid token")
 	}
+	// A mission child's turn gets the task token of its one task, minted here from the host's own child store.
+	var ct *childToken
+	if l.child != nil {
+		mint := l.child.mint
+		if l.bound != nil {
+			mint = l.child.prepareBound // a bound launch writes the child's v2 token itself
+		}
+		if ct, err = mint(profileID, conversationID, turnID); err != nil {
+			os.Remove(promptPath)
+			return nil, err
+		}
+	}
+	launched := false
+	defer func() {
+		if ct != nil && !launched {
+			l.child.revokeToken(ct) // not started: the turn's own wait revokes it otherwise
+		}
+	}()
+	pipe := missionToken // what goes over the inherited pipe: a mission confirmation, or a child's task token
+	if ct != nil {
+		if missionToken != "" {
+			os.Remove(promptPath)
+			return nil, errors.New("a mission child's turn cannot carry a mission confirmation")
+		}
+		pipe = ct.secret // empty for a bound launch: the task token travels in the frame
+	}
 	cmd := exec.Command(l.bin, l.args(profileID, rest...)...)
 	// The environment is the host's without any token of a session that started the host, plus this
 	// turn's own: a turn must never inherit another session's identity (the host can have been
@@ -121,15 +209,27 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// the mission confirmation goes over an inherited pipe the child reads once and closes, so it
 	// is never in any environment block.
 	cmd.Env = turnEnv(os.Environ())
-	if missionToken != "" {
-		closeToken, terr := coderhost.AttachMissionToken(cmd, missionToken)
+	var bd *boundDelivery
+	if l.bound != nil {
+		if bd, err = l.bound.attach(cmd, pipe); err != nil {
+			os.Remove(promptPath)
+			return nil, fmt.Errorf("could not prepare the credential pipe: %w", err)
+		}
+		defer bd.close()
+		if ct != nil {
+			bd.child = ct
+		}
+		pipe = "" // the mission confirmation travels in the frame
+	}
+	if pipe != "" {
+		closeToken, terr := coderhost.AttachMissionToken(cmd, pipe)
 		if terr != nil {
 			os.Remove(promptPath)
 			return nil, fmt.Errorf("could not hand over the mission confirmation: %w", terr)
 		}
 		defer closeToken() // the host keeps no copy of the read end, started or not
 	}
-	if l.tokens != nil {
+	if l.tokens != nil && bd == nil {
 		tok, err := l.tokens(profileID, conversationID, turnID)
 		if err != nil {
 			os.Remove(promptPath)
@@ -139,10 +239,14 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	cmd.Dir = filepath.Dir(l.logDir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
-	if err := clicore.DetachStart(cmd); err != nil {
+	startProcess := func() error { return clicore.DetachStart(cmd) }
+	if bd != nil {
+		startProcess = func() error { return bd.start(cmd) }
+	}
+	if err := startProcess(); err != nil {
 		os.Remove(promptPath)
-		if l.revoke != nil {
-			l.revoke(profileID, conversationID)
+		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
+			err = errors.Join(err, rerr)
 		}
 		return nil, err
 	}
@@ -157,24 +261,67 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{})}
+	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
+	t.ownRevoke = func() error {
+		err := l.revokeTurnTokens(profileID, conversationID, turnID)
+		l.child.revokeToken(ct) // a mission child's separate task token dies with the refusal too (nil-safe)
+		return err
+	}
 	go func() {
-		t.err = cmd.Wait()
-		if l.revoke != nil {
-			l.revoke(profileID, conversationID) // before done closes: a session that sees its turn end has no token left
+		if t.strict && awaitExitNoReap(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
+			t.settle()
 		}
-		os.Remove(promptPath) // before done closes: whoever sees the turn end sees no prompt left
+		t.err = cmd.Wait()
+		t.markReaped()
+		// before done closes: a session that sees its turn end has no token left. The turn is held here while the
+		// revoke is retried; a revoke that still fails is reported as the turn's error.
+		// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
+		// by the time a delayed cleanup runs may hold a newer turn's. A launcher without a per-turn revoke (revokeTurn nil)
+		// keeps the conversation-wide one.
+		if rerr := l.revokeTurnTokens(profileID, conversationID, turnID); rerr != nil {
+			t.err = errors.Join(t.err, rerr)
+		}
+		l.child.revokeToken(ct) // the child's task token ends with its run (nil-safe)
+		os.Remove(promptPath)   // before done closes: whoever sees the turn end sees no prompt left
+		if l.afterExitRevoke != nil {
+			l.afterExitRevoke()
+		}
 		close(t.done)
 	}()
+	launched = true // the wait goroutine above revokes the child's token from here on
 	if stamp == "" {
 		t.stopAndWait()
 		return nil, errors.New("could not identify the turn's process (its start time is unreadable), so it was stopped")
 	}
-	if l.bind != nil {
+	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
+		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
+			t.stopAndWait()
+			return nil, err
+		}
+	}
+	if bd != nil {
+		bd.setOnKill(t.markStopping)
+		if err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.BoundStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) }); err != nil {
+			t.stopAndWait()
+			return nil, err
+		}
+		if t.isReaped() {
+			// The leader was reaped before this point, so the exit goroutine's revoke has run or is about to, possibly
+			// before the mint committed (the bound token is minted after the process exists): that would leave a live
+			// token and registration for a dead worker. End them again now. If the leader is not reaped yet, the
+			// goroutine's revoke comes after the commit.
+			rerr := l.revokeSession(profileID, conversationID)
+			l.child.revokeToken(ct)
+			if rerr != nil {
+				return nil, errors.Join(errors.New("the turn ended while its credentials were being delivered"), rerr)
+			}
+		}
+	} else if l.bind != nil {
 		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {
 			// the host runs inside a session's turn: no token is bound, so the master tools refuse in this turn
-			if l.revoke != nil {
-				l.revoke(profileID, conversationID)
+			if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
+				t.stopAndWait()
+				return nil, rerr
 			}
 			if l.logf != nil {
 				l.logf("WARNING: %v; turn %s runs without a usable session token", err, turnID)
@@ -316,6 +463,108 @@ type execTurn struct {
 	done  chan struct{}
 	err   error
 	once  sync.Once
+
+	// strict is set for a bound turn only. The ordinary (unbound) launcher stops a turn exactly as it always did: the
+	// group is signalled by number whenever Stop is called, and its stragglers are killed once the leader has been
+	// reaped (the pid-reuse window after the reap is that existing behaviour's). A bound turn is stricter: the leader's
+	// exit is observed without reaping it, its stragglers are killed in that window, and the group is never signalled
+	// by number after the reap.
+	strict bool
+
+	// ownRevoke ends this turn's own tokens (its session token and a mission child's task token) at once, for a refusal.
+	ownRevoke func() error
+
+	mu       sync.Mutex
+	stopping bool // Stop was asked for (or the launcher is about to kill the leader itself)
+	held     bool // strict, and the leader's exit is observed without reaping it
+	exited   bool // held, and the leader has exited (not yet reaped, while reaped is false)
+	reaped   bool // held, and cmd.Wait has returned: the pid is free, so the group is not signalled by number again
+
+	term, kill func(pid int) error // the group signals; nil is terminateGroup / killGroup
+}
+
+func (t *execTurn) terminateGrp() error {
+	if t.term != nil {
+		return t.term(t.pid)
+	}
+	return terminateGroup(t.pid)
+}
+
+func (t *execTurn) killGrp() error {
+	if t.kill != nil {
+		return t.kill(t.pid)
+	}
+	return killGroup(t.pid)
+}
+
+// settle runs for a strict turn, once its leader has exited and before it is reaped: whatever of a stopped turn's
+// group ignored the SIGTERM goes with it, while the pid still cannot name anything else.
+func (t *execTurn) settle() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.held, t.exited = true, true
+	if t.stopping {
+		_ = t.killGrp()
+	}
+}
+
+// markReaped records that cmd.Wait returned. For a strict turn whose leader was held, no group signal by number
+// happens after it.
+func (t *execTurn) markReaped() {
+	t.mu.Lock()
+	t.reaped = true
+	t.mu.Unlock()
+}
+
+// isReaped says whether cmd.Wait has returned. It is set before the exit goroutine's revokes run.
+func (t *execTurn) isReaped() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reaped
+}
+
+// markStopping records that the turn is being given up on before its leader is killed by other means (the launcher's
+// pidfd kill on a failed bound delivery), so the exit that follows kills the group too. Descendants that left the group
+// (a setsid of their own) are outside it either way.
+func (t *execTurn) markStopping() {
+	t.mu.Lock()
+	t.stopping = true
+	t.mu.Unlock()
+}
+
+// pinned says whether the group may be signalled by number: always for an ordinary turn (as before), and for a strict
+// one until its held leader is reaped. The caller holds t.mu.
+func (t *execTurn) pinned() bool { return !(t.strict && t.held && t.reaped) }
+
+// afterDone is what the stop goroutine does once the leader has been reaped: the stragglers of the group are killed now,
+// as they always were; a strict turn's were killed before the reap.
+func (t *execTurn) afterDone() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !(t.strict && t.held) {
+		_ = t.killGrp()
+	}
+}
+
+// killGroupIfHeld kills the group at the end of the grace period (not again after a held leader exited: its
+// stragglers were killed then, or by the Stop that came after).
+func (t *execTurn) killGroupIfHeld() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.pinned() && !t.exited {
+		_ = t.killGrp()
+	}
+}
+
+// Refuse stops a turn the gate refused after its process existed, and ends its own tokens (session and a child's task
+// token) at once. Its exit, however late, revokes only its own turn's tokens (decided at launch), so the next turn of the
+// conversation keeps its own.
+func (t *execTurn) Refuse() error {
+	t.Stop()
+	if t.ownRevoke == nil {
+		return nil
+	}
+	return t.ownRevoke()
 }
 
 func (t *execTurn) PID() int      { return t.pid }
@@ -323,17 +572,22 @@ func (t *execTurn) Stamp() string { return t.stamp }
 func (t *execTurn) Wait() error   { <-t.done; return t.err }
 func (t *execTurn) Stop() {
 	t.once.Do(func() {
-		_ = terminateGroup(t.pid) // t is this process's child: its pid is not reused before cmd.Wait reaps it
-		grace := hostTurnGrace    // read here: the goroutine below can outlive a test that swaps it
+		t.mu.Lock()
+		t.stopping = true
+		if t.pinned() {
+			_ = t.terminateGrp() // t is this process's child: its pid is its own until cmd.Wait reaps it
+			if t.exited {        // a strict turn's leader already ended and is held unreaped: its stragglers go now
+				_ = t.killGrp()
+			}
+		}
+		t.mu.Unlock()
+		grace := hostTurnGrace // read here: the goroutine below can outlive a test that swaps it
 		go func() {
 			select {
 			case <-t.done:
-				// The leader ended and was reaped a moment ago; whatever of its group ignored
-				// the SIGTERM goes with it. The pid is free from the reap on, so this runs at
-				// once, and the window in which it could name a new process is that short.
-				_ = killGroup(t.pid)
+				t.afterDone()
 			case <-time.After(grace):
-				_ = killGroup(t.pid)
+				t.killGroupIfHeld()
 			}
 		}()
 	})
@@ -485,7 +739,7 @@ func isHostInstance(owner string) bool { return strings.HasPrefix(owner, "host-"
 
 // turnEnv is the environment a turn starts with: the host's without any session token or mission-handoff marker.
 func turnEnv(env []string) []string {
-	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionFDEnv, agenttokens.EnvMissionToken)
+	return withoutEnv(env, coderhost.SessionTokenEnv, coderhost.MissionFDEnv, coderhost.CredFDEnv, agenttokens.EnvMissionToken)
 }
 
 // withoutEnv returns env without the named variables.

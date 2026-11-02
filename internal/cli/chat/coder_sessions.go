@@ -31,7 +31,7 @@ func newCoderSessionsCmd(cfg *Deps) *cobra.Command {
 		newCoderSessionsControlCmd(cfg, coderhost.KindPause, "Start no new turn until resumed (a running turn finishes)"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindResume, "Lift a pause"))
 	cmd.AddCommand(newCoderSessionsDecisionsCmd(cfg), newCoderSessionsQuestionsCmd(cfg),
-		newCoderSessionsParkCmd(cfg), newCoderSessionsRecordCmd(cfg), newCoderSessionsMissionChildrenCmd(cfg))
+		newCoderSessionsParkCmd(cfg), newCoderSessionsRecordCmd(cfg), newCoderSessionsMissionChildrenCmd(cfg), newCoderSessionsBudgetCmd(cfg), newCoderSessionsSpawnIntentsCmd(cfg))
 	return cmd
 }
 
@@ -164,7 +164,9 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 			// and the record is revoked if the command is cancelled, expires or fails.
 			session := int64(0)
 			if mission {
-				session = openMissionSessionID(context.Background(), cfg, profileID, args[0])
+				if session, err = openMissionSessionID(context.Background(), cfg, profileID, args[0]); err != nil {
+					return fmt.Errorf("the mission state of this chat could not be read: %w", err)
+				}
 			}
 			c, qerr := enqueue(cfg, coderhost.Command{ProfileID: profileID, ConversationID: args[0], Kind: coderhost.KindSend, TurnID: turn, Message: args[1], Attachments: atts, WantsMission: mission}, !noHost)
 			if mission && c.ID > 0 { // queued, even if starting the host failed afterwards

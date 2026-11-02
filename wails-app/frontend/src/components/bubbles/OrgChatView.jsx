@@ -113,8 +113,8 @@ export function OrgChatView({ conv, nameOf, draft, onDraftChange, orgName = '', 
   // A different view starts at its end.
   useEffect(() => { atBottom.current = true }, [view.mode, view.role])
 
-  const onSend = async () => {
-    if (await conv.send(draft)) onDraftChange('')
+  const onSend = async (sentText) => {
+    if (await conv.send(typeof sentText === 'string' ? sentText : draft)) onDraftChange('')
   }
   const answer = (ask, text) => conv.resolveItem(ask.ref, { answer: text })
   const dismiss = ask => conv.resolveItem(ask.ref, { dismiss: true })

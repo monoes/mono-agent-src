@@ -78,7 +78,7 @@ func TestTaskAddReadsOnlyTheFirstMebibyteOfStandardInput(t *testing.T) {
 
 func TestTaskAddRefusalsComeBeforeTheDatabaseIsOpened(t *testing.T) {
 	t.Parallel()
-	newTaskTestDB(t)
+	good := newTaskTestDB(t)
 	// A database path under a regular file can never be opened, so initDB fails.
 	file := filepath.Join(t.TempDir(), "a-regular-file")
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
@@ -92,12 +92,19 @@ func TestTaskAddRefusalsComeBeforeTheDatabaseIsOpened(t *testing.T) {
 		code   string
 		phrase string // words the error must also hold: the macOS phase reads this one through the CLI
 		args   []string
+		// operator: the operator's own --ready call passes personGate, which opens the database for
+		// the turn-ancestry check, so it runs on a working database.
+		operator bool
 	}{
-		{"operator_only", "", []string{"add", "x", "--as", "bot", "--ready"}},
-		{"operator_only", "", []string{"add", "--stdin", "--source", "os", "--ready"}},
-		{"invalid_input", `source "os" is for captures`, []string{"add", "x", "--as", "bot", "--source", "os"}},
+		{"operator_only", "", []string{"add", "x", "--as", "bot", "--ready"}, false},
+		{"operator_only", "", []string{"add", "--stdin", "--source", "os", "--ready"}, true},
+		{"invalid_input", `source "os" is for captures`, []string{"add", "x", "--as", "bot", "--source", "os"}, false},
 	} {
-		doc := failedTaskJSON(t, db, "default", 3, c.args...)
+		path := db
+		if c.operator {
+			path = good
+		}
+		doc := failedTaskJSON(t, path, "default", 3, c.args...)
 		if msg, _ := doc["error"].(string); doc["code"] != c.code || !strings.Contains(msg, c.phrase) {
 			t.Errorf("task %s: %v, want code %s and the words %q", strings.Join(c.args, " "), doc, c.code, c.phrase)
 		}

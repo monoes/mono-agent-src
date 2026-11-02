@@ -162,7 +162,7 @@ func (s *Session) route(o Options) error {
 		if err != nil {
 			return err
 		}
-		t = extension.Target{Instance: b.Instance}
+		t = extension.Target{Instance: b.Instance, Profile: o.Profile}
 	}
 	info, err := s.sender.ResolveTarget(t)
 	switch {
@@ -173,7 +173,7 @@ func (s *Session) route(o Options) error {
 		return err
 	}
 	s.info = info
-	s.target = extension.Target{Instance: info.Instance}
+	s.target = extension.Target{Instance: info.Instance, Profile: o.Profile}
 	return nil
 }
 

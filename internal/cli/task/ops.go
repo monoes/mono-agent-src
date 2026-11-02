@@ -52,7 +52,7 @@ func (d Deps) newTaskEditCmd() *cobra.Command {
 		Use:   "edit ID [--title T] [--notes TEXT]",
 		Short: "Change a task's title or notes (you only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("edit a task")
+			actor, err := d.personGate(cmd, "edit a task")
 			if err != nil {
 				return err
 			}
@@ -96,7 +96,7 @@ and done, the bottom of ready and in_progress. A task already in that column sta
 where it is unless you give a place. The top of Ready is what an AI agent takes
 next. Moving a task out of in_progress ends an agent's claim.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("move a task")
+			actor, err := d.personGate(cmd, "move a task")
 			if err != nil {
 				return err
 			}
@@ -154,7 +154,17 @@ you ran task agents allow --approve; then a named agent (--as NAME) may approve,
 the history records it as that agent, marked as delegated.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			caller := d.callerFor(flagAs(cmd))
-			actor, err := caller.operator("approve a task")
+			var actor tasks.Actor
+			var err error
+			if caller.isAgent() {
+				_, err = caller.operator("approve a task")
+			} else {
+				// The operator's branch: the shared gate (tokens, operator, not inside a coder turn).
+				actor, err = d.personGate(cmd, "approve a task")
+				if err != nil {
+					return err
+				}
+			}
 			if err != nil {
 				// An agent is refused, unless the operator delegated approving (task agents allow
 				// --approve), read now. Then it must be named: the history says who approved.
@@ -191,7 +201,7 @@ func (d Deps) newTaskArchiveCmd() *cobra.Command {
 		Use:   "archive ID... | --status STATUS",
 		Short: "Hide tasks from the board, keeping them (you only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("archive tasks")
+			actor, err := d.personGate(cmd, "archive tasks")
 			if err != nil {
 				return err
 			}
@@ -247,7 +257,7 @@ func (d Deps) newTaskUnarchiveCmd() *cobra.Command {
 		Use:   "unarchive ID...",
 		Short: "Bring archived tasks back to the column they were archived from (you only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("unarchive a task")
+			actor, err := d.personGate(cmd, "unarchive a task")
 			if err != nil {
 				return err
 			}

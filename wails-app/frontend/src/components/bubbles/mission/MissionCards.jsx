@@ -65,8 +65,8 @@ export function PlanCard({ item, conversationId, onNavigate }) {
     if (verb === 'stop' && !(await confirm(t('tasks.session.confirmStop')))) return
     setBusy(true)
     try {
-      const res = await sessionsApi[verb](session.id)
-      setError(res?.error || '')
+      const res = verb === 'approve' ? await sessionsApi.approve(session.id, session.rev) : await sessionsApi[verb](session.id)
+      setError(res?.code === 'plan_changed' ? t('personItem.planChanged') : res?.error || '')
       await reload()
     } finally { setBusy(false) }
   }

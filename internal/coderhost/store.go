@@ -6,6 +6,7 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // State is where a session stands. A paused session starts no new turn; one
@@ -53,8 +56,12 @@ const (
 	MaxPendingMaster = 5
 	// MaxPendingMasterStops is how many stops masters may have waiting for one child.
 	MaxPendingMasterStops = 2
-	MaxAttachments        = 10
-	pendingBatch          = 200
+	// MaxPendingAskNotes is how many ask-channel notes (a question to a lead, a lead's reply) may wait for one chat.
+	MaxPendingAskNotes = 10
+	// AskPersonReserve is how many of a chat's MaxPendingPerChat send slots the ask channel never takes.
+	AskPersonReserve = 10
+	MaxAttachments   = 10
+	pendingBatch     = 200
 	// MaxSendAge is how long a queued send stays valid.
 	MaxSendAge = 6 * time.Hour
 	// MaxCheckinAge is how long a check-in the host queued for itself stays valid: its digest is a
@@ -110,32 +117,64 @@ type Session struct {
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// binder, when set, has its live entries ended after a session-token revocation commits (revoke_v2.go).
+	binder *procbind.Binder
+	// v2 verifies session tokens of the v2 family (verify_v2.go); nil: v2 secrets are denied.
+	v2 *procbind.V2Check
 	// afterPolicyRead lets a test act between SetPolicy's read and its write.
 	afterPolicyRead func()
 	// beforeReserveTx lets a test act between Reserve's checks and the transaction that reserves.
 	beforeReserveTx func()
 	// afterReserveReads runs inside Reserve's transaction, after its reads and before the reserving statement.
 	afterReserveReads func()
+	// afterCarve runs inside Reserve's and GrantBudget's transaction after the statement that took the carve or the
+	// raise and before the check of the whole tree (tests only).
+	afterCarve func(tx *sql.Tx)
+	// afterSpawnSessionCreated runs in SpawnSession between the task session's creation and the ledger write (tests only: a crash there).
+	afterSpawnSessionCreated func()
+	// afterSweepRead runs in SweepSpawnIntents between its read of the due intents and its claims (tests only).
+	afterSweepRead func()
+	// beforeSweepDelete runs in endSpawn between its checks and the guarded delete transaction (tests only).
+	beforeSweepDelete func()
 	// afterChildCreated runs in SpawnForTask once the child's conversation exists, before its budget is carved.
 	afterChildCreated func()
 	// beforeCleanupDelete runs in abandonSpawn right before the conversation's delete (tests only).
 	beforeCleanupDelete func()
+	// afterCleanupDelete runs in abandonSpawn right after it (tests only).
+	afterCleanupDelete func()
 	// afterStaleSelect runs in ResetStaleSpawning after it chose the stale reservations and before it expires them.
 	afterStaleSelect func()
 	// betweenCascadeCheckAndResume lets a test act between the pass's pausedByCascade check and its resume.
 	betweenCascadeCheckAndResume func()
+	// afterAskInsert runs in AskAncestor right after the ask row is written, before its person item or lead command
+	// (tests only: an error is a crash there; nothing is compensated).
+	afterAskInsert func() error
+	// beforeAskReplyTx runs in ReplyAsk after its checks of the ask, before the reply is committed (tests only).
+	beforeAskReplyTx func()
+	// afterAnswerBeforeReply runs when an answer has been written and its reply command is not (tests only: an error is a crash there).
+	afterAnswerBeforeReply func() error
 	// onSpent sees the handle every Spent read goes through.
 	onSpent func(q querier)
 }
 
 // NewStore wraps an open, migrated database.
-func NewStore(db *sql.DB) *Store { return &Store{db: db, now: time.Now} }
+func NewStore(db *sql.DB) *Store {
+	s := &Store{db: db, now: time.Now}
+	if procbind.IssuanceOn() { // the only place a verifier is installed outside a test: v2 secrets are denied until issuance is on
+		s.v2 = &procbind.V2Check{DB: db}
+	}
+	return s
+}
 
 func (s *Store) stamp() string { return s.now().UTC().Format(timeLayout) }
 
 // Enqueue validates and queues a command. The host carries it out when the
 // session allows it; a send to a busy or paused session waits.
-func (s *Store) Enqueue(c Command) (Command, error) {
+func (s *Store) Enqueue(c Command) (Command, error) { return s.enqueueOn(s.db, c) }
+
+// enqueueOn is Enqueue on a handle: a transaction of the caller's, so a command and the state change that
+// goes with it commit together (the ask channel), or the store's own handle.
+func (s *Store) enqueueOn(x querier, c Command) (Command, error) {
 	switch c.Kind {
 	case KindSend:
 		if c.Message == "" {
@@ -164,7 +203,7 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	// Sends and control commands are capped apart: a chat full of queued sends
 	// must still take the stop or resume that would get it moving.
 	var waiting int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending' AND (kind = 'send') = ?`,
+	if err := x.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending' AND (kind = 'send') = ?`,
 		c.ProfileID, c.ConversationID, c.Kind == KindSend).Scan(&waiting); err != nil {
 		return c, err
 	}
@@ -191,14 +230,22 @@ func (s *Store) Enqueue(c Command) (Command, error) {
 	// MaxPendingMasterStops for a child, so a master cannot fill the person's slots; taken by the INSERT itself.
 	masterStop := c.Kind == KindStop && c.Issuer != ""
 	masterMade := (c.Issuer != "" && c.Kind != KindStop) || (c.Kind == KindSend && strings.HasPrefix(c.TurnID, MasterTurnPrefix))
-	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
+	// A note the ask channel queues for an agent (a question to an ancestor lead, a lead's reply) is held to
+	// MaxPendingAskNotes waiting in the chat, and never takes the last AskPersonReserve slots of its sends:
+	// closing or expiring an ask frees the ask's slot, not the command's, so the cap counts the commands.
+	askNote := c.Kind == KindSend && c.Issuer == "" && askGated(c.TurnID)
+	res, err := x.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
 		SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?
-		WHERE (? = 0 OR (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
+		WHERE (? = 0 OR ((SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
+			AND kind = 'send' AND issuer = '' AND substr(turn_id, 1, 6) IN ('ask-q-', 'ask-r-')) < ?
+			AND (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending' AND kind = 'send') < ?))
+		AND (? = 0 OR (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND status = 'pending'
 			AND ((issuer != '' AND kind != 'stop') OR (kind = 'send' AND substr(turn_id, 1, ?) = ?))) < ?)
 		AND (? = 0 OR (
 			NOT EXISTS (SELECT 1 FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ?)
 			AND (SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer != '') < ?))`,
 		c.ProfileID, c.ConversationID, string(c.Kind), c.TurnID, c.Message, string(att), mark, now, now, c.Issuer,
+		boolInt(askNote), c.ProfileID, c.ConversationID, MaxPendingAskNotes, c.ProfileID, c.ConversationID, MaxPendingPerChat-AskPersonReserve,
 		boolInt(masterMade), c.ProfileID, c.ConversationID, len(MasterTurnPrefix), MasterTurnPrefix, MaxPendingMaster,
 		boolInt(masterStop), c.ProfileID, c.ConversationID, c.Issuer, c.ProfileID, c.ConversationID, MaxPendingMasterStops)
 	if err != nil {
@@ -285,10 +332,10 @@ const expiredMarker = "expired before the host could run it"
 // ExpireSends fails the sends that have waited longer than MaxSendAge, so a
 // message queued while no host ran does not start a full-access turn days later.
 func (s *Store) ExpireSends() error {
-	ids := s.pendingMissionIDs(`created_at < ?`, s.now().Add(-MaxSendAge).UTC().Format(timeLayout))
+	ids := s.pendingMissionIDs(tsLapsed("created_at", s.now().Add(-MaxSendAge)))
 	_, err := s.db.Exec(`UPDATE coder_session_commands SET status = 'failed', error = '`+expiredMarker+`', updated_at = ?
-		WHERE kind = 'send' AND status = 'pending' AND (created_at < ? OR (substr(turn_id, 1, 8) = 'checkin-' AND created_at < ?) OR (issuer != '' AND created_at < ?))`,
-		s.stamp(), s.now().Add(-MaxSendAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout), s.now().Add(-MaxCheckinAge).UTC().Format(timeLayout))
+		WHERE kind = 'send' AND status = 'pending' AND (`+tsLapsed("created_at", s.now().Add(-MaxSendAge))+` OR (substr(turn_id, 1, 8) = 'checkin-' AND `+tsLapsed("created_at", s.now().Add(-MaxCheckinAge))+`) OR (issuer != '' AND `+tsLapsed("created_at", s.now().Add(-MaxCheckinAge))+`))`,
+		s.stamp())
 	s.revokeCommands(ids)
 	return err
 }
@@ -363,6 +410,13 @@ func (s *Store) EnsureSession(profileID, conversationID string) (Session, error)
 	return x, err
 }
 
+// ensureSessionOn is EnsureSession's insert on a connection that is inside a transaction.
+func ensureSessionOn(ctx context.Context, conn *sql.Conn, profileID, conversationID, now string) error {
+	_, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO coder_sessions (profile_id, conversation_id, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+		profileID, conversationID, now, now)
+	return err
+}
+
 // ConversationExists says whether the conversation a command or session names is still there.
 func (s *Store) ConversationExists(profileID, conversationID string) (bool, error) {
 	var n int
@@ -377,6 +431,11 @@ func (s *Store) SweepOrphans() (int, error) {
 	total := 0
 	// The records of the mission sends that go are revoked once they are gone.
 	defer s.revokeCommands(s.pendingMissionIDs(`NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`))
+	n, err := s.sweepOrphanTokens()
+	if err != nil {
+		return total, err
+	}
+	total += n
 	for _, q := range []string{
 		`DELETE FROM coder_session_commands WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_commands.conversation_id AND c.profile_id = coder_session_commands.profile_id)`,
 		`DELETE FROM coder_sessions WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_sessions.conversation_id AND c.profile_id = coder_sessions.profile_id)`,
@@ -385,12 +444,15 @@ func (s *Store) SweepOrphans() (int, error) {
 		`DELETE FROM coder_session_person_items WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_person_items.conversation_id AND c.profile_id = coder_session_person_items.profile_id)`,
 		`DELETE FROM coder_session_turn_caps WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_turn_caps.conversation_id AND c.profile_id = coder_session_turn_caps.profile_id)`,
 		`DELETE FROM coder_session_host_turns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_host_turns.conversation_id AND c.profile_id = coder_session_host_turns.profile_id)`,
-		`DELETE FROM coder_session_tokens WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_tokens.conversation_id AND c.profile_id = coder_session_tokens.profile_id)`,
 		`DELETE FROM coder_session_spawns WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_session_spawns.parent AND c.profile_id = coder_session_spawns.profile_id)`,
 		`UPDATE coder_mission_children SET state = 'gone', end_reason = 'deleted', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state IN ('spawning', 'spawned') AND child_conversation_id <> '' AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.child_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
 		`DELETE FROM coder_mission_events WHERE session_id IN (SELECT p.session_id FROM coder_mission_policy p WHERE p.profile_id = coder_mission_events.profile_id AND NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = p.lead_conversation_id AND c.profile_id = p.profile_id))`,
 		`DELETE FROM coder_mission_children WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_children.lead_conversation_id AND c.profile_id = coder_mission_children.profile_id)`,
 		`DELETE FROM coder_mission_policy WHERE NOT EXISTS (SELECT 1 FROM ai_chat_conversations c WHERE c.id = coder_mission_policy.lead_conversation_id AND c.profile_id = coder_mission_policy.profile_id)`,
+		// A child whose master is gone (the delete demotes them in its own transaction; this catches what an older build or a hand edit left) is a solo session, as that delete makes it.
+		// It runs after the mission rows of a deleted lead are removed, and it leaves a child that a live mission row still names: that child keeps running as a mission child and its carve keeps holding the mission's budget.
+		`UPDATE coder_sessions SET role = 'solo', parent_conversation_id = '' WHERE role = 'child' AND NOT EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = coder_sessions.profile_id AND m.conversation_id = coder_sessions.parent_conversation_id)
+			AND NOT EXISTS (SELECT 1 FROM coder_mission_children k WHERE k.profile_id = coder_sessions.profile_id AND k.state IN ('spawning', 'spawned') AND (k.child_conversation_id = coder_sessions.conversation_id OR k.pending_conversation_id = coder_sessions.conversation_id))`,
 	} {
 		res, err := s.db.Exec(q)
 		if err != nil {
@@ -522,21 +584,24 @@ func (s *Store) SetRole(profileID, conversationID, role, parent string) error {
 		if err != nil {
 			return err
 		}
-		if !ok || p.Role != "master" || p.State == StateStopped {
+		if !ok || (p.Role != "master" && p.Role != "child") || p.State == StateStopped {
 			return errors.New("the master must be a running master session of this profile")
 		}
 		ps, err := s.GetSettings(profileID, parent)
 		if err != nil {
 			return err
 		}
-		if ps.MaxDepth < 2 {
+		if p.Role == "child" && ps.MaxChildren == 0 {
+			return errors.New("the master must be a running master session of this profile")
+		}
+		if lvl, ok := s.level(profileID, parent); !ok || lvl+1 > min(ps.MaxDepth, MaxSessionDepth) {
 			return errors.New("the master's max_depth does not allow children")
 		}
 		res, err := s.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = ?, updated_at = ?
 			WHERE profile_id = ? AND conversation_id = ?
 			AND NOT EXISTS (SELECT 1 FROM coder_sessions k WHERE k.profile_id = ? AND k.parent_conversation_id = ?)
 			AND (SELECT COUNT(*) FROM coder_sessions sib WHERE sib.profile_id = ? AND sib.parent_conversation_id = ? AND sib.conversation_id != ? AND sib.state != 'stopped') < ?
-			AND EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = ? AND m.conversation_id = ? AND m.role = 'master' AND m.parent_conversation_id = '' AND m.state != 'stopped')`,
+			AND EXISTS (SELECT 1 FROM coder_sessions m WHERE m.profile_id = ? AND m.conversation_id = ? AND m.role IN ('master', 'child') AND m.state != 'stopped')`,
 			parent, s.stamp(), profileID, conversationID,
 			profileID, conversationID,
 			profileID, parent, conversationID, ps.MaxChildren,
@@ -577,6 +642,27 @@ func (s *Store) GetCheckin(profileID, conversationID string) (Checkin, error) {
 func (s *Store) SaveCheckin(profileID, conversationID string, c Checkin) error {
 	_, err := s.db.Exec(`UPDATE coder_sessions SET checkin_at = ?, checkin_snapshot = ? WHERE profile_id = ? AND conversation_id = ?`, c.At, c.Snapshot, profileID, conversationID)
 	return err
+}
+
+// EnqueueWithCheckin queues a command and records the scheduler's look in ONE transaction, so a failure of either leaves
+// neither: the command is never queued against a baseline that was not saved.
+func (s *Store) EnqueueWithCheckin(c Command, k Checkin) (Command, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return c, err
+	}
+	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
+	got, err := s.enqueueOn(tx, c)
+	if err != nil {
+		return c, err
+	}
+	if _, err := tx.Exec(`UPDATE coder_sessions SET checkin_at = ?, checkin_snapshot = ? WHERE profile_id = ? AND conversation_id = ?`, k.At, k.Snapshot, c.ProfileID, c.ConversationID); err != nil {
+		return c, err
+	}
+	if err := tx.Commit(); err != nil {
+		return c, err
+	}
+	return got, nil
 }
 
 // TurnActivity is the time of a running turn's newest journal event, or when the
@@ -673,15 +759,15 @@ func (s *Store) hostTurnSet(profileID, conversationID string) map[string]bool {
 // so a person's pause queued after the pass looked is not followed by a resume queued behind its back. The INSERT also
 // holds the dedup (one pending cascade resume) and the control cap Enqueue applies, so concurrent passes or hosts
 // cannot race the pass's own pre-check.
-func (s *Store) enqueueCascadeResume(profileID, conv string) (bool, error) {
+func (s *Store) enqueueCascadeResume(profileID, conv, turnID string) (bool, error) {
 	now := s.stamp()
 	res, err := s.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
 		SELECT ?, ?, 'resume', ?, '', '[]', 'pending', 0, ?, ?, ''
 		WHERE NOT `+personPauseLive+`
 		AND NOT EXISTS (SELECT 1 FROM coder_session_commands d WHERE d.profile_id = ? AND d.conversation_id = ? AND d.kind = 'resume' AND d.status = 'pending' AND d.issuer = '' AND d.turn_id = ?)
 		AND (SELECT COUNT(*) FROM coder_session_commands k WHERE k.profile_id = ? AND k.conversation_id = ? AND k.status = 'pending' AND k.kind != 'send') < ?`,
-		profileID, conv, cascadeTurn, now, now, profileID, conv, cascadeTurn, int64(math.MaxInt64), cascadeTurn, int64(math.MaxInt64),
-		profileID, conv, cascadeTurn, profileID, conv, MaxPendingPerChat)
+		profileID, conv, turnID, now, now, profileID, conv, turnID, int64(math.MaxInt64), turnID, int64(math.MaxInt64),
+		profileID, conv, turnID, profileID, conv, MaxPendingPerChat)
 	if err != nil {
 		return false, err
 	}

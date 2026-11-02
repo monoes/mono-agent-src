@@ -88,6 +88,9 @@ func agentLogFilter() func(string) string {
 	return workflow.NewReplyRedactor(context.Background(), nil).String
 }
 
+// exitCredFrame is the exit code of a turn whose credential frame was missing or malformed (EX_SOFTWARE).
+const exitCredFrame = 70
+
 // run is the command line without the process: it gates args on the monoes.me
 // account (account_gate.go), executes them and returns the exit code, so a
 // test can call it. Tests that call newRootCmd().Execute() skip the gate by
@@ -95,6 +98,13 @@ func agentLogFilter() func(string) string {
 func run(args []string, stdout, stderr io.Writer) int {
 	// First of all: the coder host's mission token is read from its inherited pipe, which is then
 	// closed, before the guard, a probe or any command can start a process.
+	// Before even that, a turn launched with peer-credential binding on reads its typed credential frame, and a missing
+	// or malformed one ends the process here: no flag, config, account check or database is touched without the
+	// credentials the launch promised (coderhost/credframe_fd.go). Without the marker this does nothing.
+	if err := coderhost.StashCredFrame(); err != nil {
+		fmt.Fprintln(stderr, "monoagentcli: "+err.Error()+"; the turn was not started")
+		return exitCredFrame
+	}
 	coderhost.StashMissionToken()
 	if args == nil {
 		args = []string{} // cobra reads os.Args for a nil slice

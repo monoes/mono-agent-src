@@ -317,7 +317,7 @@ func TestTheFirstWriteCreatesEveryMissingParentPrivately(t *testing.T) {
 				t.Errorf("%s did not create %s: %v", tc.name, d, err)
 				continue
 			}
-			if fi.Mode().Perm() != 0o700 {
+			if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700 {
 				t.Errorf("%s created %s with mode %v, want 0700", tc.name, d, fi.Mode().Perm())
 			}
 		}

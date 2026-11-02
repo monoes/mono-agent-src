@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actionsFor, awaitingApproval, boardEditable, chipState, nearBudget, planTree, progress, selectionAfter, spendParts, waitingOn } from './taskSessionModel.js'
+import { actionsFor, awaitingApproval, belowOf, openBelow, boardEditable, chipState, nearBudget, planTree, progress, selectionAfter, spendParts, waitingOn } from './taskSessionModel.js'
 import { normalizeBoard } from './taskModel.js'
 
 const s = (state, extra = {}) => ({ id: 1, state, archived: false, counts: { done: 2, total: 7 }, spent_usd: 1.2, budget_usd: 5, ...extra })
@@ -52,5 +52,21 @@ describe('taskSessionModel', () => {
     expect(selectionAfter(1, [s('draft')])).toBe(1)
     expect(selectionAfter(2, [s('draft')])).toBe(null)
     expect(selectionAfter(null, [s('draft')])).toBe(null)
+  })
+})
+
+describe('belowOf and openBelow', () => {
+  const s = (id, parent, state, archived = false) => ({ id, parent_session_id: parent, state, archived })
+  const list = [s(1, 0, 'running'), s(2, 1, 'done'), s(3, 2, 'draft'), s(4, 1, 'running', true), s(5, 0, 'draft')]
+  it('walks every level, skips archived ones and other trees', () => {
+    expect(belowOf(list, 1).map(x => x.id)).toEqual([2, 3])
+  })
+  it('keeps the open ones, whatever the level', () => {
+    expect(openBelow(list, 1).map(x => x.id)).toEqual([3])
+    expect(openBelow(list, 3)).toEqual([])
+  })
+  it('ends on a ring of parents', () => {
+    const ring = [s(1, 2, 'draft'), s(2, 1, 'draft')]
+    expect(belowOf(ring, 1).map(x => x.id)).toEqual([2])
   })
 })

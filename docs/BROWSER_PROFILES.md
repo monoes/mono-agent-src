@@ -68,6 +68,38 @@ drop a running workflow's commands.
 The first profile a browser lists is also the default for captures saved from
 that browser.
 
+## Limiting which profiles a browser may claim
+
+A browser that pairs itself gets a token of its own, and that token may run
+only the profiles you allow. **A newly paired browser starts with none**: it
+connects, but it is no default browser and cannot bind a profile until you
+name some. That is the cost of the limit. On the pairing card in the app's Human in Loop queue, the
+**profiles** field starts with the id of the profile of the queue you are in (the card names it): approve
+as it stands for that one profile, edit it to name others (ids or names, comma separated; a name that two
+profiles share is refused, and an exact id wins over a name), type `any` as the whole field to let the
+browser run every profile, or empty it and the card says the browser can't serve any profile yet. From the CLI:
+
+    monoagentcli extension approve <claim> --profiles Work,Personal   # at pairing
+    monoagentcli extension approve <claim> --any                      # the old behaviour
+    monoagentcli extension browsers allow <id> Work Personal           # later; replaces the set
+    monoagentcli extension browsers allow <id> --any                   # lift the limit
+    monoagentcli extension browsers allow <id>                         # back to nothing
+
+`extension browsers list` shows what each browser may run. A browser serves
+only the profiles in its set: one that names another is refused (its
+connection is closed with the unauthorized code, a binding it sends is not
+applied, and `bind`/`assign`/`set_binding` for it fail with "not allowed"),
+the default-browser fallback skips it for other profiles, and a command that
+names no profile never goes to it. A browser running a profile you have since
+removed from its set is disconnected within a few seconds.
+
+Browsers paired before this limit existed are not limited (they show "any
+profile") until you set one; the shared `extension.token` is never limited.
+Re-pairing a browser with its own token keeps its limit; approving a new
+claim for the same instance replaces the record with whatever that approval
+says. Only you can change a limit: the commands are operator-only like
+`assign` and `bind`.
+
 ## Seeing every profile at once
 
 The desktop dashboard has a **This profile / All profiles** toggle. All

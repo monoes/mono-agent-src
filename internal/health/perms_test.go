@@ -65,7 +65,7 @@ func TestPermsCheckAndFix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != want {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != want { // Windows has no Unix modes
 			t.Errorf("%s: %v, want %v", p, info.Mode().Perm(), want)
 		}
 	}

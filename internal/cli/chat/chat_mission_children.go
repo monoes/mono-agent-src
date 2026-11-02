@@ -25,28 +25,52 @@ import (
 // does not verify, is not a lead for this purpose and its tasks run in-turn.
 
 // launcherMintsChildTokens says whether the coder host's launcher gives a child session the task token that
-// confines it to its one task (phase P-B2, the child token mint in coder_host_exec.go). Until that lands it is
-// false, and the conductor never spawns a child session, whatever the mission marks or the policy says: a child
-// without that token would not be bound to its task. P-B2 replaces this with the launcher's own answer.
+// confines it to its one task (phase P-B2, coder_host_childtoken.go). The conductor never spawns a child session
+// without it, whatever the mission marks or the policy says: a child without that token would not be bound to its
+// task. Two ways it is true, in two kinds of process:
+//   - the host's own process registered the launcher that mints (RegisterChildTokenMinter);
+//   - any other process (the lead's chat turn) finds a running host that says it mints (registerChildHostProbe):
+//     the host, not the lead's process, starts the child's turn and mints its token, so the lead's process asks the
+//     host. A host built before this existed does not say so, and a missing or stopped host is a no.
 func launcherMintsChildTokens() bool {
 	childMinterMu.Lock()
-	defer childMinterMu.Unlock()
-	return childMinter != nil && childMinter.CanMintChildTokens()
+	m, probe := childMinter, childHostProbe
+	childMinterMu.Unlock()
+	if m != nil && m.CanMintChildTokens() {
+		return true
+	}
+	return probe != nil && probe()
 }
 
 // ChildTokenMinter is what the launcher registers (RegisterChildTokenMinter) once it gives each child session a
-// task-bound token. It is the only way the spawner becomes ready.
+// task-bound token. It is the only way the host's own process becomes ready.
 type ChildTokenMinter interface{ CanMintChildTokens() bool }
 
 var (
-	childMinterMu sync.Mutex
-	childMinter   ChildTokenMinter
+	childMinterMu  sync.Mutex
+	childMinter    ChildTokenMinter
+	childHostProbe func() bool
 )
 
-// RegisterChildTokenMinter is called by the launcher (P-B2) when it mints child tokens.
+// RegisterChildTokenMinter is called by the host's launcher setup (`coder host run`) when it mints child tokens.
 func RegisterChildTokenMinter(m ChildTokenMinter) {
 	childMinterMu.Lock()
 	childMinter = m
+	childMinterMu.Unlock()
+	coderhost.SetMissionChildrenReady(launcherMintsChildTokens)
+}
+
+// registerChildHostProbe makes a process that is not the host ask the running host (its info file) whether it mints
+// child task tokens.
+func registerChildHostProbe(cfg *Deps) {
+	childMinterMu.Lock()
+	childHostProbe = func() bool {
+		if !hostRunning(cfg) {
+			return false
+		}
+		info, ok := readHostInfo(cfg)
+		return ok && info.ChildTokens
+	}
 	childMinterMu.Unlock()
 	coderhost.SetMissionChildrenReady(launcherMintsChildTokens)
 }
@@ -94,6 +118,12 @@ func (m *missionChildren) Facts(ctx context.Context, sid, tid int64) (dynorg.Chi
 		f.Row, f.EndReason, f.Child = row.State, row.EndReason, row.ChildConversationID
 		f.Exhausted = row.Attempts >= coderhost.MaxChildAttempts
 	}
+	if on, err := store.MissionChildrenEnabled(); err != nil {
+		return f, err
+	} else if !on {
+		f.Blocked = "child sessions are off (operator setting)" // the mark and its row stay as they are
+		return f, nil
+	}
 	if why != "" {
 		f.Blocked = why
 		return f, nil
@@ -132,6 +162,9 @@ func (m *missionChildren) Spawn(ctx context.Context, sid, tid int64, brief strin
 		}
 		row, _, _ := store.Child(m.profileID, sid, tid)
 		if _, err := store.Mark(scope, m.profileID, sid, tid, coderhost.MarkOptions{Size: row.Size, BudgetUSD: row.BudgetUSD}); err != nil {
+			if errors.Is(err, coderhost.ErrChildUnsettled) {
+				return fmt.Errorf("%w: %v", dynorg.ErrChildUnsettled, err)
+			}
 			return err
 		}
 	}

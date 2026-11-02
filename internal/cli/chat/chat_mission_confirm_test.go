@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -163,7 +164,7 @@ func TestHostMissionConfirmedIsSingleUseAndBoundToTheSession(t *testing.T) {
 	tok3 := confirmedToken(t, cs, conv, "t3", 0)
 	db, _ := storage.NewDatabase(dbPath)
 	defer db.Close()
-	if _, err := tasks.NewStore(db.DB).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", ConversationID: conv}, tasks.Actor{Kind: tasks.Human}); err != nil {
+	if _, err := tasks.NewStore(db.DB).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", ConversationID: conv, Kind: tasks.SessionKindMission}, tasks.Actor{Kind: tasks.Human}); err != nil {
 		t.Fatal(err)
 	}
 	if hostMissionConfirmed(cfg, "default", conv, "t3", tok3, "coding") {
@@ -172,6 +173,9 @@ func TestHostMissionConfirmedIsSingleUseAndBoundToTheSession(t *testing.T) {
 }
 
 func TestExecLauncherPassesTheTokenOnAPipeNeverInEnvironmentOrArguments(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the stand-in launcher is a shell script that reads /proc/self/environ and an inherited descriptor")
+	}
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args.log")
 	bin := filepath.Join(dir, "fake")

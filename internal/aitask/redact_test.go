@@ -351,3 +351,12 @@ func TestScrubJSONCatchesEscapedSecretsInValuesAndKeys(t *testing.T) {
 		t.Fatalf("text: %s", got)
 	}
 }
+
+func TestRedactAgentTokensCoversTheBoundTokenForms(t *testing.T) {
+	for _, prefix := range []string{"mat-", "mst-", "mat2-", "mst2-"} {
+		tok := prefix + strings.Repeat("Ab1_-", 8)
+		if got := RedactAgentTokens("x " + tok + " y"); strings.Contains(got, "Ab1_-Ab1_-") {
+			t.Errorf("%s not hidden: %s", prefix, got)
+		}
+	}
+}

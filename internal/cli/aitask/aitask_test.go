@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/aitask/budget"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/testhome"
 )
@@ -146,5 +147,39 @@ func TestWaitTimesOutWithExit1(t *testing.T) {
 	out, err = run(t, d, "wait", task.TaskID, "--timeout", "50ms")
 	if clicore.ExitCodeFor(err) != 1 || !strings.Contains(out, `"code":"wait_timeout"`) {
 		t.Fatalf("%v %s", err, out)
+	}
+}
+
+// `submit` is the operator's: an agent cannot reach --task-id (or anything else of it). With the operator check
+// the process really makes (internal/operator, here seen through an agent's marker), the submit is refused before
+// it creates a conversation or a row, even for a well-formed id.
+func TestSubmitWithATaskIdIsRefusedToAnAgentAndCreatesNothing(t *testing.T) {
+	t.Setenv("CLAUDECODE", "1")
+	if operator.Marker() == "" {
+		t.Skip("this environment's agent marker is not seen as one")
+	}
+	f := &fake{cwd: t.TempDir()}
+	d := deps(t, func() aitask.Launcher { return f })
+	d.RequireOperator = func(what string) error {
+		if m := operator.Marker(); m != "" {
+			return clicore.OperatorOnly("%s: only the operator can %s", m, what)
+		}
+		return nil
+	}
+	out, err := run(t, d, "submit", "--kind", "generic", "--goal", "tidy", "--task-id", "at-0123456789abcdef")
+	if err == nil {
+		t.Fatalf("an agent submitted a task with an id of its choosing: %s", out)
+	}
+	if len(f.runtimes) != 0 || len(f.detached) != 0 {
+		t.Errorf("a refused submit made a conversation or started a turn: %v %v", f.runtimes, f.detached)
+	}
+	db, err := d.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM ai_tasks`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("rows = %d (%v)", n, err)
 	}
 }

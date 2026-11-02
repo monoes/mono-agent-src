@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -44,7 +45,20 @@ const (
 	MaxAcceptanceBytes       = 8 << 10
 	MaxGoalBytes             = 64 << 10
 	DefaultAccessLevel       = "scoped"
+	HardMaxSessionDepth      = 4 // levels of the session tree, the root being level 1
 )
+
+// Session kinds: what a session is for. Old rows and plain sessions are "board".
+const (
+	SessionKindBoard     = "board"
+	SessionKindMission   = "mission"
+	SessionKindResearch  = "research"
+	SessionKindDirection = "direction"
+	SessionKindTask      = "task"
+)
+
+// SessionKinds are the kinds a session may name.
+var SessionKinds = []string{SessionKindBoard, SessionKindMission, SessionKindResearch, SessionKindDirection, SessionKindTask}
 
 // AccessLevels are the access levels a session may name: those of a chat.
 var AccessLevels = []string{"scoped", "coding", "workspace", "full"}
@@ -73,6 +87,10 @@ type Session struct {
 	Rev               int64         `json:"rev"`
 	Counts            SessionCounts `json:"counts"`
 	ClientID          string        `json:"client_id,omitempty"`
+	ParentSessionID   int64         `json:"parent_session_id,omitempty"` // 0: a top-level session
+	Kind              string        `json:"kind"`
+	ApprovalBasis     string        `json:"approval_basis"`    // operator, lead or person; empty until approved
+	Depth             int           `json:"depth"`             // 1 for a top-level session, computed from the chain
 	Deduped           bool          `json:"deduped,omitempty"` // set by CreateSession when the client id matched an existing session
 }
 
@@ -104,6 +122,14 @@ type SessionInput struct {
 	MaxTasks       int
 	MaxDepth       int
 	ClientID       string // an idempotency key per profile: a repeat returns the existing session
+	// ParentSessionID, when not 0, starts the session below that one (same profile); Kind is "" for board.
+	ParentSessionID int64
+	Kind            string
+	// BeforeInsert, when set, runs inside the transaction that adds the session, after the idempotency
+	// check and before the insert, on the connection that holds the write lock. An error aborts the
+	// creation. It is how a caller makes a condition it read elsewhere hold at the moment the row exists
+	// (the mission planner: the chat's Mission toggle is still on). Trusted code sets it, never user input.
+	BeforeInsert func(ctx context.Context, x Queryer) error `json:"-"`
 }
 
 // SessionUpdate changes what only the operator may. A nil field stays as it is.
@@ -120,6 +146,7 @@ type SessionUpdate struct {
 type SessionFilter struct {
 	State           SessionState // "" for every state
 	IncludeArchived bool
+	subtreeOf       int64 // when set, only this session and those below it, to HardMaxSessionDepth levels (the tree reads it)
 }
 
 // SessionTaskInput is a task added to a session. Acceptance is required.

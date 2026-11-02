@@ -10,11 +10,12 @@ import (
 )
 
 // openMissionSessionID is the mission state a confirmation is bound to: the id
-// of the conversation's open mission session, 0 when it has none.
-func openMissionSessionID(ctx context.Context, cfg *Deps, profileID, conversationID string) int64 {
+// of the conversation's open mission session, 0 when it has none. An error means
+// the state could not be read, which is not "none".
+func openMissionSessionID(ctx context.Context, cfg *Deps, profileID, conversationID string) (int64, error) {
 	db, err := cfg.OpenDB()
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	defer db.Close()
 	m := &dynorg.MissionConfig{Store: tasks.NewStore(db.DB), ProfileID: profileID, ConversationID: conversationID, Actor: missionActor}
@@ -34,7 +35,10 @@ func hostMissionConfirmed(cfg *Deps, profileID, conversationID, turnID, token, a
 		return false
 	}
 	ctx := context.Background()
-	session := openMissionSessionID(ctx, cfg, profileID, conversationID)
+	session, err := openMissionSessionID(ctx, cfg, profileID, conversationID)
+	if err != nil {
+		return false
+	}
 	db, err := cfg.OpenDB()
 	if err != nil {
 		return false

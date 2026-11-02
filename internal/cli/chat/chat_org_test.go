@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -576,5 +577,51 @@ func TestChatTurnAnswerRefusesAClosedQuestion(t *testing.T) {
 	}
 	if err := checkOpenQuestion(store, "default", conv.ID, "t1", "w1", "q2"); err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Errorf("refusal = %v", err)
+	}
+}
+
+// When the ids of the conversation's stored workers cannot be read, the turn does not start a conductor: a new worker
+// could reuse a stored one's id. The agent works alone and the notice says why; nothing is spawned.
+func TestDynamicOrgDoesNotStartWhenTheStoredWorkerIDsCannotBeRead(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "")
+	dbPath := newChatCLITestDB(t)
+	bin, argsLog := writeCoderMonomind(t, coderTranscript) // a lead without org tools makes no org call
+	withCoderCaps(t, append(monomind.CoderCapabilities, monomind.CapAgentExecFullAccessTools, monomind.CapAgentExecAccessRead)...)
+	withCoderScan(t, orgScan(true))
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	store := openTestChatStore(t, dbPath)
+	conv, err := store.CreateConversationMode("default", "agent", "general", "claude", "", "opus", ai.ModeCoder, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConversationOrgMode(conv.ID, "default", ai.OrgModeDynamic); err != nil {
+		t.Fatal(err)
+	}
+	orig := orgStoredIDs
+	orgStoredIDs = func(*turnJournal) ([]string, error) { return nil, errors.New("injected read error") }
+	t.Cleanup(func() { orgStoredIDs = orig })
+
+	out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", "turn-1", "--", "where is the cache?")
+	if err != nil {
+		t.Fatalf("turn: %v\n%s", err, out)
+	}
+	j := parseJournaledTurn(t, out)
+	found := false
+	for _, e := range j.byType(chatevents.EventNotice) {
+		var p chatevents.NoticePayload
+		json.Unmarshal(e.Payload, &p)
+		if p.Code == noticeOrgUnavailable && strings.Contains(p.Message, "injected read error") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the refusal to start the org must be explained in a notice that carries the error")
+	}
+	if n := len(j.byType(chatevents.EventAgentSpawned)); n != 0 {
+		t.Errorf("%d workers were spawned although the stored ids could not be read", n)
+	}
+	logged, _ := os.ReadFile(argsLog)
+	if strings.Contains(string(logged), "--tools-file") {
+		t.Error("the lead must run without org tools when the org does not start")
 	}
 }

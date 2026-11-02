@@ -6,12 +6,14 @@ var taskSessionCommandDocs = []cmdDoc{
 	{
 		Name:  "task session",
 		Short: "Task sessions: one goal with a board of its own, planned as a draft and opened by the operator",
-		Usage: "monoagentcli [--profile P] task session new|list|show|plan|approve|pause|resume|stop|archive|budget",
+		Usage: "monoagentcli [--profile P] task session new|list|show|rename|tree|plan|approve|pause|resume|stop|archive|budget",
 		Flags: `  new      Start a session, as a draft (an agent may; the budget, limits and access level are the operator's)
   list     The profile's sessions
   show     One session: state, limits, progress, goal and history
+  rename   Change a session's title (the operator: any; an agent: a draft it started from its own chat)
+  tree     The sessions nested below their parents, with state, progress and spend
   plan     Its tasks with their dependencies and acceptance criteria
-  approve  Open it: the draft's tasks become Ready (the operator only)
+  approve  Open it: the draft's tasks become Ready (the operator; or the lead of its parent when the operator allows it)
   pause    Stop handing out tasks (the operator or an agent)
   resume   Run a paused session again (the operator only)
   stop     End it and release every claim (the operator or an agent)
@@ -25,8 +27,11 @@ var taskSessionCommandDocs = []cmdDoc{
 	{
 		Name:  "task session new",
 		Short: "Start a session, as a draft: its tasks cannot be taken until the operator approves the plan (an agent may start one; only the operator sets the budget, limits and access level)",
-		Usage: "monoagentcli [--profile P] task session new TITLE... [--goal TEXT] [--conversation ID] [--client-id KEY] [--budget-usd N] [--max-tasks N] [--max-depth N] [--access LEVEL] [--as NAME]",
-		Flags: `  --goal string          What the session is for
+		Usage: "monoagentcli [--profile P] task session new TITLE... [--title TEXT] [--parent ID] [--kind KIND] [--goal TEXT] [--conversation ID] [--client-id KEY] [--budget-usd N] [--max-tasks N] [--max-depth N] [--access LEVEL] [--as NAME]",
+		Flags: `  --title string         The title, instead of arguments
+  --parent int           Start it below this session (same profile; levels go to 4; its access, budget and caps are the parent's ceiling; an agent: only below a session it works in)
+  --kind string          board (default), mission, research, direction or task
+  --goal string          What the session is for
   --conversation string  The chat conversation it belongs to
   --client-id string     An idempotency key (up to 64 letters, digits, - or _): a repeat in the profile returns the same session with deduped true, and creates no second one
   --budget-usd float     Budget in dollars (the operator only; 0 for none)
@@ -51,6 +56,19 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session show 3"},
 	},
 	{
+		Name:     "task session rename",
+		Short:    "Change a session's title, nothing else (the operator renames any session; an agent only a draft it started from its own chat)",
+		Usage:    "monoagentcli [--profile P] task session rename ID TITLE... [--as NAME]",
+		Examples: []string{`monoagentcli --profile work task session rename 3 "Logger migration"`},
+	},
+	{
+		Name:     "task session tree",
+		Short:    "The sessions nested below their parents, ordered by id; --json is an array of root sessions, each with children",
+		Usage:    "monoagentcli [--profile P] task session tree [--all]",
+		Flags:    `  --all  Include archived sessions`,
+		Examples: []string{"monoagentcli --profile work --json task session tree"},
+	},
+	{
 		Name:     "task session plan",
 		Short:    "A session's tasks, with what each waits for and how it is judged",
 		Usage:    "monoagentcli [--profile P] task session plan ID",
@@ -58,9 +76,50 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session approve",
-		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator only; an empty draft is refused)",
-		Usage:    "monoagentcli [--profile P] task session approve ID",
-		Examples: []string{"monoagentcli --profile work task session approve 3"},
+		Short:    "Approve a draft's plan: its tasks become Ready and the session runs (the operator, from their own terminal, not inside a coder turn; or the lead of its parent, identified by its coder-session token, when the operator set agent_approval=lead; giant work waits for the person; an empty draft is refused)",
+		Usage:    "monoagentcli [--profile P] task session approve ID [--rev N] [--as NAME]",
+		Flags:    "  --rev int   The session revision you read (`rev` in `task session show --json`): refused with code plan_changed if the plan moved since. Optional so scripts keep working; pass it whenever you approve what you read",
+		Examples: []string{"monoagentcli --profile work task session approve 3", "monoagentcli --profile work task session approve 3 --rev 12"},
+	},
+	{
+		Name:     "task session person inbox",
+		Short:    "The items that wait for you, the person, oldest first; a giant session's plan shows why it is giant work (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person inbox",
+		Examples: []string{"monoagentcli --profile work --json task session person inbox"},
+	},
+	{
+		Name:     "task session person full",
+		Short:    "The whole plan of one waiting item, no field cut, under the same rev and digest `person inbox` carries; changes nothing (the operator only; needs an open item)",
+		Usage:    "monoagentcli [--profile P] task session person full ID",
+		Examples: []string{"monoagentcli --profile work --json task session person full 7"},
+	},
+	{
+		Name:     "task session person approve",
+		Short:    "Approve the plan of a giant session that waits for you: it runs and the approval is recorded as the person's (the operator only; needs an open item)",
+		Usage:    "monoagentcli [--profile P] task session person approve ID --rev N [--digest HASH]",
+		Flags:    "  --rev int         The plan revision `person inbox` showed (required): refused if the plan changed since\n  --digest string   The plan digest `person inbox` showed (optional): also refused if the content differs",
+		Examples: []string{"monoagentcli --profile work task session person approve 7 --rev 12"},
+	},
+	{
+		Name:     "task session person deny",
+		Short:    "Turn a giant plan down: the session stays a draft, the note is kept in its history and sent to its lead (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person deny ID --note TEXT",
+		Flags:    "  --note string   Why (required)",
+		Examples: []string{`monoagentcli --profile work task session person deny 7 --note "split it in two"`},
+	},
+	{
+		Name:     "task session person ask",
+		Short:    "Send a question about a giant plan to its lead as quoted data; the item stays open (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person ask ID --text TEXT",
+		Flags:    "  --text string   Your question (required)",
+		Examples: []string{`monoagentcli --profile work task session person ask 7 --text "why 30 tasks?"`},
+	},
+	{
+		Name:     "task session person answer-ask",
+		Short:    "Answer a critical ask that a lead raised for you (an ancestor_question item); the answer reaches the asking lead as quoted data and the item closes (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session person answer-ask --ask ID --text TEXT",
+		Flags:    "  --ask int       The ask id, from the inbox (required)\n  --text string   Your answer (required)",
+		Examples: []string{`monoagentcli --profile work task session person answer-ask --ask 4 --text "yes, go ahead"`},
 	},
 	{
 		Name:     "task session pause",
@@ -88,16 +147,24 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session close 3 --note \"reviewed\""},
 	},
 	{
+		Name:     "task session retire-worker",
+		Short:    "Retire the idle worker of a mission task so the lead cannot message it; the task's evidence is kept (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session retire-worker SESSION TASK [--note TEXT]",
+		Flags:    "  --note string   Why it is retired (kept in the session's history)",
+		Examples: []string{"monoagentcli --profile work task session retire-worker 3 12 --note \"its context is stale\""},
+	},
+	{
 		Name:     "task session archive",
-		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only)",
-		Usage:    "monoagentcli [--profile P] task session archive ID",
-		Examples: []string{"monoagentcli --profile work task session archive 3"},
+		Short:    "Hide a session that is not running or paused; its tasks stay (the operator only). Refused while draft, running or paused sessions are below it, unless --cascade",
+		Usage:    "monoagentcli [--profile P] task session archive ID [--cascade]",
+		Flags:    "  --cascade   Also stop (running, paused) and archive every session below it, the deepest first, in one write; prints the archived ids",
+		Examples: []string{"monoagentcli --profile work task session archive 3", "monoagentcli --profile work --json task session archive 3 --cascade"},
 	},
 	{
 		Name:  "task session budget",
 		Short: "Set a session's budget, limits, access level or auto-close setting, or record spend (the operator only)",
 		Usage: "monoagentcli [--profile P] task session budget ID [--usd N] [--max-tasks N] [--max-depth N] [--max-retries N] [--access LEVEL] [--auto-close on|off] [--spend N] [--note TEXT]",
-		Flags: `  --usd float        Budget in dollars (0 for none); a session that has spent it hands out no tasks
+		Flags: `  --usd float        Budget in dollars (0 for none); a session that has spent it hands out no tasks; under a parent with a budget, above 0 and at most the parent's
   --max-tasks int    Most tasks the session holds (the only bound on additions after approval)
   --max-depth int    Deepest nesting of tasks
   --max-retries int  Failed verifications a task may have before it is blocked (default 2)
@@ -106,6 +173,20 @@ var taskSessionCommandDocs = []cmdDoc{
   --spend float      Record this much more spent, in dollars
   --note string      What the spend was for`,
 		Examples: []string{"monoagentcli --profile work task session budget 3 --usd 20 --auto-close off"},
+	},
+	{
+		Name:     "task session reservation list",
+		Short:    "List the money workers hold out of a session's budget, newest first (read-only; the operator, or an agent for its own session)",
+		Usage:    "monoagentcli [--profile P] task session reservation list SESSION [--json]",
+		Examples: []string{"monoagentcli --profile work --json task session reservation list 3"},
+	},
+	{
+		Name:  "task session reservation resolve",
+		Short: "Say what an expired worker reservation cost: it is charged to the session and its hold is released (the operator only)",
+		Usage: "monoagentcli [--profile P] task session reservation resolve ID --usd N [--note TEXT]",
+		Flags: `  --usd float    What the reservation cost in total, in dollars, 0 to 1000000000 (not below what it already charged; 0 charges nothing more); required
+  --note string  Where the figure comes from (kept on the reservation)`,
+		Examples: []string{`monoagentcli --profile work task session reservation resolve 7 --usd 1.25 --note "from the provider bill"`},
 	},
 	{
 		Name:  "task split",

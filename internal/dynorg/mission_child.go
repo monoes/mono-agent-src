@@ -37,6 +37,10 @@ const (
 // budget share is used up. The task stays Waiting; it is not a failure.
 var ErrChildrenFull = errors.New("child sessions are full")
 
+// ErrChildUnsettled is why a retry of an ended child session could not start now: its spend is not settled yet.
+// Like ErrChildrenFull it is a wait, never a failure of the task's worker.
+var ErrChildUnsettled = errors.New("the earlier child session is still being settled")
+
 // ChildFacts is what the conductor reads about one task before it decides.
 type ChildFacts struct {
 	Mode       string // off, marked or all; "" when the lead cannot have children
@@ -173,6 +177,9 @@ func (c *Conductor) startChild(ctx context.Context, sid int64, t tasks.Task, st 
 		c.childSpawnFailed(ctx, mc, b, err)
 		if errors.Is(err, ErrChildrenFull) {
 			return st, fmt.Errorf("%w: it waits for a free place", ErrChildrenFull)
+		}
+		if errors.Is(err, ErrChildUnsettled) {
+			return st, fmt.Errorf("%w: it is retried on the next pass", ErrChildUnsettled)
 		}
 		c.msched.mu.Lock()
 		c.msched.failures[t.ID]++

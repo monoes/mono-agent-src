@@ -72,7 +72,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// socket never replaces anything.
 	c := newExtConn(conn, auth, time.Now())
 	s.dropDeletedBinding(c)
-	if !s.installConn(c) {
+	installed := false
+	if !c.whileAllowed(c.boundProfiles(), func() { installed = s.installConn(c) }) {
+		c.closeUnauthorized("this browser is not allowed to run a profile it asked for")
+		return
+	}
+	if !installed {
 		_ = conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(unauthorizedCloseCode, "that browser instance is connected under another token"),
 			time.Now().Add(time.Second))
@@ -113,6 +118,9 @@ func (s *Server) authenticate(conn *websocket.Conn) (authFrame, bool) {
 			auth.tokenID = b.ID
 			if reason := instanceMismatch(b, auth.Instance); reason != "" {
 				return s.refuseAuth(conn, reason)
+			}
+			if len(b.Outside(profilesFromWire(auth.Profiles, auth.Profile))) > 0 {
+				return s.refuseAuth(conn, "this browser is not allowed to run a profile it asked for")
 			}
 		} else {
 			ok = false
@@ -171,6 +179,12 @@ func (s *Server) pingLoop(c *extConn, done <-chan struct{}) {
 			if c.tokenID != "" && !pairedBrowserIDs()[c.tokenID] {
 				s.logger.Warn().Str("browser", c.tokenID).Msg("closing the socket of a revoked browser")
 				_ = c.ws.Close()
+				return
+			}
+			// The owner may have narrowed the allowed set since this socket opened.
+			if len(c.outsideAllowed(c.boundProfiles())) > 0 {
+				s.logger.Warn().Str("browser", c.tokenID).Msg("closing a socket that runs a profile outside its allowed set")
+				c.closeUnauthorized("this browser is not allowed to run one of its profiles")
 				return
 			}
 		case <-ticker.C:

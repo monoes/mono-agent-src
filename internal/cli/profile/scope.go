@@ -28,7 +28,8 @@ const (
 
 // derivedScope is what a profile owns that carries neither a profile_id nor
 // a cascading foreign key: rows keyed by the profile's workflows and
-// executions, its counters, and its settings entries.
+// executions, its counters, its settings entries and the configs rows of its
+// agent purposes.
 var derivedScope = []scopeEntry{
 	{Table: "app_webhooks", Where: `workflow_id IN ` + wfOfProfile},
 	{Table: "webhook_deliveries", Where: `workflow_id IN ` + wfOfProfile},
@@ -39,7 +40,53 @@ var derivedScope = []scopeEntry{
 	{Table: "wait_replies", Where: `workflow_id IN ` + wfOfProfile + ` OR execution_id IN ` + execOfProfile},
 	{Table: "subworkflow_runs", Where: `parent_execution_id IN ` + execOfProfile + ` OR child_execution_id IN ` + execOfProfile},
 	{Table: "workflow_daily_counters", Where: `profile_key = @p`},
+	{Table: "configs", Where: `name LIKE 'agent_purposes.' || replace(replace(replace(@p, '\', '\\'), '%', '\%'), '_', '\_') || '.%' ESCAPE '\'`},
 	{Table: "settings", Where: `key = 'task_agent_access:' || @p OR key LIKE 'jev.' || replace(replace(replace(@p, '\', '\\'), '%', '\%'), '_', '\_') || '.%' ESCAPE '\'`},
+}
+
+// retainedOnDelete are tables with a profile_id column whose rows a profile delete leaves in place, each
+// with the reason. The peer-credential binding tables (migration 148) are insert-only and can be removed
+// only after a retention window (their triggers have no exempt operation, by design), so deleting the
+// profile does not remove them. They hold no secret (hashes, MACs, a pid and a start stamp) and nothing
+// reads them yet. Once the binding is wired in, a token in them is inert after the profile is gone
+// (authorization is the host's live registry, which the profile delete will revoke). A retention sweep
+// removes them after their expiry plus the window (procbind.PurgeRetained); it runs with the mission-token sweep, so
+// a row can outlive its window until the next time one runs.
+var retainedOnDelete = map[string]string{
+	"agent_tokens_v2":         "insert-only; removed by the retention sweep once its expiry is more than 7 days past (it runs with the mission-token sweep)",
+	"coder_session_tokens_v2": "insert-only; removed by the retention sweep once its expiry is more than 7 days past (it runs with the mission-token sweep)",
+	"process_bindings":        "insert-only; removed by the retention sweep once its expiry is more than 7 days past (it runs with the mission-token sweep)",
+	"token_revocations_v2":    "insert-only; removed by the retention sweep once its token expired more than 7 days ago (it runs with the mission-token sweep)",
+	"procbind_host":           "append-only log; each profile's newest row is never removable (kept permanently), older ones by the retention sweep once superseded and more than 7 days old",
+}
+
+// retainedRows counts the profile's rows in the tables a delete leaves in place (retainedOnDelete).
+func retainedRows(ctx context.Context, q scopeQuerier, id string) ([]profileTable, error) {
+	var scope []scopeEntry
+	for tbl := range retainedOnDelete {
+		var n int
+		if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n > 0 { // a database from before the migration has no such table
+			scope = append(scope, scopeEntry{Table: tbl, Where: `profile_id = @p`})
+		}
+	}
+	return countScope(ctx, q, scope, id)
+}
+
+// keptNote says what stays after a delete and for how long.
+const keptNote = "insert-only binding records; they hold no secret and are inert once the profile is gone. Most stay until the retention sweep removes them after their expiry plus 7 days (it runs with the mission-token sweep, so they can outlast the window until the next one runs); the profile's newest host-start row can never be removed, so it is kept permanently."
+
+// printKept says which rows a delete leaves in place and why, so nobody expects them to be gone.
+func printKept(kept []profileTable) {
+	if len(kept) == 0 {
+		return
+	}
+	fmt.Println("Kept: " + keptNote)
+	for _, t := range kept {
+		fmt.Printf("  %-32s %d\n", t.Table, t.Rows)
+	}
 }
 
 // profileScope lists, for the database q reads, every table with rows of the
@@ -60,7 +107,7 @@ func profileScope(ctx context.Context, q scopeQuerier) ([]scopeEntry, error) {
 	seen := map[string]bool{}
 	var queue []scopeEntry
 	for _, n := range names {
-		if hasColumn(ctx, q, n, "profile_id") {
+		if hasColumn(ctx, q, n, "profile_id") && retainedOnDelete[n] == "" {
 			e := scopeEntry{Table: n, Where: `profile_id = @p`}
 			queue = append(queue, e)
 			seen[n] = true

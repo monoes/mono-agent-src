@@ -143,7 +143,7 @@ func TestPersonsPauseBetweenCascadeCheckAndResumeSurvives(t *testing.T) {
 	}
 	f.h.missionChildPass()
 	f.st.betweenCascadeCheckAndResume = nil
-	if f.st.hasPendingCascade("p", a.ConversationID, KindResume) {
+	if f.st.hasPendingCascade("p", a.ConversationID, KindResume, cascadeTurn) {
 		t.Fatal("the pass queued its resume behind a person's pause")
 	}
 	if err := f.h.Tick(); err != nil {

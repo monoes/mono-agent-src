@@ -39,8 +39,19 @@ func taskIDs(t *testing.T, st *Store, sid int64) []int64 {
 	return out
 }
 
-// newMC makes a lead master with a task session of two tasks (running when approve).
+// newMC makes a lead master with a task session of two tasks (running when approve), with the operator's
+// child-session switch on (it is off by default: see newMCDefault).
 func newMC(t *testing.T, approve bool) *mcFix {
+	t.Helper()
+	f := newMCDefault(t, approve)
+	if err := f.st.SetMissionChildrenEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// newMCDefault is newMC with the configuration an install has until the operator enables child sessions.
+func newMCDefault(t *testing.T, approve bool) *mcFix {
 	t.Helper()
 	st := newStoreT(t)
 	lead, _ := master(t, st, "workspace")
@@ -183,7 +194,7 @@ func TestMarkCrossProfileRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the same conversation id leads a session in another profile
-	sq, err := tasks.NewStore(f.st.db).CreateSession(context.Background(), "q", tasks.SessionInput{Title: "t", ConversationID: f.lead.ConversationID}, opActor)
+	sq, err := tasks.NewStore(f.st.db).CreateSession(context.Background(), "q", tasks.SessionInput{Title: "t", ConversationID: f.lead.ConversationID, Kind: tasks.SessionKindMission}, opActor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,6 +527,9 @@ func TestReserveStopsAfterTheAttemptLimit(t *testing.T) {
 		}
 		if ok, err := f.st.End("p", child, EndNoFinish); err != nil || !ok {
 			t.Fatalf("end %d: %v %v", i, ok, err)
+		}
+		if _, err := f.st.ChargeChild("p", child); err != nil { // the host settles an ended child before the task can be marked again
+			t.Fatal(err)
 		}
 		f.mark(t, 0) // the lead queues another try; attempts are kept
 	}

@@ -41,6 +41,9 @@ const (
 	// cascadeTurn is the turn id of the stops and pauses the pass queues, so they are not taken for the
 	// operator's.
 	cascadeTurn = "mission-cascade"
+	// treeTurn is the turn id of the pauses and resumes the tree pass (treecascade.go) queues: its own, so each pass
+	// lifts only its own pause.
+	treeTurn = "tree-cascade"
 )
 
 // missionChildPassIfDue runs the pass when MissionChildEvery has passed since the last.
@@ -82,6 +85,7 @@ func (h *Host) missionChildPass() {
 			h.logf("coder host: mission child %s: %v", r.ChildConversationID, err)
 		}
 	}
+	h.settleEnded()
 	h.reportOrphanCarves()
 }
 
@@ -104,7 +108,10 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		if x, ok, err := st.GetSession(r.ProfileID, r.ChildConversationID); err == nil && ok && x.TurnID != "" {
 			return nil // its turn is being stopped: the row ends on a later pass, once the turn has, so the carve is not released under it
 		}
-		_, err := st.End(r.ProfileID, r.ChildConversationID, EndLeadStop)
+		ended, err := st.End(r.ProfileID, r.ChildConversationID, EndLeadStop)
+		if ended {
+			h.settleChild(r.ProfileID, r.ChildConversationID)
+		}
 		return err
 	}
 	// 2. The child itself.
@@ -113,27 +120,33 @@ func (h *Host) reconcileChild(r ChildRow) error {
 		return err
 	}
 	if !exists {
-		_, err := st.MarkGone(r.ProfileID, r.ChildConversationID)
+		ended, err := st.MarkGone(r.ProfileID, r.ChildConversationID)
+		if ended {
+			h.settleChild(r.ProfileID, r.ChildConversationID)
+		}
 		return err
 	}
 	cs, ok, err := st.GetSession(r.ProfileID, r.ChildConversationID)
 	if err != nil || !ok {
 		return err
 	}
+	if st.PendingFor(r.ProfileID, r.ChildConversationID) == 0 {
+		h.revokeIfNoTurn(cs) // a message still queued means a turn is about to take a fresh token
+	}
 	if ms.state == "paused" {
-		if cs.State != StatePaused && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindPause) {
+		if cs.State != StatePaused && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindPause, cascadeTurn) {
 			if _, err := st.Enqueue(Command{ProfileID: r.ProfileID, ConversationID: r.ChildConversationID, Kind: KindPause, TurnID: cascadeTurn}); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if ms.state == "running" && cs.State == StatePaused && st.pausedByCascade(r.ProfileID, r.ChildConversationID) && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindResume) {
+	if ms.state == "running" && cs.State == StatePaused && st.pausedByCascade(r.ProfileID, r.ChildConversationID, cascadeTurn) && !st.hasPendingCascade(r.ProfileID, r.ChildConversationID, KindResume, cascadeTurn) {
 		// the mission runs again and nobody but this pass paused the child: it goes on, with the same host-made command
 		if st.betweenCascadeCheckAndResume != nil {
 			st.betweenCascadeCheckAndResume()
 		}
-		_, err := st.enqueueCascadeResume(r.ProfileID, r.ChildConversationID) // refused by the statement itself if a person's pause came in since the check
+		_, err := st.enqueueCascadeResume(r.ProfileID, r.ChildConversationID, cascadeTurn) // refused by the statement itself if a person's pause came in since the check
 		return err
 	}
 	idle := cs.State == StateIdle && cs.TurnID == "" && st.PendingFor(r.ProfileID, r.ChildConversationID) == 0
@@ -157,8 +170,24 @@ func (h *Host) reconcileChild(r ChildRow) error {
 	if err != nil || !ended {
 		return err
 	}
+	h.settleChild(r.ProfileID, r.ChildConversationID)
 	h.retireIdle(r.ProfileID, r.ChildConversationID)
 	return nil
+}
+
+// revokeIfNoTurn retries, on every pass, the revoke of the task tokens of a live child that runs no turn (one whose
+// settle failed, or whose launcher gave up): a token does not wait for its expiry because one revoke failed. It
+// is idempotent and a failure is only logged, so the next pass tries again.
+func (h *Host) revokeIfNoTurn(cs Session) {
+	if cs.TurnID != "" {
+		return
+	}
+	h.mu.Lock()
+	live := h.live[key(cs.ProfileID, cs.ConversationID)] != nil
+	h.mu.Unlock()
+	if !live {
+		_ = h.revokeChildTokens(cs.ProfileID, cs.ConversationID)
+	}
 }
 
 // retireIdle stops a task child's session once its row has ended, so it no longer counts toward its master's
@@ -206,6 +235,11 @@ func (h *Host) stopChild(profileID, lead, conv string) {
 	}
 	if x.TurnID != "" {
 		h.mu.Lock()
+		_, held := h.held[key(profileID, conv)]
+		if held { // a bound turn whose leader recovery could not confirm gone: recovery settles it, nothing else may
+			h.mu.Unlock()
+			return
+		}
 		live := h.live[key(profileID, conv)] != nil
 		if !live {
 			h.L.Finish(profileID, conv, x.TurnID, "the turn's process is gone and its session is being stopped") // as Recover does
@@ -232,7 +266,7 @@ func (h *Host) stopChild(profileID, lead, conv string) {
 
 // queueCascadeStop queues the host's own stop (no issuer, the pass's turn id) unless one is already waiting.
 func (h *Host) queueCascadeStop(profileID, conv string) {
-	if h.Store.hasPendingCascade(profileID, conv, KindStop) {
+	if h.Store.hasPendingCascade(profileID, conv, KindStop, cascadeTurn) {
 		return
 	}
 	if _, err := h.Store.Enqueue(Command{ProfileID: profileID, ConversationID: conv, Kind: KindStop, TurnID: cascadeTurn}); err != nil {
@@ -275,22 +309,23 @@ func (s *Store) hasPending(profileID, conv string, kind Kind) bool {
 		profileID, conv, string(kind)).Scan(&n) != nil || n > 0
 }
 
-// hasPendingCascade says whether the pass's own command of the kind (no issuer, its turn id) is waiting: a stop or
+// hasPendingCascade says whether the pass's own command of the kind (no issuer, the pass's turn id) is waiting: a stop or
 // pause a master queued, which may be held, does not stand in for it.
-func (s *Store) hasPendingCascade(profileID, conv string, kind Kind) bool {
+func (s *Store) hasPendingCascade(profileID, conv string, kind Kind, turn string) bool {
 	var n int
 	return s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = ? AND status = 'pending' AND issuer = '' AND turn_id = ?`,
-		profileID, conv, string(kind), cascadeTurn).Scan(&n) != nil || n > 0
+		profileID, conv, string(kind), turn).Scan(&n) != nil || n > 0
 }
 
 // pausedByCascade says whether the newest pause or resume that reached the conversation is the pass's own pause,
-// carried out. A person's pause or resume after it, or one still waiting, means the pause is not the pass's to undo.
-func (s *Store) pausedByCascade(profileID, conv string) bool {
+// carried out (the pass is told apart by its turn id). A person's pause or resume after it, or one still waiting, means
+// the pause is not the pass's to undo.
+func (s *Store) pausedByCascade(profileID, conv, turnID string) bool {
 	var status, issuer, turn string
 	var id int64
 	err := s.db.QueryRow(`SELECT id, kind || ':' || status, issuer, turn_id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind IN ('pause', 'resume') AND status IN ('pending', 'done')
 		ORDER BY id DESC LIMIT 1`, profileID, conv).Scan(&id, &status, &issuer, &turn)
-	if err != nil || status != "pause:done" || issuer != "" || turn != cascadeTurn {
+	if err != nil || status != "pause:done" || issuer != "" || turn != turnID {
 		return false
 	}
 	// A person's pause queued before the pass's own (still waiting when the pass saw the child not yet paused)
@@ -299,7 +334,7 @@ func (s *Store) pausedByCascade(profileID, conv string) bool {
 	if s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'pause' AND status IN ('pending', 'done') AND id < ?
 		AND NOT (issuer = '' AND turn_id = ?)
 		AND id > COALESCE((SELECT MAX(id) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'resume' AND status = 'done' AND id < ?), 0)`,
-		profileID, conv, id, cascadeTurn, profileID, conv, id).Scan(&other) != nil || other > 0 {
+		profileID, conv, id, turnID, profileID, conv, id).Scan(&other) != nil || other > 0 {
 		return false
 	}
 	return true

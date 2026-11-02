@@ -17,6 +17,7 @@ import journal from '../../lib/__fixtures__/orgStageJournal.json'
 const { api, listeners } = vi.hoisted(() => ({
   listeners: { chat: new Set() },
   api: {
+    getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
     getChatTurns: vi.fn(),
     getChatEvents: vi.fn(),
     startChatTurn: vi.fn(),

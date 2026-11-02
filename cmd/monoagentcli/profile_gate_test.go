@@ -32,6 +32,7 @@ var mustBeScoped = []string{
 	"people list", "workflow run", "workflow list", "workflow validate", "secret get", "secret add",
 	"task add", "org list", "hil list", "connect list", "library logout", "library install",
 	"automation list", "automation rerecord", "api key list", "api status",
+	"agent purposes list", "agent purposes set", "agent purposes reset",
 	"status", "login status", "chat history list", "jev status", "node run", "jev key test",
 }
 

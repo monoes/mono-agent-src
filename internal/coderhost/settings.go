@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -37,10 +38,29 @@ type Settings struct {
 	MaxConcurrent int `json:"max_concurrent"`
 	MaxDepth      int `json:"max_depth"`
 
+	// Approval of child sessions: whether the lead of a parent session may approve the sessions below it
+	// ("off" | "lead"), and the most a session's budget may be for the lead to approve it (0 = no ceiling).
+	// Read from the mission's root session by the tasks store (ApprovalPolicy); operator-only. "lead" needs
+	// a ceiling above 0, so that a lead's approval always has a spend limit to measure by.
+	AgentApproval      string  `json:"agent_approval"`
+	ApprovalCeilingUSD float64 `json:"approval_ceiling_usd"`
+
+	// MissionDirections is K: how many directions a mission lead keeps and may have open at once (1 to 6; 0 is the
+	// default of 3). Operator-only; session_spawn enforces it (sessionspawn_directions.go). It is optional: nil
+	// (absent from the document) means nobody chose, so a child inherits its parent's K, while an operator's
+	// explicit 0 is stored as 0. A pointer, so that an unrelated writer cannot turn "not set" into "set to 0".
+	MissionDirections *int `json:"mission_directions,omitempty"`
+
 	// Mesh: whether other monomind agents see this session and who may message it.
 	MeshVisible bool   `json:"mesh_visible"`
 	MeshAlias   string `json:"mesh_alias"` // "" = the chat's name with dashes for spaces, else one made from the project and start time
 	MeshAccept  string `json:"mesh_accept"`
+
+	// Mission: the operator's switch for a mission chat. On, every turn of the
+	// conversation starts as a confirmed mission (the toggle replaces the
+	// mission_propose click). The operator sets it with `settings set --mission`,
+	// which also holds it on while the conversation has an open mission session.
+	Mission bool `json:"mission"`
 }
 
 // AutonomyChoice overrides the preset for one class of gap.
@@ -52,9 +72,10 @@ type AutonomyChoice struct {
 // Allowed values.
 var (
 	AutonomyPresets = []string{"ask-always", "ask-on-risk", "decide-and-log"}
-	GapClasses      = []string{"ambiguity", "scope_growth", "risky_action", "verification_failed", "missing_credential", "child_conflict"}
+	GapClasses      = []string{"ambiguity", "scope_growth", "risky_action", "verification_failed", "missing_credential", "child_conflict", "plan_approval"}
 	CheckinEvents   = []string{"child_finished", "child_blocked", "child_failed", "child_question", "budget_80", "child_silent"}
 	MeshAccepts     = []string{"none", "project", "subtree"}
+	AgentApprovals  = []string{"off", "lead"}
 	whoValues       = []string{"user", "master", "model"}
 	fallbackValues  = []string{"park", "take_default"}
 	activeHours     = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$`)
@@ -63,7 +84,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "mission_directions"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
@@ -77,7 +98,8 @@ func DefaultSettings() Settings {
 		AutonomyClasses: map[string]AutonomyChoice{},
 		MaxChildren:     4,
 		MaxConcurrent:   2,
-		MaxDepth:        2,
+		MaxDepth:        3,
+		AgentApproval:   "off",
 		MeshVisible:     true,
 		MeshAccept:      "subtree", // not "project": that trusts any local process that claims the project
 	}
@@ -147,8 +169,22 @@ func (s Settings) Validate() error {
 	if err := within("max_concurrent", s.MaxConcurrent, 1, 10); err != nil {
 		return err
 	}
-	if err := within("max_depth", s.MaxDepth, 1, 2); err != nil { // 2 is the hard limit of the design
+	if err := within("max_depth", s.MaxDepth, 1, MaxSessionDepth); err != nil { // the hard limit of the design (tasks.HardMaxSessionDepth)
 		return err
+	}
+	if s.MissionDirections != nil {
+		if err := within("mission_directions", *s.MissionDirections, 0, hardMissionDirections); err != nil {
+			return err
+		}
+	}
+	if !oneOf(s.AgentApproval, AgentApprovals) {
+		return fmt.Errorf("agent_approval must be one of %s", strings.Join(AgentApprovals, ", "))
+	}
+	if !(s.ApprovalCeilingUSD >= 0 && s.ApprovalCeilingUSD <= 1e6) { // also false for NaN
+		return errors.New("approval_ceiling_usd must be between 0 and 1000000 (0 = no ceiling)")
+	}
+	if s.AgentApproval == "lead" && s.ApprovalCeilingUSD <= 0 {
+		return errors.New("agent_approval lead needs approval_ceiling_usd above 0: a lead's approval must have a spend limit to measure by")
 	}
 	if s.MeshAlias != "" && !meshAlias.MatchString(s.MeshAlias) {
 		return errors.New("mesh_alias can use letters, digits, '.', '_' and '-' (no spaces: write meeting-notes), must start with a letter or digit, and is at most 64 characters")
@@ -168,6 +204,8 @@ func (s Settings) Apply(patch []byte) (Settings, []string, error) {
 		return s, nil, fmt.Errorf("the patch is not a JSON object: %w", err)
 	}
 	out := s
+	// The decode below writes through a non-nil pointer, so out gets a pointer of its own.
+	out.MissionDirections = cloneInt(s.MissionDirections)
 	// A patched map or list replaces the old one (not merged into it), and the
 	// copy shares no storage with s.
 	out.AutonomyClasses = map[string]AutonomyChoice{}
@@ -218,9 +256,14 @@ func (s *Store) GetSettings(profileID, conversationID string) (Settings, error) 
 
 // settingsIn is GetSettings read through q.
 func (s *Store) settingsIn(q querier, profileID, conversationID string) (Settings, error) {
-	def := DefaultSettings()
 	var raw string
 	err := q.QueryRow(`SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
+	return settingsFromRow(conversationID, raw, err)
+}
+
+// settingsFromRow is the settings a row read gave: no row, or nothing stored, is the defaults.
+func settingsFromRow(conversationID, raw string, err error) (Settings, error) {
+	def := DefaultSettings()
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && (raw == "" || raw == "{}")) {
 		return def, nil // no row, or nothing stored: the defaults
 	}
@@ -234,19 +277,92 @@ func (s *Store) settingsIn(q querier, profileID, conversationID string) (Setting
 	return out, nil
 }
 
-// SaveSettings stores a session's settings (creating the session if needed).
+// ParseSettings reads the stored settings document of a session row (as `SELECT settings FROM coder_sessions`
+// gives it), for a caller that reads the row inside a transaction of its own. A missing row (sql.ErrNoRows as
+// err) is the defaults.
+func ParseSettings(conversationID, raw string, err error) (Settings, error) {
+	return settingsFromRow(conversationID, raw, err)
+}
+
+// SettingsChange computes the settings a write stores from the settings as they are NOW: cur was read inside the
+// write transaction that stores the result, so a patch applied to cur cannot bring back a value another writer
+// changed since the caller last looked. tx is that transaction's connection, for checks that must hold at the
+// moment of the write (the mission lock reads the task sessions through it). An error rolls the write back.
+type SettingsChange func(ctx context.Context, tx *sql.Conn, cur Settings) (Settings, error)
+
+// settingsAfterRead, when set by a test, runs inside UpdateSettings right after the current settings were read.
+var settingsAfterRead func()
+
+// UpdateSettings is the one way settings are written: a read-modify-write of the stored document inside one
+// BEGIN IMMEDIATE transaction. Every writer passes what it wants to change (a patch applied to cur), never an
+// object it read earlier, so two writers of different keys both survive and an operator-only key (the Mission
+// toggle) cannot be put back by a stale copy. The result is validated before it is stored. It returns the
+// settings as stored.
+func (s *Store) UpdateSettings(profileID, conversationID string, change SettingsChange) (Settings, error) {
+	return s.updateSettings(profileID, conversationID, true, change)
+}
+
+// updateSettings is UpdateSettings; strict false lets change replace a stored document that cannot be read
+// (SaveSettings does, as the way to repair one).
+func (s *Store) updateSettings(profileID, conversationID string, strict bool, change SettingsChange) (Settings, error) {
+	ctx := context.Background()
+	created, updated := s.stamp(), s.stamp() // read before the write lock is taken: a clock that writes would wait on it
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return Settings{}, err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return Settings{}, fmt.Errorf("coder host: begin settings write: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	if err := ensureSessionOn(ctx, conn, profileID, conversationID, created); err != nil {
+		return Settings{}, err
+	}
+	var raw string
+	err = conn.QueryRowContext(ctx, `SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
+	cur, err := settingsFromRow(conversationID, raw, err)
+	if err != nil && strict {
+		return Settings{}, err
+	}
+	if settingsAfterRead != nil {
+		settingsAfterRead()
+	}
+	next, err := change(ctx, conn, cur)
+	if err != nil {
+		return Settings{}, err
+	}
+	if err := next.Validate(); err != nil {
+		return Settings{}, err
+	}
+	out, err := json.Marshal(next)
+	if err != nil {
+		return Settings{}, err
+	}
+	if _, err := conn.ExecContext(ctx, `UPDATE coder_sessions SET settings = ?, updated_at = ? WHERE profile_id = ? AND conversation_id = ?`, string(out), updated, profileID, conversationID); err != nil {
+		return Settings{}, err
+	}
+	if _, err := conn.ExecContext(context.WithoutCancel(ctx), "COMMIT"); err != nil {
+		return Settings{}, fmt.Errorf("coder host: commit settings write: %w", err)
+	}
+	committed = true
+	return next, nil
+}
+
+// SaveSettings replaces a session's whole settings document (creating the session if needed). It is for
+// fixtures and for the initial settings of a session nobody else holds: it writes what it is given, so a caller
+// that read the object earlier would bring back stale values. No production writer uses it
+// (TestSettingsAreWrittenOnlyThroughUpdateSettings); they go through UpdateSettings.
 func (s *Store) SaveSettings(profileID, conversationID string, v Settings) error {
 	if err := v.Validate(); err != nil {
 		return err
 	}
-	if _, err := s.EnsureSession(profileID, conversationID); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`UPDATE coder_sessions SET settings = ?, updated_at = ? WHERE profile_id = ? AND conversation_id = ?`, string(raw), s.stamp(), profileID, conversationID)
+	_, err := s.updateSettings(profileID, conversationID, false, func(context.Context, *sql.Conn, Settings) (Settings, error) { return v, nil })
 	return err
 }
 

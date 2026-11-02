@@ -330,7 +330,7 @@ func (s *Server) handleCdpSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	target := targetFromQuery(r.URL.Query())
 	if c, err := s.resolve(target); err == nil {
-		target = Target{Instance: c.id}
+		target = Target{Instance: c.id, Profile: target.Profile}
 	} else if !errors.Is(err, ErrNoExtension) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

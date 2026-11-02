@@ -202,6 +202,13 @@ export const api = {
   // Automatic re-validation (#230): `agent roster auto-revalidate status|on|off --json`.
   agentRosterAutoRevalidate:    () => GoApp.AgentRosterAutoRevalidate().then(parseRosterJSON).catch(e => ({ error: String(e) })),
   setAgentRosterAutoRevalidate: on => GoApp.SetAgentRosterAutoRevalidate(!!on).then(parseRosterJSON).catch(e => ({ error: String(e) })),
+  // Agent purposes (#1150): `agent purposes list|set|reset --json`. Errors,
+  // including the CLI's {error, code} refusals, come back as objects.
+  agentPurposes:      () => GoApp.AgentPurposesList().then(parseRosterJSON).catch(e => ({ error: String(e) })),
+  // pairs: ["runtime:model", ...]; effort '' and budgetShare 0 mean none.
+  agentPurposeSet:    (id, pairs, rule, effort, differentFromAuthor, fallback, budgetShare) =>
+    GoApp.AgentPurposeSet(id, pairs, rule, effort || '', !!differentFromAuthor, fallback, Number(budgetShare) || 0).then(parseRosterJSON).catch(e => ({ error: String(e) })),
+  agentPurposeReset:  id => GoApp.AgentPurposeReset(id).then(parseRosterJSON).catch(e => ({ error: String(e) })),
   // New chat bindings (interactive-agent-chat plan §"Proposed Wails
   // bindings"). Every call goes through parseStreamResult: a synchronous
   // {"error":...} shape
@@ -265,6 +272,10 @@ export const api = {
     GoApp.GetCoderSessionSettings(conversationID).then(parseStreamResult),
   setCoderSessionSettings: (conversationID, patch, unattended = '') =>
     GoApp.SetCoderSessionSettings(conversationID, patch ? JSON.stringify(patch) : '', unattended).then(parseStreamResult),
+  getChatMissionToggle: (conversationID) =>
+    GoApp.GetChatMissionToggle(conversationID).then(parseStreamResult),
+  setChatMissionToggle: (conversationID, on) =>
+    GoApp.SetChatMissionToggle(conversationID, !!on).then(parseStreamResult),
   coderStopBackground: (conversationID, turnID) =>
     GoApp.CoderStopBackground(conversationID, turnID).then(parseStreamResult),
   // The active profile's own folder, set up for the runtime: {path, profile:{id,name}, source, init}.
@@ -313,9 +324,16 @@ export const api = {
   // the unsubscribe.
   onCoderQueue:       (callback) => subscribeEvent('coder:queue', callback),
   openPathWithOS:     (path) => GoApp.OpenPathWithOS(path),
+  // Paths a chat message names; the Go side resolves them against the
+  // conversation's folder and refuses anything outside what it may show.
+  classifyChatPath:   (conversationID, token) => GoApp.ClassifyChatPath(conversationID || '', token),
+  resolveChatPath:    (conversationID, token) => GoApp.ResolveChatPath(conversationID || '', token),
+  revealChatPath:     (conversationID, token) => GoApp.RevealChatPath(conversationID || '', token),
+  readChatMarkdown:   (conversationID, token) => GoApp.ReadChatMarkdown(conversationID || '', token),
   // Unified chat and org-run history (ListHistory pages, DeleteChatConversations).
   listHistory:        (cursor, limit, filter) => GoApp.ListHistory(cursor || '', limit, filter || {}),
   deleteChatConversations: (ids) => GoApp.DeleteChatConversations(ids),
+  deleteChatConversationsAnyway: (ids) => GoApp.DeleteChatConversationsAnyway(ids),
   // Orgs (monomind Org Runtime v2)
   listOrgs:           () => GoApp.ListOrgs().then(s => JSON.parse(s)).catch(guard('list orgs', null)),
   getOrgStatus:       (name = '') => GoApp.GetOrgStatus(name).then(s => JSON.parse(s)).catch(guard('org status', null)),

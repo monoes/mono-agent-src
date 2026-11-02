@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -542,18 +543,38 @@ type querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+// ctxQuerier lends a querier (a *sql.DB or the open transaction behind it) to the reservation store's reads,
+// which take context-aware methods; it runs them inside the same transaction.
+type ctxQuerier struct{ q querier }
+
+func (c ctxQuerier) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
+	return c.q.Exec(query, args...)
+}
+func (c ctxQuerier) QueryContext(_ context.Context, query string, args ...any) (*sql.Rows, error) {
+	return c.q.Query(query, args...)
+}
+func (c ctxQuerier) QueryRowContext(_ context.Context, query string, args ...any) *sql.Row {
+	return c.q.QueryRow(query, args...)
+}
+
 // addMissionEvent writes an audit row. Rows of the lead are bounded per kind: the newest MaxMissionEvents of
 // each of mark, raise, lower, mode, budget and the rest, so a loop of one kind cannot push another out (a flood
 // of raises can only push out earlier raises of the lead). The operator's and the host's rows are never rotated out (the operator is a person, and the host's
 // are bounded by tasks times attempts).
-func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
+// clipNote keeps an audit note within 300 bytes, never cutting a multibyte character in two.
+func clipNote(note string) string {
 	if len(note) > 300 {
 		n := 300
-		for n > 0 && !utf8.RuneStart(note[n]) { // never cut a multibyte character in two
+		for n > 0 && !utf8.RuneStart(note[n]) {
 			n--
 		}
 		note = note[:n]
 	}
+	return note
+}
+
+func addMissionEvent(db execer, profileID string, sessionID, taskID int64, kind, who, note, at string) error {
+	note = clipNote(note)
 	if _, err := db.Exec(`INSERT INTO coder_mission_events (profile_id, session_id, task_id, kind, who, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		profileID, sessionID, taskID, kind, who, note, at); err != nil {
 		return err
@@ -661,6 +682,24 @@ func (s *Store) childrenWhere(where string, args ...any) ([]ChildRow, error) {
 	return out, rows.Err()
 }
 
+// childrenWhereLimit is childrenWhere for a sweep: at most limit rows, oldest first.
+func (s *Store) childrenWhereLimit(where string, limit int, args ...any) ([]ChildRow, error) {
+	rows, err := s.db.Query(`SELECT `+childColumns+` FROM coder_mission_children WHERE `+where+` ORDER BY id LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChildRow
+	for rows.Next() {
+		c, err := scanChild(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ChildrenOfSession lists the rows of a task session, oldest first.
 func (s *Store) ChildrenOfSession(profileID string, sessionID int64) ([]ChildRow, error) {
 	return s.childrenWhere(`profile_id = ? AND session_id = ?`, profileID, sessionID)
@@ -722,12 +761,19 @@ func (s *Store) Mark(sc CallerScope, profileID string, sessionID, taskID int64, 
 		VALUES (?, ?, ?, ?, 'lead', ?, ?, 'marked', ?, ?)
 		ON CONFLICT(profile_id, session_id, task_id) DO UPDATE SET size = excluded.size, budget_usd = excluded.budget_usd, state = 'marked',
 			end_reason = '', ended_at = '', child_conversation_id = '', pending_conversation_id = '', reserved_usd = 0, lead_conversation_id = excluded.lead_conversation_id, updated_at = excluded.updated_at
-		WHERE coder_mission_children.state IN ('marked', 'ended', 'failed', 'gone', 'released')`,
+		WHERE coder_mission_children.state IN ('marked', 'ended', 'failed', 'gone', 'released')
+		AND NOT (`+notCharged+`)`,
 		profileID, sessionID, taskID, m.lead, opt.Size, opt.BudgetUSD, now, now)
 	if err != nil {
 		return ChildRow{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		if r, ok, _ := s.Child(profileID, sessionID, taskID); ok && (r.State == ChildEnded || r.State == ChildFailed || r.State == ChildGone) {
+			if s.isUnresolved(profileID, sessionID, r.ident()) {
+				return ChildRow{}, fmt.Errorf("%w: %w: the earlier child session of that task has a spend nobody knows; the person resolves it with `coder sessions mission-children resolve-charge`", ErrInvalid, ErrChildUnsettled)
+			}
+			return ChildRow{}, fmt.Errorf("%w: %w: the earlier child session of that task is still being settled (its spend is not on the mission's meter yet); try again shortly", ErrInvalid, ErrChildUnsettled)
+		}
 		return ChildRow{}, fmt.Errorf("%w: that task already runs in its own session", ErrInvalid)
 	}
 	if err := addMarkEvent(tx, profileID, sessionID, taskID, who, fmt.Sprintf("size=%s budget=%.2f", opt.Size, opt.BudgetUSD), now); err != nil {
@@ -783,6 +829,11 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if _, err := tx.Exec(`UPDATE coder_mission_children SET id = id WHERE 0`); err != nil {
 		return ChildRow{}, err
 	}
+	if on, err := childrenEnabledIn(tx); err != nil {
+		return ChildRow{}, err
+	} else if !on {
+		return ChildRow{}, ErrChildrenOff
+	}
 	pol, err := s.policyIn(tx, profileID, sessionID)
 	if err != nil {
 		return ChildRow{}, err
@@ -807,7 +858,7 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if !room.OK {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, room.Reason)
 	}
-	if reason, err := missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
+	if reason, err := s.missionBudgetRefusal(tx, profileID, sessionID, m.lead, carve); err != nil {
 		return ChildRow{}, err
 	} else if reason != "" {
 		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, reason) // before takeReservation: no attempt is used
@@ -832,6 +883,16 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 	if !won { // the deferred rollback takes the rule row back with it
 		return ChildRow{}, fmt.Errorf("%w: %w: the task is already starting, or the child limit or the budget share was just reached", ErrLimit, ErrChildrenFull)
 	}
+	if s.afterCarve != nil {
+		s.afterCarve(tx)
+	}
+	// The statement that took the carve is not the last word: with the carve in place, the mission and every budgeted
+	// ancestor must still be within their budgets (the whole tree, as tasks counts it), or the reservation is undone.
+	if why, err := tasks.Overcommitted(context.Background(), ctxQuerier{tx}, profileID, sessionID); err != nil {
+		return ChildRow{}, err
+	} else if why != "" {
+		return ChildRow{}, fmt.Errorf("%w: %w: %s", ErrLimit, ErrChildrenFull, why)
+	}
 	if err := addMissionEvent(tx, profileID, sessionID, taskID, "spawn", "lead:"+l.Caller.ConversationID, fmt.Sprintf("reserved $%.2f", carve), now); err != nil {
 		return ChildRow{}, err
 	}
@@ -843,31 +904,73 @@ func (s *Store) Reserve(sc CallerScope, profileID string, sessionID, taskID int6
 }
 
 // missionBudgetRefusal says why a child may not start under the mission's own budget (task_sessions.budget_usd),
-// or "" when it may. A child's spend never reaches the mission's spent_usd, so the budget binds children through
-// their caps: with a mission budget the carve must be positive, and the caps the lead's children already hold
-// (running sessions and reserved ones) plus this carve must fit what the mission has left. A mission without a
-// budget does not refuse here.
-func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
+// or "" when it may. An ended child's spend reaches the mission's spent_usd (missionchild_charge.go); a child that
+// is still alive is bound through its cap: with a mission budget the carve must be positive, and the caps the
+// lead's live children hold (sessions and reserved rows) plus this carve must fit what the mission has left. A
+// mission without a budget does not refuse here.
+func (s *Store) missionBudgetRefusal(q querier, profileID string, sessionID int64, lead string, carve float64) (string, error) {
+	return s.missionBudgetRefusalFor(q, profileID, sessionID, lead, carve, "")
+}
+
+// missionBudgetRefusalFor is missionBudgetRefusal for a raise of the cap of one child (raisedConv, its conversation)
+// when raisedConv is not empty: a child that is also a task session of the mission contributes the larger of its cap
+// and its task hold, so a raise the task hold covers adds nothing.
+func (s *Store) missionBudgetRefusalFor(q querier, profileID string, sessionID int64, lead string, carve float64, raisedConv string) (string, error) {
 	var budget, spent float64
 	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
 		return "", err
 	}
 	if budget <= 0 {
-		return "", nil
+		return s.admitCarve(q, profileID, sessionID, carve, raisedConv)
 	}
 	if carve <= 0 {
 		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
 	}
+	// What the lead's children hold, and whether one of them is lost, come from v_mission_child_held (migration 150),
+	// the same view the worker reservation store reads, so the two stores see each other's holds. A lost child
+	// (its cost record is gone) holds the whole remainder of the mission, once: the view's held is then the larger
+	// of that and the rest, never their sum.
 	var held float64
-	if err := q.QueryRow(`SELECT (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
-		+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning')`,
-		profileID, lead, profileID, lead).Scan(&held); err != nil {
+	var lostN int
+	if err := q.QueryRow(`SELECT COALESCE(MAX(held_usd), 0), COALESCE(MAX(lost), 0) FROM v_mission_child_held WHERE profile_id = ? AND session_id = ?`,
+		profileID, sessionID).Scan(&held, &lostN); err != nil {
 		return "", err
+	}
+	// The workers' share: the unspent part of the live and expired worker reservations on the mission's session.
+	workers, err := tasks.ReservationHeld(context.Background(), ctxQuerier{q}, profileID, sessionID)
+	if err != nil {
+		return "", err
+	}
+	held += float64(workers) / 1e6
+	if lostN > 0 {
+		// The freeze is a refusal, not a number: the comparison below has a float tolerance that a tiny carve would slip under.
+		left := math.Max(budget-spent, 0)
+		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions): a child session of this mission lost its cost record, so the mission accepts no new child session until the operator resolves it (coder sessions mission-children resolve-charge)", carve, left, math.Max(held, left)), nil
 	}
 	if held+carve > budget-spent+1e-9 {
 		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil
 	}
-	return "", nil
+	return s.admitCarve(q, profileID, sessionID, carve, raisedConv)
+}
+
+// admitCarve is the rest of the admission: the reservation store's own rule (tasks.AdmitHold), which counts the
+// session's whole commitment (its task-session children at any depth and their workers, not only what the host
+// holds) and every budgeted ancestor, including for a session with no budget of its own.
+func (s *Store) admitCarve(q querier, profileID string, sessionID int64, carve float64, raisedConv string) (string, error) {
+	if carve <= 0 {
+		return "", nil
+	}
+	var why string
+	var err error
+	if raisedConv != "" {
+		why, err = tasks.AdmitRaise(context.Background(), ctxQuerier{q}, profileID, sessionID, raisedConv, carve)
+	} else {
+		why, err = tasks.AdmitHold(context.Background(), ctxQuerier{q}, profileID, sessionID, carve)
+	}
+	if err != nil || why == "" {
+		return "", err
+	}
+	return fmt.Sprintf("a carve of $%.2f does not fit the budget of the mission or of a session above it: %s", carve, why), nil
 }
 
 // takeReservation is the one statement that moves a marked task to spawning and stores its carve on the row.
@@ -876,6 +979,9 @@ func missionBudgetRefusal(q querier, profileID string, sessionID int64, lead str
 // hold (reserved_usd of spawning rows, whose sessions do not exist yet) plus this carve must fit the cap.
 // So callers racing for the last slot, or reserving twice before the first child is created, cannot both win.
 // (A spawning row whose session already holds its carve is counted twice until it is linked: on the safe side.)
+// For a mission with a budget the statement also holds the mission's own budget: this carve plus what the view
+// v_mission_child_held says the lead's children hold plus the unspent worker reservations on the session (the
+// reservation store's rows) must fit what the mission has left. So the budget check is not the pre-check alone.
 func takeReservation(db execer, profileID string, sessionID, taskID int64, lead string, ceiling int, carve, shareCap float64, now string) (bool, error) {
 	// The reservation's identity is the next number of a counter that only goes up (never reused, whatever
 	// happens to the row). The caller holds the write lock (Reserve's transaction), so the number read back is the
@@ -889,11 +995,16 @@ func takeReservation(db execer, profileID string, sessionID, taskID int64, lead 
 		AND (? < 0 OR ? + (SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?)
 			+ (SELECT COALESCE(SUM(reserved_usd), 0) FROM coder_mission_children WHERE profile_id = ? AND lead_conversation_id = ? AND state = 'spawning') <= ? + 1e-9)
 		AND NOT EXISTS (SELECT 1 FROM coder_mission_policy WHERE profile_id = ? AND session_id = ? AND mode = 'off')
-		AND EXISTS (SELECT 1 FROM task_sessions WHERE profile_id = ? AND id = ? AND state = 'running' AND archived_at = '')`,
+		AND EXISTS (SELECT 1 FROM task_sessions WHERE profile_id = ? AND id = ? AND state = 'running' AND archived_at = '')
+		AND NOT EXISTS (SELECT 1 FROM task_sessions m WHERE m.profile_id = ? AND m.id = ? AND m.budget_usd > 0
+			AND ? + COALESCE((SELECT MAX(h.held_usd) FROM v_mission_child_held h WHERE h.profile_id = m.profile_id AND h.session_id = m.id), 0)
+				+ COALESCE((SELECT SUM(MAX(r.amount_usd - r.charged_usd, 0)) FROM task_session_reservations r WHERE r.profile_id = m.profile_id AND r.session_id = m.id AND r.state IN ('live', 'expired')), 0)
+				> m.budget_usd - m.spent_usd + 1e-9)`,
 		carve, now, profileID, sessionID, taskID, lead, MaxChildAttempts,
 		profileID, lead, ceiling,
 		shareCap, carve, profileID, lead, profileID, lead, shareCap,
-		profileID, sessionID, profileID, sessionID)
+		profileID, sessionID, profileID, sessionID,
+		profileID, sessionID, carve)
 	if err != nil {
 		return false, err
 	}
@@ -1004,16 +1115,16 @@ func (s *Store) touchSpawning(profileID string, sessionID, taskID int64, lead, p
 // linked is ended as expired with that conversation attached (ended), so it is not started a second time and
 // the spawn's orphan can be stopped; its carve is returned. It is the host's.
 func (s *Store) ResetStaleSpawning(maxAge time.Duration) (reset int, ended []string, err error) {
-	old := s.now().Add(-maxAge).UTC().Format(timeLayout)
+	old := s.now().Add(-maxAge)
 	res, err := s.db.Exec(`UPDATE coder_mission_children SET state = 'marked', reserved_usd = 0, updated_at = ?
-		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id = '' AND updated_at < ?`, s.stamp(), old)
+		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id = '' AND `+tsOlderThan("updated_at", old), s.stamp())
 	if err != nil {
 		return 0, nil, err
 	}
 	n, _ := res.RowsAffected()
 	reset = int(n)
 	rows, err := s.db.Query(`SELECT profile_id, session_id, task_id, pending_conversation_id, updated_at FROM coder_mission_children
-		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND updated_at < ?`, old)
+		WHERE state = 'spawning' AND child_conversation_id = '' AND pending_conversation_id <> '' AND ` + tsLapsed("updated_at", old))
 	if err != nil {
 		return reset, nil, err
 	}
@@ -1060,13 +1171,13 @@ type OrphanCarve struct {
 // (End cannot, there is no row). It cannot tell a spawn of a task from a child the lead made another way, so
 // the host decides which of these it started; minAge keeps a spawn that is still running out of the list.
 func (s *Store) FindOrphanCarves(minAge time.Duration) ([]OrphanCarve, error) {
-	old := s.now().Add(-minAge).UTC().Format(timeLayout)
+	old := s.now().Add(-minAge)
 	rows, err := s.db.Query(`SELECT c.profile_id, c.conversation_id, c.parent_conversation_id, c.budget_usd FROM coder_sessions c
-		WHERE c.role = 'child' AND c.budget_usd > 0 AND c.created_at < ?
+		WHERE c.role = 'child' AND c.budget_usd > 0 AND ` + tsOlderThan("c.created_at", old) + `
 		AND EXISTS (SELECT 1 FROM coder_mission_policy p WHERE p.profile_id = c.profile_id AND p.lead_conversation_id = c.parent_conversation_id)
 		AND NOT EXISTS (SELECT 1 FROM coder_mission_children k WHERE k.profile_id = c.profile_id
 			AND (k.child_conversation_id = c.conversation_id OR k.pending_conversation_id = c.conversation_id))
-		ORDER BY c.created_at, c.conversation_id`, old)
+		ORDER BY c.created_at, c.conversation_id`)
 	if err != nil {
 		return nil, err
 	}

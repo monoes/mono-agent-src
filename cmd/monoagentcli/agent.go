@@ -7,6 +7,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agentinstall"
 	agentcli "github.com/monoes/mono-agent/internal/cli/agent"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -29,6 +30,8 @@ func agentDeps(cfg *globalConfig) agentcli.Deps {
 	d := agentBaseDeps
 	d.JSONOutput = func() bool { return cfg.JSONOutput }
 	d.OpenDB = func() (*storage.Database, error) { return initDB(cfg) }
+	d.ProfileID = func() string { return cfg.ProfileID }
+	d.Refusal = operator.Refusal
 	return d
 }
 

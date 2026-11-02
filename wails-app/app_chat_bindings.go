@@ -293,13 +293,16 @@ func (a *App) DeleteChatConversation(conversationID string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
-	if a.chatSup == nil {
-		return a.chatBindingError(fmt.Errorf("chat supervisor not initialized"))
+	ans := a.historyDelete(conversationID)
+	switch {
+	case ans.Deleted:
+		return `{"ok":true}`
+	case ans.Kept != nil:
+		// Not an error of the app: the CLI declined, with what the person needs to act on.
+		b, _ := json.Marshal(map[string]any{"error": ans.Kept.Message, "code": ans.Kept.Code, "stopped": ans.Kept.Stopped, "survivors": ans.Kept.Survivors})
+		return string(b)
 	}
-	if err := a.chatCLI(nil, "chat", "history", "delete", conversationID); err != nil {
-		return a.chatBindingError(err)
-	}
-	return `{"ok":true}`
+	return a.chatBindingError(ans.Err)
 }
 
 func clampChatLimit(limit int) int {

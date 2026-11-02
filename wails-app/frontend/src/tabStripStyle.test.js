@@ -36,3 +36,14 @@ describe('.tb-empty', () => {
     }
   })
 })
+
+// At 390 px the Tasks header wraps so the New task button stays on screen.
+describe('Tasks header on a narrow window', () => {
+  const block = css.slice(css.indexOf('@media (max-width: 640px) {\n  .tb-page .page-header'))
+  it('wraps the header, lets the search shrink and keeps the button from shrinking', () => {
+    expect(block).toMatch(/\.tb-page \.page-header \{[^}]*flex-wrap: wrap/)
+    expect(block).toMatch(/\.tb-page \.page-header \{[^}]*height: auto/)
+    expect(block).toMatch(/\.tb-page \.tb-search \{[^}]*min-width: 0/)
+    expect(block).toMatch(/\.tb-page \.page-header-right \.btn \{[^}]*flex: none/)
+  })
+})

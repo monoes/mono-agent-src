@@ -66,7 +66,7 @@ func (b *ProfileBridge) target() Target {
 	case b.legacy:
 		return Target{}
 	case b.instance != "":
-		return Target{Instance: b.instance}
+		return Target{Instance: b.instance, Profile: b.profile}
 	default:
 		return Target{Profile: b.profile}
 	}
@@ -108,7 +108,7 @@ func (b *ProfileBridge) pin() (Target, error) {
 	if b.instance == "" {
 		b.instance = info.Instance
 	}
-	return Target{Instance: b.instance}, nil
+	return Target{Instance: b.instance, Profile: b.profile}, nil
 }
 
 func (b *ProfileBridge) CreateTab(url string) (int, error) {

@@ -75,7 +75,7 @@ func TestDynamicOrgLeadGetsMissionToolsByStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	se, err := tasks.NewStore(db).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", Goal: "g", ConversationID: conv.ID}, tasks.Actor{Kind: tasks.Human})
+	se, err := tasks.NewStore(db).CreateSession(context.Background(), "default", tasks.SessionInput{Title: "M", Goal: "g", ConversationID: conv.ID, Kind: tasks.SessionKindMission}, tasks.Actor{Kind: tasks.Human})
 	if err != nil {
 		t.Fatal(err)
 	}

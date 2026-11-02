@@ -3,6 +3,7 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -22,7 +23,7 @@ func TestInstallBinaryReplacesInPlace(t *testing.T) {
 		t.Fatalf("target = %q, %v; want new", got, err)
 	}
 	fi, _ := os.Stat(target)
-	if fi.Mode().Perm()&0o100 == 0 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o100 == 0 { // Windows has no execute bit
 		t.Fatalf("target not executable: %v", fi.Mode())
 	}
 	entries, _ := os.ReadDir(dir)

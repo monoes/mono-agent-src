@@ -62,6 +62,17 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	orig := os.Stdout
+	// Drain the pipe while fn runs: output larger than the pipe buffer (one page when
+	// the runner's pipe quota is exhausted) would otherwise block the writer forever.
+	type readResult struct {
+		out []byte
+		err error
+	}
+	drained := make(chan readResult, 1)
+	go func() {
+		b, err := io.ReadAll(r)
+		drained <- readResult{b, err}
+	}()
 	os.Stdout = w
 	defer func() { os.Stdout = orig }()
 
@@ -70,7 +81,8 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err := w.Close(); err != nil {
 		t.Fatalf("closing pipe writer: %v", err)
 	}
-	out, err := io.ReadAll(r)
+	res := <-drained
+	out, err := res.out, res.err
 	if err != nil {
 		t.Fatalf("reading captured stdout: %v", err)
 	}

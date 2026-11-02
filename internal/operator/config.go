@@ -34,13 +34,22 @@ import "strings"
 //     the definition, so a save by anyone but the operator leaves it
 //     unapproved, and the engine ignores the own setting of an unapproved
 //     definition (errorWorkflowID), leaving only this default.
+//   - coder.mission_children_enabled: whether a mission's tasks may run in
+//     child sessions at all; absent = off (coderhost.MissionChildrenConfig;
+//     `coder sessions mission-children enable|disable`).
 //   - every row under ReservedConfigPrefixes: families of rows named by a
 //     prefix. coder-mission-confirm/ holds the operator's per-send mission
 //     confirmations, which the coder host and its chat turns accept as proof
 //     that the person asked for a mission; a write by anything else would be
-//     a forged confirmation. Their values are also hidden from `config get`,
+//     a forged confirmation. agent_purposes. holds the operator's choice of
+//     which models each kind of agent work may use (internal/agentpurposes;
+//     `agent purposes set|reset`, read through `agent purposes list`): a
+//     write by anything else would change which models run. Their values are also hidden from `config get`,
 //     `config list` and whatever else shows rows to a non-operator
-//     (HiddenConfig).
+//     (HiddenConfig). file-cleanup/ holds the lists of files a deleted
+//     conversation's turns left, which `chat history delete` writes in its own
+//     transaction and runs after the commit (and `chat history reconcile` after a
+//     crash); a row written by anything else would name files to remove.
 //
 // Not reserved: the social actions' selector configs. Their names are
 // free-form (<platform>_<action>[_context]), the engine writes them itself
@@ -58,12 +67,15 @@ var reservedConfigs = []string{
 	"applications.max_parked",
 	"memory.runs",
 	"workflow.error_workflow",
+	"coder.mission_children_enabled",
 }
 
 // ReservedConfigPrefixes are the reserved families of config rows: a name that
 // starts with one (in any case, with spaces before it) is reserved.
 var ReservedConfigPrefixes = []string{
 	"coder-mission-confirm/",
+	"agent_purposes.",
+	"file-cleanup/",
 }
 
 // ReservedConfig reports whether name is a reserved config row, in any case

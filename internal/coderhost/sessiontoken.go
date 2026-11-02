@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/procchain"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
 
@@ -83,26 +85,55 @@ var ErrVaultKey = fmt.Errorf("%w (the vault key is unavailable)", ErrSessionToke
 // shell), so it must not bind session tokens: every turn it started would be a descendant of that one.
 var ErrHostInsideTurn = errors.New("coder host: the host runs inside a coder session's turn; start it from a terminal")
 
-// HostInsideTurn says whether this process is a descendant of a bound session turn.
+// HostInsideTurn says whether this process is a descendant of a bound session turn: of the process a live legacy
+// session token names, or of the worker of a live v2 binding (a bound turn writes only v2 rows). A binding query that
+// fails counts as "no" here: this is the legacy bind callback's behaviour, which is left as it was. A caller that must
+// refuse when it cannot tell uses HostInsideTurnErr.
 func (s *Store) HostInsideTurn() bool {
+	in, _ := s.HostInsideTurnErr()
+	return in
+}
+
+// HostInsideTurnErr is HostInsideTurn that also returns the first binding query error, so a caller can fail closed.
+// When a row of the other query already shows the host inside a turn, that answer is true with a nil error.
+func (s *Store) HostInsideTurnErr() (bool, error) {
 	chain, _ := callerChain()
 	in := map[int]bool{}
 	for _, p := range chain {
 		in[p] = true
 	}
-	rows, err := s.db.Query(`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND expires_at >= ?`, s.now().UTC().Format(timeLayout))
+	var firstErr error
+	for _, q := range []string{
+		`SELECT pid, stamp FROM coder_session_tokens WHERE pid > 1 AND ` + tsLive("expires_at", s.now()),
+		// the v2 bindings of tokens that are not revoked; rows are read unverified, since a forged one can only make the host refuse
+		`SELECT b.worker_pid, b.worker_stamp FROM process_bindings b WHERE b.worker_pid > 1 AND ` + tsLive("b.expires_at", s.now()) +
+			` AND NOT EXISTS (SELECT 1 FROM token_revocations_v2 r WHERE r.token_id = b.token_id)`,
+	} {
+		hit, err := s.chainHits(q, in)
+		if hit {
+			return true, nil
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return false, firstErr
+}
+
+func (s *Store) chainHits(query string, in map[int]bool) (bool, error) {
+	rows, err := s.db.Query(query)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var pid int
 		var stamp string
-		if rows.Scan(&pid, &stamp) == nil && in[pid] && (stamp == "" || ProcStamp(pid) == stamp) {
-			return true
+		if rows.Scan(&pid, &stamp) == nil && in[pid] && (stamp == "" || procchain.SameStamp(stamp, BoundStamp(pid))) {
+			return true, nil
 		}
 	}
-	return false
+	return false, rows.Err()
 }
 
 // Caller is who a token names.
@@ -149,8 +180,11 @@ func (s *Store) IssueSessionToken(profileID, conversationID, turnID string) (str
 	}
 	tok := SessionTokenPrefix + base64.RawURLEncoding.EncodeToString(b)
 	now := s.now().UTC()
-	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE (profile_id = ? AND conversation_id = ?) OR expires_at < ?`,
-		profileID, conversationID, now.Format(timeLayout)); err != nil {
+	if err := s.revokeSessionTokens(profileID, conversationID); err != nil {
+		return "", err
+	}
+	// procbind:legacy-only an expired token is denied by its expiry; the v2 rows of expired tokens follow their own retention (3e).
+	if _, err := s.db.Exec(`DELETE FROM coder_session_tokens WHERE ` + tsExpired("expires_at", now)); err != nil {
 		return "", err
 	}
 	h, exp := hashToken(tok), now.Add(SessionTokenTTL).Format(timeLayout)
@@ -185,9 +219,16 @@ func (s *Store) BindSessionToken(profileID, conversationID, turnID string, pid i
 	return err
 }
 
-// RevokeSessionTokens drops a session's tokens (its turn ended).
+// RevokeSessionTokens drops a session's tokens (its turn ended). The launcher's seam has no error return, so a
+// failure (the legacy delete and the v2 revocation roll back together) leaves both tokens in place; the next
+// IssueSessionToken of the session replaces them. RevokeSessionTokensErr is the form that reports it.
 func (s *Store) RevokeSessionTokens(profileID, conversationID string) {
-	_, _ = s.db.Exec(`DELETE FROM coder_session_tokens WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID)
+	_ = s.RevokeSessionTokensErr(profileID, conversationID)
+}
+
+// RevokeSessionTokensErr drops a session's tokens, legacy and v2 in one transaction.
+func (s *Store) RevokeSessionTokensErr(profileID, conversationID string) error {
+	return s.revokeSessionTokens(profileID, conversationID)
 }
 
 // VerifySessionToken says who the token names. It fails (ErrSessionToken, with no
@@ -195,6 +236,9 @@ func (s *Store) RevokeSessionTokens(profileID, conversationID string) {
 // its turn is the session's current turn, and the caller is the turn's process or a
 // descendant of it.
 func (s *Store) VerifySessionToken(tok string) (Caller, error) {
+	if strings.HasPrefix(tok, procbind.SessionPrefixV2) {
+		return s.verifySessionV2(tok)
+	}
 	if !strings.HasPrefix(tok, SessionTokenPrefix) || len(tok) > 128 {
 		return Caller{}, ErrSessionToken
 	}

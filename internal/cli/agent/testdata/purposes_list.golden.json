@@ -1,0 +1,276 @@
+{
+  "purposes": [
+    {
+      "id": "coding",
+      "title": "Coding",
+      "category": "engineering",
+      "description": "Writing and changing code.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "debugging",
+      "title": "Debugging",
+      "category": "debug",
+      "description": "Finding why something fails and fixing it.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "research",
+      "title": "Researching",
+      "category": "research",
+      "description": "Looking things up in the code, the documents and the web.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "deep-research",
+      "title": "Deep research",
+      "category": "deep-research",
+      "description": "Long, multi-source research with a written report.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "planning",
+      "title": "Planning",
+      "category": "planning",
+      "description": "Breaking work into steps and choosing an approach.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "strategy",
+      "title": "Strategy and ideation",
+      "category": "strategy",
+      "description": "Proposing directions and weighing them.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "review",
+      "title": "Reviewing",
+      "category": "review",
+      "description": "Reviewing code and changes for defects.",
+      "rule": "order",
+      "pairs": [
+        {
+          "runtime": "claude",
+          "model": "opus",
+          "status": "ok"
+        },
+        {
+          "runtime": "claude",
+          "model": "haiku",
+          "status": "ok"
+        }
+      ],
+      "effort": "high",
+      "differentFromAuthor": true,
+      "fallback": "any",
+      "budgetSharePct": 25,
+      "isDefault": false
+    },
+    {
+      "id": "testing",
+      "title": "Verifying and testing",
+      "category": "testing",
+      "description": "Writing and running tests, checking results.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "security-audit",
+      "title": "Security audit",
+      "category": "security",
+      "description": "Looking for security defects and exposure.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "writing",
+      "title": "Writing and docs",
+      "category": "docs",
+      "description": "Documents, notes and prose.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "data",
+      "title": "Data and analysis",
+      "category": "analysis",
+      "description": "Working with data and reporting numbers.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "automation",
+      "title": "Automation and workflows",
+      "category": "automation",
+      "description": "Building and running workflows and automations.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "browsing",
+      "title": "Operating a browser",
+      "category": "browsing",
+      "description": "Driving a web page step by step.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "design",
+      "title": "Design",
+      "category": "design",
+      "description": "Interface and visual design.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "triage",
+      "title": "Summarizing and triage",
+      "category": "triage",
+      "description": "Cheap, fast summaries and sorting.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "judging",
+      "title": "Judging and evaluating",
+      "category": "judging",
+      "description": "The arbiter: scoring work and settling disagreements.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "orchestrating",
+      "title": "Orchestrating",
+      "category": "orchestrating",
+      "description": "The lead that plans and hands out work.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    },
+    {
+      "id": "translation",
+      "title": "Translation",
+      "category": "translation",
+      "description": "Translating text between languages.",
+      "rule": "any",
+      "pairs": [],
+      "effort": "",
+      "differentFromAuthor": false,
+      "fallback": "none",
+      "budgetSharePct": 0,
+      "isDefault": true
+    }
+  ],
+  "roster": [
+    {
+      "runtime": "claude",
+      "model": "haiku",
+      "status": "ok"
+    },
+    {
+      "runtime": "claude",
+      "model": "old",
+      "status": "stale"
+    },
+    {
+      "runtime": "claude",
+      "model": "opus",
+      "status": "ok"
+    },
+    {
+      "runtime": "codex",
+      "model": "bad",
+      "status": "failed"
+    },
+    {
+      "runtime": "pi",
+      "model": "fresh",
+      "status": "unvalidated"
+    }
+  ]
+}

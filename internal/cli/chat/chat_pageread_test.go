@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,11 +143,16 @@ func runChatCmdStdin(t *testing.T, dbPath, stdin string, args ...string) error {
 	cmd.SetIn(strings.NewReader(stdin))
 	r, w, _ := os.Pipe()
 	realStdout := os.Stdout
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stdout = w
 	err := cmd.Execute()
 	os.Stdout = realStdout
 	w.Close()
-	_, _ = r.Read(make([]byte, 1))
+	<-drained
 	return err
 }
 

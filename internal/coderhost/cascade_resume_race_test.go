@@ -28,7 +28,7 @@ func TestConcurrentCascadePassesQueueOneResume(t *testing.T) {
 			go func(s *Store) {
 				defer wg.Done()
 				<-start
-				if _, err := s.enqueueCascadeResume("p", conv); err != nil {
+				if _, err := s.enqueueCascadeResume("p", conv, cascadeTurn); err != nil {
 					t.Error(err)
 				}
 			}(stores[i%2])
@@ -49,7 +49,7 @@ func TestCascadeResumeRespectsThePendingCap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	queued, err := f.st.enqueueCascadeResume("p", "full")
+	queued, err := f.st.enqueueCascadeResume("p", "full", cascadeTurn)
 	if err != nil || queued || pendingCascadeResumes(t, f.st, "full") != 0 {
 		t.Fatalf("queued=%v err=%v: a resume went into a full queue", queued, err)
 	}

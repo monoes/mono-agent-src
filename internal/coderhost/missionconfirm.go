@@ -80,7 +80,7 @@ const CheckinTurnPrefix = "checkin-"
 // mission, and CheckinStreak counts it. Any other path that starts turns without
 // a person needs its own prefix, listed here.
 func HostMade(turnID string) bool {
-	return strings.HasPrefix(turnID, CheckinTurnPrefix) || strings.HasPrefix(turnID, MasterTurnPrefix) || strings.HasPrefix(turnID, AnswerPrefix)
+	return strings.HasPrefix(turnID, CheckinTurnPrefix) || strings.HasPrefix(turnID, MasterTurnPrefix) || strings.HasPrefix(turnID, AnswerPrefix) || strings.HasPrefix(turnID, AskPrefix)
 }
 
 var errHostMade = errors.New("coder host: a host-started turn cannot carry a mission confirmation")

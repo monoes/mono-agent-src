@@ -74,7 +74,7 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:  "coder sessions spawn",
-		Short: "A master session creates a child session below itself (needs the session token of a master's turn; limits: max_children, max_depth, spawn rate, access never above the master's and never full, budget carved from the master's)",
+		Short: "A master session creates a child session below itself (needs the session token of a master's turn; limits: max_children, max_depth (default 3, at most 4), 12 live sessions per tree, spawn rate, access never above the master's and never full, budget carved from the master's; a session that leads a task session spawns through the session_spawn tool instead, with a title, kind and reason)",
 		Usage: "monoagentcli [--profile P] coder sessions spawn [--message TEXT] [--access coding|workspace] [--cwd DIR] [--budget-usd N]",
 		Flags: `  --message string     The child's first message
   --access string      coding or workspace, at most the master's (default: the master's, capped at workspace)
@@ -167,8 +167,20 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:     "coder sessions mission-children",
 		Short:    "The person's control of a mission's child sessions: set the policy, list it (a session token or a mission binding is refused)",
-		Usage:    "monoagentcli [--profile P] coder sessions mission-children set|list",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children enable|disable|set|list|resolve-charge",
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children list --json"},
+	},
+	{
+		Name:     "coder sessions mission-children enable",
+		Short:    "Allow mission child sessions to start. They are off on a fresh install and after an upgrade until you run this (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children enable",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children enable"},
+	},
+	{
+		Name:     "coder sessions mission-children disable",
+		Short:    "Stop new mission child sessions from starting. Running ones are not stopped: they finish and are settled and charged as usual (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions mission-children disable",
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children disable"},
 	},
 	{
 		Name:  "coder sessions mission-children set",
@@ -182,10 +194,67 @@ var coderCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children set <lead-conv> --mode marked --max-children 3 --share-pct 40"},
 	},
 	{
+		Name:  "coder sessions mission-children resolve-charge",
+		Short: "End the unresolved state of a deleted mission child whose cost nobody recorded: say what it cost (--usd, added to the mission's meter once) or skip it with a reason. Until then the host holds part of the mission's budget for it and its task cannot be marked again (operator only)",
+		Usage: "monoagentcli [--profile P] coder sessions mission-children resolve-charge CHILD_CONVERSATION (--usd N | --skip --reason TEXT)",
+		Flags: `  --usd float     What the child cost, in dollars
+  --skip          Charge nothing (needs --reason)
+  --reason string Why it is skipped, or where the figure comes from`,
+		Examples: []string{"monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --usd 1.25", "monoagentcli --profile work coder sessions mission-children resolve-charge <child-conv> --skip --reason 'free tier'"},
+	},
+	{
+		Name:     "coder sessions spawn-intents",
+		Short:    "The spawns the host holds for you after an interrupted session_spawn: list them, end one (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions spawn-intents list|resolve",
+		Examples: []string{"monoagentcli --profile work coder sessions spawn-intents list --json"},
+	},
+	{
+		Name:     "coder sessions spawn-intents list",
+		Short:    "Every spawn intent of the profile: spawner, state, attempts, claimed_at, child and its task sessions, the generation resolve needs, and whether the host holds it for you (operator only)",
+		Usage:    "monoagentcli [--profile P] coder sessions spawn-intents list",
+		Examples: []string{"monoagentcli --profile work coder sessions spawn-intents list --json"},
+	},
+	{
+		Name:  "coder sessions spawn-intents resolve",
+		Short: "End a spawn the host holds for you (needs-operator only, at the generation list showed): --keep accepts it as it stands (one acceptance row; the child and task session stay), --discard removes the draft child and refuses an approved or running one (operator only)",
+		Usage: "monoagentcli [--profile P] coder sessions spawn-intents resolve SPAWNER --generation N (--keep | --discard) --confirm \"resolve spawn intent\"",
+		Flags: `  --generation int  The generation list showed for the intent
+  --keep            Accept the spawn as it stands
+  --discard         Remove the draft child and its task session
+  --confirm string  Exactly "resolve spawn intent"`,
+		Examples: []string{`monoagentcli --profile work coder sessions spawn-intents resolve <spawner-conv> --generation 7 --keep --confirm "resolve spawn intent"`},
+	},
+	{
 		Name:     "coder sessions mission-children list",
 		Short:    "Every child-session policy of the profile and the tasks that run, or ran, in sessions of their own (states and numbers, never task text)",
 		Usage:    "monoagentcli [--profile P] coder sessions mission-children list",
 		Examples: []string{"monoagentcli --profile work coder sessions mission-children list --json"},
+	},
+	{
+		Name:     "coder sessions budget",
+		Short:    "The person's answer to a mission lead's request for more budget: list, grant or decline (a session token or a mission binding is refused)",
+		Usage:    "monoagentcli [--profile P] coder sessions budget list|grant|decline",
+		Examples: []string{"monoagentcli --profile work coder sessions budget list --json"},
+	},
+	{
+		Name:     "coder sessions budget list",
+		Short:    "The budget requests of the profile with the numbers the host read; --open keeps those waiting for you now",
+		Usage:    "monoagentcli [--profile P] coder sessions budget list [--open]",
+		Flags:    `  --open   Only the requests waiting for you now`,
+		Examples: []string{"monoagentcli --profile work coder sessions budget list --open --json"},
+	},
+	{
+		Name:     "coder sessions budget grant",
+		Short:    "Give the one session a request names the budget it asked for (or less with --usd), once; refused when what it is carved from cannot cover it",
+		Usage:    "monoagentcli [--profile P] coder sessions budget grant REQUEST_ID [--usd N]",
+		Flags:    `  --usd float   Grant this much (at most what was asked); default: the amount asked`,
+		Examples: []string{"monoagentcli --profile work coder sessions budget grant 3 --usd 1.5"},
+	},
+	{
+		Name:     "coder sessions budget decline",
+		Short:    "Close a budget request without giving anything",
+		Usage:    "monoagentcli [--profile P] coder sessions budget decline REQUEST_ID",
+		Examples: []string{"monoagentcli --profile work coder sessions budget decline 3"},
 	},
 	{
 		Name:     "coder sessions settings",
@@ -202,14 +271,17 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:  "coder sessions settings set",
 		Short: "Change settings with a JSON object naming only the settings to change (the operator only)",
-		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N]",
+		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N] [--mission on|off]",
 		Flags: `  --patch string       JSON object with the settings to change; a name that is not a setting is refused
   --unattended string  true or false: false turns off the host's own scheduled check-ins for the session (a message you send runs either way)
   --role string        solo, master or child (a child needs --parent: a master with room for it)
   --parent string      The master conversation, with --role child
-  --budget-usd float   The session's spend cap in USD that its children are carved from (0 = none)`,
+  --budget-usd float   The session's spend cap in USD that its children are carved from (0 = none)
+  --mission string     on or off: the chat's Mission toggle. On, every turn is a confirmed mission; it needs coding access or more, and it stays on (off is refused, naming the session) while the chat has an open mission session`,
 		Examples: []string{
+			"monoagentcli --profile work coder sessions settings set <conv> --mission on",
 			`monoagentcli --profile work coder sessions settings set <conv> --patch '{"checkin_minutes": 30, "checkin_limit": 12}'`,
+			`monoagentcli --profile work coder sessions settings set <conv> --patch '{"mission_directions": 2}'`,
 			"monoagentcli --profile work coder sessions settings set <conv> --role master",
 			"monoagentcli --profile work coder sessions settings set <child> --role child --parent <master>",
 			"monoagentcli --profile work coder sessions settings set <conv> --unattended false",

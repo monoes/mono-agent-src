@@ -95,6 +95,22 @@ func (a *App) TaskSessionApprove(id int64) string {
 	return a.continueTaskSession(a.sessionVerb("approve", id))
 }
 
+// TaskSessionApproveAt is `task session approve ID --rev N`: the board approves the draft it
+// displays (its `rev`), and the CLI refuses with plan_changed when a lead changed the plan since.
+func (a *App) TaskSessionApproveAt(id, rev int64) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	sid, bad := sessionIDArg(id)
+	if bad != "" {
+		return bad
+	}
+	if rev <= 0 {
+		return taskRefusal("approve needs the revision of the plan on screen")
+	}
+	return a.continueTaskSession(a.taskCLI("", "session", "approve", sid, "--rev", strconv.FormatInt(rev, 10)))
+}
+
 // TaskSessionPause is `task session pause ID`.
 func (a *App) TaskSessionPause(id int64) string {
 	if err := a.signedOut(); err != nil {

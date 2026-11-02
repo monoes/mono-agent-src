@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -58,12 +59,14 @@ func TestIssueAgentKindWritesARecord(t *testing.T) {
 	}
 	token := strings.TrimPrefix(env[1], EnvAgentKindToken+"=")
 	dir, _ := KindTokenDir()
-	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 {
-		t.Errorf("dir: %v %v", fi.Mode(), err)
-	}
 	path := filepath.Join(dir, token+".json")
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
-		t.Errorf("record: %v %v", fi.Mode(), err)
+	if runtime.GOOS != "windows" { // Windows has no Unix modes
+		if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 {
+			t.Errorf("dir: %v %v", fi.Mode(), err)
+		}
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("record: %v %v", fi.Mode(), err)
+		}
 	}
 	if rec, ok := readKindRecord(path); !ok || rec.Kind != KindOrg || rec.PID != os.Getpid() || rec.Start == "" || !rec.live() {
 		t.Errorf("record: %+v %v", rec, ok)

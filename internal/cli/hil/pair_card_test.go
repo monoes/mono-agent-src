@@ -2,7 +2,10 @@ package hil
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,5 +159,245 @@ func TestHILPairCardCodeInEditableFieldAndHostileLabel(t *testing.T) {
 	}
 	if left, _ := extension.ListPendingClaims(); len(left) != 0 {
 		t.Fatalf("claim still waiting: %+v", left)
+	}
+}
+
+// pairCardFixture files a pairing card in profile "default" and returns what a test needs to decide it.
+func pairCardFixture(t *testing.T) (cfg *testConfig, sdb *storage.Database, cardID, code, claimID string) {
+	t.Helper()
+	setHome(t, t.TempDir())
+	cfg = &testConfig{DBPath: newHILTestDB(t), ProfileID: "default"}
+	claim, secret, err := extension.CreatePendingClaim(extension.PendingClaim{Label: "Edge", Origin: "chrome-extension://aaaa", Instance: "edge-instance-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdb, err = storage.NewDatabase(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sdb.Close() })
+	if err := extension.OpenPairCard(context.Background(), sdb.DB, "default", claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := sdb.DB.QueryRow(`SELECT id FROM hil_pending WHERE execution_id = ?`, "extpair:"+claim.ID).Scan(&cardID); err != nil {
+		t.Fatal(err)
+	}
+	return cfg, sdb, cardID, extension.PairCode(claim.ID, secret), claim.ID
+}
+
+// approvedClaim reads the decided claim from the pending file (it stays there until its browser polls).
+func approvedClaim(t *testing.T, id string) extension.PendingClaim {
+	t.Helper()
+	home, _ := os.UserHomeDir()
+	raw, err := os.ReadFile(filepath.Join(home, ".monoagent", "extension.pending.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []extension.PendingClaim
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range list {
+		if c.ID == id {
+			return c
+		}
+	}
+	t.Fatalf("claim %s not in the pending file", id)
+	return extension.PendingClaim{}
+}
+
+func approveCard(t *testing.T, cfg *testConfig, cardID string, data string) error {
+	t.Helper()
+	deps := testDeps(cfg)
+	deps.RequireOperator = func(string) error { return nil }
+	cmd := NewCommand(deps)
+	cmd.SetArgs([]string{"approve", cardID, "--data", data})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	return cmd.Execute()
+}
+
+// The card names the profile whose queue it is in as the profile the browser
+// may run, and says what an empty field means; approving as it stands limits
+// the browser to that profile, with no CLI step for the common one-profile case.
+func TestPairCardPreselectsTheQueuesProfile(t *testing.T) {
+	cfg, sdb, cardID, code, claimID := pairCardFixture(t)
+	var editable, ro string
+	if err := sdb.DB.QueryRow(`SELECT editable_data, readonly_data FROM hil_pending WHERE id = ?`, cardID).Scan(&editable, &ro); err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]string
+	if err := json.Unmarshal([]byte(editable), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if fields["profiles"] != "default" {
+		t.Fatalf("the card does not preselect the queue's profile by id: %s", editable)
+	}
+	if !strings.Contains(ro, "Default (default)") {
+		t.Fatalf("the card does not name the queue's profile: %s", ro)
+	}
+	for _, want := range []string{"profiles field", "any", "can't serve any profile"} {
+		if !strings.Contains(ro, want) {
+			t.Fatalf("card text lacks %q: %s", want, ro)
+		}
+	}
+	fields["code"] = code
+	data, _ := json.Marshal(fields)
+	if err := approveCard(t, cfg, cardID, string(data)); err != nil {
+		t.Fatal(err)
+	}
+	c := approvedClaim(t, claimID)
+	if !c.Restricted || len(c.AllowedProfiles) != 1 || c.AllowedProfiles[0] != "default" || c.Unrestricted {
+		t.Fatalf("approved as shown = %+v", c)
+	}
+}
+
+func TestPairCardProfilesFieldChoices(t *testing.T) {
+	cases := []struct {
+		name, profiles string
+		restricted     bool
+		allowed        []string
+		wantErr        bool
+	}{
+		{"any is an explicit choice", "any", false, nil, false},
+		{"star is any too", "*", false, nil, false},
+		{"empty serves nothing yet", "", true, nil, false},
+		{"several by id", "default, default", true, []string{"default"}, false},
+		{"unknown profile is refused", "ghost", false, nil, true},
+		{"any mixed with a profile is refused", "any, default", false, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _, cardID, code, claimID := pairCardFixture(t)
+			data, _ := json.Marshal(map[string]string{"code": code, "profiles": tc.profiles})
+			err := approveCard(t, cfg, cardID, string(data))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("approved")
+				}
+				if left, _ := extension.ListPendingClaims(); len(left) != 1 {
+					t.Fatalf("a refused choice decided the claim: %+v", left)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := approvedClaim(t, claimID)
+			if c.Restricted != tc.restricted || c.Unrestricted == tc.restricted || strings.Join(c.AllowedProfiles, ",") != strings.Join(tc.allowed, ",") {
+				t.Fatalf("claim = %+v", c)
+			}
+		})
+	}
+}
+
+// pairCardInQueue files a second card in the queue of a profile with id q1 and
+// the given name (plus other profiles), approves it as the card shows it and
+// returns the decided claim.
+func pairCardInQueue(t *testing.T, queueName string, others ...[2]string) extension.PendingClaim {
+	return pairCardInQueueID(t, "q1", queueName, others...)
+}
+
+// pairCardInQueueID is pairCardInQueue for a queue profile with the given id.
+func pairCardInQueueID(t *testing.T, queueID, queueName string, others ...[2]string) extension.PendingClaim {
+	t.Helper()
+	cfg, sdb, _, _, _ := pairCardFixture(t)
+	for _, o := range append([][2]string{{queueID, queueName}}, others...) {
+		if _, err := sdb.DB.Exec(`INSERT INTO profiles (id, name) VALUES (?, ?)`, o[0], o[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claim, secret, err := extension.CreatePendingClaim(extension.PendingClaim{Label: "Edge2", Origin: "chrome-extension://bbbb", Instance: "edge-instance-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := extension.OpenPairCard(context.Background(), sdb.DB, queueID, claim); err != nil {
+		t.Fatal(err)
+	}
+	var card, editable string
+	if err := sdb.DB.QueryRow(`SELECT id, editable_data FROM hil_pending WHERE execution_id = ?`, "extpair:"+claim.ID).Scan(&card, &editable); err != nil {
+		t.Fatal(err)
+	}
+	var f map[string]string
+	_ = json.Unmarshal([]byte(editable), &f)
+	f["code"] = extension.PairCode(claim.ID, secret)
+	data, _ := json.Marshal(f)
+	cfg.ProfileID = queueID
+	if err := approveCard(t, cfg, card, string(data)); err != nil {
+		t.Fatal(err)
+	}
+	return approvedClaim(t, claim.ID)
+}
+
+// Approving a card as it stands must grant the queue's own profile, whatever that
+// profile is called: a name is not re-read as a keyword, a list, or another profile's id.
+func TestPairCardAsShownGrantsTheQueuesProfileWhateverItsName(t *testing.T) {
+	cases := []struct {
+		name, queueName string
+		others          [][2]string
+	}{
+		{"named any", "any", nil},
+		{"named star", "*", nil},
+		{"name with a comma", "A, B", [][2]string{{"pa", "A"}, {"pb", "B"}}},
+		{"name equal to another profile's id", "pa", [][2]string{{"pa", "Other"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := pairCardInQueue(t, tc.queueName, tc.others...)
+			if !c.Restricted || c.Unrestricted || strings.Join(c.AllowedProfiles, ",") != "q1" {
+				t.Fatalf("approved as shown = restricted %v unrestricted %v allowed %v, want only q1", c.Restricted, c.Unrestricted, c.AllowedProfiles)
+			}
+		})
+	}
+}
+
+// A typed name that two profiles share is refused rather than guessed; "any" is a
+// keyword only as the whole field.
+func TestPairCardTypedProfilesAreNotGuessed(t *testing.T) {
+	for _, tc := range []struct{ name, typed string }{
+		{"ambiguous name", "WORK"},
+		{"any inside a list", "q1, any"},
+		{"star inside a list", "*, q1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, sdb, cardID, code, claimID := pairCardFixture(t)
+			for _, o := range [][2]string{{"q1", "Work"}, {"q2", "work"}} {
+				if _, err := sdb.DB.Exec(`INSERT INTO profiles (id, name) VALUES (?, ?)`, o[0], o[1]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			data, _ := json.Marshal(map[string]string{"code": code, "profiles": tc.typed})
+			if err := approveCard(t, cfg, cardID, string(data)); err == nil {
+				t.Fatalf("%q was accepted", tc.typed)
+			}
+			if c, err := extension.FindPendingClaim(claimID); err != nil || c.Status == extension.ClaimApproved {
+				t.Fatalf("a refused field decided the claim: %+v %v", c, err)
+			}
+		})
+	}
+	// An exact id wins over a name; a unique name works.
+	cfg, sdb, cardID, code, claimID := pairCardFixture(t)
+	if _, err := sdb.DB.Exec(`INSERT INTO profiles (id, name) VALUES ('q1', 'Work')`); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(map[string]string{"code": code, "profiles": "q1, Default"})
+	if err := approveCard(t, cfg, cardID, string(data)); err != nil {
+		t.Fatal(err)
+	}
+	if c := approvedClaim(t, claimID); strings.Join(c.AllowedProfiles, ",") != "q1,default" {
+		t.Fatalf("allowed = %v", c.AllowedProfiles)
+	}
+}
+
+// A queue profile whose ID reads as the "any" keyword in any spelling the parser
+// accepts is not prefilled: approving as shown leaves the browser serving nothing,
+// never every profile.
+func TestPairCardNeverPrefillsAnIDThatReadsAsAny(t *testing.T) {
+	for _, id := range []string{"Any", "ANY", " any ", "*", " * "} {
+		t.Run(id, func(t *testing.T) {
+			c := pairCardInQueueID(t, id, "Queue")
+			if c.Unrestricted || !c.Restricted || len(c.AllowedProfiles) != 0 {
+				t.Fatalf("id %q approved as shown = restricted %v unrestricted %v allowed %v, want none", id, c.Restricted, c.Unrestricted, c.AllowedProfiles)
+			}
+		})
 	}
 }

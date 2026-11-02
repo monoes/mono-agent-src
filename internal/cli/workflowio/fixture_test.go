@@ -133,11 +133,18 @@ func run(t *testing.T, d Deps, stdin string, args ...string) (stdout, cmdOut, cm
 		t.Fatal(perr)
 	}
 	orig := os.Stdout
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stdout = w
 	err = root.Execute()
 	os.Stdout = orig
 	w.Close()
-	b, _ := io.ReadAll(r)
+	b := <-drained
 	return string(b), o.String(), e.String(), err
 }
 

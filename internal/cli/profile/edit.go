@@ -14,6 +14,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/attachments"
 	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -37,6 +38,12 @@ type profileTable struct {
 type profileImpact struct {
 	Profile profileJSON    `json:"profile"`
 	Tables  []profileTable `json:"tables"`
+	// KeptUntilRetention are rows of the profile that a delete leaves in place on purpose: insert-only
+	// tables (see retainedOnDelete) that only a retention sweep can remove, once their expiry plus the
+	// window has passed. That sweep is a later change: until it exists they stay.
+	KeptUntilRetention []profileTable `json:"kept_until_retention,omitempty"`
+	// KeptNote says why they stay and for how long.
+	KeptNote string `json:"kept_note,omitempty"`
 	// FolderKept says the profile's folder on disk is never deleted.
 	FolderKept bool `json:"folder_kept"`
 	// Backup is the database snapshot taken before a delete ("" for --summary).
@@ -257,6 +264,14 @@ func (d Deps) newProfileDeleteCmd() *cobra.Command {
 				return err
 			}
 			impact.Tables = tables
+			if kept, kerr := retainedRows(ctx, db.DB, p.ID); kerr != nil {
+				impact.Warnings = append(impact.Warnings, "could not count the rows kept after the delete: "+kerr.Error())
+			} else {
+				impact.KeptUntilRetention = kept
+				if len(kept) > 0 {
+					impact.KeptNote = keptNote
+				}
+			}
 			// After the commit: files and the keychain are not part of the transaction.
 			for _, name := range wfFiles {
 				if err := os.Remove(filepath.Join(wfDir, name)); err != nil && !os.IsNotExist(err) {
@@ -288,6 +303,7 @@ func (d Deps) newProfileDeleteCmd() *cobra.Command {
 				return printJSON(impact)
 			}
 			fmt.Printf("Deleted profile: %s (%s)\nDatabase backup: %s\n%s\nIts folder %s was left on disk.\n", p.Name, p.ID, impact.Backup, backupNote, p.RootDir)
+			printKept(impact.KeptUntilRetention)
 			if keepAttachments {
 				fmt.Printf("Its synced message attachments (%s) were kept.\n", attachments.Dir())
 			} else {
@@ -318,6 +334,12 @@ func (d Deps) printDeleteSummary(ctx context.Context, db *sql.DB, p *profileJSON
 		tables = append(tables, profileTable{Table: "workflow files", Rows: len(files)})
 	}
 	impact := profileImpact{Profile: *p, Tables: tables, FolderKept: true}
+	if kept, err := retainedRows(ctx, db, p.ID); err == nil {
+		impact.KeptUntilRetention = kept
+		if len(kept) > 0 {
+			impact.KeptNote = keptNote
+		}
+	}
 	if d.JSONOutput() {
 		return printJSON(impact)
 	}
@@ -325,6 +347,7 @@ func (d Deps) printDeleteSummary(ctx context.Context, db *sql.DB, p *profileJSON
 	for _, t := range tables {
 		fmt.Printf("  %-32s %d\n", t.Table, t.Rows)
 	}
+	printKept(impact.KeptUntilRetention)
 	fmt.Printf("and its vault key and synced message attachments (%s; --keep-attachments leaves them). Its folder %s would be left on disk.\n", attachments.Dir(), p.RootDir)
 	return nil
 }
@@ -345,13 +368,19 @@ func refuseRunning(ctx context.Context, q scopeQuerier, id string) error {
 	if n > 0 {
 		return fmt.Errorf("the profile has %d running or queued workflow execution(s): let them finish or cancel them first with `monoagentcli workflow execution cancel <execution-id>` (an execution left RUNNING by a crashed run also blocks the delete until it is cancelled)", n)
 	}
-	return nil
+	return refuseLiveReservations(ctx, q, id)
 }
 
 // deleteProfile removes everything the profile owns, and then the profile,
 // all or nothing. What it owns is read inside the transaction, so a row added
 // since the caller looked is not missed. It returns what was removed.
 func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, error) {
+	// The row keys of the profile's v2 tokens are derived before the transaction (deriving may write, and the
+	// profile's data key goes with it).
+	keyFor, err := procbind.Revoker{DB: db}.Keys(ctx, []procbind.Kind{procbind.KindMission, procbind.KindSession}, procbind.Scope{Profile: id})
+	if err != nil {
+		return nil, fmt.Errorf("delete profile: %w", err)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -365,6 +394,7 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	if err := refuseRunning(ctx, tx, id); err != nil {
 		return nil, err
 	}
+	afterDeleteCheck()
 	scope, err := profileScope(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -377,7 +407,13 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	if err != nil {
 		return nil, fmt.Errorf("check foreign keys: %w", err)
 	}
-	for _, e := range scope {
+	// The profile's v2 tokens are revoked in this transaction (their rows stay, see retainedOnDelete; the
+	// revocation rows are what a verifier reads): if that cannot be written the delete is rolled back (decision K1).
+	// Any live registry entry is in the host process, which reads the revocation rows when it verifies.
+	if _, err := procbind.RevokeTx(ctx, tx, keyFor, procbind.Selector{Profile: id, All: true}, "profile deleted", time.Now()); err != nil {
+		return nil, fmt.Errorf("delete profile: revoke the v2 tokens: %w", err)
+	}
+	for _, e := range sessionsBeforeTheirReservations(scope) {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+e.Table+`" WHERE `+e.Where, sql.Named("p", id)); err != nil {
 			return nil, fmt.Errorf("delete from %s: %w", e.Table, err)
 		}
@@ -394,7 +430,28 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("delete profile: %w", err)
 	}
+	// The profile's data key row went with it: a key this process cached must not outlive it (a retained v2 row
+	// signed under it would otherwise still verify on this handle).
+	secrets.ForgetProfile(id)
 	return tables, nil
+}
+
+// sessionsBeforeTheirReservations moves the task_sessions entry ahead of task_session_reservations: a
+// reservation is refused a hand delete while its session exists, and it goes with the session.
+func sessionsBeforeTheirReservations(scope []scopeEntry) []scopeEntry {
+	out := make([]scopeEntry, 0, len(scope))
+	var held []scopeEntry
+	for _, e := range scope {
+		if e.Table == "task_session_reservations" {
+			held = append(held, e)
+			continue
+		}
+		out = append(out, e)
+		if e.Table == "task_sessions" {
+			out, held = append(out, held...), nil
+		}
+	}
+	return append(out, held...)
 }
 
 func (d Deps) newProfileBackupsCmd() *cobra.Command {

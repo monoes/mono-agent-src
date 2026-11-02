@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // ErrProfileRequired is returned when a chat store call names no profile.
@@ -54,7 +56,12 @@ type ChatSession struct {
 // history (chat_events.go).
 type AIStore struct {
 	db *sql.DB
+	// binder, when set, has its live entries ended after a conversation delete commits (nil until the host is wired).
+	binder *procbind.Binder
 }
+
+// SetBinder sets the registry whose live entries are ended after a delete revokes v2 tokens.
+func (s *AIStore) SetBinder(b *procbind.Binder) { s.binder = b }
 
 // NewAIStore returns an AIStore over db. It creates and alters nothing:
 // the tables come from data/migrations (095, 040) and the columns added

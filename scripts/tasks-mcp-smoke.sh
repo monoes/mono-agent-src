@@ -4,7 +4,8 @@
 # mutating verbs gated by --allow-mutations, claim -> comment -> finish, a
 # task session worked through the tools (dependencies, evidence, no self-verification, an environment label that binds
 # nothing), a non-task tool refused by name, the CLI showing what the agent did, and the
-# --api-only combination refused. Never touches the real ~/.monoagent.
+# --api-only combination refused, and the session verbs of the command line (list, show, plan, depend, undepend,
+# split, budget, pause, resume, close, archive, stop, and the tree: new --parent/--kind, rename, tree, archive --cascade, and the refusal of the person verbs and retire-worker to an agent: exit 3 and code operator_only, each; operator-made directions past K, shown by tree and list, and an agent's direction refused) with the agent-versus-operator gates. Never touches the real ~/.monoagent.
 #
 #   go build -tags devaccount -o /tmp/monoagentcli ./cmd/monoagentcli && scripts/tasks-mcp-smoke.sh /tmp/monoagentcli
 set -euo pipefail
@@ -158,6 +159,8 @@ exec 3>&-
 wait "$wsrv" || true
 out="$(cat "$worker_out")"
 resp "$out" 2 | jq -e --argjson a "$s1" --argjson b "$s2" '.result.isError!=true and ((.result.content[0].text|fromjson|.sessions|map(.id))|index($a)!=null and index($b)!=null)' >/dev/null || fail "task_session_list: $(resp "$out" 2)"
+# the tree fields: top-level sessions (no parent_session_id key), kind, depth 1, and who approved them
+resp "$out" 2 | jq -e --argjson a "$s1" '(.result.content[0].text|fromjson|.sessions|map(select(.id==$a))|.[0]) as $s | ($s|has("parent_session_id")|not) and $s.kind=="board" and $s.depth==1 and $s.approval_basis=="operator"' >/dev/null || fail "task_session_list lacks kind, depth or approval_basis: $(resp "$out" 2)"
 resp "$out" 3 | jq -e --argjson a "$ta" --argjson b "$tb" '.result.isError!=true and ((.result.content[0].text|fromjson|.tasks|map(.id))|sort)==([$a,$b]|sort)' >/dev/null || fail "task_session_get: $(resp "$out" 3)"
 resp "$out" 4 | jq -e --argjson a "$ta" '.result.isError!=true and (.result.content[0].text|fromjson|.task.id)==$a' >/dev/null || fail "task_next in the session is not the first step: $(resp "$out" 4)"
 resp "$out" 5 | jq -e '.result.isError==true' >/dev/null || fail "claimed a task that waits for its dependency: $(resp "$out" 5)"
@@ -173,6 +176,141 @@ echo "== a different agent verifies: a pass marks it verified, closing it stays 
 checker_init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke checker","version":"1"}}}'
 out="$({ echo "$checker_init"; call 2 task_verify "{\"id\":$ta,\"pass\":true,\"note\":\"meets the acceptance\"}"; } | rpc --allow-mutations)"
 resp "$out" 2 | jq -e '.result.isError!=true and (.result.content[0].text|fromjson|.task|.verified==true and .status=="review")' >/dev/null || fail "another agent's task_verify: $(resp "$out" 2)"
+
+echo "== session verbs from the command line: list, show, plan, depend, undepend, split, budget, pause, resume, close, archive, stop"
+# Run here as the operator (a clean environment, as above). The operator's own verbs (undepend, budget, resume, close,
+# archive) are also tried as an agent (--as) and must be refused and change nothing; depend, split, pause and stop are
+# open to agents and are tried as one. This is a CI-only check: the operator steps cannot run from an agent's shell.
+sj() { run --profile "$prof" --json "$@"; }
+sj task session list >"$root/sl.out" 2>"$root/sl.err" || fail "task session list: $(cat "$root/sl.err")"
+jq -e --argjson a "$s1" --argjson b "$s2" '[.sessions[]|select(.id==$a or .id==$b)|.state]==["running","running"]' "$root/sl.out" >/dev/null || fail "task session list: $(cat "$root/sl.out")"
+sj task session list --state draft >"$root/sl.out" 2>"$root/sl.err" || fail "task session list --state draft: $(cat "$root/sl.err")"
+jq -e --argjson a "$s1" --argjson b "$s2" '(.sessions|map(.id)) as $ids | ($ids|index($a))==null and ($ids|index($b))==null' "$root/sl.out" >/dev/null || fail "a running session listed as a draft: $(cat "$root/sl.out")"
+sj task session show "$s1" >"$root/ss.out" 2>"$root/ss.err" || fail "task session show: $(cat "$root/ss.err")"
+jq -e --argjson a "$s1" '.session.id==$a and .session.state=="running" and .session.title=="smoke session" and (.events|length)>0' "$root/ss.out" >/dev/null || fail "task session show: $(cat "$root/ss.out")"
+
+# A session of its own for the verbs that change things, planned as a draft.
+sj task session new "verbs session" --goal "exercise the session verbs" >"$root/s3.out" 2>"$root/s3.err" || fail "task session new (verbs): $(cat "$root/s3.out" "$root/s3.err")"
+s3="$(jq -r '.session.id' "$root/s3.out")"
+t1="$(sess_add "$s3" "step one")"
+t2="$(sess_add "$s3" "step two")"
+t3="$(sess_add "$s3" "step three")"
+sj task depend "$t2" --on "$t1" >"$root/d.out" 2>"$root/d.err" || fail "task depend: $(cat "$root/d.err")"
+jq -e --argjson t "$t2" --argjson d "$t1" '.task.id==$t and (.task.depends_on|index($d))!=null' "$root/d.out" >/dev/null || fail "task depend: $(cat "$root/d.out")"
+if sj task depend "$t1" --on "$t2" >/dev/null 2>"$root/err"; then fail "a dependency cycle was accepted"; fi
+grep -q "cycle" "$root/err" || fail "the cycle refusal: $(cat "$root/err")"
+sj task session plan "$s3" >"$root/p.out" 2>"$root/p.err" || fail "task session plan: $(cat "$root/p.err")"
+jq -e --argjson a "$t1" --argjson b "$t2" --argjson c "$t3" --argjson d "$t1" '([.tasks[].id]|sort)==([$a,$b,$c]|sort) and ([.tasks[]|select(.id==$b)][0].depends_on|index($d))!=null' "$root/p.out" >/dev/null || fail "task session plan: $(cat "$root/p.out")"
+if run --profile "$prof" task undepend "$t2" "$t1" --as bot >/dev/null 2>&1; then fail "an agent removed a dependency"; fi
+sj task session plan "$s3" | jq -e --argjson b "$t2" --argjson d "$t1" '[.tasks[]|select(.id==$b)][0].depends_on|index($d)!=null' >/dev/null || fail "the dependency is gone after an agent's undepend"
+sj task undepend "$t2" "$t1" >"$root/d.out" 2>"$root/d.err" || fail "task undepend: $(cat "$root/d.err")"
+jq -e --argjson d "$t1" '((.task.depends_on // [])|index($d))==null' "$root/d.out" >/dev/null || fail "task undepend: $(cat "$root/d.out")"
+sj task split "$t3" --into "part a|accept a" --into "part b|accept b" >"$root/sp.out" 2>"$root/sp.err" || fail "task split: $(cat "$root/sp.err")"
+jq -e '(.tasks|map(.title)|sort)==["part a","part b"]' "$root/sp.out" >/dev/null || fail "task split: $(cat "$root/sp.out")"
+
+run --profile "$prof" task session approve "$s3" >/dev/null || fail "task session approve $s3"
+sj task session budget "$s3" --usd 5 --max-tasks 150 >"$root/b.out" 2>"$root/b.err" || fail "task session budget: $(cat "$root/b.err")"
+jq -e '.session.budget_usd==5 and .session.max_tasks==150' "$root/b.out" >/dev/null || fail "task session budget: $(cat "$root/b.out")"
+sj task session budget "$s3" --spend 1.25 --note "smoke" >"$root/b.out" 2>"$root/b.err" || fail "task session budget --spend: $(cat "$root/b.err")"
+jq -e '.session.spent_usd==1.25 and .session.budget_usd==5' "$root/b.out" >/dev/null || fail "task session budget --spend: $(cat "$root/b.out")"
+if sj task session budget "$s3" >/dev/null 2>&1; then fail "task session budget with nothing to change was accepted"; fi
+if run --profile "$prof" task session budget "$s3" --usd 99 --as bot >/dev/null 2>&1; then fail "an agent raised a budget"; fi
+sj task session show "$s3" | jq -e '.session.budget_usd==5' >/dev/null || fail "an agent changed the budget"
+
+echo "-- pause is open to an agent, resume and close are not, archive waits for the session to end"
+run --profile "$prof" --json task session pause "$s3" --as bot | jq -e '.session.state=="paused"' >/dev/null || fail "an agent could not pause a session"
+if run --profile "$prof" task session resume "$s3" --as bot >/dev/null 2>&1; then fail "an agent resumed a session"; fi
+sj task session show "$s3" | jq -e '.session.state=="paused"' >/dev/null || fail "the session is not paused after an agent's resume"
+sj task session resume "$s3" | jq -e '.session.state=="running"' >/dev/null || fail "task session resume"
+if run --profile "$prof" task session close "$s3" --as bot >/dev/null 2>&1; then fail "an agent closed a session"; fi
+if sj task session archive "$s3" >/dev/null 2>&1; then fail "a running session was archived"; fi
+sj task session close "$s3" --note "smoke done" | jq -e '.session.state=="done"' >/dev/null || fail "task session close"
+if run --profile "$prof" task session archive "$s3" --as bot >/dev/null 2>&1; then fail "an agent archived a session"; fi
+sj task session archive "$s3" | jq -e '.session.archived==true' >/dev/null || fail "task session archive"
+sj task session list | jq -e --argjson a "$s3" '(.sessions|map(.id)|index($a))==null' >/dev/null || fail "an archived session is in the default listing"
+sj task session list --all | jq -e --argjson a "$s3" '(.sessions|map(.id)|index($a))!=null' >/dev/null || fail "an archived session is missing from the listing with --all"
+
+echo "-- stop is open to an agent, and a stopped session does not run again"
+sj task session new "stopped session" >"$root/s4.out" 2>"$root/s4.err" || fail "task session new (stopped): $(cat "$root/s4.out" "$root/s4.err")"
+s4="$(jq -r '.session.id' "$root/s4.out")"
+run --profile "$prof" --json task session stop "$s4" --as bot | jq -e '.session.state=="stopped"' >/dev/null || fail "an agent could not stop a session"
+if sj task session resume "$s4" >/dev/null 2>&1; then fail "a stopped session was resumed"; fi
+
+echo "== the session tree: child sessions, kinds, rename, tree and the cascade archive"
+# Nesting is the operator's or a session's own: an agent below no session starts only top-level sessions,
+# cannot start a mission, and renames only a draft it started. The cascade archive is the operator's alone.
+sj task session new "tree root" --goal "nest sessions" >"$root/tr.out" 2>"$root/tr.err" || fail "task session new (tree root): $(cat "$root/tr.out" "$root/tr.err")"
+tr="$(jq -r '.session.id' "$root/tr.out")"
+jq -e '.session.kind=="board" and .session.depth==1 and (.session|has("parent_session_id")|not)' "$root/tr.out" >/dev/null || fail "a top-level session lacks kind board, depth 1 or has a parent: $(cat "$root/tr.out")"
+sj task session new "tree child" --parent "$tr" --kind research >"$root/tc1.out" 2>"$root/tc1.err" || fail "task session new --parent: $(cat "$root/tc1.out" "$root/tc1.err")"
+tc1="$(jq -r '.session.id' "$root/tc1.out")"
+jq -e --argjson p "$tr" '.session.parent_session_id==$p and .session.kind=="research" and .session.depth==2' "$root/tc1.out" >/dev/null || fail "the child is not nested below its parent: $(cat "$root/tc1.out")"
+sj task session new "tree sibling" --parent "$tr" >"$root/tc2.out" 2>"$root/tc2.err" || fail "task session new --parent (sibling): $(cat "$root/tc2.out" "$root/tc2.err")"
+tc2="$(jq -r '.session.id' "$root/tc2.out")"
+if sj task session new "orphan" --parent 999999 >/dev/null 2>&1; then fail "a session was started below a session that does not exist"; fi
+if sj task session new "odd kind" --kind nonsense >/dev/null 2>&1; then fail "a session of an unknown kind was started"; fi
+if run --profile "$prof" task session new "agent mission" --kind mission --as bot >/dev/null 2>&1; then fail "an agent started a mission session"; fi
+sj task session new "same key" --client-id smoke-tree-1 >"$root/k1.out" 2>"$root/k1.err" || fail "task session new --client-id: $(cat "$root/k1.err")"
+sj task session new "same key again" --client-id smoke-tree-1 >"$root/k2.out" 2>"$root/k2.err" || fail "task session new --client-id (repeat): $(cat "$root/k2.err")"
+jq -e --argjson a "$(jq '.session.id' "$root/k1.out")" '.session.id==$a and .session.deduped==true' "$root/k2.out" >/dev/null || fail "a repeated client id made a second session: $(cat "$root/k2.out")"
+
+sj task session rename "$tc1" "renamed child" >"$root/rn.out" 2>"$root/rn.err" || fail "task session rename: $(cat "$root/rn.err")"
+jq -e '.session.title=="renamed child"' "$root/rn.out" >/dev/null || fail "task session rename: $(cat "$root/rn.out")"
+if run --profile "$prof" task session rename "$tc1" "hijacked" --as bot >/dev/null 2>&1; then fail "an agent renamed a session it did not start"; fi
+sj task session show "$tc1" | jq -e '.session.title=="renamed child"' >/dev/null || fail "an agent changed a session title"
+
+sj task session tree >"$root/tree.out" 2>"$root/tree.err" || fail "task session tree: $(cat "$root/tree.err")"
+jq -e --argjson r "$tr" --argjson a "$tc1" --argjson b "$tc2" '[.[]|select(.id==$r)][0] as $n | ($n.children|map(.id))==[$a,$b] and ($n.children|map(.depth))==[2,2]' "$root/tree.out" >/dev/null || fail "task session tree does not nest the children below their parent: $(cat "$root/tree.out")"
+jq -e --argjson a "$tc1" '(map(.id)|index($a))==null' "$root/tree.out" >/dev/null || fail "a child session is also listed at the top level of the tree"
+
+echo "-- archive: a session with open sessions below it is refused, --cascade is the operator's and archives the subtree"
+if sj task session archive "$tr" >/dev/null 2>&1; then fail "a session with open sessions below it was archived without --cascade"; fi
+if run --profile "$prof" task session archive "$tr" --cascade --as bot >/dev/null 2>&1; then fail "an agent archived a subtree"; fi
+sj task session show "$tc1" | jq -e '.session.archived==false' >/dev/null || fail "a child was archived by a refused cascade"
+sj task session archive "$tr" --cascade >"$root/ca.out" 2>"$root/ca.err" || fail "task session archive --cascade: $(cat "$root/ca.err")"
+jq -e --argjson r "$tr" --argjson a "$tc1" --argjson b "$tc2" '(.archived|sort)==([$r,$a,$b]|sort) and .archived[-1]==$r and .session.archived==true' "$root/ca.out" >/dev/null || fail "task session archive --cascade did not archive the subtree, the deepest first: $(cat "$root/ca.out")"
+sj task session tree | jq -e --argjson r "$tr" '(map(.id)|index($r))==null' >/dev/null || fail "an archived subtree is in the default tree"
+sj task session tree --all | jq -e --argjson r "$tr" '(map(.id)|index($r))!=null' >/dev/null || fail "an archived subtree is missing from the tree with --all"
+
+echo "== the person verbs and retire-worker are the operator's: an agent is refused every one and nothing changes"
+# The person inbox is empty here (no giant plan waits); the operator reads it, an agent never does, and the other
+# person verbs and retire-worker refuse an agent before they look at their arguments.
+sj task session person inbox >"$root/pi.out" 2>"$root/pi.err" || fail "task session person inbox: $(cat "$root/pi.err")"
+jq -e '(.items|type)=="array" and (.items|length)==0' "$root/pi.out" >/dev/null || fail "task session person inbox: $(cat "$root/pi.out")"
+# refused <what> <command words...>: an agent (--as bot, the same shape as the checks above) is refused with
+# the real contract: exit code 3 and {"code":"operator_only"} in the --json error document on stdout.
+refused() {
+  local what="$1" rc=0; shift
+  run --profile "$prof" --json "$@" --as bot >"$root/rf.out" 2>"$root/rf.err" || rc=$?
+  [ "$rc" -eq 3 ] || fail "$what as an agent exited $rc, not 3: $(cat "$root/rf.out" "$root/rf.err")"
+  jq -s -e 'any(.[]; .code=="operator_only")' "$root/rf.out" >/dev/null || fail "$what as an agent was not refused with code operator_only: $(cat "$root/rf.out" "$root/rf.err")"
+}
+for verb in "inbox" "full 1" "approve 1 --rev 1" "deny 1 --note x" "ask 1 --text x" "answer-ask --ask 1 --text x"; do
+  # shellcheck disable=SC2086
+  refused "task session person $verb" task session person $verb
+done
+refused "task session retire-worker" task session retire-worker 1 1
+
+echo "== directions: the operator makes them past any K; an agent that works in no session cannot make one"
+# K (mission_directions: default 3, hard cap 6) holds an AGENT's open directions below one session (tasks.Store.CreateSession);
+# the operator is not held to it, so seven directions below one parent are made and shown. An agent of a session or of a
+# task needs a minted token (see unreachable-from-the-shell below), so only the agent that works in no session is shaped here.
+sj task session new "direction root" --kind mission >"$root/dr.out" 2>"$root/dr.err" || fail "task session new (direction root): $(cat "$root/dr.out" "$root/dr.err")"
+dr="$(jq -r '.session.id' "$root/dr.out")"
+for n in 1 2 3 4 5 6 7; do
+  sj task session new "direction $n" --parent "$dr" --kind direction >"$root/dd.out" 2>"$root/dd.err" || fail "the operator's direction $n was refused: $(cat "$root/dd.out" "$root/dd.err")"
+  jq -e --argjson p "$dr" '.session.kind=="direction" and .session.parent_session_id==$p and .session.depth==2' "$root/dd.out" >/dev/null || fail "direction $n is not a direction below the root: $(cat "$root/dd.out")"
+done
+sj task session tree >"$root/dt.out" 2>"$root/dt.err" || fail "task session tree (directions): $(cat "$root/dt.err")"
+jq -e --argjson r "$dr" '[.[]|select(.id==$r)][0].children|(length==7 and all(.[]; .kind=="direction"))' "$root/dt.out" >/dev/null || fail "the tree does not show seven directions below the root: $(cat "$root/dt.out")"
+sj task session list >"$root/dl.out" 2>"$root/dl.err" || fail "task session list (directions): $(cat "$root/dl.err")"
+jq -e '[.sessions[]|select(.kind=="direction")]|length==7' "$root/dl.out" >/dev/null || fail "the listing does not hold seven directions: $(cat "$root/dl.out")"
+refused "task session new --kind direction --parent" task session new "agent direction" --parent "$dr" --kind direction
+grep -q "works in no session" "$root/rf.out" || fail "the agent's direction refusal does not say it works in no session: $(cat "$root/rf.out")"
+sj task session tree | jq -e --argjson r "$dr" '[.[]|select(.id==$r)][0].children|length==7' >/dev/null || fail "a refused agent direction changed the tree"
+# Unreachable from the shell, covered by Go tests: an agent bound to a task is refused with "bound to a task" and one bound
+# to a session is held to K (both need a mission/session token minted by the conductor: internal/tasks session_direction_cap
+# and session tree tests, internal/coderhost session_spawn); mission_evaluate and the digest need the conductor and a model.
 
 echo "== an environment label binds nothing: a server given MONOAGENT_TASK_SESSION but no token is an ordinary agent"
 # What binds a server to a session, a task and a role is a mission token the conductor mints per run

@@ -39,6 +39,7 @@ func TestEveryHostButLoopbackIsProduction(t *testing.T) {
 func TestHomeFromPasswdHasNoFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	passwd := filepath.Join(t.TempDir(), "passwd")
 	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/bin/sh\n# 1000 is not here\n#old:x:1000:1000::/home/old:/bin/sh\n  # ada:x:1002:1002::/home/x:/bin/sh\nada:x:1001:1001::/home/ada:/bin/sh\nbroken:1000\n"), 0o600); err != nil {
 		t.Fatal(err)

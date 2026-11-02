@@ -244,6 +244,7 @@ func DeleteProfileKEK(profileID string) (removed bool, err error) {
 	if profileID == "" {
 		return false, fmt.Errorf("secrets: no profile to delete the key of")
 	}
+	ForgetProfile(profileID) // the unwrapped key must not outlive the wrapping key
 	keyringIOMu.Lock()
 	kerr := keyring.Delete(keyringService, kekAccount(profileID))
 	keyringIOMu.Unlock()

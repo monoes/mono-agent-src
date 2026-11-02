@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AppWindow, Archive, Plus, Check, CheckCheck, CircleHelp, Globe, LayoutGrid, NotebookText, Sparkles, Terminal, Undo2 } from 'lucide-react'
 import { tasksApi } from '../services/tasks.js'
 import { useTaskBoard } from '../lib/useTaskBoard.js'
-import { COLUMNS, findTask, filterBoard, placeFor, isNoopDrop, keyMove, focusTarget, isTypingTarget, claimState, sourceChip, shortAge, splitMinutes, actorColor, readFirst } from '../lib/taskModel.js'
+import { COLUMNS, COLUMN_PAGE, capBoard, findTask, filterBoard, placeFor, isNoopDrop, keyMove, focusTarget, isTypingTarget, claimState, sourceChip, shortAge, splitMinutes, actorColor, readFirst } from '../lib/taskModel.js'
 import TaskDrawer from '../components/TaskDrawer.jsx'
 import { useFlip } from '../lib/useFlip.js'
 import { useCardDrag } from '../lib/useCardDrag.js'
@@ -153,7 +153,14 @@ export function TaskBoard({ isActive = true, switcher = null, session = null, se
   const agentLocked = shell === null || !!shell
   // Only a running session's board takes moves; the others are read until the operator acts in the header.
   const readOnly = agentLocked || !boardEditable(session)
-  const shown = useMemo(() => filterBoard(b.board, query), [b.board, query])
+  const filtered = useMemo(() => filterBoard(b.board, query), [b.board, query])
+  // A long column draws its first COLUMN_PAGE cards and a control for the rest; the keys, the drag and the
+  // drop line below all work on what is drawn.
+  const [limits, setLimits] = useState({})
+  const sessionKey = session?.id ?? null
+  useEffect(() => { setLimits({}) }, [sessionKey])
+  const shown = useMemo(() => capBoard(filtered, limits), [filtered, limits])
+  const showMore = (status) => setLimits(l => ({ ...l, [status]: (l[status] || COLUMN_PAGE) + COLUMN_PAGE }))
   const [archiving, setArchiving] = useState(null)
   const [archiveError, setArchiveError] = useState('')
   const lastOpen = useRef(null)
@@ -317,7 +324,7 @@ export function TaskBoard({ isActive = true, switcher = null, session = null, se
                 data-drop-target={over ? 'true' : undefined}
                 className="tb-col"
               >
-                <h2 className="tb-col-head">{t(`tasks.column.${status}`)} <span className="tb-count">{shown.counts[status] ?? shown.columns[status].length}</span></h2>
+                <h2 className="tb-col-head">{t(`tasks.column.${status}`)} <span className="tb-count">{filtered.counts[status] ?? filtered.columns[status].length}</span></h2>
                 {!readOnly && !session && (status === 'inbox' || status === 'ready') && <QuickAdd status={status} onAdd={b.add} t={t} />}
                 {shown.columns[status].length === 0 && <div className="tb-empty">{session ? t('tasks.empty') : t(`tasks.emptyBy.${status}`, { defaultValue: t('tasks.empty') })}</div>}
                 {shown.columns[status].map(task => (
@@ -332,6 +339,12 @@ export function TaskBoard({ isActive = true, switcher = null, session = null, se
                   </Fragment>
                 ))}
                 {lineAt === 'end' && <div className="tb-drop-line" data-testid="tb-drop-line" aria-hidden="true" />}
+                {shown.hidden[status] > 0 && (
+                  <button type="button" className="btn btn-ghost btn-sm tb-more" onClick={() => showMore(status)}
+                    aria-label={t('tasks.showMoreIn', { count: Math.min(COLUMN_PAGE, shown.hidden[status]), column: t(`tasks.column.${status}`) })}>
+                    {t('tasks.showMore', { count: Math.min(COLUMN_PAGE, shown.hidden[status]), left: shown.hidden[status] })}
+                  </button>
+                )}
               </section>
             )
           })}

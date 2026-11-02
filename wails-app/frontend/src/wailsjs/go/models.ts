@@ -85,6 +85,36 @@ export namespace main {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class ChatPathClass {
+	    class: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatPathClass(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.class = source["class"];
+	    }
+	}
+	export class ChatPathInfo {
+	    kind: string;
+	    previewable: boolean;
+	    path: string;
+	    line: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatPathInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.previewable = source["previewable"];
+	        this.path = source["path"];
+	        this.line = source["line"];
+	    }
+	}
 	export class ParkedTab {
 	    applicationId: string;
 	    taskId: string;
@@ -1427,10 +1457,47 @@ export namespace main {
 	        this.updatedAt = source["updatedAt"];
 	    }
 	}
+	export class DeleteKept {
+	    code: string;
+	    message: string;
+	    stopped: number[];
+	    survivors: Survivor[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteKept(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.message = source["message"];
+	        this.stopped = source["stopped"];
+	        this.survivors = this.convertValues(source["survivors"], Survivor);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class DeleteChatResult {
 	    deleted: string[];
 	    active: string[];
 	    failed: Record<string, string>;
+	    kept: Record<string, DeleteKept>;
 	
 	    static createFrom(source: any = {}) {
 	        return new DeleteChatResult(source);
@@ -1441,7 +1508,26 @@ export namespace main {
 	        this.deleted = source["deleted"];
 	        this.active = source["active"];
 	        this.failed = source["failed"];
+	        this.kept = this.convertValues(source["kept"], DeleteKept, true);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class HistoryFilter {
 	    kind: string;

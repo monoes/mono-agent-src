@@ -35,6 +35,7 @@ func TestCoderBrowserPrompt(t *testing.T) {
 func TestCoderTurnsAreKindCoder(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	for _, k := range append(browserctl.AgentContextEnv(), browserctl.EnvAgentKind, browserctl.EnvAgentKindToken, browserctl.EnvAICaller) {
 		t.Setenv(k, "")
 	}

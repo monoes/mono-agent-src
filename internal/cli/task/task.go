@@ -13,6 +13,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -103,6 +104,7 @@ func (d Deps) withTasks(cmd *cobra.Command, fn func(ctx context.Context, store *
 	defer db.Close()
 	store := tasks.NewStore(db.DB)
 	store.SetEvidenceChecker(gitevidence.Checker(""))
+	store.SetApprovalSource(coderhost.NewStore(db.DB))
 	p, err := store.Profile(cmd.Context(), d.ProfileID())
 	if err != nil {
 		return d.taskErr(err)
@@ -149,6 +151,8 @@ func (d Deps) taskErr(err error) error {
 		return taskCLIError{error: d.NotFound("%v", err), code: "not_found"}
 	case errors.Is(err, tasks.ErrOperatorOnly):
 		return d.operatorOnlyError("%v", err)
+	case errors.Is(err, tasks.ErrPlanChanged):
+		return taskCLIError{error: d.InvalidInput("%v", err), code: "plan_changed"}
 	case errors.Is(err, tasks.ErrNotReady):
 		return taskCLIError{error: d.InvalidInput("%v", err), code: "not_ready"}
 	case errors.Is(err, tasks.ErrNotClaimant):
@@ -189,8 +193,10 @@ func (d Deps) callerFor(as string) Caller {
 	marker := d.agentContextMarker()
 	// A task binding is itself an agent marker, including a damaged binding:
 	// losing the usual runtime marker must not turn a worker into the operator.
+	// So is the coder-session token: a process that holds it is a lead's, and the
+	// lead is an agent that names itself (session approve checks the token itself).
 	if marker == "" {
-		for _, key := range []string{boundSessionEnv, boundTaskEnv, agenttokens.EnvMissionToken} {
+		for _, key := range []string{boundSessionEnv, boundTaskEnv, agenttokens.EnvMissionToken, coderhost.SessionTokenEnv} {
 			if strings.TrimSpace(d.Getenv(key)) != "" {
 				marker = key
 				break
@@ -347,15 +353,16 @@ adding idempotent (the same key adds nothing a second time).`,
 			if sf.stray(cmd) {
 				return d.InvalidInput("--acceptance, --depends-on, --parent, --kind and --executor are for a session task: add --session N")
 			}
-			caller := d.callerFor(flagAs(cmd))
 			// What needs neither the database nor the text is refused first, so that
 			// a refused call never waits for standard input. The store enforces
-			// these rules too; answering here says what to do instead.
+			// these rules too; answering here says what to do instead. The gate comes
+			// before callerFor, which may open the database to look up a mission binding.
 			if ready {
-				if _, err := caller.operator("add a task straight to Ready"); err != nil {
+				if _, err := d.personGate(cmd, "add a task straight to Ready"); err != nil {
 					return err
 				}
 			}
+			caller := d.callerFor(flagAs(cmd))
 			actor := d.author(caller)
 			if source == tasks.SourceOS {
 				if actor.Kind == tasks.Agent {

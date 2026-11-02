@@ -25,11 +25,18 @@ func run(t *testing.T, args ...string) string {
 		t.Fatal(err)
 	}
 	orig := os.Stdout
+	// Drain the pipe while the command runs: output larger than the pipe buffer
+	// would otherwise block the writer forever.
+	drained := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		drained <- b
+	}()
 	os.Stdout = w
 	runErr := root.Execute()
 	os.Stdout = orig
 	w.Close()
-	out, _ := io.ReadAll(r)
+	out := <-drained
 	if runErr != nil {
 		t.Fatal(runErr)
 	}

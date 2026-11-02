@@ -194,6 +194,25 @@ export function filterBoard(board, query) {
   return { ...board, columns }
 }
 
+// COLUMN_PAGE is how many cards a column renders at first, and how many more each "show more" adds.
+export const COLUMN_PAGE = 50
+
+// capBoard is the board as it is drawn: each column's first limits[status] (default COLUMN_PAGE) cards, and in
+// hidden how many each column holds back. The counts stay the real ones. Keys, drags and focus work on this
+// view, so they only ever reach cards that are on screen.
+export function capBoard(board, limits = {}) {
+  if (!board) return board
+  const columns = {}
+  const hidden = {}
+  for (const s of COLUMNS) {
+    const all = board.columns[s]
+    const limit = limits[s] || COLUMN_PAGE
+    columns[s] = all.length > limit ? all.slice(0, limit) : all
+    hidden[s] = all.length - columns[s].length
+  }
+  return { ...board, columns, hidden }
+}
+
 // places maps each card of a board to its column and claimant.
 function places(board) {
   const m = new Map()

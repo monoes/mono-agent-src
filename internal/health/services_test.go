@@ -381,6 +381,9 @@ func TestBridgeRestartFixIsAvailable(t *testing.T) {
 
 func TestBridgeRestartTargetsServiceAndVerifiesVersion(t *testing.T) {
 	ctx := context.Background()
+	old := bridgeRestartHelps
+	bridgeRestartHelps = func(int) bool { return true }
+	t.Cleanup(func() { bridgeRestartHelps = old })
 	b := BridgeInfo{PID: 7, Version: "v1.0.0", ServiceUnit: "monoagent-bridge.service"}
 	restarts := 0
 	env := &Env{Version: "v1.1.0", Bridge: func(context.Context) (BridgeInfo, bool) { return b, true },
