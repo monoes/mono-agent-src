@@ -2077,7 +2077,11 @@ that works a task acts on them. The defences:
   named database read-only and never creates or migrates it. `secret rebind` repairs
   an install, so it must work when the database is damaged: for it an unreadable or
   absent database (or turn registry entry) counts as no turn recorded, while a turn
-  recorded in a readable database still refuses it. `secret reveal` and
+  recorded in ANY readable database still refuses it: the scan of the registry goes on
+  past an unreadable entry (wherever it sorts) instead of stopping at it, which only the
+  other verbs do. The named database is opened read-only, only as a regular file (a FIFO
+  cannot hang it) and with a bounded wait for a lock; a lock that outlasts the wait
+  refuses the other verbs and counts as no turn recorded for `secret rebind`. `secret reveal` and
   `node run vault.secret_get` keep the marker check alone, as before: they have an
   agent path under the profile's Reveal access level and are held for a decision.
   The database it reads is not only the one the process names: every running coder
