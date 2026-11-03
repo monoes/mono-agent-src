@@ -66,6 +66,13 @@ type PerAsk struct {
 	Tasks      int    `json:"ask_tasks"`
 	Access     string `json:"ask_access"`
 	Depth      int    `json:"ask_depth"`
+	// RunSpendMicro and RunTasks cap the run's cumulative auto-approved totals, so many small asks cannot add up to
+	// what one large ask would have been (note 13.4). Required, and at least the per-ask value, once Declared.
+	RunSpendMicro int64 `json:"run_spend_micro"`
+	RunTasks      int64 `json:"run_tasks"`
+	// AnswerClasses are the answer classes the boss may auto-answer (ask.answer). Empty means ask.answer is off and
+	// every critical ask stays a person item.
+	AnswerClasses []string `json:"answer_classes"`
 }
 
 // Pin fixes a model and policy for the whole run (Q6).

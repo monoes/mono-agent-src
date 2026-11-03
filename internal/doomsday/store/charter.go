@@ -92,7 +92,7 @@ func (c Charter) Validate() error {
 
 func (p PerAsk) validate() error {
 	if !p.Declared {
-		if p != (PerAsk{}) {
+		if p.SpendMicro != 0 || p.Tasks != 0 || p.Access != "" || p.Depth != 0 || p.RunSpendMicro != 0 || p.RunTasks != 0 || len(p.AnswerClasses) != 0 {
 			return fmt.Errorf("per-ask values set without declaring per-ask limits")
 		}
 		return nil
@@ -102,6 +102,16 @@ func (p PerAsk) validate() error {
 	}
 	if p.Access == "" || p.Access == "full" {
 		return fmt.Errorf("ask_access must be named and is never full")
+	}
+	if p.RunSpendMicro < p.SpendMicro || p.RunTasks < int64(p.Tasks) || p.RunSpendMicro < 0 || p.RunTasks < 0 {
+		return fmt.Errorf("run caps must be set and at least the per-ask limits")
+	}
+	seen := map[string]bool{}
+	for _, cl := range p.AnswerClasses {
+		if cl == "" || seen[cl] {
+			return fmt.Errorf("answer classes must be named and distinct")
+		}
+		seen[cl] = true
 	}
 	return nil
 }
@@ -122,6 +132,11 @@ func (c Charter) normalized() Charter {
 	}
 	sort.Strings(ls)
 	c.Lines = ls
+	if len(c.PerAsk.AnswerClasses) > 0 {
+		cl := append([]string(nil), c.PerAsk.AnswerClasses...)
+		sort.Strings(cl)
+		c.PerAsk.AnswerClasses = cl
+	}
 	return c
 }
 
@@ -171,6 +186,12 @@ func (c Charter) Canonical() []byte {
 	num(int64(c.PerAsk.Tasks))
 	str(c.PerAsk.Access)
 	num(int64(c.PerAsk.Depth))
+	num(c.PerAsk.RunSpendMicro)
+	num(c.PerAsk.RunTasks)
+	num(int64(len(c.PerAsk.AnswerClasses)))
+	for _, cl := range c.PerAsk.AnswerClasses {
+		str(cl)
+	}
 	return b
 }
 
