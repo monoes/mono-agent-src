@@ -28,6 +28,7 @@ type fakeWorld struct {
 	onStart func(name string) // called before the unit exists, to observe what was recorded first
 	stopped []string
 	boot    string
+	ids     map[string]uint64
 }
 
 func (w *fakeWorld) StartUnit(_ context.Context, name, _ string) error {
@@ -64,7 +65,7 @@ func (fakeKernel) SelfCgroup() (string, error)    { return "/self", nil }
 
 var errFakeAbsent = errors.New("fake: absent")
 
-func (k fakeKernel) OpenCgroup(string) (stop.Cgroup, error) {
+func (k fakeKernel) OpenCgroup(path string) (stop.Cgroup, error) {
 	if k.w == nil {
 		return nil, errors.New("fake: no cgroup")
 	}
@@ -73,16 +74,30 @@ func (k fakeKernel) OpenCgroup(string) (stop.Cgroup, error) {
 	if !k.w.present {
 		return nil, errFakeAbsent
 	}
-	return fakeCgroup{w: k.w}, nil
+	return fakeCgroup{w: k.w, path: path}, nil
 }
 func (fakeKernel) IsAbsent(err error) bool                   { return errors.Is(err, errFakeAbsent) }
 func (fakeKernel) ManagerControlGroup(string) (string, bool) { return "", false }
 func (fakeKernel) ListUnitNames(string) ([]string, error)    { return nil, nil }
 
-type fakeCgroup struct{ w *fakeWorld }
+type fakeCgroup struct {
+	w    *fakeWorld
+	path string
+}
 
-func (fakeCgroup) Identity() (stop.CgroupIdentity, error) {
-	return stop.CgroupIdentity{ID: 7, UID: uint32(os.Getuid()), IsCgroup2: true}, nil
+// Identity gives each unit path its own id (7 for the first), as real cgroups have: two units never share one.
+func (c fakeCgroup) Identity() (stop.CgroupIdentity, error) {
+	c.w.mu.Lock()
+	defer c.w.mu.Unlock()
+	if c.w.ids == nil {
+		c.w.ids = map[string]uint64{}
+	}
+	id, ok := c.w.ids[c.path]
+	if !ok {
+		id = 7 + uint64(len(c.w.ids))
+		c.w.ids[c.path] = id
+	}
+	return stop.CgroupIdentity{ID: id, UID: uint32(os.Getuid()), IsCgroup2: true}, nil
 }
 func (fakeCgroup) Subgroups() ([]string, error) { return nil, nil }
 func (c fakeCgroup) Procs(string) ([]int, error) {

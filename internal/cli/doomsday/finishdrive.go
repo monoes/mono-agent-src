@@ -24,9 +24,13 @@ func jsonLine(w io.Writer, v any) error { return json.NewEncoder(w).Encode(v) }
 type FinishEngine struct {
 	*StoreEngine
 	W Wiring
-	// RoundTimeout is T_finish: the whole of one Advance. Default 30 minutes. At the deadline the finish parks
-	// (internal-error, "deadline"), because the closed reason list has no deadline entry.
+	// RoundTimeout is T_finish: the whole of one Advance. Default 30 minutes. At the deadline the finish parks with the
+	// reason `deadline`.
 	RoundTimeout time.Duration
+	// Limits are the process limits and the scratch cap of a criterion (zero fields take the defaults of finish.Limits).
+	Limits finish.Limits
+	// RequireNetDeny parks a finish whose criteria run programs where the platform cannot deny the network.
+	RequireNetDeny bool
 	// VerifierExec is monomind.Exec; tests give a fake. Nothing else in the shipped path is a seam.
 	VerifierExec func(ctx context.Context, opts monomind.ExecOptions, onEvent func(monomind.Event)) (*monomind.TurnResult, error)
 	// SandboxFor overrides the verification environment (tests with a fake kernel give their own Placer); nil is the

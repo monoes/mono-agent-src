@@ -11,6 +11,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
+	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
 
 // The verification unit (note 13.6 section 5, note 13.2): the run's own unit is ended by the Stop that began the finish,
@@ -19,9 +20,19 @@ import (
 // by a name pattern), every criterion is BORN in a ticket sub-cgroup of it (stop.Placer, clone3 into the cgroup: no hold
 // stub), and at the end of the round the unit is ended through the same identity proof Stop uses.
 //
-// Not done here, and said so: the unit's intent and binding are not written to the witness (the witness is a chain of
-// the run's own generation, which ended at quiescent), and the unit is not a registry member kind `verify` (note 13.6
-// G3): a dead host leaves a unit that `doomsday stop` ends by its record, and nothing else tracks it.
+// The unit is a witnessed unit of the run's generation like the run's own: unit-intent before the service is asked for,
+// unit-bound before the record file (stop.UnitCreator with the sequencer as its journal), unit-ended after the identity
+// proof of its end (stop.NewWitnessEnder). It is also a registry member of kind `verify` (note 13.6 G3), registered before
+// any criterion starts and released only on that proof: a host that dies mid-round leaves a live member that blocks a new
+// run of the profile, and `doomsday stop` ends the unit by its record. With no witness (no sequencer) no unit is made.
+
+// RegisterVerify registers a verification unit as a member, after the witness's freshness check (store.RegisterVerify).
+func (s *SeqStore) RegisterVerify(ctx context.Context, m store.Member) error {
+	if err := s.check(ctx, m.Generation); err != nil {
+		return &store.Refusal{Reason: err.Error()}
+	}
+	return s.SQLStore.RegisterVerify(ctx, m)
+}
 
 func (e *FinishEngine) unitDir(gen, round int64) stop.RunDir {
 	return stop.RunDir{Dir: filepath.Join(e.area(), "units", fmt.Sprintf("g%d-r%d", gen, round))}
@@ -39,15 +50,23 @@ func (e *FinishEngine) sandbox(gen int64) func(ctx context.Context, round int64)
 		if err := w.Probe(); err != nil {
 			return finish.Sandbox{}, nil, fmt.Errorf("containment is not available: %w", err)
 		}
+		seq, err := w.Sequencer(ctx)
+		if err != nil {
+			return finish.Sandbox{}, nil, fmt.Errorf("no witness, so no verification unit can be recorded: %w", err)
+		}
 		dir := e.unitDir(gen, round)
-		if _, err := (stop.UnitCreator{K: w.Kernel, Dir: dir, Host: w.Host}).Create(ctx, uint64(gen)); err != nil {
+		rec, err := (stop.UnitCreator{K: w.Kernel, Dir: dir, Host: w.Host, Journal: seq}).Create(ctx, uint64(gen))
+		if err != nil {
 			return finish.Sandbox{}, nil, err
 		}
 		end := func() {
-			for _, n := range e.endUnit(dir, gen) {
-				e.notes = append(e.notes, n)
-			}
+			e.notes = append(e.notes, e.endUnit(dir, gen)...)
 			finish.RemoveTree(filepath.Join(dir.Dir, "scratch"))
+		}
+		m := store.Member{Profile: w.Profile, Generation: gen, ID: rec.Name, Kind: store.KindVerify, Pid: rec.AnchorPID, Stamp: rec.AnchorStamp}
+		if err := w.Chained().RegisterVerify(ctx, m); err != nil {
+			end()
+			return finish.Sandbox{}, nil, fmt.Errorf("the verification unit could not be registered as a member: %w", err)
 		}
 		placer, err := stop.NewPlacer(w.Kernel, dir, uint64(gen))
 		if err != nil {
@@ -59,11 +78,13 @@ func (e *FinishEngine) sandbox(gen int64) func(ctx context.Context, round int64)
 			end()
 			return finish.Sandbox{}, nil, err
 		}
-		return finish.Sandbox{Place: placer.Place, Scratch: scratch}, end, nil
+		return finish.Sandbox{Place: placer.Place, Scratch: scratch, Limits: e.Limits, RequireNetDeny: e.RequireNetDeny}, end, nil
 	}
 }
 
-// endUnit ends the unit recorded in dir and returns what could not be proven (empty when it is proven gone).
+// endUnit ends the unit recorded in dir through the witnessing ender (unit-ended is written when its end is proven) and
+// releases its member on that proof. It returns what could not be proven (empty when the unit is proven gone and
+// released); an unproven unit stays a live member.
 func (e *FinishEngine) endUnit(dir stop.RunDir, gen int64) []string {
 	w := e.W
 	if w.Kernel == nil {
@@ -75,9 +96,20 @@ func (e *FinishEngine) endUnit(dir stop.RunDir, gen int64) []string {
 	if w.Host != nil {
 		u.StopUnit = w.Host.StopUnit
 	}
-	out := u.End(ctx, uint64(gen), nil)
+	var ender stop.Ender = u
+	if seq, err := w.Sequencer(ctx); err == nil {
+		u.Witness = seq.BoundUnits
+		ender = stop.NewWitnessEnder(u, seq)
+	}
+	rec, hadRec, _ := dir.ReadUnitFile(uint64(gen))
+	out := ender.End(ctx, uint64(gen), nil)
 	switch out.Kind {
 	case stop.UnitEnded, stop.UnitNone:
+		if hadRec {
+			if err := w.Store.Release(ctx, w.Profile, gen, rec.Name); err != nil {
+				return []string{fmt.Sprintf("the verification unit of %s is gone but its member could not be released: %v", filepath.Base(dir.Dir), err)}
+			}
+		}
 		return nil
 	}
 	var why []string
