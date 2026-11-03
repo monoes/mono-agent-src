@@ -70,11 +70,16 @@ func persistedProfileForStop(path string) string {
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() > guiStateMaxBytes {
 		return ""
 	}
-	f, err := os.Open(path)
+	// No-follow, non-blocking open, then check the OPENED file: a path swapped for a symlink or a FIFO between the
+	// Lstat above and this open is refused, never followed and never waited on (Stop holds its busy lock here).
+	f, err := openChatFileNoFollow(path)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
+	if ofi, err := f.Stat(); err != nil || !ofi.Mode().IsRegular() || ofi.Size() > guiStateMaxBytes {
+		return ""
+	}
 	b, err := io.ReadAll(io.LimitReader(f, guiStateMaxBytes+1))
 	if err != nil || len(b) > guiStateMaxBytes {
 		return ""
@@ -87,7 +92,7 @@ func persistedProfileForStop(path string) string {
 }
 
 func stopProfileIDOK(id string) bool {
-	if !profiledir.ValidProfileID(id) || len(id) > profileIDMaxLen || strings.HasPrefix(id, "-") {
+	if !profiledir.ValidProfileID(id) || len(id) > profileIDMaxLen || strings.HasPrefix(id, "-") || id == "." || id == ".." {
 		return false
 	}
 	for _, r := range id {

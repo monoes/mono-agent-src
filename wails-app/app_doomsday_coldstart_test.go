@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/account/accounttest"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
@@ -85,6 +87,11 @@ func TestColdStartStopIgnoresATamperedStateFile(t *testing.T) {
 		"long id":    `{"selected_profile":"` + strings.Repeat("a", 300) + `"}`,
 		"oversized":  `{"selected_profile":"work","pad":"` + strings.Repeat("x", 70<<10) + `"}`,
 		"wrong type": `{"selected_profile":7}`,
+		"dot":        `{"selected_profile":"."}`,
+		"dotdot id":  `{"selected_profile":".."}`,
+		"non-ascii":  `{"selected_profile":"wörk"}`,
+		"confusable": `{"selected_profile":"w\u2011rk"}`,
+		"nul":        `{"selected_profile":"a\u0000b"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			log, _ := taskCLIFake(t, "stopped\n", 0)
@@ -152,5 +159,39 @@ func TestStopPrefersTheInMemorySelection(t *testing.T) {
 	coldStop(t, a)
 	if got := loggedArgs(t, log); len(got) != 1 || got[0] != "--profile|work|--json|doomsday|stop|" {
 		t.Fatalf("argv %q", got)
+	}
+}
+
+// A state file swapped for a FIFO must be refused without blocking the read (Stop holds its busy lock there).
+func TestColdStartStopIgnoresAFIFOStateFile(t *testing.T) {
+	log, _ := taskCLIFake(t, "stopped\n", 0)
+	a := coldStartApp(t)
+	if err := syscall.Mkfifo(guiStatePath(a.dbPath), 0o600); err != nil {
+		t.Skip("no mkfifo:", err)
+	}
+	done := make(chan coldStopDoc, 1)
+	go func() { done <- coldStop(t, a) }()
+	select {
+	case d := <-done:
+		if d.OK || !strings.Contains(d.Detail, "no profile selected") {
+			t.Fatalf("stop doc %+v", d)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("reading a FIFO state file blocked Stop")
+	}
+	if callCount(t, log) != 0 {
+		t.Fatal("the CLI ran")
+	}
+}
+
+// The read cap: a state file of exactly the cap that is valid JSON still works, one byte over does not.
+func TestColdStartStopReadCapIsEnforcedOnTheOpenedFile(t *testing.T) {
+	log, _ := taskCLIFake(t, "stopped\n", 0)
+	a := coldStartApp(t)
+	body := `{"selected_profile":"work","pad":"` + strings.Repeat("x", guiStateMaxBytes) + `"}`
+	writeState(t, a, body)
+	d := coldStop(t, a)
+	if d.OK || callCount(t, log) != 0 {
+		t.Fatalf("stop doc %+v", d)
 	}
 }
