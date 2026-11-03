@@ -256,10 +256,11 @@ var doomsdayStopMu sync.Mutex
 // answer is {"ok","stopped","output","detail","code"}: output is the CLI's own words (NOT stopped, survivors,
 // NOT RECORDED) and ok is true only for exit status 0. It is refused here when this process is not the user's own,
 // and the CLI checks the same gate again. It is never retried.
+//
+// Stop is the one doomsday binding that works signed out (openBindings in app_account_gate_test.go): the operator
+// stops a run whatever the monoes.me session says. So it begins without a.signedOut() and calls no account or network
+// function before the CLI; the operator gate below is its only check.
 func (a *App) DoomsdayStop() string {
-	if err := a.signedOut(); err != nil {
-		return loginRequiredJSON(err)
-	}
 	if why := opgate.Refusal(); why != "" {
 		return stopDoc(false, "", why, "operator_only")
 	}
