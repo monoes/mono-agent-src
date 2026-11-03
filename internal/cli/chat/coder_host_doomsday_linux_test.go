@@ -328,12 +328,12 @@ func TestInstallRunHooks(t *testing.T) {
 	legacy, bound := &execLauncher{}, &execLauncher{}
 	h := &coderhost.Host{L: &gatedLauncher{inner: legacy, bound: bound}}
 	st := coderhost.NewStore(nil)
-	hooks := RunHooks{RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_ context.Context, _, _, _ string, _ bool) error { return nil }}
+	hooks := RunHooks{Place: func(*exec.Cmd, string, string) (func(), error) { return nil, nil }, RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_ context.Context, _, _, _ string, _ bool) error { return nil }}
 	if err := InstallRunHooks(st, h, hooks); err != nil {
 		t.Fatal(err)
 	}
 	for name, l := range map[string]*execLauncher{"legacy": legacy, "bound": bound} {
-		if l.runStamp == nil || l.recordRun == nil || l.beforeRelease == nil {
+		if l.runStamp == nil || l.recordRun == nil || l.beforeRelease == nil || l.place == nil {
 			t.Errorf("%s launcher without its hooks: %+v", name, l)
 		}
 	}
@@ -436,5 +436,47 @@ func TestALegacyStartWithAPlacementIsRefused(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if _, err := os.Stat(filepath.Join(dir, "pid")); err == nil {
 		t.Error("the legacy process ran")
+	}
+}
+
+// A placement that replaces the launcher's process attributes (dropping the session or the pidfd) is refused BEFORE anything is started.
+func TestAPlacementThatReplacesTheProcessAttributesIsRefusedBeforeTheStart(t *testing.T) {
+	for name, mutate := range map[string]func(c *exec.Cmd){
+		"replaced":   func(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{} },
+		"nil":        func(c *exec.Cmd) { c.SysProcAttr = nil },
+		"no session": func(c *exec.Cmd) { c.SysProcAttr.Setsid = false },
+		"no pidfd":   func(c *exec.Cmd) { c.SysProcAttr.PidFD = nil },
+	} {
+		r := newBoundRig(t, "")
+		pidp := capturePid(r.l)
+		r.l.place = func(c *exec.Cmd, _, _ string) (func(), error) { mutate(c); return nil, nil }
+		_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+		if err == nil || !strings.Contains(err.Error(), "replaced the launcher's process attributes") {
+			t.Fatalf("%s: %v", name, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if pidp.Load() != 0 {
+			t.Errorf("%s: a process was started with attributes the launcher did not build", name)
+		}
+		if _, statErr := os.Stat(r.pidfile); statErr == nil {
+			t.Errorf("%s: the turn's script ran", name)
+		}
+	}
+}
+
+// A release that panics does not unwind the host: the start still succeeds with its child.
+func TestAPanickingPlacementReleaseDoesNotUnwindTheStart(t *testing.T) {
+	r := newBoundRig(t, "")
+	r.l.place = func(*exec.Cmd, string, string) (func(), error) { return func() { panic("release blew up") }, nil }
+	var logged atomic.Int32
+	r.l.logf = func(string, ...any) { logged.Add(1) }
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatalf("a panicking release failed the start: %v", err)
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+	if logged.Load() == 0 {
+		t.Error("the panic of the release was not logged")
 	}
 }

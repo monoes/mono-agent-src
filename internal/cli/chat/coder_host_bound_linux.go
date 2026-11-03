@@ -106,6 +106,12 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 			d.r.Close()
 			return err
 		}
+		// What the launcher built must have survived: a placement that replaced the struct would start a child that is no session leader
+		// or has no pidfd, so it is refused before anything exists.
+		if a := cmd.SysProcAttr; a == nil || !a.Setsid || a.PidFD != &d.pidfd {
+			d.r.Close()
+			return errors.New("the placement replaced the launcher's process attributes, so the turn was not started")
+		}
 	}
 	err := cmd.Start()
 	d.r.Close()

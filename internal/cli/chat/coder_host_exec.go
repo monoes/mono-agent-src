@@ -314,7 +314,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			}
 			err := bd.start(cmd, pre)
 			if release != nil {
-				release() // the placement's descriptor is needed until the process exists, no longer
+				// the placement's descriptor is needed until the process exists, no longer; a release that panics is not fatal to the host
+				if rerr := hookRecover("the placement release", func() error { release(); return nil }); rerr != nil && l.logf != nil {
+					l.logf("coder host: %v", rerr)
+				}
 			}
 			return err
 		}
