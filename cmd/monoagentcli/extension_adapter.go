@@ -5,8 +5,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/extensioncli"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/extension"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -21,7 +21,8 @@ func extensionDeps(cfg *globalConfig) extensioncli.Deps {
 		ResolveProfileID: resolveProfileID,
 		Version:          getVersion,
 		ServingCommand:   func(c *cobra.Command) *cobra.Command { return servingCommand(c) },
-		Refusal:          operator.Refusal,
+		Refusal:          opgate.Refusal,
+		RecoveryRefusal:  opgate.RecoveryRefusal,
 	}
 }
 

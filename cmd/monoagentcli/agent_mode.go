@@ -4,8 +4,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/agentmode"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/httpapi"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -18,7 +18,7 @@ func newAgentModeCmd(cfg *globalConfig) *cobra.Command {
 		NotFound:     errNotFound,
 		InvalidInput: errInvalidInput,
 		WriteJSON:    writeJSONTo,
-		Refusal:      operator.Refusal,
+		Refusal:      opgate.Refusal,
 		APIAddr:      func() string { return httpapi.ResolveAddr("") },
 	})
 }
