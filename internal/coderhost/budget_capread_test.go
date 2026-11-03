@@ -123,7 +123,8 @@ func (r *racingDB) QueryRow(query string, args ...any) *sql.Row {
 
 // A worker's reservation settles (its hold becomes spend) while the host decides a carve: spent and held always
 // add to 9 of the mission's 10, so a carve of 5 is refused in every consistent state. Reading the spend before
-// the settle and the hold after it saw 0 + 0 and let the carve through.
+// the settle and the hold after it saw 0 + 0 and passed the host's own check (only the admission, which read the
+// rows again, refused it, with another reason): the answer is that of the state the read started in.
 func TestMissionBudgetRefusalSeesASettleAsOneChange(t *testing.T) {
 	f := newHostFix(t)
 	f.setMissionBudget(t, 10)
@@ -138,8 +139,9 @@ func TestMissionBudgetRefusalSeesASettleAsOneChange(t *testing.T) {
 		}
 	}}
 	why, err := f.st.missionBudgetRefusal(q, "p", f.se.ID, f.lead.ConversationID, 5)
-	if err != nil || why == "" {
-		t.Fatalf("a carve of 5 passed while $9 of 10 was held then spent: %q, %v", why, err)
+	want := "a carve of $5.00 would pass the mission's remaining budget ($10.00 left, $9.00 held by child sessions)"
+	if err != nil || why != want {
+		t.Fatalf("a carve of 5 while $9 of 10 was held then spent: %q, %v; want %q", why, err, want)
 	}
 }
 
