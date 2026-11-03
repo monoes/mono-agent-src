@@ -2,9 +2,95 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 )
+
+func charterTree(t *testing.T, s *Store, db *sql.DB, rootBudget float64, kidBudget float64) []int64 {
+	t.Helper()
+	ids := []int64{rsession(t, s, db, rootBudget)}
+	for i := 1; i < MaxCharterSessionDepth; i++ {
+		ids = append(ids, rkid(t, s, db, ids[len(ids)-1], kidBudget, "running"))
+	}
+	in := map[int64]bool{}
+	for _, id := range ids {
+		in[id] = true
+	}
+	s.SetDepthPolicy(policyFor(in, MaxCharterSessionDepth))
+	return ids
+}
+
+func TestClampingReachesTheBottomOfATwelveLevelTree(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	ids := charterTree(t, s, db, 3, 8)
+	err := s.tx(bg, func(x dbx) error { return s.clampChildren(bg, x, ids[0], human, lowered{budget: true}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b float64
+	if err := db.QueryRow(`SELECT budget_usd FROM task_sessions WHERE id = ?`, ids[len(ids)-1]).Scan(&b); err != nil || b > 3 {
+		t.Fatalf("the deepest session was not clamped: %v %v", b, err)
+	}
+	s.SetDepthPolicy(nil)
+	err = s.tx(bg, func(x dbx) error { return s.clampChildren(bg, x, ids[0], human, lowered{budget: true}) })
+	if !errors.Is(err, ErrLimit) {
+		t.Fatalf("without the policy the walk fails closed: %v", err)
+	}
+}
+
+func TestAnUncappedReservationTwelveLevelsDownBlocksABudgetFloor(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	ids := charterTree(t, s, db, 0, 0)
+	if _, err := s.Reserve(bg, "default", ids[len(ids)-1], "a", "w", 0); err != nil {
+		t.Fatal(err)
+	}
+	se, err := s.GetSession(bg, "default", ids[0], human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.tx(bg, func(x dbx) error { return s.budgetFloor(bg, x, se, 5) })
+	if !errors.Is(err, ErrLimit) {
+		t.Fatalf("the uncapped reservation at level 12 must refuse the budget: %v", err)
+	}
+}
+
+func TestCreatingSessionsGoesToLevelTwelveUnderAPolicyAndStopsAtFourWithout(t *testing.T) {
+	for _, withPolicy := range []bool{true, false} {
+		s, _, _ := newTestStore(t)
+		if withPolicy {
+			s.SetDepthPolicy(func(context.Context, int64) int { return MaxCharterSessionDepth })
+		}
+		cur := mustSession(t, s, "default", "l1")
+		level := 1
+		for {
+			next, err := s.CreateSession(bg, "default", SessionInput{Title: "x", ParentSessionID: cur.ID}, human)
+			if err != nil {
+				if !errors.Is(err, ErrLimit) {
+					t.Fatal(err)
+				}
+				break
+			}
+			cur, level = next, level+1
+		}
+		want := HardMaxSessionDepth
+		if withPolicy {
+			want = MaxCharterSessionDepth
+		}
+		if level != want {
+			t.Fatalf("policy %v: the chain stopped at level %d, want %d", withPolicy, level, want)
+		}
+	}
+}
+
+func TestSubtreeListingReachesLevelTwelve(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	ids := charterTree(t, s, db, 0, 0)
+	got, _, err := s.ListSessionsChecked(bg, "default", SessionFilter{subtreeOf: ids[0]}, human)
+	if err != nil || len(got) != MaxCharterSessionDepth {
+		t.Fatalf("listed %d of %d: %v", len(got), MaxCharterSessionDepth, err)
+	}
+}
 
 func policyFor(charter map[int64]bool, levels int) DepthPolicy {
 	return func(_ context.Context, id int64) int {
