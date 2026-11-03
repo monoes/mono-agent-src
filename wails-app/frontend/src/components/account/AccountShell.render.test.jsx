@@ -6,7 +6,7 @@ import { render, screen, fireEvent, waitFor, cleanup, within, act } from '@testi
 
 const go = vi.hoisted(() => ({
   AccountStatus: vi.fn(), AccountLogin: vi.fn(), AccountLoginCancel: vi.fn(), AccountLogout: vi.fn(),
-  AccountLoginEmailSend: vi.fn(), AccountLoginEmailVerify: vi.fn(), AppSelfUpdate: vi.fn(),
+  AccountLoginEmailSend: vi.fn(), AccountLoginEmailVerify: vi.fn(), AppSelfUpdate: vi.fn(), QuitApp: vi.fn(),
 }))
 vi.mock('../../wailsjs/go/main/App', () => go)
 
@@ -226,6 +226,18 @@ describe('failing closed', () => {
     fireEvent.click(region.getByRole('button', { name: 'Update MonoAgent' }))
     expect(await region.findByText('Updated. MonoAgent restarts to finish.')).toBeInTheDocument()
     expect(go.AppSelfUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the notice of an update that did not restart the daemon, and quits only when asked', async () => {
+    answer({ v: 2, state: 'ok' })
+    setup()
+    const region = within(await gateRegion("MonoAgent's command-line tool is out of date"))
+    go.AppSelfUpdate.mockImplementation(() => Promise.resolve({ success: true, new_version: 'v9.9.9', notice: 'daemon is down\nThe update is installed; restart the app to use it.' }))
+    fireEvent.click(region.getByRole('button', { name: 'Update MonoAgent' }))
+    expect(await region.findByTestId('update-notice')).toHaveTextContent('daemon is down')
+    expect(go.QuitApp).not.toHaveBeenCalled()
+    fireEvent.click(region.getByTestId('update-notice-restart'))
+    expect(go.QuitApp).toHaveBeenCalledTimes(1)
   })
 
   it('does not lock on a failure before this build enforces: it warns with the date', async () => {

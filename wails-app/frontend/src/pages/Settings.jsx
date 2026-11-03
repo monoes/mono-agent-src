@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link2, ExternalLink, Download, Bot } from 'lucide-react'
 import { api } from '../services/api.js'
-import { GetVersion, CheckForUpdate, AppSelfUpdate, GetActiveProfile } from '../wailsjs/go/main/App'
+import { GetVersion, CheckForUpdate, AppSelfUpdate, GetActiveProfile, QuitApp } from '../wailsjs/go/main/App'
+import UpdateNotice from '../components/UpdateNotice.jsx'
 import { getAssistantTools, getAssistantAllowRuns, setAssistantTools, setAssistantAllowRuns } from '../lib/assistantTools.js'
 import RefreshButton from '../components/RefreshButton.jsx'
 import HealthSection from '../components/settings/HealthSection.jsx'
@@ -46,7 +47,7 @@ function VersionRow() {
   function doUpdate() {
     setUpdate(u => ({ ...u, updating: true }))
     AppSelfUpdate().then(r => {
-      if (r.success) setUpdate({ done: true, latest: r.new_version })
+      if (r.success) setUpdate({ done: true, latest: r.new_version, notice: r.notice, noticeOpen: !!r.notice })
       else setUpdate({ error: r.error })
     }).catch(e => setUpdate({ error: String(e) }))
   }
@@ -105,6 +106,14 @@ function VersionRow() {
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00f5d4', marginTop: 6 }}>
           Updated to {update.latest} — restart the app to apply.
         </div>
+      )}
+      {update?.done && update.noticeOpen && (
+        <UpdateNotice
+          notice={update.notice}
+          onRestart={() => QuitApp()}
+          onLater={() => setUpdate(u => ({ ...u, noticeOpen: false }))}
+          style={{ marginTop: 8 }}
+        />
       )}
       {update?.error && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)', marginTop: 6 }}>

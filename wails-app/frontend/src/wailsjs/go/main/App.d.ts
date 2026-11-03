@@ -635,6 +635,8 @@ export function QueueList():Promise<string>;
 
 export function QueueStart(arg1:string,arg2:string):Promise<string>;
 
+export function QuitApp():Promise<void>;
+
 export function ReadHILScreenshot(arg1:string):Promise<string>;
 
 export function ReadJSONFile(arg1:string):Promise<Record<string, any>>;

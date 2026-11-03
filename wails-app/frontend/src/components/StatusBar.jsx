@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { History, UserCheck } from 'lucide-react'
 import { getHealth, subscribeHealth, summarize } from '../lib/health.js'
-import { GetVersion, CheckForUpdate, AppSelfUpdate } from '../wailsjs/go/main/App'
+import { GetVersion, CheckForUpdate, AppSelfUpdate, QuitApp } from '../wailsjs/go/main/App'
 import { subscribeEvent } from '../services/api.js'
 import { toggleHistory } from './history/historyBus.js'
+import UpdateNotice from './UpdateNotice.jsx'
 
 // HealthDot: the latest System health verdict (the background check runs on
 // start and every 30 minutes, see lib/health.js); click opens Settings.
@@ -87,7 +88,7 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
     AppSelfUpdate()
       .then(result => {
         if (result.success) {
-          setUpdate({ done: true, latest: result.new_version })
+          setUpdate({ done: true, latest: result.new_version, notice: result.notice, noticeOpen: !!result.notice })
         } else {
           setUpdate({ error: result.error })
         }
@@ -121,7 +122,7 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
       </div>
 
       {/* Version + update indicator */}
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, position: 'relative' }}>
         <HealthDot onOpen={onOpenHealth} />
         {/* Update status popover */}
         {update && (
@@ -179,11 +180,21 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
               <span style={{ color: '#00b4d8' }}>{update.progress || 'Updating...'}</span>
             )}
             {update.done && (
-              <span style={{ color: '#00f5d4' }}>Updated to {update.latest} — restart to apply</span>
+              <span style={{ color: update.notice ? '#fbbf24' : '#00f5d4' }}>
+                Updated to {update.latest} — restart to apply
+              </span>
             )}
           </div>
         )}
 
+        {update?.done && update.noticeOpen && (
+          <UpdateNotice
+            notice={update.notice}
+            onRestart={() => QuitApp()}
+            onLater={() => setUpdate(u => ({ ...u, noticeOpen: false }))}
+            style={{ position: 'absolute', right: 8, bottom: '100%', marginBottom: 4, zIndex: 50 }}
+          />
+        )}
         <span
           onClick={handleVersionClick}
           title="Click to check for updates"
