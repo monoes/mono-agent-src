@@ -148,6 +148,9 @@ type UnitEnder struct {
 	Dir     RunDir
 	Witness func(gen uint64) []UnitRecord
 	Cfg     EndConfig
+	// StopUnit stops the run unit's service once every member of the unit is ended (UnitCreator's Host). Without
+	// it the anchor and the unit's cgroup stay. It is never the proof: after it the cgroup must be absent.
+	StopUnit func(ctx context.Context, name string) error
 }
 
 // End proves each candidate unit and ends it. A unit that is present on the machine for this generation but
@@ -180,7 +183,7 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 		notes = append(notes, "the witness and the run directory file disagree; both named units are ended")
 	}
 	for _, rec := range cands {
-		o := u.endOne(rec, cfg)
+		o := u.endOne(ctx, rec, cfg)
 		res = mergeOutcome(res, o)
 		if o.Note != "" {
 			notes = append(notes, o.Note)
@@ -194,7 +197,7 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 	return res
 }
 
-func (u UnitEnder) endOne(rec UnitRecord, cfg EndConfig) UnitOutcome {
+func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig) UnitOutcome {
 	p, err := ProveUnit(u.K, rec)
 	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
@@ -203,7 +206,33 @@ func (u UnitEnder) endOne(rec UnitRecord, cfg EndConfig) UnitOutcome {
 		return UnitOutcome{Kind: UnitEnded, Note: p.Note}
 	}
 	defer p.Cg.Close()
-	return EndUnit(p.Cg, cfg)
+	out := EndUnit(p.Cg, cfg)
+	if out.Kind == UnitEnded && len(cfg.Exclude) == 0 && u.StopUnit != nil {
+		out = u.stopService(ctx, rec, out)
+	}
+	return out
+}
+
+// stopService ends the anchor and removes the unit's cgroup through the manager, then checks that the cgroup is
+// really absent: a unit that is still there is reported as a straggler, never as ended.
+func (u UnitEnder) stopService(ctx context.Context, rec UnitRecord, out UnitOutcome) UnitOutcome {
+	left := func(why string) UnitOutcome {
+		out.Kind = UnitStragglers
+		out.Survivors = append(out.Survivors, Survivor{PID: rec.AnchorPID, Stamp: rec.AnchorStamp, Comm: "anchor", Why: why})
+		return out
+	}
+	if err := u.StopUnit(ctx, rec.Name); err != nil {
+		return left("the unit's service could not be stopped: " + err.Error())
+	}
+	cg, err := u.K.OpenCgroup(rec.CgroupPath)
+	switch {
+	case err == nil:
+		cg.Close()
+		return left("the unit's cgroup is still present after its service was stopped")
+	case !u.K.IsAbsent(err):
+		return left("the unit's cgroup cannot be checked after its service was stopped: " + err.Error())
+	}
+	return out
 }
 
 // unbound lists the units of this generation visible on the machine that no record binds.

@@ -3,10 +3,12 @@
 package stop
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -42,9 +44,9 @@ func kernelAtLeast(major, minor int) error {
 	return nil
 }
 
-// linuxProbeSteps are the real checks. What they do NOT prove (note 13.2 section 10 items 3 and 5): that a
-// transient service with Delegate=yes can be started, and that clone3 with CLONE_INTO_CGROUP works; those need
-// the real systemd user manager and are verified by hand, not here.
+// linuxProbeSteps are the real checks. The last one starts a real transient service with Delegate=yes and a
+// process born in a sub-cgroup of it by clone3 with CLONE_INTO_CGROUP (note 13.2 section 10 items 3, 5 and 8); it
+// touches only a test unit it creates and removes itself.
 func linuxProbeSteps() []ProbeStep {
 	return []ProbeStep{
 		{"cgroup v2 unified hierarchy", func() error {
@@ -85,6 +87,15 @@ func linuxProbeSteps() []ProbeStep {
 				return err
 			}
 			return unix.Close(fd)
+		}},
+		{"delegated transient unit and clone3 CLONE_INTO_CGROUP self-test", func() error {
+			sleepBin, err := trustedBinary("/usr/bin/sleep", "/bin/sleep")
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			return selfTest(ctx, SystemHost(), LinuxKernel{}, sleepBin)
 		}},
 	}
 }

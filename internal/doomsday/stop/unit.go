@@ -22,6 +22,11 @@ type UnitRecord struct {
 	OwnerUID   uint32 `json:"owner_uid"`
 	Nonce      string `json:"nonce"`
 	Generation uint64 `json:"generation"`
+	// AnchorPID and AnchorStamp identify the one process the service itself runs (it runs no user code). They
+	// let "the unit holds no member" be answered without counting the anchor; a record without them counts every
+	// process as a member.
+	AnchorPID   int    `json:"anchor_pid,omitempty"`
+	AnchorStamp string `json:"anchor_stamp,omitempty"`
 }
 
 var unitName = regexp.MustCompile(`^monoagent-run-([0-9]+)-([0-9a-f]{32})\.service$`)
