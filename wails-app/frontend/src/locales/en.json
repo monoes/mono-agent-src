@@ -18,8 +18,10 @@
       "info": "Info",
       "tasks": "Tasks",
       "logs": "Live Logs",
+      "controlroom": "Control room",
       "settings": "Settings"
     },
+    "runActive": "run active",
     "section": {
       "MAIN": "MAIN",
       "DATA": "DATA",
@@ -2489,5 +2491,76 @@
     "saveFailed": "Could not change the mission setting: {{error}}",
     "runningSession": "Running a mission (session {{id}})",
     "unreadable": "Mission state unknown"
+  },
+  "controlRoom": {
+    "title": "Control room",
+    "subtitle": "Live view of the open-ended run. You can read it and stop it; it can only be started from the terminal.",
+    "loading": "Loading...",
+    "off": "The open-ended mode is not available in this install.",
+    "noRun": "There is no run for this profile.",
+    "error": "Could not read the control room: {{message}}",
+    "integrity": {
+      "yes": "Audit chain verified",
+      "no": "Audit chain does NOT verify",
+      "unknown": "Audit chain not checked"
+    },
+    "run": {
+      "active": "Run active",
+      "stopping": "Run stopping",
+      "ended": "Run ended",
+      "generation": "generation {{n}}",
+      "charter": "Charter"
+    },
+    "badChain": {
+      "titleNo": "The audit chain does not verify",
+      "titleUnknown": "The audit chain could not be checked",
+      "body": "The tree, the spend and the decision feed are hidden because they cannot be trusted. Stop is still available."
+    },
+    "tree": {
+      "title": "Members by kind",
+      "counts": "{{live}} live of {{total}}",
+      "row": "{{live}} / {{total}}",
+      "empty": "No members registered.",
+      "truncated": "Some kinds are not shown."
+    },
+    "spend": {
+      "title": "Spend",
+      "meter": "Spend against the cap",
+      "noCeiling": "This run has no spend ceiling.",
+      "noBudget": "No spend budget is set.",
+      "over": "Over the cap.",
+      "rate": "About {{rate}} per hour (approx, from this window)",
+      "rateNone": "Rate: not enough readings yet (approx, from this window)",
+      "split": "asks {{ask}}, grants {{grant}}"
+    },
+    "feed": {
+      "title": "Decisions",
+      "empty": "No decisions yet.",
+      "older": "Older decisions",
+      "exceeded": "over: {{what}}",
+      "class": {
+        "run": "run",
+        "approval": "approval",
+        "plan": "plan",
+        "ask_answer": "ask answered",
+        "grant": "grant",
+        "spend": "spend",
+        "park": "parked",
+        "finish": "finish",
+        "refusal": "refused",
+        "other": "other"
+      }
+    },
+    "stop": {
+      "title": "Stop",
+      "cannot": "Stop ends the run and cannot be undone; resuming means a new run started in the terminal. The result below is exactly what the command said.",
+      "button": "Stop run",
+      "stopping": "Stopping...",
+      "confirmTitle": "Confirm stop",
+      "confirmBody": "Stop the run now?",
+      "confirm": "Yes, stop the run",
+      "cancel": "Cancel",
+      "failed": "NOT confirmed stopped"
+    }
   }
 }

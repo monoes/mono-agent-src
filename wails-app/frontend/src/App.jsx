@@ -32,6 +32,8 @@ import Applications from './pages/Applications.jsx'
 import Documents from './pages/Documents.jsx'
 import Info from './pages/Info.jsx'
 import Tasks from './pages/Tasks.jsx'
+import ControlRoom from './pages/ControlRoom/ControlRoom.jsx'
+import { useControlRoomProbe } from './lib/useControlRoomProbe.js'
 import FileViewerModal, { fileViewerKind } from './components/FileViewerModal.jsx'
 import * as WailsApp from './wailsjs/go/main/App'
 import { api, notify, onLogEntry, onOrgDesignUpdated, subscribeEvent } from './services/api.js'
@@ -58,6 +60,7 @@ export default function App({ banners = null }) {
   const [visitedPages, setVisitedPages] = useState(() => new Set(['dashboard']))
   const [globalHilOpen, setGlobalHilOpen] = useState(false)
   const [globalHilCount, setGlobalHilCount] = useState(0) // reported by the open drawer (incl. org items)
+  const controlRoom = useControlRoomProbe()
   const { count: pendingCount } = usePendingCount()     // Jev-free summary count, drawer closed
   // The document a chat result artifact card asked to open (Task 6) — a
   // separate instance from Documents.jsx's own viewingDoc, since that page
@@ -280,6 +283,7 @@ export default function App({ banners = null }) {
     documents: <Documents isActive={activePage === 'documents'} />,
     info: <Info isActive={activePage === 'info'} />,
     tasks: <Tasks isActive={activePage === 'tasks'} navData={activePage === 'tasks' ? navData : null} />,
+    ...(controlRoom.show ? { controlroom: <ControlRoom isActive={activePage === 'controlroom'} /> } : {}),
     ai: <Agents />,
     orgs: <Orgs isActive={activePage === 'orgs'} onNavigate={navigate} pendingSelectOrgName={pendingOrgSelect} onConsumePendingSelect={() => setPendingOrgSelect(null)} />,
     logs:      <Logs logs={logs} onClear={() => { api.clearLogs(); setLogs([]) }} onRefresh={refreshLogs} />,
@@ -312,6 +316,7 @@ export default function App({ banners = null }) {
         onNavigate={navigate}
         stats={stats}
         dbConnected={dbConnected}
+        controlRoom={controlRoom}
       />
       <div style={{ display: 'flex', flexDirection: 'row', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         <main className="main-content">

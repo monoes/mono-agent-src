@@ -1,0 +1,50 @@
+import { useTranslation } from 'react-i18next'
+import { controlRoomApi } from '../../services/controlRoom.js'
+import { useControlRoom } from './useControlRoom.js'
+import RunHeader from './RunHeader.jsx'
+import BadChainBanner from './BadChainBanner.jsx'
+import TreeClusters from './TreeClusters.jsx'
+import SpendMeter from './SpendMeter.jsx'
+import DecisionFeed from './DecisionFeed.jsx'
+import StopPanel from './StopPanel.jsx'
+import './controlRoom.css'
+
+// The doomsday control room: reads `doomsday overview` and `doomsday feed`, offers one action, Stop. It never starts
+// a run and has no approve, pause or resume. Nothing here is a healthy state unless the audit chain verified.
+export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
+  const { t } = useTranslation()
+  const { doc, view, feed, rate, updatedAt, loadOlder, refresh } = useControlRoom(isActive, api)
+  const run = doc?.run
+  const showStop = view.state === 'ok' || (view.state === 'error' && !!updatedAt && !!run)
+  return (
+    <div className="cr-page" data-testid="cr-page">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">{t('controlRoom.title')}</h1>
+          <p className="page-subtitle">{t('controlRoom.subtitle')}</p>
+        </div>
+      </div>
+      <div className="page-body">
+        {doc === null ? <p className="cr-meta" data-testid="cr-loading">{t('controlRoom.loading')}</p> : null}
+        {view.state === 'off' ? <p className="cr-meta" data-testid="cr-off">{t('controlRoom.off')}</p> : null}
+        {view.state === 'no_run' ? <p className="cr-meta" data-testid="cr-no-run">{t('controlRoom.noRun')}</p> : null}
+        {view.state === 'error' && doc !== null ? (
+          <p className="cr-warn" role="alert" data-testid="cr-error">{t('controlRoom.error', { message: view.message })}</p>
+        ) : null}
+        {view.state === 'ok' ? (
+          <>
+            <RunHeader run={run} integrity={doc.integrity} />
+            {view.chain !== 'yes' ? <BadChainBanner chain={view.chain} reason={doc.integrity?.reason} /> : (
+              <div className="cr-grid">
+                <TreeClusters tree={doc.tree} />
+                <SpendMeter spend={doc.spend} rate={rate} />
+                <DecisionFeed feed={feed} onLoadOlder={loadOlder} />
+              </div>
+            )}
+          </>
+        ) : null}
+        {showStop ? <StopPanel api={api} disabled={!!run && !run.active} onDone={refresh} /> : null}
+      </div>
+    </div>
+  )
+}
