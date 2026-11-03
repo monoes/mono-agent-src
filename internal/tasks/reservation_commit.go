@@ -123,8 +123,8 @@ func (s *Store) commitWalkWith(ctx context.Context, x dbx, profileID string, id 
 	if err != nil {
 		return c, fmt.Errorf("tasks: reading the children of session #%d: %w", id, err)
 	}
-	if depth >= HardMaxSessionDepth && len(kids) > 0 {
-		return c, limit("session #%d has sessions deeper than %d levels below it", id, HardMaxSessionDepth)
+	if maxDepth := s.depthLimit(ctx, id); depth >= maxDepth && len(kids) > 0 {
+		return c, limit("session #%d has sessions deeper than %d levels below it", id, maxDepth)
 	}
 	// A coder child of the host that has task sessions below this one (session_spawn makes both) is one child: its
 	// task sessions are grouped by the conversation they carry, and the group holds the larger of the coder cap and

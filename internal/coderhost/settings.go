@@ -122,7 +122,10 @@ func within(name string, v, lo, hi int) error {
 }
 
 // Validate says whether s may be stored.
-func (s Settings) Validate() error {
+func (s Settings) Validate() error { return s.validateAt(MaxSessionDepth) }
+
+// validateAt is Validate with the deepest max_depth the session's tree allows (the store's depthCeiling).
+func (s Settings) validateAt(depthCeiling int) error {
 	if s.CheckinMinutes != 0 {
 		if err := within("checkin_minutes", s.CheckinMinutes, 1, 1440); err != nil {
 			return err
@@ -169,7 +172,7 @@ func (s Settings) Validate() error {
 	if err := within("max_concurrent", s.MaxConcurrent, 1, 10); err != nil {
 		return err
 	}
-	if err := within("max_depth", s.MaxDepth, 1, MaxSessionDepth); err != nil { // the hard limit of the design (tasks.HardMaxSessionDepth)
+	if err := within("max_depth", s.MaxDepth, 1, depthCeiling); err != nil { // the hard limit of the design (tasks.HardMaxSessionDepth), or a charter's
 		return err
 	}
 	if s.MissionDirections != nil {
@@ -198,7 +201,10 @@ func (s Settings) Validate() error {
 // Apply returns s with the fields of patch (a JSON object) replaced, after
 // checking the result. A key that is not a setting is refused, so a typo does
 // not silently change nothing. It also returns the keys the patch changed.
-func (s Settings) Apply(patch []byte) (Settings, []string, error) {
+func (s Settings) Apply(patch []byte) (Settings, []string, error) { return s.applyAt(patch, MaxSessionDepth) }
+
+// applyAt is Apply with the deepest max_depth the session's tree allows.
+func (s Settings) applyAt(patch []byte, depthCeiling int) (Settings, []string, error) {
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(patch, &keys); err != nil {
 		return s, nil, fmt.Errorf("the patch is not a JSON object: %w", err)
@@ -226,7 +232,7 @@ func (s Settings) Apply(patch []byte) (Settings, []string, error) {
 	if out.CheckinTriggers == nil {
 		out.CheckinTriggers = []string{}
 	}
-	if err := out.Validate(); err != nil {
+	if err := out.validateAt(depthCeiling); err != nil {
 		return s, nil, err
 	}
 	changed := make([]string, 0, len(keys))
@@ -258,11 +264,11 @@ func (s *Store) GetSettings(profileID, conversationID string) (Settings, error) 
 func (s *Store) settingsIn(q querier, profileID, conversationID string) (Settings, error) {
 	var raw string
 	err := q.QueryRow(`SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
-	return settingsFromRow(conversationID, raw, err)
+	return settingsFromRow(conversationID, raw, err, s.depthCeiling(profileID, conversationID))
 }
 
 // settingsFromRow is the settings a row read gave: no row, or nothing stored, is the defaults.
-func settingsFromRow(conversationID, raw string, err error) (Settings, error) {
+func settingsFromRow(conversationID, raw string, err error, depthCeiling int) (Settings, error) {
 	def := DefaultSettings()
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && (raw == "" || raw == "{}")) {
 		return def, nil // no row, or nothing stored: the defaults
@@ -270,7 +276,7 @@ func settingsFromRow(conversationID, raw string, err error) (Settings, error) {
 	if err != nil {
 		return def, fmt.Errorf("coder host: reading the settings of %s: %w", conversationID, err) // a database error is not "no settings"
 	}
-	out, _, err := def.Apply([]byte(raw))
+	out, _, err := def.applyAt([]byte(raw), depthCeiling)
 	if err != nil {
 		return def, fmt.Errorf("coder host: stored settings of %s are not valid: %w", conversationID, err)
 	}
@@ -281,7 +287,7 @@ func settingsFromRow(conversationID, raw string, err error) (Settings, error) {
 // gives it), for a caller that reads the row inside a transaction of its own. A missing row (sql.ErrNoRows as
 // err) is the defaults.
 func ParseSettings(conversationID, raw string, err error) (Settings, error) {
-	return settingsFromRow(conversationID, raw, err)
+	return settingsFromRow(conversationID, raw, err, MaxSessionDepth)
 }
 
 // SettingsChange computes the settings a write stores from the settings as they are NOW: cur was read inside the
@@ -326,7 +332,7 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	}
 	var raw string
 	err = conn.QueryRowContext(ctx, `SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
-	cur, err := settingsFromRow(conversationID, raw, err)
+	cur, err := settingsFromRow(conversationID, raw, err, s.depthCeiling(profileID, conversationID))
 	if err != nil && strict {
 		return Settings{}, err
 	}
@@ -337,7 +343,7 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	if err != nil {
 		return Settings{}, err
 	}
-	if err := next.Validate(); err != nil {
+	if err := next.validateAt(s.depthCeiling(profileID, conversationID)); err != nil {
 		return Settings{}, err
 	}
 	out, err := json.Marshal(next)

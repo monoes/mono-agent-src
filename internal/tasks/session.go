@@ -431,7 +431,7 @@ func (s *Store) ListSessionsChecked(ctx context.Context, profileID string, f Ses
 			UNION
 			SELECT t.id, sub.depth + 1 FROM task_sessions t JOIN sub ON t.parent_session_id = sub.id
 			WHERE t.profile_id = ? AND sub.depth < ?) SELECT id FROM sub)`
-		args = append(args, f.subtreeOf, profileID, profileID, HardMaxSessionDepth)
+		args = append(args, f.subtreeOf, profileID, profileID, s.depthLimit(ctx, f.subtreeOf))
 	}
 	q += ` ORDER BY id DESC`
 	out := []Session{}

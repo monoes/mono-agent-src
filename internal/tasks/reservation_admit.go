@@ -74,11 +74,16 @@ func (s *Store) fits(ctx context.Context, x dbx, profileID string, sessionID int
 // Overcommitted says why the session or a budgeted ancestor is committed past its budget, or "". It is the check
 // after a hold was written in the same transaction: a statement that took a carve calls it, and rolls back on a reason.
 func Overcommitted(ctx context.Context, x Queryer, profileID string, sessionID int64) (string, error) {
-	s := NewStore(nil)
+	return NewStore(nil).Overcommitted(ctx, x, profileID, sessionID)
+}
+
+// Overcommitted is the package function with the store's depth policy, so a charter tree is walked to its depth.
+func (s *Store) Overcommitted(ctx context.Context, x Queryer, profileID string, sessionID int64) (string, error) {
 	seen := map[int64]bool{}
+	maxDepth := s.depthLimit(ctx, sessionID)
 	for cur, step := sessionID, 0; ; step++ {
-		if seen[cur] || step > HardMaxSessionDepth {
-			return "", invalid("session #%d is in a cycle of parents or deeper than %d levels", sessionID, HardMaxSessionDepth)
+		if seen[cur] || step > maxDepth {
+			return "", invalid("session #%d is in a cycle of parents or deeper than %d levels", sessionID, maxDepth)
 		}
 		seen[cur] = true
 		c, err := s.commitmentTx(ctx, x, profileID, cur)
