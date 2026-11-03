@@ -34,6 +34,7 @@ type AppResult struct {
 	// StaleCLIs are other mono-agent CLIs older than the release (the one on PATH, the one a daemon service starts): not
 	// changed here, each with the command that updates it.
 	StaleCLIs []StaleCLI `json:"stale_clis,omitempty"`
+	cli       []byte     // the verified CLI of the release, when the app's download carried one (appupdate.Result.CLI)
 	// Bridge is what the update did about the extension bridge; absent when none ran or it already ran this version.
 	Bridge *BridgeUpdate `json:"bridge,omitempty"`
 	Error  string        `json:"error,omitempty"`
@@ -54,21 +55,25 @@ func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
 			return err
 		}
 		res.Error = err.Error()
-	} else if !res.UpToDate {
-		// The files are replaced; a daemon still runs the old ones. The app relays this line.
-		if res.Daemon = d.daemonAfterUpdate(cmd.Context(), res.NewVersion); res.Daemon != nil {
+	} else {
+		// The files are replaced; the other CLIs of the machine (the one a daemon service starts, the one on PATH) are brought
+		// onto the same verified release, then the daemon and the bridge are restarted onto them, then the old binaries are
+		// dropped or, if the daemon did not come up, put back. The app relays each line.
+		stale := d.staleAfterApp(cmd.Context(), appPath, current, res)
+		if !res.UpToDate {
+			res.Daemon = d.daemonAfterUpdate(cmd.Context(), res.NewVersion)
+			res.Bridge = d.bridgeAfterUpdate(cmd.Context(), res.NewVersion)
+			res.Daemon = d.settleReplaced(cmd.Context(), stale, res.Daemon, res.Bridge)
+		}
+		res.StaleCLIs = stale
+		for _, s := range stale {
+			progress(s.Message)
+		}
+		if res.Daemon != nil {
 			progress(res.Daemon.Message)
 		}
-	}
-	if err == nil && !res.UpToDate {
-		if res.Bridge = d.bridgeAfterUpdate(cmd.Context(), res.NewVersion); res.Bridge != nil {
+		if res.Bridge != nil {
 			progress(res.Bridge.Message)
-		}
-	}
-	if err == nil {
-		res.StaleCLIs = d.staleAfterApp(cmd.Context(), appPath, current, res)
-		for _, s := range res.StaleCLIs {
-			progress(s.Message)
 		}
 	}
 	if d.JSONOutput() {
@@ -109,11 +114,14 @@ func (d Deps) updateApp(cmd *cobra.Command, appPath, current string, force bool,
 	if err != nil {
 		return AppResult{}, err
 	}
-	return AppResult{Success: true, UpToDate: r.UpToDate, NewVersion: r.NewVersion, Restart: r.Restart}, nil
+	return AppResult{Success: true, UpToDate: r.UpToDate, NewVersion: r.NewVersion, Restart: r.Restart, cli: r.CLI}, nil
 }
 
-// staleAfterApp lists the CLIs the app update left behind: reported only, since the verified assets are the app's.
+// staleAfterApp brings the CLIs the app update left behind onto the release: the daemon service's exe and the one on PATH are
+// replaced, by the rules of staleCLIs, from the CLI inside the verified download (never from anything else, and nothing is
+// executed but the new binary's own version check); where the download held no CLI they are only reported.
 func (d Deps) staleAfterApp(ctx context.Context, appPath, current string, res AppResult) []StaleCLI {
+	// replaced only when the release is new (not when the app was already current) and its download held a CLI
 	ver := res.NewVersion
 	if ver == "" {
 		ver = current
@@ -131,5 +139,9 @@ func (d Deps) staleAfterApp(ctx context.Context, appPath, current string, res Ap
 	if cli, ok := appupdate.SiblingCLI(filepath.Dir(appPath), runtime.GOOS, runtime.GOARCH); ok {
 		skip = append(skip, cli)
 	}
-	return d.staleCLIs(ctx, ver, skip, nil)
+	var data []byte
+	if !res.UpToDate {
+		data = res.cli
+	}
+	return d.staleCLIs(ctx, ver, skip, data)
 }
