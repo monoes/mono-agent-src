@@ -26,9 +26,30 @@ type StoreEngine struct {
 	// BeforeStart runs before a charter is entered: it revisits what a dead host left (merge members, note 13.3).
 	// An error refuses the start.
 	BeforeStart func(ctx context.Context) error
+	// Binding says whether security.peercred_binding is on. A run needs bound turns: nil, an error and false all
+	// refuse the start.
+	Binding func(ctx context.Context) (bool, error)
 }
 
 var errNoProbe = errors.New("no containment probe is wired, so containment cannot be shown to be available")
+
+// ErrBindingOff is why a run does not start while peer-credential binding is off ("no run without binding").
+var ErrBindingOff = errors.New("no run without binding: peer-credential binding is off, and an open-ended run needs every turn's tokens bound to its process; switch it on first (coder set --peercred-binding on)")
+
+// RequireBinding is nil only when binding is on. The start asks it before the charter is shown and again in Enter.
+func (e *StoreEngine) RequireBinding(ctx context.Context) error {
+	if e.Binding == nil {
+		return fmt.Errorf("no run without binding: whether peer-credential binding is on is not known on this install")
+	}
+	on, err := e.Binding(ctx)
+	if err != nil {
+		return fmt.Errorf("no run without binding: whether peer-credential binding is on cannot be read: %w", err)
+	}
+	if !on {
+		return ErrBindingOff
+	}
+	return nil
+}
 
 func (e *StoreEngine) Containment() error {
 	if e.ContainmentProbe == nil {
@@ -65,6 +86,9 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	}
 	var confirmed [32]byte
 	copy(confirmed[:], raw)
+	if err := e.RequireBinding(ctx); err != nil {
+		return Entry{}, err
+	}
 	if e.BeforeStart != nil {
 		if err := e.BeforeStart(ctx); err != nil {
 			return Entry{}, fmt.Errorf("a begun merge of an earlier run could not be revisited, so nothing was started: %w", err)

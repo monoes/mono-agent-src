@@ -65,7 +65,8 @@ func newWire(t *testing.T, probe func() error, kernel stop.Kernel, revokeErr err
 		Store: store.New(db.DB, store.NewHMACKeyer([]byte("k"))), Profile: "p1",
 		RunDir: stop.RunDir{Dir: t.TempDir() + "/run"},
 		Probe:  probe, Kernel: kernel,
-		Tokens: CoderTokens{DB: db.DB, Profile: "p1", Host: recordingHost{CoderHost: host, revokeErr: revokeErr}},
+		Binding: func(context.Context) (bool, error) { return true, nil },
+		Tokens:  CoderTokens{DB: db.DB, Profile: "p1", Host: recordingHost{CoderHost: host, revokeErr: revokeErr}},
 	}
 	r := newRig()
 	e := w.Engine()

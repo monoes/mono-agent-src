@@ -68,6 +68,12 @@ type Engine interface {
 	Status(ctx context.Context) (Status, error)
 }
 
+// BindingRequirer is an Engine that also knows whether peer-credential binding is on: a run needs bound turns, so
+// `start` asks it before showing the charter (the StoreEngine asks again in Enter).
+type BindingRequirer interface {
+	RequireBinding(ctx context.Context) error
+}
+
 // Off is the Engine of an install that does not carry the mode: it can do
 // nothing, so no run can start.
 type Off struct{}
