@@ -45,7 +45,7 @@ func (s *Store) refuseUnboundedBelow(ctx context.Context, x dbx, se Session) err
 			WHERE t.profile_id = ? AND sub.depth < ?)
 		SELECT session_id, worker_ref, state FROM task_session_reservations
 		WHERE profile_id = ? AND bounded = 0 AND state IN ('live', 'expired') AND session_id IN (SELECT id FROM sub)
-		ORDER BY id`, se.ID, se.ProfileID, s.depthLimit(ctx, se.ID), se.ProfileID)
+		ORDER BY id`, se.ID, se.ProfileID, s.walkLimit(ctx, se.ID), se.ProfileID)
 	if err != nil {
 		return fmt.Errorf("tasks: reading the uncapped reservations of session #%d: %w", se.ID, err)
 	}

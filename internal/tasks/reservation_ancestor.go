@@ -33,7 +33,7 @@ type hypo struct {
 func (s *Store) ancestorGrant(ctx context.Context, x dbx, profileID string, target int64, g int64) (grant int64, found bool, err error) {
 	seen := map[int64]bool{target: true}
 	cur := target
-	maxDepth := s.depthLimit(ctx, target)
+	maxDepth := s.walkLimit(ctx, target)
 	for step := 1; ; step++ {
 		var parent sql.NullInt64
 		if err := x.QueryRowContext(ctx, `SELECT parent_session_id FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, cur).Scan(&parent); err != nil {

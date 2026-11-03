@@ -64,3 +64,27 @@ func TestPolicyAbove12IsClampedAndNoPolicyKeepsFour(t *testing.T) {
 		t.Fatalf("Apply at ceiling 12: %v", err)
 	}
 }
+
+// A charter session keeps the max_depth it was given after the run ends: its settings stay readable and writable, and
+// the lapse does not let anything be raised.
+func TestADeepCharterSessionsSettingsStayReadableAfterThePolicyLapses(t *testing.T) {
+	st := newStoreT(t)
+	st.SetDepthPolicy(charterDepth(12))
+	root, _ := master(t, st, "coding")
+	if err := setMaxDepth(st, root, 8); err != nil {
+		t.Fatal(err)
+	}
+	st.SetDepthPolicy(charterDepth(0)) // the run ended
+	if s, err := st.GetSettings("p", root.ConversationID); err != nil || s.MaxDepth != 8 {
+		t.Fatalf("settings after the lapse: %+v %v", s, err)
+	}
+	if _, err := st.UpdateSettings("p", root.ConversationID, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
+		cur.MaxDepth = 6 // lowering is allowed
+		return cur, nil
+	}); err != nil {
+		t.Fatalf("lowering after the lapse: %v", err)
+	}
+	if err := setMaxDepth(st, root, 8); err == nil {
+		t.Fatal("raising max_depth after the lapse was accepted")
+	}
+}

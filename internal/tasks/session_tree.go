@@ -34,7 +34,7 @@ func agentMayStart(actor Actor, parent int64) error {
 // a chain deeper than HardMaxSessionDepth.
 func (s *Store) sessionChain(ctx context.Context, x dbx, id int64) ([]int64, error) {
 	chain := []int64{}
-	maxDepth := s.depthLimit(ctx, id)
+	maxDepth := s.walkLimit(ctx, id)
 	for cur := id; cur != 0; {
 		if slices.Contains(chain, cur) {
 			return nil, invalid("session #%d is in a cycle of parents", id)
@@ -100,7 +100,7 @@ type ceiling struct {
 func (s *Store) ceilingAt(ctx context.Context, x dbx, profileID string, id int64) (ceiling, error) {
 	c := ceiling{level: AccessLevels[len(AccessLevels)-1], maxTasks: MaxSessionTasksCeiling, maxDepth: MaxSessionDepthCeiling}
 	var seen []int64
-	maxDepth := s.depthLimit(ctx, id)
+	maxDepth := s.walkLimit(ctx, id)
 	for cur := id; cur != 0; {
 		if slices.Contains(seen, cur) {
 			return ceiling{}, invalid("session #%d is in a cycle of parents", id)
