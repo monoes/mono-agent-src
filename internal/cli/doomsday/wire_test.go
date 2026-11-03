@@ -25,11 +25,15 @@ type fakeWorld struct {
 	present bool
 	extra   bool
 	started []string
+	onStart func(name string) // called before the unit exists, to observe what was recorded first
 	stopped []string
 	boot    string
 }
 
 func (w *fakeWorld) StartUnit(_ context.Context, name, _ string) error {
+	if w.onStart != nil {
+		w.onStart(name)
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.present = true

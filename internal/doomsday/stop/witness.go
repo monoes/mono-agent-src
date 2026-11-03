@@ -99,7 +99,7 @@ func (w Witness) scan() (recs []Record, last []byte, damaged bool, err error) {
 	}
 	last = hm
 	pos := len(magic) + syncLen + macLen
-	var lastSeq int64
+	lastSeq := map[int64]int64{} // seqs are per generation
 	for pos < len(b) {
 		i := bytes.Index(b[pos:], sync)
 		if i < 0 {
@@ -117,11 +117,11 @@ func (w Witness) scan() (recs []Record, last []byte, damaged bool, err error) {
 		}
 		// An abandoned record names the seq the stream went back to (the seq before the abandoned range), so it is
 		// the one record whose To may be lower than a range it supersedes.
-		if rec.To != 0 && rec.T != RecAbandoned && rec.To < lastSeq {
+		if rec.To != 0 && rec.T != RecAbandoned && rec.To < lastSeq[rec.Gen] {
 			return recs, last, true, ErrWitnessDamaged
 		}
-		if rec.To > lastSeq {
-			lastSeq = rec.To
+		if rec.To > lastSeq[rec.Gen] {
+			lastSeq[rec.Gen] = rec.To
 		}
 		recs = append(recs, rec)
 		last = rec.mac
