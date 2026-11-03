@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -138,7 +139,9 @@ func TestAHostThatNeverAcknowledgesIsUnproven(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := make(chan HostOutcome, 1)
-	go func() { got <- ProcessHostLink{Dir: dir, Clock: clk, Wait: 2 * time.Second}.CloseHost(context.Background(), 5) }()
+	go func() {
+		got <- ProcessHostLink{Dir: dir, Clock: clk, Wait: 2 * time.Second}.CloseHost(context.Background(), 5)
+	}()
 	for i := 0; i < 4000; i++ {
 		select {
 		case o := <-got:
@@ -186,4 +189,33 @@ func TestWatcherEnforcesTheHungStarterRule(t *testing.T) {
 		}
 	}
 	t.Fatal("a starter older than T_hung did not end the host")
+}
+
+// Without the emergency message the watcher still closes the gate on the marker alone (the poll is the slow path), and on
+// a run state that is no longer running.
+func TestWatcherClosesOnTheMarkerAloneAndOnTheRunState(t *testing.T) {
+	h, cancel := newHostRun(t)
+	defer cancel()
+	if _, err := h.dir.WriteMarker(5, "ch", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	h.advanceUntil(t, func() bool { return h.gate.Sealed() })
+
+	dir := RunDir{Dir: t.TempDir()}
+	clk := newFakeClock()
+	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk})
+	var stopped atomic.Bool
+	w := NewHostWatcher(&HostWatcher{Gate: g, Dir: dir, Gen: 5, CharterID: "ch", Clock: clk, Tick: time.Second,
+		Stops: func(context.Context) bool { return stopped.Load() }})
+	ctx, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	go w.Run(ctx)
+	stopped.Store(true)
+	for i := 0; i < 2000 && !g.Sealed(); i++ {
+		clk.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	if !g.Sealed() {
+		t.Fatal("the gate did not close when the run state left running")
+	}
 }
