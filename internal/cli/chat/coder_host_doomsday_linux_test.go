@@ -446,6 +446,8 @@ func TestAPlacementThatReplacesTheProcessAttributesIsRefusedBeforeTheStart(t *te
 		"nil":        func(c *exec.Cmd) { c.SysProcAttr = nil },
 		"no session": func(c *exec.Cmd) { c.SysProcAttr.Setsid = false },
 		"no pidfd":   func(c *exec.Cmd) { c.SysProcAttr.PidFD = nil },
+		// an equal value behind another pointer: the launcher would never learn the descriptor, so it is refused
+		"another pidfd pointer": func(c *exec.Cmd) { fresh := *c.SysProcAttr.PidFD; c.SysProcAttr.PidFD = &fresh },
 	} {
 		r := newBoundRig(t, "")
 		pidp := capturePid(r.l)
