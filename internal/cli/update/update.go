@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -541,7 +542,9 @@ func installBinaryKeep(data []byte, target string, check func(tmp string) error)
 
 	sweepPrevious(filepath.Dir(target))
 	// the old binary moves to a name nobody else uses: a file the user keeps as <target>.bak is not ours to delete
-	bakFile, err := os.CreateTemp(filepath.Dir(target), ".monoagentcli-previous-*")
+	// (the name carries the time it was made: a hard link keeps the old file's own modification time, which says nothing
+	// about when the backup was kept)
+	bakFile, err := os.CreateTemp(filepath.Dir(target), fmt.Sprintf("%s%d-*", previousPrefix, time.Now().Unix()))
 	if err != nil {
 		os.Remove(tmpPath)
 		return nil, fmt.Errorf("backup: %w", err)
@@ -585,13 +588,21 @@ func installBinaryKeep(data []byte, target string, check func(tmp string) error)
 // (or that kept it for the operator) is removed by the next update that works in the same folder.
 var previousMaxAge = 24 * time.Hour
 
-// sweepPrevious removes the previous binaries (.monoagentcli-previous-*, regular files of this user) that are older than
-// previousMaxAge from dir: nothing else, nothing newer.
+// previousPrefix starts the name of a kept previous binary: previousPrefix + unix seconds it was made + "-" + random.
+const previousPrefix = ".monoagentcli-previous-"
+
+// sweepPrevious removes the previous binaries (regular files of this user named previousPrefix<seconds>-<random>) that were
+// made more than previousMaxAge ago, by the time in their name: nothing else, nothing newer, nothing whose name does not
+// carry a time.
 func sweepPrevious(dir string) {
-	matches, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-previous-*"))
+	matches, _ := filepath.Glob(filepath.Join(dir, previousPrefix+"*"))
 	for _, m := range matches {
-		fi, err := os.Lstat(m)
-		if err != nil || !fi.Mode().IsRegular() || !ownedByUser(fi) || time.Since(fi.ModTime()) < previousMaxAge {
+		stamp, _, ok := strings.Cut(strings.TrimPrefix(filepath.Base(m), previousPrefix), "-")
+		secs, err := strconv.ParseInt(stamp, 10, 64)
+		if !ok || err != nil || time.Since(time.Unix(secs, 0)) < previousMaxAge {
+			continue
+		}
+		if fi, err := os.Lstat(m); err != nil || !fi.Mode().IsRegular() || !ownedByUser(fi) {
 			continue
 		}
 		_ = os.Remove(m)
