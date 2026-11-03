@@ -186,7 +186,7 @@ func TestOnlyAFailedRestartThatLeftNoDaemonIsDown(t *testing.T) {
 		{&DaemonUpdate{Action: "busy"}, false},
 		{&DaemonUpdate{Action: "failed", Reason: "stopped"}, true},
 		{&DaemonUpdate{Action: "failed", Reason: "no_heartbeat"}, true},
-		{&DaemonUpdate{Action: "failed", Reason: "timed_out"}, true},
+		{&DaemonUpdate{Action: "failed", Reason: "timed_out"}, false}, // the restart may still be in flight
 		{&DaemonUpdate{Action: "failed", Reason: "stopped", recovered: true}, false},
 		{&DaemonUpdate{Action: "failed", Reason: "still_starting"}, false},
 		{&DaemonUpdate{Action: "failed", Reason: "cancelled"}, false},

@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"io"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/autostart"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/release"
 	"github.com/monoes/mono-agent/internal/updatecheck"
