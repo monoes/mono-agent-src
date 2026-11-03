@@ -41,6 +41,25 @@ func (OSFS) SyncDir(dir string) error {
 	return d.Sync()
 }
 
+// AppendSync appends data to an existing file and fsyncs the file and its directory.
+func (OSFS) AppendSync(path string, data []byte, dir string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = OSFS{}.SyncDir(dir)
+	}
+	return err
+}
+
 // writeDurable creates path exclusively, writes data, and fsyncs the file and its directory. On any failure it
 // removes what it created (best effort) so a half-written file is not left behind as a record.
 func writeDurable(fsys FS, dir, path string, data []byte) error {
