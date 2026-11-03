@@ -33,3 +33,18 @@ func TestExtensionResetAsksTheRecoveryGate(t *testing.T) {
 		t.Fatalf("reset without a recovery gate must fall back to the ordinary gate: %v", err)
 	}
 }
+
+// `extension browsers revoke` is a recovery verb too: it only cuts access, so a damaged install must not
+// lock the operator out of it. Its siblings (allow) stay on the ordinary gate.
+func TestBrowsersRevokeAsksTheRecoveryGate(t *testing.T) {
+	gateHome(t)
+	d := testDeps(false)
+	d.Refusal = func() string { return "ordinary gate" }
+	d.RecoveryRefusal = func() string { return "recovery gate" }
+	if _, err := runExt(t, d, "browsers", "revoke", "abcd1234"); !operatorOnlyErr(err) || !strings.Contains(err.Error(), "recovery gate") {
+		t.Fatalf("revoke must ask the recovery gate: %v", err)
+	}
+	if _, err := runExt(t, d, "browsers", "allow", "abcd1234", "--any"); !operatorOnlyErr(err) || !strings.Contains(err.Error(), "ordinary gate") {
+		t.Fatalf("allow must ask the ordinary gate: %v", err)
+	}
+}

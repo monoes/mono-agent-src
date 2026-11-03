@@ -27,7 +27,7 @@ func operatorOnlyRowsPR2() []opRow {
 		{path: "extension bind", build: newExtensionCmd, args: []string{"bind", "Edge", "Work"}},
 		{path: "extension unbind", build: newExtensionCmd, args: []string{"unbind", "Edge"}},
 		{path: "extension browsers allow", build: newExtensionCmd, args: []string{"browsers", "allow", "abcd1234", "--any"}},
-		{path: "extension browsers revoke", build: newExtensionCmd, args: []string{"browsers", "revoke", "abcd1234"}},
+		{path: "extension browsers revoke", build: newExtensionCmd, args: []string{"browsers", "revoke", "abcd1234"}, recovery: true},
 		{path: "extension reset", build: newExtensionCmd, args: []string{"reset"}, recovery: true},
 		{path: "extension pair", build: newExtensionCmd, args: []string{"pair", "--open"}},
 		{path: "extension install", build: newExtensionCmd, args: []string{"install", "--zip", "{tmp}"}},
@@ -38,18 +38,19 @@ func operatorOnlyRowsPR2() []opRow {
 	}
 }
 
-// The recovery verb of this change is `extension reset`: it revokes the pairing token, which is what an
-// operator whose install is damaged (or whose token leaked) needs, and it reads no database. Its sibling
-// `extension unbind` is not a recovery verb.
-func TestExtensionResetIsTheRecoveryVerbOfThisChange(t *testing.T) {
+// The recovery verbs of this change are `extension reset` and `extension browsers revoke`: they only
+// revoke access (the shared pairing token, one paired browser's token), which is what an operator whose
+// install is damaged (or whose token leaked) needs, and neither reads the database. Their siblings
+// (bind, unbind, assign, allow) grant or change access and are not recovery verbs.
+func TestExtensionResetAndRevokeAreTheRecoveryVerbsOfThisChange(t *testing.T) {
 	var recovery []string
 	for _, r := range operatorOnlyRowsPR2() {
 		if r.recovery {
 			recovery = append(recovery, r.path)
 		}
 	}
-	if len(recovery) != 1 || recovery[0] != "extension reset" {
-		t.Fatalf("recovery verbs of the identity and trust change: %v, want [extension reset]", recovery)
+	if strings.Join(recovery, ",") != "extension browsers revoke,extension reset" && strings.Join(recovery, ",") != "extension reset,extension browsers revoke" {
+		t.Fatalf("recovery verbs of the identity and trust change: %v, want reset and browsers revoke", recovery)
 	}
 }
 
@@ -105,5 +106,36 @@ func TestExtensionInstallZipAndPairOpenAreGatedBeforeTheHomeLookup(t *testing.T)
 		if strings.Contains(err.Error(), "HOME") {
 			t.Fatalf("extension %v: told about the home instead of the gate: %v", args, err)
 		}
+	}
+}
+
+// `extension browsers revoke` is a recovery verb like reset: with an unreadable database the operator can
+// still cut a leaked paired-browser token off, a marked turn on a readable database is refused, and the
+// sibling `bind` (which grants a profile) is refused on the unreadable database.
+func TestBrowsersRevokeOnAnUnreadableDatabaseAndInATurn(t *testing.T) {
+	revoke := opRow{path: "extension browsers revoke", build: newExtensionCmd, args: []string{"browsers", "revoke", "abcd1234"}, recovery: true}
+	bind := opRow{path: "extension bind", build: newExtensionCmd, args: []string{"bind", "Edge", "Work"}}
+
+	cfg := opEnv(t)
+	cfg.DBPath = filepath.Join(t.TempDir(), "junk.db")
+	if err := os.WriteFile(cfg.DBPath, []byte("this is not a database, and it is long enough to be read as a header, or not"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := revoke.run(t, cfg); isOperatorOnly(err) {
+		t.Fatalf("revoke locked the operator out of an unreadable database: %v", err)
+	}
+	err := bind.run(t, cfg)
+	requireOperatorOnly(t, err)
+	if !strings.Contains(err.Error(), "cannot tell whether a coder session's turn runs this command") {
+		t.Fatalf("bind on an unreadable database: %v", err)
+	}
+
+	needAncestry(t)
+	cfg = opEnv(t)
+	markThisProcessAsACoderTurn(t, cfg)
+	err = revoke.run(t, cfg)
+	requireOperatorOnly(t, err)
+	if !strings.Contains(err.Error(), "coder session's turn") {
+		t.Fatalf("revoke in a recorded turn: %v", err)
 	}
 }
