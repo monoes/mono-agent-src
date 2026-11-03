@@ -21,11 +21,15 @@ type TicketCgroup struct {
 
 // OpenTicketCgroup creates t-<ticket> under the unit (the descriptor comes from ProveUnit) and opens it.
 func OpenTicketCgroup(unit Cgroup, ticket uint64) (*TicketCgroup, error) {
+	return OpenSubCgroup(unit, fmt.Sprintf("t-%d", ticket))
+}
+
+// OpenSubCgroup creates the named sub-cgroup under the unit and opens it (the name is the Placer's choice).
+func OpenSubCgroup(unit Cgroup, sub string) (*TicketCgroup, error) {
 	lc, ok := unit.(*linuxCgroup)
 	if !ok {
 		return nil, errors.New("stop: the unit is not a Linux cgroup descriptor")
 	}
-	sub := fmt.Sprintf("t-%d", ticket)
 	if err := unix.Mkdirat(lc.fd, sub, 0o755); err != nil {
 		return nil, err
 	}

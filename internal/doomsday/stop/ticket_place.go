@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // Placer starts processes INSIDE a run's containment unit (note 13.2 section 3). Each Place call proves the unit's
@@ -16,9 +17,51 @@ import (
 //
 // A unit that cannot be proven, or that is gone, refuses the placement: nothing is started outside the unit as a
 // fallback.
+//
+// The sub-cgroup of a command placed for a gate ticket (PlaceTicket) is named t-<ticket id>-<random>, so Stop's
+// exclusion of a begun operation's tickets (Gate.ContinuingTickets) names exactly what Place created. A command
+// placed without a ticket (Place) gets r-<random>: nothing excludes it, Stop ends it.
 type Placer struct {
 	K   Kernel
 	Rec UnitRecord
+
+	openSub func(unit Cgroup, name string) (subCgroup, error) // tests; nil means the real kernel
+}
+
+// subCgroup is what Place needs of a ticket's sub-cgroup (TicketCgroup in production).
+type subCgroup interface {
+	Name() string
+	Apply(*exec.Cmd)
+	Close() error
+}
+
+func (p *Placer) open(unit Cgroup, name string) (subCgroup, error) {
+	if p.openSub != nil {
+		return p.openSub(unit, name)
+	}
+	tc, err := OpenSubCgroup(unit, name)
+	if err != nil {
+		return nil, err
+	}
+	return tc, nil
+}
+
+// ticketSubName is the sub-cgroup name of a command placed for the gate ticket.
+func ticketSubName(ticket uint64, rnd uint64) string { return fmt.Sprintf("t-%d-%x", ticket, rnd) }
+
+// excludedSub reports whether the sub-cgroup sub belongs to a ticket named in exclude (keys "t-<id>"): the
+// ticket's own name or one of its t-<id>-<random> sub-cgroups.
+func excludedSub(exclude map[string]bool, sub string) bool {
+	if exclude[sub] {
+		return true
+	}
+	if !strings.HasPrefix(sub, "t-") {
+		return false
+	}
+	if i := strings.IndexByte(sub[2:], '-'); i >= 0 {
+		return exclude[sub[:2+i]]
+	}
+	return false
 }
 
 // ErrNotPlaced means the command could not be put in the run's unit; it was not started.
@@ -37,6 +80,9 @@ func NewPlacer(k Kernel, dir RunDir, gen uint64) (*Placer, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: generation %d has no recorded unit", ErrNotPlaced, gen)
 	}
+	if rec.Generation != gen {
+		return nil, fmt.Errorf("%w: the unit record names generation %d, not %d", ErrNotPlaced, rec.Generation, gen)
+	}
 	return &Placer{K: k, Rec: rec}, nil
 }
 
@@ -44,6 +90,16 @@ func NewPlacer(k Kernel, dir RunDir, gen uint64) (*Placer, error) {
 // sub-cgroup when it is empty; call it after the command ended (Run or Wait returned). On error nothing was
 // created that release would need.
 func (p *Placer) Place(cmd *exec.Cmd) (release func(), err error) {
+	return p.place(cmd, nil)
+}
+
+// PlaceTicket is Place for a command run under the gate ticket: its sub-cgroup carries the ticket's id, so Stop
+// spares it while the ticket's operation is CONTINUING (Q11: a begun merge finishes).
+func (p *Placer) PlaceTicket(ticket uint64, cmd *exec.Cmd) (release func(), err error) {
+	return p.place(cmd, &ticket)
+}
+
+func (p *Placer) place(cmd *exec.Cmd, ticket *uint64) (release func(), err error) {
 	if cmd == nil || cmd.Process != nil {
 		return nil, fmt.Errorf("%w: the command is nil or already started", ErrNotPlaced)
 	}
@@ -59,7 +115,12 @@ func (p *Placer) Place(cmd *exec.Cmd) (release func(), err error) {
 		proof.Cg.Close()
 		return nil, fmt.Errorf("%w: no randomness: %v", ErrNotPlaced, err)
 	}
-	tc, err := OpenTicketCgroup(proof.Cg, binary.LittleEndian.Uint64(b[:]))
+	rnd := binary.LittleEndian.Uint64(b[:])
+	name := fmt.Sprintf("r-%x", rnd)
+	if ticket != nil {
+		name = ticketSubName(*ticket, rnd)
+	}
+	tc, err := p.open(proof.Cg, name)
 	if err != nil {
 		proof.Cg.Close()
 		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 
@@ -53,6 +54,10 @@ type DoomsdayMerge struct {
 	// Place starts every git command of the merge inside the run's containment unit. Required: a merge whose
 	// commands could run outside the unit would be invisible to "the unit is empty", so it is not begun.
 	Place GitPlacer
+	// PlaceTicket, when set, places a git command under the gate ticket of the step that runs it, so the run's
+	// Stop spares the command while the operation is CONTINUING (Q11). stop.Placer.PlaceTicket in production; nil
+	// places through Place, and Stop ends such a command.
+	PlaceTicket func(ticket uint64, cmd *exec.Cmd) (release func(), err error)
 }
 
 // mergeSeq makes operation ids unique within a process, whatever number of DoomsdayMerge values exist.

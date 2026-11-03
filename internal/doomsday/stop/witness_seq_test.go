@@ -177,6 +177,9 @@ func TestUnitEndedLineIsRequiredAndWrittenOnce(t *testing.T) {
 	rec := testRecord()
 	rec.Generation = 1
 	mustNoErr(t, r.seq.Bound(rec))
+	if got := r.seq.BoundUnits(1); len(got) != 1 || got[0] != rec {
+		t.Fatalf("the bound record does not round-trip: %+v", got)
+	}
 	e := NewWitnessEnder(&fakeEnder{}, r.seq)
 	r.fs.failAppend = true
 	if out := e.End(bg, 1, nil); out.Kind != UnitNotProven {
@@ -196,8 +199,8 @@ func TestUnitEndedLineIsRequiredAndWrittenOnce(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("%d unit-ended lines", n)
 	}
-	if got := r.seq.BoundUnits(1); len(got) != 1 || got[0] != rec {
-		t.Fatalf("the bound record does not round-trip: %+v", got)
+	if got := r.seq.BoundUnits(1); len(got) != 0 {
+		t.Fatalf("a unit with an end line is still listed as bound: %+v", got)
 	}
 	// begun operations still running: the unit is not over, no end line
 	r2 := newSeqRig(t)

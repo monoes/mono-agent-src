@@ -23,7 +23,7 @@ type EndConfig struct {
 	TTerm time.Duration
 	TKill time.Duration
 	Poll  time.Duration
-	// Exclude names the ticket sub-cgroups (t-<ticket>) of a CONTINUING begun operation that are not touched.
+	// Exclude names the ticket sub-cgroups (t-<ticket>, and t-<ticket>-<random> as Placer.PlaceTicket names them) of a CONTINUING begun operation that are not touched.
 	Exclude map[string]bool
 	// Known reports whether the registry has a row for the member; a member without one is "unknown" (it is
 	// still ended, inside a unit proven ours, but the outcome is ENDED-WITH-UNKNOWN).
@@ -76,7 +76,7 @@ func EndUnit(cg Cgroup, cfg EndConfig) UnitOutcome {
 	var out UnitOutcome
 	out.Kind = UnitEnded
 	for _, sub := range subs {
-		if cfg.Exclude[sub] {
+		if excludedSub(cfg.Exclude, sub) {
 			continue
 		}
 		unknown := endSub(cg, sub, cfg, &out)
@@ -164,9 +164,18 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 	if u.Witness != nil {
 		cands = append(cands, u.Witness(gen)...)
 	}
-	if rec, ok, err := u.Dir.ReadUnitFile(gen); err != nil {
+	rec, ok, err := u.Dir.ReadUnitFile(gen)
+	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
-	} else if ok {
+	}
+	// A record is authority for the generation it names and no other: a record of another generation (a copied
+	// or restored run directory) is never signalled through.
+	for _, c := range append(append([]UnitRecord(nil), cands...), rec) {
+		if (c != UnitRecord{}) && c.Generation != gen {
+			return UnitOutcome{Kind: UnitNotProven, Note: fmt.Sprintf("a unit record names generation %d, not %d", c.Generation, gen)}
+		}
+	}
+	if ok {
 		dup := false
 		for _, c := range cands {
 			dup = dup || c == rec

@@ -40,7 +40,7 @@ func (g *HostGate) MergeFor(ctx context.Context) (*dynorg.DoomsdayMerge, error) 
 		if err != nil {
 			return nil, err
 		}
-		dd = &dynorg.DoomsdayMerge{Gate: gate, Members: g.Store, Journal: g.Journal, Profile: g.Profile, Generation: run.Generation, Place: pl.Place}
+		dd = &dynorg.DoomsdayMerge{Gate: gate, Members: g.Store, Journal: g.Journal, Profile: g.Profile, Generation: run.Generation, Place: pl.Place, PlaceTicket: pl.PlaceTicket}
 		g.merges[run.Generation] = dd
 	}
 	return dd, nil

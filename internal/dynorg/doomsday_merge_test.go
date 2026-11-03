@@ -60,6 +60,8 @@ type ddRig struct {
 	gate *stop.Gate
 	reg  *ddRegistry
 	run  store.Run
+
+	placeTicket func(ticket uint64, cmd *exec.Cmd) (func(), error) // nil: no ticketed placement
 }
 
 func newDDRig(t *testing.T) *ddRig { return newDDRigClock(t, stop.SystemClock{}) }
@@ -99,7 +101,7 @@ func (r *ddRig) journal() MergeJournal {
 
 func (r *ddRig) doomsday() *DoomsdayMerge {
 	return &DoomsdayMerge{Gate: r.gate, Members: r.st, Journal: r.journal(), Profile: "p", Generation: r.run.Generation,
-		Place: func(*exec.Cmd) (func(), error) { return func() {}, nil }}
+		Place: func(*exec.Cmd) (func(), error) { return func() {}, nil }, PlaceTicket: r.placeTicket}
 }
 
 func (r *ddRig) audits(t *testing.T) []string {
@@ -178,6 +180,38 @@ func TestAMergeUnderAnOpenGateRunsFourStepsAndLeavesNoLiveMember(t *testing.T) {
 	}
 	if ops := r.gate.ContinuingTickets(); len(ops) != 0 {
 		t.Errorf("operation still continuing: %v", ops)
+	}
+}
+
+// P1 of the containment review: every git command of a merge is placed under the gate ticket of the step that runs
+// it, so Stop's exclusion of the operation's tickets names the cgroup the command was born in.
+func TestAMergePlacesEachGitCommandUnderItsStepsTicket(t *testing.T) {
+	r := newDDRig(t)
+	stepOf := map[uint64]string{}
+	var placed []uint64
+	r.placeTicket = func(ticket uint64, _ *exec.Cmd) (func(), error) {
+		placed = append(placed, ticket)
+		return func() {}, nil
+	}
+	c, _ := ddWriter(t, r, "d2")
+	r.reg.onStart = func(ti stop.TicketInfo) { stepOf[ti.ID] = ti.Step }
+	placed = nil
+	if res, err := c.Merge(context.Background(), "w1"); err != nil || !res.Merged {
+		t.Fatalf("merge = %+v, %v", res, err)
+	}
+	if len(placed) == 0 {
+		t.Fatal("no git command was placed")
+	}
+	seen := map[string]bool{}
+	for _, id := range placed {
+		step, ok := stepOf[id]
+		if !ok {
+			t.Fatalf("a command was placed under ticket %d, which no merge step owns", id)
+		}
+		seen[step] = true
+	}
+	if !seen["merge"] {
+		t.Errorf("the merge step's git ran under tickets of steps %v only", seen)
 	}
 }
 
