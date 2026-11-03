@@ -1403,15 +1403,16 @@ func TestAStalePreviousBinaryIsSweptAndNothingElse(t *testing.T) {
 		_ = os.Chtimes(p, at, at)
 		return p
 	}
-	oldPrev := mk(".monoagentcli-previous-aaa", 48*time.Hour)
-	newPrev := mk(".monoagentcli-previous-bbb", time.Minute)
+	oldPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-aaa", time.Now().Add(-48*time.Hour).Unix()), 0)
+	newPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-bbb", time.Now().Add(-time.Minute).Unix()), 0)
+	noTime := mk(".monoagentcli-previous-notatime", 48*time.Hour)
 	other := mk("something-else", 48*time.Hour)
 	bak := mk("monoagentcli.bak", 48*time.Hour)
 	target := mk("monoagentcli", time.Hour)
 	if _, err := installBinaryKeep([]byte(newAsset), target, nil); err != nil {
 		t.Fatal(err)
 	}
-	for p, want := range map[string]bool{oldPrev: false, newPrev: true, other: true, bak: true} {
+	for p, want := range map[string]bool{oldPrev: false, newPrev: true, noTime: true, other: true, bak: true} {
 		if _, err := os.Stat(p); (err == nil) != want {
 			t.Errorf("%s: exists = %v, want %v", filepath.Base(p), err == nil, want)
 		}
@@ -1507,4 +1508,35 @@ func TestUpdateKeepsItselfWhenTheNewBinaryDoesNotSayTheReleasedVersion(t *testin
 	if b, _ := os.ReadFile(self); string(b) != oldAsset {
 		t.Fatalf("the binary was replaced by one that failed its check: %q", b)
 	}
+}
+
+// The backup of one binary survives the installing of another in the same folder, even though a hard link carries the old
+// file's modification time (which may be a year old): it is the time the backup was made that counts, not the file's.
+func TestABackupJustMadeIsNotSweptByTheNextInstallInTheSameFolder(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(oldAsset), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-400 * 24 * time.Hour) // a binary built over a year ago
+		_ = os.Chtimes(p, at, at)
+		return p
+	}
+	a, b := mk("monoagentcli"), mk("monoagentcli-other")
+	ra, err := installBinaryKeep([]byte(newAsset), a, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb, err := installBinaryKeep([]byte(newAsset), b, nil) // sweeps the folder first
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ra.Restore(); err != nil {
+		t.Fatalf("the first backup was swept by the second install: %v", err)
+	}
+	if x, _ := os.ReadFile(a); string(x) != oldAsset {
+		t.Fatalf("restored %q", x)
+	}
+	rb.Commit()
 }
