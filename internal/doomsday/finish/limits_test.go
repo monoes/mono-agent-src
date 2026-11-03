@@ -3,6 +3,9 @@
 package finish
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,5 +96,35 @@ func TestLimitsSpecRefusesBadInput(t *testing.T) {
 	}
 	if l, err := parseLimitsSpec("1,2,3,4,5"); err != nil || l.Procs != 5 || l.CPUSeconds != 1 {
 		t.Fatalf("%+v %v", l, err)
+	}
+}
+
+func TestMain(m *testing.M) {
+	// The tests re-exec this binary as the limits helper, as the command's run function does in production.
+	RunLimitsHelperIfRequested(os.Args[1:])
+	os.Exit(m.Run())
+}
+
+// No file of this package may declare an init(): the helper mode is run from the command's run function, because nothing
+// may do I/O before main reads the credential frame (cmd/monoagentcli init_audit_test.go scans the linked build).
+func TestThePackageDeclaresNoInit(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		af, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range af.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "init" {
+				t.Errorf("%s declares init()", f)
+			}
+		}
 	}
 }

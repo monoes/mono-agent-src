@@ -14,7 +14,7 @@ import (
 //
 // The process limits are applied by the child itself, before it becomes the criterion's program: a Go parent cannot set
 // limits between fork and exec, and setting them on its own process would bind the host. The criterion is started as this
-// executable in a one-purpose mode (limitsHelper, run from init before anything else) that sets the limits and then execs
+// executable in a one-purpose mode (RunLimitsHelperIfRequested, called from the command's run function once the credential frame is read) that sets the limits and then execs
 // the program in place: same process, so the process is still BORN in the unit's ticket cgroup and nothing runs between.
 // A limit the helper cannot set stops the program from starting (an error result), never a run without it.
 
@@ -126,4 +126,9 @@ func scratchBytes(dir string, limit int64) (total int64, over bool) {
 	}
 	walk(dir)
 	return total, over
+}
+
+// LimitsHelperArgv is helperArgv for callers outside the package (the tests of the command that hosts the helper).
+func LimitsHelperArgv(exe string, l Limits, program string, args []string) []string {
+	return helperArgv(exe, l, program, args)
 }

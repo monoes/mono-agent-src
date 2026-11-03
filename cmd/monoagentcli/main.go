@@ -106,6 +106,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitCredFrame
 	}
 	coderhost.StashMissionToken()
+	// The limits-helper mode of the finishing's criteria (a no-op unless args have its exact shape): after the frame
+	// and the token are read, before any command, and never from an init().
+	runCriterionLimitsHelper(args)
 	if args == nil {
 		args = []string{} // cobra reads os.Args for a nil slice
 	}
