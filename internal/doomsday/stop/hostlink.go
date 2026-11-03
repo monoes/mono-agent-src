@@ -2,6 +2,10 @@ package stop
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,17 +54,57 @@ type HostAck struct {
 	Unknown    []uint64 `json:"unknown,omitempty"`
 	Operations []string `json:"operations,omitempty"`
 	Pending    []uint64 `json:"pending,omitempty"`
+	// Nonce names the host incarnation that wrote the ack; MAC signs every field with the per-run secret (as the marker is).
+	// An ack without a valid MAC is no ack: a process that can only create files in the run directory cannot say "closed".
+	Nonce string `json:"nonce,omitempty"`
+	MAC   string `json:"mac,omitempty"`
+}
+
+func ackMAC(secret []byte, a HostAck) string {
+	a.MAC = ""
+	body, _ := json.Marshal(a)
+	h := hmac.New(sha256.New, secret)
+	h.Write([]byte("monoagent-doomsday-host-ack-v1\x00"))
+	h.Write(body)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func newNonce() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // no randomness: nothing safe can be signed
+	}
+	return hex.EncodeToString(b)
+}
+
+// RemoveAck deletes the generation's acknowledgement: a new host incarnation of a generation calls it before its gate is
+// reachable, so nothing a previous incarnation (or anyone) left is read as this one's answer.
+func (r RunDir) RemoveAck(gen uint64) error {
+	err := r.fsys().Remove(r.AckPath(gen))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return r.fsys().SyncDir(r.Dir)
 }
 
 // AckPath is the acknowledgement file of one generation.
 func (r RunDir) AckPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.ack", gen)) }
 
-// WriteAck replaces the generation's acknowledgement durably.
+// WriteAck replaces the generation's acknowledgement durably, signed with the per-run secret (an unreadable secret is an
+// error: an unsigned ack would not be trusted by anyone).
 func (r RunDir) WriteAck(a HostAck) error {
 	fs := r.fsys()
 	if err := fs.MkdirAll(r.Dir, 0o700); err != nil {
 		return err
 	}
+	secret, err := r.ReadSecret(a.Generation)
+	if err != nil {
+		return err
+	}
+	if a.Nonce == "" {
+		a.Nonce = newNonce()
+	}
+	a.MAC = ackMAC(secret, a)
 	b, err := json.Marshal(a)
 	if err != nil {
 		return err
@@ -82,10 +126,15 @@ func (r RunDir) WriteAck(a HostAck) error {
 	return fs.SyncDir(r.Dir)
 }
 
-// ReadAck reads the acknowledgement; ok is false when there is none (or it does not parse, which is none).
+// ReadAck reads the acknowledgement; ok is false when there is none, it does not parse, it names another generation, it has
+// no nonce, or its MAC does not verify under the per-run secret (or the secret cannot be read): all of those are none.
 func (r RunDir) ReadAck(gen uint64) (a HostAck, ok bool) {
 	b, err := r.fsys().ReadFile(r.AckPath(gen))
-	if err != nil || json.Unmarshal(b, &a) != nil || a.Generation != gen {
+	if err != nil || json.Unmarshal(b, &a) != nil || a.Generation != gen || a.Nonce == "" {
+		return HostAck{}, false
+	}
+	secret, err := r.ReadSecret(gen)
+	if err != nil || !hmac.Equal([]byte(a.MAC), []byte(ackMAC(secret, a))) {
 		return HostAck{}, false
 	}
 	return a, true
@@ -115,6 +164,24 @@ type ProcessHostLink struct {
 	Wait time.Duration
 	// Poll is the ack poll interval. Zero: 50 ms.
 	Poll time.Duration
+	// Lock takes the host lock of the run directory; nil is AcquireHost. A host that cannot be reached is proven absent only
+	// when this lock can be taken (the host holds it for its life): a missing or refusing socket alone proves nothing, since
+	// anyone who can write the run directory can unlink the socket.
+	Lock func(RunDir) (release func(), err error)
+}
+
+// hostAbsent is the proof of absence: the host lock is free (and is released again at once).
+func (l ProcessHostLink) hostAbsent() bool {
+	lock := l.Lock
+	if lock == nil {
+		lock = AcquireHost
+	}
+	release, err := lock(l.Dir)
+	if err != nil {
+		return false
+	}
+	release()
+	return true
 }
 
 // CloseHost asks the host to close and waits for its acknowledgement. A host that is not there (nothing listens, or a
@@ -135,7 +202,10 @@ func (l ProcessHostLink) CloseHost(ctx context.Context, gen uint64) HostOutcome 
 		if a, ok := l.Dir.ReadAck(gen); ok { // the host answered through the marker and exited
 			return outcomeOfAck(a)
 		}
-		return HostOutcome{Kind: HostNone, Note: "no host holds a gate of this generation"}
+		if l.hostAbsent() {
+			return HostOutcome{Kind: HostNone, Note: "no host holds a gate of this generation (the host lock is free)"}
+		}
+		err = fmt.Errorf("the emergency socket is missing but the host lock is held: %w", err)
 	}
 	wait, poll := l.Wait, l.Poll
 	if wait == 0 {
@@ -187,6 +257,7 @@ type HostWatcher struct {
 
 	kick   chan struct{}
 	kicked atomic.Bool
+	nonce  string // this host incarnation, signed into the ack
 }
 
 // Kick is the emergency fast path (EmergencyServer.OnStop).
@@ -201,6 +272,7 @@ func (w *HostWatcher) Kick() {
 // NewHostWatcher makes a watcher; call Run in a goroutine.
 func NewHostWatcher(w *HostWatcher) *HostWatcher {
 	w.kick = make(chan struct{}, 1)
+	w.nonce = newNonce()
 	if w.Tick == 0 {
 		w.Tick = 250 * time.Millisecond
 	}
@@ -208,13 +280,19 @@ func NewHostWatcher(w *HostWatcher) *HostWatcher {
 }
 
 // Run returns after the gate closed and the ack was written, or when ctx ends.
+//
+// The crash-only enforcement runs only while the gate is open: it ends with Run, which is when the gate has closed (a starter
+// that is still draining then is the Stop's to report, not a reason for the host to exit). A starter's time inside the host's
+// own registry write of Started does not count towards T_hung (Gate.HungStarters).
 func (w *HostWatcher) Run(ctx context.Context) {
+	ectx, stopEnforce := context.WithCancel(ctx)
+	defer stopEnforce()
 	if w.Exit != nil {
 		go func() {
-			for ctx.Err() == nil {
-				EnforceHung(ctx, w.Gate, w.Clock, w.Tick, w.Exit)
+			for ectx.Err() == nil {
+				EnforceHung(ectx, w.Gate, w.Clock, w.Tick, w.Exit)
 				select {
-				case <-ctx.Done():
+				case <-ectx.Done():
 					return
 				case <-w.Clock.After(w.Tick):
 				}
@@ -229,6 +307,7 @@ func (w *HostWatcher) Run(ctx context.Context) {
 		case <-w.Clock.After(w.Tick):
 		}
 		if w.kicked.Load() || w.Gate.Sealed() || w.Dir.ReadMarker(w.Gen, w.CharterID).Stops() || (w.Stops != nil && w.Stops(ctx)) {
+			stopEnforce() // the gate closes now: a starter still draining is reported by the Stop, it does not end the host
 			w.closeAndAck()
 			return
 		}
@@ -238,7 +317,7 @@ func (w *HostWatcher) Run(ctx context.Context) {
 func (w *HostWatcher) closeAndAck() {
 	o := w.Gate.Close()
 	a := HostAck{Generation: w.Gen, Kind: int(o.Kind), Starters: o.Starters, Aborting: o.Aborting, Unknown: o.Unknown,
-		Operations: o.Operations, Pending: w.Gate.ContinuingTickets()}
+		Operations: o.Operations, Pending: w.Gate.ContinuingTickets(), Nonce: w.nonce}
 	for i := 0; i < 5; i++ { // an ack that cannot be written is no ack: the Stop reports the host as unproven
 		if w.WriteAck(a) == nil {
 			return

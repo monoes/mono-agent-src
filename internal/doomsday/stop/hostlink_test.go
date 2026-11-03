@@ -2,9 +2,13 @@ package stop
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -218,4 +222,234 @@ func TestWatcherClosesOnTheMarkerAloneAndOnTheRunState(t *testing.T) {
 	if !g.Sealed() {
 		t.Fatal("the gate did not close when the run state left running")
 	}
+}
+
+// plantAck writes an ack the way a process that can only create files in the run directory would: valid JSON, no key.
+func plantAck(t *testing.T, dir RunDir, a HostAck) {
+	t.Helper()
+	b, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir.AckPath(a.Generation), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An ack nobody signed is no ack: a planted BARRIER must not read as "host closed". Mutant tried: ReadAck without the MAC
+// check: red.
+func TestAPlantedUnsignedAckIsNotTrusted(t *testing.T) {
+	dir := RunDir{Dir: t.TempDir()}
+	if err := dir.CreateSecret(5); err != nil {
+		t.Fatal(err)
+	}
+	plantAck(t, dir, HostAck{Generation: 5, Kind: int(Barrier)})
+	plantAck(t, dir, HostAck{Generation: 5, Kind: int(Barrier), Nonce: "n", MAC: "00"})
+	if _, ok := dir.ReadAck(5); ok {
+		t.Fatal("an ack with a bad MAC was read")
+	}
+	// a live host (it listens, never acks): the planted ack must not end the wait as closed
+	srv := &EmergencyServer{Dir: dir, Gen: 5, UID: uint32(os.Getuid()), OnStop: func(uint64) {}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clk := newStepClock()
+	got := ProcessHostLink{Dir: dir, Clock: clk, Wait: time.Second}.CloseHost(context.Background(), 5)
+	if got.Kind != HostUnproven {
+		t.Fatalf("a planted ack gave %v", got.Kind)
+	}
+}
+
+// A signed ack survives a tampered field, a wrong generation and a missing secret. Mutants tried: the MAC covering fewer
+// fields, ReadAck without the generation check (M2), no nonce requirement: red.
+func TestAckMACCoversEveryFieldAndTheGeneration(t *testing.T) {
+	dir := RunDir{Dir: t.TempDir()}
+	for _, g := range []uint64{5, 6} {
+		if err := dir.CreateSecret(g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := dir.WriteAck(HostAck{Generation: 5, Kind: int(Barrier)}); err != nil {
+		t.Fatal(err)
+	}
+	a, ok := dir.ReadAck(5)
+	if !ok || a.Nonce == "" || a.MAC == "" {
+		t.Fatalf("a written ack did not read back signed: %+v %v", a, ok)
+	}
+	for name, mut := range map[string]func(*HostAck){
+		"kind":    func(a *HostAck) { a.Kind = int(ClosedWithUnknown) },
+		"unk":     func(a *HostAck) { a.Unknown = []uint64{1} },
+		"pend":    func(a *HostAck) { a.Pending = []uint64{1} },
+		"nonce":   func(a *HostAck) { a.Nonce = "other" },
+		"nononce": func(a *HostAck) { a.Nonce = "" },
+	} {
+		b := a
+		mut(&b)
+		plantAck(t, dir, b)
+		if _, ok := dir.ReadAck(5); ok {
+			t.Errorf("%s: a tampered ack was read", name)
+		}
+	}
+	// generation 5's valid ack copied to generation 6's name is refused by the generation check, not only by the MAC
+	good, _ := json.Marshal(a)
+	if err := os.WriteFile(dir.AckPath(6), good, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dir.ReadAck(6); ok {
+		t.Fatal("another generation's ack was read")
+	}
+	// the generation check alone: an ack that carries generation 5 but is signed with generation 6's secret still names 5
+	sec6, _ := dir.ReadSecret(6)
+	forged := a
+	forged.Generation = 6
+	forged.MAC = ackMAC(sec6, forged)
+	fb, _ := json.Marshal(forged)
+	if err := os.WriteFile(dir.AckPath(5), fb, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dir.ReadAck(5); ok {
+		t.Fatal("an ack of generation 6 was read as generation 5")
+	}
+	// no secret: nothing verifies
+	if err := dir.WriteAck(HostAck{Generation: 5, Kind: int(Barrier)}); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(dir.SecretPath(5))
+	if _, ok := dir.ReadAck(5); ok {
+		t.Fatal("an ack was read without a secret to verify it")
+	}
+	if err := dir.WriteAck(HostAck{Generation: 5}); err == nil {
+		t.Fatal("an ack was signed without a secret")
+	}
+}
+
+// A new host incarnation clears an earlier ack. Mutant tried: reachLocked-style removal dropped: see the cli test.
+func TestRemoveAckClearsAndIsIdempotent(t *testing.T) {
+	dir := RunDir{Dir: t.TempDir()}
+	if err := dir.CreateSecret(5); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.RemoveAck(5); err != nil {
+		t.Fatalf("no ack: %v", err)
+	}
+	if err := dir.WriteAck(HostAck{Generation: 5, Kind: int(Barrier)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.RemoveAck(5); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dir.ReadAck(5); ok {
+		t.Fatal("the ack survived RemoveAck")
+	}
+}
+
+// The socket missing is not proof of absence: with the host lock held the host is alive, whatever the socket says. Mutant
+// tried: HostNone on the socket alone (no hostAbsent): red.
+func TestAMissingSocketOfALiveHostIsNotAbsence(t *testing.T) {
+	dir := RunDir{Dir: t.TempDir()}
+	if err := dir.CreateSecret(5); err != nil {
+		t.Fatal(err)
+	}
+	release, err := AcquireHost(dir) // the live host
+	if err != nil {
+		t.Skipf("no host lock here: %v", err)
+	}
+	defer release()
+	clk := newStepClock()
+	got := ProcessHostLink{Dir: dir, Clock: clk, Wait: time.Second}.CloseHost(context.Background(), 5)
+	if got.Kind != HostUnproven {
+		t.Fatalf("a live host (lock held, no socket) read as %v", got.Kind)
+	}
+	release()
+	got = ProcessHostLink{Dir: dir, Clock: clk, Wait: time.Second}.CloseHost(context.Background(), 5)
+	if got.Kind != HostNone {
+		t.Fatalf("no host, free lock: %v", got.Kind)
+	}
+	// a lock that cannot be taken for a reason other than being held is not absence either
+	got = ProcessHostLink{Dir: dir, Clock: clk, Wait: time.Second, Lock: func(RunDir) (func(), error) { return nil, errors.New("eio") }}.CloseHost(context.Background(), 5)
+	if got.Kind != HostUnproven {
+		t.Fatalf("an unusable lock proved absence: %v", got.Kind)
+	}
+}
+
+// Only a missing or refusing socket is "absent"; a timeout or a permission error is not. Mutant tried (M8): any dial error
+// absent: red.
+func TestAbsentIsOnlyAMissingOrRefusingSocket(t *testing.T) {
+	for err, want := range map[error]bool{
+		os.ErrNotExist:            true,
+		syscall.ECONNREFUSED:      true,
+		syscall.EACCES:            false,
+		syscall.ETIMEDOUT:         false,
+		syscall.EAGAIN:            false,
+		errors.New("i/o timeout"): false,
+	} {
+		if absent(err) != want {
+			t.Errorf("absent(%v) = %v", err, !want)
+		}
+	}
+}
+
+type blockingReg struct {
+	fakeRegistry
+	in, out chan struct{}
+}
+
+func (b *blockingReg) RecordStarted(t TicketInfo, h string) error {
+	close(b.in)
+	<-b.out
+	return b.fakeRegistry.RecordStarted(t, h)
+}
+
+// T_hung counts a start call that does not return, not the host's own slow registry write of Started: a write stalled for
+// many T_hung does not end a healthy host. Mutant tried: HungStarters without the recording exemption: red. A starter in
+// BeginStart that never reaches Started is still hung.
+func TestASlowRegistryWriteOfStartedIsNotAHungStarter(t *testing.T) {
+	clk := newFakeClock()
+	reg := &blockingReg{in: make(chan struct{}), out: make(chan struct{})}
+	g := NewGate(GateConfig{Generation: 5, Reg: reg, Clock: clk, TClose: 10 * time.Second, THung: 30 * time.Second})
+	tk, _ := g.Admit(Spec{Kind: KindE1, Op: "turn.start"})
+	_ = g.BeginStart(tk)
+	hung, _ := g.Admit(Spec{Kind: KindE1, Op: "turn.start"})
+	_ = g.BeginStart(hung)
+	done := make(chan error, 1)
+	go func() { done <- g.Started(tk, "h") }()
+	<-reg.in
+	clk.Advance(10 * DefaultTHung)
+	h := g.HungStarters()
+	if len(h) != 1 || h[0] != hung.ID() {
+		t.Fatalf("hung = %v: only the starter that never reached its registry write is hung (recording ticket %d, other %d)", h, tk.ID(), hung.ID())
+	}
+	close(reg.out)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The enforcer goroutine ends with the watcher: after the gate closed no EnforceHung goroutine is left. Mutant tried: the
+// goroutine bound to the caller's context only: red (it lives on).
+func TestEnforcerStopsWhenTheGateCloses(t *testing.T) {
+	h, cancel := newHostRun(t)
+	defer cancel()
+	h.w.Exit = func([]uint64) {}
+	if err := SendEmergency(h.dir, 5); err != nil {
+		t.Fatal(err)
+	}
+	h.advanceUntil(t, func() bool { return h.gate.Sealed() })
+	select {
+	case <-h.end:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the watcher did not return")
+	}
+	for i := 0; i < 2000; i++ {
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		if !strings.Contains(string(buf[:n]), "stop.EnforceHung") && !strings.Contains(string(buf[:n]), "(*HostWatcher).Run.func1") {
+			return
+		}
+		h.clk.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("the enforcer goroutine outlived the gate")
 }

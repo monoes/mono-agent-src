@@ -49,6 +49,9 @@ type Ticket struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	since    time.Time // when it became STARTING
+	// recording: the host's own registry write of Started is in progress. That time is not a start call that failed to return,
+	// so HungStarters does not count a recording ticket (a slow audit write must not end a healthy host).
+	recording bool
 }
 
 // ID returns the ticket id.
@@ -151,9 +154,13 @@ func (g *Gate) BeginStart(t *Ticket) error {
 // caller must kill the held process / not enter the transport, and ErrLate is returned.
 func (g *Gate) Started(t *Ticket, handle string) error {
 	g.cfg.Hook.at("started.before-registry")
+	g.mu.Lock()
+	t.recording = true
+	g.mu.Unlock()
 	werr := g.cfg.Reg.RecordStarted(t.info, handle)
 	g.cfg.Hook.at("started.after-registry")
 	g.mu.Lock()
+	t.recording = false
 	g.expireLocked()
 	if t.state != Starting {
 		g.mu.Unlock()
@@ -390,7 +397,7 @@ func (g *Gate) HungStarters() []uint64 {
 	var out []uint64
 	now := g.cfg.Clock.Now()
 	for _, t := range g.tix {
-		if t.state == Starting && now.Sub(t.since) >= g.cfg.THung {
+		if t.state == Starting && !t.recording && now.Sub(t.since) >= g.cfg.THung {
 			out = append(out, t.info.ID)
 		}
 	}
