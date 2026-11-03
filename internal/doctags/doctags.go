@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/peopletags"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
@@ -67,6 +68,7 @@ func AddLimited(ctx context.Context, db *sql.DB, profileID, docID, name string, 
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return Tag{}, err
 	}
 	committed := false

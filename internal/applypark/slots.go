@@ -6,6 +6,8 @@ import (
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Slots is the profile-wide reservation behind the queue's cap. A fill in
@@ -68,6 +70,7 @@ func (s Slots) Reserve(ctx context.Context, appID string, max int) (ok bool, err
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		dbconn.AbandonBegin(conn)
 		return false, err
 	}
 	defer func() {

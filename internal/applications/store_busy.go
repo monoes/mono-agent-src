@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Taking the write lock waits up to the connection's busy timeout (5 s). A writer that holds
@@ -28,6 +30,9 @@ func isBusy(err error) bool {
 func beginImmediate(ctx context.Context, conn *sql.Conn) error {
 	for attempt := 0; ; attempt++ {
 		_, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`)
+		if err != nil {
+			dbconn.AbandonBegin(conn)
+		}
 		if err == nil || !isBusy(err) || attempt >= busyRetries {
 			return err
 		}
