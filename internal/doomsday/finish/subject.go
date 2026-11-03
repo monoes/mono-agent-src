@@ -62,7 +62,9 @@ func (t *Tree) seal() {
 	t.Digest = hex.EncodeToString(h.Sum(nil))
 }
 
-func refuse(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrSnapshotRefused, fmt.Sprintf(f, a...)) }
+func refuse(f string, a ...any) error {
+	return fmt.Errorf("%w: %s", ErrSnapshotRefused, fmt.Sprintf(f, a...))
+}
 
 // DigestTree reads root (it is never modified) and returns its tree. When copyTo is not empty, every regular file is
 // also copied to the same relative path under copyTo (which must exist), so the digest is of the bytes that were copied.

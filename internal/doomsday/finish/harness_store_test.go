@@ -37,10 +37,10 @@ type rig struct {
 }
 
 type scriptedVerifier struct {
-	calls   int
-	verdict string
+	calls    int
+	verdict  string
 	observed finish.Pin
-	err     error
+	err      error
 }
 
 func (v *scriptedVerifier) Review(context.Context, finish.ReviewInput) (finish.ReviewResult, error) {

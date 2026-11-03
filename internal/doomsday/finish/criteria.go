@@ -34,7 +34,9 @@ type Plan struct {
 // ErrCriterion: the criterion cannot be run as written. The harness turns it into an "error" result.
 var ErrCriterion = errors.New("finish: the criterion cannot be run")
 
-func badCrit(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrCriterion, fmt.Sprintf(f, a...)) }
+func badCrit(f string, a ...any) error {
+	return fmt.Errorf("%w: %s", ErrCriterion, fmt.Sprintf(f, a...))
+}
 
 // ParsePlan reads one machine criterion.
 func ParsePlan(kind, spec, expected string) (Plan, error) {
