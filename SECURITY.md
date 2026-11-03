@@ -2068,6 +2068,18 @@ that works a task acts on them. The defences:
   coder session's turn, so those are run from the operator's own terminal, not one
   started inside a turn. A machine with no database yet is not in a turn; a turn
   record that cannot be read refuses.
+  Commands that ask the shared gate (`internal/cli/opgate`, registered by the CLI at
+  start-up; issue 1333 tracks moving the remaining operator-only commands onto it) get
+  the same layers: `secret agent-access` (and clearing its audit), `secret rebind`,
+  `api key create|update|revoke`, `api config set|unset`, and every command that prints
+  decrypted secrets (`secret export`, `connect get-oauth-client --reveal`,
+  `profile info get --reveal`, `workflow run --full-outputs`). The check reads the
+  named database read-only and never creates or migrates it. `secret rebind` repairs
+  an install, so it must work when the database is damaged: for it an unreadable or
+  absent database (or turn registry entry) counts as no turn recorded, while a turn
+  recorded in a readable database still refuses it. `secret reveal` and
+  `node run vault.secret_get` keep the marker check alone, as before: they have an
+  agent path under the profile's Reveal access level and are held for a decision.
   The database it reads is not only the one the process names: every running coder
   host records the database it runs turns against in the turn registry, one file per
   database under `<the OS user's passwd home>/.monoagent/coder-hosts/` (directory
@@ -2119,9 +2131,9 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (secrets, sign-in, API keys and config, agent mode, automation, extensions,
-  records, the organisation guards, people and profile edits, node runs and
-  publications) still use only the operator marker check and are NOT turn-aware,
+  (sign-in, agent mode, automation, extensions, records, the organisation guards,
+  people and profile edits, node runs and publications; tracked in issue 1333) still
+  use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
   value or a verb that never calls the gate: an inventory, not a coverage proof.

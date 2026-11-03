@@ -639,7 +639,11 @@ dangerous calls.
   teardown-profile` (`--dry-run` stays open), which mint, widen or revoke a
   key, and `api config set|unset` (not `--dry-run`), `jev enable` and `jev
   key set|remove|adopt`, which widen what the API server reaches or where
-  the profile's data goes. `httpapi-token` is a reserved vault entry: only
+  the profile's data goes. The decrypted-secret commands except `secret reveal` and
+  `node run vault.secret_get`, `secret agent-access`, `secret rebind`, `api key
+  create|update|revoke` and `api config set|unset` also refuse a process inside a
+  coder session's turn and one that holds an agent token (`internal/cli/opgate`,
+  SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it), and its bearer is the field `token`; tools
