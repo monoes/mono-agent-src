@@ -64,6 +64,10 @@ type execLauncher struct {
 	// start gives up on the hook (a deadline, a panic) or returns: a hook that takes something it cannot give back (a ticket) must check it
 	// under its own lock first, so a late completion for a refused turn takes nothing.
 	beforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
+	// place, when set, puts the turn's process where it must be born (a containment cgroup): it adjusts cmd after the launcher built its
+	// process attributes (Setsid, pidfd) and before the process exists, and returns a release that the launcher calls right after the start
+	// (success or failure). An error refuses the turn before anything runs. Bound launches only: a legacy start with place set fails.
+	place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -290,9 +294,30 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	cmd.Dir = filepath.Dir(l.logDir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
-	startProcess := func() error { return clicore.DetachStart(cmd) }
+	startProcess := func() error {
+		if l.place != nil {
+			return errors.New("placing a turn needs a bound launch; a legacy start would run outside the placement")
+		}
+		return clicore.DetachStart(cmd)
+	}
 	if bd != nil {
-		startProcess = func() error { return bd.start(cmd) }
+		startProcess = func() error {
+			var pre func(*exec.Cmd) error
+			var release func()
+			if l.place != nil {
+				pre = func(c *exec.Cmd) error {
+					return hookRecover("the placement", func() (perr error) {
+						release, perr = l.place(c, profileID, conversationID)
+						return perr
+					})
+				}
+			}
+			err := bd.start(cmd, pre)
+			if release != nil {
+				release() // the placement's descriptor is needed until the process exists, no longer
+			}
+			return err
+		}
 	}
 	if err := startProcess(); err != nil {
 		os.Remove(promptPath)

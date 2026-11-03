@@ -96,8 +96,17 @@ func (b *boundLaunch) attach(cmd *exec.Cmd, missionToken string) (*boundDelivery
 }
 
 // start starts the process detached with a pidfd; the host's copy of the read end is closed whether it started or not.
-func (d *boundDelivery) start(cmd *exec.Cmd) error {
+//
+// pre, when set, runs on cmd after its process attributes are built and before the process exists (a placement hook adds to them,
+// which is why it cannot run earlier: the attributes are assigned here). Its error means nothing was started.
+func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, PidFD: &d.pidfd}
+	if pre != nil {
+		if err := pre(cmd); err != nil {
+			d.r.Close()
+			return err
+		}
+	}
 	err := cmd.Start()
 	d.r.Close()
 	if err != nil {
