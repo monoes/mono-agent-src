@@ -11,9 +11,10 @@ import (
 
 // Default escalation bounds of note 13.2 section 7; starting values, to be measured.
 const (
-	DefaultTTerm = 5 * time.Second
-	DefaultTKill = 5 * time.Second
-	defaultPoll  = 50 * time.Millisecond
+	DefaultTTerm  = 5 * time.Second
+	DefaultTKill  = 5 * time.Second
+	defaultPoll   = 50 * time.Millisecond
+	maxRmdirTries = 5
 )
 
 // EndConfig parameterises EndUnit.
@@ -119,20 +120,15 @@ func endSub(cg Cgroup, sub string, cfg EndConfig, out *UnitOutcome) (unknown []S
 			break
 		}
 	}
-	if !waitEmpty(cg, sub, cfg.Clock, cfg.TTerm, cfg.Poll) {
-		for attempt := 0; attempt < 3; attempt++ {
-			_ = cg.Kill(sub)
-			if waitEmpty(cg, sub, cfg.Clock, cfg.TKill, cfg.Poll) && cg.Rmdir(sub) == nil {
-				return unknown
-			}
+	// rmdir only succeeds on an empty cgroup, so a successful rmdir is the proof; while it fails something is
+	// alive or a late creator made something: kill the whole sub-tree again, bounded.
+	empty := waitEmpty(cg, sub, cfg.Clock, cfg.TTerm, cfg.Poll)
+	for attempt := 0; attempt < maxRmdirTries; attempt++ {
+		if empty && cg.Rmdir(sub) == nil {
+			return unknown
 		}
-	} else if cg.Rmdir(sub) == nil {
-		return unknown
-	}
-	// rmdir only succeeds on an empty cgroup: a late creator made something, so kill again once more
-	_ = cg.Kill(sub)
-	if waitEmpty(cg, sub, cfg.Clock, cfg.TKill, cfg.Poll) && cg.Rmdir(sub) == nil {
-		return unknown
+		_ = cg.Kill(sub)
+		empty = waitEmpty(cg, sub, cfg.Clock, cfg.TKill, cfg.Poll)
 	}
 	pids, _ := cg.Procs(sub)
 	for _, pid := range pids {
