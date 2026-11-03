@@ -63,19 +63,42 @@ type EmergencyServer struct {
 	OnStop func(gen uint64)
 }
 
+// Start binds the socket and serves in the background until ctx ends. A bind error is returned: a host that cannot be
+// reached by the emergency message must not run the generation (a Stop would find no socket and take the host for absent).
+func (s *EmergencyServer) Start(ctx context.Context) error {
+	ln, err := s.listen(ctx)
+	if err != nil {
+		return err
+	}
+	go func() { _ = s.accept(ctx, ln) }()
+	return nil
+}
+
 // Serve accepts until ctx ends.
 func (s *EmergencyServer) Serve(ctx context.Context) error {
-	if err := s.Dir.fsys().MkdirAll(s.Dir.Dir, 0o700); err != nil {
+	ln, err := s.listen(ctx)
+	if err != nil {
 		return err
+	}
+	return s.accept(ctx, ln)
+}
+
+func (s *EmergencyServer) listen(ctx context.Context) (net.Listener, error) {
+	if err := s.Dir.fsys().MkdirAll(s.Dir.Dir, 0o700); err != nil {
+		return nil, err
 	}
 	path := s.Dir.SockPath(s.Gen)
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_ = os.Chmod(path, 0o600)
 	go func() { <-ctx.Done(); ln.Close() }()
+	return ln, nil
+}
+
+func (s *EmergencyServer) accept(ctx context.Context, ln net.Listener) error {
 	for {
 		c, err := ln.Accept()
 		if err != nil {

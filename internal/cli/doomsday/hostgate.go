@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
@@ -41,10 +42,20 @@ type HostGate struct {
 	// BindingOn says whether security.peercred_binding is on. A run needs bound turns ("no run without binding"): nil, an
 	// error and false all refuse a turn start while a run is open.
 	BindingOn func() (bool, error)
+	// HostLock takes the run directory's host lock (Q8: one host per database); nil is stop.AcquireHost. It is taken when
+	// the first gate of a run is made and held until the process ends, so a Stop or a merge recovery that can take it knows
+	// no host is alive.
+	HostLock func(stop.RunDir) (func(), error)
+	// Exit is the crash-only exit of a start call that never returns (stop.EnforceHung); nil is os.Exit(70) after a line on
+	// stderr.
+	Exit func(starters []uint64)
+	// Tick is the marker poll interval (stop.HostWatcher); zero is 250 ms.
+	Tick time.Duration
 	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
 	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
 	mu       sync.Mutex
+	lockHeld bool
 	gates    map[int64]*stop.Gate
 	merges   map[int64]*dynorg.DoomsdayMerge
 	hooked   bool            // the launcher asks BeforeRelease: a turn's ticket is taken there, not around Start
@@ -107,6 +118,11 @@ func (g *HostGate) currentRun(ctx context.Context) (gate *stop.Gate, r store.Run
 			clk = stop.SystemClock{}
 		}
 		gate = stop.NewGate(stop.GateConfig{Generation: uint64(r.Generation), Reg: auditRegistry{g.Store, g.Profile, r.Generation}, Clock: clk})
+		// The gate is made reachable by a Stop from another process before it is used: the host lock, the emergency socket
+		// and the marker watcher. One that cannot be set up refuses the dispatch, so no run proceeds with a gate nobody can close.
+		if err := g.reachLocked(gate, r, clk); err != nil {
+			return nil, r, fmt.Errorf("%w: %v", coderhost.ErrDispatchRefused, err)
+		}
 		g.gates[r.Generation] = gate
 	}
 	if r.State != store.StateRunning || g.RunDir.ReadMarker(uint64(r.Generation), r.CharterID).Stops() {

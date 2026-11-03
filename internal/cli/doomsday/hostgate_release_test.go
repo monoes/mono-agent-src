@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
 
 // hookLauncher stands in for the production launcher: it makes the "process" and then asks the release hook before
@@ -253,5 +254,46 @@ func TestInstallWithoutHooksFallsBackToTheTicketAroundStart(t *testing.T) {
 	}
 	if _, err := h.L.Start("p1", "c", "t2", "hi", nil, ""); !refused(err) {
 		t.Fatalf("fallback let a turn start on a stopping run: %v", err)
+	}
+}
+
+// slowAudit blocks the audit append of a started ticket until released.
+type slowAudit struct {
+	hostStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *slowAudit) AppendAudit(ctx context.Context, profile string, gen int64, kind, payload string) (store.AuditRow, error) {
+	if kind == "ticket.started" {
+		close(s.entered)
+		<-s.release
+	}
+	return s.hostStore.AppendAudit(ctx, profile, gen, kind, payload)
+}
+
+// The registry write of a started ticket is not made under the gate's lock: while it is slow, other dispatches and the
+// run-state reads proceed. Mutant tried: hold g.mu across Started again: red (the second dispatch never returns).
+func TestBeforeReleaseDoesNotHoldTheGateLockAcrossTheAuditWrite(t *testing.T) {
+	r := newHostRig(t)
+	r.start(t)
+	slow := &slowAudit{hostStore: r.gate.Store, entered: make(chan struct{}), release: make(chan struct{})}
+	r.gate.Store = slow
+	first := make(chan error, 1)
+	go func() { first <- r.gate.BeforeRelease(context.Background(), "p1", "conv", "slow-1", true) }()
+	<-slow.entered
+	other := make(chan error, 1)
+	go func() { _, err := r.gate.current(context.Background()); other <- err }()
+	select {
+	case err := <-other:
+		if err != nil {
+			t.Fatalf("another dispatch: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a dispatch queued behind the audit write of another turn's ticket")
+	}
+	close(slow.release)
+	if err := <-first; err != nil {
+		t.Fatalf("the slow turn: %v", err)
 	}
 }

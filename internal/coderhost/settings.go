@@ -266,7 +266,7 @@ func (s *Store) GetSettings(profileID, conversationID string) (Settings, error) 
 func (s *Store) settingsIn(q querier, profileID, conversationID string) (Settings, error) {
 	var raw string
 	err := q.QueryRow(`SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
-	return settingsFromRow(conversationID, raw, err, s.depthCeiling(profileID, conversationID))
+	return settingsFromRow(conversationID, raw, err, s.readCeiling())
 }
 
 // settingsFromRow is the settings a row read gave: no row, or nothing stored, is the defaults.
@@ -334,7 +334,7 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	}
 	var raw string
 	err = conn.QueryRowContext(ctx, `SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
-	cur, err := settingsFromRow(conversationID, raw, err, s.depthCeiling(profileID, conversationID))
+	cur, err := settingsFromRow(conversationID, raw, err, s.readCeiling())
 	if err != nil && strict {
 		return Settings{}, err
 	}
@@ -345,7 +345,7 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	if err != nil {
 		return Settings{}, err
 	}
-	if err := next.validateAt(s.depthCeiling(profileID, conversationID)); err != nil {
+	if err := next.validateAt(s.writeCeiling(profileID, conversationID, cur.MaxDepth)); err != nil {
 		return Settings{}, err
 	}
 	out, err := json.Marshal(next)

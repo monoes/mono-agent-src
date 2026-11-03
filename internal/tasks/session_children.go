@@ -62,7 +62,7 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 	floor := map[int64]childKid{id: top}
 	seen := []int64{id}
 	frontier := []int64{id}
-	maxDepth := s.depthLimit(ctx, id)
+	maxDepth := s.walkLimit(ctx, id)
 	for depth := 1; len(frontier) > 0; depth++ {
 		var next []int64
 		for _, parent := range frontier {

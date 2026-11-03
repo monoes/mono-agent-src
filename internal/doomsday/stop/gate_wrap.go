@@ -42,6 +42,8 @@ func (g *Gate) StartHeld(spec Spec, create func() (Held, error)) (t *Ticket, err
 		if held != nil {
 			if kerr := held.Kill(); kerr != nil {
 				g.MarkUnknown(t)
+			} else {
+				g.abortKilled(t) // STARTED, but the child was killed (Release failed): not a live started ticket
 			}
 		}
 		g.Abort(t) // STARTING -> ABORTING -> durable abort; a no-op for UNKNOWN or ABORTED

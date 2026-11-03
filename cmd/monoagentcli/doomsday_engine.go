@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
@@ -46,20 +47,14 @@ func init() {
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
 		// merge, so a run that starts or stops after the turn began is seen.
 		d.DoomsdayMerge = func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
-			w := doomsdayWiring(cfg, db)
-			g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store)}
-			return g.MergeFor
+			return processHostGate(cfg, db).MergeFor
 		}
 		// The coder host gets the open run's dispatch gate: tickets for spawns, token mints and turn releases, the run
 		// stamp, and the bound-mode requirement. With no open run the gate does nothing, so the host is what it was. A
 		// gate whose launcher hooks cannot be installed still stands (the ticket is then taken around Start).
 		chatcli.HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) {
 			w := doomsdayWiring(cfg, db)
-			g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
-				BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
-				InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
-					return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
-				}}
+			g := processHostGate(cfg, db)
 			// The boss's typed operations (plan.approve, ask.answer, spend.grant) are enforced against the open run's
 			// charter, witnessed; the route is the mode off whenever no run is running.
 			w.InstallOps(st)
@@ -79,6 +74,29 @@ func init() {
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
+}
+
+var (
+	hostGateMu sync.Mutex
+	hostGates  = map[string]*doomsdaycli.HostGate{}
+)
+
+// processHostGate is the process's one HostGate per profile (merges and the coder host share it): two gates would hold
+// two stop.Gate objects for one generation, and a Stop's close, outcome and hung-starter rule would miss the other's tickets.
+func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
+	hostGateMu.Lock()
+	defer hostGateMu.Unlock()
+	if g, ok := hostGates[cfg.ProfileID]; ok {
+		return g
+	}
+	w := doomsdayWiring(cfg, db)
+	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
+		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
+		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
+			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
+		}}
+	hostGates[cfg.ProfileID] = g
+	return g
 }
 
 // doomsdayWiring is the one construction of the engine's seams: the store over the profile's vault key, the run

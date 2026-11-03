@@ -39,10 +39,24 @@ func defaultDepthPolicy(db *sql.DB) DepthPolicy {
 	return nil
 }
 
-// depthLimit is the level limit every depth walker uses for the tree of session id.
+// depthLimit is the level limit for creating a session below the tree of session id: the policy of the moment, and
+// nothing else (see walkLimit for the walkers).
 func (s *Store) depthLimit(ctx context.Context, id int64) int {
 	if s == nil || s.depthPolicy == nil {
 		return HardMaxSessionDepth
 	}
 	return min(max(s.depthPolicy(ctx, id), HardMaxSessionDepth), MaxCharterSessionDepth)
+}
+
+// walkLimit is the level limit of every walker that reads, settles, closes or archives sessions that exist (the chain
+// to a root, the ceiling, the subtree, the clamp, the budget walks). It is not the policy of the moment: a charter's
+// tree stays a tree after its run ends and the policy lapses, so while a policy is installed (a build with the mode) the
+// walkers go to the charter maximum, which every tree the policy ever allowed fits in. Creating a session below a level
+// still asks depthLimit (checkParent), so a lapsed policy admits nothing new beyond the hard limit. With no policy
+// installed it is HardMaxSessionDepth, as before.
+func (s *Store) walkLimit(ctx context.Context, id int64) int {
+	if s == nil || s.depthPolicy == nil {
+		return HardMaxSessionDepth
+	}
+	return MaxCharterSessionDepth
 }

@@ -80,7 +80,7 @@ func Overcommitted(ctx context.Context, x Queryer, profileID string, sessionID i
 // Overcommitted is the package function with the store's depth policy, so a charter tree is walked to its depth.
 func (s *Store) Overcommitted(ctx context.Context, x Queryer, profileID string, sessionID int64) (string, error) {
 	seen := map[int64]bool{}
-	maxDepth := s.depthLimit(ctx, sessionID)
+	maxDepth := s.walkLimit(ctx, sessionID)
 	for cur, step := sessionID, 0; ; step++ {
 		if seen[cur] || step > maxDepth {
 			return "", invalid("session #%d is in a cycle of parents or deeper than %d levels", sessionID, maxDepth)

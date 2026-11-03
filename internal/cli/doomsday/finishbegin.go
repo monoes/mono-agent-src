@@ -68,9 +68,7 @@ func (e *FinishEngine) FinishBegin(ctx context.Context) (BeginReport, error) {
 	if w.Tokens == nil {
 		return BeginReport{}, errors.New("token revocation is not wired; nothing was begun")
 	}
-	rs := stop.StoreRuns{Store: w.Chained(), Profile: w.Profile, By: "finish", Tokens: w.Tokens,
-		Runs: func(ctx context.Context) ([]stop.RunInfo, error) { return w.openInfos(ctx) }}
-	st := &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: e.ender(), Clock: w.clock()}
+	st := w.Stopper("finish", e.ender())
 	report := st.Stop(ctx, uint64(run.Generation), run.CharterID, store.FinishCause)
 	rep.Accepted, rep.State = true, string(report.Final)
 	if !report.Stopped() {

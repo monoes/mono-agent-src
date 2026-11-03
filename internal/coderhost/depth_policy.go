@@ -41,3 +41,19 @@ func (s *Store) depthCeiling(profileID, conversationID string) int {
 	}
 	return min(max(s.depthPolicy(profileID, conversationID), MaxSessionDepth), tasks.MaxCharterSessionDepth)
 }
+
+// readCeiling is the max_depth ceiling for reading settings that were stored: a charter's tree keeps the max_depth it was
+// given after the run ends and the policy lapses, so while a policy is installed a stored value up to the charter maximum
+// is valid to read. Writes still ask depthCeiling (and may keep, not raise, a stored value: writeCeiling).
+func (s *Store) readCeiling() int {
+	if s == nil || s.depthPolicy == nil {
+		return MaxSessionDepth
+	}
+	return tasks.MaxCharterSessionDepth
+}
+
+// writeCeiling is depthCeiling, except that a session may keep the max_depth it already has: a write that leaves it alone (or
+// lowers it) is not refused because the policy that allowed it has lapsed.
+func (s *Store) writeCeiling(profileID, conversationID string, stored int) int {
+	return max(s.depthCeiling(profileID, conversationID), min(stored, s.readCeiling()))
+}

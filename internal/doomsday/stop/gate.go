@@ -225,6 +225,20 @@ func (g *Gate) Abort(t *Ticket) {
 	}
 }
 
+// abortKilled resolves a STARTED ticket whose process the caller has killed (a failed Release): the registry says started,
+// the process is dead, so the ticket goes through the durable abort (ABORTED, or UNKNOWN when that write fails) and does not
+// stay STARTED. Every other state is left to Abort.
+func (g *Gate) abortKilled(t *Ticket) {
+	g.mu.Lock()
+	if t.state != Started {
+		g.mu.Unlock()
+		return
+	}
+	t.state = Aborting
+	g.mu.Unlock()
+	g.finishAbort(t)
+}
+
 // RetryUnknown retries the abort write of every UNKNOWN ticket (the schedule is the caller's); a success
 // resolves the ticket to ABORTED and so can improve the published outcome.
 func (g *Gate) RetryUnknown() {
