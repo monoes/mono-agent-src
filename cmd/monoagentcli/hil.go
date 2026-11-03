@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"strconv"
@@ -179,42 +178,32 @@ func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	path := expandPath(c.DBPath)
 	// The database the process names is only half of the question: --db-path or another HOME must not hide a
 	// turn, so every running coder host's database (the turn registry) is checked too. An override only adds checks.
-	in, err := coderhost.CallerInARegisteredTurn(path)
+	var in bool
+	if recovery {
+		// an unreadable entry is skipped, never allowed to hide a turn recorded in a readable database
+		in, _ = coderhost.CallerInARegisteredTurnLenient(path)
+	} else {
+		var err error
+		in, err = coderhost.CallerInARegisteredTurn(path)
+		if err != nil && !in {
+			return false, err
+		}
+	}
 	if in {
 		return true, nil
 	}
-	if err != nil && !recovery {
-		return false, err
-	}
-	in, err = callerInATurnNamed(path)
+	in, err := callerInATurnNamed(path)
 	if err != nil && recovery {
 		return false, nil
 	}
 	return in, err
 }
 
-// callerInATurnNamed is the check of the database the process names, as it was before the registry.
-// It only reads: the file is opened read-only, so the check never creates or migrates a database.
-func callerInATurnNamed(path string) (bool, error) {
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	db, err := sql.Open("sqlite", readOnlyURI(path))
-	if err != nil {
-		return false, err
-	}
-	defer db.Close()
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'coder_sessions'`).Scan(&n); err != nil {
-		return false, err
-	}
-	if n == 0 {
-		return false, nil
-	}
-	return coderhost.NewStore(db).CallerInATurn()
-}
+// callerInATurnNamed is the check of the database the process names, as it was before the registry. It is
+// coderhost.CallerInATurnAt, the registry's own check: the file is opened read-only (never created or
+// migrated), only a regular file is opened (a FIFO cannot hang it) and a locked database is waited for
+// at most busy_timeout. Its errors refuse a non-recovery verb; a recovery verb treats them as "not in a turn".
+func callerInATurnNamed(path string) (bool, error) { return coderhost.CallerInATurnAt(path) }
 
 // notOperator says why this process is not the operator's own terminal, or
 // "" (internal/operator): an agent, a process of any kind of agent, a chat

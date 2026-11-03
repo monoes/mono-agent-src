@@ -345,6 +345,27 @@ func hostIsGone(e registryEntry) bool {
 // courtesy layer already does not stop (SECURITY.md). A database that is readable is always judged, host dead
 // or not, and a live host's unreadable database always refuses.
 func CallerInARegisteredTurn(named string) (bool, error) {
+	in, skipped := scanRegisteredTurns(named, false)
+	if in {
+		return true, nil
+	}
+	if len(skipped) > 0 {
+		return false, skipped[0]
+	}
+	return false, nil
+}
+
+// CallerInARegisteredTurnLenient is CallerInARegisteredTurn for the commands that repair an install: an
+// entry whose database cannot be read is skipped (and returned in skipped, so a caller can say so) instead
+// of ending the scan, so a turn recorded in ANY readable database is still found, wherever the unreadable
+// entry sorts. in is true as soon as one readable database holds the caller as a turn.
+func CallerInARegisteredTurnLenient(named string) (in bool, skipped []error) {
+	return scanRegisteredTurns(named, true)
+}
+
+// scanRegisteredTurns is the one per-entry check behind both variants. Strict (lenient false) stops at the
+// first unreadable live-host entry and returns its error; lenient records it and goes on.
+func scanRegisteredTurns(named string, lenient bool) (bool, []error) {
 	if !ancestrySupported {
 		return false, nil
 	}
@@ -356,6 +377,7 @@ func CallerInARegisteredTurn(named string) (bool, error) {
 	if named != "" {
 		namedInfo, _ = os.Stat(named)
 	}
+	var skipped []error
 	for _, e := range ents {
 		if namedInfo != nil {
 			if fi, err := os.Stat(e.DB); err == nil && os.SameFile(namedInfo, fi) {
@@ -367,11 +389,15 @@ func CallerInARegisteredTurn(named string) (bool, error) {
 			if hostIsGone(e) {
 				continue
 			}
-			return false, fmt.Errorf("turn registry: the database %s of a coder host cannot be read (%v); the registry entry for it is %s; if that host is no longer running, delete this file and run the command again", e.DB, err, e.file)
+			skipped = append(skipped, fmt.Errorf("turn registry: the database %s of a coder host cannot be read (%v); the registry entry for it is %s; if that host is no longer running, delete this file and run the command again", e.DB, err, e.file))
+			if lenient {
+				continue
+			}
+			return false, skipped
 		}
 		if in {
-			return true, nil
+			return true, skipped
 		}
 	}
-	return false, nil
+	return false, skipped
 }
