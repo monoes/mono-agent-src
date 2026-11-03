@@ -3267,3 +3267,7 @@ function that does what the guarded one does), and it skips directories named `s
   verifier, no open person item); it only begins the finish, whose verification and commit stay the operator's. A criterion
   runs with process limits and a scratch cap, and without a network where the kernel allows an unprivileged user namespace;
   where it does not the record says `denied(declared-only)`, which is a declaration and not a defence.
+  The strategy layer adds two lead tools, `session_boss_strategy_propose` and `session_boss_strategy_report`: a proposal for the novelty
+  gate and a claim about a direction the caller owns. Neither can request or begin a finish, raise a limit or touch an approval; the judge
+  intake `strategy.epoch` is not session-callable. Their rows are `strategy.*` audit kinds reserved to the store's strategy writer and written
+  inside the witnessed sequence.

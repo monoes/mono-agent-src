@@ -4681,3 +4681,9 @@ criteria run under process limits (CPU, address space, open files, file size, pr
 kernel allows an unprivileged user namespace, without a network (`denied(enforced)`; otherwise `denied(declared-only)`, and
 `doomsday finish --require-net-deny` parks with `enforcement-required`); each round's verification unit is witnessed and a `verify`
 member of the run registry.
+Two more lead tools belong to the strategy layer (`internal/mcp/boss_tools_strategy.go`, `-tags doomsday` only, same rules): `session_boss_strategy_propose`
+(strategy.propose: a direction for the novelty gate) and `session_boss_strategy_report` (strategy.report: a direction the caller owns is stalled or finished).
+They go through `mcp.SetBossStrategyCaller` into `ops.StrategyOps`, whose own allowlist (`ops.AllowedStrategy`) is the only one it reads; they take no operation
+name and cannot request, approve or begin a finish (`TestNoStrategyToolCanRequestOrApproveAFinish`). `strategy.epoch`, the judge intake, has no tool. The host
+loop (`cli/doomsday.StrategyLoop`, started with the coder host) is the only thing that ticks the epoch engine; every strategy write is a witnessed transition
+(`store.AppendStrategyAuditTx` inside `stop.Sequencer.SequenceRows`), so a strategy row can never be an unwitnessed writer (row 5).
