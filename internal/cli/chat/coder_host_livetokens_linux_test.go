@@ -374,3 +374,46 @@ while :; do sleep 0.05; done
 		t.Error("the group's child outlived a turn whose hold failed")
 	}
 }
+
+// A bound leader that exits on its own, leaving a child in its group, before a failed delivery is noticed: the group is dead when the
+// start returns its error (the exit's settle killed it while the leader was still held, and the failed delivery's stop does not depend on it).
+func TestAFailedBoundDeliveryAfterTheLeaderExitedLeavesNoGroupMemberRunning(t *testing.T) {
+	script := `d=$(dirname "$0")
+sleep 300 </dev/null >/dev/null 2>&1 &
+echo $! > "$d/child"
+echo $$ > "$d/pid"
+exit 0
+`
+	r := newBoundRig(t, script)
+	var child int
+	r.l.bound.afterMint = func() { // the leader has exited by now: wait for it, then fail the delivery
+		for i := 0; i < 500; i++ {
+			if b, err := os.ReadFile(filepath.Join(r.dir, "child")); err == nil {
+				child, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			}
+			if pb, err := os.ReadFile(r.pidfile); err == nil {
+				if pid, _ := strconv.Atoi(strings.TrimSpace(string(pb))); pid > 1 && processState(pid) == "Z" && child > 1 {
+					break
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if err := r.store.RevokeSessionTokensErr("default", "c1"); err != nil {
+			t.Error(err)
+		}
+	}
+	_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil {
+		t.Fatal("the delivery did not fail")
+	}
+	if child <= 1 {
+		t.Fatal("the leader never started its child")
+	}
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	for i := 0; i < 300 && syscall.Kill(child, 0) == nil; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(child, 0) == nil {
+		t.Error("a member of the leader's group outlived a failed bound delivery whose leader had already exited")
+	}
+}
