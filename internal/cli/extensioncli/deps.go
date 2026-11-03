@@ -36,7 +36,7 @@ type Deps struct {
 	// runs is the user's: bind, unbind, assign, reset, pair --open and install
 	// --zip. Nil refuses (clicore.OperatorRefusal).
 	Refusal func() string
-	// RecoveryRefusal is Refusal for `extension reset`, which an operator with
+	// RecoveryRefusal is Refusal for `extension reset` and `extension browsers revoke`, which an operator with
 	// a damaged install needs: an unreadable database must not lock them out of
 	// revoking the pairing token (opgate.RecoveryRefusal). Nil: Refusal.
 	RecoveryRefusal func() string
