@@ -35,6 +35,9 @@ type Wiring struct {
 	// DB is the profile's database: the merge journal and the task store's merge records are read from it. Nil
 	// leaves merge recovery out (only a test that does not exercise merges leaves it nil).
 	DB *sql.DB
+	// Witness is the note 13.5 witness setup (database path for the pinned connection, MAC keys, secret store).
+	// Without it no run can be entered and nothing chained is written.
+	Witness *WitnessSetup
 }
 
 // notProvenEnder is the Ender of an install with no Kernel: it signals nothing and says so.
@@ -46,15 +49,26 @@ func (notProvenEnder) End(context.Context, uint64, []uint64) stop.UnitOutcome {
 
 // Engine is the StoreEngine over the wiring.
 func (w Wiring) Engine() *StoreEngine {
-	return &StoreEngine{
-		Store: w.Store, Profile: w.Profile,
-		ContainmentProbe: w.Probe,
+	seq, serr := w.Sequencer(context.Background())
+	chained := &SeqStore{SQLStore: w.Store, Seq: seq, Err: serr}
+	probe := w.Probe
+	if serr != nil { // no witness, no mode
+		probe = func() error { return serr }
+	}
+	e := &StoreEngine{
+		Store: chained, Profile: w.Profile,
+		ContainmentProbe: probe,
 		Binding:          w.Binding,
 		StopFn:           w.stop,
 		BeforeStart:      w.recoverMerges,
 		CreateUnit:       w.createUnit,
 		AfterEnter:       func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
 	}
+	if seq != nil {
+		e.Anchored = seq.Entered
+		e.BeginEntry = seq.BeginEntry
+	}
+	return e
 }
 
 func (w Wiring) ender() stop.Ender {
@@ -65,12 +79,22 @@ func (w Wiring) ender() stop.Ender {
 	if w.Host != nil {
 		u.StopUnit = w.Host.StopUnit
 	}
-	return u
+	seq, err := w.Sequencer(context.Background())
+	if err != nil {
+		return u // stopping stays possible; the end line cannot be written, so nothing claims it
+	}
+	u.Witness = seq.BoundUnits
+	return stop.NewWitnessEnder(u, seq)
 }
 
 // createUnit is StoreEngine.CreateUnit: the unit is created, proven and recorded before the run exists.
 func (w Wiring) createUnit(ctx context.Context, gen int64) (func(context.Context) error, error) {
 	c := stop.UnitCreator{K: w.Kernel, Dir: w.RunDir, Host: w.Host}
+	seq, err := w.Sequencer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.Journal = seq // unit-intent before the service, unit-bound before the unit file
 	rec, err := c.Create(ctx, uint64(gen))
 	if err != nil {
 		return nil, err
@@ -100,7 +124,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 	if len(runs) == 0 {
 		return StopOutcome{}, errors.New("no open run to stop")
 	}
-	rs := stop.StoreRuns{Store: w.Store, Profile: w.Profile, By: "operator", Tokens: w.Tokens,
+	rs := stop.StoreRuns{Store: w.Chained(), Profile: w.Profile, By: "operator", Tokens: w.Tokens,
 		Runs: func(ctx context.Context) ([]stop.RunInfo, error) { return w.openInfos(ctx) }}
 	st := &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: w.ender(), Clock: w.clock()}
 	out := StopOutcome{MarkerRecorded: true, IntentRecorded: true}

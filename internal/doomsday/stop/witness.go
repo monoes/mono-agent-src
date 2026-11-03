@@ -32,6 +32,12 @@ const (
 	RecCommitted = "committed"
 	RecAbandoned = "abandoned"
 	RecFailed    = "failed"
+	// RecAnchor says the generation is anchor-bound (the OS secret store holds its item). Transparent to Classify.
+	RecAnchor = "anchor"
+	// The unit lifecycle lines of note 13.2 section 4; transparent to Classify. Extra carries the fields.
+	RecUnitIntent = "unit-intent"
+	RecUnitBound  = "unit-bound"
+	RecUnitEnded  = "unit-ended"
 )
 
 // Record is the payload of one witness record.
@@ -93,7 +99,7 @@ func (w Witness) scan() (recs []Record, last []byte, damaged bool, err error) {
 	}
 	last = hm
 	pos := len(magic) + syncLen + macLen
-	var lastSeq int64
+	lastSeq := map[int64]int64{} // seqs are per generation
 	for pos < len(b) {
 		i := bytes.Index(b[pos:], sync)
 		if i < 0 {
@@ -109,11 +115,13 @@ func (w Witness) scan() (recs []Record, last []byte, damaged bool, err error) {
 			// authenticated but not chaining: a replay, a fork or a deletion; never silently skipped
 			return recs, last, true, ErrWitnessDamaged
 		}
-		if rec.To != 0 && rec.To < lastSeq {
+		// An abandoned record names the seq the stream went back to (the seq before the abandoned range), so it is
+		// the one record whose To may be lower than a range it supersedes.
+		if rec.To != 0 && rec.T != RecAbandoned && rec.To < lastSeq[rec.Gen] {
 			return recs, last, true, ErrWitnessDamaged
 		}
-		if rec.To > lastSeq {
-			lastSeq = rec.To
+		if rec.To > lastSeq[rec.Gen] {
+			lastSeq[rec.Gen] = rec.To
 		}
 		recs = append(recs, rec)
 		last = rec.mac

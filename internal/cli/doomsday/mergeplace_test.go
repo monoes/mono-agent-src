@@ -11,7 +11,7 @@ import (
 func TestMergeForRefusesWhenGitCannotBePlacedInTheUnit(t *testing.T) {
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w.start(t)
-	g := &HostGate{Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir, Journal: MergeJournal(db.DB, w.w.Store)}
+	g := &HostGate{Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, Journal: MergeJournal(db.DB, w.w.Store)}
 	if dd, err := g.MergeFor(context.Background()); dd != nil || err == nil {
 		t.Fatalf("no kernel: %v, %v", dd, err)
 	}
@@ -40,7 +40,7 @@ func TestRecoveryPlacementFollowsTheOpenRun(t *testing.T) {
 // be placed in, it is refused (the launcher must not start it); a foreign profile is refused.
 func TestPlaceCmdFollowsTheOpenRunAndFailsClosed(t *testing.T) {
 	w, _ := newWire(t, func() error { return nil }, fakeKernel{}, nil)
-	g := &HostGate{Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel}
+	g := &HostGate{Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel}
 	cmd := exec.Command("true")
 	if err := g.PlaceCmd(cmd, "p1", "c1"); err != nil || cmd.SysProcAttr != nil {
 		t.Fatalf("no run open: %v, %+v", err, cmd.SysProcAttr)

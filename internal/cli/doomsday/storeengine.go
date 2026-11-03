@@ -33,6 +33,12 @@ type StoreEngine struct {
 	// before the store records the run: no unit, no run (note 13.2 section 4). The discard it returns stops the
 	// unit again if the store then refuses the entry. Nil refuses the start: there is no mode without containment.
 	CreateUnit func(ctx context.Context, generation int64) (discard func(context.Context) error, err error)
+	// BeginEntry runs before the unit is created: the witness exists and the outside memories (counter, witness,
+	// anchor) agree the generation is new (note 13.5 section 5). An error refuses the start, nothing created.
+	BeginEntry func(ctx context.Context, generation int64) error
+	// Anchored runs once the run is recorded: the anchor in the OS secret store and the generation counter (note 13.5
+	// section 5). bound false carries why rollback detection is weaker; an error is reported with the run id.
+	Anchored func(ctx context.Context, generation int64) (bound bool, why string, err error)
 }
 
 var errNoUnit = errors.New("no containment unit creator is wired, so the run's processes could not be contained")
@@ -103,6 +109,11 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if e.CreateUnit == nil {
 		return Entry{}, errNoUnit
 	}
+	if e.BeginEntry != nil {
+		if err := e.BeginEntry(ctx, sc.Generation); err != nil {
+			return Entry{}, fmt.Errorf("the entry is refused before anything was created: %w", err)
+		}
+	}
 	discard, err := e.CreateUnit(ctx, sc.Generation)
 	if err != nil {
 		return Entry{}, fmt.Errorf("the containment unit could not be created, so nothing was started: %w", err)
@@ -123,7 +134,15 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 			return Entry{}, fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err)
 		}
 	}
-	return Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation}, nil
+	ent := Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation}
+	if e.Anchored != nil {
+		bound, why, err := e.Anchored(ctx, run.Generation)
+		if err != nil {
+			return Entry{}, fmt.Errorf("run %s started but its anchor and generation counter could not be recorded (run `doomsday stop`): %w", ent.RunID, err)
+		}
+		ent.AnchorBound, ent.AnchorNote = bound, why
+	}
+	return ent, nil
 }
 
 func (e *StoreEngine) Stop(ctx context.Context) (StopOutcome, error) {

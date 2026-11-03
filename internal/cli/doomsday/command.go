@@ -169,6 +169,11 @@ func (d Deps) newStart() *cobra.Command {
 				return json.NewEncoder(out).Encode(entry)
 			}
 			fmt.Fprintf(out, "run %s started (charter %s, generation %d)\n", entry.RunID, short(entry.Hash), entry.Generation)
+			if entry.AnchorBound {
+				fmt.Fprintln(out, "anchor-bound: yes")
+			} else {
+				fmt.Fprintf(out, "anchor-bound: no. %s\n", entry.AnchorNote)
+			}
 			return nil
 		},
 	}

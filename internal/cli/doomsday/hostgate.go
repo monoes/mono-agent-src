@@ -24,10 +24,15 @@ import (
 // The host is a different process from `doomsday stop`, so Stop reaches this gate through the marker and the
 // database intent, which are read on every dispatch; there is no in-process call to rely on.
 type HostGate struct {
-	Store   *store.SQLStore
+	// Store is the sequenced store (Wiring.Chained): the tickets' audit rows and the merge members go through the witness.
+	Store   hostStore
 	Profile string
 	RunDir  stop.RunDir
 	Clock   stop.Clock
+	// Fresh is the freshness check of one admission (Wiring.Fresh): it runs on every dispatch while a run is open, and a
+	// failure refuses the dispatch (and seals the generation unless it is only a hold). Nil refuses every dispatch
+	// while a run is open: a gate without a witness never admits.
+	Fresh func(ctx context.Context, gen int64) error
 	// Kernel is the cgroup seam the merge's git commands are placed through (stop.LinuxKernel); nil refuses every
 	// merge while a run is open (it could not be placed in the unit).
 	Kernel stop.Kernel
@@ -44,6 +49,12 @@ type HostGate struct {
 	merges   map[int64]*dynorg.DoomsdayMerge
 	hooked   bool            // the launcher asks BeforeRelease: a turn's ticket is taken there, not around Start
 	released map[string]bool // turn ids that already hold their ticket
+}
+
+// hostStore is what the gate needs of the store: the run listing and the chained writes.
+type hostStore interface {
+	store.Store
+	OpenRuns(ctx context.Context, profile string) ([]store.Run, error)
 }
 
 var _ coderhost.DispatchGate = (*HostGate)(nil)
@@ -101,7 +112,21 @@ func (g *HostGate) currentRun(ctx context.Context) (gate *stop.Gate, r store.Run
 	if r.State != store.StateRunning || g.RunDir.ReadMarker(uint64(r.Generation), r.CharterID).Stops() {
 		gate.Seal()
 	}
+	if err := g.fresh(ctx, r.Generation); err != nil {
+		var fe *stop.FreshnessError
+		if !errors.As(err, &fe) || !fe.Hold {
+			gate.Seal() // no work for a generation whose witness fails; Stop is exempt and acts without the database
+		}
+		return gate, r, fmt.Errorf("%w: %v", coderhost.ErrDispatchRefused, err)
+	}
 	return gate, r, nil
+}
+
+func (g *HostGate) fresh(ctx context.Context, gen int64) error {
+	if g.Fresh == nil {
+		return errors.New("no witness is wired, so freshness cannot be proven")
+	}
+	return g.Fresh(ctx, gen)
 }
 
 // Hand implements coderhost.DispatchGate.
@@ -145,7 +170,7 @@ func (g *HostGate) Start(p coderhost.DispatchPoint, create func() (coderhost.Sta
 // row: a turn's process is held by the containment unit, and a member row would need the launcher to release it
 // when the turn ends, which this change does not wire.
 type auditRegistry struct {
-	st  *store.SQLStore
+	st  store.Store
 	pro string
 	gen int64
 }

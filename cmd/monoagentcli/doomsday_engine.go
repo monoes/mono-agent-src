@@ -37,7 +37,7 @@ func init() {
 		// merge, so a run that starts or stops after the turn began is seen.
 		d.DoomsdayMerge = func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
 			w := doomsdayWiring(cfg, db)
-			g := &doomsdaycli.HostGate{Store: w.Store, Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store)}
+			g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store)}
 			return g.MergeFor
 		}
 		// The coder host gets the open run's dispatch gate: tickets for spawns, token mints and turn releases, the run
@@ -45,7 +45,7 @@ func init() {
 		// gate whose launcher hooks cannot be installed still stands (the ticket is then taken around Start).
 		chatcli.HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) {
 			w := doomsdayWiring(cfg, db)
-			g := &doomsdaycli.HostGate{Store: w.Store, Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
+			g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
 				BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
 				InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
 					return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
@@ -84,5 +84,9 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Host:    stop.SystemHost(),
 		Tokens:  doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)},
 		DB:      db,
+		// The witness of note 13.5: the pinned connection on the database file, the vault-derived MAC keys, and the OS
+		// secret store of the anchor (a run on a machine with none is `anchor-bound: no` and says so).
+		Witness: &doomsdaycli.WitnessSetup{DBPath: expandPath(cfg.DBPath), Keys: keys, Secrets: stop.OSSecretStore{},
+			Warn: func(m string) { fmt.Fprintln(os.Stderr, "doomsday: "+m) }},
 	}
 }
