@@ -52,13 +52,8 @@ var (
 func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, data []byte) []StaleCLI {
 	type cand struct{ path, role string }
 	var daemon, onPath *cand
-	if in := d.installer(); in != nil {
-		if registered, where := in.Status(ctx); registered {
-			// a wrapper (env, sh -c ...) is not a monoagentcli: only a binary named like one is looked at
-			if exe, ok := autostart.RegisteredExe(where); ok && strings.HasPrefix(strings.ToLower(filepath.Base(exe)), "monoagentcli") {
-				daemon = &cand{exe, "daemon"}
-			}
-		}
+	if exe, ok := d.daemonExe(ctx); ok {
+		daemon = &cand{exe, "daemon"}
 	}
 	if p, err := d.lookPath("monoagentcli"); err == nil {
 		if abs, err := filepath.Abs(p); err == nil {
@@ -138,6 +133,24 @@ func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, d
 		out = append(out, s)
 	}
 	return out
+}
+
+// daemonExe is the binary the registered daemon service starts, when there is one and it is named like a monoagentcli (a
+// wrapper such as env or sh -c is not one).
+func (d Deps) daemonExe(ctx context.Context) (string, bool) {
+	in := d.installer()
+	if in == nil {
+		return "", false
+	}
+	registered, where := in.Status(ctx)
+	if !registered {
+		return "", false
+	}
+	exe, ok := autostart.RegisteredExe(where)
+	if !ok || !strings.HasPrefix(strings.ToLower(filepath.Base(exe)), "monoagentcli") {
+		return "", false
+	}
+	return exe, true
 }
 
 // newBinaryRuns is the check made on the new binary before it takes the old one's place: it must run and say the version
@@ -427,23 +440,31 @@ func (d Deps) settleReplaced(ctx context.Context, list []StaleCLI, du *DaemonUpd
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	rollBack := du != nil && du.Action == "failed" && (du.Reason == "no_heartbeat" || du.Reason == "stopped" || du.Reason == "timed_out")
+	duFailed := du != nil && du.Action == "failed"
+	rollBack := duFailed && (du.Reason == "no_heartbeat" || du.Reason == "stopped")
+	// Not in doubt enough to put the old binary back, but too much to drop it: the new daemon may still be starting, or the
+	// service manager's restart may still be in flight.
+	hold := !rollBack && duFailed && (du.Reason == "still_starting" || du.Reason == "timed_out")
 	for _, s := range list {
 		if s.undo == nil {
 			continue
 		}
-		if !rollBack || !s.runsDaemon {
+		switch {
+		case rollBack && s.runsDaemon:
+			note := d.rollBackOne(ctx, s, du.pid)
+			du.RolledBack = du.RolledBack || strings.HasPrefix(note, "Rolled back")
+			du.Message += " " + note
+		case hold:
+			note := fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
+			du.Message += note
+		default:
 			s.undo.Commit()
-			continue
 		}
-		note := d.rollBackOne(ctx, s)
-		du.RolledBack = du.RolledBack || strings.HasPrefix(note, "Rolled back")
-		du.Message += " " + note
 	}
 	return du
 }
 
-func (d Deps) rollBackOne(ctx context.Context, s StaleCLI) string {
+func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) string {
 	target, bak := s.undo.target, s.undo.bak
 	manual := fmt.Sprintf("The previous binary is kept at %q; put it back with: mv -f %s %s", bak, shQuote(bak), shQuote(target))
 	if why := replaceable(target); why != "" {
@@ -459,8 +480,8 @@ func (d Deps) rollBackOne(ctx context.Context, s StaleCLI) string {
 	if _, err := autostart.RestartRegistered(rctx, in); err != nil {
 		return fmt.Sprintf("Rolled back %q to %s, but the service manager could not start the daemon again (%v): %s.", target, s.Version, err, daemonDown)
 	}
-	if !d.waitForLive(ctx, since) {
+	if !d.waitForLive(ctx, since, failedPID) {
 		return fmt.Sprintf("Rolled back %q to %s and restarted the daemon, but no live heartbeat followed within %s: %s.", target, s.Version, d.verifyWait(), daemonDown)
 	}
-	return fmt.Sprintf("Rolled back %q to %s: the daemon is running it again. Try `monoagentcli update` once more, or report this.", target, s.Version)
+	return fmt.Sprintf("Rolled back %q to %s: the daemon is running it again. The new release did not start on this machine; running `monoagentcli update` again installs the same release and repeats this, so report it (with the daemon's log) instead.", target, s.Version)
 }
