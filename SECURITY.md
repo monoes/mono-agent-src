@@ -2081,7 +2081,13 @@ that works a task acts on them. The defences:
   turn, and a process that holds an agent token, is refused by them. The check reads the
   named database read-only and never creates or migrates it. `secret rebind` repairs
   an install, so it must work when the database is damaged (`extension reset`, which
-  revokes the pairing token, is the same kind of verb): for them an unreadable or
+  revokes the shared pairing token, and `extension browsers revoke`, which cuts one
+  paired browser off, are the same kind of verb: they only revoke access, so letting
+  them through cannot grant anything; `extension bind|unbind|assign|browsers allow`
+  grant or change access and stay on the ordinary gate). `extension reset` deletes only
+  the shared `extension.token`, not the per-browser tokens of paired browsers: a leaked
+  paired-browser token is revoked with `extension browsers revoke`, which works on a
+  damaged database for that reason. For them an unreadable or
   absent database (or turn registry entry) counts as no turn recorded, while a turn
   recorded in ANY readable database still refuses it: the scan of the registry goes on
   past an unreadable entry (wherever it sorts) instead of stopping at it, which only the
