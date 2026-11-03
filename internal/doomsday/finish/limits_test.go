@@ -42,6 +42,29 @@ func TestCriterionCannotWriteAFileOverTheFileSizeLimit(t *testing.T) {
 	}
 }
 
+// The cap covers every writable tree: the criterion's cwd is the working copy of the subject, and RLIMIT_FSIZE bounds one file
+// only. Many small files written there past the cap kill the program while it runs (the result is then tainted by the
+// changed working copy, which parks the finish; what matters is that the program did not run to its end). Mutant tried:
+// polling only the scratch directory (the old check) lets "finished" through.
+func TestCriterionIsKilledWhenItsSubjectCopyPassesTheCap(t *testing.T) {
+	r := newRig(t)
+	writeProg(t, r, "filler", `chmod u+w .; i=0; while [ $i -lt 400 ]; do dd if=/dev/zero of="./f$i" bs=1024 count=4 2>/dev/null; i=$((i+1)); sleep 0.01; done; echo finished`)
+	r.sb.Limits = Limits{ScratchBytes: 64 * 1024}
+	o := r.run("command", "filler", "")
+	if strings.Contains(o.Stdout, "finished") || o.Result == ResPass {
+		t.Fatalf("a program wrote past the cap into the subject copy and ran to its end: %+v", o)
+	}
+	if o.Result != ResTainted && o.Result != ResError {
+		t.Fatalf("%+v", o)
+	}
+	// the subject's own bytes are not the program's growth: a program that writes nothing is not touched by a tiny cap
+	r.sb.Limits = Limits{ScratchBytes: 1024}
+	writeProg(t, r, "quiet", `echo ok`)
+	if o := r.run("command", "quiet", "ok"); o.Result != ResPass {
+		t.Fatalf("%+v", o)
+	}
+}
+
 // The scratch cap: many small files, each under the file limit, are still stopped by the poll while the program runs.
 func TestCriterionIsKilledWhenItsScratchPassesTheCap(t *testing.T) {
 	r := newRig(t)

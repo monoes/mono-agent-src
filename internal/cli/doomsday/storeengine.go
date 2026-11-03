@@ -40,6 +40,16 @@ type StoreEngine struct {
 	// Anchored runs once the run is recorded: the anchor in the OS secret store and the generation counter (note 13.5
 	// section 5). bound false carries why rollback detection is weaker; an error is reported with the run id.
 	Anchored func(ctx context.Context, generation int64) (bound bool, why string, err error)
+	// Boss records which top-level lead mission is the run's boss (Wiring.DesignateBoss). Nil: no boss can be named.
+	Boss func(ctx context.Context, session int64, entry Entry) error
+}
+
+// BindBoss records the boss session of a started run: only the operator's `start --boss-session` calls it.
+func (e *StoreEngine) BindBoss(ctx context.Context, session int64, entry Entry) error {
+	if e.Boss == nil {
+		return errors.New("no boss can be recorded on this install")
+	}
+	return e.Boss(ctx, session, entry)
 }
 
 var errNoUnit = errors.New("no containment unit creator is wired, so the run's processes could not be contained")

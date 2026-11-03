@@ -76,6 +76,11 @@ type Engine interface {
 	Status(ctx context.Context) (Status, error)
 }
 
+// BossBinder is an Engine that can record which session is the run's boss (`start --boss-session`).
+type BossBinder interface {
+	BindBoss(ctx context.Context, session int64, entry Entry) error
+}
+
 // BindingRequirer is an Engine that also knows whether peer-credential binding is on: a run needs bound turns, so
 // `start` asks it before showing the charter (the StoreEngine asks again in Enter).
 type BindingRequirer interface {

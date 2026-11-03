@@ -34,7 +34,7 @@ func planFixture(t *testing.T, lim ops.AskLimits) (*askTree, *rLedger, *rNop, ta
 		t.Fatal(err)
 	}
 	n, l := &rNop{}, &rLedger{used: map[string]int64{}, ids: map[string]bool{}}
-	e := &ops.Enforcer{Charters: planCharters{lim}, Facts: f.st.NewDoomsdayFacts(), Ledger: l, Auditor: n, Parker: n, Bounds: SpendBounds()}
+	e := &ops.Enforcer{Charters: planCharters{lim}, Facts: f.st.NewDoomsdayFacts(), Ledger: l, Auditor: n, Parker: n, Bounds: SpendBounds(), Bosses: treeBosses{f.st.db}}
 	f.st.SetDoomsdayRoute(&DoomsdayRoute{Enforcer: e})
 	kid, _ = f.ts.GetSession(context.Background(), "p", kid.ID, opActor)
 	return f, l, n, kid, v

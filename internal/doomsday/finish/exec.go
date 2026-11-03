@@ -26,7 +26,7 @@ import (
 // containment unit (Place) and is killed with its process group on a limit; with no Place the criterion is not run at all.
 //
 // Enforced: the wall-clock deadline, the output cap, the containment placement, the post-run taint check, the process
-// limits (limits.go: CPU, address space, open files, one file's size, process count), the scratch byte cap (a poll while
+// limits (limits.go: CPU, address space, open files, one file's size, process count), the byte cap on every writable tree, scratch and the subject working copy (a poll while
 // the program runs and a check after it) and, where the kernel allows an unprivileged user namespace, the network denial
 // (net_linux.go: a new empty network namespace). Where it does not, Net says "declared-only" and a finish that requires
 // the denial parks (Harness.runCriteria).
@@ -236,6 +236,7 @@ func (s Sandbox) exec(ctx context.Context, work, dir, bin string, p Plan) Measur
 	res := ""
 	var werr error
 	scratch := filepath.Join(work, "scratch")
+	area := newWritable(scratch, dir) // dir is the working copy of the subject: the criterion writes there too
 	tick := time.NewTicker(scratchPoll)
 	defer tick.Stop()
 	timeUp := s.after(timeout)
@@ -251,7 +252,7 @@ wait:
 		case <-ctx.Done():
 			res = ResError
 		case <-tick.C:
-			if _, big := scratchBytes(scratch, lim.ScratchBytes); !big {
+			if !area.over(lim.ScratchBytes) {
 				continue
 			}
 			res = resScratch
@@ -275,13 +276,13 @@ wait:
 	case res == ResError:
 		o.Result, o.Detail = ResError, "cancelled: "+ctx.Err().Error()
 	case res == resScratch:
-		o.Result, o.Detail = ResError, fmt.Sprintf("the scratch area grew beyond %d bytes; the program was killed", lim.ScratchBytes)
+		o.Result, o.Detail = ResError, fmt.Sprintf("the writable area (scratch and the subject working copy) grew beyond %d bytes; the program was killed", lim.ScratchBytes)
 	case o.ExitCode == limitsFailExit && strings.HasPrefix(o.Stderr, limitsFailPrefix):
 		o.Result, o.Detail = ResError, "the process limits could not be set, so the program did not run: "+strings.TrimSpace(strings.TrimPrefix(o.Stderr, limitsFailPrefix))
 	default:
 		o.Result, o.Detail = judge(p, o, so.buf.Bytes(), werr)
-		if _, big := scratchBytes(scratch, lim.ScratchBytes); big {
-			o.Result, o.Detail = ResError, fmt.Sprintf("the scratch area ended beyond %d bytes", lim.ScratchBytes)
+		if area.over(lim.ScratchBytes) {
+			o.Result, o.Detail = ResError, fmt.Sprintf("the writable area ended beyond %d bytes", lim.ScratchBytes)
 		}
 	}
 	return o

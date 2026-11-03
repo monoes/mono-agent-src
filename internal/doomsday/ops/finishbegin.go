@@ -44,6 +44,9 @@ func (e *Enforcer) BeginFinish(ctx context.Context, r Request, f Finisher) (Fini
 	if r.Caller.Session == 0 || r.Caller.Session != r.Addressed {
 		return FinishBeginResult{}, ErrCallerMismatch
 	}
+	if err := e.requireBoss(ctx, act, r.Caller.Session, true); err != nil {
+		return FinishBeginResult{}, err
+	}
 	if f == nil {
 		return FinishBeginResult{}, fmt.Errorf("%w: no finish is wired", ErrNotEnabled)
 	}

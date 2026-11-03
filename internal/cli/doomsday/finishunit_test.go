@@ -187,30 +187,38 @@ func TestBossFinishBeginBeginsTheFinishOnlyOnARunningRun(t *testing.T) {
 	if _, err := r.w.BossFinishBegin(ctx, 5); err == nil || !errors.Is(err, ops.ErrNoCharter) {
 		t.Fatalf("no run: %v", err)
 	}
+	top := r.topLead(t, "conv-boss")
 	r.start(t)
+	if err := r.boss(t, top); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := r.w.BossFinishBegin(ctx, 0); !errors.Is(err, ops.ErrCallerMismatch) {
 		t.Fatalf("no caller: %v", err)
 	}
 	if runs, _ := r.w.Store.OpenRuns(ctx, "p1"); len(runs) != 1 || runs[0].State != store.StateRunning {
 		t.Fatalf("a refused call changed the run: %+v", runs)
 	}
-	res, err := r.w.BossFinishBegin(ctx, 5)
+	res, err := r.w.BossFinishBegin(ctx, top)
 	if err != nil || !res.Accepted || res.Generation != 1 {
 		t.Fatalf("%+v %v", res, err)
 	}
 	if run, _ := r.w.Store.GetRun(ctx, "p1", 1); run.State != store.StateQuiescent || run.Cause != store.FinishCause {
 		t.Fatalf("%+v", run)
 	}
-	if _, err := r.w.BossFinishBegin(ctx, 5); !errors.Is(err, ops.ErrNoCharter) {
+	if _, err := r.w.BossFinishBegin(ctx, top); !errors.Is(err, ops.ErrNoCharter) {
 		t.Fatalf("a second begin on a run that is no longer running: %v", err)
 	}
 }
 
 func TestBossFinishBeginOnACharterThatCannotFinishIsDeniedAndRecorded(t *testing.T) {
 	r := newFinRig(t, strings.Replace(finishCharterJSON, `"criteria":[{"kind":"command","command":"echo hello","expected":"hello"},{"kind":"rubric","text":"the docs read well"}],`, "", 1))
+	top := r.topLead(t, "conv-boss")
 	r.start(t)
+	if err := r.boss(t, top); err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
-	res, err := r.w.BossFinishBegin(ctx, 5)
+	res, err := r.w.BossFinishBegin(ctx, top)
 	if err != nil || res.Accepted || res.Refused == "" {
 		t.Fatalf("%+v %v", res, err)
 	}

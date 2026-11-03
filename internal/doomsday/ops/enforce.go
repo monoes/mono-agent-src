@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -206,6 +207,60 @@ type Enforcer struct {
 	Auditor  Auditor
 	Parker   Parker
 	Bounds   SpendBounds
+	// Bosses says which session is the boss of the live run. Nil, or a run with no recorded boss, refuses every
+	// call: the caller must be the run's boss (or a lead inside the boss's tree, for plans, asks and grants), not
+	// merely the session its own request names.
+	Bosses Bosses
+	// Parked counts the parked decisions already recorded for a generation, across processes (each boss call may build its
+	// own Enforcer). Nil: only this Enforcer's own count bounds the rows.
+	Parked ParkCounter
+
+	mu    sync.Mutex
+	parks map[int64]int64
+}
+
+// ParkCounter reads how many parked decisions the audit stream holds for a generation.
+type ParkCounter interface {
+	ParkedCount(ctx context.Context, profile string, generation int64) (int64, error)
+}
+
+// MaxParkRows bounds the parked-decision rows (and person items) one generation can gain from calls of the boss: a boss
+// that keeps asking for what is over a limit gets the same answer, parked, without a new row each time, exactly as
+// TypedEnforcer.refuse bounds its refusal rows. The subject itself stays the person item.
+const MaxParkRows = 200
+
+// Bosses finds the boss session of the live run's charter and the top of a session's tree.
+type Bosses interface {
+	// BossOf is the run's boss (0, false: the run has none recorded).
+	BossOf(ctx context.Context, act Active) (session int64, ok bool, err error)
+	// RootOf is the top-level session of the tree the session belongs to.
+	RootOf(ctx context.Context, profile string, session int64) (int64, error)
+}
+
+// requireBoss refuses a caller outside the run's boss tree. A request names its own caller and addressee, so comparing
+// them proves nothing; this reads the identity from the store. With bossOnly (finish.begin, which ends the whole run) the
+// caller must be the boss itself; otherwise a lead below the boss, whose tree root is the boss, is the boss's hand for its
+// own subtree (the plan, ask or budget request addressed to it), and a lead of another tree is not.
+func (e *Enforcer) requireBoss(ctx context.Context, act Active, caller int64, bossOnly bool) error {
+	if e.Bosses == nil {
+		return fmt.Errorf("%w: no boss is recorded for the run", ErrCallerMismatch)
+	}
+	boss, ok, err := e.Bosses.BossOf(ctx, act)
+	if err != nil {
+		return err
+	}
+	if !ok || boss == 0 {
+		return fmt.Errorf("%w: no boss is recorded for the run", ErrCallerMismatch)
+	}
+	if caller == boss {
+		return nil
+	}
+	if !bossOnly {
+		if root, err := e.Bosses.RootOf(ctx, act.Profile, caller); err == nil && root == boss {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: only the run's boss may do this", ErrCallerMismatch)
 }
 
 // Decide checks a request for a typed operation against the live charter and the actual plan, ask or grant, and
@@ -233,6 +288,9 @@ func (e *Enforcer) Decide(ctx context.Context, r Request) (Decision, error) {
 	}
 	if r.Caller.Session == 0 || r.Caller.Session != r.Addressed {
 		return Decision{}, ErrCallerMismatch
+	}
+	if err := e.requireBoss(ctx, act, r.Caller.Session, false); err != nil {
+		return Decision{}, err
 	}
 	if r.ApprovalID == "" {
 		return Decision{}, fmt.Errorf("%w: no approval id", ErrBadArguments)
@@ -415,6 +473,9 @@ func (e *Enforcer) settle(ctx context.Context, r Request, audit AuditRow, label,
 // park records the over-limit decision, raises the person item and returns Parked. If either step fails the error
 // is returned and nothing is approved (fail closed).
 func (e *Enforcer) park(ctx context.Context, r Request, audit AuditRow, label string, over []string) (Decision, error) {
+	if !e.parkRowAllowed(ctx, r.Profile, audit.Generation) {
+		return Decision{Verdict: Parked, Exceeded: over, ArgsHash: audit.ArgsHash}, nil // still parked, nothing approved, no new row
+	}
 	if err := e.Auditor.Append(ctx, withResult(audit, "parked", over)); err != nil {
 		return Decision{}, err
 	}
@@ -422,4 +483,25 @@ func (e *Enforcer) park(ctx context.Context, r Request, audit AuditRow, label st
 		return Decision{}, err
 	}
 	return Decision{Verdict: Parked, Exceeded: over, ArgsHash: audit.ArgsHash}, nil
+}
+
+// parkRowAllowed counts one park for the generation and says whether it may still write rows: the larger of this
+// Enforcer's own count and the stream's durable one is under MaxParkRows. An unreadable count writes nothing (fail closed
+// on the rows, never on the decision: the request is parked either way).
+func (e *Enforcer) parkRowAllowed(ctx context.Context, profile string, gen int64) bool {
+	e.mu.Lock()
+	if e.parks == nil {
+		e.parks = map[int64]int64{}
+	}
+	e.parks[gen]++
+	n := e.parks[gen]
+	e.mu.Unlock()
+	if e.Parked != nil {
+		durable, err := e.Parked.ParkedCount(ctx, profile, gen)
+		if err != nil {
+			return false
+		}
+		n = max(n, durable+1)
+	}
+	return n <= MaxParkRows
 }

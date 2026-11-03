@@ -155,7 +155,7 @@ func (w Wiring) Ops(facts ops.Facts) *Ops {
 	return &Ops{
 		Adapter: ad,
 		Enforcer: &ops.Enforcer{Charters: ad, Facts: facts, Ledger: ad, Auditor: ad, Bounds: bounds,
-			Parker: PersonParker{Store: ch, Profile: w.Profile}},
+			Parker: PersonParker{Store: ch, Profile: w.Profile}, Bosses: BossSource{Wiring: w}, Parked: AuditCounter{DB: w.DB}},
 		Typed: &ops.TypedEnforcer{Charters: ad, Approvals: ops.StoreApprovals{Store: ch}, Ledger: ad, Auditor: ad, Bounds: bounds},
 	}
 }

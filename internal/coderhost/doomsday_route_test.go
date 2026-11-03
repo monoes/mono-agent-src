@@ -50,7 +50,7 @@ func (r *rNop) Park(context.Context, ops.Park) error       { r.parks++; return n
 
 func routeFor(f *askTree, live bool) (*ops.Enforcer, *rNop, *rLedger) {
 	n, l := &rNop{}, &rLedger{used: map[string]int64{}, ids: map[string]bool{}}
-	e := &ops.Enforcer{Charters: &rCharters{live}, Facts: f.st.NewDoomsdayFacts(), Ledger: l, Auditor: n, Parker: n, Bounds: SpendBounds()}
+	e := &ops.Enforcer{Charters: &rCharters{live}, Facts: f.st.NewDoomsdayFacts(), Ledger: l, Auditor: n, Parker: n, Bounds: SpendBounds(), Bosses: treeBosses{f.st.db}}
 	f.st.SetDoomsdayRoute(&DoomsdayRoute{Enforcer: e})
 	return e, n, l
 }

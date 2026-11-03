@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/doomsday/ops"
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
@@ -43,6 +44,12 @@ func (e *FinishEngine) FinishBegin(ctx context.Context) (BeginReport, error) {
 	rep := BeginReport{Generation: run.Generation}
 	deny := func(why string) (BeginReport, error) {
 		rep.Refused = why
+		// A boss that keeps asking for a finish that cannot begin gets the same answer without a new row each time (the
+		// count is the stream's own, so it holds across the processes that serve boss calls).
+		n, cerr := (AuditCounter{DB: w.DB}).count(ctx, w.Profile, run.Generation, "kind = '"+KindFinishDenied+"'")
+		if w.DB != nil && (cerr != nil || n >= ops.MaxParkRows) {
+			return rep, nil
+		}
 		if _, aerr := w.Chained().AppendAudit(ctx, w.Profile, run.Generation, KindFinishDenied, why); aerr != nil {
 			rep.Refused += " (and the refusal could not be recorded: " + aerr.Error() + ")"
 		}
